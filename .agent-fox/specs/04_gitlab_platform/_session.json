@@ -1,0 +1,456 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The `gitlab_platform` PRD is technically thorough and well-structured. It provides excellent coverage of functional requirements, API mapping details, SSRF protection, HTTP retry logic, and design decisions. However, it is missing several standard PRD sections: there are no explicit **Goals** (measurable outcomes), no **Non-Goals** (explicit scope exclusions), and no **Intent** statement separate from the Overview. Additionally, there is a direct overlap with the active `gitea_platform` spec (both touch the platform factory), and a dependency on `extract_platform_afissues` is declared but not fully cross-referenced. These gaps prevent a \"ready\" verdict.",
+      "gaps": [
+        "Missing explicit 'Intent' section \u2014 the Overview partially serves this purpose but does not provide a crisp, standalone intent statement as required by the spec format.",
+        "Missing 'Goals' section \u2014 there are no measurable outcomes defined (e.g., test coverage targets, latency/reliability SLAs, milestone criteria for GitLab parity with GitHub).",
+        "Missing 'Non-Goals' section \u2014 the spec does not explicitly state what is out of scope (e.g., GitLab GraphQL API support, GitLab CI/CD integration, group-level operations, self-hosted GitLab certificate pinning, OAuth flows).",
+        "Overlap with active spec 'gitea_platform': both specs touch `agentfox/nightshift/platform_factory.py`. The gitlab_platform spec explicitly states it adds Gitea routing stubs to the factory, which may conflict with or duplicate work in the gitea_platform spec. This cross-spec coordination is not formally acknowledged.",
+        "Dependency on 'extract_platform_afissues' (spec 03) is declared in the table but the spec does not describe what happens if spec 03 is not yet complete \u2014 there is no fallback or sequencing guidance beyond the dependency table.",
+        "The 'parse_remote' rename of 'parse_github_remote' has backward-compatibility implications for external consumers that are not fully scoped \u2014 it is unclear how long the alias will be maintained or what the deprecation policy is.",
+        "No acceptance criteria or definition of done \u2014 there is no explicit statement of what 'complete' looks like for this spec (e.g., all 12 protocol methods implemented, integration tests passing against a real or mocked GitLab instance).",
+        "Authentication scope is not specified \u2014 the spec uses a PRIVATE-TOKEN but does not clarify minimum required GitLab token scopes (e.g., api, read_api) needed for the described operations."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a concise Intent statement for this spec \u2014 a single sentence or short paragraph that captures *why* this feature is being built and the core problem it solves?",
+          "context": "The spec format requires a standalone 'Intent' section. The Overview touches on this but mixes in scope and technical detail. A crisp intent statement helps downstream readers and artifact generators quickly understand the purpose.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable Goals for this spec? What does success look like when this is shipped?",
+          "context": "The 'Goals' section is required and must contain measurable outcomes. Examples might include: 'All 12 PlatformProtocol methods implemented and covered by unit tests at \u226590% branch coverage', 'agent-fox can open, label, and close issues on a real GitLab.com project', or 'Platform factory supports gitlab type with zero changes to calling code'.",
+          "options": [
+            "All 12 PlatformProtocol methods implemented with unit test coverage \u2265 90%",
+            "End-to-end integration test passing against gitlab.com",
+            "agent-fox nightshift workflows work against GitLab with no GitHub-specific changes required by callers",
+            "Platform factory supports 'gitlab' and 'gitea' type values without breaking existing GitHub configuration"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is explicitly *out of scope* for this spec? Please define your Non-Goals.",
+          "context": "A 'Non-Goals' section prevents scope creep and sets clear expectations. Without it, reviewers and implementers may assume capabilities like GitLab GraphQL API, OAuth token flows, group-level operations, or GitLab CI/CD integration are included.",
+          "options": [
+            "GitLab GraphQL API support (REST v4 only)",
+            "OAuth / personal access token rotation",
+            "Group-level or instance-level issue operations",
+            "GitLab CI/CD pipeline triggering",
+            "Self-hosted GitLab with custom TLS certificates",
+            "GitLab Epics or Milestones",
+            "Pagination beyond the first 100 results (per_page=100 cap)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "The `gitlab_platform` spec adds Gitea routing stubs to `platform_factory.py`, and the active `gitea_platform` spec also targets the same file. Should this spec depend on, extend, or supersede the `gitea_platform` spec for the factory changes? Or should the factory update be owned entirely by one spec?",
+          "context": "Both active specs (`gitlab_platform` and `gitea_platform`) modify `agentfox/nightshift/platform_factory.py`. This creates a risk of merge conflicts or duplicated changes. Clarifying ownership of the factory update across these two specs is necessary to prevent integration issues.",
+          "options": [
+            "gitlab_platform owns all factory changes (including Gitea stub); gitea_platform only delivers the GiteaPlatform class",
+            "gitea_platform owns all factory changes; gitlab_platform only adds the GitLab route",
+            "The factory update should be a separate shared spec that both depend on",
+            "Both specs independently modify the factory and rely on the implementer to coordinate"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What GitLab token scopes are required for the described API operations, and should the spec include guidance on minimum required permissions?",
+          "context": "The spec uses `PRIVATE-TOKEN` for auth but does not specify which GitLab token scopes (e.g., `api`, `read_api`, `write_repository`) are needed. Omitting this can lead to confusing 403 errors for users who create tokens with insufficient scope.",
+          "options": [
+            "api scope (full read/write access to the API)",
+            "read_api + write_repository (minimal for issue and MR operations)",
+            "Leave token scope guidance to documentation, not the spec"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What is the deprecation/alias policy for `parse_github_remote`? How long will the backward-compatibility re-export be maintained before it is removed?",
+          "context": "The spec renames `parse_github_remote` to `parse_remote` and retains an alias 'until all consumers are updated', but this is open-ended. Without a concrete policy, the alias may persist indefinitely or be removed unexpectedly.",
+          "options": [
+            "Alias removed in the same PR once all known call sites are updated",
+            "Alias retained for one release cycle, then removed with a deprecation warning",
+            "Alias retained indefinitely for external consumers",
+            "Alias removed when the afissues package reaches its next major version"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers most areas clearly: intent, goals, non-goals, functional requirements, API mapping, design decisions, and acceptance criteria are all present. The spec is detailed enough that an engineer could begin implementation. However, several gaps remain that could cause ambiguity or rework during implementation \u2014 particularly around error handling edge cases, IssueResult/IssueComment field mapping completeness, the retry/backoff module interface contract, configuration schema, and the exact behavior of the 409 idempotency handling for `create_pr`.",
+      "gaps": [
+        "IssueResult and IssueComment field mapping is incomplete: the PRD specifies some field mappings (iid\u2192number, web_url\u2192html_url, description\u2192body, author.username\u2192user) but does not enumerate all fields of IssueResult and IssueComment, leaving implementers to guess at mappings for fields like state, created_at, updated_at, assignees, milestone, etc.",
+        "The retry/backoff shared module (_http.py) interface is not specified: the PRD says to extract the pattern but does not define the function/class signature, how callers invoke it, or how it integrates with the SSRF transport \u2014 leaving the abstraction boundary ambiguous.",
+        "The 409 idempotency handling for create_pr is under-specified: when a 409 is returned, the PRD says to 'query existing MR and return its web_url' but does not specify which endpoint or query parameters to use to find the existing MR for the same source/target branch pair.",
+        "Configuration schema for platform_factory is not defined: the PRD references platform.url and environment variables (GITLAB_TOKEN, GITEA_TOKEN) but does not specify the full config object schema, how platform_type is determined, or where project_id/owner/repo are sourced when parse_remote returns None.",
+        "The activity_filter=only_comments query parameter availability is not clarified: the PRD says to use it 'if supported, otherwise filter client-side' but does not specify how to detect support or which GitLab API versions support it \u2014 this leaves the implementation strategy undefined.",
+        "Error handling for rate limiting (HTTP 429) and server errors (5xx) from GitLab is not addressed: the PRD states 4xx/5xx are not retried, but does not specify whether 429 responses should be handled differently (e.g. respect Retry-After header).",
+        "The parse_remote return value and its URL-encoding for project_id construction is inconsistently described: Design Decision 7 says the constructor URL-encodes the path, but the factory section says the factory URL-encodes it \u2014 the responsibility is duplicated/unclear.",
+        "There is no specification for how close() should handle an already-closed httpx.AsyncClient (if the client is shared or reused), or whether it should flush/drain any pending requests.",
+        "The integration smoke test acceptance criterion is marked 'manual or CI' but there is no specification of what CI environment, credentials, or GitLab.com project would be used \u2014 making the criterion unverifiable in an automated pipeline.",
+        "The search_issues method's title_prefix parameter behavior is not fully specified: it is unclear whether the GitLab search API does prefix matching, substring matching, or full-text matching, and how partial matches should be handled or filtered client-side."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are all the fields of IssueResult and IssueComment that must be populated, and what is the GitLab API field mapping for each one (e.g. state, created_at, updated_at, assignees)?",
+          "context": "The PRD only specifies a subset of field mappings. Implementers need the complete mapping to correctly construct IssueResult and IssueComment objects without guessing or reading the existing GitHubPlatform source.",
+          "options": [
+            "Provide the full IssueResult and IssueComment dataclass definitions with all fields and their GitLab JSON equivalents",
+            "State that only the currently-listed fields are required and all others should be set to None/empty defaults",
+            "Point to the afissues.protocol module as the source of truth and let implementers derive mappings from the GitLab API docs"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the intended interface for the shared _http.py retry module? Should it be a standalone async function (e.g. `async def request_with_retry(client, method, url, **kwargs)`), a mixin class, or a base class that both GitHubPlatform and GitLabPlatform inherit from?",
+          "context": "The PRD says to extract the retry pattern but does not define the abstraction boundary. This determines whether the refactor requires changes to GitHubPlatform's internal _request method signature and whether callers need to be updated.",
+          "options": [
+            "Standalone async function in _http.py that both platforms call directly",
+            "Base class (e.g. BasePlatform) with a _request method that both GitHubPlatform and GitLabPlatform inherit",
+            "A wrapper/decorator that can be applied to any async HTTP call",
+            "Leave the exact interface to the implementer's discretion as long as duplication is eliminated"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "When create_pr receives a 409 Conflict (duplicate MR), what exact GitLab API call should be used to retrieve the existing MR's web_url?",
+          "context": "The PRD says to 'query existing MR and return its web_url' but does not specify the endpoint. GitLab offers GET /projects/{id}/merge_requests with source_branch and target_branch filters, but the exact query parameters need to be confirmed.",
+          "options": [
+            "GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base}&state=opened",
+            "Parse the 409 response body, which contains the conflicting MR details including web_url",
+            "GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base} (any state)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Who is responsible for URL-encoding the project path into the project_id for API calls \u2014 the platform factory, or the GitLabPlatform constructor?",
+          "context": "Design Decision 7 says 'the constructor URL-encodes it for API calls', but the factory section says 'The returned (namespace, project) is URL-encoded and combined as the project_id'. This creates ambiguity about whether the factory passes a pre-encoded string or a raw path to the constructor.",
+          "options": [
+            "The factory URL-encodes the path before passing it to the GitLabPlatform constructor; the constructor accepts it as-is",
+            "The factory passes the raw path (e.g. 'group/subgroup/project'); the constructor URL-encodes it internally",
+            "Both accept raw paths; encoding happens only at the point of building the API URL"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What should the platform factory do if parse_remote returns None (i.e. the git remote URL cannot be parsed as a GitLab URL)? Should it raise ConfigError, fall back to a config-supplied project_id, or something else?",
+          "context": "The factory section describes using parse_remote to resolve the project identifier but does not specify the fallback behavior when the remote URL is absent or unrecognized \u2014 a common scenario in CI environments or non-standard setups.",
+          "options": [
+            "Raise ConfigError with a message explaining that the remote URL could not be parsed",
+            "Fall back to a project_id value explicitly configured in the platform config (if present)",
+            "Try parse_remote first; if None, require an explicit project_id field in the platform config; raise ConfigError if neither is available"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should HTTP 429 (rate limit) responses from GitLab be retried (respecting the Retry-After header), or treated like other 4xx errors and returned immediately to the caller as an IntegrationError?",
+          "context": "The PRD states that 4xx/5xx are not retried, but rate limiting is a common scenario when running automated pipelines and treating 429 the same as other 4xx errors may cause noisy failures in production.",
+          "options": [
+            "Treat 429 the same as other 4xx \u2014 no retry, raise IntegrationError immediately",
+            "Retry on 429 up to the max retry count, respecting the Retry-After header if present",
+            "Retry on 429 with a fixed delay (same backoff as network errors), ignoring Retry-After"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "For list_issue_comments, should the activity_filter=only_comments parameter always be sent, or should the implementation always filter client-side (system: false) for reliability across GitLab versions?",
+          "context": "The PRD says to use activity_filter=only_comments 'if supported, otherwise filter client-side', but detecting API support at runtime adds complexity. Choosing a single consistent strategy simplifies the implementation.",
+          "options": [
+            "Always send activity_filter=only_comments and let older GitLab versions ignore it, then also always filter client-side by system: false as a safety net",
+            "Never send activity_filter; always filter client-side by system: false",
+            "Send activity_filter=only_comments only for gitlab.com (known supported); always filter client-side for self-hosted instances"
+          ],
+          "required": false
+        },
+        {
+          "id": "q8",
+          "text": "For the integration smoke test acceptance criterion, will this be executed in CI (and if so, what environment/project), or is manual verification by the implementer sufficient for merging?",
+          "context": "The current criterion says 'manual or CI' which is ambiguous and effectively unverifiable in an automated gate. Clarifying this determines whether a real GitLab.com test project and CI secrets need to be provisioned.",
+          "options": [
+            "Manual verification only \u2014 implementer runs the test locally against a personal GitLab.com project and documents the result in the PR",
+            "CI with a dedicated GitLab.com test project and GITLAB_TOKEN secret in the CI environment",
+            "Remove the integration smoke test from the acceptance criteria entirely; rely on unit test coverage"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This PRD is thorough and well-structured, covering the GitLab PlatformProtocol implementation with strong detail on API mappings, field translations, SSRF extraction, factory routing, and design decisions. The vast majority of implementation concerns are addressed. However, several gaps remain that could create ambiguity during implementation or review: the `list_issues_by_label` sort/direction mapping is underspecified, `check_credentials` success behavior is ambiguous, test structure and fixture expectations are not described, the `close()` no-op decision conflicts with the stated behavior of `GitHubPlatform` (which may hold a client), and the transitional state of `parse_github_remote` re-exports needs clarification. A few edge cases (empty MR list on 409, `create_label` 409 return value, pagination behavior on `list_issue_comments`) are also worth pinning down.",
+      "gaps": [
+        "list_issues_by_label: The mapping from `sort` and `direction` parameter values to GitLab's `order_by` and `sort` params is not fully enumerated. For example, what values of `sort` are accepted by the protocol, and how do they map to GitLab's `order_by` enum values (e.g., `created` \u2192 `created_at`, `updated` \u2192 `updated_at`)? Similarly, `direction` values (`asc`/`desc`) should be explicitly confirmed as pass-through to GitLab's `sort` param.",
+        "check_credentials: The spec says 'Return normally on any other status' including non-401/403 errors (e.g., 500, 404). It is unclear whether a 404 (project not found) or 500 should also raise IntegrationError, or truly be silently returned.",
+        "create_label 409 return value: The spec says 'treat 409 Conflict as success' but does not specify what value is returned \u2014 the method return type is not stated. Should it return None, raise nothing, or return a synthesized label object?",
+        "create_pr 409 empty list edge case: If the GET fallback query returns an empty list (no open MR found for the given source/target), the behavior is unspecified. Should it raise IntegrationError?",
+        "list_issue_comments pagination: System notes are filtered client-side, but no `per_page` cap is documented for the notes endpoint. Should it also use `per_page=100`?",
+        "Test structure is not described: The PRD does not specify where tests live (e.g., `packages/afissues/tests/test_gitlab.py`), what test framework is used (pytest assumed but not stated), or what mocking strategy is expected (e.g., `respx`, `pytest-httpx`, `unittest.mock`).",
+        "The transitional re-export of `parse_github_remote` from `afissues/__init__.py` is mentioned but not reflected in the Acceptance Criteria \u2014 there is no checkbox confirming its removal.",
+        "The `close()` no-op rationale references GitHubPlatform as also creating per-request clients, but if GitHubPlatform actually holds a persistent client (contradicting this), the shared assumption may be wrong. The PRD should confirm GitHubPlatform's actual client lifecycle.",
+        "No mention of how `GitLabPlatform` is exported from `afissues/__init__.py` \u2014 whether it is a public re-export or internal-only.",
+        "The `search_issues` method is listed as a 'Non-Protocol Method' but is included in the Acceptance Criteria implicitly. Its return type (`list[IssueResult]`) is stated but no error handling behavior is documented."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "For `list_issues_by_label`, what are the full set of valid `sort` values accepted by the protocol, and what is their exact mapping to GitLab's `order_by` parameter? Similarly, are `direction` values (`asc`/`desc`) passed through directly to GitLab's `sort` parameter?",
+          "context": "The PRD gives one example (`created` \u2192 `created_at`) but does not enumerate all valid values. Implementers need the full mapping to avoid inconsistency between platforms.",
+          "options": [
+            "Protocol accepts `created` and `updated`; map to `created_at` and `updated_at` respectively. `direction` values `asc`/`desc` pass through directly as GitLab's `sort` param.",
+            "Protocol accepts `created`, `updated`, and `title`; each maps to corresponding GitLab `order_by` values. `direction` is pass-through.",
+            "The mapping is left to implementer discretion as long as both `created` and `updated` are supported."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "For `check_credentials`, should HTTP responses other than 401/403 (e.g., 404 project not found, 500 server error) also raise `IntegrationError`, or should the method truly return normally for any non-401/403 status?",
+          "context": "The current wording 'Return normally on any other status' could mean a 500 or 404 is silently swallowed, which may hide misconfigurations. Clarifying this prevents unexpected behavior in production.",
+          "options": [
+            "Raise IntegrationError on 401, 403, and any 5xx. Return normally on 200\u2013299 and other 4xx (including 404).",
+            "Raise IntegrationError only on 401 and 403. Return normally on all other statuses including 404 and 5xx.",
+            "Raise IntegrationError on 401, 403, 404 (project not found), and 5xx. Return normally only on 2xx."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should `create_label` return, and what should it return specifically when a 409 Conflict occurs (label already exists)?",
+          "context": "The PRD marks 409 as idempotent success but doesn't specify the return value. Knowing this is needed to write the method signature and tests correctly.",
+          "options": [
+            "Returns None always (including on 409). Method is void/None-typed.",
+            "Returns the created or existing label as a dict or dataclass on success and on 409.",
+            "Returns None on 409, returns a label object on 201."
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "In `create_pr`, if the 409 fallback GET query returns an empty list (no open MR found for the given source/target branches), what should the method do?",
+          "context": "The PRD handles the 409 case by querying existing open MRs, but does not specify behavior when that query returns an empty list \u2014 which could happen if the MR was closed or merged.",
+          "options": [
+            "Raise IntegrationError with a descriptive message indicating no open MR was found.",
+            "Return None and let the caller handle the missing URL.",
+            "Retry the original POST once before raising IntegrationError."
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Should `list_issue_comments` also apply a `per_page=100` cap on the notes endpoint, consistent with the pagination cap applied to other list endpoints?",
+          "context": "All other list endpoints are documented with `per_page=100`, but the notes endpoint is not explicitly mentioned. Without this, the endpoint could return a different default page size.",
+          "options": [
+            "Yes, apply per_page=100 to the notes endpoint as well.",
+            "No, use the GitLab default page size for notes.",
+            "Use per_page=100 but also document it as a non-goal for full pagination."
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What test framework and HTTP mocking library should be used for `GitLabPlatform` unit tests, and where should the test file live?",
+          "context": "The PRD requires \u226590% branch coverage but doesn't specify the test tooling or file location. This is needed to ensure consistent test infrastructure across the monorepo.",
+          "options": [
+            "pytest + respx (for mocking httpx), tests in `packages/afissues/tests/test_gitlab.py`.",
+            "pytest + pytest-httpx, tests in `packages/afissues/tests/test_gitlab.py`.",
+            "pytest + unittest.mock patching httpx.AsyncClient, same location.",
+            "Follow whatever convention is already used in the afissues test suite."
+          ],
+          "required": true
+        },
+        {
+          "id": "q7",
+          "text": "Should `GitLabPlatform` be publicly re-exported from `afissues/__init__.py`, or remain importable only via `afissues.gitlab`?",
+          "context": "The PRD does not specify the public API surface of the `afissues` package for `GitLabPlatform`. If it is re-exported, it becomes part of the package's public interface; if not, callers must import from the submodule directly.",
+          "options": [
+            "Re-export from `afissues/__init__.py` alongside `GitHubPlatform`.",
+            "Do not re-export; importable only via `afissues.gitlab` (internal use by factory only).",
+            "Follow the same pattern as `GitHubPlatform` \u2014 check current `__init__.py` exports."
+          ],
+          "required": false
+        },
+        {
+          "id": "q8",
+          "text": "Does `GitHubPlatform` currently use a persistent `httpx.AsyncClient` across calls, or does it also create a new client per request? This determines whether the `close()` no-op rationale is accurate and consistent.",
+          "context": "The PRD states `close()` is a no-op because `GitLabPlatform` creates a client per request 'consistent with GitHubPlatform behaviour.' If GitHubPlatform actually holds a persistent client, this reasoning is incorrect and the lifecycle model needs clarification.",
+          "options": [
+            "GitHubPlatform creates a new client per request \u2014 the no-op rationale is correct.",
+            "GitHubPlatform holds a persistent client and its `close()` drains it \u2014 GitLabPlatform should do the same.",
+            "GitHubPlatform's client lifecycle is context-manager-based and varies \u2014 clarify in the spec."
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD for the GitLab PlatformProtocol implementation. It demonstrates strong engineering discipline: explicit field mapping tables, numbered design decisions that justify every non-obvious choice, clear acceptance criteria that are measurable and testable, and precise API behaviour specifications including edge cases (409 handling, system notes filtering, rate-limit non-retry). The non-goals section is thorough and prevents scope creep. The spec is largely implementation-ready, but a small number of clarifications would improve precision around constructor validation behaviour, the `parse_remote` return contract, and GitHubPlatform refactoring impact.",
+      "gaps": [
+        "The SSRF guard validation on the `url` constructor parameter is specified to 'reject private/loopback/link-local IPs', but the exact exception type raised is not stated (should be `ConfigError` or `IntegrationError`?) \u2014 inconsistent with the error taxonomy in `afissues.errors`.",
+        "The `parse_remote` function's behaviour for malformed or ambiguous URLs (e.g. HTTPS URLs with no subpath, URLs with port numbers, or SSH URLs with non-standard hostnames) is not defined. Return `None` or raise?",
+        "The refactoring of `GitHubPlatform._request()` to delegate to `request_with_retry` is mentioned as a constraint ('Do not modify... beyond what is needed to delegate'), but there is no acceptance criterion validating that `GitHubPlatform` behaviour is preserved and its existing tests still pass post-refactor. The factory AC mentions 'all existing tests pass' but does not explicitly call out `GitHubPlatform` unit tests.",
+        "The `list_issues_by_label` state mapping only documents `open` \u2192 `opened`, but does not specify how `state='closed'` or `state='all'` should be mapped to GitLab's equivalents (`closed`, `all`). The protocol may pass other values.",
+        "The `create_pr` 409 fallback GET query is specified, but there is no guidance on what to do if the GET itself returns a non-200 error (e.g. 500). Should that raise `IntegrationError` immediately?",
+        "The factory section references `afissues.gitea.parse_remote` for the Gitea stub routing, but since `GiteaPlatform` is not yet implemented, it is unclear whether `afissues/gitea.py` (and its `parse_remote`) will be introduced by this spec or by the `gitea_platform` spec. The guard logic for an un-importable `GiteaPlatform` is specified, but the presence/absence of `afissues/gitea.py` is not.",
+        "No CI or coverage tooling configuration changes are specified (e.g., updating `.coveragerc` or `pyproject.toml` to include `afissues/gitlab.py` in coverage measurement), which could silently miss the \u226590% branch coverage acceptance criterion in automated pipelines.",
+        "The `request_with_retry` signature uses `**kwargs` but does not enumerate what keyword arguments are expected/permitted (e.g. `json`, `params`, `headers`). This leaves the interface under-specified for implementers."
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "When SSRF validation rejects a `url` passed to the `GitLabPlatform` constructor, which exception type should be raised \u2014 `ConfigError` (since it is a configuration mistake) or `IntegrationError` (since it is the general API error)?",
+          "context": "The spec says 'Apply SSRF validation on `url` at construction time' but does not specify the exception. `ConfigError` is semantically appropriate for a bad configuration value, while `IntegrationError` is used for all API-level failures. Consistency with `GitHubPlatform`'s SSRF behaviour would be ideal.",
+          "options": [
+            "ConfigError (configuration-time failure, recommended)",
+            "IntegrationError (consistent with all other error raises)",
+            "A new dedicated SSRFError subclass",
+            "Match whatever GitHubPlatform currently raises for SSRF violations"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q2",
+          "text": "What should `parse_remote` return for malformed GitLab URLs (e.g. `https://gitlab.com` with no project path, URLs with port numbers, or SSH URLs with non-standard hostnames)?",
+          "context": "The spec defines behaviour for well-formed HTTPS and SSH URLs but is silent on edge cases. Returning `None` for unrecognisable inputs is the safest default and matches the function's stated contract, but implementers need this confirmed to write correct tests.",
+          "options": [
+            "Return `None` for any URL that doesn't match the expected patterns (recommended)",
+            "Raise ValueError for structurally malformed URLs, return None for non-GitLab URLs",
+            "Return None for non-GitLab URLs, raise IntegrationError for malformed GitLab URLs"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q3",
+          "text": "How should `list_issues_by_label` map `state` values other than `'open'`? Specifically, should `'closed'` \u2192 `'closed'` and `'all'` \u2192 `'all'` be passed through directly to GitLab, or are these values disallowed by the protocol?",
+          "context": "The spec only documents the `open` \u2192 `opened` mapping. If the protocol permits `'closed'` or `'all'` as state values, the implementation needs to handle these. If only `'open'` and `'closed'` are valid protocol values, that should be stated explicitly.",
+          "options": [
+            "Only 'open' and 'closed' are valid; 'open' \u2192 'opened', 'closed' \u2192 'closed' (pass through)",
+            "All three values ('open', 'closed', 'all') are valid; 'open' \u2192 'opened', others pass through unchanged",
+            "Only 'open' is used by agent-fox workflows; other values are undefined behaviour",
+            "Raise ValueError/IntegrationError for any state value not explicitly mapped"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q4",
+          "text": "If the 409-fallback GET request in `create_pr` itself returns an error (e.g. HTTP 500), should that raise `IntegrationError` immediately, or should the original 409 context be preserved in the error message?",
+          "context": "The spec describes the happy path (409 \u2192 GET \u2192 return web_url or raise if empty list) but does not specify error handling for the fallback GET itself. Implementers need to know whether to wrap or propagate the fallback error.",
+          "options": [
+            "Raise IntegrationError immediately on any non-200 from the fallback GET (recommended)",
+            "Raise IntegrationError referencing both the original 409 and the fallback GET failure",
+            "Treat a failed fallback GET the same as an empty list (raise IntegrationError with 'no open MR found')"
+          ],
+          "required": false
+        },
+        {
+          "id": "Q5",
+          "text": "Will `afissues/gitea.py` (with a `parse_remote` stub) be introduced by this spec, or is it left entirely to the `gitea_platform` spec? The factory routing for Gitea references `afissues.gitea.parse_remote`, which must exist at import time.",
+          "context": "The factory guard says 'if GiteaPlatform is not yet importable, raise ConfigError', implying the factory does a try/except import. But if `afissues/gitea.py` doesn't exist at all, even `afissues.gitea.parse_remote` would fail to import, breaking the factory module load for all platform types.",
+          "options": [
+            "This spec creates a minimal `afissues/gitea.py` stub with a `parse_remote` that always returns None and a placeholder `GiteaPlatform`",
+            "The factory avoids importing `afissues.gitea` at module level (lazy import inside the Gitea branch only)",
+            "The gitea_platform spec is expected to land before this spec is merged",
+            "Gitea routing in the factory is omitted entirely until gitea_platform spec is ready"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q6",
+          "text": "Should the `request_with_retry` function's `**kwargs` be documented with the specific keyword arguments it forwards to `httpx.AsyncClient.request()` (e.g. `json`, `params`, `headers`, `content`)?",
+          "context": "The current signature uses open-ended `**kwargs`, which is flexible but under-specified. Documenting the expected kwargs in the spec would help implementers and reviewers verify correctness without reading httpx internals.",
+          "options": [
+            "Yes, enumerate the expected kwargs in the spec (json, params, headers are the primary ones)",
+            "No, **kwargs is intentionally open-ended to match httpx.AsyncClient.request() fully",
+            "Add a type alias or TypedDict for the permitted kwargs"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "All previously identified gaps have been addressed by the user's answers and incorporated into the PRD. The spec now precisely defines: SSRF violation exception type (ConfigError, matching GitHubPlatform); parse_remote edge-case contract (always return None, never raise); full state mapping for list_issues_by_label (open\u2192opened, closed and all pass through); create_pr fallback GET error handling (raise IntegrationError immediately, referencing original 409); factory Gitea lazy-import strategy (try/except ImportError, module-level safe); and open-ended **kwargs rationale for request_with_retry. A new acceptance criterion for GitHubPlatform regression safety has been added. The PRD is now implementation-ready with no remaining ambiguities.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Enable agent-fox to manage issues, labels, and merge requests on GitLab-hosted repositories through the existing PlatformProtocol abstraction, so that teams using GitLab as their forge get the same autonomous fix-pipeline and spec-driven workflow capabilities currently available only to GitHub users.",
+        "q2": "All 12 PlatformProtocol methods implemented with unit test coverage. Platform factory supports 'gitlab' and 'gitea' type values without breaking existing GitHub configuration. agent-fox nightshift workflows work against GitLab with no GitHub-specific changes required by callers.",
+        "q3": "Non-goals: GitLab GraphQL API support (REST v4 only). OAuth or personal access token rotation. Group-level or instance-level issue operations. GitLab CI/CD pipeline triggering. Self-hosted GitLab with custom TLS certificates. GitLab Epics or Milestones. Pagination beyond the first 100 results (per_page=100 cap).",
+        "q4": "gitlab_platform owns all factory changes (including Gitea stub); gitea_platform only delivers the GiteaPlatform class and replaces the stub import.",
+        "q5": "api scope (full read/write access to the API). Document minimum required scope in the module docstring.",
+        "q6": "Alias removed in the same PR once all known call sites are updated. There are no external consumers \u2014 this is an internal monorepo."
+      },
+      "timestamp": "2026-07-14T08:06:08.656465+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Point to the afissues.protocol module as the source of truth. IssueResult has: number (int), title (str), html_url (str), body (str, default empty), labels (tuple[str, ...], default empty). IssueComment has: id (int), body (str), user (str), created_at (str). Only these fields need to be populated. GitLab mappings: iid\u2192number, title\u2192title, web_url\u2192html_url, description\u2192body, labels (array)\u2192labels (tuple), author.username\u2192user, created_at\u2192created_at. All other GitLab response fields are ignored.",
+        "q2": "Standalone async function in _http.py that both platforms call directly. Signature: async def request_with_retry(method: str, url: str, *, timeout: httpx.Timeout, transport: httpx.AsyncHTTPTransport | None = None, max_retries: int = 3, backoff_base: float = 1.0, **kwargs) -> httpx.Response",
+        "q3": "GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base}&state=opened \u2014 same approach as the GitHub implementation uses for duplicate PR handling.",
+        "q4": "The factory passes the raw path (e.g. 'group/subgroup/project'); the constructor URL-encodes it internally when building API URLs. This keeps the factory simple and the encoding logic centralized.",
+        "q5": "Try parse_remote first; if None, fall back to a project_id or owner/repo field explicitly configured in the platform config; raise ConfigError if neither is available. This mirrors how the GitHub factory falls back to ('owner', 'repo') placeholders.",
+        "q6": "Treat 429 the same as other 4xx \u2014 no retry, raise IntegrationError immediately. Rate limit handling is out of scope for this spec and can be added later if needed.",
+        "q7": "Always filter client-side by system: false for reliability across GitLab versions. Don't send activity_filter at all \u2014 simpler and universally compatible.",
+        "q8": "Remove the integration smoke test from the acceptance criteria entirely; rely on unit test coverage with mocked HTTP responses. Integration testing against a live GitLab instance is deferred to a future CI hardening spec."
+      },
+      "timestamp": "2026-07-14T08:08:38.418341+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Protocol accepts 'created' and 'updated'; map to 'created_at' and 'updated_at' respectively. 'direction' values 'asc'/'desc' pass through directly as GitLab's 'sort' param.",
+        "q2": "Raise IntegrationError only on 401 and 403. Return normally on all other statuses including 404 and 5xx. This matches the existing GitHubPlatform.check_credentials() behavior exactly.",
+        "q3": "Returns None always (including on 409). Method is void/None-typed. This matches the existing GitHubPlatform.create_label() signature which returns None.",
+        "q4": "Raise IntegrationError with a descriptive message indicating 409 duplicate was returned but no existing open MR was found. This matches the existing GitHubPlatform.create_pr() behavior.",
+        "q5": "Yes, apply per_page=100 to the notes endpoint as well.",
+        "q6": "Follow whatever convention is already used in the afissues test suite. Currently the GitHub platform tests use pytest + unittest.mock patching httpx responses. Tests live in packages/afissues/tests/unit/test_gitlab.py (or test_gitlab_*.py if split by concern).",
+        "q7": "Re-export from afissues/__init__.py alongside GitHubPlatform. Follow the same pattern.",
+        "q8": "GitHubPlatform creates a new client per request inside its _request() method using 'async with httpx.AsyncClient(...)'. close() is a no-op that returns None. The no-op rationale is correct. GitLabPlatform should do the same."
+      },
+      "timestamp": "2026-07-14T08:11:42.292230+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "Q1": "Match whatever GitHubPlatform currently raises for SSRF violations. Currently it raises ConfigError from the shared _check_address function. GitLabPlatform should do the same.",
+        "Q2": "Return None for any URL that doesn't match the expected patterns. This matches the contract of parse_github_remote which returns None for non-GitHub URLs.",
+        "Q3": "All three values ('open', 'closed', 'all') are valid; 'open' maps to 'opened', others pass through unchanged to GitLab.",
+        "Q4": "Raise IntegrationError immediately on any non-200 from the fallback GET, referencing the original 409 context in the message.",
+        "Q5": "The factory avoids importing afissues.gitea at module level \u2014 use a lazy import inside the Gitea branch only, wrapped in try/except ImportError that raises a clear ConfigError.",
+        "Q6": "No, **kwargs is intentionally open-ended to match httpx.AsyncClient method signatures fully. The function delegates to getattr(client, method)(url, **kwargs)."
+      },
+      "timestamp": "2026-07-14T08:15:01.132844+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

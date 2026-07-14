@@ -1,0 +1,491 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The `gitea_platform` PRD is technically detailed and well-structured, covering implementation specifics, API differences, method-by-method requirements, and design decisions with notable thoroughness. However, it is missing several standard PRD sections: explicit **Goals** (measurable outcomes), **Non-Goals** (deliberate exclusions), and a formal **Intent** statement (the Overview serves as a loose proxy but is not a concise intent statement). Additionally, the spec has a significant overlap concern with the active `gitlab_platform` spec, which this spec explicitly depends on for shared infrastructure (`_ssrf`, `_http`, platform factory routing). The dependency is declared in the table, but the relationship needs clarification around sequencing and whether the GitLab spec must be *merged* (not just drafted) before this one can proceed. There is also an overlap with the active `extract_platform_afissues` spec, which is similarly declared as a dependency. These active-spec overlaps require clarification before the PRD can be considered ready.",
+      "gaps": [
+        "Missing formal 'Intent' section \u2014 the Overview paragraph approximates intent but is not a concise, standalone intent statement as required by the spec format.",
+        "Missing 'Goals' section \u2014 no measurable outcomes are defined (e.g., 'GiteaPlatform passes the shared PlatformProtocol compliance test suite', 'all 12 protocol methods covered with >90% branch coverage', 'end-to-end Gitea workflow verified against a live or containerized Gitea instance').",
+        "Missing 'Non-Goals' section \u2014 there is no explicit statement of what is out of scope (e.g., Gitea webhooks, Gitea Actions integration, Gitea-specific PR review workflows, multi-instance Gitea support, OAuth2 token flows beyond static tokens).",
+        "Overlap with active spec 'gitlab_platform': this PRD explicitly depends on shared infrastructure (_ssrf, _http, platform factory Gitea routing stub) produced by the GitLab spec. The dependency table references spec '04_gitlab_platform' but does not clarify whether the GitLab spec must be fully merged/released or merely drafted before work begins.",
+        "Overlap with active spec 'extract_platform_afissues': declared as a hard prerequisite (afissues package, PlatformProtocol, errors modules). No clarification on whether this spec should block or can proceed in parallel.",
+        "No acceptance criteria or test strategy section \u2014 unlike typical implementation specs, there is no mention of how correctness will be verified (unit tests with mocked HTTP, integration tests against a Gitea container, compliance with the shared protocol test suite mentioned in related specs).",
+        "Owner field is empty \u2014 no accountable person or team is identified.",
+        "The 'close()' method is documented as a no-op with no explanation; it is unclear whether this is intentional (no persistent connection) or a placeholder for future resource cleanup."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a concise Intent statement (1\u20132 sentences) for this spec? For example: 'Enable agent-fox to operate against Gitea-hosted repositories by implementing GiteaPlatform \u2014 a concrete PlatformProtocol \u2014 so that teams self-hosting Gitea get the same autonomous fix-pipeline capabilities as GitHub and GitLab users.'",
+          "context": "The spec format requires a dedicated Intent section as the primary statement of purpose. The current Overview is close but serves as implementation context rather than a crisp intent statement.",
+          "options": [
+            "Use the suggested example above as the intent statement.",
+            "Provide a custom intent statement."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable Goals for this spec? What does 'done' look like in verifiable terms?",
+          "context": "Goals must be measurable outcomes, not implementation tasks. Examples: 'GiteaPlatform satisfies the shared PlatformProtocol compliance test suite with 0 failures', 'verified against Gitea v1.21 running in CI via Docker', 'all 12 protocol methods have \u226590% branch coverage'.",
+          "options": [
+            "Pass shared PlatformProtocol compliance test suite",
+            "Verified end-to-end against a containerized Gitea instance in CI",
+            "All 12 protocol methods implemented and covered by unit tests with mocked HTTP",
+            "Gitea routing active and exercised in platform_factory integration test"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is explicitly out of scope for this spec (Non-Goals)?",
+          "context": "Non-Goals prevent scope creep and set expectations for reviewers. Potential candidates: Gitea webhooks/event subscriptions, Gitea Actions integration, OAuth2/app-token auth flows, multi-instance Gitea support, Gitea-specific PR review features (approvals, protected branches).",
+          "options": [
+            "Gitea webhooks and event-driven triggers",
+            "OAuth2 / Gitea application token auth (only static tokens supported)",
+            "Gitea Actions CI integration",
+            "Gitea-specific PR review workflows (approvals, required reviews)",
+            "Support for Gitea versions older than v1.17"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "The active spec 'gitlab_platform' is declared as a hard dependency (for shared _ssrf, _http modules and the platform factory Gitea routing stub). Must the GitLab spec be fully merged and released before work on gitea_platform can begin, or can development proceed in parallel with stubs?",
+          "context": "This is flagged as an active-spec overlap. Clarifying the sequencing constraint is important for planning and prevents the gitea_platform spec from being acted on prematurely, which could cause merge conflicts or missing shared infrastructure.",
+          "options": [
+            "gitlab_platform must be fully merged before gitea_platform work begins",
+            "Development can proceed in parallel; gitea_platform will be rebased onto gitlab_platform's shared modules before merging",
+            "gitea_platform should supersede or be co-developed with gitlab_platform"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Similarly, must 'extract_platform_afissues' (the afissues package extraction spec) be fully merged before this spec proceeds?",
+          "context": "This spec depends on afissues.protocol, afissues.errors, and the package structure established by extract_platform_afissues. Clarifying whether this is a hard sequencing gate or a soft dependency is needed.",
+          "options": [
+            "Yes, extract_platform_afissues must be merged first",
+            "No, gitea_platform can be developed against a local branch of afissues in parallel"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Is there a specific Gitea API version (e.g., v1.17+, v1.21+) that defines the minimum supported version, and are there known version-specific behavioral differences (e.g., label name strings vs. numeric IDs in newer versions) that should be documented?",
+          "context": "The API differences table mentions 'newer versions also accept name strings' for label assignment, which implies version-conditional behavior. Defining a minimum supported Gitea version would prevent ambiguity in the implementation.",
+          "options": [
+            "Target Gitea v1.21+ (latest stable) only",
+            "Target Gitea v1.17+ (LTS baseline)",
+            "No minimum version \u2014 implement for lowest common denominator (numeric IDs only)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Who is the owner/responsible engineer for this spec?",
+          "context": "The owner field is empty. Assigning an owner ensures accountability for reviews and sign-off.",
+          "options": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is detailed and well-structured overall, covering protocol methods, API differences, design decisions, and dependency sequencing. However, several gaps remain that could cause ambiguity during implementation: error-handling edge cases are underspecified for some methods, the `create_pr` idempotency query behavior is unclear, `search_issues` and `check_credentials` lack full response mapping detail, test coverage expectations are vague, and the re-export naming convention has a minor inconsistency. Addressing these will make the spec unambiguous for autonomous implementation.",
+      "gaps": [
+        "The `create_pr` idempotency path specifies querying `GET /pulls?head={head}&base={base}&state=open` but does not clarify what to do if that query returns zero results (e.g., raise IntegrationError or fall back to the 409 body).",
+        "`list_issue_comments` does not specify a page/limit query parameter, leaving it inconsistent with `list_issues_by_label` which uses `limit=50`.",
+        "`search_issues` does not specify a `limit` parameter, pagination behavior, or how the response fields map to `IssueResult`.",
+        "`check_credentials` says 'return normally on any other status' \u2014 it is unclear whether non-401/403 error codes (e.g., 500) should also raise `IntegrationError` or be silently swallowed.",
+        "The error truncation rule ('response text truncated to 500 characters') is stated globally but it is not clear whether this applies to `check_credentials`, `close()`, and the idempotency-silent paths.",
+        "Unit test scope is described only as '12 protocol methods covered by unit tests with mocked HTTP responses' \u2014 it does not mention whether `search_issues`, `check_credentials`, `_resolve_label_id`, or `parse_remote` also require unit tests.",
+        "The re-export alias in `__init__.py` is given as `parse_gitea_remote` with '(or similar alias)' \u2014 the exact exported name is not pinned, which may cause inconsistency with the platform factory import.",
+        "The `assign_label` success code is listed as 200, but given Gitea's inconsistency (PATCH returns 201), it is not confirmed whether 201 should also be treated as success here.",
+        "The `list_issues_by_label` sort mapping table covers only 4 combinations. It is unspecified what to do if an unmapped `sort`+`direction` combination is passed (raise, default, or pass through).",
+        "The `_resolve_label_id` cache refresh strategy only mentions refresh on `create_label`. It is not specified whether a cache miss after a full fetch (label truly does not exist) should avoid re-fetching on subsequent calls within the same session."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "In the `create_pr` idempotency path: if the follow-up `GET /pulls?head={head}&base={base}&state=open` returns zero results after receiving a 409, what should the implementation do?",
+          "context": "The spec says to query the existing PR and return its `html_url`, but does not handle the case where the GET returns an empty list \u2014 leaving the agent with no URL to return.",
+          "options": [
+            "Raise IntegrationError with a descriptive message",
+            "Extract and return the html_url from the 409 response body if available, otherwise raise IntegrationError",
+            "Return None / an empty string",
+            "Retry the original POST once before raising"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Should `list_issue_comments` include a `limit` query parameter (e.g., `limit=50`) consistent with other list endpoints, or should it fetch without a limit?",
+          "context": "Consistency in pagination behavior across list methods reduces unexpected data truncation and makes the no-pagination non-goal explicit at the call site.",
+          "options": [
+            "Include limit=50 for consistency with list_issues_by_label",
+            "No limit parameter \u2014 fetch without a bound",
+            "Use a different default limit (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "For `search_issues`: what `limit` should be applied, and how should response fields map to `IssueResult` (same mapping as `get_issue`/`list_issues_by_label`)?",
+          "context": "`search_issues` is a non-protocol method but its response mapping and result size bound are unspecified, which can cause implementation divergence.",
+          "options": [
+            "Use limit=50 and the same IssueResult field mapping as get_issue",
+            "Use limit=50 but return raw dicts",
+            "No limit; same IssueResult mapping as get_issue",
+            "Specify a different limit (please state)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "For `check_credentials`: should HTTP status codes other than 401/403 (e.g., 500 server errors) raise `IntegrationError`, or should the method return normally for all non-401/403 responses?",
+          "context": "A 500 from the Gitea server could indicate a credentials issue or a server fault; silently returning on 500 could mask configuration problems.",
+          "options": [
+            "Raise IntegrationError for 5xx errors; return normally for all 2xx/3xx/4xx except 401 and 403",
+            "Return normally for any response that is not 401 or 403 (current implicit behavior)",
+            "Raise IntegrationError for any non-2xx response except where idempotency rules apply"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What should the implementation do when an unsupported `sort`+`direction` combination is passed to `list_issues_by_label` (i.e., a pair not in the 4-entry mapping table)?",
+          "context": "Without a fallback rule, the agent may produce inconsistent behavior \u2014 silently omitting the sort param, defaulting to 'newest', or raising an error.",
+          "options": [
+            "Raise a ValueError / ConfigError at call time",
+            "Default to 'newest' (created + desc) silently",
+            "Omit the sort parameter and let Gitea use its default",
+            "Pass the sort value through unchanged (best-effort)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should `search_issues`, `check_credentials`, `_resolve_label_id`, and `parse_remote` each have dedicated unit tests, or only the 12 protocol methods?",
+          "context": "The Goals section mentions '12 protocol methods covered by unit tests' but the two non-protocol methods and the internal resolver are not mentioned. Clarifying scope prevents under-testing.",
+          "options": [
+            "All methods including non-protocol helpers and parse_remote should have unit tests",
+            "Only the 12 protocol methods need unit tests (non-protocol methods are tested indirectly)",
+            "search_issues and check_credentials need tests; _resolve_label_id and parse_remote are tested indirectly"
+          ],
+          "required": true
+        },
+        {
+          "id": "q7",
+          "text": "What should the exact re-exported name for the Gitea remote parser be in `afissues/__init__.py`?",
+          "context": "The spec says `parse_gitea_remote` 'or similar alias', but the platform factory import also needs to match. Pinning the name eliminates a potential mismatch.",
+          "options": [
+            "parse_gitea_remote",
+            "parse_remote (no alias \u2014 disambiguate by module import)",
+            "gitea_parse_remote"
+          ],
+          "required": false
+        },
+        {
+          "id": "q8",
+          "text": "For `assign_label`: should the implementation accept both 200 and 201 as success codes (consistent with Design Decision #9), or strictly 200 only?",
+          "context": "Design Decision #9 says PATCH accepts both 200 and 201, but assign_label uses POST and is listed with success code 200 only. Gitea's API inconsistency may mean 201 can also appear here.",
+          "options": [
+            "Accept both 200 and 201 as success for assign_label",
+            "Accept only 200 for assign_label (it is a POST, not PATCH)",
+            "Accept any 2xx as success for all POST/PATCH methods"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This PRD is thorough, well-structured, and largely implementation-ready. It covers all protocol methods, edge cases, error-handling rules, idempotency paths, design rationale, and testing requirements with high specificity. The Gitea API differences table is especially valuable for implementation clarity. A few minor ambiguities remain around `IssueResult` field mapping, SSRF validation details, and the exact shape of `_http` retry integration, but none of these block implementation \u2014 they can be resolved by referencing the prerequisite specs.",
+      "gaps": [
+        "IssueResult field mapping is not fully specified \u2014 the exact fields of IssueResult (e.g., number, title, state, html_url, body, labels, created_at, updated_at) and how each maps from the Gitea API response are not listed, unlike the label-object extraction detail given for create_issue.",
+        "The SSRF validation contract is underspecified \u2014 it's unclear whether _ssrf validates the raw `url` string, the constructed base URL, or both, and what exception type it raises on failure (IntegrationError vs. ConfigError).",
+        "The _http retry logic integration is unspecified \u2014 it is unclear whether GiteaPlatform wraps a raw httpx.AsyncClient or a client returned by the _http module, and whether the retry behavior is transparent to the caller.",
+        "The label ID cache invalidation on create_label is ambiguous \u2014 the spec says 'update the label ID cache with the returned id' but does not clarify whether the full cache is replaced or just the new entry is inserted.",
+        "The `list_issues_by_label` response field mapping to IssueResult is not explicitly described \u2014 it states 'response field mapping to IssueResult is identical to get_issue' only in the context of search_issues, not stated directly for list_issues_by_label.",
+        "No file path or module location is specified for the platform factory integration test \u2014 it is unclear whether it lives in the afissues test suite or the agentfox/nightshift test suite.",
+        "Token format validation is not specified \u2014 there is no mention of whether the constructor should validate or sanitize the `token` parameter."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the exact fields of IssueResult, and how does each map from the Gitea API response JSON?",
+          "context": "Several protocol methods (get_issue, list_issues_by_label, search_issues) return IssueResult objects, but the full field mapping is only partially implied. Specifying the complete mapping (e.g., number \u2192 number, title \u2192 title, state \u2192 state, html_url \u2192 html_url, body \u2192 body, labels \u2192 [label.name, ...], created_at \u2192 created_at) will prevent implementation guesswork and ensure test mocks use correct field names.",
+          "options": [
+            "number, title, state, html_url, body, labels (list of name strings), created_at, updated_at \u2014 all map directly from Gitea response fields",
+            "Same as above but without created_at/updated_at",
+            "Defer to the PlatformProtocol definition in afissues.protocol \u2014 no additional mapping is needed"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "What exception type does `afissues._ssrf` raise if SSRF validation fails \u2014 IntegrationError, ConfigError, or a custom SSRF-specific error?",
+          "context": "The constructor applies SSRF validation at construction time. Knowing the exception type determines whether GiteaPlatform needs to catch and re-raise it or let it propagate directly to the caller. This also affects what the corresponding constructor unit test should assert.",
+          "options": [
+            "ConfigError \u2014 SSRF failure is a configuration problem",
+            "IntegrationError \u2014 unified error surface for all afissues errors",
+            "A dedicated SSRFError (subclass of IntegrationError or ConfigError)",
+            "The _ssrf module raises its own exception; GiteaPlatform does not catch it"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Does `_resolve_label_id` perform a fresh API fetch after `create_label` updates the cache, or does it only add the new entry to the existing cache dict?",
+          "context": "The spec says create_label should 'update the label ID cache with the returned id,' but it's ambiguous whether this means (a) insert only the new name\u2192id pair into the existing dict, or (b) invalidate and repopulate the entire cache. Option (a) is more efficient; option (b) ensures consistency if labels were deleted externally between calls.",
+          "options": [
+            "Insert only the new name\u2192id pair into the existing cache (no full re-fetch)",
+            "Invalidate the entire cache so the next _resolve_label_id call triggers a full re-fetch",
+            "Perform a full re-fetch immediately inside create_label after successful creation"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Where should the platform factory integration test live \u2014 in the afissues package test suite or the agentfox/nightshift test suite?",
+          "context": "The test verifies that platform_factory.py constructs GiteaPlatform correctly when type='gitea'. Since platform_factory.py lives in agentfox/nightshift, co-locating the test there is natural, but it could also live in afissues tests for package-level coverage. Clarifying this avoids placing the test in the wrong location.",
+          "options": [
+            "agentfox/nightshift tests \u2014 co-located with platform_factory.py",
+            "afissues package tests \u2014 to keep all GiteaPlatform-related tests together",
+            "Either location is acceptable"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Does GiteaPlatform wrap a raw httpx.AsyncClient directly, or does afissues._http expose a factory/wrapper that GiteaPlatform should use as its HTTP client?",
+          "context": "The spec references 'shared HTTP retry logic from afissues._http' but does not specify the integration interface. If _http exposes a function like `make_client()` or a wrapper class, GiteaPlatform must use that API. If GiteaPlatform creates its own httpx.AsyncClient and passes it through _http decorators, the implementation pattern is different. This determines the constructor and HTTP call structure.",
+          "options": [
+            "_http exposes a factory function (e.g., make_client()) that returns a pre-configured httpx.AsyncClient with retry logic",
+            "_http exposes a retry decorator or wrapper applied to individual request calls",
+            "GiteaPlatform creates a raw httpx.AsyncClient; _http provides a helper function called per-request",
+            "Defer to the GitLab spec implementation as the reference pattern"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is detailed, well-structured, and covers the majority of what's needed to implement GiteaPlatform. It clearly defines the API differences, data model mappings, error handling rules, and design decisions. However, several gaps remain that could cause ambiguity or inconsistency during implementation: the `_http` module interface is deferred to the GitLab spec (creating a knowledge dependency), the `_ssrf` guard interface is not described, the exact `_resolve_label_id` behavior for \"subsequent calls for a known-missing label\" within `remove_label`'s silent-success path needs clarification, the `list_issue_comments` pagination claim needs verification, and there are minor gaps around default parameter values and async/sync method signatures.",
+      "gaps": [
+        "The exact interface of `afissues._http` (factory function, wrapper class, or decorator) is intentionally left undefined, deferring to the GitLab spec. This creates a documentation gap that could cause implementers to make incompatible choices if the GitLab spec is unavailable.",
+        "The `afissues._ssrf` module interface is not described \u2014 it's unclear whether it's a function, class, or decorator, what arguments it accepts, and what it returns or raises (other than `ConfigError`).",
+        "Method signatures do not specify whether methods are `async` or synchronous. Given that `httpx` async client is used, this is a critical implementation detail.",
+        "Default parameter values for protocol methods (e.g., default `state`, `sort`, `direction` for `list_issues_by_label`; default `comment` for `close_issue`; default `description` for `create_label`) are not specified.",
+        "The `remove_label` silent-success path when `_resolve_label_id` raises `IntegrationError` (label absent from cache) is described, but the interaction between this silent-success path and the subsequent-call-no-re-fetch behavior of `_resolve_label_id` is potentially confusing \u2014 it should be clarified that `remove_label` catches the `IntegrationError` from `_resolve_label_id` and returns silently.",
+        "The claim that `list_issue_comments` 'does not support pagination and returns all comments by default' is stated as fact but not verified \u2014 if Gitea does support pagination on this endpoint in some versions, the implementation may silently truncate results.",
+        "The `create_label` idempotency check says it 'can reuse cached list' but does not specify whether it calls `_resolve_label_id` (which populates the cache) or directly checks the cache \u2014 the exact code path should be clarified to avoid a separate GET call if the cache is already warm.",
+        "The platform factory integration test location ('agentfox/nightshift test suite') is specified, but the test file name/path is not given, leaving ambiguity about where exactly the test should live.",
+        "There is no specification for what `add_issue_comment` returns \u2014 whether it returns `None`, the comment ID, or an `IssueComment` object."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Are all `GiteaPlatform` methods async (e.g., `async def`)? If so, should the constructor also be async, or is SSRF validation synchronous?",
+          "context": "The PRD specifies `httpx` async client but never explicitly states that methods are `async def`. This is critical for implementers \u2014 async methods require an event loop and affect how tests are written (e.g., `pytest-asyncio`).",
+          "options": [
+            "All protocol and non-protocol methods are `async def`; constructor is synchronous; SSRF validation is synchronous",
+            "All methods including constructor are synchronous (httpx sync client is used instead)",
+            "Mixed: constructor and SSRF are sync, all HTTP methods are async"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the default parameter values for `list_issues_by_label` (`state`, `sort`, `direction`), `close_issue` (`comment`), and `create_label` (`description`)?",
+          "context": "Without default values, implementers may choose different defaults than the existing GitHub/GitLab implementations, causing behavioral inconsistency across platforms.",
+          "options": [
+            "Match GitHubPlatform defaults exactly (e.g., state='open', sort='created', direction='desc', comment=None, description='')",
+            "Specify custom defaults in this PRD",
+            "No defaults \u2014 all parameters are required"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What does `add_issue_comment` return? Does it return `None`, the new comment's ID (int), or a full `IssueComment` object?",
+          "context": "The PRD specifies the request and success condition but omits the return type/value, which is part of the `PlatformProtocol` contract.",
+          "options": [
+            "Returns None (fire-and-forget)",
+            "Returns the new comment ID as an int",
+            "Returns a full IssueComment object mapped from the response"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "For `create_label` idempotency, does the existence check call `_resolve_label_id` (which populates/uses the cache) or does it perform a direct GET to `/labels` regardless of cache state?",
+          "context": "The PRD says the check 'can reuse cached list' but is ambiguous about whether `_resolve_label_id` is called internally or whether `create_label` has its own existence-check logic. Calling `_resolve_label_id` is simpler and consistent, but it raises `IntegrationError` on missing labels, which would need to be caught and suppressed for the idempotency path.",
+          "options": [
+            "Call `_resolve_label_id` and catch `IntegrationError` to detect 'label not found' (proceed to create)",
+            "Directly check the internal cache dict without going through `_resolve_label_id`",
+            "Always issue a fresh GET /labels before creating, bypassing the cache"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the `afissues._ssrf` module interface? Specifically: is it a callable function, a class, or a decorator? What arguments does it accept (just the URL string, or also allowed/disallowed ranges)? Does it raise `ConfigError` directly, or return a boolean?",
+          "context": "The PRD states SSRF validation is applied at construction time using `afissues._ssrf`, but does not describe the interface. Without this, implementers cannot write the constructor or its unit tests correctly.",
+          "options": [
+            "It is a single function `check_ssrf(url: str) -> None` that raises `ConfigError` on disallowed URLs (matches GitHubPlatform._check_address pattern)",
+            "It is a class `SSRFGuard` instantiated with config, then called per-request",
+            "The interface is fully defined in the GitLab spec \u2014 refer to that spec for details"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should the `remove_label` silent-success path (when `_resolve_label_id` raises `IntegrationError` because the label doesn't exist) explicitly catch `IntegrationError` from `_resolve_label_id` and return `None` silently? Or should it use a different mechanism (e.g., checking the cache directly before calling)?",
+          "context": "The PRD says to 'treat as silent success' if `_resolve_label_id` raises, but `_resolve_label_id` raises `IntegrationError`, which is the same error type used for real API failures. Implementers need to know whether to catch `IntegrationError` specifically here.",
+          "options": [
+            "Yes \u2014 catch `IntegrationError` from `_resolve_label_id` inside `remove_label` and return silently",
+            "Use a separate internal method that returns `None` instead of raising when the label is missing",
+            "Check the cache directly (if populated) before calling `_resolve_label_id` to avoid the exception path"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is comprehensive and well-structured, covering functional requirements, method signatures, error handling, testing requirements, and design decisions in considerable detail. It clearly establishes prerequisites, API differences, and behavioral contracts. A few gaps remain: the `_http` module interface is explicitly deferred to the GitLab spec (creating an unknown dependency), the `search_issues` title_prefix matching behavior is unspecified (prefix vs. substring), the `parse_remote` function module-level placement relative to the class is not specified for `__init__.py` re-exports, and there is no explicit file/directory path for unit tests for `GiteaPlatform` itself (only the factory test location is given). These are minor but could cause implementation ambiguity.",
+      "gaps": [
+        "The `afissues._http` module interface (factory function, wrapper class, or decorator pattern) is explicitly undefined in this spec and deferred to the GitLab spec \u2014 if the GitLab spec is unavailable to the implementor, this is a blocking unknown.",
+        "The `search_issues` method uses a `title_prefix` parameter but the Gitea API `q` param performs a general keyword search, not a prefix match. The spec does not clarify whether client-side prefix filtering is required after the API call, or whether the `q` param is trusted to approximate prefix behavior.",
+        "The unit test file path/location for `GiteaPlatform` itself is not stated \u2014 only the platform factory integration test location is specified (`agentfox/nightshift/tests/`). The test file for `gitea_platform` tests should be explicitly named (e.g., `packages/afissues/tests/test_gitea.py`).",
+        "The `afissues/__init__.py` re-export section says to re-export `GiteaPlatform` only, but does not specify whether existing re-exports (e.g., `GitHubPlatform`, `GitLabPlatform`) should be preserved or what the exact updated `__init__.py` contents should look like.",
+        "The `list_issues_by_label` sort mapping covers only 4 combinations but there is no guidance on what happens with valid `sort` values other than `created`/`updated` (e.g., `sort='comments'`) \u2014 the 'default silently to newest' rule covers it, but it would be clearer to enumerate all recognized `sort` values.",
+        "No explicit statement about whether `close_issue` with `comment=None` should skip the comment call entirely (implied, but could be made explicit in the method spec rather than only in the signature description)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Is the `afissues._http` module interface (the retry logic pattern used by `GitLabPlatform`) documented anywhere accessible to the implementor of this spec, or should this spec include a summary of the expected interface?",
+          "context": "The spec explicitly defers the `_http` interface definition to the GitLab spec. If the implementor does not have access to that spec, this becomes a blocking unknown that could halt implementation.",
+          "options": [
+            "Include a summary of the _http interface (e.g., it exposes an async context manager / factory function / wrapper class) in this spec",
+            "Add a cross-reference link to the GitLab spec document",
+            "The implementor always has access to both specs simultaneously \u2014 no change needed"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "For `search_issues(title_prefix, state)`: does the implementation need to perform client-side prefix filtering on the results returned by the Gitea `q` search param, or is the API-level keyword search sufficient?",
+          "context": "The Gitea `q` param is a general keyword/substring search, not a prefix match. If `title_prefix='Fix:'` is passed, the API may return issues whose title contains 'Fix:' anywhere, not just at the start. The spec currently does not address this discrepancy.",
+          "options": [
+            "Trust the API result as-is (no client-side filtering)",
+            "Filter results client-side to keep only items where title.startswith(title_prefix)",
+            "Use title.lower().startswith(title_prefix.lower()) for case-insensitive prefix filtering"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is the expected file path for the `GiteaPlatform` unit tests?",
+          "context": "The spec specifies where the platform factory integration test lives but does not name the unit test file for GiteaPlatform itself, which could lead to inconsistency with the existing afissues test suite layout.",
+          "options": [
+            "packages/afissues/tests/test_gitea.py",
+            "packages/afissues/tests/test_gitea_platform.py",
+            "Follow whatever convention the existing afissues test suite uses (no explicit path needed in the spec)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Should `close_issue` with `comment=None` explicitly skip the `add_issue_comment` call (i.e., no HTTP call is made for the comment), and should this be covered by a dedicated unit test case?",
+          "context": "The current spec implies this via the 'If comment is not None' wording but does not explicitly list it as a test requirement. Making it explicit avoids ambiguity and ensures test coverage of the no-comment branch.",
+          "options": [
+            "Yes \u2014 add an explicit test case for close_issue with comment=None (no comment HTTP call made)",
+            "The current wording is sufficient \u2014 no change needed"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now comprehensive, consistent, and implementation-ready. All four previously identified gaps have been resolved: (1) the `_http` module blocking unknown is addressed by confirming the GitLab spec is always available as a merged prerequisite; (2) `search_issues` title_prefix behavior is now explicitly documented as trusting the API result without client-side filtering, matching GitHubPlatform; (3) the `close_issue comment=None` branch is now explicitly specified in the method spec and added as a required unit test case; (4) the `__init__.py` re-export update is now specified as additive (preserving existing entries). The sort mapping ambiguity for unrecognized sort values is also addressed. The PRD covers all protocol methods, error handling, caching, idempotency, testing requirements, and design decisions with sufficient precision for autonomous implementation.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Enable agent-fox to operate against Gitea-hosted repositories by implementing GiteaPlatform \u2014 a concrete PlatformProtocol \u2014 so that teams self-hosting Gitea get the same autonomous fix-pipeline and spec-driven workflow capabilities as GitHub and GitLab users.",
+        "q2": "All 12 protocol methods implemented and covered by unit tests with mocked HTTP. Gitea routing active and exercised in platform_factory integration test. Platform factory correctly constructs GiteaPlatform when type='gitea' is configured.",
+        "q3": "Non-goals: Gitea webhooks and event-driven triggers. OAuth2 / Gitea application token auth (only static tokens supported). Gitea Actions CI integration. Gitea-specific PR review workflows (approvals, required reviews). Support for Gitea versions older than v1.17. Pagination beyond a single page of results.",
+        "q4": "gitlab_platform must be fully merged before gitea_platform work begins. The shared _ssrf and _http modules are a hard prerequisite.",
+        "q5": "Yes, extract_platform_afissues must be merged first. The afissues package structure is a hard prerequisite.",
+        "q6": "No minimum version \u2014 implement for lowest common denominator (numeric IDs only for labels). This is the safest approach for maximum compatibility.",
+        "q7": "Leave empty \u2014 this is executed by the autonomous agent pipeline."
+      },
+      "timestamp": "2026-07-14T08:37:39.441522+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Raise IntegrationError with a descriptive message indicating 409 duplicate was returned but no existing open PR was found. Same behavior as the GitLab spec.",
+        "q2": "No limit parameter \u2014 Gitea's per-issue comments endpoint does not support pagination and returns all comments. This is consistent with the Gitea API design.",
+        "q3": "Use limit=50 and the same IssueResult field mapping as get_issue. search_issues is a convenience wrapper around the same list endpoint.",
+        "q4": "Return normally for any response that is not 401 or 403. This matches the GitHubPlatform.check_credentials() behavior exactly.",
+        "q5": "Default to 'newest' (created + desc) silently. This is the most common use case and avoids raising errors for edge cases.",
+        "q6": "All methods including non-protocol helpers and parse_remote should have unit tests. Comprehensive coverage is important for a platform integration.",
+        "q7": "parse_remote \u2014 no alias needed. The factory imports it as 'from afissues.gitea import parse_remote'. No top-level re-export with an aliased name.",
+        "q8": "Accept any 2xx as success for all POST/PATCH methods. This is the most resilient approach given Gitea's inconsistent status codes."
+      },
+      "timestamp": "2026-07-14T08:39:46.408179+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Defer to the PlatformProtocol definition in afissues.protocol. IssueResult has: number, title, html_url, body (default ''), labels (default ()). IssueComment has: id, body, user, created_at. All map directly from Gitea response fields \u2014 Gitea uses the same field names as GitHub.",
+        "q2": "ConfigError \u2014 SSRF failure is a configuration problem. This matches GitHubPlatform which raises ConfigError from _check_address.",
+        "q3": "Insert only the new name\u2192id pair into the existing cache (no full re-fetch). Efficient and sufficient.",
+        "q4": "Either location is acceptable. Prefer agentfox/nightshift tests since that's where platform_factory.py lives.",
+        "q5": "Defer to the GitLab spec implementation as the reference pattern. The shared _http module's exact interface is defined there."
+      },
+      "timestamp": "2026-07-14T08:42:03.455133+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "All protocol and non-protocol methods are async def; constructor is synchronous; SSRF validation is synchronous. This matches GitHubPlatform exactly.",
+        "q2": "Match PlatformProtocol defaults exactly: state='open', sort='created', direction='asc', comment=None, description=''. These are defined in the protocol signature.",
+        "q3": "Returns None (fire-and-forget). This matches the PlatformProtocol.add_issue_comment() return type of None.",
+        "q4": "Call _resolve_label_id and catch IntegrationError to detect 'label not found' (proceed to create). This keeps the code simple and reuses existing cache infrastructure.",
+        "q5": "The interface is fully defined in the GitLab spec \u2014 refer to that spec for details. The _ssrf module exposes _validate_url(url: str) -> None which raises ConfigError.",
+        "q6": "Yes \u2014 catch IntegrationError from _resolve_label_id inside remove_label and return silently. This is the simplest approach and correctly handles the 'label does not exist' case."
+      },
+      "timestamp": "2026-07-14T08:44:56.786710+00:00"
+    },
+    {
+      "assessment_index": 4,
+      "answers": {
+        "q1": "The implementor always has access to both specs simultaneously \u2014 no change needed. The GitLab spec will be merged first as a hard prerequisite, so the _http module will exist when this spec is implemented.",
+        "q2": "Trust the API result as-is (no client-side filtering). This matches GitHubPlatform.search_issues() which also trusts the GitHub search API without client-side filtering.",
+        "q3": "Follow whatever convention the existing afissues test suite uses (no explicit path needed in the spec).",
+        "q4": "Yes \u2014 add an explicit test case for close_issue with comment=None (no comment HTTP call made). This is a meaningful behavioral branch."
+      },
+      "timestamp": "2026-07-14T08:47:50.570722+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

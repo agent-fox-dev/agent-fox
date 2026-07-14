@@ -1,0 +1,285 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The PRD for `extract_platform_afissues` is exceptionally thorough and well-structured. All four required sections (Intent, Goals, Non-Goals, Background/context) are present and clearly articulated. The document goes well beyond the minimum by including detailed functional requirements, technical boundaries, dependency footprint rules, API surface tables, design decisions with rationale, and a concrete migration scope (12 source files, 44 test files, exact file paths). No active spec overlaps are detected. One archived spec (`backend_protocol`) has partial historical overlap worth noting. The PRD is ready to proceed to artifact generation.",
+      "gaps": [
+        "The spec references 'spec 03 (GitLab Platform)' as a dependent/downstream spec, but no spec with that identity appears in the active or archived spec landscape. If a GitLab Platform spec is planned, it should either be listed as a dependency relationship or acknowledged as a future spec to be created.",
+        "The archived spec `backend_protocol` (Backend Protocol and Factory) may have historical overlap with the platform factory and protocol abstraction being extracted here. There is no acknowledgement of this prior art in the PRD's Background or Design Decisions sections.",
+        "The `owner` field in the spec frontmatter is empty \u2014 this is a minor metadata gap that does not block generation but should be filled before the spec is finalised.",
+        "No rollback or failure strategy is described for the atomic import migration across 56 files (12 source + 44 test). If the migration is done in a single commit/PR, a partial-failure scenario could leave the workspace in a broken state. A brief note on migration atomicity guarantees or CI gating would strengthen the spec."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "The PRD references 'spec 03 (GitLab Platform)' as a downstream consumer of `afissues`. Does this spec already exist, or is it planned? Should it be listed as a declared downstream dependency or tracked as a follow-on spec in the landscape?",
+          "context": "The intent and multiple goals explicitly frame this extraction as a prerequisite for the GitLab Platform spec. Knowing whether that spec exists and is active helps reviewers understand sequencing and whether any cross-spec dependency declarations are needed.",
+          "options": [
+            "Spec 03 (GitLab Platform) is already active/drafted and should be listed in the landscape",
+            "Spec 03 is planned but not yet created \u2014 no action needed in this PRD",
+            "This PRD should explicitly declare it as an unlocked downstream spec in a 'Unlocks' section"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "The archived spec `backend_protocol` (Backend Protocol and Factory) appears to have covered related territory around platform protocol abstractions and factory patterns. Are you aware of this prior work, and does anything from it inform or conflict with the current extraction approach?",
+          "context": "Cross-spec awareness guidelines require flagging archived specs with overlapping scope. This does not block readiness, but acknowledging prior art (or confirming it is irrelevant) improves traceability.",
+          "options": [
+            "Yes, I reviewed it \u2014 it is superseded by this spec and not relevant",
+            "Yes, I reviewed it \u2014 some decisions here deliberately diverge from it (I can add a note)",
+            "No, I was not aware of it \u2014 I will review before finalising"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "The `owner` field in the spec frontmatter is blank. Who is the designated owner responsible for driving this spec to completion?",
+          "context": "An empty owner field makes it unclear who is accountable for the work and who should be consulted during review.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "The migration touches 56 files (12 source + 44 tests) in a single pass. Is this intended to land as one atomic commit/PR with CI gating, or will it be staged? Should the spec document the expected migration strategy to prevent partial-breakage states?",
+          "context": "A partial migration would leave the workspace with broken imports across both the old and new paths. Documenting the atomicity expectation or CI enforcement strategy reduces implementation risk.",
+          "options": [
+            "Single atomic PR with CI required to pass before merge \u2014 no additional documentation needed",
+            "Staged migration is acceptable \u2014 I will add a migration phasing note to the spec",
+            "A codemods/scripted migration is planned \u2014 I will note the tooling used"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and detailed overall, with clear goals, non-goals, functional requirements, and design decisions. The extraction scope is precisely defined, the dependency footprint is explicit, and the autonomous execution model is well-articulated. However, several gaps remain that could cause ambiguity or implementation risk: the `pyproject.toml` structure for `afissues` is not specified, the `__init__.py` re-export list is incomplete relative to the symbol table, the versioning/release strategy for `afissues` is absent, the test directory structure for `afissues` is only partially described, and the handling of `nightshift`'s direct vs. transitive dependency on `afissues` needs clarification.",
+      "gaps": [
+        "The `afissues/pyproject.toml` content is not specified \u2014 package metadata (version, description, license, authors, build backend) is absent, which is required for a standalone installable package.",
+        "The `__init__.py` re-export list mentions 'label constants' without enumerating which constants are included (all LABEL_* + REQUIRED_LABELS + LabelSpec, or a subset), creating ambiguity.",
+        "No initial version is specified for `afissues` (e.g., 0.1.0), which is required for the uv workspace and pip install to function correctly.",
+        "The test directory structure for `afissues` is only partially described \u2014 `packages/afissues/tests/unit/` and `packages/afissues/tests/property/` are mentioned but no `conftest.py` placement or test runner configuration (pytest ini settings) is specified for the new package.",
+        "The nightshift direct vs. transitive dependency rule ('unless it imports afissues symbols directly') lacks a concrete determination \u2014 the PRD should state whether nightshift currently imports afissues symbols directly and what the outcome is.",
+        "No `py.typed` marker or typing strategy is mentioned, which matters for downstream consumers using type checkers (mypy/pyright) with the extracted package.",
+        "The `afissues/errors.py` `AfIssuesError` base class signature is not fully specified \u2014 the `**context` kwargs pattern mentioned for `IntegrationError` is not clarified for the base class, leaving implementors to infer from the agentfox equivalent.",
+        "The `NullPlatform.create_pr()` raising `NotImplementedError` is noted in the symbol table but not called out as intentional behavior to preserve in the functional requirements section, which could lead an implementor to 'fix' it."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should the initial version of the `afissues` package be, and what build backend should its `pyproject.toml` use?",
+          "context": "A standalone installable package requires a version field and a build backend declaration. The uv workspace and `pip install` from subdirectory both depend on this. Without it, package creation is underspecified.",
+          "options": [
+            "0.1.0 with hatchling",
+            "0.1.0 with setuptools",
+            "Match the current agentfox version with hatchling",
+            "0.1.0 with flit-core"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Which symbols should `afissues/__init__.py` explicitly re-export from `afissues.labels`? Should it be all `LABEL_*` constants + `LabelSpec` + `REQUIRED_LABELS`, or only a curated public subset?",
+          "context": "The PRD says 're-export label constants' but the symbol table lists 7 LABEL_* constants, LabelSpec, and REQUIRED_LABELS. Implementors need an exact list to write the `__init__.py` without guessing.",
+          "options": [
+            "All symbols: LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW, REQUIRED_LABELS",
+            "Only the string constants and REQUIRED_LABELS (exclude LabelSpec from __init__)",
+            "None \u2014 labels are considered internal; consumers should import from afissues.labels directly"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Does `nightshift` currently import any `agentfox.platform.*` symbols directly (not via `agentfox`)? If so, should it declare `afissues` as an explicit dependency in its own `pyproject.toml`?",
+          "context": "The PRD states nightshift gets afissues transitively through agentfox 'unless it imports afissues symbols directly \u2014 in that case it declares the dependency explicitly.' This conditional should be resolved to a concrete yes/no to avoid ambiguity during implementation.",
+          "options": [
+            "Yes, nightshift imports platform symbols directly \u2014 add afissues as an explicit nightshift dependency",
+            "No, nightshift only accesses platform symbols via agentfox \u2014 transitive dependency is sufficient",
+            "Unknown \u2014 agent should grep nightshift sources during execution to determine this"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should `afissues` include a `py.typed` marker file to declare it as a typed package for mypy/pyright consumers?",
+          "context": "Since PlatformProtocol is a `typing.Protocol` and the package is intended for use by external tooling, type checker support is relevant. A missing `py.typed` marker means type checkers will ignore the package's inline types.",
+          "options": [
+            "Yes \u2014 include py.typed; afissues is a typed package",
+            "No \u2014 not required for the initial extraction; can be added later",
+            "Yes, and also verify mypy passes on afissues in CI as part of make check"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What is the full signature of `AfIssuesError` (the base exception)? Specifically, does it accept `**context` keyword arguments like `agentfox.core.errors.AgentFoxError`, or is it a plain `Exception` subclass?",
+          "context": "The PRD specifies that `IntegrationError` preserves the `retryable` attribute and `**context` pattern, but does not clarify whether the base class `AfIssuesError` also accepts `**context`. This matters because `ConfigError` also subclasses `AfIssuesError` and callers may pass context kwargs to it.",
+          "options": [
+            "AfIssuesError accepts **context kwargs and stores them as an attribute (mirrors AgentFoxError)",
+            "AfIssuesError is a plain Exception subclass; only IntegrationError has **context kwargs",
+            "AfIssuesError accepts a single string message only; no **context pattern"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD for a package extraction refactor. It is exceptionally thorough: goals, non-goals, background, functional requirements, technical boundaries, verified API tables, and design decisions are all clearly articulated. The scope is tightly bounded (pure extraction, no behavioral changes), the implementation is prescriptive enough for autonomous execution, and the rationale for every key decision is documented. The PRD is very close to spec-ready. A small number of clarifying gaps exist around edge cases and verification specifics, but none block execution.",
+      "gaps": [
+        "No explicit statement of what happens to `agentfox/platform/__init__.py` content \u2014 the PRD says the directory is deleted, but does not clarify whether the `__init__.py` has any re-exports or public symbols that need to be audited before deletion.",
+        "The `conftest.py` relocation is mentioned but its contents are not described \u2014 if it contains fixtures with side effects or `agentfox`-specific session-scoped state, silent relocation could break test isolation.",
+        "The cross-package test file `packages/af/tests/unit/test_init_labels.py` is mentioned as needing an import update, but it is unclear whether `af` declares `afissues` as a dependency or whether `af/pyproject.toml` needs to be updated.",
+        "No mention of how `GitHubPlatform`'s async context manager or `close()` semantics interact with the new `afissues` error types during teardown \u2014 potential silent swallowing of `afissues.errors.IntegrationError` in finally blocks if callers only catch `agentfox.core.errors.IntegrationError`.",
+        "The `REQUIRED_LABELS` is documented as having '4 entries' in the API table, but the `__init__.py` re-export list shows 7 label constants \u2014 a minor inconsistency that could cause confusion about the full public surface.",
+        "No explicit CI step or lint rule is specified to enforce that `afissues` has zero imports from other workspace packages post-extraction (the grep check is mentioned for `agentfox.platform` removal, but not for `afissues` isolation).",
+        "The property test relocation (`test_overhaul_props.py`) does not mention whether Hypothesis database or example files need to be relocated alongside it."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What public symbols (if any) does the current `agentfox/platform/__init__.py` re-export, and is any of that surface relied upon within `agentfox` before deletion?",
+          "context": "The PRD states the entire `agentfox/platform/` directory is deleted, but does not audit the `__init__.py`. If it re-exports symbols used internally via `from agentfox.platform import X`, those imports must be captured in the 12-file migration count or the deletion will break builds silently.",
+          "options": [
+            "The `__init__.py` is empty or has no re-exports \u2014 safe to delete as-is.",
+            "The `__init__.py` re-exports some symbols \u2014 they are already counted in the 12-file source migration.",
+            "Unknown \u2014 needs a grep audit before deletion."
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Does the `packages/af` package declare `agentfox` or `afissues` as a dependency, and does its `pyproject.toml` need to be updated as part of this extraction?",
+          "context": "The PRD calls out `packages/af/tests/unit/test_init_labels.py` as requiring an import update from `agentfox.platform.labels` to `afissues.labels`, but does not address whether `af`'s declared dependencies need to change to make that import resolvable in CI.",
+          "options": [
+            "af already declares agentfox as a dependency, so afissues is available transitively \u2014 no pyproject.toml change needed.",
+            "af will need to add afissues as an explicit dependency in its pyproject.toml.",
+            "af is not a workspace package with its own pyproject.toml \u2014 the test runs in the root environment."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should a CI lint/import-isolation check be added to enforce that `afissues` never imports from other workspace packages (agentfox, afspec, afaudit, etc.)?",
+          "context": "The PRD verifies removal of `agentfox.platform` imports via grep, but does not specify an equivalent guard to prevent future accidental re-coupling of `afissues` to the monolith. Without this, the lightweight-consumer guarantee can silently erode.",
+          "options": [
+            "Yes \u2014 add a grep or import-linter rule to the CI `make check` target.",
+            "No \u2014 the zero-dependency constraint is enforced by code review and the `pyproject.toml` dependency declaration only.",
+            "Defer to a follow-on hardening spec."
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Are there any `finally` or `except` blocks in `agentfox` that catch `agentfox.core.errors.IntegrationError` during platform teardown (e.g., in `GitHubPlatform.close()` callers) that would silently miss errors after the migration to `afissues.errors.IntegrationError`?",
+          "context": "The PRD specifies that callers of platform operations update their except clauses, but teardown paths (finally blocks, context manager __aexit__) are easy to overlook. A missed catch could cause unhandled exceptions or silent swallowing depending on the pattern.",
+          "options": [
+            "No \u2014 teardown paths do not catch IntegrationError; they let exceptions propagate.",
+            "Yes \u2014 there are finally/except blocks that need auditing; they are included in the 12-file migration.",
+            "Unknown \u2014 needs explicit grep for 'except.*IntegrationError' in teardown paths."
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Does the Hypothesis property test (`test_overhaul_props.py`) use a local Hypothesis database directory (`.hypothesis/`) that should be relocated or cleared alongside the test file?",
+          "context": "Hypothesis stores example databases relative to the test file location. If the database is checked in or relied upon for reproducing known failures, relocating the test without the database changes Hypothesis behavior (it starts fresh). If not checked in, this is a non-issue.",
+          "options": [
+            "The .hypothesis/ directory is in .gitignore \u2014 relocation requires no database handling.",
+            "The .hypothesis/ directory is checked in \u2014 it should be relocated alongside the test.",
+            "Hypothesis is configured with an explicit database path unrelated to file location."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This PRD is exceptionally well-written and comprehensive. It covers all the essential dimensions of a refactoring/extraction spec: clear intent, scoped goals/non-goals, precise functional requirements with exact file lists and code snippets, technical boundaries, verified API surface tables, and explicitly documented design decisions with rationale. The spec is detailed enough for autonomous execution without ambiguity. No critical gaps are identified; the few minor questions below are clarifications rather than blockers.",
+      "gaps": [
+        "The `conftest.py` relocation mentions 'Any fixtures referencing `agentfox.platform.*` imports are updated' but does not specify whether a top-level `packages/afissues/tests/conftest.py` is needed or intentionally left empty \u2014 the directory tree shows it as optional ('if needed; may be empty'), which could cause inconsistency with the workspace convention.",
+        "The `agentfox` `pyproject.toml` update to declare `afissues` as a workspace dependency is mentioned but the exact dependency declaration syntax (e.g., `afissues>=4.2.0` or path reference) is not shown, unlike the `afissues/pyproject.toml` which provides a complete example.",
+        "The count of 44 test files migrated within `agentfox` is stated, but only 10+1 test files are explicitly mentioned as being relocated to `afissues` \u2014 the remaining 33 tests that stay in `agentfox` but update their imports are not explicitly enumerated or located.",
+        "The `packages/README.md` and root `README.md` documentation update requirements are stated at a high level but no current state of those files is described, making it impossible to verify completeness of the update without inspecting the repo."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Should `packages/afissues/tests/conftest.py` (the top-level test conftest) be created as an empty file, omitted entirely, or populated with specific content?",
+          "context": "The directory tree marks it as optional ('if needed; may be empty'). Workspace convention consistency and pytest fixture scoping may require a definitive answer to avoid ambiguity during autonomous execution.",
+          "options": [
+            "Create as empty file to match workspace convention",
+            "Omit entirely if no content is needed",
+            "Populate with specific shared fixtures (describe what)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact dependency declaration for `afissues` in `agentfox`'s `pyproject.toml`? Should it use a version pin, a workspace path reference, or a `workspace = true` specifier (uv syntax)?",
+          "context": "The PRD specifies that `agentfox` adds `afissues` as a workspace dependency but does not show the exact TOML syntax. Since `afissues` is co-located in the same uv workspace, the correct uv idiom (e.g., `afissues = { workspace = true }`) differs from a regular version pin and is worth making explicit.",
+          "options": [
+            "afissues = { workspace = true }  # uv workspace reference",
+            "afissues>=4.2.0  # version-pinned",
+            "afissues = { path = '../afissues' }  # path reference"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Of the 44 test files in `agentfox` that are updated to import from `afissues`, 10 are relocated to `afissues/tests/unit/` and 1 goes to `afissues/tests/property/`. Where do the remaining 33 test files live, and are they all under `packages/agentfox/tests/`?",
+          "context": "The PRD states 44 agentfox test files are migrated but only 11 are explicitly relocated. Clarifying that the other 33 remain in their current locations within `agentfox` (only their imports change) removes any ambiguity for the autonomous executor.",
+          "options": [
+            "Yes \u2014 the remaining 33 stay in their current agentfox test directories; only their import paths change",
+            "Some of the 33 are also relocated (clarify which ones)",
+            "The 44 count includes the 10+1 relocated files; the remainder are a different category"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Spec 03 was a draft PRD for GitLab Platform that was overwritten by this extraction spec. It is planned as a follow-on spec but not yet created. No action needed in this PRD beyond the existing note.",
+        "q2": "The archived backend_protocol spec covered a different concern \u2014 abstracting the AI backend protocol (Anthropic vs Google ADK), not the platform/forge abstraction. No overlap or conflict with this extraction.",
+        "q3": "Leave owner blank \u2014 this spec will be executed by the agent-fox autonomous pipeline.",
+        "q4": "agent-fox processes specs in isolated worktrees per task group. The import migration is atomic within the task group that performs it. If tests fail, the group is retried or rejected. No additional migration strategy documentation is needed."
+      },
+      "timestamp": "2026-07-14T07:41:00.891960+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Match the current agentfox version (4.2.0) with hatchling, consistent with afaudit and the existing workspace convention.",
+        "q2": "All symbols: LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW, REQUIRED_LABELS. Re-export everything \u2014 the package is small and all constants are public API.",
+        "q3": "No, nightshift does not import any agentfox.platform.* symbols directly (verified by grep). Transitive dependency via agentfox is sufficient.",
+        "q4": "Yes \u2014 include py.typed; afissues exports a typing.Protocol (PlatformProtocol) that downstream consumers type-check against.",
+        "q5": "AfIssuesError accepts **context kwargs and stores them as a .context attribute, mirroring AgentFoxError exactly. This ensures ConfigError and IntegrationError both support the same calling convention."
+      },
+      "timestamp": "2026-07-14T07:45:06.731880+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "The __init__.py is empty (just a docstring, no re-exports) \u2014 safe to delete as-is.",
+        "q2": "af already declares agentfox as a dependency, so afissues is available transitively \u2014 no pyproject.toml change needed.",
+        "q3": "Defer to a follow-on hardening spec. The pyproject.toml dependency declaration is sufficient for now.",
+        "q4": "No \u2014 teardown paths (close()) do not catch IntegrationError. GitHubPlatform.close() is a no-op. Exception handling is in the callers which are covered in the 12-file migration.",
+        "q5": "The .hypothesis/ directory is in .gitignore \u2014 relocation requires no database handling."
+      },
+      "timestamp": "2026-07-14T07:47:31.021113+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}
