@@ -309,7 +309,7 @@ class TestPostIssueSummaries:
 
     def _make_mock_platform(self, forge_type: str = "github", issue_labels: tuple[str, ...] = ()) -> MagicMock:
         """Create a mock platform with the given forge type."""
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         platform = MagicMock()
         platform.forge_type = forge_type

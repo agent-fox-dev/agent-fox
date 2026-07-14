@@ -16,8 +16,8 @@ import pytest
 from agentfox.core.config import AgentFoxConfig, PlatformConfig
 from agentfox.core.config_gen import extract_schema, generate_config_template
 from agentfox.nightshift.platform_factory import create_platform
-from agentfox.platform.github import GitHubPlatform
-from agentfox.platform.protocol import PlatformProtocol
+from afissues.github import GitHubPlatform
+from afissues.protocol import PlatformProtocol
 
 # ---------------------------------------------------------------------------
 # TS-65-1: PlatformConfig has no auto_merge field

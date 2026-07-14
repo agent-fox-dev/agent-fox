@@ -15,15 +15,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentfox.core.errors import ConfigError, IntegrationError
+from afissues.errors import ConfigError, IntegrationError
 
 # ---------------------------------------------------------------------------
 # Helpers (same pattern as test_gitlab.py)
 # ---------------------------------------------------------------------------
 
-_TARGET = "agentfox.platform._http.httpx.AsyncClient"
-_HTTP_TARGET = "agentfox.platform._http.httpx.AsyncClient"
-_HTTP_SLEEP = "agentfox.platform._http.asyncio.sleep"
+_TARGET = "afissues._http.httpx.AsyncClient"
+_HTTP_TARGET = "afissues._http.httpx.AsyncClient"
+_HTTP_SLEEP = "afissues._http.asyncio.sleep"
 
 
 def _mock_client(**method_responses: MagicMock | AsyncMock) -> AsyncMock:
@@ -55,9 +55,9 @@ def _json_response(
 
 def _make_platform():  # type: ignore[no-untyped-def]
     """Build a GitLabPlatform with safe defaults for testing."""
-    from agentfox.platform.gitlab import GitLabPlatform
+    from afissues.gitlab import GitLabPlatform
 
-    with patch("agentfox.platform.gitlab._validate_url"):
+    with patch("afissues.gitlab._validate_url"):
         return GitLabPlatform("group/project", "tok", "gitlab.com")
 
 
@@ -72,7 +72,7 @@ class TestRequestWithRetrySignature:
 
     def test_importable_from_http_module(self) -> None:
         """TS-04-33: request_with_retry importable from _http."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         assert callable(request_with_retry)
 
@@ -80,7 +80,7 @@ class TestRequestWithRetrySignature:
         """TS-04-33: Function has correct parameter names."""
         import inspect
 
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         sig = inspect.signature(request_with_retry)
         param_names = list(sig.parameters.keys())
@@ -94,7 +94,7 @@ class TestRequestWithRetrySignature:
     @pytest.mark.asyncio
     async def test_creates_async_client_per_call(self) -> None:
         """TS-04-33: Creates a new httpx.AsyncClient per call."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         mock_resp = _json_response(200)
         mock_client = AsyncMock()
@@ -116,7 +116,7 @@ class TestRequestWithRetrySignature:
     @pytest.mark.asyncio
     async def test_delegates_via_getattr(self) -> None:
         """TS-04-33: Delegates to getattr(client, method)(url, **kwargs)."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         mock_resp = _json_response(201)
         mock_client = AsyncMock()
@@ -148,7 +148,7 @@ class TestRequestWithRetryBehaviour:
     @pytest.mark.asyncio
     async def test_retries_connect_timeout_then_succeeds(self) -> None:
         """TS-04-34: After 2 transient failures, succeeds on 3rd."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
         mock_resp = _json_response(200)
@@ -182,7 +182,7 @@ class TestRequestWithRetryBehaviour:
     @pytest.mark.asyncio
     async def test_retries_connect_error(self) -> None:
         """TS-04-34: ConnectError is retried."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
         mock_resp = _json_response(200)
@@ -215,7 +215,7 @@ class TestRequestWithRetryBehaviour:
     @pytest.mark.asyncio
     async def test_retries_read_timeout(self) -> None:
         """TS-04-34: ReadTimeout is retried."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
         mock_resp = _json_response(200)
@@ -248,7 +248,7 @@ class TestRequestWithRetryBehaviour:
     @pytest.mark.asyncio
     async def test_429_not_retried(self) -> None:
         """TS-04-34/TS-04-E26: HTTP 429 returned without retry."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
         mock_resp = _json_response(429, text="Rate limited")
@@ -286,7 +286,7 @@ class TestRequestWithRetryExhaustion:
     @pytest.mark.asyncio
     async def test_raises_after_max_retries(self) -> None:
         """TS-04-E25: ConnectTimeout raised after exactly 3 attempts."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
 
@@ -317,7 +317,7 @@ class TestRequestWithRetryExhaustion:
     @pytest.mark.asyncio
     async def test_raises_connect_error_after_exhaustion(self) -> None:
         """TS-04-E25: ConnectError raised after retries exhausted."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
 
@@ -358,7 +358,7 @@ class TestRequestWithRetryNo429Retry:
     @pytest.mark.asyncio
     async def test_429_single_attempt(self) -> None:
         """TS-04-E26: 429 returned after exactly one attempt."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
         mock_resp = _json_response(429, text="Too Many Requests")
@@ -397,7 +397,7 @@ class TestGitHubRequestDelegation:
         """TS-04-35: GitHubPlatform._request source mentions request_with_retry."""
         import inspect
 
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.github import GitHubPlatform
 
         source = inspect.getsource(GitHubPlatform._request)
         assert "request_with_retry" in source
@@ -415,7 +415,7 @@ class TestFactoryGitLabRouting:
     def test_creates_gitlab_platform(self, tmp_path: MagicMock) -> None:
         """TS-04-36: create_platform with type='gitlab' returns GitLabPlatform."""
         from agentfox.nightshift.platform_factory import create_platform
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -428,7 +428,7 @@ class TestFactoryGitLabRouting:
                 "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
                 return_value="group/project",
             ),
-            patch("agentfox.platform.gitlab._validate_url"),
+            patch("afissues.gitlab._validate_url"),
         ):
             platform = create_platform(config, tmp_path)
 
@@ -530,7 +530,7 @@ class TestFactoryGiteaUnavailable:
 
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
-            patch.dict(sys.modules, {"agentfox.platform.gitea": None}),
+            patch.dict(sys.modules, {"afissues.gitea": None}),
         ):
             with pytest.raises((ConfigError, SystemExit)) as exc_info:
                 create_platform(config, tmp_path)
@@ -557,12 +557,12 @@ class TestFactoryImportsWithoutGitea:
         import importlib
         import sys
 
-        sys.modules.pop("agentfox.platform.gitea", None)
+        sys.modules.pop("afissues.gitea", None)
         try:
             importlib.invalidate_caches()
             import agentfox.nightshift.platform_factory  # noqa: F401
         except ImportError:
-            pytest.fail("Factory should import without agentfox.platform.gitea")
+            pytest.fail("Factory should import without afissues.gitea")
 
 
 # ===========================================================================
@@ -600,10 +600,10 @@ class TestGitLabCoverage:
         """TS-04-40: Verify gitlab module exists for coverage.
 
         Run: pytest packages/agentfox/tests/unit/platform/test_gitlab.py
-            --cov=agentfox.platform.gitlab --cov-branch
+            --cov=afissues.gitlab --cov-branch
             --cov-report=term-missing -q
         """
-        from agentfox.platform import gitlab  # noqa: F401
+        from afissues import gitlab  # noqa: F401
 
 
 # ===========================================================================
@@ -617,7 +617,7 @@ class TestGitHubRegressionCheck:
 
     def test_github_platform_importable(self) -> None:
         """TS-04-41: GitHubPlatform is importable and unchanged."""
-        from agentfox.platform.github import GitHubPlatform  # noqa: F401
+        from afissues.github import GitHubPlatform  # noqa: F401
 
         assert GitHubPlatform is not None
 
@@ -721,7 +721,7 @@ class TestPropertySSRFSafety:
     )
     def test_private_ips_raise_config_error(self, private_url: str) -> None:
         """TS-04-P3: Private/loopback IPs raise ConfigError."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         with pytest.raises(ConfigError):
             GitLabPlatform("group/project", "tok", private_url)
@@ -745,7 +745,7 @@ class TestPropertyRetryBoundedness:
     @pytest.mark.parametrize("max_retries", [1, 2, 3, 5])
     async def test_attempt_count_bounded(self, max_retries: int) -> None:
         """TS-04-P4: Total attempts equals max_retries."""
-        from agentfox.platform._http import request_with_retry
+        from afissues._http import request_with_retry
 
         call_count = 0
 
@@ -889,7 +889,7 @@ class TestPropertyParseRemoteNeverRaises:
     )
     def test_never_raises(self, url: str) -> None:
         """TS-04-P7: parse_remote returns tuple or None, never raises."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote(url)
         assert result is None or (
@@ -976,7 +976,7 @@ class TestPropertyFactoryImportsAlways:
         import importlib
         import sys
 
-        sys.modules.pop("agentfox.platform.gitea", None)
+        sys.modules.pop("afissues.gitea", None)
         importlib.invalidate_caches()
         try:
             import agentfox.nightshift.platform_factory  # noqa: F401
@@ -987,7 +987,7 @@ class TestPropertyFactoryImportsAlways:
         """TS-04-P9: Factory imports even when gitea is blocked."""
         import sys
 
-        with patch.dict(sys.modules, {"agentfox.platform.gitea": None}):
+        with patch.dict(sys.modules, {"afissues.gitea": None}):
             try:
                 import agentfox.nightshift.platform_factory  # noqa: F401
             except ImportError:
@@ -1010,7 +1010,7 @@ class TestSmokeCreateIssueAndLabel:
     ) -> None:
         """TS-04-SMOKE-1: Full E2E with mocked HTTP responses."""
         from agentfox.nightshift.platform_factory import create_platform
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -1037,7 +1037,7 @@ class TestSmokeCreateIssueAndLabel:
                 "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
                 return_value="group/project",
             ),
-            patch("agentfox.platform.gitlab._validate_url"),
+            patch("afissues.gitlab._validate_url"),
         ):
             platform = create_platform(config, tmp_path)
 
@@ -1143,7 +1143,7 @@ class TestSmokeGiteaUnavailable:
 
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
-            patch.dict(sys.modules, {"agentfox.platform.gitea": None}),
+            patch.dict(sys.modules, {"afissues.gitea": None}),
         ):
             with pytest.raises((ConfigError, SystemExit)):
                 create_platform(config, tmp_path)

@@ -11,12 +11,12 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.core.errors import IntegrationError
-from agentfox.platform.github import GitHubPlatform
-from agentfox.platform.protocol import IssueResult
+from afissues.errors import IntegrationError
+from afissues.github import GitHubPlatform
+from afissues.protocol import IssueResult
 
 # Helper to build a mock httpx.AsyncClient context manager
-_TARGET = "agentfox.platform._http.httpx.AsyncClient"
+_TARGET = "afissues._http.httpx.AsyncClient"
 
 
 def _mock_client(**method_responses: MagicMock | Callable[..., Any]) -> AsyncMock:

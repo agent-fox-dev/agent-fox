@@ -35,7 +35,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_exists_on_protocol(self) -> None:
         """PlatformProtocol has a create_pr attribute."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         assert hasattr(PlatformProtocol, "create_pr"), (
             "PlatformProtocol must declare a create_pr method"
@@ -43,7 +43,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_is_coroutine_function(self) -> None:
         """create_pr is declared as an async method (coroutine function)."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         method = PlatformProtocol.create_pr
         assert inspect.iscoroutinefunction(method), (
@@ -52,7 +52,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_title_param_is_keyword_only_str(self) -> None:
         """'title' parameter is keyword-only with str annotation."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["title"]
@@ -65,7 +65,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_body_param_is_keyword_only_str(self) -> None:
         """'body' parameter is keyword-only with str annotation."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["body"]
@@ -78,7 +78,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_head_param_is_keyword_only_str(self) -> None:
         """'head' parameter is keyword-only with str annotation."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["head"]
@@ -91,7 +91,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_base_param_is_keyword_only_str(self) -> None:
         """'base' parameter is keyword-only with str annotation."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["base"]
@@ -104,7 +104,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_return_annotation_is_str(self) -> None:
         """create_pr return annotation is str."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         assert sig.return_annotation is str, (
@@ -113,7 +113,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_has_exactly_four_keyword_params(self) -> None:
         """create_pr has exactly four keyword-only parameters (title, body, head, base)."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         kw_params = [
@@ -127,7 +127,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_docstring_mentions_html_url(self) -> None:
         """create_pr docstring references 'html_url'."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         method = PlatformProtocol.create_pr
         assert method.__doc__ is not None, "create_pr must have a docstring"
@@ -137,7 +137,7 @@ class TestPlatformProtocolCreatePrSignature:
 
     def test_create_pr_docstring_mentions_integration_error(self) -> None:
         """create_pr docstring references 'IntegrationError'."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         method = PlatformProtocol.create_pr
         assert method.__doc__ is not None, "create_pr must have a docstring"
@@ -161,7 +161,7 @@ class TestNullPlatformCreatePr:
 
     async def test_create_pr_raises_not_implemented_error(self) -> None:
         """NullPlatform.create_pr() raises NotImplementedError."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError):
@@ -169,7 +169,7 @@ class TestNullPlatformCreatePr:
 
     async def test_create_pr_error_message_mentions_null_platform(self) -> None:
         """Error message contains 'create_pr() called on NullPlatform'."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError) as exc_info:
@@ -178,7 +178,7 @@ class TestNullPlatformCreatePr:
 
     async def test_create_pr_error_message_mentions_create_platform_safe(self) -> None:
         """Error message contains 'create_platform_safe()'."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError) as exc_info:
@@ -187,7 +187,7 @@ class TestNullPlatformCreatePr:
 
     async def test_create_pr_exact_error_message(self) -> None:
         """Error message matches the exact specified text from the spec."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError) as exc_info:
@@ -221,7 +221,7 @@ class TestNullPlatformGuardBypass:
         before any external interaction could occur — the method should raise
         on the first line, not after attempting a network call.
         """
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError):
@@ -239,7 +239,7 @@ class TestNullPlatformGuardBypass:
         We verify this by checking the exception is NotImplementedError (no
         side effects can occur before it is raised in the method body).
         """
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         # Should raise immediately — no subprocess calls or filesystem changes
@@ -255,7 +255,7 @@ class TestNullPlatformGuardBypass:
 
     async def test_create_pr_with_various_arguments_always_raises(self) -> None:
         """NullPlatform.create_pr() raises regardless of argument values."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         test_cases = [
@@ -294,7 +294,7 @@ class TestNullPlatformCreatePrProperty:
     ) -> None:
         """For any string arguments, NullPlatform.create_pr() always raises
         NotImplementedError."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError):
@@ -312,7 +312,7 @@ class TestNullPlatformCreatePrProperty:
     ) -> None:
         """For any arguments, the NotImplementedError message always mentions
         NullPlatform."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError) as exc_info:
@@ -331,7 +331,7 @@ class TestNullPlatformCreatePrProperty:
     ) -> None:
         """For any arguments, the NotImplementedError message always mentions
         create_platform_safe()."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError) as exc_info:
@@ -351,7 +351,7 @@ class TestNullPlatformCreatePrProperty:
         self, title: str, body: str, head: str, base: str
     ) -> None:
         """Parametrized: NotImplementedError is always raised for various inputs."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         with pytest.raises(NotImplementedError):
@@ -359,7 +359,7 @@ class TestNullPlatformCreatePrProperty:
 
     async def test_no_return_value_possible(self) -> None:
         """NullPlatform.create_pr() never returns a value; it always raises."""
-        from agentfox.platform.protocol import NullPlatform
+        from afissues.protocol import NullPlatform
 
         platform = NullPlatform()
         raised = False

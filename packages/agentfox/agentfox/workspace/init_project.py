@@ -485,7 +485,7 @@ async def _ensure_platform_labels_async(project_root: Path) -> int:
     """
     from agentfox.core.config import load_config
     from agentfox.nightshift.platform_factory import create_platform_safe
-    from agentfox.platform.labels import REQUIRED_LABELS
+    from afissues.labels import REQUIRED_LABELS
 
     config_path = project_root / ".agent-fox" / "config.toml"
     try:

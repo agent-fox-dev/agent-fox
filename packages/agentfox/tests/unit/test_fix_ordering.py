@@ -11,7 +11,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -873,7 +873,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_ts_71_e7_github_refetch_failure(self, caplog: pytest.LogCaptureFixture) -> None:
         """GitHub failure logs warning, continues without removal."""
-        from agentfox.core.errors import IntegrationError
+        from afissues.errors import IntegrationError
         from agentfox.nightshift.staleness import check_staleness
 
         mock_platform = AsyncMock()
@@ -1087,7 +1087,7 @@ class TestPriorityLabelConstants:
 
     def test_ts_ns_1_priority_label_constants_exported(self) -> None:
         """Module exports LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW."""
-        from agentfox.platform.labels import (
+        from afissues.labels import (
             LABEL_PRIORITY_HIGH,
             LABEL_PRIORITY_LOW,
             LABEL_PRIORITY_MEDIUM,

@@ -24,7 +24,7 @@ from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
 
 from agentfox.core.config import AgentFoxConfig
-from agentfox.core.errors import IntegrationError
+from afissues.errors import IntegrationError
 from agentfox.knowledge.extraction import extract_session_summary
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agentfox.nightshift.spec_builder import (
@@ -32,8 +32,8 @@ from agentfox.nightshift.spec_builder import (
     build_afspec_from_triage,
     build_in_memory_spec,
 )
-from agentfox.platform.labels import LABEL_FIXED, LABEL_NO_CHANGE
-from agentfox.platform.protocol import IssueResult
+from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
+from afissues.protocol import IssueResult
 from agentfox.session.context import render_inmemory_spec_sections
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
 from agentfox.workspace import WorkspaceInfo

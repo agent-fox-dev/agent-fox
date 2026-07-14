@@ -26,8 +26,8 @@ import socket
 from unittest.mock import patch
 
 import pytest
-from agentfox.core.errors import ConfigError
-from agentfox.platform.github import GitHubPlatform, _validate_github_url
+from afissues.errors import ConfigError
+from afissues.github import GitHubPlatform, _validate_github_url
 
 # ---------------------------------------------------------------------------
 # AC-1: Reject private IPv4 addresses
@@ -311,7 +311,7 @@ class TestDnsRebindingGuard:
         """580-AC-1 + 580-AC-4: ConfigError raised when DNS rebinds to a restricted IP."""
         side_effect = _make_rebinding_side_effect(restricted_ip)
 
-        with patch("agentfox.platform._ssrf.socket.getaddrinfo", side_effect=side_effect):
+        with patch("afissues._ssrf.socket.getaddrinfo", side_effect=side_effect):
             platform = GitHubPlatform(
                 owner="owner",
                 repo="repo",
@@ -337,7 +337,7 @@ class TestDnsRebindingGuard:
                 raise OSError("DNS temporary failure")
             return restricted
 
-        with patch("agentfox.platform._ssrf.socket.getaddrinfo", side_effect=side_effect):
+        with patch("afissues._ssrf.socket.getaddrinfo", side_effect=side_effect):
             # Construction should succeed (DNS failure → allow through with warning).
             platform = GitHubPlatform(
                 owner="owner",

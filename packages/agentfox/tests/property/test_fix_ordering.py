@@ -8,7 +8,7 @@ Requirements: 71-REQ-1.2, 71-REQ-2.E2, 71-REQ-3.4, 71-REQ-3.5,
 
 from __future__ import annotations
 
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentfox.core.errors import IntegrationError
-from agentfox.platform.github import _GITHUB_TIMEOUT, _MAX_RETRIES, GitHubPlatform
+from afissues.errors import IntegrationError
+from afissues.github import _GITHUB_TIMEOUT, _MAX_RETRIES, GitHubPlatform
 
-_TARGET = "agentfox.platform._http.httpx.AsyncClient"
-_SLEEP_TARGET = "agentfox.platform._http.asyncio.sleep"
+_TARGET = "afissues._http.httpx.AsyncClient"
+_SLEEP_TARGET = "afissues._http.asyncio.sleep"
 
 
 def _json_response(status_code: int, json_data: dict[Any, Any] | list[Any] | None = None) -> MagicMock:

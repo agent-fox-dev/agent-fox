@@ -11,8 +11,8 @@ from bisect import insort
 from collections import defaultdict
 from dataclasses import dataclass
 
-from agentfox.platform.labels import LABEL_PRIORITY_HIGH, LABEL_PRIORITY_LOW
-from agentfox.platform.protocol import IssueResult
+from afissues.labels import LABEL_PRIORITY_HIGH, LABEL_PRIORITY_LOW
+from afissues.protocol import IssueResult
 
 logger = logging.getLogger(__name__)
 

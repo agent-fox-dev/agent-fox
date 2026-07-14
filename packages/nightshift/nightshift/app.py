@@ -51,7 +51,7 @@ def main(ctx: click.Context, json_flag: bool | None = None, **kwargs) -> None:  
 
 def _run_daemon(ctx, om, config):  # noqa: C901
     """Assemble and run the daemon from agentfox.nightshift modules."""
-    from agentfox.core.errors import IntegrationError
+    from afissues.errors import IntegrationError
     from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
     from agentfox.nightshift.engine import (
         NightShiftEngine,

@@ -5,8 +5,8 @@ Requirements: 04-REQ-1.* through 04-REQ-18.*, 04-REQ-16.*, 04-REQ-17.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
-The GitLab module will live at agentfox.platform.gitlab alongside the
-existing agentfox.platform.github module.
+The GitLab module will live at afissues.gitlab alongside the
+existing afissues.github module.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentfox.core.errors import ConfigError, IntegrationError
-from agentfox.platform.protocol import IssueComment, IssueResult
+from afissues.errors import ConfigError, IntegrationError
+from afissues.protocol import IssueComment, IssueResult
 
 # ---------------------------------------------------------------------------
 # Helpers (modelled after test_github_issues_rest.py helpers)
@@ -24,7 +24,7 @@ from agentfox.platform.protocol import IssueComment, IssueResult
 
 # Target for patching httpx.AsyncClient in the gitlab module.
 # This will resolve once agentfox/platform/gitlab.py is created.
-_TARGET = "agentfox.platform._http.httpx.AsyncClient"
+_TARGET = "afissues._http.httpx.AsyncClient"
 
 
 def _mock_client(**method_responses: MagicMock | AsyncMock) -> AsyncMock:
@@ -63,9 +63,9 @@ def _make_platform():  # type: ignore[no-untyped-def]
     Patches _validate_url (SSRF check) to accept 'gitlab.com' without
     performing real DNS resolution.
     """
-    from agentfox.platform.gitlab import GitLabPlatform
+    from afissues.gitlab import GitLabPlatform
 
-    with patch("agentfox.platform.gitlab._validate_url"):
+    with patch("afissues.gitlab._validate_url"):
         return GitLabPlatform("group/project", "tok", "gitlab.com")
 
 
@@ -129,7 +129,7 @@ class TestModuleDocstring:
 
     def test_module_doc_mentions_api_scope(self) -> None:
         """TS-04-4: Module __doc__ mentions 'api' scope."""
-        import agentfox.platform.gitlab as gl_module
+        import afissues.gitlab as gl_module
 
         assert gl_module.__doc__ is not None
         assert "api" in gl_module.__doc__
@@ -147,8 +147,8 @@ class TestPublicImport:
     """Verify GitLabPlatform is importable from the platform package."""
 
     def test_import_from_platform_package(self) -> None:
-        """TS-04-5: GitLabPlatform is importable from agentfox.platform.gitlab."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        """TS-04-5: GitLabPlatform is importable from afissues.gitlab."""
+        from afissues.gitlab import GitLabPlatform
 
         assert GitLabPlatform is not None
         assert GitLabPlatform.__name__ == "GitLabPlatform"
@@ -165,14 +165,14 @@ class TestConstructorSSRF:
 
     def test_raises_config_error_for_private_ip(self) -> None:
         """TS-04-2: ConfigError raised for private RFC-1918 IP."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         with pytest.raises(ConfigError):
             GitLabPlatform("group/project", "tok", "192.168.1.1")
 
     def test_not_integration_error(self) -> None:
         """TS-04-E1: ConfigError, not IntegrationError, is raised."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         try:
             GitLabPlatform("group/project", "tok", "192.168.1.1")
@@ -183,7 +183,7 @@ class TestConstructorSSRF:
 
     def test_no_http_client_created_on_ssrf(self) -> None:
         """TS-04-E1: httpx.AsyncClient never instantiated during SSRF failure."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
         with patch("httpx.AsyncClient") as mock_client:
             with pytest.raises(ConfigError):
@@ -202,9 +202,9 @@ class TestProjectIdEncoding:
 
     def test_slashes_encoded(self) -> None:
         """TS-04-E2: Slashes in project_id are percent-encoded."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
-        with patch("agentfox.platform.gitlab._validate_url"):
+        with patch("afissues.gitlab._validate_url"):
             platform = GitLabPlatform("group/subgroup/project", "tok", "gitlab.com")
 
         encoded = platform._encoded_project_id
@@ -214,9 +214,9 @@ class TestProjectIdEncoding:
 
     def test_spaces_encoded(self) -> None:
         """TS-04-E2: Spaces in project_id are percent-encoded."""
-        from agentfox.platform.gitlab import GitLabPlatform
+        from afissues.gitlab import GitLabPlatform
 
-        with patch("agentfox.platform.gitlab._validate_url"):
+        with patch("afissues.gitlab._validate_url"):
             platform = GitLabPlatform("my group/my project", "tok", "gitlab.com")
 
         encoded = platform._encoded_project_id
@@ -1520,21 +1520,21 @@ class TestParseRemoteHTTPS:
 
     def test_https_with_subgroup(self) -> None:
         """TS-04-26: HTTPS URL returns ('group/subgroup', 'project')."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://gitlab.com/group/subgroup/project.git")
         assert result == ("group/subgroup", "project")
 
     def test_https_simple(self) -> None:
         """TS-04-26: HTTPS URL with simple namespace."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://gitlab.com/group/project.git")
         assert result == ("group", "project")
 
     def test_https_without_git_suffix(self) -> None:
         """TS-04-26: HTTPS URL without .git suffix."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://gitlab.com/group/subgroup/project")
         assert result == ("group/subgroup", "project")
@@ -1551,14 +1551,14 @@ class TestParseRemoteSSH:
 
     def test_ssh_with_subgroup(self) -> None:
         """TS-04-27: SSH URL returns ('group/subgroup', 'project')."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("git@gitlab.com:group/subgroup/project.git")
         assert result == ("group/subgroup", "project")
 
     def test_ssh_simple(self) -> None:
         """TS-04-27: SSH URL with simple namespace."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("git@gitlab.com:group/project.git")
         assert result == ("group", "project")
@@ -1585,7 +1585,7 @@ class TestParseRemoteInvalid:
     )
     def test_returns_none_for_invalid_urls(self, url: str) -> None:
         """TS-04-28: Returns None for each invalid URL; no exception raised."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote(url)
         assert result is None
@@ -1602,7 +1602,7 @@ class TestParseRemoteGitHubUrl:
 
     def test_github_url_returns_none(self) -> None:
         """TS-04-E21: GitHub URL returns None; no exception."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://github.com/org/repo.git")
         assert result is None
@@ -1619,7 +1619,7 @@ class TestParseRemotePortUrl:
 
     def test_port_url_returns_none(self) -> None:
         """TS-04-E22: GitLab URL with port returns None."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://gitlab.com:8080/group/project.git")
         assert result is None
@@ -1636,7 +1636,7 @@ class TestParseRemoteSingleSegment:
 
     def test_single_segment_returns_none(self) -> None:
         """TS-04-E23: Only one path segment (no project path) returns None."""
-        from agentfox.platform.gitlab import parse_remote
+        from afissues.gitlab import parse_remote
 
         result = parse_remote("https://gitlab.com/onlyone.git")
         assert result is None
@@ -1652,25 +1652,22 @@ class TestParseRemoteRename:
     """Verify parse_github_remote has been renamed to parse_remote."""
 
     def test_parse_remote_importable_from_github(self) -> None:
-        """TS-04-29: 'from agentfox.platform.github import parse_remote' succeeds."""
-        from agentfox.platform.github import parse_remote  # noqa: F401
+        """TS-04-29: 'from afissues.github import parse_remote' succeeds."""
+        from afissues.github import parse_remote  # noqa: F401
 
         assert callable(parse_remote)
 
-    def test_parse_github_remote_removed_from_github_module(self) -> None:
-        """TS-04-29: parse_github_remote no longer exists in github.py."""
-        try:
-            from agentfox.platform.github import parse_github_remote  # noqa: F401
+    def test_parse_github_remote_still_importable(self) -> None:
+        """parse_github_remote is available as a backward-compatible alias (spec 03-REQ-3.2)."""
+        from afissues.github import parse_github_remote  # noqa: F401
 
-            pytest.fail("Expected ImportError — parse_github_remote should be removed")
-        except (ImportError, AttributeError):
-            pass  # Expected: old name is removed
+        assert callable(parse_github_remote)
 
-    def test_parse_github_remote_removed_from_init(self) -> None:
-        """TS-04-E24: parse_github_remote not re-exported from platform package."""
-        import agentfox.platform
+    def test_parse_github_remote_in_afissues_init(self) -> None:
+        """parse_github_remote is re-exported from afissues (spec 03-REQ-6.1)."""
+        import afissues
 
-        assert not hasattr(agentfox.platform, "parse_github_remote")
+        assert hasattr(afissues, "parse_github_remote")
 
 
 # ===========================================================================
@@ -1684,7 +1681,7 @@ class TestSSRFModuleExports:
 
     def test_all_symbols_importable(self) -> None:
         """TS-04-30: All four SSRF symbols importable from _ssrf module."""
-        from agentfox.platform._ssrf import (  # noqa: F401
+        from afissues._ssrf import (  # noqa: F401
             SSRFGuardTransport,
             _check_address,
             _validate_transport_address,
@@ -1697,7 +1694,7 @@ class TestSSRFModuleExports:
 
     def test_ssrf_guard_transport_is_subclass(self) -> None:
         """TS-04-30: SSRFGuardTransport is a subclass of httpx.AsyncHTTPTransport."""
-        from agentfox.platform._ssrf import SSRFGuardTransport
+        from afissues._ssrf import SSRFGuardTransport
 
         assert issubclass(SSRFGuardTransport, httpx.AsyncHTTPTransport)
 
@@ -1705,18 +1702,18 @@ class TestSSRFModuleExports:
         """TS-04-30: github.py imports from _ssrf module."""
         import inspect
 
-        import agentfox.platform.github
+        import afissues.github
 
-        github_src = inspect.getsource(agentfox.platform.github)
+        github_src = inspect.getsource(afissues.github)
         assert "_ssrf" in github_src
 
     def test_gitlab_imports_from_ssrf(self) -> None:
         """TS-04-30: gitlab.py imports from _ssrf module."""
         import inspect
 
-        import agentfox.platform.gitlab
+        import afissues.gitlab
 
-        gitlab_src = inspect.getsource(agentfox.platform.gitlab)
+        gitlab_src = inspect.getsource(afissues.gitlab)
         assert "_ssrf" in gitlab_src
 
 
@@ -1733,7 +1730,7 @@ class TestCheckAddressSSRF:
         """TS-04-31: ConfigError raised for private IP address."""
         from ipaddress import ip_address
 
-        from agentfox.platform._ssrf import _check_address
+        from afissues._ssrf import _check_address
 
         private_addr = ip_address("192.168.1.1")
         with pytest.raises(ConfigError):
@@ -1743,7 +1740,7 @@ class TestCheckAddressSSRF:
         """TS-04-31: IntegrationError is NOT raised for SSRF violation."""
         from ipaddress import ip_address
 
-        from agentfox.platform._ssrf import _check_address
+        from afissues._ssrf import _check_address
 
         private_addr = ip_address("192.168.1.1")
         try:
@@ -1765,7 +1762,7 @@ class TestSSRFNotPublic:
 
     def test_ssrf_not_in_all(self) -> None:
         """TS-04-32: _ssrf not in platform __all__."""
-        import agentfox.platform
+        import afissues
 
-        all_exports = getattr(agentfox.platform, "__all__", [])
+        all_exports = getattr(afissues, "__all__", [])
         assert "_ssrf" not in all_exports

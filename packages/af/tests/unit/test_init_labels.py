@@ -24,7 +24,7 @@ class TestEnsurePlatformLabelsConfigured:
 
     def test_creates_required_labels_when_platform_configured(self, tmp_path: Path) -> None:
         """TS-358-6: create_label called for each REQUIRED_LABEL."""
-        from agentfox.platform.labels import REQUIRED_LABELS
+        from afissues.labels import REQUIRED_LABELS
         from agentfox.workspace.init_project import _ensure_platform_labels
 
         mock_platform = AsyncMock()
@@ -101,7 +101,7 @@ class TestEnsurePlatformLabelsConfigError:
         """TS-358-9: Partial failure still returns count of successes."""
         import asyncio
 
-        from agentfox.platform.labels import REQUIRED_LABELS
+        from afissues.labels import REQUIRED_LABELS
         from agentfox.workspace.init_project import _ensure_platform_labels_async
 
         call_count = 0
@@ -202,13 +202,13 @@ class TestLabelConstants:
 
     def test_label_fix_value(self) -> None:
         """TS-358-11: LABEL_FIX == 'af:fix'."""
-        from agentfox.platform.labels import LABEL_FIX
+        from afissues.labels import LABEL_FIX
 
         assert LABEL_FIX == "af:fix"
 
     def test_required_labels_contains_fix(self) -> None:
         """TS-358-13: REQUIRED_LABELS contains af:fix."""
-        from agentfox.platform.labels import LABEL_FIX, REQUIRED_LABELS
+        from afissues.labels import LABEL_FIX, REQUIRED_LABELS
 
         names = {spec.name for spec in REQUIRED_LABELS}
         assert LABEL_FIX in names

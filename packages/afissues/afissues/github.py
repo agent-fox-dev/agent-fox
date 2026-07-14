@@ -791,3 +791,7 @@ def parse_github_remote(remote_url: str) -> tuple[str, str] | None:
     if match:
         return match.group(1), match.group(2)
     return None
+
+
+# Backward-compatible alias used by platform_factory and other callers.
+parse_remote = parse_github_remote

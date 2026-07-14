@@ -361,7 +361,7 @@ class TestPipelineWiring:
         import json
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

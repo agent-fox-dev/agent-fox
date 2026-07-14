@@ -231,4 +231,4 @@ class TestStaleImportDetection:
             pytest.skip("Platform directory not yet deleted — test deferred to post-deletion")
 
         with pytest.raises(ModuleNotFoundError):
-            exec("from agentfox.platform.protocol import PlatformProtocol")  # noqa: S102
+            exec("from afissues.protocol import PlatformProtocol")  # noqa: S102

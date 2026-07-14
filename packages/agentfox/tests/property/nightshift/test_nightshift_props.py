@@ -86,7 +86,7 @@ class TestPlatformProtocolSubstitutability:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
 
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         # Create a mock that satisfies PlatformProtocol
         mock_platform = AsyncMock()

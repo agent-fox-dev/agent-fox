@@ -22,7 +22,7 @@ class TestPlatformProtocolCompleteness:
         """Protocol defines create_issue, list_issues_by_label,
         add_issue_comment, assign_label, close.
         Note: create_pr was removed in spec 65 (65-REQ-4.1)."""
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.protocol import PlatformProtocol
 
         methods = {m for m in dir(PlatformProtocol) if not m.startswith("_")}
         required = {
@@ -46,8 +46,8 @@ class TestGitHubPlatformProtocol:
 
     def test_isinstance_check(self) -> None:
         """GitHubPlatform is an instance of PlatformProtocol."""
-        from agentfox.platform.github import GitHubPlatform
-        from agentfox.platform.protocol import PlatformProtocol
+        from afissues.github import GitHubPlatform
+        from afissues.protocol import PlatformProtocol
 
         gh = GitHubPlatform(owner="x", repo="y", token="t")
         assert isinstance(gh, PlatformProtocol)
@@ -68,7 +68,7 @@ class TestPlatformFactory:
 
         from agentfox.core.config import AgentFoxConfig
         from agentfox.nightshift.platform_factory import create_platform
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.github import GitHubPlatform
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]
@@ -132,7 +132,7 @@ class TestCheckCredentials:
     """Verify GitHubPlatform.check_credentials() raises on 401/403, passes on 200."""
 
     def _make_platform(self, token: str = "tok") -> object:
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.github import GitHubPlatform
 
         return GitHubPlatform(owner="owner", repo="repo", token=token)
 
@@ -141,7 +141,7 @@ class TestCheckCredentials:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.core.errors import IntegrationError
+        from afissues.errors import IntegrationError
 
         platform = self._make_platform(token="bad-token")
         mock_resp = MagicMock()
@@ -158,7 +158,7 @@ class TestCheckCredentials:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.core.errors import IntegrationError
+        from afissues.errors import IntegrationError
 
         platform = self._make_platform(token="no-access-token")
         mock_resp = MagicMock()

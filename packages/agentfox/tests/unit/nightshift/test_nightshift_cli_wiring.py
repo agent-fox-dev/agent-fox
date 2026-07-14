@@ -190,7 +190,7 @@ class TestCredentialPreflightCheck:
 
     def test_exits_1_when_credentials_invalid(self) -> None:
         """AC-2: CLI exits with code 1 when check_credentials() raises IntegrationError."""
-        from agentfox.core.errors import IntegrationError
+        from afissues.errors import IntegrationError
 
         mock_platform = MagicMock()
         mock_platform.check_credentials = AsyncMock(side_effect=IntegrationError("GitHub issue list failed (401)"))

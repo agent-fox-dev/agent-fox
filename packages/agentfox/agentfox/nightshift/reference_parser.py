@@ -9,7 +9,7 @@ import logging
 import re
 
 from agentfox.nightshift.dep_graph import DependencyEdge
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 
 logger = logging.getLogger(__name__)
 

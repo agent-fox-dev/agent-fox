@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentfox.platform.protocol import PlatformProtocol
+    from afissues.protocol import PlatformProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ async def post_issue_summaries(
     newly_completed = completed_specs - already_posted
     posted: set[str] = set()
 
-    from agentfox.platform.labels import LABEL_IMPLEMENTED
+    from afissues.labels import LABEL_IMPLEMENTED
 
     for spec_name in sorted(newly_completed):
         prd_path = specs_dir / spec_name / "prd.md"

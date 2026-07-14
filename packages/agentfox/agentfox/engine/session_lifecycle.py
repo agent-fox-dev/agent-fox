@@ -24,6 +24,7 @@ from afaudit.sink import SessionOutcome, SinkDispatcher
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.errors import IntegrationError
+from afissues.errors import IntegrationError as PlatformIntegrationError
 from agentfox.core.models import resolve_model
 from agentfox.core.node_id import parse_node_id
 from agentfox.core.prompt_safety import sanitize_prompt_content
@@ -634,7 +635,7 @@ class NodeSessionRunner:
                     head=workspace.branch,
                     base=self._config.workspace.integration_branch,
                 )
-            except IntegrationError:
+            except PlatformIntegrationError:
                 # 02-REQ-4.E2: Partial failure — branch pushed but PR
                 # creation failed.  Log the error with the remote branch
                 # URL and fall back to branch-mode semantics.

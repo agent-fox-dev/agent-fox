@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentfox.core.json_extraction import extract_json_object
-from agentfox.platform.labels import LABEL_FIX
-from agentfox.platform.protocol import IssueResult
+from afissues.labels import LABEL_FIX
+from afissues.protocol import IssueResult
 
 if TYPE_CHECKING:
     from afaudit.sink import SinkDispatcher

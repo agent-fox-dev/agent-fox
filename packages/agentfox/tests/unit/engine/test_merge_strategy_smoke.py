@@ -33,12 +33,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from afaudit.sink import SessionOutcome
 from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
-from agentfox.core.errors import IntegrationError
+from afissues.errors import IntegrationError
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.nightshift.spec_builder import InMemorySpec
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------
@@ -701,7 +701,7 @@ class TestSmokeDuplicatePrIdempotent:
     @pytest.mark.asyncio
     async def test_duplicate_pr_returns_existing_url(self) -> None:
         """HTTP 422 with duplicate-PR -> GET existing PR -> return html_url."""
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.github import GitHubPlatform
 
         # Mock the _request method on GitHubPlatform
         mock_422_resp = MagicMock()

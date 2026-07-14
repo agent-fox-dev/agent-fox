@@ -75,7 +75,7 @@ def _make_config() -> MagicMock:
 
 
 def _make_issue(number: int = 42):  # type: ignore[no-untyped-def]
-    from agentfox.platform.protocol import IssueResult
+    from afissues.protocol import IssueResult
 
     return IssueResult(
         number=number,

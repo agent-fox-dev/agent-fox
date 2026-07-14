@@ -57,7 +57,7 @@ class TestCreatePlatformSafe:
         Requirements: 108-REQ-5.1
         """
         from agentfox.nightshift.platform_factory import create_platform_safe
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.github import GitHubPlatform
 
         config = MagicMock()
         config.platform.type = "github"

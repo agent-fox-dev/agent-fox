@@ -11,7 +11,7 @@ from GitHubPlatform in spec 65 (65-REQ-4.2).
 
 from __future__ import annotations
 
-from agentfox.platform.github import GitHubPlatform, parse_remote
+from afissues.github import GitHubPlatform, parse_remote
 
 # ---------------------------------------------------------------------------
 # TS-19-14: parse_remote HTTPS

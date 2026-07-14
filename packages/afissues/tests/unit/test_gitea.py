@@ -8,8 +8,8 @@ Requirements: 05-REQ-1.* through 05-REQ-20.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
-The Gitea module will live at agentfox.platform.gitea alongside the
-existing agentfox.platform.github module.
+The Gitea module will live at afissues.gitea alongside the
+existing afissues.github module.
 """
 
 from __future__ import annotations
@@ -18,18 +18,18 @@ import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.core.errors import ConfigError, IntegrationError
-from agentfox.platform.protocol import IssueComment, IssueResult, PlatformProtocol
+from afissues.errors import ConfigError, IntegrationError
+from afissues.protocol import IssueComment, IssueResult, PlatformProtocol
 
 # ---------------------------------------------------------------------------
 # Helpers (modelled after test_gitlab.py / test_github_issues_rest.py)
 # ---------------------------------------------------------------------------
 
 # Target for patching httpx.AsyncClient in the gitea module.
-_TARGET = "agentfox.platform.gitea.httpx.AsyncClient"
+_TARGET = "afissues.gitea.httpx.AsyncClient"
 
 # Target for patching _validate_url in the gitea module.
-_VALIDATE_URL_TARGET = "agentfox.platform.gitea._validate_github_url"
+_VALIDATE_URL_TARGET = "afissues.gitea._validate_github_url"
 
 
 def _mock_client(**method_responses: MagicMock | AsyncMock) -> AsyncMock:
@@ -69,9 +69,9 @@ def _make_platform():  # type: ignore[no-untyped-def]
     without performing real DNS resolution.
 
     Note: Once spec 04 extracts _validate_url into afissues._ssrf, the patch
-    target will change to 'agentfox.platform.gitea._validate_url'.
+    target will change to 'afissues.gitea._validate_url'.
     """
-    from agentfox.platform.gitea import GiteaPlatform
+    from afissues.gitea import GiteaPlatform
 
     with patch(_VALIDATE_URL_TARGET):
         return GiteaPlatform("myorg", "myrepo", "mytoken", "gitea.example.com")
@@ -88,7 +88,7 @@ class TestGiteaForgeType:
 
     def test_forge_type_is_gitea(self) -> None:
         """TS-05-1: forge_type class attribute equals 'gitea' without instantiating."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         assert GiteaPlatform.forge_type == "gitea"
 
@@ -135,7 +135,7 @@ class TestConstructorCallsValidateUrl:
 
     def test_validate_url_called_once(self) -> None:
         """TS-05-3: _validate_url called exactly once with the supplied url."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(_VALIDATE_URL_TARGET) as mock_validate:
             GiteaPlatform("myorg", "myrepo", "token123", "gitea.example.com")
@@ -192,7 +192,7 @@ class TestConstructorSSRF:
 
     def test_raises_config_error(self) -> None:
         """TS-05-E1: ConfigError raised when _validate_url raises."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,
@@ -203,7 +203,7 @@ class TestConstructorSSRF:
 
     def test_config_error_not_integration_error(self) -> None:
         """TS-05-E1: ConfigError is not re-wrapped as IntegrationError."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,
@@ -218,7 +218,7 @@ class TestConstructorSSRF:
 
     def test_config_error_type_exact(self) -> None:
         """TS-05-E1: Raised exception type is exactly ConfigError."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,
@@ -240,7 +240,7 @@ class TestConstructorTokenVerbatim:
 
     def test_special_characters_in_token(self) -> None:
         """TS-05-E2: Special characters in token are preserved verbatim."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(_VALIDATE_URL_TARGET):
             platform = GiteaPlatform(
@@ -413,14 +413,14 @@ class TestParseRemoteHTTPS:
 
     def test_https_url_with_dot_git(self) -> None:
         """TS-05-46: HTTPS URL with .git suffix → (owner, repo)."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("https://gitea.example.com/myowner/myrepo.git")
         assert result == ("myowner", "myrepo")
 
     def test_https_url_without_dot_git(self) -> None:
         """TS-05-46: HTTPS URL without .git suffix → (owner, repo)."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("https://gitea.example.com/myowner/myrepo")
         assert result == ("myowner", "myrepo")
@@ -437,14 +437,14 @@ class TestParseRemoteSSH:
 
     def test_ssh_url_with_dot_git(self) -> None:
         """TS-05-47: SSH URL with .git suffix → (owner, repo)."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("git@gitea.example.com:myowner/myrepo.git")
         assert result == ("myowner", "myrepo")
 
     def test_ssh_url_without_dot_git(self) -> None:
         """TS-05-47: SSH URL without .git suffix → (owner, repo)."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("git@gitea.example.com:myowner/myrepo")
         assert result == ("myowner", "myrepo")
@@ -461,14 +461,14 @@ class TestParseRemoteUnparseable:
 
     def test_returns_none_for_garbage(self) -> None:
         """TS-05-48: Random string → None."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("not-a-valid-url")
         assert result is None
 
     def test_returns_none_for_empty(self) -> None:
         """TS-05-48: Empty string → None."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("")
         assert result is None
@@ -485,7 +485,7 @@ class TestParseRemoteAnyHostname:
 
     def test_internal_hostname(self) -> None:
         """TS-05-49: Internal/arbitrary hostname is accepted."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote(
             "https://my-internal-server.corp.local/team/project.git"
@@ -494,7 +494,7 @@ class TestParseRemoteAnyHostname:
 
     def test_ip_hostname(self) -> None:
         """TS-05-49: IP-based hostname is accepted."""
-        from agentfox.platform.gitea import parse_remote
+        from afissues.gitea import parse_remote
 
         result = parse_remote("https://192.168.1.100/org/repo.git")
         assert result == ("org", "repo")
@@ -2325,7 +2325,7 @@ class TestPlatformFactoryGitea:
         and will be refactored by spec 04 to support multi-platform routing.
         We test that GiteaPlatform can be constructed with the expected parameters.
         """
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(_VALIDATE_URL_TARGET):
             platform = GiteaPlatform("org", "repo", "tok", "gitea.corp.com")
@@ -2345,7 +2345,7 @@ class TestGiteaImports:
 
     def test_gitea_import_no_error(self) -> None:
         """TS-05-51: import succeeds; no NotImplementedError raised."""
-        from agentfox.platform.gitea import GiteaPlatform, parse_remote  # noqa: F811
+        from afissues.gitea import GiteaPlatform, parse_remote  # noqa: F811
 
         assert GiteaPlatform is not None
         assert parse_remote is not None
@@ -2366,8 +2366,8 @@ class TestReExports:
 
     def test_all_platforms_importable(self) -> None:
         """TS-05-52: GiteaPlatform, GitHubPlatform importable from platform modules."""
-        from agentfox.platform.gitea import GiteaPlatform  # noqa: F811
-        from agentfox.platform.github import GitHubPlatform
+        from afissues.gitea import GiteaPlatform  # noqa: F811
+        from afissues.github import GitHubPlatform
 
         assert GiteaPlatform is not None
         assert GitHubPlatform is not None
@@ -2917,7 +2917,7 @@ class TestPropertyDefaultParamsMatchProtocol:
 
     def test_list_issues_by_label_defaults(self) -> None:
         """TS-05-P5: list_issues_by_label defaults match protocol."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         sig = inspect.signature(GiteaPlatform.list_issues_by_label)
         proto_sig = inspect.signature(PlatformProtocol.list_issues_by_label)
@@ -2936,7 +2936,7 @@ class TestPropertyDefaultParamsMatchProtocol:
 
     def test_close_issue_comment_default(self) -> None:
         """TS-05-P5: close_issue comment default matches protocol."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         sig = inspect.signature(GiteaPlatform.close_issue)
         proto_sig = inspect.signature(PlatformProtocol.close_issue)
@@ -2946,7 +2946,7 @@ class TestPropertyDefaultParamsMatchProtocol:
 
     def test_create_label_description_default(self) -> None:
         """TS-05-P5: create_label description default matches protocol."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         sig = inspect.signature(GiteaPlatform.create_label)
         proto_sig = inspect.signature(PlatformProtocol.create_label)
@@ -2981,7 +2981,7 @@ class TestPropertyConfigErrorPropagation:
     )
     def test_config_error_message_preserved(self, error_message: str) -> None:
         """TS-05-P6: ConfigError message propagates unchanged."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,
@@ -2996,7 +2996,7 @@ class TestPropertyConfigErrorPropagation:
 
     def test_config_error_is_not_integration_error(self) -> None:
         """TS-05-P6: ConfigError is never caught and re-raised as IntegrationError."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,
@@ -3294,7 +3294,7 @@ class TestSmokeEndToEnd:
     @pytest.mark.asyncio
     async def test_smoke_e2e_factory_check_create(self) -> None:
         """TS-05-SMOKE-5: GiteaPlatform construction → check_credentials → create_issue."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         # 1. Construct platform
         with patch(_VALIDATE_URL_TARGET):
@@ -3373,7 +3373,7 @@ class TestSmokeSsrfRejection:
 
     def test_smoke_ssrf_disallowed_url(self) -> None:
         """TS-05-SMOKE-6: _validate_url raises ConfigError → no instance created."""
-        from agentfox.platform.gitea import GiteaPlatform
+        from afissues.gitea import GiteaPlatform
 
         with patch(
             _VALIDATE_URL_TARGET,

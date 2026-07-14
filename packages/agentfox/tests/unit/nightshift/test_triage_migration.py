@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from agentfox.nightshift.dep_graph import DependencyEdge
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 
 # ---------------------------------------------------------------------------
 # Helpers

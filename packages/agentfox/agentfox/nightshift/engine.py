@@ -27,7 +27,7 @@ from agentfox.nightshift.reference_parser import (
 )
 from agentfox.nightshift.staleness import check_staleness
 from agentfox.nightshift.triage import run_batch_triage
-from agentfox.platform.labels import LABEL_FIX, LABEL_FIXED
+from afissues.labels import LABEL_FIX, LABEL_FIXED
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback
 
 if TYPE_CHECKING:
@@ -521,7 +521,7 @@ class NightShiftEngine:
         Requirements: 61-REQ-6.1, 61-REQ-6.2, 61-REQ-6.3, 61-REQ-6.4,
                       61-REQ-9.3
         """
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         if not isinstance(issue, IssueResult):
             return

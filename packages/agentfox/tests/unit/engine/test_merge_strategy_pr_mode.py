@@ -35,7 +35,7 @@ from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.nightshift.spec_builder import InMemorySpec
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------

@@ -25,11 +25,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentfox.core.errors import IntegrationError
-from agentfox.platform.github import GitHubPlatform
+from afissues.errors import IntegrationError
+from afissues.github import GitHubPlatform
 
-_TARGET = "agentfox.platform._http.httpx.AsyncClient"
-_SLEEP_TARGET = "agentfox.platform._http.asyncio.sleep"
+_TARGET = "afissues._http.httpx.AsyncClient"
+_SLEEP_TARGET = "afissues._http.asyncio.sleep"
 
 
 # ---------------------------------------------------------------------------

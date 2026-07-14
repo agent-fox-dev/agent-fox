@@ -34,7 +34,7 @@ class TestInMemorySpec:
     def test_build_spec_from_issue(self) -> None:
         """InMemorySpec has populated fields from issue."""
         from agentfox.nightshift.spec_builder import build_in_memory_spec
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         issue = IssueResult(
             number=42,
@@ -50,7 +50,7 @@ class TestInMemorySpec:
     def test_spec_has_system_context(self) -> None:
         """InMemorySpec contains the issue body as system context."""
         from agentfox.nightshift.spec_builder import build_in_memory_spec
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         issue = IssueResult(
             number=10,
@@ -227,7 +227,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -293,7 +293,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -366,8 +366,8 @@ class TestSuccessfulFixHarvestsAndCloses:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.labels import LABEL_FIXED, LABEL_NO_CHANGE
-        from agentfox.platform.protocol import IssueResult
+        from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -449,7 +449,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from unittest.mock import AsyncMock, MagicMock
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -489,7 +489,7 @@ class TestEmptyIssueBody:
         from unittest.mock import AsyncMock, MagicMock
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -532,7 +532,7 @@ class TestSupersessionPairsActedOn:
 
         from agentfox.nightshift.engine import NightShiftEngine
         from agentfox.nightshift.triage import TriageResult
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -583,7 +583,7 @@ class TestSupersessionPairsActedOn:
 
         from agentfox.nightshift.engine import NightShiftEngine
         from agentfox.nightshift.triage import TriageResult
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -645,7 +645,7 @@ class TestReviewerRetryOnParseFailure:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -720,7 +720,7 @@ class TestReviewerRetryOnParseFailure:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -792,7 +792,7 @@ class TestFixPipelineDbTelemetry:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -882,7 +882,7 @@ class TestFixPipelineDbTelemetry:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -914,7 +914,7 @@ class TestFixPipelineDbTelemetry:
 
         from agentfox.engine.state import SessionOutcomeRecord
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -1004,7 +1004,7 @@ class TestFixPipelineDbTelemetry:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -1090,7 +1090,7 @@ class TestFixPipelineDbTelemetry:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.engine import NightShiftEngine
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -1175,7 +1175,7 @@ class TestScanCounterIncrement:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from agentfox.nightshift.engine import NightShiftEngine
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -1260,7 +1260,7 @@ class TestExceptionSanitizationInFailureComment:
         from unittest.mock import AsyncMock, MagicMock
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -1313,7 +1313,7 @@ class TestExceptionSanitizationInFailureComment:
         from unittest.mock import AsyncMock, MagicMock
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -1354,7 +1354,7 @@ class TestExceptionSanitizationInFailureComment:
         from unittest.mock import AsyncMock, MagicMock
 
         from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.platform.protocol import IssueResult
+        from afissues.protocol import IssueResult
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

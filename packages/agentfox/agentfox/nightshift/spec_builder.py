@@ -25,7 +25,7 @@ from afspec.models import (
 )
 
 from agentfox.core.prompt_safety import sanitize_prompt_content
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 
 if TYPE_CHECKING:
     from agentfox.nightshift.fix_pipeline import TriageResult

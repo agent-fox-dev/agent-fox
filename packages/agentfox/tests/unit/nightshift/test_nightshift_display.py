@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentfox.nightshift.engine import NightShiftEngine
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 from agentfox.ui.progress import ProgressDisplay
 
 

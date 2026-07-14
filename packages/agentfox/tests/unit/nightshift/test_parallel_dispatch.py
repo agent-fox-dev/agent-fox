@@ -11,7 +11,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.platform.protocol import IssueResult
+from afissues.protocol import IssueResult
 
 # ---------------------------------------------------------------------------
 # Helpers
