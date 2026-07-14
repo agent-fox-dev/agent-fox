@@ -14,7 +14,7 @@ import pytest
 # Patch target for _resolve_remote in the factory module.
 _RESOLVE_REMOTE = "agentfox.nightshift.platform_factory._resolve_remote"
 # Patch target for the SSRF guard called inside the GiteaPlatform constructor.
-_VALIDATE_URL = "agentfox.platform.gitea._validate_github_url"
+_VALIDATE_URL = "afissues.gitea._validate_github_url"
 
 
 class TestPlatformFactoryGitea:
@@ -25,8 +25,8 @@ class TestPlatformFactoryGitea:
 
         Requirements: 05-REQ-18.1, 05-REQ-20.7
         """
+        from afissues.gitea import GiteaPlatform
         from agentfox.nightshift.platform_factory import create_platform
-        from agentfox.platform.gitea import GiteaPlatform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -47,8 +47,8 @@ class TestPlatformFactoryGitea:
 
         Requirements: 05-REQ-18.1
         """
+        from afissues.gitea import GiteaPlatform
         from agentfox.nightshift.platform_factory import create_platform_safe
-        from agentfox.platform.gitea import GiteaPlatform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -133,8 +133,8 @@ class TestPlatformFactoryGitea:
 
         Requirements: 05-REQ-18.2
         """
-        from agentfox.platform.gitea import GiteaPlatform
-        from agentfox.platform.gitea import parse_remote as parse_gitea_remote
+        from afissues.gitea import GiteaPlatform
+        from afissues.gitea import parse_remote as parse_gitea_remote
 
         assert GiteaPlatform is not None
         assert parse_gitea_remote is not None

@@ -3,9 +3,11 @@
 Re-exports all public symbols so consumers can import from the top-level
 ``afissues`` namespace without knowing which sub-module each symbol lives in.
 
-Requirements: 03-REQ-6.1
+Requirements: 03-REQ-6.1, 05-REQ-19.1
 """
 
+from afissues.gitea import GiteaPlatform
+from afissues.gitea import parse_remote as parse_gitea_remote
 from afissues.github import GitHubPlatform, parse_github_remote
 from afissues.labels import (
     LABEL_FIX,
@@ -31,6 +33,9 @@ __all__ = [
     "NullPlatform",
     "IssueResult",
     "IssueComment",
+    # afissues.gitea
+    "GiteaPlatform",
+    "parse_gitea_remote",
     # afissues.github
     "GitHubPlatform",
     "parse_github_remote",

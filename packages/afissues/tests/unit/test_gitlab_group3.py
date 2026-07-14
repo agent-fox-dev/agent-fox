@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
 from afissues.errors import ConfigError, IntegrationError
 
 # ---------------------------------------------------------------------------
@@ -414,8 +415,8 @@ class TestFactoryGitLabRouting:
 
     def test_creates_gitlab_platform(self, tmp_path: MagicMock) -> None:
         """TS-04-36: create_platform with type='gitlab' returns GitLabPlatform."""
-        from agentfox.nightshift.platform_factory import create_platform
         from afissues.gitlab import GitLabPlatform
+        from agentfox.nightshift.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -512,15 +513,20 @@ class TestFactoryGitLabMissingToken:
 # ===========================================================================
 
 
-class TestFactoryGiteaUnavailable:
-    """TS-04-38: Factory error when Gitea requested but unavailable."""
+class TestFactoryGiteaAvailable:
+    """TS-04-38 (superseded by 05-REQ-18.2): Gitea is now available.
 
-    def test_raises_config_error_gitea_unavailable(
+    The original TS-04-38 tested that the factory raised ConfigError when
+    afissues.gitea was absent (import guard).  Spec 05 (05-REQ-18.2) replaced
+    the guard with a direct top-level import, so the 'unavailable' path no
+    longer exists.  This test now verifies the positive case: with the correct
+    config, a GiteaPlatform instance is constructed.
+    """
+
+    def test_creates_gitea_platform_when_configured(
         self, tmp_path: MagicMock,
     ) -> None:
-        """TS-04-38: Error with 'not yet available' when gitea absent."""
-        import sys
-
+        """Gitea is available — factory returns GiteaPlatform (05-REQ-18.1)."""
         from agentfox.nightshift.platform_factory import create_platform
 
         config = MagicMock()
@@ -530,17 +536,15 @@ class TestFactoryGiteaUnavailable:
 
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
-            patch.dict(sys.modules, {"afissues.gitea": None}),
+            patch(
+                "agentfox.nightshift.platform_factory._resolve_remote",
+                return_value=("owner", "repo"),
+            ),
+            patch("afissues.gitea._validate_github_url"),
         ):
-            with pytest.raises((ConfigError, SystemExit)) as exc_info:
-                create_platform(config, tmp_path)
+            result = create_platform(config, tmp_path)
 
-        if isinstance(exc_info.value, ConfigError):
-            err_msg = str(exc_info.value)
-            assert (
-                "gitea" in err_msg.lower()
-                or "not yet available" in err_msg.lower()
-            )
+        assert result.forge_type == "gitea"
 
 
 # ===========================================================================
@@ -1009,8 +1013,8 @@ class TestSmokeCreateIssueAndLabel:
         self, tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-1: Full E2E with mocked HTTP responses."""
-        from agentfox.nightshift.platform_factory import create_platform
         from afissues.gitlab import GitLabPlatform
+        from agentfox.nightshift.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -1125,15 +1129,18 @@ class TestSmokeSSRFBlocked:
                 create_platform(config, tmp_path)
 
 
-class TestSmokeGiteaUnavailable:
-    """TS-04-SMOKE-5: Gitea unavailable -> ConfigError."""
+class TestSmokeGiteaAvailable:
+    """TS-04-SMOKE-5 (superseded by 05-REQ-18.2): Gitea is now available.
 
-    def test_gitea_unavailable_config_error(
+    The original smoke test verified the 'unavailable' error path.
+    Spec 05 removed the import guard so this path no longer exists.
+    Updated to verify the happy path: factory constructs GiteaPlatform.
+    """
+
+    def test_gitea_available_creates_platform(
         self, tmp_path: MagicMock,
     ) -> None:
-        """TS-04-SMOKE-5: Gitea unavailable raises ConfigError."""
-        import sys
-
+        """TS-04-SMOKE-5 (updated): Gitea available creates GiteaPlatform."""
         from agentfox.nightshift.platform_factory import create_platform
 
         config = MagicMock()
@@ -1143,7 +1150,12 @@ class TestSmokeGiteaUnavailable:
 
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
-            patch.dict(sys.modules, {"afissues.gitea": None}),
+            patch(
+                "agentfox.nightshift.platform_factory._resolve_remote",
+                return_value=("owner", "repo"),
+            ),
+            patch("afissues.gitea._validate_github_url"),
         ):
-            with pytest.raises((ConfigError, SystemExit)):
-                create_platform(config, tmp_path)
+            result = create_platform(config, tmp_path)
+
+        assert result.forge_type == "gitea"
