@@ -6,8 +6,7 @@ Test Spec: TS-05-1 through TS-05-45, TS-05-E1 through TS-05-E21,
            TS-05-SMOKE-1 through TS-05-SMOKE-6 (smoke tests)
 Requirements: 05-REQ-1.* through 05-REQ-20.*
 
-Note: Import paths use agentfox.platform.* (the actual codebase layout),
-not afissues.* (the spec-03 future layout that has not been extracted yet).
+Note: Import paths use afissues.* (the extracted platform package).
 The Gitea module will live at afissues.gitea alongside the
 existing afissues.github module.
 """
@@ -2355,10 +2354,8 @@ class TestGiteaImports:
 # ===========================================================================
 # TS-05-52: GiteaPlatform re-exported from top-level package alongside others
 # Requirement: 05-REQ-19.1
-# Note: Since spec 03 hasn't extracted the afissues package, we test the
-#       agentfox.platform module-level exports instead. Once spec 03 creates
-#       the afissues package, this test should be updated to use
-#       'from afissues import GiteaPlatform'.
+# Note: The afissues package has been extracted (spec 03). GiteaPlatform
+#       is imported from afissues.gitea.
 # ===========================================================================
 
 

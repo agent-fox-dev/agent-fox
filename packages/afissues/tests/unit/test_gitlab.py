@@ -3,8 +3,7 @@
 Test Spec: TS-04-1 through TS-04-32, TS-04-E1 through TS-04-E24
 Requirements: 04-REQ-1.* through 04-REQ-18.*, 04-REQ-16.*, 04-REQ-17.*
 
-Note: Import paths use agentfox.platform.* (the actual codebase layout),
-not afissues.* (the spec-03 future layout that has not been extracted yet).
+Note: Import paths use afissues.* (the extracted platform package).
 The GitLab module will live at afissues.gitlab alongside the
 existing afissues.github module.
 """
@@ -24,7 +23,7 @@ from afissues.protocol import IssueComment, IssueResult
 # ---------------------------------------------------------------------------
 
 # Target for patching httpx.AsyncClient in the gitlab module.
-# This will resolve once agentfox/platform/gitlab.py is created.
+# This will resolve once afissues/gitlab.py (or afissues/_http.py) is created.
 _TARGET = "afissues._http.httpx.AsyncClient"
 
 

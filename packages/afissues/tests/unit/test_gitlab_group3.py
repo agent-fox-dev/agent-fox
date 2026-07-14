@@ -5,7 +5,7 @@ Test Spec: TS-04-33 through TS-04-41, TS-04-E25 through TS-04-E29,
 Requirements: 04-REQ-19.*, 04-REQ-20.*, 04-REQ-21.*, 04-REQ-22.*,
               04-PROP-1 through 04-PROP-9
 
-Note: Import paths use agentfox.platform.* (the actual codebase layout).
+Note: Import paths use afissues.* (the extracted platform package).
 """
 
 from __future__ import annotations
