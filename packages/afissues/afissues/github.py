@@ -2,11 +2,10 @@
 
 Provides ``GitHubPlatform`` (the GitHub forge implementation of
 ``PlatformProtocol``), the ``parse_github_remote`` helper, and all
-supporting SSRF-guard and retry infrastructure required for safe,
-reliable HTTP communication with the GitHub REST API.
+supporting retry infrastructure required for safe, reliable HTTP
+communication with the GitHub REST API.
 
-This module is self-contained: it imports only from ``afissues.errors``,
-``afissues.protocol``, ``httpx``, and the standard library.
+SSRF-guard utilities are imported from ``afissues._ssrf``.
 
 Requirements: 03-REQ-3.1, 03-REQ-3.2, 03-REQ-3.3, 03-REQ-3.4,
               03-REQ-3.E1, 03-REQ-3.E2, 03-REQ-3.E3
@@ -15,124 +14,26 @@ Requirements: 03-REQ-3.1, 03-REQ-3.2, 03-REQ-3.3, 03-REQ-3.4,
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
 import re
-import socket
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 
-from afissues.errors import ConfigError, IntegrationError
+from afissues._ssrf import (
+    SSRFGuardTransport,
+    _check_address,
+    _validate_transport_address,
+    _validate_url,
+)
+from afissues.errors import ConfigError, IntegrationError  # noqa: F401 – ConfigError re-exported for SSRF callers
 from afissues.protocol import IssueComment, IssueResult
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# SSRF guard utilities
-# ---------------------------------------------------------------------------
-
-
-def _check_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str) -> None:
-    """Raise ``ConfigError`` if *addr* is a restricted address.
-
-    Requirements: 04-REQ-18.2
-    """
-    if (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-        or addr.is_unspecified
-    ):
-        raise ConfigError(
-            f"URL {url!r} resolves to a restricted IP address: {addr}",
-        )
-
-
-def _validate_github_url(url: str) -> None:
-    """Validate that *url* does not point to a restricted IP address.
-
-    Strips an optional port suffix (host:port), then resolves the hostname
-    and checks every returned address against private, loopback, and
-    link-local ranges.  Raises ``ConfigError`` if any restricted address is
-    found.
-
-    Requirements: 221-REQ-1.*, 221-REQ-2.*, 04-REQ-18.1
-    """
-    try:
-        addr = ipaddress.ip_address(url)
-        _check_address(addr, url)
-        return
-    except ValueError:
-        pass
-
-    parsed = urlsplit(f"https://{url}")
-    host = parsed.hostname or url
-
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except (OSError, UnicodeError):
-        logger.warning("DNS resolution failed for %r; allowing URL through", url)
-        return
-
-    for info in infos:
-        addr_str = info[4][0]
-        try:
-            addr = ipaddress.ip_address(addr_str)
-        except ValueError:
-            continue
-        _check_address(addr, url)
-
-
-def _validate_transport_address(host: str) -> None:
-    """Resolve *host* and reject restricted addresses at connection time.
-
-    Closes the TOCTOU window between construction-time URL validation and
-    the actual TCP connection.  Unlike ``_validate_github_url``, a DNS failure
-    here is passed through -- the parent transport will surface a
-    ``ConnectError`` as expected.
-
-    Requirements: 580-AC-1, 580-AC-4, 580-AC-5
-    """
-    try:
-        addr = ipaddress.ip_address(host)
-        _check_address(addr, host)
-        return
-    except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except (OSError, UnicodeError):
-        return
-
-    for info in infos:
-        addr_str = info[4][0]
-        try:
-            addr = ipaddress.ip_address(addr_str)
-        except ValueError:
-            continue
-        _check_address(addr, host)
-
-
-class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
-    """Validating transport that re-checks DNS before each TCP connection.
-
-    Closes the TOCTOU window between construction-time URL validation and
-    the actual TCP connection by resolving and validating the target host
-    on every request.  ``ConfigError`` is raised -- before any bytes are
-    sent -- if DNS has rebound to a restricted address.
-
-    Requirements: 580-AC-1, 580-AC-4, 580-AC-5
-    """
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        host = request.url.host
-        if host:
-            _validate_transport_address(host)
-        return await super().handle_async_request(request)
+# Backward-compatible aliases used by tests and gitea.py.
+_validate_github_url = _validate_url
+_SSRFGuardTransport = SSRFGuardTransport
 
 
 # ---------------------------------------------------------------------------

@@ -132,7 +132,10 @@ def findings_cmd(
 
     # 84-REQ-4.E2: Handle empty results gracefully
     if not rows:
-        click.echo("No findings match the given filters")
+        if om.json_mode:
+            om.emit({"findings": []})
+        else:
+            click.echo("No findings match the given filters")
         return
 
     # 04-REQ-6.3: Use format_table from agentfox.io for tabular output

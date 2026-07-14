@@ -129,7 +129,10 @@ class PlatformProtocol(Protocol):
         head: str,
         base: str,
     ) -> str:
-        """Create a pull request and return its ``html_url``."""
+        """Create a pull request and return its ``html_url``.
+
+        Raises ``IntegrationError`` on API failure.
+        """
         ...
 
     async def close(self) -> None: ...
