@@ -1,0 +1,1396 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "gitlab_platform",
+  "schema_version": 1,
+  "introduction": "This spec defines the `GitLabPlatform` concrete implementation of `PlatformProtocol` in the `afissues` package, along with shared SSRF/HTTP utilities and platform factory updates, enabling agent-fox to manage GitLab issues, labels, and merge requests with the same interface used for GitHub. Note: requirements referencing `afissues.protocol`, `afissues.errors`, and `GitHubPlatform` APIs are based on PRD descriptions of spec 03 (`03_extract_platform_afissues`) and should be cross-checked against the installed package before implementation.",
+  "glossary": {
+    "ConfigError": "Exception class in `afissues.errors` raised when the platform is misconfigured (e.g., invalid URL, missing token, SSRF violation).",
+    "GITEA_TOKEN": "Environment variable holding the Gitea personal access token used by the platform factory.",
+    "GITHUB_TOKEN": "Environment variable holding the GitHub personal or installation access token used by the platform factory.",
+    "GITLAB_TOKEN": "Environment variable holding the GitLab personal or project access token used by the platform factory.",
+    "GitHubPlatform": "Existing concrete implementation of `PlatformProtocol` in `afissues/github.py`, targeting the GitHub REST API.",
+    "GitLabPlatform": "New concrete implementation of `PlatformProtocol` in `afissues/gitlab.py`, targeting the GitLab REST API v4.",
+    "GiteaPlatform": "Future concrete implementation of `PlatformProtocol` for Gitea, introduced by the `gitea_platform` spec; only a lazy-import stub exists in the factory after this spec.",
+    "IntegrationError": "Exception class in `afissues.errors` raised when an external API call returns an unexpected HTTP status or connectivity error.",
+    "IssueComment": "Dataclass defined in `afissues.protocol` representing a platform-agnostic issue comment, with fields: `id`, `body`, `user`, `created_at`.",
+    "IssueResult": "Dataclass defined in `afissues.protocol` representing a platform-agnostic issue, with fields: `number`, `title`, `html_url`, `body`, `labels`.",
+    "PRIVATE-TOKEN": "GitLab HTTP request header used for authentication, carrying a personal access token or project access token.",
+    "PlatformProtocol": "Abstract base class/protocol defined in `afissues.protocol` that declares the 12 standard methods all platform implementations must fulfil.",
+    "SSRFGuardTransport": "Custom `httpx.AsyncHTTPTransport` subclass in `afissues/_ssrf.py` that rejects requests targeting private/loopback/link-local IP addresses.",
+    "_SUPPORTED_PLATFORMS": "Module-level constant in `platform_factory.py` listing the valid platform type strings.",
+    "_check_address": "Function in `afissues/_ssrf.py` that raises `ConfigError` when an address violates SSRF constraints.",
+    "_http.py": "Shared internal module `afissues/_http.py` containing the `request_with_retry` async function extracted from `GitHubPlatform._request`.",
+    "_ssrf.py": "Shared internal module `afissues/_ssrf.py` containing SSRF guard utilities extracted from `afissues/github.py`.",
+    "_validate_transport_address": "Function in `afissues/_ssrf.py` that validates a resolved host address for SSRF safety.",
+    "_validate_url": "Function in `afissues/_ssrf.py` that validates a URL string for SSRF safety.",
+    "add_labels": "GitLab issue update API field accepting a comma-separated string of label names to add to an issue.",
+    "afissues": "Python package housing the platform abstraction layer, protocol definitions, error types, and platform implementations.",
+    "api": "GitLab personal access token scope granting full read/write REST API access; the minimum required scope for `GitLabPlatform`.",
+    "backoff_base": "Parameter to `request_with_retry` specifying the base delay in seconds for exponential backoff between retry attempts.",
+    "create_platform": "Factory function in `platform_factory.py` that constructs and returns a `PlatformProtocol` instance.",
+    "create_platform_safe": "Factory function in `platform_factory.py` that constructs a `PlatformProtocol` instance, suppressing or wrapping errors for safe callers.",
+    "description": "GitLab API field for the body/content of an issue or merge request. Maps to `IssueResult.body` and is sourced from `body` in protocol method arguments.",
+    "forge_type": "Class attribute on platform implementations (e.g., `\"gitlab\"`) identifying the forge kind.",
+    "iid": "Project-internal issue ID used by GitLab (integer); distinct from the global issue `id`. Maps to `IssueResult.number`.",
+    "merge_requests": "GitLab API resource name for pull requests.",
+    "notes": "GitLab API resource name for issue comments (equivalent to GitHub's `comments`).",
+    "opened": "GitLab API value for the open issue state (GitHub uses `open`).",
+    "order_by": "GitLab API query parameter specifying the field to sort results by (e.g., `created_at`, `updated_at`).",
+    "parse_github_remote": "Legacy name for `parse_remote` in `afissues/github.py`, removed in the same PR that introduces this spec.",
+    "parse_remote": "Module-level function in each platform module (`afissues/github.py`, `afissues/gitlab.py`) that parses a git remote URL and returns a tuple of (namespace, project) or `None`.",
+    "per_page": "GitLab API query parameter capping the number of results returned per page; this spec caps all list endpoints at 100.",
+    "platform_factory.py": "Module at `agentfox/nightshift/platform_factory.py` that constructs the appropriate `PlatformProtocol` instance based on platform type configuration.",
+    "project_id": "Raw, unencoded GitLab project path string (e.g., `\"group/subgroup/project\"`) passed to `GitLabPlatform` constructor; URL-encoded internally when building API request URLs.",
+    "remove_labels": "GitLab issue update API field accepting a comma-separated string of label names to remove from an issue.",
+    "request_with_retry": "Async function in `afissues/_http.py` that wraps `httpx.AsyncClient` method calls with retry-on-transient-error logic and exponential backoff.",
+    "source_branch": "GitLab merge request API field corresponding to the `head` branch in the protocol's `create_pr` method.",
+    "state_event": "GitLab API field used in issue update requests to trigger state transitions (e.g., `close`).",
+    "system": "Boolean field on GitLab note (comment) objects; when `true`, the note is a system-generated activity event and should be excluded from `list_issue_comments` results.",
+    "target_branch": "GitLab merge request API field corresponding to the `base` branch in the protocol's `create_pr` method.",
+    "web_url": "GitLab API response field containing the public HTML URL of an issue or merge request. Maps to `IssueResult.html_url`.",
+    "\"\"": "Empty string default value for optional fields.",
+    "\"192.168.1.1\"": "Example private IPv4 address used in SSRF validation test scenarios.",
+    "\"409 duplicate MR returned; fallback GET failed with {status}\"": "Error message template for create_pr when 409 idempotency fallback GET also fails.",
+    "\"The Gitea platform is not yet available. Install the afissues package with Gitea support.\"": "Error message shown when platform factory routes to Gitea but GiteaPlatform is not importable.",
+    "\"all\"": "Issue state filter value requesting both open and closed issues.",
+    "\"asc\"": "Sort direction value for ascending order.",
+    "\"closed\"": "Issue state value indicating a closed issue.",
+    "\"created\"": "Sort field value for sorting by creation date.",
+    "\"created_at\"": "GitLab API sort field name for creation timestamp.",
+    "\"desc\"": "Sort direction value for descending order.",
+    "\"gitea\"": "Platform type configuration value for Gitea forge.",
+    "\"github\"": "Platform type configuration value for GitHub forge.",
+    "\"gitlab\"": "Platform type configuration value for GitLab forge.",
+    "\"group%2Fsubgroup%2Fproject\"": "URL-encoded GitLab project path used in API URLs.",
+    "\"group/subgroup\"": "Example GitLab namespace path with nested groups.",
+    "\"group/subgroup/project\"": "Example raw GitLab project path before URL encoding.",
+    "\"namespace/project\"": "Generic form of a GitLab project path with namespace.",
+    "\"open\"": "GitHub/protocol issue state value for open issues.",
+    "\"opened\"": "GitLab API issue state value for open issues.",
+    "\"project\"": "Example project name component of a GitLab path.",
+    "\"updated\"": "Sort field value for sorting by last update date.",
+    "\"updated_at\"": "GitLab API sort field name for update timestamp.",
+    "#": "Color hex prefix required by GitLab and Gitea APIs.",
+    "(namespace_path, project_name)": "Return type of parse_remote for GitLab URLs.",
+    "-> None": "Python return type annotation indicating no return value.",
+    ".git": "Git repository URL suffix stripped during remote URL parsing.",
+    "GET /api/v4/projects/{project_id}": "GitLab API endpoint to fetch project metadata, used by check_credentials.",
+    "GET /api/v4/projects/{project_id}/issues": "GitLab API endpoint to list and search issues.",
+    "GET /api/v4/projects/{project_id}/issues/{iid}": "GitLab API endpoint to fetch a single issue by project-internal ID.",
+    "GET /api/v4/projects/{project_id}/issues/{iid}/notes": "GitLab API endpoint to list comments (notes) on an issue.",
+    "GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base}&state=opened": "GitLab API query to find existing MR for idempotent create_pr.",
+    "GitHubPlatform.check_credentials()": "Existing credential verification method whose behavior GitLabPlatform must match.",
+    "GitLabPlatform(project_id=..., token=..., url=platform.url or \"gitlab.com\")": "Constructor call pattern for GitLabPlatform in the platform factory.",
+    "GitLabPlatform.create_label": "Method on GitLabPlatform that creates a label with # color prefix.",
+    "GitLabPlatform.list_issue_comments": "Method on GitLabPlatform that lists comments filtering system notes.",
+    "ImportError": "Python exception raised when a module cannot be imported, used for lazy Gitea import guard.",
+    "None": "Python None value, used as return value or to indicate absence.",
+    "POST /api/v4/projects/{project_id}/issues": "GitLab API endpoint to create a new issue.",
+    "POST /api/v4/projects/{project_id}/issues/{iid}/notes": "GitLab API endpoint to add a comment (note) to an issue.",
+    "POST /api/v4/projects/{project_id}/labels": "GitLab API endpoint to create a repository label.",
+    "POST /api/v4/projects/{project_id}/merge_requests": "GitLab API endpoint to create a merge request.",
+    "PUT /api/v4/projects/{project_id}/issues/{iid}": "GitLab API endpoint to update issue fields including state, labels, and description.",
+    "_request": "Internal HTTP request method on platform classes, delegating to request_with_retry.",
+    "activity_filter": "GitLab notes API query parameter to filter by note type.",
+    "add_issue_comment": "Protocol method to add a comment to an issue.",
+    "add_issue_comment(issue_number, body)": "Protocol signature for adding a comment to an issue.",
+    "add_issue_comment(issue_number, comment)": "GitHubPlatform signature for adding a comment to an issue.",
+    "afissues.gitea": "Python module path for the Gitea platform implementation.",
+    "afissues.gitlab.parse_remote": "Function to parse GitLab remote URLs into namespace and project.",
+    "afissues/__init__.py": "Package init file containing public re-exports for afissues.",
+    "afissues/gitea.py": "Module file for the future GiteaPlatform implementation.",
+    "afissues/github.py": "Module file containing GitHubPlatform and parse_remote.",
+    "afissues/gitlab.py": "Module file containing GitLabPlatform and parse_remote.",
+    "assign_label(issue_number, label)": "Protocol method signature for adding a label to an issue.",
+    "async with httpx.AsyncClient(...)": "Context manager pattern for creating a per-request HTTP client.",
+    "author.username": "GitLab API response field containing the comment author username.",
+    "body": "Protocol parameter name for issue or comment content.",
+    "check_credentials": "Non-protocol method to verify token access to the configured project.",
+    "check_credentials()": "Method call to verify platform credentials.",
+    "close()": "Protocol method for cleaning up platform resources.",
+    "close_issue(issue_number, comment)": "Protocol method signature for closing an issue with optional comment.",
+    "comment": "Optional closing comment parameter in close_issue.",
+    "create_issue(title, body, labels)": "Protocol method signature for creating a new issue.",
+    "create_label": "Protocol method to create a repository label idempotently.",
+    "create_label(name, color, description)": "Protocol method signature for creating a label.",
+    "create_platform()": "Factory function that constructs a platform instance, exiting on failure.",
+    "create_platform_safe()": "Factory function that constructs a platform instance, returning None on failure.",
+    "create_pr(title, body, head, base)": "Protocol method signature for creating a pull/merge request.",
+    "created_at": "Timestamp field for when an issue or comment was created.",
+    "description: null": "Sentinel value indicating the description field should be cleared or left empty.",
+    "direction": "Protocol parameter for sort direction (asc or desc).",
+    "from afissues import GitLabPlatform": "Python import statement for the GitLab platform class.",
+    "get_issue(issue_number)": "Protocol method signature for fetching a single issue.",
+    "getattr(client, method)(url, **kwargs)": "Dynamic HTTP method dispatch pattern used by request_with_retry.",
+    "git@gitlab.com:group/subgroup/project.git": "Example SSH-format GitLab remote URL.",
+    "html_url": "IssueResult field containing the web URL of an issue.",
+    "https://github.com/org/repo.git": "Example GitHub remote URL used in parse_remote negative tests.",
+    "https://gitlab.com/group/subgroup/project.git": "Example HTTPS-format GitLab remote URL.",
+    "https://gitlab.com/onlyone.git": "Example GitLab URL with only a single path segment.",
+    "https://gitlab.com:8080/group/project.git": "Example GitLab URL with a non-standard port.",
+    "https://{url}/api/v4": "GitLab REST API base URL template.",
+    "httpx": "Python async HTTP client library used for all platform API calls.",
+    "httpx.AsyncClient": "Async HTTP client class from the httpx library.",
+    "httpx.ConnectError": "Exception raised on TCP connection failure, eligible for retry.",
+    "httpx.ConnectTimeout": "Exception raised on TCP connection timeout, eligible for retry.",
+    "httpx.ReadTimeout": "Exception raised on read timeout, eligible for retry.",
+    "httpx.Response": "HTTP response object returned by httpx client methods.",
+    "id": "Unique identifier field on API response objects.",
+    "labels": "Issue labels field, either a list of strings or comma-separated string.",
+    "labels=label": "GitLab API query parameter for filtering issues by label.",
+    "list_issue_comments(issue_number)": "Protocol method signature for listing comments on an issue.",
+    "list_issues_by_label(label, state, sort, direction)": "Protocol method signature for listing issues by label.",
+    "max_retries": "Parameter controlling maximum retry attempts in request_with_retry.",
+    "namespace_path": "GitLab namespace portion of a project path (groups/subgroups).",
+    "number": "IssueResult field containing the issue number.",
+    "order_by=created_at": "GitLab API query parameter for sorting by creation date.",
+    "per_page=100": "GitLab API query parameter capping results at 100 per page.",
+    "platform.project_id": "Configuration field for explicit GitLab project identifier.",
+    "platform.type": "Configuration field specifying the forge platform type.",
+    "platform.type == \"gitea\"": "Platform factory routing condition for Gitea.",
+    "platform.type == \"gitlab\"": "Platform factory routing condition for GitLab.",
+    "platform_factory": "Module responsible for constructing platform instances from configuration.",
+    "project_id: str": "Constructor parameter type for GitLabPlatform project identifier.",
+    "project_name": "Project name component extracted from a GitLab remote URL.",
+    "read_api": "GitLab token scope granting read-only API access.",
+    "remove_label(issue_number, label)": "Protocol method signature for removing a label from an issue.",
+    "request_with_retry(method: str, url: str, *, timeout: httpx.Timeout, transport: httpx.AsyncHTTPTransport | None = None, max_retries: int = 3, backoff_base: float = 1.0, **kwargs) -> httpx.Response": "Full function signature for the shared HTTP retry helper.",
+    "search=title_prefix": "GitLab API query parameter for searching issues by title.",
+    "search_issues": "Non-protocol method to search issues by title prefix.",
+    "search_issues(title_prefix, state)": "Non-protocol method signature for searching issues by title.",
+    "sort": "Protocol parameter or GitLab API parameter for sort field or direction.",
+    "sort=asc": "GitLab API query parameter for ascending sort order.",
+    "state": "Issue state parameter (open, closed, all).",
+    "system == false": "GitLab note filter condition for user-authored comments.",
+    "system == true": "GitLab note filter condition for system-generated activity notes.",
+    "title": "Issue or merge request title field.",
+    "token: str": "Constructor parameter type for the authentication token.",
+    "tuple[str, str]": "Python type for a two-element string tuple, used as parse_remote return type.",
+    "unittest.mock": "Python standard library module for mocking in unit tests.",
+    "update_issue(issue_number, body)": "Protocol method signature for updating an issue body.",
+    "url": "Platform host URL parameter.",
+    "url: str = \"gitlab.com\"": "Constructor parameter with default value for GitLab host URL.",
+    "user": "IssueComment field containing the comment author username.",
+    "{\"PRIVATE-TOKEN\": token}": "GitLab authentication header dictionary.",
+    "{\"add_labels\": label}": "GitLab API request payload for adding a label to an issue.",
+    "{\"body\": body}": "API request payload for adding a comment.",
+    "{\"description\": body}": "GitLab API request payload mapping body to description field.",
+    "{\"name\": name, \"color\": \"#\" + color, \"description\": description}": "GitLab API request payload for creating a label with # color prefix.",
+    "{\"remove_labels\": label}": "GitLab API request payload for removing a label from an issue.",
+    "{\"state_event\": \"close\"}": "GitLab API request payload for closing an issue.",
+    "{\"title\": title, \"description\": body, \"labels\": \",\".join(labels)}": "GitLab API request payload for creating an issue.",
+    "{\"title\": title, \"description\": body, \"source_branch\": head, \"target_branch\": base}": "GitLab API request payload for creating a merge request."
+  },
+  "requirements": [
+    {
+      "id": "04-REQ-1",
+      "title": "GitLabPlatform class structure and constructor",
+      "user_story": {
+        "role": "developer integrating agent-fox with GitLab",
+        "goal": "instantiate GitLabPlatform with a project path, token, and optional host URL",
+        "benefit": "so that the platform connects to the correct GitLab project with authenticated requests and SSRF protection"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform",
+          "action": "exposes class attribute `forge_type` equal to `\"gitlab\"`, accepts constructor arguments `project_id: str`, `token: str`, and `url: str = \"gitlab.com\"`, URL-encodes `project_id` internally (e.g. `\"group/subgroup/project\"` becomes `\"group%2Fsubgroup%2Fproject\"`), sets API base URL to `https://{url}/api/v4`, and stores auth headers as `{\"PRIVATE-TOKEN\": token}`",
+          "return_contract": "Instance is created successfully with all attributes set; no exception raised for valid inputs"
+        },
+        {
+          "id": "04-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform constructor",
+          "action": "calls `_validate_url` from `_ssrf.py` and raises `ConfigError` before any HTTP client is created",
+          "return_contract": "`ConfigError` is raised with a message indicating the SSRF violation",
+          "trigger": "receives a `url` value that resolves to a private, loopback, or link-local IP address"
+        },
+        {
+          "id": "04-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform",
+          "action": "uses `httpx.AsyncClient` with `SSRFGuardTransport` and the timeout configuration from `request_with_retry`; each request creates a new client via `async with httpx.AsyncClient(...)` inside `request_with_retry` rather than holding a persistent client",
+          "return_contract": "No persistent client state is held between method calls"
+        },
+        {
+          "id": "04-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform module (`afissues/gitlab.py`)",
+          "action": "includes a module docstring that documents the minimum required GitLab token scope as `api`, and explains that tokens with only `read_api` scope will receive 403 errors on write operations",
+          "return_contract": "Docstring is present and references the `api` scope requirement"
+        },
+        {
+          "id": "04-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`GitLabPlatform`",
+          "action": "is re-exported from `afissues/__init__.py` alongside `GitHubPlatform`, making it importable as `from afissues import GitLabPlatform`",
+          "return_contract": "Import succeeds without error"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform constructor",
+          "action": "raises `ConfigError` immediately without constructing the HTTP client; does not raise `IntegrationError`",
+          "return_contract": "`ConfigError` raised before any network activity",
+          "error_condition": "`url` is a string that URL-parses to a private RFC-1918 address (e.g. `\"192.168.1.1\"`)"
+        },
+        {
+          "id": "04-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform constructor",
+          "action": "URL-encodes the path internally using standard percent-encoding; callers pass the raw path unchanged",
+          "return_contract": "API URLs are correctly formed with encoded path segments",
+          "error_condition": "`project_id` contains characters that require URL percent-encoding (e.g. slashes, spaces)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-2",
+      "title": "GitLabPlatform.create_issue",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "create a new issue on a GitLab project",
+        "benefit": "so that the fix-pipeline can open tracked work items on GitLab the same way it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `POST /api/v4/projects/{project_id}/issues` with JSON body `{\"title\": title, \"description\": body, \"labels\": \",\".join(labels)}` and auth header `PRIVATE-TOKEN`; on HTTP 201 maps response fields `iid` → `number`, `web_url` → `html_url`, `description` (defaulting to `\"\"` if null) → `body`, `labels` array → `labels` tuple, `title` → `title`, and returns an `IssueResult`",
+          "return_contract": "`IssueResult` with all five fields populated; raises `IntegrationError` on non-201 response",
+          "trigger": "`create_issue(title, body, labels)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised; no `IssueResult` returned",
+          "error_condition": "GitLab API returns a non-201 HTTP status (e.g. 422 validation error, 403 forbidden)"
+        },
+        {
+          "id": "04-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_issue",
+          "action": "defaults `body` field of the returned `IssueResult` to `\"\"`",
+          "return_contract": "`IssueResult.body` equals `\"\"`",
+          "error_condition": "GitLab API response includes `description: null`"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-3",
+      "title": "GitLabPlatform.list_issues_by_label",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "retrieve issues filtered by label, state, and sort order from a GitLab project",
+        "benefit": "so that the pipeline can query its tracked issues the same way it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `GET /api/v4/projects/{project_id}/issues` with query params: `labels=label`, `state` mapped (`\"open\"` → `\"opened\"`, `\"closed\"` and `\"all\"` passed through), `order_by` mapped from `sort` (`\"created\"` → `\"created_at\"`, `\"updated\"` → `\"updated_at\"`), `sort` set to `direction` value (`\"asc\"` or `\"desc\"` passed through), and `per_page=100`; maps each response element to `IssueResult` using the standard field mapping",
+          "return_contract": "List of `IssueResult` objects on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`list_issues_by_label(label, state, sort, direction)` is called"
+        },
+        {
+          "id": "04-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform.list_issues_by_label",
+          "action": "maps protocol `state` value `\"open\"` to GitLab API value `\"opened\"`; passes `\"closed\"` and `\"all\"` through to GitLab unchanged",
+          "return_contract": "Correct `state` query parameter sent to GitLab API"
+        },
+        {
+          "id": "04-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform.list_issues_by_label",
+          "action": "maps protocol `sort` value `\"created\"` to GitLab `order_by` value `\"created_at\"` and `\"updated\"` to `\"updated_at\"`; maps `direction` values `\"asc\"` and `\"desc\"` directly to GitLab's `sort` parameter unchanged",
+          "return_contract": "Correct `order_by` and `sort` query parameters sent to GitLab API"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.list_issues_by_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised; no list returned",
+          "error_condition": "GitLab API returns non-200 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-4",
+      "title": "GitLabPlatform.add_issue_comment",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "post a comment on a GitLab issue",
+        "benefit": "so that the pipeline can communicate status on GitLab issues as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `POST /api/v4/projects/{project_id}/issues/{iid}/notes` with JSON body `{\"body\": body}` and auth header `PRIVATE-TOKEN`",
+          "return_contract": "Returns normally on HTTP 201; raises `IntegrationError` on non-201",
+          "trigger": "`add_issue_comment(issue_number, body)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.add_issue_comment",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns non-201 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-5",
+      "title": "GitLabPlatform.assign_label",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "add a label to an existing GitLab issue",
+        "benefit": "so that the pipeline can categorise issues on GitLab the same way it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `PUT /api/v4/projects/{project_id}/issues/{iid}` with JSON body `{\"add_labels\": label}` and auth header `PRIVATE-TOKEN`",
+          "return_contract": "Returns normally on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`assign_label(issue_number, label)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.assign_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns non-200 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-6",
+      "title": "GitLabPlatform.close_issue",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "close a GitLab issue, optionally adding a final comment",
+        "benefit": "so that the pipeline can mark resolved issues closed on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "first calls `add_issue_comment(issue_number, comment)`, then sends `PUT /api/v4/projects/{project_id}/issues/{iid}` with JSON body `{\"state_event\": \"close\"}` and auth header `PRIVATE-TOKEN`",
+          "return_contract": "Returns normally on HTTP 200 from the PUT; raises `IntegrationError` if either call fails",
+          "trigger": "`close_issue(issue_number, comment)` is called with a non-empty `comment`"
+        },
+        {
+          "id": "04-REQ-6.2",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `PUT /api/v4/projects/{project_id}/issues/{iid}` with JSON body `{\"state_event\": \"close\"}` without calling `add_issue_comment`",
+          "return_contract": "Returns normally on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`close_issue(issue_number, comment)` is called with an empty or `None` `comment`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.close_issue",
+          "action": "propagates the `IntegrationError` without attempting the close PUT",
+          "return_contract": "`IntegrationError` from comment step is raised; issue is not closed",
+          "error_condition": "`add_issue_comment` raises `IntegrationError` before the close PUT is sent"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-7",
+      "title": "GitLabPlatform.remove_label",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "remove a label from a GitLab issue",
+        "benefit": "so that the pipeline can update issue categorisation on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `PUT /api/v4/projects/{project_id}/issues/{iid}` with JSON body `{\"remove_labels\": label}` and auth header `PRIVATE-TOKEN`; GitLab silently ignores labels not present on the issue, making this call idempotent",
+          "return_contract": "Returns normally on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`remove_label(issue_number, label)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.remove_label",
+          "action": "GitLab returns HTTP 200 silently ignoring the missing label; no error is raised",
+          "return_contract": "Returns normally; no exception raised",
+          "error_condition": "label does not exist on the issue"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-8",
+      "title": "GitLabPlatform.list_issue_comments",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "retrieve the human-authored comments on a GitLab issue",
+        "benefit": "so that the pipeline can read issue discussion on GitLab the same way it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-8.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `GET /api/v4/projects/{project_id}/issues/{iid}/notes` with query params `sort=asc`, `order_by=created_at`, `per_page=100`; filters response client-side to exclude notes where `system == true`; maps surviving notes to `IssueComment` using fields `id` → `id`, `body` → `body`, `author.username` → `user`, `created_at` → `created_at`; does NOT send `activity_filter` query parameter",
+          "return_contract": "List of `IssueComment` objects on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`list_issue_comments(issue_number)` is called"
+        },
+        {
+          "id": "04-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GitLabPlatform.list_issue_comments",
+          "action": "never sends the `activity_filter` query parameter to the API, ensuring compatibility across all GitLab API versions",
+          "return_contract": "Request contains only `sort`, `order_by`, and `per_page` query parameters"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.list_issue_comments",
+          "action": "filters out all such notes client-side before building the return list",
+          "return_contract": "Returned list contains only notes where `system == false`",
+          "error_condition": "API response includes notes where `system == true`"
+        },
+        {
+          "id": "04-REQ-8.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.list_issue_comments",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns non-200 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-9",
+      "title": "GitLabPlatform.get_issue",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "fetch a single GitLab issue by its project-internal ID",
+        "benefit": "so that the pipeline can read issue state on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `GET /api/v4/projects/{project_id}/issues/{iid}` with auth header `PRIVATE-TOKEN`; maps response fields to `IssueResult` using the standard field mapping (`iid` → `number`, `web_url` → `html_url`, `description` → `body` defaulting to `\"\"`, `labels` array → `labels` tuple, `title` → `title`)",
+          "return_contract": "`IssueResult` on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`get_issue(issue_number)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.get_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns 404 (issue not found)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-10",
+      "title": "GitLabPlatform.update_issue",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "update the body of an existing GitLab issue",
+        "benefit": "so that the pipeline can revise issue descriptions on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-10.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `PUT /api/v4/projects/{project_id}/issues/{iid}` with JSON body `{\"description\": body}` and auth header `PRIVATE-TOKEN`",
+          "return_contract": "Returns normally on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`update_issue(issue_number, body)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.update_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns non-200 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-11",
+      "title": "GitLabPlatform.create_label",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "create a label on a GitLab project, treating duplicate labels as success",
+        "benefit": "so that the pipeline can idempotently ensure required labels exist on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-11.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `POST /api/v4/projects/{project_id}/labels` with JSON body `{\"name\": name, \"color\": \"#\" + color, \"description\": description}` and auth header `PRIVATE-TOKEN`; prepends `#` to the bare hex color value",
+          "return_contract": "Returns `None` on HTTP 201 or 409; raises `IntegrationError` on any other non-2xx status",
+          "trigger": "`create_label(name, color, description)` is called"
+        },
+        {
+          "id": "04-REQ-11.2",
+          "ears_pattern": "state_driven",
+          "system": "GitLabPlatform.create_label",
+          "action": "treats the 409 as success and returns `None` without raising any exception; method is typed `-> None`",
+          "return_contract": "`None` returned; no exception raised",
+          "state": "GitLab API returns HTTP 409 Conflict (label already exists)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns a non-201/non-409 error status (e.g. 422 validation error)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-12",
+      "title": "GitLabPlatform.create_pr",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "open a merge request on a GitLab project, handling duplicates gracefully",
+        "benefit": "so that the pipeline can submit fix branches on GitLab as it does on GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-12.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `POST /api/v4/projects/{project_id}/merge_requests` with JSON body `{\"title\": title, \"description\": body, \"source_branch\": head, \"target_branch\": base}` and auth header `PRIVATE-TOKEN`; returns `web_url` from the response",
+          "return_contract": "`str` containing the merge request `web_url` on HTTP 201",
+          "trigger": "`create_pr(title, body, head, base)` is called and the GitLab API returns HTTP 201"
+        },
+        {
+          "id": "04-REQ-12.2",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform.create_pr",
+          "action": "sends `GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base}&state=opened`; if HTTP 200 and non-empty list, returns `web_url` of the first result; if HTTP 200 but empty list, raises `IntegrationError` with a descriptive message; if non-200, raises `IntegrationError` referencing the original 409 context",
+          "return_contract": "`str` containing `web_url` on successful fallback; `IntegrationError` on fallback failure",
+          "trigger": "GitLab API returns HTTP 409 Conflict (duplicate merge request for same `source_branch`/`target_branch`)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-12.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_pr",
+          "action": "raises `IntegrationError` with a message indicating a 409 duplicate was returned but no existing open merge request could be found",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "409 fallback GET returns HTTP 200 but an empty list (no open MR found)"
+        },
+        {
+          "id": "04-REQ-12.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_pr",
+          "action": "raises `IntegrationError` immediately with a message referencing the original 409 context (e.g. `\"409 duplicate MR returned; fallback GET failed with {status}\"`)",
+          "return_contract": "`IntegrationError` raised referencing the original 409",
+          "error_condition": "409 fallback GET itself returns a non-200 HTTP status"
+        },
+        {
+          "id": "04-REQ-12.E3",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.create_pr",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "initial POST returns a non-201/non-409 error status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-13",
+      "title": "GitLabPlatform.close (no-op lifecycle method)",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "call close() on a GitLabPlatform instance without side effects",
+        "benefit": "so that platform lifecycle management code works uniformly across all platform implementations"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-13.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "returns `None` immediately without performing any I/O or cleanup, since `GitLabPlatform` holds no persistent `httpx.AsyncClient` across calls",
+          "return_contract": "`None` returned; no exception raised; no network activity",
+          "trigger": "`close()` is called"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "04-REQ-14",
+      "title": "GitLabPlatform.search_issues non-protocol method",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "search for issues on a GitLab project by title prefix using the GitLab search API",
+        "benefit": "so that the pipeline can discover related existing issues without enumerating all issues"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-14.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `GET /api/v4/projects/{project_id}/issues` with query params `search=title_prefix`, `state` mapped (`\"open\"` → `\"opened\"`, `\"closed\"` and `\"all\"` passed through), and `per_page=100`; maps response to a list of `IssueResult` using the standard field mapping; does NOT apply additional client-side prefix filtering",
+          "return_contract": "`list[IssueResult]` on HTTP 200; raises `IntegrationError` on non-200",
+          "trigger": "`search_issues(title_prefix, state)` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-14.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitLabPlatform.search_issues",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "error_condition": "GitLab API returns non-200 HTTP status"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-15",
+      "title": "GitLabPlatform.check_credentials non-protocol method",
+      "user_story": {
+        "role": "agent-fox workflow",
+        "goal": "verify that the configured GitLab token has access to the project",
+        "benefit": "so that configuration errors are surfaced early before any pipeline work begins"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-15.1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform",
+          "action": "sends `GET /api/v4/projects/{project_id}` with auth header `PRIVATE-TOKEN`; raises `IntegrationError` only on HTTP 401 or 403; returns normally on all other statuses including 404 and 5xx",
+          "return_contract": "`None` returned on non-401/403 responses; `IntegrationError` raised on 401 or 403",
+          "trigger": "`check_credentials()` is called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-15.E1",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform.check_credentials",
+          "action": "returns normally without raising any exception, consistent with `GitHubPlatform.check_credentials()` behavior",
+          "return_contract": "`None` returned; no exception raised",
+          "trigger": "GitLab API returns HTTP 404 (project not found)"
+        },
+        {
+          "id": "04-REQ-15.E2",
+          "ears_pattern": "event_driven",
+          "system": "GitLabPlatform.check_credentials",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "`IntegrationError` raised",
+          "trigger": "GitLab API returns HTTP 401 or 403"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-16",
+      "title": "parse_remote function for GitLab remote URLs",
+      "user_story": {
+        "role": "platform factory",
+        "goal": "extract the GitLab namespace path and project name from a git remote URL",
+        "benefit": "so that callers do not need to configure project identifiers explicitly when the git remote is available"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-16.1",
+          "ears_pattern": "event_driven",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "parses the URL and returns a tuple `(namespace_path, project_name)` where `namespace_path` is everything before the final path segment (e.g. `\"group/subgroup\"`) and `project_name` is the final segment without `.git` (e.g. `\"project\"`)",
+          "return_contract": "`tuple[str, str]` with namespace and project name",
+          "trigger": "called with an HTTPS GitLab remote URL (e.g. `https://gitlab.com/group/subgroup/project.git`)"
+        },
+        {
+          "id": "04-REQ-16.2",
+          "ears_pattern": "event_driven",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "parses the URL and returns a tuple `(namespace_path, project_name)` with the same semantics as the HTTPS case",
+          "return_contract": "`tuple[str, str]` with namespace and project name",
+          "trigger": "called with an SSH GitLab remote URL (e.g. `git@gitlab.com:group/subgroup/project.git`)"
+        },
+        {
+          "id": "04-REQ-16.3",
+          "ears_pattern": "event_driven",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "returns `None` without raising any exception",
+          "return_contract": "`None` returned; no exception raised under any input",
+          "trigger": "called with any URL that does not match the expected HTTPS or SSH GitLab patterns (non-GitLab hostname, malformed URL, port number, no project path)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-16.E1",
+          "ears_pattern": "unwanted",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "returns `None`; does not raise an exception",
+          "return_contract": "`None` returned",
+          "error_condition": "input is a GitHub HTTPS URL (e.g. `https://github.com/org/repo.git`)"
+        },
+        {
+          "id": "04-REQ-16.E2",
+          "ears_pattern": "unwanted",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "returns `None`",
+          "return_contract": "`None` returned",
+          "error_condition": "input is an HTTPS GitLab URL with a port number (e.g. `https://gitlab.com:8080/group/project.git`)"
+        },
+        {
+          "id": "04-REQ-16.E3",
+          "ears_pattern": "unwanted",
+          "system": "`parse_remote` in `afissues/gitlab.py`",
+          "action": "returns `None`",
+          "return_contract": "`None` returned",
+          "error_condition": "input is an HTTPS URL with only one path segment after the host (no project path, e.g. `https://gitlab.com/onlyone.git`)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-17",
+      "title": "parse_github_remote rename to parse_remote in afissues/github.py",
+      "user_story": {
+        "role": "developer maintaining the afissues package",
+        "goal": "have a consistent `parse_remote` function name across all platform modules",
+        "benefit": "so that the factory and other callers can use a uniform API regardless of platform"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-17.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues/github.py`",
+          "action": "renames `parse_github_remote` to `parse_remote`; all monorepo call sites are updated in the same PR; the transitional `parse_github_remote` re-export is removed from `afissues/__init__.py` in the same PR",
+          "return_contract": "No remaining references to `parse_github_remote` in the monorepo after the PR merges"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-17.E1",
+          "ears_pattern": "unwanted",
+          "system": "any monorepo module",
+          "action": "results in an `ImportError` at import time, failing loudly rather than silently using a stale alias",
+          "return_contract": "`ImportError` raised at import time",
+          "error_condition": "a call site imports `parse_github_remote` after the rename PR is merged"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-18",
+      "title": "SSRF guard extraction into shared _ssrf.py module",
+      "user_story": {
+        "role": "security-conscious developer",
+        "goal": "have SSRF guard utilities in a single shared module used by all platform implementations",
+        "benefit": "so that security-critical validation logic is not duplicated and is consistently applied"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-18.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues/_ssrf.py`",
+          "action": "contains `_validate_url`, `_validate_transport_address`, `_check_address`, and `SSRFGuardTransport`; both `GitHubPlatform` and `GitLabPlatform` import from this module; no duplication of SSRF logic remains in `afissues/github.py`",
+          "return_contract": "Module is importable; both platform modules import from it successfully"
+        },
+        {
+          "id": "04-REQ-18.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_check_address` in `afissues/_ssrf.py`",
+          "action": "raises `ConfigError` (not `IntegrationError`) when a URL or resolved address violates SSRF constraints",
+          "return_contract": "`ConfigError` raised on SSRF violation"
+        },
+        {
+          "id": "04-REQ-18.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues/_ssrf.py`",
+          "action": "is not re-exported from `afissues/__init__.py`; the underscore prefix marks it as internal",
+          "return_contract": "`from afissues import _ssrf` is not part of the public API (not listed in `__all__` or `__init__.py` imports)"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "04-REQ-19",
+      "title": "HTTP retry helper extraction into shared _http.py module",
+      "user_story": {
+        "role": "developer extending the afissues package",
+        "goal": "have a shared, tested retry-with-backoff function used by all platform implementations",
+        "benefit": "so that transient network errors are handled consistently without duplicating retry logic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-19.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues/_http.py`",
+          "action": "exports `request_with_retry(method: str, url: str, *, timeout: httpx.Timeout, transport: httpx.AsyncHTTPTransport | None = None, max_retries: int = 3, backoff_base: float = 1.0, **kwargs) -> httpx.Response`; creates a new `httpx.AsyncClient` per call via `async with httpx.AsyncClient(...)`; delegates to `getattr(client, method)(url, **kwargs)`",
+          "return_contract": "`httpx.Response` on success; propagates `IntegrationError` after max retries exhausted on transient errors"
+        },
+        {
+          "id": "04-REQ-19.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`request_with_retry`",
+          "action": "retries on `httpx.ConnectTimeout`, `httpx.ConnectError`, and `httpx.ReadTimeout` up to `max_retries` (default 3) attempts with exponential backoff starting at `backoff_base` seconds (sequence: 1 s, 2 s, 4 s for default settings); does NOT retry on HTTP-level errors (4xx, 5xx including 429)",
+          "return_contract": "Response returned after first successful attempt; exception raised after all retries exhausted"
+        },
+        {
+          "id": "04-REQ-19.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`GitHubPlatform._request`",
+          "action": "delegates to `request_with_retry` internally without changing its own method signature or any observable behaviour; all existing `GitHubPlatform` unit tests continue to pass unchanged",
+          "return_contract": "Existing test suite passes; no behavioural regression"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-19.E1",
+          "ears_pattern": "unwanted",
+          "system": "`request_with_retry`",
+          "action": "re-raises the last `httpx.ConnectTimeout` exception after the final attempt; does not loop indefinitely",
+          "return_contract": "`httpx.ConnectTimeout` raised after `max_retries` attempts",
+          "error_condition": "all `max_retries` attempts raise `httpx.ConnectTimeout`"
+        },
+        {
+          "id": "04-REQ-19.E2",
+          "ears_pattern": "unwanted",
+          "system": "`request_with_retry`",
+          "action": "returns the 429 `httpx.Response` to the caller without retrying; the calling platform method raises `IntegrationError`",
+          "return_contract": "`httpx.Response` with status 429 returned; no retry performed",
+          "error_condition": "HTTP 429 response is returned by the server"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-20",
+      "title": "Platform factory GitLab routing",
+      "user_story": {
+        "role": "agent-fox operator configuring a GitLab project",
+        "goal": "set `platform.type = \"gitlab\"` in the agent-fox config and have the factory construct a `GitLabPlatform` automatically",
+        "benefit": "so that no code changes are required to use GitLab instead of GitHub"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-20.1",
+          "ears_pattern": "event_driven",
+          "system": "`platform_factory.py`",
+          "action": "reads `GITLAB_TOKEN` from the environment; resolves `project_id` by calling `afissues.gitlab.parse_remote` on the git remote URL (combining namespace and project as `\"namespace/project\"`), falling back to `platform.project_id` from config if `parse_remote` returns `None`; raises `ConfigError` if neither source provides a project identifier; constructs and returns `GitLabPlatform(project_id=..., token=..., url=platform.url or \"gitlab.com\")`",
+          "return_contract": "`GitLabPlatform` instance on success; `ConfigError` if required config is missing",
+          "trigger": "`create_platform()` or `create_platform_safe()` is called with `platform.type == \"gitlab\"`"
+        },
+        {
+          "id": "04-REQ-20.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`platform_factory.py`",
+          "action": "adds `\"gitlab\"` and `\"gitea\"` to `_SUPPORTED_PLATFORMS`; return type annotations of `create_platform` and `create_platform_safe` are updated from `GitHubPlatform` to `PlatformProtocol`; existing `\"github\"` routing is unchanged",
+          "return_contract": "Factory loads without error; existing GitHub factory tests pass unchanged"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-20.E1",
+          "ears_pattern": "unwanted",
+          "system": "`platform_factory.py`",
+          "action": "raises `ConfigError` with a descriptive message indicating that no GitLab project identifier could be determined",
+          "return_contract": "`ConfigError` raised with descriptive message",
+          "error_condition": "`parse_remote` returns `None` and `platform.project_id` is not set in config"
+        },
+        {
+          "id": "04-REQ-20.E2",
+          "ears_pattern": "unwanted",
+          "system": "`platform_factory.py`",
+          "action": "raises `ConfigError` indicating the missing token environment variable",
+          "return_contract": "`ConfigError` raised",
+          "error_condition": "`GITLAB_TOKEN` environment variable is not set"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-21",
+      "title": "Platform factory Gitea lazy-import stub",
+      "user_story": {
+        "role": "agent-fox operator",
+        "goal": "have the factory fail gracefully with a clear message when Gitea is requested but not yet available",
+        "benefit": "so that the factory module continues to load for GitHub and GitLab users even before the gitea_platform spec is delivered"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-21.1",
+          "ears_pattern": "event_driven",
+          "system": "`platform_factory.py`",
+          "action": "the lazy import inside the Gitea branch raises `ImportError` which is caught and re-raised as `ConfigError` with the message `\"The Gitea platform is not yet available. Install the afissues package with Gitea support.\"`",
+          "return_contract": "`ConfigError` raised with clear message",
+          "trigger": "`create_platform()` is called with `platform.type == \"gitea\"` and `afissues.gitea` cannot be imported"
+        },
+        {
+          "id": "04-REQ-21.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`platform_factory.py`",
+          "action": "does not import `afissues.gitea` at module level; the import is deferred to inside the Gitea branch only; the factory module loads successfully for GitHub and GitLab platform types even when `afissues/gitea.py` does not exist",
+          "return_contract": "Module-level import of `platform_factory` succeeds regardless of `afissues.gitea` availability"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-21.E1",
+          "ears_pattern": "unwanted",
+          "system": "`platform_factory.py`",
+          "action": "raises `ConfigError` with a message listing supported platform types",
+          "return_contract": "`ConfigError` raised",
+          "error_condition": "`platform.type` is a value not in `_SUPPORTED_PLATFORMS`"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-22",
+      "title": "Unit test suite for GitLabPlatform",
+      "user_story": {
+        "role": "developer maintaining the afissues package",
+        "goal": "have a comprehensive unit test suite for GitLabPlatform with ≥90% branch coverage",
+        "benefit": "so that regressions are caught before merge and the implementation is verified without live GitLab API calls"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-22.1",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite in `packages/afissues/tests/unit/test_gitlab.py`",
+          "action": "uses pytest and `unittest.mock` to patch `httpx` responses; covers all 14 `GitLabPlatform` methods (12 protocol + `search_issues` + `check_credentials`); achieves ≥90% branch coverage for `afissues/gitlab.py`; makes no live HTTP calls to GitLab.com or any external service",
+          "return_contract": "All tests pass; `pytest --cov=afissues/gitlab.py --cov-branch` reports ≥90% branch coverage"
+        },
+        {
+          "id": "04-REQ-22.2",
+          "ears_pattern": "ubiquitous",
+          "system": "existing `GitHubPlatform` unit test suite",
+          "action": "passes unchanged after the `_request` → `request_with_retry` delegation refactor; no new tests are required for `GitHubPlatform` itself",
+          "return_contract": "All pre-existing `GitHubPlatform` tests pass without modification"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "04-PROP-1",
+      "title": "Field mapping completeness: IssueResult fields sourced only from documented GitLab API fields",
+      "for_any": "`IssueResult` returned by `GitLabPlatform`",
+      "invariant": "Fields are populated exclusively from `iid` → `number`, `title` → `title`, `web_url` → `html_url`, `description` → `body` (defaulting to `\"\"`), and `labels` array → `labels` tuple; no extra GitLab-specific fields appear in the `IssueResult`",
+      "validates": [
+        "04-REQ-2.1",
+        "04-REQ-3.1",
+        "04-REQ-9.1",
+        "04-REQ-14.1"
+      ]
+    },
+    {
+      "id": "04-PROP-2",
+      "title": "Field mapping completeness: IssueComment fields sourced only from documented GitLab API fields",
+      "for_any": "`IssueComment` returned by `GitLabPlatform.list_issue_comments`",
+      "invariant": "Fields are populated exclusively from `id` → `id`, `body` → `body`, `author.username` → `user`, `created_at` → `created_at`; no extra GitLab-specific fields appear in the `IssueComment`",
+      "validates": [
+        "04-REQ-8.1"
+      ]
+    },
+    {
+      "id": "04-PROP-3",
+      "title": "SSRF safety: no requests to private/loopback addresses",
+      "for_any": "`GitLabPlatform` instance",
+      "invariant": "Every HTTP request passes through `SSRFGuardTransport`; no request is ever sent to a private RFC-1918, loopback, or link-local IP address; SSRF violations raise `ConfigError` at construction time",
+      "validates": [
+        "04-REQ-1.2",
+        "04-REQ-1.3",
+        "04-REQ-18.1",
+        "04-REQ-18.2"
+      ]
+    },
+    {
+      "id": "04-PROP-4",
+      "title": "Retry boundedness: request_with_retry never exceeds max_retries attempts",
+      "for_any": "invocation of `request_with_retry`",
+      "invariant": "The total number of HTTP attempts never exceeds `max_retries` (default 3) regardless of how many consecutive transient errors occur; after the last attempt the exception is re-raised",
+      "validates": [
+        "04-REQ-19.1",
+        "04-REQ-19.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-5",
+      "title": "Idempotency: create_label always returns None including on 409",
+      "for_any": "invocation of `GitLabPlatform.create_label`",
+      "invariant": "`create_label` returns `None` and raises no exception whether the label is newly created (201) or already exists (409); any other non-2xx status raises `IntegrationError`",
+      "validates": [
+        "04-REQ-11.1",
+        "04-REQ-11.2"
+      ]
+    },
+    {
+      "id": "04-PROP-6",
+      "title": "System notes excluded: list_issue_comments never returns system-generated notes",
+      "for_any": "result list returned by `GitLabPlatform.list_issue_comments`",
+      "invariant": "Every `IssueComment` in the returned list corresponds to a GitLab note where `system == false`; no system-generated activity notes appear in the output regardless of API response content",
+      "validates": [
+        "04-REQ-8.1",
+        "04-REQ-8.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-7",
+      "title": "parse_remote never raises exceptions for any input",
+      "for_any": "any string passed to `parse_remote` in `afissues/gitlab.py`",
+      "invariant": "`parse_remote` either returns a `tuple[str, str]` or `None`; it never raises any exception regardless of the input value",
+      "validates": [
+        "04-REQ-16.3",
+        "04-REQ-16.E1",
+        "04-REQ-16.E2",
+        "04-REQ-16.E3"
+      ]
+    },
+    {
+      "id": "04-PROP-8",
+      "title": "No persistent HTTP client state between GitLabPlatform method calls",
+      "for_any": "`GitLabPlatform` instance",
+      "invariant": "No `httpx.AsyncClient` instance is retained as instance state after any method call completes; every `request_with_retry` invocation creates and closes its own client via `async with httpx.AsyncClient(...)`",
+      "validates": [
+        "04-REQ-1.3",
+        "04-REQ-13.1"
+      ]
+    },
+    {
+      "id": "04-PROP-9",
+      "title": "Factory module loads without error regardless of afissues.gitea availability",
+      "for_any": "import of `platform_factory`",
+      "invariant": "The factory module always imports successfully even when `afissues/gitea.py` does not exist; `ImportError` for Gitea is only raised at runtime when a Gitea platform is actually requested",
+      "validates": [
+        "04-REQ-21.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "04-PATH-1",
+      "title": "End-to-end: agent-fox nightshift creates and labels a GitLab issue",
+      "steps": [
+        {
+          "actor": "agent-fox nightshift",
+          "action": "reads platform config with `platform.type = \"gitlab\"`, calls `create_platform()` in `platform_factory.py`"
+        },
+        {
+          "actor": "`platform_factory.py`",
+          "action": "reads `GITLAB_TOKEN` from environment, calls `afissues.gitlab.parse_remote` on the git remote URL to resolve `project_id`, constructs `GitLabPlatform(project_id, token, url)`"
+        },
+        {
+          "actor": "`GitLabPlatform` constructor",
+          "action": "calls `_validate_url` from `_ssrf.py` to check for SSRF violations, URL-encodes `project_id`, stores auth headers as `{\"PRIVATE-TOKEN\": token}`"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `platform.create_issue(title, body, labels)` on the returned `GitLabPlatform` instance"
+        },
+        {
+          "actor": "`GitLabPlatform.create_issue`",
+          "action": "calls `request_with_retry` from `_http.py` to send `POST /api/v4/projects/{project_id}/issues` with `description`, `title`, and comma-joined `labels`; retries on transient network errors up to 3 times with exponential backoff"
+        },
+        {
+          "actor": "`request_with_retry` in `_http.py`",
+          "action": "creates `httpx.AsyncClient` with `SSRFGuardTransport` from `_ssrf.py`, sends the POST request, returns `httpx.Response`"
+        },
+        {
+          "actor": "`GitLabPlatform.create_issue`",
+          "action": "maps GitLab response fields (`iid` → `number`, `web_url` → `html_url`, `description` → `body`, `labels` array → tuple) and returns `IssueResult`"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `platform.assign_label(issue_number, label)` to add a workflow label to the created issue"
+        },
+        {
+          "actor": "`GitLabPlatform.assign_label`",
+          "action": "calls `request_with_retry` to send `PUT /api/v4/projects/{project_id}/issues/{iid}` with `{\"add_labels\": label}`; returns normally on HTTP 200"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "observes `IssueResult` with the new issue URL and confirms the workflow label is applied"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-2",
+      "title": "End-to-end: agent-fox nightshift opens a merge request on GitLab with duplicate handling",
+      "steps": [
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `platform.create_pr(title, body, head_branch, base_branch)` on an existing `GitLabPlatform` instance"
+        },
+        {
+          "actor": "`GitLabPlatform.create_pr`",
+          "action": "calls `request_with_retry` to send `POST /api/v4/projects/{project_id}/merge_requests` with `source_branch`, `target_branch`, `title`, `description`"
+        },
+        {
+          "actor": "GitLab REST API v4",
+          "action": "returns HTTP 409 Conflict because a merge request already exists for the same `source_branch` and `target_branch`"
+        },
+        {
+          "actor": "`GitLabPlatform.create_pr`",
+          "action": "calls `request_with_retry` to send `GET /api/v4/projects/{project_id}/merge_requests?source_branch={head}&target_branch={base}&state=opened`"
+        },
+        {
+          "actor": "GitLab REST API v4",
+          "action": "returns HTTP 200 with a list containing the existing open merge request"
+        },
+        {
+          "actor": "`GitLabPlatform.create_pr`",
+          "action": "extracts `web_url` from the first result and returns it to the caller"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "receives the merge request URL and records it in the issue as a comment via `platform.add_issue_comment`"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-3",
+      "title": "End-to-end: agent-fox nightshift closes a GitLab issue with a comment",
+      "steps": [
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `platform.close_issue(issue_number, comment_text)` on an existing `GitLabPlatform` instance"
+        },
+        {
+          "actor": "`GitLabPlatform.close_issue`",
+          "action": "detects non-empty `comment_text` and calls `add_issue_comment(issue_number, comment_text)` first"
+        },
+        {
+          "actor": "`GitLabPlatform.add_issue_comment`",
+          "action": "calls `request_with_retry` to send `POST /api/v4/projects/{project_id}/issues/{iid}/notes` with `{\"body\": comment_text}`; returns normally on HTTP 201"
+        },
+        {
+          "actor": "`GitLabPlatform.close_issue`",
+          "action": "calls `request_with_retry` to send `PUT /api/v4/projects/{project_id}/issues/{iid}` with `{\"state_event\": \"close\"}`"
+        },
+        {
+          "actor": "GitLab REST API v4",
+          "action": "returns HTTP 200; issue is now in `closed` state"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "observes successful return from `close_issue`; workflow completes"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-4",
+      "title": "SSRF violation blocked at platform construction time",
+      "steps": [
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `create_platform()` with `platform.type = \"gitlab\"` and `platform.url = \"192.168.1.100\"`"
+        },
+        {
+          "actor": "`platform_factory.py`",
+          "action": "constructs `GitLabPlatform(project_id, token, url=\"192.168.1.100\")`"
+        },
+        {
+          "actor": "`GitLabPlatform` constructor",
+          "action": "calls `_validate_url(\"192.168.1.100\")` from `_ssrf.py`; `_check_address` detects private IP and raises `ConfigError`"
+        },
+        {
+          "actor": "`platform_factory.py`",
+          "action": "propagates `ConfigError` to the caller; no HTTP client is created; no network activity occurs"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "receives `ConfigError` and surfaces it as a configuration error to the operator"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-5",
+      "title": "Gitea platform requested before gitea_platform spec is delivered",
+      "steps": [
+        {
+          "actor": "agent-fox nightshift",
+          "action": "calls `create_platform()` with `platform.type = \"gitea\"`"
+        },
+        {
+          "actor": "`platform_factory.py`",
+          "action": "enters the Gitea branch and attempts lazy import of `afissues.gitea`"
+        },
+        {
+          "actor": "Python import system",
+          "action": "raises `ImportError` because `afissues/gitea.py` does not yet exist"
+        },
+        {
+          "actor": "`platform_factory.py`",
+          "action": "catches `ImportError` and raises `ConfigError` with message `\"The Gitea platform is not yet available. Install the afissues package with Gitea support.\"`"
+        },
+        {
+          "actor": "agent-fox nightshift",
+          "action": "receives `ConfigError` and surfaces it as a configuration error"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "04-ERR-1",
+      "condition": "Any GitLab API call returns a 4xx or 5xx HTTP status (excluding 409 in `create_label` and `create_pr`, and excluding 401/403 handling in `check_credentials`)",
+      "behavior": "Raises `IntegrationError` with response text truncated to 500 characters",
+      "requirement_id": "04-REQ-2.E1"
+    },
+    {
+      "id": "04-ERR-2",
+      "condition": "`GitLabPlatform` constructor receives a `url` that resolves to a private, loopback, or link-local IP address (SSRF violation)",
+      "behavior": "Raises `ConfigError` before any HTTP client is created; does not raise `IntegrationError`",
+      "requirement_id": "04-REQ-1.E1"
+    },
+    {
+      "id": "04-ERR-3",
+      "condition": "`create_pr` receives HTTP 409 from the initial POST and the fallback GET returns a non-200 status",
+      "behavior": "Raises `IntegrationError` immediately with a message referencing the original 409 context (e.g. `\"409 duplicate MR returned; fallback GET failed with {status}\"`)",
+      "requirement_id": "04-REQ-12.E2"
+    },
+    {
+      "id": "04-ERR-4",
+      "condition": "`create_pr` receives HTTP 409 from the initial POST and the fallback GET returns 200 but an empty list",
+      "behavior": "Raises `IntegrationError` with a descriptive message indicating a 409 duplicate was returned but no existing open merge request was found",
+      "requirement_id": "04-REQ-12.E1"
+    },
+    {
+      "id": "04-ERR-5",
+      "condition": "`create_label` receives HTTP 409 Conflict (label already exists)",
+      "behavior": "Treats 409 as success; returns `None` without raising any exception",
+      "requirement_id": "04-REQ-11.2"
+    },
+    {
+      "id": "04-ERR-6",
+      "condition": "`check_credentials` receives HTTP 401 or 403",
+      "behavior": "Raises `IntegrationError` with response text truncated to 500 characters",
+      "requirement_id": "04-REQ-15.E2"
+    },
+    {
+      "id": "04-ERR-7",
+      "condition": "`check_credentials` receives HTTP 404 or any 5xx status",
+      "behavior": "Returns normally without raising any exception",
+      "requirement_id": "04-REQ-15.E1"
+    },
+    {
+      "id": "04-ERR-8",
+      "condition": "`request_with_retry` exhausts all retry attempts due to `httpx.ConnectTimeout`, `httpx.ConnectError`, or `httpx.ReadTimeout`",
+      "behavior": "Re-raises the last exception after the final attempt; does not loop indefinitely",
+      "requirement_id": "04-REQ-19.E1"
+    },
+    {
+      "id": "04-ERR-9",
+      "condition": "`request_with_retry` receives HTTP 429 from the server",
+      "behavior": "Returns the 429 `httpx.Response` to the calling platform method without retrying; the platform method raises `IntegrationError`",
+      "requirement_id": "04-REQ-19.E2"
+    },
+    {
+      "id": "04-ERR-10",
+      "condition": "`platform_factory.py` is called with `platform.type = \"gitea\"` but `afissues.gitea` cannot be imported",
+      "behavior": "Catches `ImportError` and raises `ConfigError` with a clear message about Gitea platform unavailability",
+      "requirement_id": "04-REQ-21.1"
+    },
+    {
+      "id": "04-ERR-11",
+      "condition": "`platform_factory.py` routing for `\"gitlab\"` cannot determine a project identifier from either `parse_remote` or `platform.project_id`",
+      "behavior": "Raises `ConfigError` with a descriptive message",
+      "requirement_id": "04-REQ-20.E1"
+    },
+    {
+      "id": "04-ERR-12",
+      "condition": "`close_issue` is called with a non-empty comment and `add_issue_comment` raises `IntegrationError`",
+      "behavior": "Propagates the `IntegrationError` without attempting the close PUT; issue remains open",
+      "requirement_id": "04-REQ-6.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "httpx",
+      "version": ">=0.27",
+      "symbols": [
+        {
+          "name": "AsyncClient",
+          "import_path": "httpx",
+          "signature": "class AsyncClient(*, transport: AsyncHTTPTransport | None = None, timeout: Timeout | float = ..., **kwargs)",
+          "notes": "Used as async context manager via `async with httpx.AsyncClient(...) as client`. Each `request_with_retry` call creates a fresh instance."
+        },
+        {
+          "name": "AsyncHTTPTransport",
+          "import_path": "httpx",
+          "signature": "class AsyncHTTPTransport(**kwargs)",
+          "notes": "Base class for `SSRFGuardTransport` in `_ssrf.py`."
+        },
+        {
+          "name": "Timeout",
+          "import_path": "httpx",
+          "signature": "class Timeout(timeout: float | None = None, *, connect: float | None = None, read: float | None = None, write: float | None = None)",
+          "notes": "Passed to `request_with_retry` as the `timeout` parameter."
+        },
+        {
+          "name": "ConnectTimeout",
+          "import_path": "httpx",
+          "signature": "class ConnectTimeout(TransportError)",
+          "notes": "Transient error class that triggers retry in `request_with_retry`."
+        },
+        {
+          "name": "ConnectError",
+          "import_path": "httpx",
+          "signature": "class ConnectError(TransportError)",
+          "notes": "Transient error class that triggers retry in `request_with_retry`."
+        },
+        {
+          "name": "ReadTimeout",
+          "import_path": "httpx",
+          "signature": "class ReadTimeout(TimeoutException)",
+          "notes": "Transient error class that triggers retry in `request_with_retry`."
+        },
+        {
+          "name": "Response",
+          "import_path": "httpx",
+          "signature": "class Response(status_code: int, ...)",
+          "notes": "Return type of `request_with_retry`. Platform methods inspect `.status_code` and `.text`."
+        }
+      ]
+    }
+  ]
+}

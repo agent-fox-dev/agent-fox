@@ -1,0 +1,1768 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "gitea_platform",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/afissues/tests/test_gitea.py -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/afissues/afissues/gitea.py"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "03",
+      "from_group": 1,
+      "to_group": 10,
+      "relationship": "hard_prerequisite",
+      "sentinel": true
+    },
+    {
+      "depends_on_spec": "04",
+      "from_group": 1,
+      "to_group": 10,
+      "relationship": "hard_prerequisite",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: constructor, forge_type, SSRF, parse_remote, and _resolve_label_id",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write tests for GiteaPlatform class attributes and constructor behaviour",
+          "details": [
+            "Create packages/afissues/tests/test_gitea.py (co-located with other platform tests).",
+            "Test TS-05-1: assert GiteaPlatform.forge_type == 'gitea' without instantiating.",
+            "Test TS-05-2: mock _validate_url → None; assert base_url, auth header, owner, repo are set correctly.",
+            "Test TS-05-3: assert _validate_url called exactly once with the supplied url.",
+            "Test TS-05-4: assert _label_cache is an empty dict at construction.",
+            "Test TS-05-5: assert the _http client factory/wrapper is invoked during construction.",
+            "Use pytest-asyncio; patch afissues._ssrf._validate_url via unittest.mock.patch."
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-2",
+            "TS-05-3",
+            "TS-05-4",
+            "TS-05-5"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-1.2",
+            "05-REQ-1.3",
+            "05-REQ-1.4",
+            "05-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write SSRF and token edge-case tests for the constructor",
+          "details": [
+            "Test TS-05-E1: mock _validate_url to raise ConfigError; assert ConfigError propagates and is not re-wrapped as IntegrationError.",
+            "Test TS-05-E2: construct with a token containing special characters; assert Authorization header is verbatim 'token <value>'.",
+            "Cover 05-REQ-20.6 (SSRF constructor test) in this same file."
+          ],
+          "test_spec_refs": [
+            "TS-05-E1",
+            "TS-05-E2"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.E1",
+            "05-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write tests for _resolve_label_id cache hit, miss, not-found, and no-re-fetch",
+          "details": [
+            "Test TS-05-6: pre-populate _label_cache; call _resolve_label_id; assert no HTTP GET made.",
+            "Test TS-05-7: empty cache; mock GET /labels → [{id:7,name:'bug'},{id:8,name:'enhancement'}]; assert returns 7 and cache populated.",
+            "Test TS-05-8: label name absent from API response; assert IntegrationError raised with descriptive message.",
+            "Test TS-05-9: two calls for same missing label; assert GET called exactly once (no re-fetch on second call).",
+            "Test TS-05-E3: GET /labels returns 500 with 600-char body; assert IntegrationError; response text in message ≤ 500 chars.",
+            "All tests are async; use @pytest.mark.asyncio."
+          ],
+          "test_spec_refs": [
+            "TS-05-6",
+            "TS-05-7",
+            "TS-05-8",
+            "TS-05-9",
+            "TS-05-E3"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-2.4",
+            "05-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write tests for parse_remote (HTTPS, SSH, unparseable, any hostname)",
+          "details": [
+            "Test TS-05-46: parse_remote('https://gitea.example.com/myowner/myrepo.git') → ('myowner', 'myrepo').",
+            "Test TS-05-47: parse_remote('git@gitea.example.com:myowner/myrepo.git') → ('myowner', 'myrepo').",
+            "Test TS-05-48: parse_remote('not-a-valid-url') → None.",
+            "Test TS-05-49: any internal hostname accepted → ('team', 'project').",
+            "These are pure synchronous tests; no mocking required."
+          ],
+          "test_spec_refs": [
+            "TS-05-46",
+            "TS-05-47",
+            "TS-05-48",
+            "TS-05-49",
+            "TS-05-54"
+          ],
+          "requirement_refs": [
+            "05-REQ-17.1",
+            "05-REQ-17.2",
+            "05-REQ-17.3",
+            "05-REQ-17.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'constructor or forge_type or ssrf or token or resolve_label or parse_remote' exits 0.",
+          "All 15 tests in this group are collected and pass.",
+          "ruff check packages/afissues/tests/test_gitea.py produces no errors.",
+          "Requirements 05-REQ-1.1 through 05-REQ-1.E2, 05-REQ-2.1 through 05-REQ-2.E1, 05-REQ-17.1 through 05-REQ-17.4 acceptance criteria are verified by the written tests."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: create_issue, list_issues_by_label, add_issue_comment, assign_label",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write tests for create_issue (labels, no-labels, 2xx, error, null-body, absent-labels)",
+          "details": [
+            "Test TS-05-10: labels=['bug']; _resolve_label_id mocked to 42; assert POST body labels=[42]; assert IssueResult fields.",
+            "Test TS-05-11: labels=[]; assert POST body has no 'labels' key.",
+            "Test TS-05-12: POST returns 200 (not 201); assert IssueResult returned without error.",
+            "Test TS-05-E4: POST returns 500 with 600-char body; assert IntegrationError; message ≤ 500 response chars.",
+            "Test TS-05-E5: response body field is null; assert result.body == ''.",
+            "Test TS-05-E6: response missing labels field; assert result.labels == ()."
+          ],
+          "test_spec_refs": [
+            "TS-05-10",
+            "TS-05-11",
+            "TS-05-12",
+            "TS-05-E4",
+            "TS-05-E5",
+            "TS-05-E6"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2",
+            "05-REQ-3.3",
+            "05-REQ-3.E1",
+            "05-REQ-3.E2",
+            "05-REQ-3.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write tests for list_issues_by_label (params, sort mapping, sort fallback, type=issues, empty, error)",
+          "details": [
+            "Test TS-05-13: sort='created', direction='asc' → query params labels, state, type=issues, sort=oldest, limit=50.",
+            "Test TS-05-14: all four sort+direction combos map correctly (oldest/newest/leastupdate/recentupdate).",
+            "Test TS-05-15: sort='comments', direction='asc' → sort=newest silently; returns [].",
+            "Test TS-05-16: always includes type=issues param.",
+            "Test TS-05-E7: GET returns 422 with 600-char body; assert IntegrationError; ≤ 500 chars in message.",
+            "Test TS-05-E8: GET returns 200 with []; assert result == []."
+          ],
+          "test_spec_refs": [
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-15",
+            "TS-05-16",
+            "TS-05-E7",
+            "TS-05-E8"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.1",
+            "05-REQ-4.2",
+            "05-REQ-4.3",
+            "05-REQ-4.4",
+            "05-REQ-4.E1",
+            "05-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write tests for add_issue_comment (POST URL, body, returns None, 200, error)",
+          "details": [
+            "Test TS-05-17: POST to correct URL with body field; assert return is None.",
+            "Test TS-05-18: POST returns 200 (not 201); assert None returned without error.",
+            "Test TS-05-E9: POST returns 500 with 600-char body; assert IntegrationError with ≤ 500 response chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-17",
+            "TS-05-18",
+            "TS-05-E9"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write tests for assign_label (numeric ID POST, error)",
+          "details": [
+            "Test TS-05-19: _resolve_label_id mocked to 99; POST body contains labels=[99]; returns None.",
+            "Test TS-05-E10: _resolve_label_id returns 1; POST returns 422 with 600-char body; assert IntegrationError ≤ 500 chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-19",
+            "TS-05-E10"
+          ],
+          "requirement_refs": [
+            "05-REQ-6.1",
+            "05-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'create_issue or list_issues or add_issue_comment or assign_label' exits 0.",
+          "All 14 tests in this group collected and pass.",
+          "ruff check packages/afissues/tests/test_gitea.py produces no errors.",
+          "Requirements 05-REQ-3.1 through 05-REQ-3.E3, 05-REQ-4.1 through 05-REQ-4.E2, 05-REQ-5.1 through 05-REQ-5.E1, 05-REQ-6.1 through 05-REQ-6.E1 acceptance criteria verified."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: close_issue, remove_label, list_issue_comments, get_issue, update_issue",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for close_issue (with comment, comment=None, 201, error, comment-failure propagation)",
+          "details": [
+            "Test TS-05-20: comment='Closing'; assert add_issue_comment called before PATCH; assert call order.",
+            "Test TS-05-21: comment=None; assert add_issue_comment NOT called; PATCH body has state='closed'.",
+            "Test TS-05-22: PATCH returns 201; assert no exception, returns None.",
+            "Test TS-05-E11: PATCH returns 500 with 600-char body; assert IntegrationError ≤ 500 chars.",
+            "Test TS-05-E12: add_issue_comment raises IntegrationError; assert PATCH not called; exception propagates."
+          ],
+          "test_spec_refs": [
+            "TS-05-20",
+            "TS-05-21",
+            "TS-05-22",
+            "TS-05-E11",
+            "TS-05-E12"
+          ],
+          "requirement_refs": [
+            "05-REQ-7.1",
+            "05-REQ-7.2",
+            "05-REQ-7.3",
+            "05-REQ-7.E1",
+            "05-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write tests for remove_label (DELETE, IntegrationError from _resolve_label_id, 404, 422, 500)",
+          "details": [
+            "Test TS-05-23: _resolve_label_id returns 55; DELETE URL ends in /labels/55; returns None.",
+            "Test TS-05-24: _resolve_label_id raises IntegrationError; assert no DELETE; returns None silently.",
+            "Test TS-05-25: DELETE returns 404; returns None silently.",
+            "Test TS-05-26: DELETE returns 422; returns None silently.",
+            "Test TS-05-E13: DELETE returns 500 with 600-char body; assert IntegrationError ≤ 500 chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-23",
+            "TS-05-24",
+            "TS-05-25",
+            "TS-05-26",
+            "TS-05-E13"
+          ],
+          "requirement_refs": [
+            "05-REQ-8.1",
+            "05-REQ-8.2",
+            "05-REQ-8.3",
+            "05-REQ-8.4",
+            "05-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write tests for list_issue_comments (mapping, no limit param, empty, error)",
+          "details": [
+            "Test TS-05-27: GET response with user.login='alice'; assert result[0].user == 'alice', id, body, created_at mapped.",
+            "Test TS-05-28: assert 'limit' and 'page' not in GET query params.",
+            "Test TS-05-E14: GET returns 403 with 600-char body; assert IntegrationError ≤ 500 chars.",
+            "Test TS-05-E15: GET returns 200 with []; assert result == []."
+          ],
+          "test_spec_refs": [
+            "TS-05-27",
+            "TS-05-28",
+            "TS-05-E14",
+            "TS-05-E15"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.1",
+            "05-REQ-9.2",
+            "05-REQ-9.E1",
+            "05-REQ-9.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write tests for get_issue and update_issue (mapping, 2xx, error)",
+          "details": [
+            "Test TS-05-29: GET /issues/10 returns mock; assert all IssueResult fields including labels extracted from objects.",
+            "Test TS-05-E16: GET returns 404 with 600-char body; assert IntegrationError ≤ 500 chars.",
+            "Test TS-05-30: PATCH /issues/8 returns 201; assert body field in request; returns None.",
+            "Test TS-05-31: PATCH returns 200; returns None without error.",
+            "Test TS-05-E17: PATCH returns 500 with 600-char body; assert IntegrationError ≤ 500 chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-29",
+            "TS-05-30",
+            "TS-05-31",
+            "TS-05-E16",
+            "TS-05-E17"
+          ],
+          "requirement_refs": [
+            "05-REQ-10.1",
+            "05-REQ-10.E1",
+            "05-REQ-11.1",
+            "05-REQ-11.2",
+            "05-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'close_issue or remove_label or list_issue_comments or get_issue or update_issue' exits 0.",
+          "All 14 tests in this group collected and pass.",
+          "ruff check packages/afissues/tests/test_gitea.py produces no errors.",
+          "Requirements 05-REQ-7.1 through 05-REQ-7.E2, 05-REQ-8.1 through 05-REQ-8.E1, 05-REQ-9.1 through 05-REQ-9.E2, 05-REQ-10.1, 05-REQ-10.E1, 05-REQ-11.1 through 05-REQ-11.E1 acceptance criteria verified."
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: create_label, create_pr, close, search_issues, check_credentials, factory, re-exports",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write tests for create_label (idempotency, color prefix, cache update, error)",
+          "details": [
+            "Test TS-05-32: _resolve_label_id returns 7; assert no POST; returns None.",
+            "Test TS-05-33: _resolve_label_id raises IntegrationError; POST with name, color='#ff0000', description.",
+            "Test TS-05-34: after create_label success, _resolve_label_id('fresh') returns 99 without GET.",
+            "Test TS-05-35: bare hex '123abc' → color '#123abc' in POST body.",
+            "Test TS-05-E18: POST returns 500 with 600-char body; assert IntegrationError ≤ 500 chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-32",
+            "TS-05-33",
+            "TS-05-34",
+            "TS-05-35",
+            "TS-05-E18"
+          ],
+          "requirement_refs": [
+            "05-REQ-12.1",
+            "05-REQ-12.2",
+            "05-REQ-12.3",
+            "05-REQ-12.4",
+            "05-REQ-12.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write tests for create_pr (success, 409 with match, 409 no match, non-2xx, GET error)",
+          "details": [
+            "Test TS-05-36: POST returns 201; assert POST fields title/body/head/base; returns html_url.",
+            "Test TS-05-37: POST returns 409; GET returns existing PR; returns html_url.",
+            "Test TS-05-38: POST returns 409; GET returns []; assert IntegrationError with descriptive message.",
+            "Test TS-05-E19: POST returns 500 with 600-char body; assert IntegrationError ≤ 500 chars.",
+            "Test TS-05-E20: POST returns 409; follow-up GET returns 500; assert IntegrationError ≤ 500 chars."
+          ],
+          "test_spec_refs": [
+            "TS-05-36",
+            "TS-05-37",
+            "TS-05-38",
+            "TS-05-E19",
+            "TS-05-E20"
+          ],
+          "requirement_refs": [
+            "05-REQ-13.1",
+            "05-REQ-13.2",
+            "05-REQ-13.3",
+            "05-REQ-13.E1",
+            "05-REQ-13.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write tests for close(), search_issues, and check_credentials",
+          "details": [
+            "Test TS-05-39: close() returns None, not a coroutine, makes no HTTP calls.",
+            "Test TS-05-40: search_issues GET params include q, type=issues, state, limit=50; returns list without client-side filter.",
+            "Test TS-05-41: search_issues always includes type=issues.",
+            "Test TS-05-E21: search_issues GET returns 503 with 600-char body; IntegrationError ≤ 500 chars.",
+            "Test TS-05-42: check_credentials GET returns 500; assert no exception, returns None.",
+            "Test TS-05-43: check_credentials GET returns 401; assert IntegrationError.",
+            "Test TS-05-44: check_credentials GET returns 403; assert IntegrationError.",
+            "Test TS-05-45: check_credentials GET returns 503; assert no exception."
+          ],
+          "test_spec_refs": [
+            "TS-05-39",
+            "TS-05-40",
+            "TS-05-41",
+            "TS-05-42",
+            "TS-05-43",
+            "TS-05-44",
+            "TS-05-45",
+            "TS-05-E21"
+          ],
+          "requirement_refs": [
+            "05-REQ-14.1",
+            "05-REQ-15.1",
+            "05-REQ-15.2",
+            "05-REQ-15.E1",
+            "05-REQ-16.1",
+            "05-REQ-16.2",
+            "05-REQ-16.3",
+            "05-REQ-16.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write platform factory integration test and afissues re-export test",
+          "details": [
+            "Test TS-05-50 (integration, agentfox/nightshift/tests/test_platform_factory.py): platform_factory({'type':'gitea',...}) returns GiteaPlatform instance with forge_type=='gitea'.",
+            "Test TS-05-51: import succeeds with no NotImplementedError guard.",
+            "Test TS-05-52: `from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform` all succeed.",
+            "Factory test lives in agentfox/nightshift/tests/ per PRD requirement."
+          ],
+          "test_spec_refs": [
+            "TS-05-50",
+            "TS-05-51",
+            "TS-05-52",
+            "TS-05-59"
+          ],
+          "requirement_refs": [
+            "05-REQ-18.1",
+            "05-REQ-18.2",
+            "05-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'create_label or create_pr or close or search_issues or check_credentials' exits 0.",
+          "pytest agentfox/nightshift/tests/test_platform_factory.py -v -k gitea exits 0.",
+          "All 17 tests in this group collected and pass.",
+          "ruff check packages/afissues/tests/test_gitea.py produces no errors.",
+          "Requirements 05-REQ-12.1 through 05-REQ-12.E1, 05-REQ-13.1 through 05-REQ-13.E2, 05-REQ-14.1, 05-REQ-15.1 through 05-REQ-15.E1, 05-REQ-16.1 through 05-REQ-16.4, 05-REQ-18.1 through 05-REQ-19.1 acceptance criteria verified."
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write property tests and smoke test stubs",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write property tests for label cache consistency and numeric ID invariant",
+          "details": [
+            "TS-05-P1: use hypothesis or manual sequence generation; verify _label_cache only grows, entries derived from API or create_label; no mid-session removal; missing label raises immediately on 2nd call.",
+            "TS-05-P2: for assign_label, remove_label, create_issue with labels; assert _resolve_label_id called before any HTTP label request; assert label name string never appears in POST/DELETE body or URL as label identifier.",
+            "Place in packages/afissues/tests/test_gitea_properties.py or the same test_gitea.py file."
+          ],
+          "test_spec_refs": [
+            "TS-05-P1",
+            "TS-05-P2"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.4",
+            "05-REQ-12.3",
+            "05-REQ-3.1",
+            "05-REQ-6.1",
+            "05-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write property tests for error truncation, type=issues invariant, default params, ConfigError propagation, close_issue no-comment invariant",
+          "details": [
+            "TS-05-P3: for each method that raises IntegrationError on error, generate response bodies of 1-2000 chars; assert len(response_text_in_message) ≤ 500.",
+            "TS-05-P4: for list_issues_by_label and search_issues with arbitrary params; assert type=issues always present.",
+            "TS-05-P5: use inspect.signature to verify default params match PlatformProtocol exactly.",
+            "TS-05-P6: various ConfigError messages from _validate_url; assert propagated type is ConfigError, message unchanged.",
+            "TS-05-P7: close_issue(n, comment=None) always makes exactly 1 HTTP call (PATCH only)."
+          ],
+          "test_spec_refs": [
+            "TS-05-P3",
+            "TS-05-P4",
+            "TS-05-P5",
+            "TS-05-P6",
+            "TS-05-P7"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.E1",
+            "05-REQ-4.4",
+            "05-REQ-15.2",
+            "05-REQ-4.1",
+            "05-REQ-7.2",
+            "05-REQ-12.2",
+            "05-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Write smoke test stubs for all 6 execution paths",
+          "details": [
+            "SMOKE-1: create_issue happy path with label → GET labels, POST issue, IssueResult returned.",
+            "SMOKE-2: create_pr 409 duplicate detection → POST 409, GET existing PR, html_url returned.",
+            "SMOKE-3: close_issue with comment → POST comment first, then PATCH state=closed.",
+            "SMOKE-4: create_label idempotency (label exists) → no POST made.",
+            "SMOKE-5: end-to-end factory → check_credentials → create_issue chain.",
+            "SMOKE-6: SSRF-disallowed URL → ConfigError propagated, no instance created.",
+            "Mark smoke tests with @pytest.mark.smoke for selective execution."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3",
+            "TS-05-SMOKE-4",
+            "TS-05-SMOKE-5",
+            "TS-05-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-13.2",
+            "05-REQ-7.1",
+            "05-REQ-12.1",
+            "05-REQ-18.1",
+            "05-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'property or prop or smoke' exits 0.",
+          "All property and smoke tests collected and pass.",
+          "ruff check packages/afissues/tests/test_gitea.py produces no errors.",
+          "05-PROP-1 through 05-PROP-7 invariants are each covered by at least one property test.",
+          "05-PATH-1 through 05-PATH-6 are each covered by a smoke test."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all tests written and red (implementation absent)",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Verify full test suite is collected and fails with ImportError or NotImplementedError",
+          "details": [
+            "Run pytest --collect-only and confirm all test IDs from groups 1-5 are visible.",
+            "Confirm that running the full suite fails because afissues/gitea.py does not yet exist.",
+            "No implementation code should be committed before this checkpoint passes collection.",
+            "Document the expected failure mode (ImportError from missing gitea module)."
+          ],
+          "test_spec_refs": [
+            "TS-05-53",
+            "TS-05-54",
+            "TS-05-55",
+            "TS-05-56",
+            "TS-05-57",
+            "TS-05-58",
+            "TS-05-59"
+          ],
+          "requirement_refs": [
+            "05-REQ-20.1",
+            "05-REQ-20.2",
+            "05-REQ-20.3",
+            "05-REQ-20.4",
+            "05-REQ-20.5",
+            "05-REQ-20.6",
+            "05-REQ-20.7"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Review test coverage mapping against all requirements and correctness properties",
+          "details": [
+            "Manually cross-check that every requirement ID from 05-REQ-1 through 05-REQ-20 has at least one test referencing it.",
+            "Confirm 05-PROP-1 through 05-PROP-7 each have a property test.",
+            "Confirm 05-PATH-1 through 05-PATH-6 each have a smoke test.",
+            "File a gap note for any uncovered requirement before proceeding to implementation."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-2.1",
+            "05-REQ-3.1",
+            "05-REQ-4.1",
+            "05-REQ-5.1",
+            "05-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "pytest --collect-only packages/afissues/tests/test_gitea.py exits 0 and lists ≥ 59 test items.",
+          "pytest packages/afissues/tests/test_gitea.py exits non-zero (tests fail due to missing implementation).",
+          "Every requirement 05-REQ-1 through 05-REQ-20 appears in at least one test's requirement_refs.",
+          "All 7 correctness properties have corresponding property tests."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement GiteaPlatform: module scaffold, constructor, _resolve_label_id",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create packages/afissues/afissues/gitea.py with module-level imports and class scaffold",
+          "details": [
+            "Create packages/afissues/afissues/gitea.py.",
+            "Add imports: httpx, afissues.protocol (PlatformProtocol, IssueResult, IssueComment), afissues.errors (IntegrationError, ConfigError), afissues._ssrf (_validate_url), afissues._http (follow GitLabPlatform pattern exactly).",
+            "Define class GiteaPlatform with forge_type: str = 'gitea' class attribute.",
+            "Add module-level parse_remote stub (raise NotImplementedError) to be filled in 7.2.",
+            "Ensure file is importable; run `python -c 'from afissues.gitea import GiteaPlatform'` to confirm."
+          ],
+          "test_spec_refs": [
+            "TS-05-1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Implement GiteaPlatform.__init__ and parse_remote",
+          "details": [
+            "Constructor: call _validate_url(url) first (propagates ConfigError without catching).",
+            "Set self.base_url = f'https://{url}/api/v1', self.owner, self.repo.",
+            "Build self._auth_headers = {'Authorization': f'token {token}'} with no token validation.",
+            "Initialize self._label_cache: dict[str, int] = {} and self._cache_populated: bool = False.",
+            "Instantiate HTTP client using the same afissues._http pattern as GitLabPlatform (follow gitlab.py directly).",
+            "Implement parse_remote(remote_url: str) -> tuple[str, str] | None: handle https://host/owner/repo[.git] and git@host:owner/repo[.git]; strip .git suffix; return None on parse failure."
+          ],
+          "test_spec_refs": [
+            "TS-05-2",
+            "TS-05-3",
+            "TS-05-4",
+            "TS-05-5",
+            "TS-05-E1",
+            "TS-05-E2",
+            "TS-05-46",
+            "TS-05-47",
+            "TS-05-48",
+            "TS-05-49"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.2",
+            "05-REQ-1.3",
+            "05-REQ-1.4",
+            "05-REQ-1.5",
+            "05-REQ-1.E1",
+            "05-REQ-1.E2",
+            "05-REQ-17.1",
+            "05-REQ-17.2",
+            "05-REQ-17.3",
+            "05-REQ-17.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Implement _resolve_label_id with lazy cache and no-re-fetch invariant",
+          "details": [
+            "async def _resolve_label_id(self, label_name: str) -> int.",
+            "If label_name in self._label_cache: return self._label_cache[label_name].",
+            "If self._cache_populated (full fetch already done): raise IntegrationError(f'Label {label_name!r} not found in repo').",
+            "Otherwise: GET {self.base_url}/repos/{self.owner}/{self.repo}/labels; raise IntegrationError(resp.text[:500]) on non-2xx.",
+            "Populate self._label_cache with all {item['name']: item['id']} pairs; set self._cache_populated = True.",
+            "Return self._label_cache[label_name] or raise IntegrationError if still absent."
+          ],
+          "test_spec_refs": [
+            "TS-05-6",
+            "TS-05-7",
+            "TS-05-8",
+            "TS-05-9",
+            "TS-05-E3"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-2.4",
+            "05-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Implement close() synchronous no-op",
+          "details": [
+            "def close(self) -> None: pass  # synchronous no-op, no HTTP calls.",
+            "Ensure close() is NOT an async def.",
+            "Verify with inspect.iscoroutinefunction(platform.close) == False."
+          ],
+          "test_spec_refs": [
+            "TS-05-39"
+          ],
+          "requirement_refs": [
+            "05-REQ-14.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'constructor or forge_type or ssrf or token or resolve_label or parse_remote or close' exits 0.",
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'TS_05_1 or TS_05_2 or TS_05_3 or TS_05_4 or TS_05_5 or TS_05_6 or TS_05_7 or TS_05_8 or TS_05_9 or TS_05_39 or TS_05_46 or TS_05_47 or TS_05_48 or TS_05_49 or E1 or E2 or E3' exits 0.",
+          "ruff check packages/afissues/afissues/gitea.py produces no errors.",
+          "python -c 'from afissues.gitea import GiteaPlatform, parse_remote' exits 0.",
+          "Requirements 05-REQ-1.1 through 05-REQ-1.E2, 05-REQ-2.1 through 05-REQ-2.E1, 05-REQ-14.1, 05-REQ-17.1 through 05-REQ-17.4 tests pass."
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement create_issue, list_issues_by_label, add_issue_comment, assign_label",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement create_issue with label resolution and IssueResult mapping",
+          "details": [
+            "async def create_issue(self, title, body, labels) -> IssueResult.",
+            "If labels: resolve each via _resolve_label_id; build payload with labels=[ids].",
+            "If not labels: payload omits labels key entirely.",
+            "POST {base_url}/repos/{owner}/{repo}/issues; raise IntegrationError(resp.text[:500]) on non-2xx.",
+            "Map response: number=data['number'], title=data['title'], html_url=data['html_url'], body=data.get('body') or '', labels=tuple(l['name'] for l in data.get('labels', [])).",
+            "Return IssueResult(...)."
+          ],
+          "test_spec_refs": [
+            "TS-05-10",
+            "TS-05-11",
+            "TS-05-12",
+            "TS-05-E4",
+            "TS-05-E5",
+            "TS-05-E6"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2",
+            "05-REQ-3.3",
+            "05-REQ-3.E1",
+            "05-REQ-3.E2",
+            "05-REQ-3.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement list_issues_by_label with Gitea sort mapping and type=issues filter",
+          "details": [
+            "async def list_issues_by_label(self, label, state='open', sort='created', direction='asc') -> list[IssueResult].",
+            "SORT_MAP = {('created','asc'):'oldest',('created','desc'):'newest',('updated','asc'):'leastupdate',('updated','desc'):'recentupdate'}.",
+            "gitea_sort = SORT_MAP.get((sort, direction), 'newest')  # silent fallback.",
+            "GET with params: labels=label, state=state, type='issues', sort=gitea_sort, limit=50.",
+            "Raise IntegrationError(resp.text[:500]) on non-2xx.",
+            "Map response array to list[IssueResult] using same field mapping as create_issue."
+          ],
+          "test_spec_refs": [
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-15",
+            "TS-05-16",
+            "TS-05-E7",
+            "TS-05-E8"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.1",
+            "05-REQ-4.2",
+            "05-REQ-4.3",
+            "05-REQ-4.4",
+            "05-REQ-4.E1",
+            "05-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Implement add_issue_comment and assign_label",
+          "details": [
+            "async def add_issue_comment(self, issue_number, body) -> None: POST {base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments with {'body': body}; raise IntegrationError(resp.text[:500]) on non-2xx; return None (do not parse response body).",
+            "async def assign_label(self, issue_number, label) -> None: label_id = await _resolve_label_id(label); POST {base_url}/repos/{owner}/{repo}/issues/{issue_number}/labels with {'labels': [label_id]}; raise IntegrationError(resp.text[:500]) on non-2xx; return None."
+          ],
+          "test_spec_refs": [
+            "TS-05-17",
+            "TS-05-18",
+            "TS-05-19",
+            "TS-05-E9",
+            "TS-05-E10"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.E1",
+            "05-REQ-6.1",
+            "05-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'create_issue or list_issues or add_issue_comment or assign_label' exits 0.",
+          "All 14 tests from group 2 pass.",
+          "ruff check packages/afissues/afissues/gitea.py produces no errors.",
+          "Requirements 05-REQ-3.1 through 05-REQ-3.E3, 05-REQ-4.1 through 05-REQ-4.E2, 05-REQ-5.1 through 05-REQ-5.E1, 05-REQ-6.1 through 05-REQ-6.E1 tests pass."
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement close_issue, remove_label, list_issue_comments, get_issue, update_issue",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement close_issue with optional comment and PATCH state=closed",
+          "details": [
+            "async def close_issue(self, issue_number, comment=None) -> None.",
+            "If comment is not None: await self.add_issue_comment(issue_number, comment)  # propagates IntegrationError.",
+            "PATCH {base_url}/repos/{owner}/{repo}/issues/{issue_number} with {'state': 'closed'}.",
+            "Raise IntegrationError(resp.text[:500]) on non-2xx PATCH response.",
+            "Return None on any 2xx."
+          ],
+          "test_spec_refs": [
+            "TS-05-20",
+            "TS-05-21",
+            "TS-05-22",
+            "TS-05-E11",
+            "TS-05-E12"
+          ],
+          "requirement_refs": [
+            "05-REQ-7.1",
+            "05-REQ-7.2",
+            "05-REQ-7.3",
+            "05-REQ-7.E1",
+            "05-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement remove_label with _resolve_label_id error catch and 404/422 idempotency",
+          "details": [
+            "async def remove_label(self, issue_number, label) -> None.",
+            "try: label_id = await self._resolve_label_id(label) except IntegrationError: return None.",
+            "DELETE {base_url}/repos/{owner}/{repo}/issues/{issue_number}/labels/{label_id}.",
+            "If status in (204, 404, 422): return None silently.",
+            "Otherwise: raise IntegrationError(resp.text[:500])."
+          ],
+          "test_spec_refs": [
+            "TS-05-23",
+            "TS-05-24",
+            "TS-05-25",
+            "TS-05-26",
+            "TS-05-E13"
+          ],
+          "requirement_refs": [
+            "05-REQ-8.1",
+            "05-REQ-8.2",
+            "05-REQ-8.3",
+            "05-REQ-8.4",
+            "05-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Implement list_issue_comments, get_issue, and update_issue",
+          "details": [
+            "async def list_issue_comments(self, issue_number) -> list[IssueComment]: GET .../issues/{issue_number}/comments (no limit param); raise IntegrationError on non-2xx; map each: IssueComment(id=d['id'], body=d['body'], user=d['user']['login'], created_at=d['created_at']).",
+            "async def get_issue(self, issue_number) -> IssueResult: GET .../issues/{issue_number}; raise IntegrationError on non-2xx; map to IssueResult using standard field mapping.",
+            "async def update_issue(self, issue_number, body) -> None: PATCH .../issues/{issue_number} with {'body': body}; raise IntegrationError on non-2xx; return None on any 2xx (handles both 200 and 201)."
+          ],
+          "test_spec_refs": [
+            "TS-05-27",
+            "TS-05-28",
+            "TS-05-29",
+            "TS-05-30",
+            "TS-05-31",
+            "TS-05-E14",
+            "TS-05-E15",
+            "TS-05-E16",
+            "TS-05-E17"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.1",
+            "05-REQ-9.2",
+            "05-REQ-9.E1",
+            "05-REQ-9.E2",
+            "05-REQ-10.1",
+            "05-REQ-10.E1",
+            "05-REQ-11.1",
+            "05-REQ-11.2",
+            "05-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v -k 'close_issue or remove_label or list_issue_comments or get_issue or update_issue' exits 0.",
+          "All 14 tests from group 3 pass.",
+          "ruff check packages/afissues/afissues/gitea.py produces no errors.",
+          "Requirements 05-REQ-7.1 through 05-REQ-7.E2, 05-REQ-8.1 through 05-REQ-8.E1, 05-REQ-9.1 through 05-REQ-9.E2, 05-REQ-10.1, 05-REQ-10.E1, 05-REQ-11.1 through 05-REQ-11.E1 tests pass."
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement create_label, create_pr, search_issues, check_credentials; wire factory and re-exports",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Implement create_label with idempotency check, color prefix, and cache insert",
+          "details": [
+            "async def create_label(self, name, color, description='') -> None.",
+            "try: await self._resolve_label_id(name); return None  # label exists, silently skip.",
+            "except IntegrationError: pass  # label not found, proceed to create.",
+            "POST {base_url}/repos/{owner}/{repo}/labels with {'name': name, 'color': f'#{color}', 'description': description}.",
+            "Raise IntegrationError(resp.text[:500]) on non-2xx.",
+            "On success: self._label_cache[name] = data['id']  # single-entry insert, no full re-fetch."
+          ],
+          "test_spec_refs": [
+            "TS-05-32",
+            "TS-05-33",
+            "TS-05-34",
+            "TS-05-35",
+            "TS-05-E18"
+          ],
+          "requirement_refs": [
+            "05-REQ-12.1",
+            "05-REQ-12.2",
+            "05-REQ-12.3",
+            "05-REQ-12.4",
+            "05-REQ-12.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Implement create_pr with 409 duplicate detection",
+          "details": [
+            "async def create_pr(self, title, body, head, base) -> str.",
+            "POST {base_url}/repos/{owner}/{repo}/pulls with {'title':title,'body':body,'head':head,'base':base}.",
+            "If 2xx: return data['html_url'].",
+            "If 409: GET {base_url}/repos/{owner}/{repo}/pulls with params head=head, base=base, state='open'; raise IntegrationError(resp.text[:500]) on non-2xx GET.",
+            "If GET returns empty list: raise IntegrationError('409 duplicate returned but no existing open PR found for head={head} base={base}').",
+            "Otherwise return existing_prs[0]['html_url'].",
+            "For any other non-2xx POST status: raise IntegrationError(resp.text[:500])."
+          ],
+          "test_spec_refs": [
+            "TS-05-36",
+            "TS-05-37",
+            "TS-05-38",
+            "TS-05-E19",
+            "TS-05-E20"
+          ],
+          "requirement_refs": [
+            "05-REQ-13.1",
+            "05-REQ-13.2",
+            "05-REQ-13.3",
+            "05-REQ-13.E1",
+            "05-REQ-13.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Implement search_issues and check_credentials",
+          "details": [
+            "async def search_issues(self, title_prefix, state='open') -> list[IssueResult]: GET {base_url}/repos/{owner}/{repo}/issues with params q=title_prefix, type='issues', state=state, limit=50; raise IntegrationError on non-2xx; map to list[IssueResult].",
+            "async def check_credentials(self) -> None: GET {base_url}/repos/{owner}/{repo}; if resp.status_code in (401, 403): raise IntegrationError(f'Authentication failed: {resp.status_code}'); else: return None (no raise for any other status including 5xx)."
+          ],
+          "test_spec_refs": [
+            "TS-05-40",
+            "TS-05-41",
+            "TS-05-42",
+            "TS-05-43",
+            "TS-05-44",
+            "TS-05-45",
+            "TS-05-E21"
+          ],
+          "requirement_refs": [
+            "05-REQ-15.1",
+            "05-REQ-15.2",
+            "05-REQ-15.E1",
+            "05-REQ-16.1",
+            "05-REQ-16.2",
+            "05-REQ-16.3",
+            "05-REQ-16.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.4",
+          "title": "Update afissues/__init__.py re-exports and platform_factory Gitea routing",
+          "details": [
+            "In packages/afissues/afissues/__init__.py: append 'from afissues.gitea import GiteaPlatform' to existing re-exports; preserve GitHubPlatform and GitLabPlatform entries.",
+            "In agentfox/nightshift/platform_factory.py: replace the import guard for Gitea with 'from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote'.",
+            "Confirm no NotImplementedError or guard placeholder remains in the factory Gitea branch.",
+            "Run: python -c 'from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform' and confirm success."
+          ],
+          "test_spec_refs": [
+            "TS-05-50",
+            "TS-05-51",
+            "TS-05-52"
+          ],
+          "requirement_refs": [
+            "05-REQ-18.1",
+            "05-REQ-18.2",
+            "05-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "pytest packages/afissues/tests/test_gitea.py -v exits 0 (full suite passes).",
+          "pytest agentfox/nightshift/tests/test_platform_factory.py -v -k gitea exits 0.",
+          "ruff check packages/afissues/afissues/gitea.py packages/afissues/afissues/__init__.py agentfox/nightshift/platform_factory.py produces no errors.",
+          "python -c 'from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform' exits 0.",
+          "python -c 'from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote' exits 0.",
+          "Requirements 05-REQ-12.1 through 05-REQ-12.E1, 05-REQ-13.1 through 05-REQ-13.E2, 05-REQ-15.1 through 05-REQ-15.E1, 05-REQ-16.1 through 05-REQ-16.4, 05-REQ-18.1 through 05-REQ-19.1 tests pass."
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, smoke tests, stub audit, and cross-spec entry points",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Trace all 6 execution paths — verify no broken links in call chains",
+          "details": [
+            "05-PATH-1: trace GiteaPlatform.create_issue → _resolve_label_id (cache miss → GET labels → populate cache) → POST /issues → IssueResult; confirm each call is real (no stub).",
+            "05-PATH-2: trace create_pr POST → 409 branch → GET /pulls → html_url; confirm 409 branch wired correctly.",
+            "05-PATH-3: trace close_issue(comment=non-None) → add_issue_comment (POST comment) → PATCH state=closed; verify ordering.",
+            "05-PATH-4: trace create_label → _resolve_label_id returns ID → returns None (no POST); confirm early return.",
+            "05-PATH-5: trace platform_factory type='gitea' → GiteaPlatform constructor → _validate_url → check_credentials GET → create_issue full chain.",
+            "05-PATH-6: trace GiteaPlatform constructor with disallowed URL → _validate_url raises ConfigError → propagates unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3",
+            "TS-05-SMOKE-4",
+            "TS-05-SMOKE-5",
+            "TS-05-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.3",
+            "05-REQ-2.2",
+            "05-REQ-3.1",
+            "05-REQ-7.1",
+            "05-REQ-12.2",
+            "05-REQ-13.2",
+            "05-REQ-18.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify return value propagation across all protocol methods",
+          "details": [
+            "Confirm create_issue returns IssueResult (not None or dict).",
+            "Confirm list_issues_by_label returns list[IssueResult] (not the raw httpx response).",
+            "Confirm list_issue_comments returns list[IssueComment] with user field from user.login.",
+            "Confirm get_issue returns IssueResult with labels as tuple of strings (not label objects).",
+            "Confirm create_pr returns html_url string (not the full PR dict).",
+            "Confirm search_issues returns list[IssueResult] without client-side filtering.",
+            "Inspect real implementation code to ensure no caller discards return values."
+          ],
+          "test_spec_refs": [
+            "TS-05-10",
+            "TS-05-13",
+            "TS-05-27",
+            "TS-05-29",
+            "TS-05-36",
+            "TS-05-40"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-4.1",
+            "05-REQ-9.1",
+            "05-REQ-10.1",
+            "05-REQ-13.1",
+            "05-REQ-15.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run all smoke tests with real GiteaPlatform components and mocked HTTP",
+          "details": [
+            "pytest packages/afissues/tests/test_gitea.py -v -m smoke; assert all 6 smoke tests pass.",
+            "Real components used: GiteaPlatform, _resolve_label_id, parse_remote, afissues._ssrf._validate_url.",
+            "Only afissues._http HTTP calls and _validate_url are mocked.",
+            "For SMOKE-5: platform_factory real import + GiteaPlatform construction + check_credentials + create_issue chain with mocked HTTP.",
+            "For SMOKE-6: _validate_url raises real ConfigError; assert no GiteaPlatform instance created."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3",
+            "TS-05-SMOKE-4",
+            "TS-05-SMOKE-5",
+            "TS-05-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-7.1",
+            "05-REQ-12.1",
+            "05-REQ-13.2",
+            "05-REQ-18.1",
+            "05-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Stub and dead-code audit across gitea.py",
+          "details": [
+            "Search gitea.py for stub markers: 'raise NotImplementedError', 'pass' in non-abstract methods, bare 'return None' in methods that should return a value, '# TODO', '# FIXME'.",
+            "Run: grep -n 'NotImplementedError\\|# TODO\\|# FIXME' packages/afissues/afissues/gitea.py — expect zero matches.",
+            "Verify all 12 protocol methods and 2 non-protocol methods (search_issues, check_credentials) have real bodies.",
+            "Verify _resolve_label_id has real cache logic (not a placeholder).",
+            "Verify parse_remote has real regex/parsing logic (not raise NotImplementedError).",
+            "Verify close() body is 'pass' (intentional no-op) and is documented as such — this is the only acceptable 'pass'."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "05-REQ-1.2",
+            "05-REQ-2.2",
+            "05-REQ-3.1",
+            "05-REQ-4.1",
+            "05-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.5",
+          "title": "Cross-spec entry point verification: confirm platform_factory and afissues.__init__ wiring",
+          "details": [
+            "Confirm agentfox/nightshift/platform_factory.py contains 'from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote' with no guard around it.",
+            "grep platform_factory.py for 'NotImplementedError\\|raise.*gitea\\|# TODO.*gitea' — expect zero matches.",
+            "Confirm afissues/__init__.py exports GiteaPlatform: python -c 'from afissues import GiteaPlatform; assert GiteaPlatform.forge_type == \"gitea\"' exits 0.",
+            "Confirm GitHubPlatform and GitLabPlatform still importable from afissues (no regressions): python -c 'from afissues import GitHubPlatform, GitLabPlatform' exits 0.",
+            "Run full test suite to confirm no regressions: pytest -q exits 0."
+          ],
+          "test_spec_refs": [
+            "TS-05-50",
+            "TS-05-51",
+            "TS-05-52",
+            "TS-05-59"
+          ],
+          "requirement_refs": [
+            "05-REQ-18.1",
+            "05-REQ-18.2",
+            "05-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "pytest -q exits 0 — all tests in all suites pass with no regressions.",
+          "pytest packages/afissues/tests/test_gitea.py -v exits 0 — all 59+ gitea-specific tests pass.",
+          "pytest agentfox/nightshift/tests/test_platform_factory.py -v -k gitea exits 0.",
+          "grep -rn 'NotImplementedError' packages/afissues/afissues/gitea.py returns zero lines.",
+          "ruff check packages/afissues/afissues/gitea.py packages/afissues/afissues/__init__.py agentfox/nightshift/platform_factory.py exits 0.",
+          "python -c 'from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform; assert GiteaPlatform.forge_type == \"gitea\"' exits 0.",
+          "All 6 smoke tests (TS-05-SMOKE-1 through TS-05-SMOKE-6) pass.",
+          "05-PROP-1 through 05-PROP-7 property tests all pass.",
+          "No cross-spec entry point in platform_factory.py retains a guard or NotImplementedError for the gitea branch."
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "05-REQ-1.1",
+      "test_spec_id": "TS-05-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.2",
+      "test_spec_id": "TS-05-2",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.3",
+      "test_spec_id": "TS-05-3",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.4",
+      "test_spec_id": "TS-05-4",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.5",
+      "test_spec_id": "TS-05-5",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.E1",
+      "test_spec_id": "TS-05-E1",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.E2",
+      "test_spec_id": "TS-05-E2",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.1",
+      "test_spec_id": "TS-05-6",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.2",
+      "test_spec_id": "TS-05-7",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.3",
+      "test_spec_id": "TS-05-8",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.4",
+      "test_spec_id": "TS-05-9",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.E1",
+      "test_spec_id": "TS-05-E3",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.1",
+      "test_spec_id": "TS-05-10",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.2",
+      "test_spec_id": "TS-05-11",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.3",
+      "test_spec_id": "TS-05-12",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.E1",
+      "test_spec_id": "TS-05-E4",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.E2",
+      "test_spec_id": "TS-05-E5",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.E3",
+      "test_spec_id": "TS-05-E6",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.1",
+      "test_spec_id": "TS-05-13",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.2",
+      "test_spec_id": "TS-05-14",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.3",
+      "test_spec_id": "TS-05-15",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.4",
+      "test_spec_id": "TS-05-16",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.E1",
+      "test_spec_id": "TS-05-E7",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.E2",
+      "test_spec_id": "TS-05-E8",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.1",
+      "test_spec_id": "TS-05-17",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.2",
+      "test_spec_id": "TS-05-18",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.E1",
+      "test_spec_id": "TS-05-E9",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.1",
+      "test_spec_id": "TS-05-19",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.E1",
+      "test_spec_id": "TS-05-E10",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.1",
+      "test_spec_id": "TS-05-20",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.2",
+      "test_spec_id": "TS-05-21",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.3",
+      "test_spec_id": "TS-05-22",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.E1",
+      "test_spec_id": "TS-05-E11",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.E2",
+      "test_spec_id": "TS-05-E12",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.1",
+      "test_spec_id": "TS-05-23",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.2",
+      "test_spec_id": "TS-05-24",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.3",
+      "test_spec_id": "TS-05-25",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.4",
+      "test_spec_id": "TS-05-26",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.E1",
+      "test_spec_id": "TS-05-E13",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.1",
+      "test_spec_id": "TS-05-27",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.2",
+      "test_spec_id": "TS-05-28",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.E1",
+      "test_spec_id": "TS-05-E14",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.E2",
+      "test_spec_id": "TS-05-E15",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-10.1",
+      "test_spec_id": "TS-05-29",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-10.E1",
+      "test_spec_id": "TS-05-E16",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.1",
+      "test_spec_id": "TS-05-30",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.2",
+      "test_spec_id": "TS-05-31",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.E1",
+      "test_spec_id": "TS-05-E17",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.1",
+      "test_spec_id": "TS-05-32",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.2",
+      "test_spec_id": "TS-05-33",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.3",
+      "test_spec_id": "TS-05-34",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.4",
+      "test_spec_id": "TS-05-35",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.E1",
+      "test_spec_id": "TS-05-E18",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.1",
+      "test_spec_id": "TS-05-36",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.2",
+      "test_spec_id": "TS-05-37",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.3",
+      "test_spec_id": "TS-05-38",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.E1",
+      "test_spec_id": "TS-05-E19",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.E2",
+      "test_spec_id": "TS-05-E20",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-14.1",
+      "test_spec_id": "TS-05-39",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-15.1",
+      "test_spec_id": "TS-05-40",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-15.2",
+      "test_spec_id": "TS-05-41",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-15.E1",
+      "test_spec_id": "TS-05-E21",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-16.1",
+      "test_spec_id": "TS-05-42",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-16.2",
+      "test_spec_id": "TS-05-43",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-16.3",
+      "test_spec_id": "TS-05-44",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-16.4",
+      "test_spec_id": "TS-05-45",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-17.1",
+      "test_spec_id": "TS-05-46",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-17.2",
+      "test_spec_id": "TS-05-47",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-17.3",
+      "test_spec_id": "TS-05-48",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-17.4",
+      "test_spec_id": "TS-05-49",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-18.1",
+      "test_spec_id": "TS-05-50",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-18.2",
+      "test_spec_id": "TS-05-51",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-19.1",
+      "test_spec_id": "TS-05-52",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.1",
+      "test_spec_id": "TS-05-53",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.2",
+      "test_spec_id": "TS-05-54",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.3",
+      "test_spec_id": "TS-05-55",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.4",
+      "test_spec_id": "TS-05-56",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.5",
+      "test_spec_id": "TS-05-57",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.6",
+      "test_spec_id": "TS-05-58",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-20.7",
+      "test_spec_id": "TS-05-59",
+      "task_id": "4.4",
+      "test_path": null
+    }
+  ]
+}

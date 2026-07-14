@@ -1,0 +1,1305 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "gitea_platform",
+  "schema_version": 1,
+  "introduction": "This specification defines `GiteaPlatform`, a concrete implementation of `PlatformProtocol` in the `afissues` package, targeting the Gitea REST API v1. Note: requirements referencing `afissues._http` and `afissues._ssrf` APIs are based on interfaces defined by the upstream GitLab spec (spec 04) and should be cross-checked against those modules before implementation.",
+  "glossary": {
+    "ConfigError": "An exception class from afissues.errors raised when a configuration value (such as a URL) is invalid or disallowed.",
+    "GitHubPlatform": "The concrete PlatformProtocol implementation for GitHub, defined in afissues/github.py.",
+    "GitLabPlatform": "The concrete PlatformProtocol implementation for GitLab, defined in afissues/gitlab.py; GiteaPlatform follows the same HTTP integration pattern.",
+    "GiteaPlatform": "The concrete PlatformProtocol implementation for Gitea-hosted repositories, defined in afissues/gitea.py.",
+    "IntegrationError": "An exception class from afissues.errors raised when an external API call fails in an unexpected way.",
+    "IssueComment": "A data class defined in afissues.protocol representing a comment on an issue, with fields: id, body, user, created_at.",
+    "IssueResult": "A data class defined in afissues.protocol representing a Gitea/GitHub/GitLab issue, with fields: number, title, html_url, body, labels.",
+    "PlatformProtocol": "The abstract interface in afissues.protocol that all platform implementations must satisfy, defining the 12 standard methods for issue and PR management.",
+    "SSRF": "Server-Side Request Forgery — a class of attack where an attacker causes a server to make requests to unintended internal or external addresses.",
+    "_resolve_label_id": "An internal async method on GiteaPlatform that resolves a label name to its numeric Gitea label ID, using an in-memory cache.",
+    "_validate_url": "A function in afissues._ssrf with signature `_validate_url(url: str) -> None` that raises ConfigError if the URL is disallowed (SSRF guard).",
+    "afissues": "The Python package housing the platform abstraction layer, containing GitHubPlatform, GitLabPlatform, GiteaPlatform, and shared utilities.",
+    "afissues._http": "A shared module in the afissues package providing HTTP retry logic, extracted by the GitLab spec; GiteaPlatform uses the same integration pattern as GitLabPlatform.",
+    "afissues._ssrf": "A shared module in the afissues package providing SSRF guard utilities, extracted by the GitLab spec.",
+    "base": "In pull request context, the target/destination branch name.",
+    "forge_type": "A class-level string attribute on platform implementations identifying the forge type (e.g., 'gitea', 'github', 'gitlab').",
+    "head": "In pull request context, the source branch name to be merged.",
+    "label ID cache": "An in-memory dict[str, int] on GiteaPlatform instances that maps label names to their numeric Gitea IDs to avoid repeated API calls.",
+    "parse_gitea_remote": "The aliased name used when the platform factory imports parse_remote from afissues.gitea.",
+    "parse_remote": "A module-level function in afissues/gitea.py that parses a Gitea remote URL and returns (owner, repo) or None.",
+    "platform_factory": "The module at agentfox/nightshift/platform_factory.py that constructs the appropriate PlatformProtocol implementation based on the configured platform type.",
+    "type=issues": "A Gitea API query parameter filter that excludes pull requests from issue list results, since Gitea treats PRs as a subtype of issues.",
+    "_validate_url(url)": "SSRF guard function from afissues._ssrf that validates a URL and raises ConfigError for restricted addresses.",
+    "create_label": "Protocol method to create a repository label idempotently.",
+    "dict[str, int]": "Python type annotation for the label name-to-ID cache mapping.",
+    "from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote": "Import statement used by platform_factory to load the Gitea platform class and remote URL parser.",
+    "https://{url}/api/v1": "Gitea REST API base URL template.",
+    "{'Authorization': f'token {token}'}": "Gitea authentication header dictionary using token-based auth.",
+    "'gitea'": "String literal identifying the Gitea forge type in platform configuration and the forge_type class attribute."
+  },
+  "requirements": [
+    {
+      "id": "05-REQ-1",
+      "title": "GiteaPlatform class structure and constructor",
+      "user_story": {
+        "role": "agent-fox pipeline operator",
+        "goal": "instantiate GiteaPlatform with owner, repo, token, and base URL",
+        "benefit": "so that all subsequent API calls are correctly scoped to the target Gitea repository"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform",
+          "action": "exposes a class attribute `forge_type` equal to the string `'gitea'`",
+          "return_contract": "forge_type == 'gitea'"
+        },
+        {
+          "id": "05-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform constructor",
+          "action": "accepts parameters (owner: str, repo: str, token: str, url: str) synchronously, sets the API base URL to `https://{url}/api/v1`, stores owner and repo, and builds auth headers as `{'Authorization': f'token {token}'}`",
+          "return_contract": "Instance is created with correct base URL and auth headers"
+        },
+        {
+          "id": "05-REQ-1.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform constructor",
+          "action": "calls `_validate_url(url)` from `afissues._ssrf` synchronously before any other initialization",
+          "return_contract": "None (side-effect: ConfigError raised if URL is disallowed)",
+          "trigger": "called with any url value"
+        },
+        {
+          "id": "05-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform",
+          "action": "initializes an empty in-memory `label ID cache` (`dict[str, int]`) at construction time for use by `_resolve_label_id` and `create_label`",
+          "return_contract": "Empty dict ready for use"
+        },
+        {
+          "id": "05-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform",
+          "action": "uses the same integration pattern as `GitLabPlatform` for `afissues._http` retry logic, without deviation",
+          "return_contract": "HTTP client is configured with retry logic as defined by the afissues._http module interface"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform constructor",
+          "action": "propagates `ConfigError` directly to the caller without catching or re-wrapping it; no GiteaPlatform instance is created",
+          "return_contract": "ConfigError raised",
+          "error_condition": "`_validate_url` raises `ConfigError` for a disallowed or invalid URL"
+        },
+        {
+          "id": "05-REQ-1.E2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform constructor",
+          "action": "applies no validation or sanitization to the token parameter; uses it as-is in the Authorization header",
+          "return_contract": "Token value used verbatim in header"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-2",
+      "title": "Label ID resolution with in-memory cache",
+      "user_story": {
+        "role": "GiteaPlatform method",
+        "goal": "resolve a label name to its numeric Gitea ID efficiently",
+        "benefit": "so that label operations use numeric IDs required by the Gitea API without unnecessary repeated API calls"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "_resolve_label_id",
+          "action": "returns the cached numeric ID without making any HTTP request",
+          "return_contract": "int (cached label ID)",
+          "trigger": "called with a label name that is already in the `label ID cache`"
+        },
+        {
+          "id": "05-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "_resolve_label_id",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/labels, populates the cache with all returned name→ID pairs, then returns the numeric ID for the requested label name",
+          "return_contract": "int (resolved label ID)",
+          "trigger": "called with a label name not in the `label ID cache`"
+        },
+        {
+          "id": "05-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "_resolve_label_id",
+          "action": "raises `IntegrationError` with a descriptive message indicating the label does not exist",
+          "return_contract": "IntegrationError raised",
+          "trigger": "called with a label name that is not found after a full cache fetch"
+        },
+        {
+          "id": "05-REQ-2.4",
+          "ears_pattern": "state_driven",
+          "system": "_resolve_label_id",
+          "action": "raises `IntegrationError` immediately on subsequent calls for that same missing label, without making another HTTP request",
+          "return_contract": "IntegrationError raised without additional API call",
+          "state": "cache has been fully populated (at least one prior fetch) and a label name was not found"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "_resolve_label_id",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the GET /api/v1/repos/{owner}/{repo}/labels request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-3",
+      "title": "create_issue: create a new Gitea issue with optional labels",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "create an issue on a Gitea repository with a title, body, and optional label assignments",
+        "benefit": "so that discovered problems are tracked as Gitea issues in the target repository"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_issue",
+          "action": "resolves each label name to a numeric ID via `_resolve_label_id`, then POSTs to /api/v1/repos/{owner}/{repo}/issues with fields title, body, and labels as an array of numeric IDs",
+          "return_contract": "IssueResult mapped from response JSON (number, title, html_url, body, labels as list of name strings extracted from label objects)",
+          "trigger": "called with title, body, and a non-empty labels list"
+        },
+        {
+          "id": "05-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_issue",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/issues with title and body only (no labels field in request body)",
+          "return_contract": "IssueResult mapped from response JSON",
+          "trigger": "called with an empty labels list"
+        },
+        {
+          "id": "05-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.create_issue",
+          "action": "treats any 2xx response status as success",
+          "return_contract": "IssueResult on any 2xx"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.create_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the POST request returns a non-2xx status"
+        },
+        {
+          "id": "05-REQ-3.E2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_issue",
+          "action": "maps body field to empty string ''",
+          "return_contract": "IssueResult with body=''",
+          "trigger": "response body has absent or null body field"
+        },
+        {
+          "id": "05-REQ-3.E3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_issue",
+          "action": "maps labels to empty tuple ()",
+          "return_contract": "IssueResult with labels=()",
+          "trigger": "response body has absent labels field"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-4",
+      "title": "list_issues_by_label: list issues filtered by label with sort mapping",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "retrieve open or closed issues tagged with a specific label in sort order",
+        "benefit": "so that the pipeline can process batches of issues by label and priority"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/issues with query params: labels={label}, state={state}, `type=issues`, sort mapped from (sort+direction) to Gitea combined value, and limit=50",
+          "return_contract": "list[IssueResult] mapped from response JSON array",
+          "trigger": "called with label, state, sort, and direction"
+        },
+        {
+          "id": "05-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "maps sort+direction combinations: created+asc→oldest, created+desc→newest, updated+asc→leastupdate, updated+desc→recentupdate",
+          "return_contract": "Correct Gitea sort param value sent in request"
+        },
+        {
+          "id": "05-REQ-4.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "defaults silently to Gitea sort value 'newest' without raising an error",
+          "return_contract": "sort=newest sent in request",
+          "trigger": "called with a sort+direction combination not in the 4-entry mapping table"
+        },
+        {
+          "id": "05-REQ-4.4",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "always includes `type=issues` query parameter to exclude pull requests from results",
+          "return_contract": "type=issues present in request"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the GET request returns a non-200 status"
+        },
+        {
+          "id": "05-REQ-4.E2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.list_issues_by_label",
+          "action": "returns an empty list",
+          "return_contract": "list[IssueResult] == []",
+          "trigger": "response returns an empty array"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-5",
+      "title": "add_issue_comment: post a comment on a Gitea issue",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "add a comment to an existing Gitea issue",
+        "benefit": "so that automated analysis results are recorded on the issue thread"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.add_issue_comment",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/issues/{issue_number}/comments with request body containing body field; does not parse the response body",
+          "return_contract": "None",
+          "trigger": "called with issue_number and body"
+        },
+        {
+          "id": "05-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.add_issue_comment",
+          "action": "treats any 2xx response as success and returns None",
+          "return_contract": "None on any 2xx"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.add_issue_comment",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the POST request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-6",
+      "title": "assign_label: assign a label to a Gitea issue by numeric ID",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "attach a label to a Gitea issue using the numeric label ID",
+        "benefit": "so that issues are categorized and filterable by label"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.assign_label",
+          "action": "resolves the label name to a numeric ID via `_resolve_label_id`, then POSTs to /api/v1/repos/{owner}/{repo}/issues/{issue_number}/labels with request body containing a labels array holding that single numeric ID",
+          "return_contract": "None on any 2xx",
+          "trigger": "called with issue_number and label name"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.assign_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the POST request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-7",
+      "title": "close_issue: close a Gitea issue with optional comment",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "close a Gitea issue, optionally adding a closing comment first",
+        "benefit": "so that resolved issues are marked closed with an audit trail comment"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.close_issue",
+          "action": "first calls add_issue_comment(issue_number, comment), then issues PATCH /api/v1/repos/{owner}/{repo}/issues/{issue_number} with body {state: closed}",
+          "return_contract": "None on any 2xx from PATCH",
+          "trigger": "called with issue_number and a non-None comment"
+        },
+        {
+          "id": "05-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.close_issue",
+          "action": "skips the add_issue_comment call entirely (no HTTP call for comment), then issues PATCH /api/v1/repos/{owner}/{repo}/issues/{issue_number} with body {state: closed}",
+          "return_contract": "None on any 2xx from PATCH",
+          "trigger": "called with comment=None"
+        },
+        {
+          "id": "05-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.close_issue",
+          "action": "treats any 2xx response from the PATCH as success",
+          "return_contract": "None"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.close_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the PATCH request returns a non-2xx status"
+        },
+        {
+          "id": "05-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.close_issue",
+          "action": "propagates the IntegrationError to the caller; PATCH is not executed",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "add_issue_comment raises IntegrationError before the PATCH is issued"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-8",
+      "title": "remove_label: remove a label from a Gitea issue idempotently",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "remove a label from a Gitea issue without failing if the label is already absent",
+        "benefit": "so that label cleanup is safe to retry without error handling at the call site"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-8.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.remove_label",
+          "action": "resolves label name to numeric ID via `_resolve_label_id`, then issues DELETE /api/v1/repos/{owner}/{repo}/issues/{issue_number}/labels/{label_id}",
+          "return_contract": "None on 204",
+          "trigger": "called with issue_number and label name that exists in the repo"
+        },
+        {
+          "id": "05-REQ-8.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.remove_label",
+          "action": "catches the IntegrationError and returns None silently without making any DELETE request",
+          "return_contract": "None",
+          "trigger": "`_resolve_label_id` raises `IntegrationError` because the label does not exist in the repo"
+        },
+        {
+          "id": "05-REQ-8.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.remove_label",
+          "action": "returns None silently without raising",
+          "return_contract": "None",
+          "trigger": "the DELETE request returns 404 (label not on issue)"
+        },
+        {
+          "id": "05-REQ-8.4",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.remove_label",
+          "action": "returns None silently without raising",
+          "return_contract": "None",
+          "trigger": "the DELETE request returns 422 (label not on issue)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.remove_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the DELETE request returns a status other than 204, 404, or 422"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-9",
+      "title": "list_issue_comments: retrieve all comments on a Gitea issue",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "fetch the full list of comments on a Gitea issue",
+        "benefit": "so that the pipeline can analyze conversation history before acting"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.list_issue_comments",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/issues/{issue_number}/comments with no limit parameter, and maps each response item to IssueComment: id→id, body→body, user.login→user, created_at→created_at",
+          "return_contract": "list[IssueComment] in chronological order",
+          "trigger": "called with issue_number"
+        },
+        {
+          "id": "05-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.list_issue_comments",
+          "action": "sends no limit or pagination query parameters on the GET request",
+          "return_contract": "Request contains no limit param"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.list_issue_comments",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the GET request returns a non-200 status"
+        },
+        {
+          "id": "05-REQ-9.E2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.list_issue_comments",
+          "action": "returns an empty list",
+          "return_contract": "list[IssueComment] == []",
+          "trigger": "the issue has no comments"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-10",
+      "title": "get_issue: fetch a single Gitea issue by number",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "retrieve the details of a specific Gitea issue",
+        "benefit": "so that the pipeline can inspect issue state before taking action"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-10.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.get_issue",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/issues/{issue_number} and maps the response to IssueResult using the field mapping: number, title, html_url, body (default '' if absent/null), labels (extract name from each label object, default () if absent)",
+          "return_contract": "IssueResult",
+          "trigger": "called with issue_number"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.get_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the GET request returns a non-200 status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-11",
+      "title": "update_issue: update the body of an existing Gitea issue",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "overwrite the body of a Gitea issue with new content",
+        "benefit": "so that issue descriptions can be kept up to date as analysis evolves"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-11.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.update_issue",
+          "action": "issues PATCH /api/v1/repos/{owner}/{repo}/issues/{issue_number} with request body containing body field",
+          "return_contract": "None on any 2xx (200 or 201)",
+          "trigger": "called with issue_number and body"
+        },
+        {
+          "id": "05-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.update_issue",
+          "action": "treats any 2xx status code (including 200 and 201) as success",
+          "return_contract": "None"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.update_issue",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the PATCH request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-12",
+      "title": "create_label: create a repo label idempotently with color prefix",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "ensure a label with a given name and color exists in the repository",
+        "benefit": "so that label setup is safe to run repeatedly without creating duplicates"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-12.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_label",
+          "action": "returns None silently without making any POST request to the labels endpoint",
+          "return_contract": "None",
+          "trigger": "`_resolve_label_id` returns an ID (label already exists)"
+        },
+        {
+          "id": "05-REQ-12.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_label",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/labels with name, color prepended with '#' (e.g. bare hex 'ff0000' becomes '#ff0000'), and description",
+          "return_contract": "None on any 2xx",
+          "trigger": "`_resolve_label_id` raises `IntegrationError` (label not found)"
+        },
+        {
+          "id": "05-REQ-12.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_label",
+          "action": "inserts only the new name→id pair (from response id field) into the existing `label ID cache` dict without performing a full cache re-fetch",
+          "return_contract": "Cache updated; subsequent _resolve_label_id for that name returns cached ID without HTTP call",
+          "trigger": "POST request succeeds"
+        },
+        {
+          "id": "05-REQ-12.4",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.create_label",
+          "action": "prepends '#' to the bare hex color value before sending the POST request",
+          "return_contract": "color field in request body is '#'-prefixed"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-12.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.create_label",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the POST request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-13",
+      "title": "create_pr: open a pull request on Gitea with duplicate detection",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "create a pull request or retrieve the URL of an existing one for the same head/base",
+        "benefit": "so that the fix pipeline can proceed to the PR URL without failing on duplicate submissions"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-13.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_pr",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/pulls with fields title, body, head, base (field names matching GitHub's)",
+          "return_contract": "str: html_url from response JSON on any 2xx",
+          "trigger": "called with title, body, head, and base"
+        },
+        {
+          "id": "05-REQ-13.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_pr",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/pulls with query params head={head}, base={base}, state=open and returns html_url from the first result",
+          "return_contract": "str: html_url of the existing open PR",
+          "trigger": "POST returns 409 (duplicate PR)"
+        },
+        {
+          "id": "05-REQ-13.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.create_pr",
+          "action": "raises `IntegrationError` with a message indicating a 409 was returned but no existing open PR could be found",
+          "return_contract": "IntegrationError raised",
+          "trigger": "follow-up GET after a 409 returns an empty result set"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-13.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.create_pr",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the POST request returns a non-2xx, non-409 status"
+        },
+        {
+          "id": "05-REQ-13.E2",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.create_pr",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the follow-up GET after a 409 returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-14",
+      "title": "close: synchronous no-op satisfying PlatformProtocol",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "call close() on a GiteaPlatform instance to release resources",
+        "benefit": "so that the platform lifecycle is managed uniformly across all platform types"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-14.1",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.close",
+          "action": "executes synchronously, performs no HTTP calls, and returns None",
+          "return_contract": "None"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-15",
+      "title": "search_issues: search Gitea issues by title prefix keyword",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "find issues whose title contains a given prefix keyword",
+        "benefit": "so that previously created issues can be located for deduplication"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-15.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.search_issues",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/issues with query params q={title_prefix}, `type=issues`, state={state}, limit=50; returns results as-is without client-side prefix filtering",
+          "return_contract": "list[IssueResult] mapped from response JSON array",
+          "trigger": "called with title_prefix and state"
+        },
+        {
+          "id": "05-REQ-15.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GiteaPlatform.search_issues",
+          "action": "always includes `type=issues` query parameter to exclude pull requests",
+          "return_contract": "type=issues present in request"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-15.E1",
+          "ears_pattern": "unwanted",
+          "system": "GiteaPlatform.search_issues",
+          "action": "raises `IntegrationError` with response text truncated to 500 characters",
+          "return_contract": "IntegrationError raised",
+          "error_condition": "the GET request returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-16",
+      "title": "check_credentials: validate Gitea API token against the repository",
+      "user_story": {
+        "role": "agent-fox operator",
+        "goal": "verify that the configured token has access to the target repository",
+        "benefit": "so that misconfigured credentials are caught early before pipeline operations begin"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-16.1",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.check_credentials",
+          "action": "issues GET /api/v1/repos/{owner}/{repo} and returns normally for any status code other than 401 or 403",
+          "return_contract": "None on any non-401/403 response",
+          "trigger": "called (no parameters)"
+        },
+        {
+          "id": "05-REQ-16.2",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.check_credentials",
+          "action": "raises `IntegrationError` indicating authentication failure",
+          "return_contract": "IntegrationError raised",
+          "trigger": "the GET response is 401"
+        },
+        {
+          "id": "05-REQ-16.3",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.check_credentials",
+          "action": "raises `IntegrationError` indicating authorization failure",
+          "return_contract": "IntegrationError raised",
+          "trigger": "the GET response is 403"
+        },
+        {
+          "id": "05-REQ-16.4",
+          "ears_pattern": "event_driven",
+          "system": "GiteaPlatform.check_credentials",
+          "action": "returns normally without raising any exception",
+          "return_contract": "None",
+          "trigger": "the GET response is 5xx"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-17",
+      "title": "parse_remote: extract owner and repo from Gitea remote URLs",
+      "user_story": {
+        "role": "agent-fox pipeline",
+        "goal": "parse HTTPS or SSH Gitea remote URLs into owner and repo components",
+        "benefit": "so that repository identity can be determined from standard git remote configuration"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-17.1",
+          "ears_pattern": "event_driven",
+          "system": "parse_remote",
+          "action": "parses the URL and returns a tuple (owner, repo) with .git suffix stripped",
+          "return_contract": "tuple[str, str] e.g. ('owner', 'repo')",
+          "trigger": "called with a valid HTTPS Gitea remote URL (e.g. https://gitea.example.com/owner/repo.git)"
+        },
+        {
+          "id": "05-REQ-17.2",
+          "ears_pattern": "event_driven",
+          "system": "parse_remote",
+          "action": "parses the URL and returns a tuple (owner, repo) with .git suffix stripped",
+          "return_contract": "tuple[str, str] e.g. ('owner', 'repo')",
+          "trigger": "called with a valid SSH Gitea remote URL (e.g. git@gitea.example.com:owner/repo.git)"
+        },
+        {
+          "id": "05-REQ-17.3",
+          "ears_pattern": "event_driven",
+          "system": "parse_remote",
+          "action": "returns None",
+          "return_contract": "None",
+          "trigger": "called with a URL that cannot be parsed into owner/repo"
+        },
+        {
+          "id": "05-REQ-17.4",
+          "ears_pattern": "ubiquitous",
+          "system": "parse_remote",
+          "action": "accepts any hostname (not restricted to specific domains) since the platform factory determines which parser to invoke based on configured platform type",
+          "return_contract": "tuple[str, str] | None"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-18",
+      "title": "platform_factory: construct GiteaPlatform for type=gitea configuration",
+      "user_story": {
+        "role": "agent-fox operator",
+        "goal": "configure platform type as gitea and have the factory return a GiteaPlatform instance",
+        "benefit": "so that Gitea repositories are supported by the same factory-driven initialization path as GitHub and GitLab"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-18.1",
+          "ears_pattern": "event_driven",
+          "system": "platform_factory",
+          "action": "imports GiteaPlatform and `parse_gitea_remote` from afissues.gitea, constructs and returns a GiteaPlatform instance with the provided owner, repo, token, and url",
+          "return_contract": "GiteaPlatform instance",
+          "trigger": "called with platform configuration where type='gitea'"
+        },
+        {
+          "id": "05-REQ-18.2",
+          "ears_pattern": "ubiquitous",
+          "system": "platform_factory",
+          "action": "imports GiteaPlatform using `from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote` (replacing the previous import guard added by the GitLab spec)",
+          "return_contract": "Import succeeds; no guard or NotImplementedError"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-19",
+      "title": "afissues package re-exports: expose GiteaPlatform from afissues.__init__",
+      "user_story": {
+        "role": "downstream package consumer",
+        "goal": "import GiteaPlatform directly from the afissues top-level package",
+        "benefit": "so that consumers do not need to know the internal module structure"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-19.1",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.__init__",
+          "action": "re-exports GiteaPlatform from afissues.gitea, appended to existing re-exports without removing GitHubPlatform, GitLabPlatform, or any other existing symbol",
+          "return_contract": "from afissues import GiteaPlatform succeeds"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-20",
+      "title": "Unit test coverage for all GiteaPlatform methods and helpers",
+      "user_story": {
+        "role": "CI pipeline",
+        "goal": "run a comprehensive async unit test suite for GiteaPlatform with mocked HTTP",
+        "benefit": "so that regressions are caught before merging and the implementation is verified against all specified behaviors"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-20.1",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes async unit tests (using pytest-asyncio) for all 12 PlatformProtocol methods, search_issues, check_credentials, and _resolve_label_id; tests use mocked HTTP responses and are co-located with other platform tests in the afissues package",
+          "return_contract": "All tests pass under pytest"
+        },
+        {
+          "id": "05-REQ-20.2",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes parse_remote unit tests covering valid HTTPS URL, valid SSH URL, and unparseable URL (returns None)",
+          "return_contract": "All parse_remote tests pass"
+        },
+        {
+          "id": "05-REQ-20.3",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes idempotency tests for create_label (exists → no POST), create_label cache update, remove_label 404/422/_resolve_label_id IntegrationError paths, and create_pr 409 with match / 409 without match",
+          "return_contract": "All idempotency tests pass"
+        },
+        {
+          "id": "05-REQ-20.4",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes _resolve_label_id tests for cache hit, cache miss (populates cache), label not found (raises IntegrationError), and subsequent call for known-missing label (no re-fetch, IntegrationError immediately)",
+          "return_contract": "All cache behavior tests pass"
+        },
+        {
+          "id": "05-REQ-20.5",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes a test for list_issues_by_label with an unmapped sort+direction combination, asserting sort=newest is sent",
+          "return_contract": "Test passes confirming fallback to newest"
+        },
+        {
+          "id": "05-REQ-20.6",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues test suite",
+          "action": "includes a constructor SSRF test asserting ConfigError is raised when _validate_url raises",
+          "return_contract": "Test passes confirming ConfigError propagation"
+        },
+        {
+          "id": "05-REQ-20.7",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/nightshift test suite",
+          "action": "includes a platform_factory integration test asserting that type='gitea' configuration constructs a GiteaPlatform instance correctly; test is co-located with platform_factory.py in its test directory",
+          "return_contract": "Integration test passes"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "05-PROP-1",
+      "title": "Label ID cache consistency",
+      "for_any": "sequence of _resolve_label_id and create_label calls within a single GiteaPlatform session",
+      "invariant": "the `label ID cache` never contains stale entries introduced by this instance; a name→ID pair is added only when fetched from the API (full fetch) or when create_label successfully creates a label (single-entry insert); no entry is removed mid-session",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-2.2",
+        "05-REQ-2.4",
+        "05-REQ-12.3"
+      ]
+    },
+    {
+      "id": "05-PROP-2",
+      "title": "Numeric label IDs used exclusively for assignment and removal",
+      "for_any": "call to assign_label, remove_label, or create_issue with a non-empty labels list",
+      "invariant": "`_resolve_label_id` is called for every label name before any HTTP request that requires a label ID; no label name string is ever sent as a label identifier in POST or DELETE requests to Gitea label endpoints",
+      "validates": [
+        "05-REQ-3.1",
+        "05-REQ-6.1",
+        "05-REQ-8.1"
+      ]
+    },
+    {
+      "id": "05-PROP-3",
+      "title": "Error response text truncated to 500 characters",
+      "for_any": "IntegrationError raised due to a non-success HTTP response",
+      "invariant": "the error message includes at most 500 characters of response text; no IntegrationError message embeds more than 500 characters of raw API response",
+      "validates": [
+        "05-REQ-3.E1",
+        "05-REQ-4.E1",
+        "05-REQ-5.E1",
+        "05-REQ-6.E1",
+        "05-REQ-7.E1",
+        "05-REQ-8.E1",
+        "05-REQ-9.E1",
+        "05-REQ-10.E1",
+        "05-REQ-11.E1",
+        "05-REQ-12.E1",
+        "05-REQ-13.E1",
+        "05-REQ-15.E1"
+      ]
+    },
+    {
+      "id": "05-PROP-4",
+      "title": "type=issues always present on list endpoints",
+      "for_any": "call to list_issues_by_label or search_issues",
+      "invariant": "the query parameter `type=issues` is always included in the GET request, ensuring pull requests are never returned in issue list results",
+      "validates": [
+        "05-REQ-4.4",
+        "05-REQ-15.2"
+      ]
+    },
+    {
+      "id": "05-PROP-5",
+      "title": "PlatformProtocol default parameters mirrored exactly",
+      "for_any": "GiteaPlatform method signature",
+      "invariant": "default parameter values match `PlatformProtocol` exactly: list_issues_by_label defaults state='open', sort='created', direction='asc'; close_issue defaults comment=None; create_label defaults description=''",
+      "validates": [
+        "05-REQ-4.1",
+        "05-REQ-7.2",
+        "05-REQ-12.2"
+      ]
+    },
+    {
+      "id": "05-PROP-6",
+      "title": "ConfigError never re-wrapped by GiteaPlatform",
+      "for_any": "GiteaPlatform constructor invocation",
+      "invariant": "`ConfigError` raised by `_validate_url` propagates unchanged to the caller; GiteaPlatform never catches or re-wraps it as `IntegrationError` or any other exception type",
+      "validates": [
+        "05-REQ-1.E1"
+      ]
+    },
+    {
+      "id": "05-PROP-7",
+      "title": "close_issue makes no comment HTTP call when comment is None",
+      "for_any": "call to close_issue with comment=None",
+      "invariant": "exactly one HTTP request is made (the PATCH state=closed); no POST to the comments endpoint occurs",
+      "validates": [
+        "05-REQ-7.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "05-PATH-1",
+      "title": "Happy path: create issue with labels on Gitea",
+      "steps": [
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.create_issue(title, body, ['bug'])"
+        },
+        {
+          "actor": "GiteaPlatform._resolve_label_id",
+          "action": "checks `label ID cache` — cache miss; issues GET /api/v1/repos/{owner}/{repo}/labels and populates cache with name→ID pairs"
+        },
+        {
+          "actor": "GiteaPlatform.create_issue",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/issues with title, body, and labels=[<numeric_id>]"
+        },
+        {
+          "actor": "Gitea API",
+          "action": "returns 201 with issue JSON"
+        },
+        {
+          "actor": "GiteaPlatform.create_issue",
+          "action": "maps response to IssueResult and returns it to the caller"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-2",
+      "title": "Happy path: create PR with 409 duplicate detection",
+      "steps": [
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.create_pr(title, body, head='fix-branch', base='main')"
+        },
+        {
+          "actor": "GiteaPlatform.create_pr",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/pulls with title, body, head, base"
+        },
+        {
+          "actor": "Gitea API",
+          "action": "returns 409 indicating duplicate PR"
+        },
+        {
+          "actor": "GiteaPlatform.create_pr",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}/pulls?head=fix-branch&base=main&state=open"
+        },
+        {
+          "actor": "Gitea API",
+          "action": "returns 200 with array containing the existing open PR"
+        },
+        {
+          "actor": "GiteaPlatform.create_pr",
+          "action": "returns html_url from the first result to the caller"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-3",
+      "title": "Happy path: close issue with comment",
+      "steps": [
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.close_issue(issue_number=42, comment='Resolved by PR #7')"
+        },
+        {
+          "actor": "GiteaPlatform.close_issue",
+          "action": "calls add_issue_comment(42, 'Resolved by PR #7')"
+        },
+        {
+          "actor": "GiteaPlatform.add_issue_comment",
+          "action": "POSTs to /api/v1/repos/{owner}/{repo}/issues/42/comments with body"
+        },
+        {
+          "actor": "Gitea API",
+          "action": "returns 201"
+        },
+        {
+          "actor": "GiteaPlatform.close_issue",
+          "action": "issues PATCH /api/v1/repos/{owner}/{repo}/issues/42 with {state: closed}"
+        },
+        {
+          "actor": "Gitea API",
+          "action": "returns 200"
+        },
+        {
+          "actor": "GiteaPlatform.close_issue",
+          "action": "returns None to the caller"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-4",
+      "title": "Happy path: create label idempotently (label already exists)",
+      "steps": [
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.create_label('bug', 'ff0000', 'A bug report')"
+        },
+        {
+          "actor": "GiteaPlatform.create_label",
+          "action": "calls _resolve_label_id('bug')"
+        },
+        {
+          "actor": "GiteaPlatform._resolve_label_id",
+          "action": "checks `label ID cache`; fetches from API on miss, finds 'bug' → returns numeric ID"
+        },
+        {
+          "actor": "GiteaPlatform.create_label",
+          "action": "receives ID (label exists) and returns None silently without POSTing to labels endpoint"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-5",
+      "title": "Full end-to-end: operator configures Gitea platform and pipeline creates an issue",
+      "steps": [
+        {
+          "actor": "agent-fox operator",
+          "action": "sets platform type='gitea' with owner, repo, token, and url in configuration"
+        },
+        {
+          "actor": "platform_factory",
+          "action": "reads type='gitea', imports GiteaPlatform and parse_gitea_remote from afissues.gitea, constructs GiteaPlatform(owner, repo, token, url)"
+        },
+        {
+          "actor": "GiteaPlatform constructor",
+          "action": "calls _validate_url(url) from afissues._ssrf; initializes auth headers, API base URL, label ID cache, and HTTP client with afissues._http retry logic"
+        },
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.check_credentials() to validate token"
+        },
+        {
+          "actor": "GiteaPlatform.check_credentials",
+          "action": "issues GET /api/v1/repos/{owner}/{repo}; receives 200; returns normally"
+        },
+        {
+          "actor": "agent-fox pipeline",
+          "action": "calls GiteaPlatform.create_issue(title, body, labels=['bug'])"
+        },
+        {
+          "actor": "GiteaPlatform._resolve_label_id",
+          "action": "fetches label list from Gitea API, caches name→ID pairs, returns ID for 'bug'"
+        },
+        {
+          "actor": "GiteaPlatform.create_issue",
+          "action": "POSTs issue to Gitea API and returns IssueResult to the pipeline"
+        },
+        {
+          "actor": "agent-fox pipeline",
+          "action": "receives IssueResult with number, title, html_url, body, and labels"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-6",
+      "title": "Error path: SSRF-disallowed URL rejects GiteaPlatform construction",
+      "steps": [
+        {
+          "actor": "agent-fox operator",
+          "action": "supplies an internal/private IP address as the Gitea url"
+        },
+        {
+          "actor": "GiteaPlatform constructor",
+          "action": "calls _validate_url(url) from afissues._ssrf"
+        },
+        {
+          "actor": "afissues._ssrf._validate_url",
+          "action": "raises ConfigError because the URL resolves to a disallowed address"
+        },
+        {
+          "actor": "GiteaPlatform constructor",
+          "action": "propagates ConfigError to the caller; no GiteaPlatform instance is created"
+        },
+        {
+          "actor": "platform_factory",
+          "action": "receives ConfigError and surfaces it to the operator as a configuration problem"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "05-ERR-1",
+      "condition": "GiteaPlatform constructor receives a URL that _validate_url deems disallowed (SSRF risk)",
+      "behavior": "ConfigError propagates directly to the caller; GiteaPlatform instance is not created",
+      "requirement_id": "05-REQ-1.E1"
+    },
+    {
+      "id": "05-ERR-2",
+      "condition": "Any protocol or non-protocol HTTP request returns a non-success status (beyond explicitly handled idempotency codes)",
+      "behavior": "IntegrationError raised with response text truncated to 500 characters",
+      "requirement_id": "05-REQ-3.E1"
+    },
+    {
+      "id": "05-ERR-3",
+      "condition": "_resolve_label_id called for a label name absent from the repo after a full API fetch",
+      "behavior": "IntegrationError raised; subsequent calls for the same name do not re-fetch and raise IntegrationError immediately",
+      "requirement_id": "05-REQ-2.3"
+    },
+    {
+      "id": "05-ERR-4",
+      "condition": "remove_label called for a label whose name is not found by _resolve_label_id (IntegrationError from cache)",
+      "behavior": "IntegrationError is caught internally; remove_label returns None silently",
+      "requirement_id": "05-REQ-8.2"
+    },
+    {
+      "id": "05-ERR-5",
+      "condition": "remove_label DELETE request returns 404 or 422",
+      "behavior": "Treated as success; None returned silently without raising",
+      "requirement_id": "05-REQ-8.3"
+    },
+    {
+      "id": "05-ERR-6",
+      "condition": "create_pr POST returns 409 (duplicate PR)",
+      "behavior": "Follows up with GET to find existing open PR; returns its html_url. If GET returns empty results, raises IntegrationError",
+      "requirement_id": "05-REQ-13.2"
+    },
+    {
+      "id": "05-ERR-7",
+      "condition": "create_pr follow-up GET after 409 returns zero open PRs",
+      "behavior": "IntegrationError raised with a message indicating 409 received but no existing open PR found",
+      "requirement_id": "05-REQ-13.3"
+    },
+    {
+      "id": "05-ERR-8",
+      "condition": "check_credentials receives 401 or 403 from the repository endpoint",
+      "behavior": "IntegrationError raised indicating authentication or authorization failure",
+      "requirement_id": "05-REQ-16.2"
+    },
+    {
+      "id": "05-ERR-9",
+      "condition": "check_credentials receives any status other than 401 or 403 (including 5xx)",
+      "behavior": "Returns None normally without raising any exception",
+      "requirement_id": "05-REQ-16.4"
+    },
+    {
+      "id": "05-ERR-10",
+      "condition": "parse_remote called with a URL that cannot be parsed into owner/repo segments",
+      "behavior": "Returns None without raising an exception",
+      "requirement_id": "05-REQ-17.3"
+    },
+    {
+      "id": "05-ERR-11",
+      "condition": "close_issue add_issue_comment raises IntegrationError before PATCH is issued",
+      "behavior": "IntegrationError propagates to caller; PATCH state=closed is not executed",
+      "requirement_id": "05-REQ-7.E2"
+    },
+    {
+      "id": "05-ERR-12",
+      "condition": "create_label called and _resolve_label_id raises IntegrationError (label not found)",
+      "behavior": "Proceeds to POST /api/v1/repos/{owner}/{repo}/labels to create the label",
+      "requirement_id": "05-REQ-12.2"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "afissues._ssrf",
+      "version": "defined by spec 04 (gitlab_platform)",
+      "symbols": [
+        {
+          "name": "_validate_url",
+          "import_path": "afissues._ssrf",
+          "signature": "_validate_url(url: str) -> None",
+          "notes": "Raises ConfigError if the URL is disallowed (SSRF guard). No return value is used. Interface defined by the GitLab spec (spec 04) and assumed present at implementation time."
+        }
+      ]
+    },
+    {
+      "package": "afissues.protocol",
+      "version": "defined by spec 03 (extract_platform_afissues)",
+      "symbols": [
+        {
+          "name": "PlatformProtocol",
+          "import_path": "afissues.protocol",
+          "signature": "class PlatformProtocol (abstract interface)",
+          "notes": "Abstract platform interface; GiteaPlatform must implement all 12 methods."
+        },
+        {
+          "name": "IssueResult",
+          "import_path": "afissues.protocol",
+          "signature": "class IssueResult: number: int, title: str, html_url: str, body: str, labels: tuple[str, ...]",
+          "notes": "Data class for issue representation. body defaults to '' if absent/null; labels defaults to () if absent."
+        },
+        {
+          "name": "IssueComment",
+          "import_path": "afissues.protocol",
+          "signature": "class IssueComment: id: int, body: str, user: str, created_at: str",
+          "notes": "Data class for comment representation. user is mapped from user.login in Gitea response."
+        }
+      ]
+    },
+    {
+      "package": "afissues.errors",
+      "version": "defined by spec 03 (extract_platform_afissues)",
+      "symbols": [
+        {
+          "name": "IntegrationError",
+          "import_path": "afissues.errors",
+          "signature": "class IntegrationError(Exception)",
+          "notes": "Raised on unexpected API errors. Error message should include response text truncated to 500 characters."
+        },
+        {
+          "name": "ConfigError",
+          "import_path": "afissues.errors",
+          "signature": "class ConfigError(Exception)",
+          "notes": "Raised on configuration problems such as disallowed URLs. Propagated directly from _validate_url without re-wrapping."
+        }
+      ]
+    }
+  ]
+}

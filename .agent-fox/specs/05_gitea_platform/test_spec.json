@@ -1,0 +1,1280 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "gitea_platform",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-05-1",
+      "requirement_id": "05-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that GiteaPlatform exposes a class attribute forge_type equal to the string 'gitea'.",
+      "preconditions": [
+        "afissues package is installed with afissues/gitea.py present",
+        "afissues._ssrf._validate_url is importable and does not raise for the test URL"
+      ],
+      "input": "Access GiteaPlatform.forge_type class attribute directly without instantiation",
+      "expected": "GiteaPlatform.forge_type == 'gitea'",
+      "assertion_pseudocode": "assert GiteaPlatform.forge_type == 'gitea'"
+    },
+    {
+      "id": "TS-05-2",
+      "requirement_id": "05-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that the constructor sets the API base URL to https://{url}/api/v1, stores owner and repo, and builds auth headers with the token scheme.",
+      "preconditions": [
+        "afissues._ssrf._validate_url is mocked to return None (no SSRF rejection)",
+        "afissues._http is available and mocked for HTTP client construction"
+      ],
+      "input": "GiteaPlatform(owner='myorg', repo='myrepo', token='mytoken', url='gitea.example.com')",
+      "expected": "Instance base_url == 'https://gitea.example.com/api/v1'; auth headers contain {'Authorization': 'token mytoken'}; owner == 'myorg'; repo == 'myrepo'",
+      "assertion_pseudocode": "with mock(_validate_url, returns=None):\n  platform = GiteaPlatform('myorg', 'myrepo', 'mytoken', 'gitea.example.com')\n  assert platform.base_url == 'https://gitea.example.com/api/v1'\n  assert platform.auth_headers['Authorization'] == 'token mytoken'\n  assert platform.owner == 'myorg'\n  assert platform.repo == 'myrepo'"
+    },
+    {
+      "id": "TS-05-3",
+      "requirement_id": "05-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that the constructor calls _validate_url from afissues._ssrf synchronously during initialization.",
+      "preconditions": [
+        "afissues._ssrf._validate_url is patchable"
+      ],
+      "input": "GiteaPlatform('myorg', 'myrepo', 'token123', 'gitea.example.com')",
+      "expected": "_validate_url is called exactly once with 'gitea.example.com' before any other initialization",
+      "assertion_pseudocode": "with mock(_validate_url) as mock_validate:\n  GiteaPlatform('myorg', 'myrepo', 'token123', 'gitea.example.com')\n  assert mock_validate.call_count == 1\n  assert mock_validate.called_with('gitea.example.com')"
+    },
+    {
+      "id": "TS-05-4",
+      "requirement_id": "05-REQ-1.4",
+      "kind": "unit",
+      "description": "Verifies that the constructor initializes an empty label ID cache dict at construction time.",
+      "preconditions": [
+        "afissues._ssrf._validate_url is mocked to return None"
+      ],
+      "input": "GiteaPlatform('myorg', 'myrepo', 'token', 'gitea.example.com')",
+      "expected": "Instance has a label_cache attribute of type dict that is empty at construction",
+      "assertion_pseudocode": "with mock(_validate_url, returns=None):\n  platform = GiteaPlatform('myorg', 'myrepo', 'token', 'gitea.example.com')\n  assert isinstance(platform._label_cache, dict)\n  assert len(platform._label_cache) == 0"
+    },
+    {
+      "id": "TS-05-5",
+      "requirement_id": "05-REQ-1.5",
+      "kind": "unit",
+      "description": "Verifies that GiteaPlatform uses the afissues._http retry logic in the same pattern as GitLabPlatform.",
+      "preconditions": [
+        "afissues._http module is importable and its factory/wrapper is patchable",
+        "afissues._ssrf._validate_url is mocked to return None"
+      ],
+      "input": "GiteaPlatform('myorg', 'myrepo', 'token', 'gitea.example.com')",
+      "expected": "The _http module's client factory or wrapper is invoked during construction, producing a configured HTTP client",
+      "assertion_pseudocode": "with mock(_validate_url, returns=None), mock(_http_client_factory) as mock_http:\n  platform = GiteaPlatform('myorg', 'myrepo', 'token', 'gitea.example.com')\n  assert mock_http.called == True"
+    },
+    {
+      "id": "TS-05-6",
+      "requirement_id": "05-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that _resolve_label_id returns the cached ID without making an HTTP request when the label name is already in the cache.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "Platform instance's _label_cache is pre-populated with {'bug': 42}"
+      ],
+      "input": "await platform._resolve_label_id('bug')",
+      "expected": "Returns 42; no HTTP call is made to the labels endpoint",
+      "assertion_pseudocode": "platform._label_cache = {'bug': 42}\nwith mock(http_client.get) as mock_get:\n  result = await platform._resolve_label_id('bug')\n  assert result == 42\n  assert mock_get.call_count == 0"
+    },
+    {
+      "id": "TS-05-7",
+      "requirement_id": "05-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that _resolve_label_id issues GET /api/v1/repos/{owner}/{repo}/labels, populates the cache, and returns the numeric ID on a cache miss.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/labels is mocked to return 200 with [{'id': 7, 'name': 'bug'}, {'id': 8, 'name': 'enhancement'}]"
+      ],
+      "input": "await platform._resolve_label_id('bug') with empty cache",
+      "expected": "Returns 7; cache is populated with {'bug': 7, 'enhancement': 8}; exactly one GET request was made",
+      "assertion_pseudocode": "mock_get_response = [{\"id\": 7, \"name\": \"bug\"}, {\"id\": 8, \"name\": \"enhancement\"}]\nwith mock_http_get('/api/v1/repos/myorg/myrepo/labels', 200, mock_get_response):\n  result = await platform._resolve_label_id('bug')\n  assert result == 7\n  assert platform._label_cache == {'bug': 7, 'enhancement': 8}"
+    },
+    {
+      "id": "TS-05-8",
+      "requirement_id": "05-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies that _resolve_label_id raises IntegrationError with a descriptive message when the label is not found after a full API fetch.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to labels endpoint returns 200 with [{'id': 7, 'name': 'bug'}]",
+        "Label 'nonexistent' is not in the response"
+      ],
+      "input": "await platform._resolve_label_id('nonexistent')",
+      "expected": "IntegrationError is raised with a message indicating the label does not exist",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo/labels', 200, [{\"id\": 7, \"name\": \"bug\"}]):\n  with assert_raises(IntegrationError) as exc:\n    await platform._resolve_label_id('nonexistent')\n  assert 'nonexistent' in str(exc)"
+    },
+    {
+      "id": "TS-05-9",
+      "requirement_id": "05-REQ-2.4",
+      "kind": "unit",
+      "description": "Verifies that subsequent calls to _resolve_label_id for a known-missing label raise IntegrationError immediately without making another HTTP request.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "First call to _resolve_label_id('nonexistent') has already fetched from API and found the label absent",
+        "Cache is marked as fully populated"
+      ],
+      "input": "Second call to await platform._resolve_label_id('nonexistent')",
+      "expected": "IntegrationError is raised immediately; no additional HTTP GET is made to the labels endpoint",
+      "assertion_pseudocode": "# First call populates cache (label not found)\nwith mock_http_get('/api/v1/repos/myorg/myrepo/labels', 200, [{\"id\": 7, \"name\": \"bug\"}]) as mock_get:\n  with assert_raises(IntegrationError):\n    await platform._resolve_label_id('nonexistent')\n  call_count_after_first = mock_get.call_count\n  with assert_raises(IntegrationError):\n    await platform._resolve_label_id('nonexistent')\n  assert mock_get.call_count == call_count_after_first  # no extra call"
+    },
+    {
+      "id": "TS-05-10",
+      "requirement_id": "05-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that create_issue resolves label names to numeric IDs and POSTs with labels as an array of integers.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 42 for 'bug'",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/issues is mocked to return 201 with issue JSON"
+      ],
+      "input": "await platform.create_issue('Fix crash', 'Description here', ['bug'])",
+      "expected": "POST body contains labels=[42]; returns IssueResult with correct fields mapped from response",
+      "assertion_pseudocode": "mock_response = {\"number\": 1, \"title\": \"Fix crash\", \"html_url\": \"http://gitea.example.com/issues/1\", \"body\": \"Description here\", \"labels\": [{\"name\": \"bug\"}]}\nwith mock(_resolve_label_id, returns=42), mock_http_post('/api/v1/repos/myorg/myrepo/issues', 201, mock_response) as mock_post:\n  result = await platform.create_issue('Fix crash', 'Description here', ['bug'])\n  posted_body = mock_post.last_call_json\n  assert posted_body['labels'] == [42]\n  assert result.number == 1\n  assert result.title == 'Fix crash'\n  assert result.labels == ('bug',)"
+    },
+    {
+      "id": "TS-05-11",
+      "requirement_id": "05-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that create_issue does not include a labels field in the POST body when called with an empty labels list.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/issues is mocked to return 201 with issue JSON"
+      ],
+      "input": "await platform.create_issue('Fix crash', 'Description', [])",
+      "expected": "POST body does not contain 'labels' key; IssueResult is returned",
+      "assertion_pseudocode": "mock_response = {\"number\": 1, \"title\": \"Fix crash\", \"html_url\": \"http://gitea.example.com/issues/1\", \"body\": \"Description\", \"labels\": []}\nwith mock_http_post('/api/v1/repos/myorg/myrepo/issues', 201, mock_response) as mock_post:\n  result = await platform.create_issue('Fix crash', 'Description', [])\n  posted_body = mock_post.last_call_json\n  assert 'labels' not in posted_body\n  assert result.number == 1"
+    },
+    {
+      "id": "TS-05-12",
+      "requirement_id": "05-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that create_issue treats any 2xx status code (e.g., 200, 201) as success and returns an IssueResult.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST is mocked to return 200 (not 201)"
+      ],
+      "input": "await platform.create_issue('Title', 'Body', [])",
+      "expected": "IssueResult is returned without error on 200 response",
+      "assertion_pseudocode": "mock_response = {\"number\": 5, \"title\": \"Title\", \"html_url\": \"http://x/5\", \"body\": \"Body\", \"labels\": []}\nwith mock_http_post('/api/v1/repos/myorg/myrepo/issues', 200, mock_response):\n  result = await platform.create_issue('Title', 'Body', [])\n  assert result.number == 5"
+    },
+    {
+      "id": "TS-05-13",
+      "requirement_id": "05-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label issues a GET with the correct query parameters including labels, state, type=issues, mapped sort, and limit=50.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/issues is mocked to return 200 with an array of issue objects"
+      ],
+      "input": "await platform.list_issues_by_label('bug', state='open', sort='created', direction='asc')",
+      "expected": "GET request has query params: labels='bug', state='open', type='issues', sort='oldest', limit=50; returns list[IssueResult]",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo/issues', 200, [...]) as mock_get:\n  result = await platform.list_issues_by_label('bug', state='open', sort='created', direction='asc')\n  params = mock_get.last_call_params\n  assert params['labels'] == 'bug'\n  assert params['state'] == 'open'\n  assert params['type'] == 'issues'\n  assert params['sort'] == 'oldest'\n  assert params['limit'] == 50\n  assert isinstance(result, list)"
+    },
+    {
+      "id": "TS-05-14",
+      "requirement_id": "05-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies all four sort+direction combinations map to correct Gitea sort values.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET is mocked to return 200 with []"
+      ],
+      "input": "Four calls: (created, asc), (created, desc), (updated, asc), (updated, desc)",
+      "expected": "Gitea sort params are oldest, newest, leastupdate, recentupdate respectively",
+      "assertion_pseudocode": "for (sort_in, dir_in, expected_sort) in [('created','asc','oldest'),('created','desc','newest'),('updated','asc','leastupdate'),('updated','desc','recentupdate')]:\n  with mock_http_get(..., 200, []) as mock_get:\n    await platform.list_issues_by_label('bug', state='open', sort=sort_in, direction=dir_in)\n    assert mock_get.last_call_params['sort'] == expected_sort"
+    },
+    {
+      "id": "TS-05-15",
+      "requirement_id": "05-REQ-4.3",
+      "kind": "unit",
+      "description": "Verifies that an unmapped sort+direction combination silently defaults to sort='newest' without raising an error.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET is mocked to return 200 with []"
+      ],
+      "input": "await platform.list_issues_by_label('bug', sort='comments', direction='asc')",
+      "expected": "GET request has sort='newest'; no exception is raised; empty list is returned",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo/issues', 200, []) as mock_get:\n  result = await platform.list_issues_by_label('bug', sort='comments', direction='asc')\n  assert mock_get.last_call_params['sort'] == 'newest'\n  assert result == []"
+    },
+    {
+      "id": "TS-05-16",
+      "requirement_id": "05-REQ-4.4",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label always includes type=issues query parameter to exclude PRs.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET is mocked to return 200 with []"
+      ],
+      "input": "await platform.list_issues_by_label('bug')",
+      "expected": "GET request query params include type='issues'",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo/issues', 200, []) as mock_get:\n  await platform.list_issues_by_label('bug')\n  assert mock_get.last_call_params.get('type') == 'issues'"
+    },
+    {
+      "id": "TS-05-17",
+      "requirement_id": "05-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that add_issue_comment POSTs to the correct endpoint with the body field and returns None.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/issues/42/comments is mocked to return 201"
+      ],
+      "input": "await platform.add_issue_comment(42, 'This is a comment')",
+      "expected": "POST is made to the correct URL with body='This is a comment'; return value is None",
+      "assertion_pseudocode": "with mock_http_post('/api/v1/repos/myorg/myrepo/issues/42/comments', 201, {}) as mock_post:\n  result = await platform.add_issue_comment(42, 'This is a comment')\n  assert mock_post.last_call_json['body'] == 'This is a comment'\n  assert result is None"
+    },
+    {
+      "id": "TS-05-18",
+      "requirement_id": "05-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies that add_issue_comment treats any 2xx response as success and returns None.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST is mocked to return 200"
+      ],
+      "input": "await platform.add_issue_comment(10, 'Hello')",
+      "expected": "No exception raised; return value is None for 200 response",
+      "assertion_pseudocode": "with mock_http_post('.../issues/10/comments', 200, {}):\n  result = await platform.add_issue_comment(10, 'Hello')\n  assert result is None"
+    },
+    {
+      "id": "TS-05-19",
+      "requirement_id": "05-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that assign_label resolves label name to numeric ID and POSTs with a labels array containing that single ID.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 99 for 'enhancement'",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/issues/5/labels is mocked to return 200"
+      ],
+      "input": "await platform.assign_label(5, 'enhancement')",
+      "expected": "POST body contains labels=[99]; returns None",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=99), mock_http_post('.../issues/5/labels', 200, {}) as mock_post:\n  result = await platform.assign_label(5, 'enhancement')\n  assert mock_post.last_call_json['labels'] == [99]\n  assert result is None"
+    },
+    {
+      "id": "TS-05-20",
+      "requirement_id": "05-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies that close_issue with a non-None comment calls add_issue_comment first, then issues PATCH with state=closed.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to comments endpoint is mocked to return 201",
+        "HTTP PATCH to /api/v1/repos/myorg/myrepo/issues/42 is mocked to return 200"
+      ],
+      "input": "await platform.close_issue(42, 'Closing comment')",
+      "expected": "add_issue_comment is called before PATCH; PATCH body contains state='closed'; returns None",
+      "assertion_pseudocode": "call_order = []\nwith mock(platform.add_issue_comment, side_effect=lambda *a: call_order.append('comment')), \\\n     mock_http_patch('.../issues/42', 200, {}, side_effect=lambda *a: call_order.append('patch')):\n  result = await platform.close_issue(42, 'Closing comment')\n  assert call_order == ['comment', 'patch']\n  assert result is None"
+    },
+    {
+      "id": "TS-05-21",
+      "requirement_id": "05-REQ-7.2",
+      "kind": "unit",
+      "description": "Verifies that close_issue with comment=None skips add_issue_comment entirely and only makes the PATCH request.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH to /api/v1/repos/myorg/myrepo/issues/42 is mocked to return 200"
+      ],
+      "input": "await platform.close_issue(42, comment=None)",
+      "expected": "No POST to the comments endpoint; exactly one PATCH request with state='closed'; returns None",
+      "assertion_pseudocode": "with mock(platform.add_issue_comment) as mock_comment, \\\n     mock_http_patch('.../issues/42', 200, {}) as mock_patch:\n  result = await platform.close_issue(42, comment=None)\n  assert mock_comment.call_count == 0\n  assert mock_patch.call_count == 1\n  assert mock_patch.last_call_json['state'] == 'closed'\n  assert result is None"
+    },
+    {
+      "id": "TS-05-22",
+      "requirement_id": "05-REQ-7.3",
+      "kind": "unit",
+      "description": "Verifies that close_issue treats any 2xx response from PATCH as success.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH is mocked to return 201 (non-200 2xx)"
+      ],
+      "input": "await platform.close_issue(1, comment=None)",
+      "expected": "No exception raised; returns None on 201 PATCH response",
+      "assertion_pseudocode": "with mock_http_patch('.../issues/1', 201, {}):\n  result = await platform.close_issue(1, comment=None)\n  assert result is None"
+    },
+    {
+      "id": "TS-05-23",
+      "requirement_id": "05-REQ-8.1",
+      "kind": "unit",
+      "description": "Verifies that remove_label resolves the label to a numeric ID and sends DELETE to the correct URL with that ID.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 55 for 'wontfix'",
+        "HTTP DELETE to /api/v1/repos/myorg/myrepo/issues/3/labels/55 is mocked to return 204"
+      ],
+      "input": "await platform.remove_label(3, 'wontfix')",
+      "expected": "DELETE request is made to URL ending in /labels/55; returns None",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=55), mock_http_delete('.../issues/3/labels/55', 204) as mock_del:\n  result = await platform.remove_label(3, 'wontfix')\n  assert '/labels/55' in mock_del.last_call_url\n  assert result is None"
+    },
+    {
+      "id": "TS-05-24",
+      "requirement_id": "05-REQ-8.2",
+      "kind": "unit",
+      "description": "Verifies that remove_label returns None silently when _resolve_label_id raises IntegrationError (label absent from repo).",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to raise IntegrationError for 'ghost-label'"
+      ],
+      "input": "await platform.remove_label(3, 'ghost-label')",
+      "expected": "No DELETE request made; returns None without raising any exception",
+      "assertion_pseudocode": "with mock(_resolve_label_id, raises=IntegrationError('not found')), \\\n     mock_http_delete as mock_del:\n  result = await platform.remove_label(3, 'ghost-label')\n  assert result is None\n  assert mock_del.call_count == 0"
+    },
+    {
+      "id": "TS-05-25",
+      "requirement_id": "05-REQ-8.3",
+      "kind": "unit",
+      "description": "Verifies that remove_label returns None silently when the DELETE returns 404.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 10 for 'bug'",
+        "HTTP DELETE is mocked to return 404"
+      ],
+      "input": "await platform.remove_label(5, 'bug')",
+      "expected": "No exception raised; returns None",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=10), mock_http_delete('.../issues/5/labels/10', 404):\n  result = await platform.remove_label(5, 'bug')\n  assert result is None"
+    },
+    {
+      "id": "TS-05-26",
+      "requirement_id": "05-REQ-8.4",
+      "kind": "unit",
+      "description": "Verifies that remove_label returns None silently when the DELETE returns 422.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 10 for 'bug'",
+        "HTTP DELETE is mocked to return 422"
+      ],
+      "input": "await platform.remove_label(5, 'bug')",
+      "expected": "No exception raised; returns None",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=10), mock_http_delete('.../issues/5/labels/10', 422):\n  result = await platform.remove_label(5, 'bug')\n  assert result is None"
+    },
+    {
+      "id": "TS-05-27",
+      "requirement_id": "05-REQ-9.1",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments GETs the correct URL and maps each item to IssueComment with user.login as user.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/issues/7/comments is mocked to return 200 with comment objects"
+      ],
+      "input": "await platform.list_issue_comments(7)",
+      "expected": "Returns list[IssueComment] where user field equals user.login from response; id, body, created_at are mapped directly",
+      "assertion_pseudocode": "mock_comments = [{\"id\": 1, \"body\": \"Hello\", \"user\": {\"login\": \"alice\"}, \"created_at\": \"2024-01-01T00:00:00Z\"}]\nwith mock_http_get('.../issues/7/comments', 200, mock_comments):\n  results = await platform.list_issue_comments(7)\n  assert len(results) == 1\n  assert results[0].user == 'alice'\n  assert results[0].id == 1\n  assert results[0].body == 'Hello'\n  assert results[0].created_at == '2024-01-01T00:00:00Z'"
+    },
+    {
+      "id": "TS-05-28",
+      "requirement_id": "05-REQ-9.2",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments does not include limit or pagination query parameters in the GET request.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET is mocked to return 200 with []"
+      ],
+      "input": "await platform.list_issue_comments(1)",
+      "expected": "GET request to comments endpoint contains no 'limit' or 'page' query parameters",
+      "assertion_pseudocode": "with mock_http_get('.../issues/1/comments', 200, []) as mock_get:\n  await platform.list_issue_comments(1)\n  params = mock_get.last_call_params\n  assert 'limit' not in params\n  assert 'page' not in params"
+    },
+    {
+      "id": "TS-05-29",
+      "requirement_id": "05-REQ-10.1",
+      "kind": "unit",
+      "description": "Verifies that get_issue GETs the correct URL and maps the response to IssueResult with correct field mapping.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/issues/10 is mocked to return 200 with issue JSON"
+      ],
+      "input": "await platform.get_issue(10)",
+      "expected": "Returns IssueResult with number=10, title, html_url, body, and labels extracted from label objects",
+      "assertion_pseudocode": "mock_issue = {\"number\": 10, \"title\": \"A bug\", \"html_url\": \"http://x/10\", \"body\": \"Details\", \"labels\": [{\"name\": \"bug\"}, {\"name\": \"p1\"}]}\nwith mock_http_get('/api/v1/repos/myorg/myrepo/issues/10', 200, mock_issue):\n  result = await platform.get_issue(10)\n  assert result.number == 10\n  assert result.title == 'A bug'\n  assert result.body == 'Details'\n  assert 'bug' in result.labels\n  assert 'p1' in result.labels"
+    },
+    {
+      "id": "TS-05-30",
+      "requirement_id": "05-REQ-11.1",
+      "kind": "unit",
+      "description": "Verifies that update_issue issues PATCH to the correct URL with the body field and returns None on any 2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH to /api/v1/repos/myorg/myrepo/issues/8 is mocked to return 201"
+      ],
+      "input": "await platform.update_issue(8, 'Updated body text')",
+      "expected": "PATCH body contains body='Updated body text'; returns None on 201",
+      "assertion_pseudocode": "with mock_http_patch('/api/v1/repos/myorg/myrepo/issues/8', 201, {}) as mock_patch:\n  result = await platform.update_issue(8, 'Updated body text')\n  assert mock_patch.last_call_json['body'] == 'Updated body text'\n  assert result is None"
+    },
+    {
+      "id": "TS-05-31",
+      "requirement_id": "05-REQ-11.2",
+      "kind": "unit",
+      "description": "Verifies that update_issue treats both 200 and 201 as success.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH is mocked to return 200"
+      ],
+      "input": "await platform.update_issue(8, 'Updated body')",
+      "expected": "No exception raised for 200 response; returns None",
+      "assertion_pseudocode": "with mock_http_patch('.../issues/8', 200, {}):\n  result = await platform.update_issue(8, 'Updated body')\n  assert result is None"
+    },
+    {
+      "id": "TS-05-32",
+      "requirement_id": "05-REQ-12.1",
+      "kind": "unit",
+      "description": "Verifies that create_label returns None silently without POSTing when the label already exists.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 7 for 'bug' (label exists)"
+      ],
+      "input": "await platform.create_label('bug', 'ff0000')",
+      "expected": "No POST request made to labels endpoint; returns None",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=7), mock_http_post as mock_post:\n  result = await platform.create_label('bug', 'ff0000')\n  assert mock_post.call_count == 0\n  assert result is None"
+    },
+    {
+      "id": "TS-05-33",
+      "requirement_id": "05-REQ-12.2",
+      "kind": "unit",
+      "description": "Verifies that create_label POSTs with color prepended with '#' when the label is not found by _resolve_label_id.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to raise IntegrationError (label not found)",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/labels is mocked to return 201 with new label JSON"
+      ],
+      "input": "await platform.create_label('newlabel', 'ff0000', 'A new label')",
+      "expected": "POST body contains name='newlabel', color='#ff0000', description='A new label'; returns None",
+      "assertion_pseudocode": "mock_label_response = {\"id\": 15, \"name\": \"newlabel\", \"color\": \"#ff0000\"}\nwith mock(_resolve_label_id, raises=IntegrationError('not found')), \\\n     mock_http_post('/api/v1/repos/myorg/myrepo/labels', 201, mock_label_response) as mock_post:\n  result = await platform.create_label('newlabel', 'ff0000', 'A new label')\n  body = mock_post.last_call_json\n  assert body['name'] == 'newlabel'\n  assert body['color'] == '#ff0000'\n  assert body['description'] == 'A new label'\n  assert result is None"
+    },
+    {
+      "id": "TS-05-34",
+      "requirement_id": "05-REQ-12.3",
+      "kind": "unit",
+      "description": "Verifies that create_label inserts the new name→id pair into the cache after successful creation, so subsequent _resolve_label_id calls use the cache without HTTP.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id first call raises IntegrationError (cache miss, label absent)",
+        "HTTP POST to labels endpoint returns 201 with {'id': 99, 'name': 'fresh'}"
+      ],
+      "input": "await platform.create_label('fresh', 'aabbcc'), then await platform._resolve_label_id('fresh')",
+      "expected": "After create_label, _resolve_label_id('fresh') returns 99 without making any HTTP GET to labels endpoint",
+      "assertion_pseudocode": "mock_response = {\"id\": 99, \"name\": \"fresh\"}\nwith mock_http_post('.../labels', 201, mock_response), \\\n     mock_http_get('.../labels', 200, []) as mock_get:\n  # Simulate _resolve_label_id raising on first call (cache empty, label absent)\n  platform._label_cache = {}  # fresh cache\n  # First create_label call: _resolve_label_id raises, then POST succeeds\n  await platform.create_label('fresh', 'aabbcc')\n  get_calls_before = mock_get.call_count\n  id_val = await platform._resolve_label_id('fresh')\n  assert id_val == 99\n  assert mock_get.call_count == get_calls_before  # no additional GET"
+    },
+    {
+      "id": "TS-05-35",
+      "requirement_id": "05-REQ-12.4",
+      "kind": "unit",
+      "description": "Verifies that create_label always prepends '#' to the bare hex color value in the POST request body.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id raises IntegrationError (label not found)",
+        "HTTP POST to labels endpoint returns 201"
+      ],
+      "input": "await platform.create_label('test', '123abc')",
+      "expected": "POST body color field equals '#123abc'",
+      "assertion_pseudocode": "with mock(_resolve_label_id, raises=IntegrationError), mock_http_post('.../labels', 201, {'id':1,'name':'test'}) as mock_post:\n  await platform.create_label('test', '123abc')\n  assert mock_post.last_call_json['color'] == '#123abc'"
+    },
+    {
+      "id": "TS-05-36",
+      "requirement_id": "05-REQ-13.1",
+      "kind": "unit",
+      "description": "Verifies that create_pr POSTs to the pulls endpoint with title, body, head, and base fields and returns html_url.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/pulls is mocked to return 201 with PR JSON"
+      ],
+      "input": "await platform.create_pr('Fix bug', 'PR body', head='fix-branch', base='main')",
+      "expected": "POST body contains title, body, head, base fields; returns html_url string from response",
+      "assertion_pseudocode": "mock_pr = {\"number\": 3, \"html_url\": \"http://gitea.example.com/myorg/myrepo/pulls/3\"}\nwith mock_http_post('/api/v1/repos/myorg/myrepo/pulls', 201, mock_pr) as mock_post:\n  result = await platform.create_pr('Fix bug', 'PR body', 'fix-branch', 'main')\n  body = mock_post.last_call_json\n  assert body['title'] == 'Fix bug'\n  assert body['head'] == 'fix-branch'\n  assert body['base'] == 'main'\n  assert result == 'http://gitea.example.com/myorg/myrepo/pulls/3'"
+    },
+    {
+      "id": "TS-05-37",
+      "requirement_id": "05-REQ-13.2",
+      "kind": "unit",
+      "description": "Verifies that create_pr handles 409 by querying for the existing open PR and returning its html_url.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/pulls returns 409",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/pulls with head, base, state=open returns 200 with one PR"
+      ],
+      "input": "await platform.create_pr('Fix bug', 'Body', head='fix-branch', base='main')",
+      "expected": "Returns html_url from the existing open PR found by GET",
+      "assertion_pseudocode": "existing_pr = [{\"html_url\": \"http://gitea.example.com/pulls/2\"}]\nwith mock_http_post('.../pulls', 409, {}), \\\n     mock_http_get('.../pulls', 200, existing_pr, params={'head':'fix-branch','base':'main','state':'open'}):\n  result = await platform.create_pr('Fix bug', 'Body', 'fix-branch', 'main')\n  assert result == 'http://gitea.example.com/pulls/2'"
+    },
+    {
+      "id": "TS-05-38",
+      "requirement_id": "05-REQ-13.3",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError when 409 is returned but the follow-up GET finds no open PRs.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST to /api/v1/repos/myorg/myrepo/pulls returns 409",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/pulls returns 200 with empty array"
+      ],
+      "input": "await platform.create_pr('Fix bug', 'Body', 'fix-branch', 'main')",
+      "expected": "IntegrationError is raised with message indicating 409 was received but no existing PR was found",
+      "assertion_pseudocode": "with mock_http_post('.../pulls', 409, {}), mock_http_get('.../pulls', 200, []):\n  with assert_raises(IntegrationError) as exc:\n    await platform.create_pr('Fix bug', 'Body', 'fix-branch', 'main')\n  assert '409' in str(exc) or 'no' in str(exc).lower() or 'existing' in str(exc).lower()"
+    },
+    {
+      "id": "TS-05-39",
+      "requirement_id": "05-REQ-14.1",
+      "kind": "unit",
+      "description": "Verifies that close() is synchronous, makes no HTTP calls, and returns None.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked"
+      ],
+      "input": "platform.close()",
+      "expected": "Returns None; no HTTP calls made; method completes synchronously without async",
+      "assertion_pseudocode": "with mock_http_client as mock_http:\n  result = platform.close()\n  assert result is None\n  assert mock_http.call_count == 0\n  # close() should not be a coroutine\n  import inspect\n  assert not inspect.iscoroutinefunction(platform.close)"
+    },
+    {
+      "id": "TS-05-40",
+      "requirement_id": "05-REQ-15.1",
+      "kind": "unit",
+      "description": "Verifies that search_issues GETs with q=title_prefix, type=issues, state, and limit=50, returning results as-is.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/issues is mocked to return 200 with issue array"
+      ],
+      "input": "await platform.search_issues('Fix', state='open')",
+      "expected": "GET has q='Fix', type='issues', state='open', limit=50; returns list[IssueResult] without client-side filtering",
+      "assertion_pseudocode": "mock_issues = [{\"number\": 1, \"title\": \"Fix crash\", \"html_url\": \"...\", \"body\": \"\", \"labels\": []}]\nwith mock_http_get('/api/v1/repos/myorg/myrepo/issues', 200, mock_issues) as mock_get:\n  results = await platform.search_issues('Fix', state='open')\n  params = mock_get.last_call_params\n  assert params['q'] == 'Fix'\n  assert params['type'] == 'issues'\n  assert params['state'] == 'open'\n  assert params['limit'] == 50\n  assert len(results) == 1"
+    },
+    {
+      "id": "TS-05-41",
+      "requirement_id": "05-REQ-15.2",
+      "kind": "unit",
+      "description": "Verifies that search_issues always includes type=issues to exclude pull requests.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET is mocked to return 200 with []"
+      ],
+      "input": "await platform.search_issues('prefix')",
+      "expected": "GET request contains type='issues'",
+      "assertion_pseudocode": "with mock_http_get('.../issues', 200, []) as mock_get:\n  await platform.search_issues('prefix')\n  assert mock_get.last_call_params.get('type') == 'issues'"
+    },
+    {
+      "id": "TS-05-42",
+      "requirement_id": "05-REQ-16.1",
+      "kind": "unit",
+      "description": "Verifies that check_credentials returns normally for any non-401/403 status including 5xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo is mocked to return 500"
+      ],
+      "input": "await platform.check_credentials()",
+      "expected": "No exception raised for 500; returns None",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo', 500, {}):\n  result = await platform.check_credentials()\n  assert result is None"
+    },
+    {
+      "id": "TS-05-43",
+      "requirement_id": "05-REQ-16.2",
+      "kind": "unit",
+      "description": "Verifies that check_credentials raises IntegrationError on 401.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo is mocked to return 401"
+      ],
+      "input": "await platform.check_credentials()",
+      "expected": "IntegrationError is raised",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo', 401, {}):\n  with assert_raises(IntegrationError):\n    await platform.check_credentials()"
+    },
+    {
+      "id": "TS-05-44",
+      "requirement_id": "05-REQ-16.3",
+      "kind": "unit",
+      "description": "Verifies that check_credentials raises IntegrationError on 403.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo is mocked to return 403"
+      ],
+      "input": "await platform.check_credentials()",
+      "expected": "IntegrationError is raised",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo', 403, {}):\n  with assert_raises(IntegrationError):\n    await platform.check_credentials()"
+    },
+    {
+      "id": "TS-05-45",
+      "requirement_id": "05-REQ-16.4",
+      "kind": "unit",
+      "description": "Verifies that check_credentials returns normally for a 5xx response without raising.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo is mocked to return 503"
+      ],
+      "input": "await platform.check_credentials()",
+      "expected": "No exception raised; returns None",
+      "assertion_pseudocode": "with mock_http_get('/api/v1/repos/myorg/myrepo', 503, {}):\n  result = await platform.check_credentials()\n  assert result is None"
+    },
+    {
+      "id": "TS-05-46",
+      "requirement_id": "05-REQ-17.1",
+      "kind": "unit",
+      "description": "Verifies that parse_remote correctly parses a valid HTTPS Gitea URL and returns (owner, repo) with .git stripped.",
+      "preconditions": [
+        "afissues.gitea.parse_remote is importable"
+      ],
+      "input": "parse_remote('https://gitea.example.com/myowner/myrepo.git')",
+      "expected": "Returns ('myowner', 'myrepo')",
+      "assertion_pseudocode": "result = parse_remote('https://gitea.example.com/myowner/myrepo.git')\nassert result == ('myowner', 'myrepo')"
+    },
+    {
+      "id": "TS-05-47",
+      "requirement_id": "05-REQ-17.2",
+      "kind": "unit",
+      "description": "Verifies that parse_remote correctly parses a valid SSH Gitea URL and returns (owner, repo) with .git stripped.",
+      "preconditions": [
+        "afissues.gitea.parse_remote is importable"
+      ],
+      "input": "parse_remote('git@gitea.example.com:myowner/myrepo.git')",
+      "expected": "Returns ('myowner', 'myrepo')",
+      "assertion_pseudocode": "result = parse_remote('git@gitea.example.com:myowner/myrepo.git')\nassert result == ('myowner', 'myrepo')"
+    },
+    {
+      "id": "TS-05-48",
+      "requirement_id": "05-REQ-17.3",
+      "kind": "unit",
+      "description": "Verifies that parse_remote returns None for an unparseable URL.",
+      "preconditions": [
+        "afissues.gitea.parse_remote is importable"
+      ],
+      "input": "parse_remote('not-a-valid-url')",
+      "expected": "Returns None",
+      "assertion_pseudocode": "result = parse_remote('not-a-valid-url')\nassert result is None"
+    },
+    {
+      "id": "TS-05-49",
+      "requirement_id": "05-REQ-17.4",
+      "kind": "unit",
+      "description": "Verifies that parse_remote accepts any hostname and is not restricted to specific domains.",
+      "preconditions": [
+        "afissues.gitea.parse_remote is importable"
+      ],
+      "input": "parse_remote('https://my-internal-server.corp.local/team/project.git')",
+      "expected": "Returns ('team', 'project') — any hostname is accepted",
+      "assertion_pseudocode": "result = parse_remote('https://my-internal-server.corp.local/team/project.git')\nassert result == ('team', 'project')"
+    },
+    {
+      "id": "TS-05-50",
+      "requirement_id": "05-REQ-18.1",
+      "kind": "integration",
+      "description": "Verifies that platform_factory constructs a GiteaPlatform instance when type='gitea' is provided.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py imports GiteaPlatform from afissues.gitea",
+        "afissues package is installed with GiteaPlatform implemented",
+        "afissues._ssrf._validate_url is mocked to not raise for the test URL",
+        "Test is co-located in agentfox/nightshift/tests/ or equivalent test directory"
+      ],
+      "input": "platform_factory({'type': 'gitea', 'owner': 'org', 'repo': 'repo', 'token': 'tok', 'url': 'gitea.corp.com'})",
+      "expected": "Returns an instance of GiteaPlatform with forge_type == 'gitea'",
+      "assertion_pseudocode": "with mock(_validate_url, returns=None):\n  platform = platform_factory({'type': 'gitea', 'owner': 'org', 'repo': 'repo', 'token': 'tok', 'url': 'gitea.corp.com'})\n  assert isinstance(platform, GiteaPlatform)\n  assert platform.forge_type == 'gitea'"
+    },
+    {
+      "id": "TS-05-51",
+      "requirement_id": "05-REQ-18.2",
+      "kind": "unit",
+      "description": "Verifies that platform_factory imports GiteaPlatform using the correct import statement without any guard or NotImplementedError.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py has been updated to remove the import guard",
+        "afissues.gitea module exports GiteaPlatform and parse_remote"
+      ],
+      "input": "import platform_factory; inspect its imports for 'gitea' routing",
+      "expected": "from afissues.gitea import GiteaPlatform succeeds; no NotImplementedError or guard placeholder present",
+      "assertion_pseudocode": "from afissues.gitea import GiteaPlatform, parse_remote as parse_gitea_remote\nassert GiteaPlatform is not None\nassert parse_gitea_remote is not None\n# No NotImplementedError raised"
+    },
+    {
+      "id": "TS-05-52",
+      "requirement_id": "05-REQ-19.1",
+      "kind": "unit",
+      "description": "Verifies that GiteaPlatform is re-exported from afissues top-level __init__ without removing other existing platform exports.",
+      "preconditions": [
+        "afissues/__init__.py has been updated to include GiteaPlatform in re-exports",
+        "afissues package is installed"
+      ],
+      "input": "from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform",
+      "expected": "All three imports succeed without ImportError",
+      "assertion_pseudocode": "from afissues import GiteaPlatform\nfrom afissues import GitHubPlatform\nfrom afissues import GitLabPlatform\nassert GiteaPlatform is not None\nassert GitHubPlatform is not None\nassert GitLabPlatform is not None"
+    },
+    {
+      "id": "TS-05-53",
+      "requirement_id": "05-REQ-20.1",
+      "kind": "unit",
+      "description": "Verifies that async unit tests for all 12 protocol methods and non-protocol methods exist in the afissues test suite and pass under pytest.",
+      "preconditions": [
+        "pytest and pytest-asyncio are installed",
+        "afissues test suite is co-located with other platform tests"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -v",
+      "expected": "All tests for 12 protocol methods, search_issues, check_credentials, and _resolve_label_id pass",
+      "assertion_pseudocode": "# Run: pytest packages/afissues/tests/test_gitea.py -v\n# Assert exit code == 0\n# Assert test count covers all 12 protocol methods + search_issues + check_credentials + _resolve_label_id"
+    },
+    {
+      "id": "TS-05-54",
+      "requirement_id": "05-REQ-20.2",
+      "kind": "unit",
+      "description": "Verifies that parse_remote unit tests for HTTPS, SSH, and unparseable URLs exist and pass.",
+      "preconditions": [
+        "pytest is installed",
+        "afissues/gitea.py implements parse_remote"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -k parse_remote -v",
+      "expected": "Three parse_remote tests pass: valid HTTPS, valid SSH, unparseable input",
+      "assertion_pseudocode": "# Run: pytest packages/afissues/tests/test_gitea.py -k parse_remote\n# Assert 3 tests collected and passed"
+    },
+    {
+      "id": "TS-05-55",
+      "requirement_id": "05-REQ-20.3",
+      "kind": "unit",
+      "description": "Verifies that idempotency tests for create_label, remove_label, and create_pr edge cases exist and pass.",
+      "preconditions": [
+        "pytest and pytest-asyncio are installed"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -k idempotent -v",
+      "expected": "Tests for create_label (exists), create_label cache update, remove_label 404/422/missing label, create_pr 409 with/without match all pass",
+      "assertion_pseudocode": "# All idempotency tests pass; specifically:\n# - create_label when label exists: no POST\n# - create_label cache update after success\n# - remove_label 404: returns None\n# - remove_label 422: returns None\n# - remove_label with IntegrationError from _resolve_label_id: returns None\n# - create_pr 409 with match: returns html_url\n# - create_pr 409 without match: raises IntegrationError"
+    },
+    {
+      "id": "TS-05-56",
+      "requirement_id": "05-REQ-20.4",
+      "kind": "unit",
+      "description": "Verifies that _resolve_label_id cache behavior tests exist and pass.",
+      "preconditions": [
+        "pytest and pytest-asyncio are installed"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -k resolve_label -v",
+      "expected": "Tests for cache hit, cache miss, label not found, and subsequent missing label call all pass",
+      "assertion_pseudocode": "# All four _resolve_label_id tests pass"
+    },
+    {
+      "id": "TS-05-57",
+      "requirement_id": "05-REQ-20.5",
+      "kind": "unit",
+      "description": "Verifies that the list_issues_by_label sort fallback test exists and confirms sort=newest is sent for unmapped combinations.",
+      "preconditions": [
+        "pytest and pytest-asyncio are installed"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -k sort_fallback -v",
+      "expected": "Test passes confirming sort='newest' is sent for unmapped sort+direction combination",
+      "assertion_pseudocode": "# Sort fallback test passes\n# assert GET params contain sort='newest' for (comments, asc) combination"
+    },
+    {
+      "id": "TS-05-58",
+      "requirement_id": "05-REQ-20.6",
+      "kind": "unit",
+      "description": "Verifies that a constructor SSRF test exists asserting ConfigError propagation when _validate_url raises.",
+      "preconditions": [
+        "pytest is installed",
+        "afissues._ssrf._validate_url is patchable"
+      ],
+      "input": "pytest packages/afissues/tests/test_gitea.py -k ssrf -v",
+      "expected": "Constructor SSRF test passes confirming ConfigError is raised",
+      "assertion_pseudocode": "with mock(_validate_url, raises=ConfigError('disallowed')):\n  with assert_raises(ConfigError):\n    GiteaPlatform('org', 'repo', 'token', '169.254.169.254')"
+    },
+    {
+      "id": "TS-05-59",
+      "requirement_id": "05-REQ-20.7",
+      "kind": "integration",
+      "description": "Verifies that the platform_factory integration test for type='gitea' exists in the nightshift test suite and passes.",
+      "preconditions": [
+        "pytest is installed",
+        "agentfox/nightshift/tests/ directory exists with platform_factory test",
+        "GiteaPlatform is importable from afissues.gitea"
+      ],
+      "input": "pytest agentfox/nightshift/tests/test_platform_factory.py -k gitea -v",
+      "expected": "Integration test passes asserting GiteaPlatform is constructed for type='gitea'",
+      "assertion_pseudocode": "# Run: pytest agentfox/nightshift/tests/test_platform_factory.py -k gitea\n# Assert exit code == 0\n# Assert isinstance(result, GiteaPlatform) == True"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-05-P1",
+      "property_id": "05-PROP-1",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-2.2",
+        "05-REQ-2.4",
+        "05-REQ-12.3"
+      ],
+      "description": "For any sequence of _resolve_label_id and create_label calls, the label ID cache only grows monotonically and never contains entries not derived from API responses or successful create_label calls.",
+      "for_any_strategy": "Generate random sequences of (action, label_name) pairs where action is one of: resolve_existing, resolve_missing, create_new; mock API responses consistently",
+      "invariant_check": "After each operation, assert that every key in _label_cache maps to a value that was either returned by the labels GET endpoint or by a create_label POST response; assert cache only grows (entries are never removed mid-session); assert a second resolve for a missing label does not trigger an additional HTTP GET"
+    },
+    {
+      "id": "TS-05-P2",
+      "property_id": "05-PROP-2",
+      "validates": [
+        "05-REQ-3.1",
+        "05-REQ-6.1",
+        "05-REQ-8.1"
+      ],
+      "description": "For any call to assign_label, remove_label, or create_issue with labels, _resolve_label_id is always called before any HTTP request using a label identifier, ensuring only numeric IDs appear in request bodies/URLs.",
+      "for_any_strategy": "Generate arbitrary label names (strings of varying length and content); mock _resolve_label_id to return a predictable numeric ID; capture all HTTP requests made",
+      "invariant_check": "Assert that _resolve_label_id is called before any POST/DELETE to label endpoints; assert that the label name string never appears as a value in the labels array or URL path of any HTTP request; assert only numeric IDs are used"
+    },
+    {
+      "id": "TS-05-P3",
+      "property_id": "05-PROP-3",
+      "validates": [
+        "05-REQ-3.E1",
+        "05-REQ-4.E1",
+        "05-REQ-5.E1",
+        "05-REQ-6.E1",
+        "05-REQ-7.E1",
+        "05-REQ-8.E1",
+        "05-REQ-9.E1",
+        "05-REQ-10.E1",
+        "05-REQ-11.E1",
+        "05-REQ-12.E1",
+        "05-REQ-13.E1",
+        "05-REQ-15.E1"
+      ],
+      "description": "For any IntegrationError raised due to a non-success HTTP response, the embedded response text portion of the error message never exceeds 500 characters.",
+      "for_any_strategy": "Generate error response bodies of random length between 1 and 2000 characters for each method that can raise IntegrationError; trigger the error path for each method",
+      "invariant_check": "For each method, when HTTP response is non-success with a body of length N: extract the response text portion from the IntegrationError message; assert len(response_text_in_message) <= 500 regardless of N"
+    },
+    {
+      "id": "TS-05-P4",
+      "property_id": "05-PROP-4",
+      "validates": [
+        "05-REQ-4.4",
+        "05-REQ-15.2"
+      ],
+      "description": "For any call to list_issues_by_label or search_issues, the type=issues query parameter is always present in the outgoing GET request.",
+      "for_any_strategy": "Generate arbitrary values for label, state, sort, direction, and title_prefix parameters; call list_issues_by_label and search_issues with these values; mock HTTP GET to return 200 with []",
+      "invariant_check": "Capture the query parameters of each GET request; assert 'type' in params and params['type'] == 'issues' for every invocation regardless of input parameter values"
+    },
+    {
+      "id": "TS-05-P5",
+      "property_id": "05-PROP-5",
+      "validates": [
+        "05-REQ-4.1",
+        "05-REQ-7.2",
+        "05-REQ-12.2"
+      ],
+      "description": "GiteaPlatform method signatures have default parameter values that exactly match PlatformProtocol.",
+      "for_any_strategy": "Inspect GiteaPlatform method signatures using Python introspection (inspect.signature)",
+      "invariant_check": "assert inspect.signature(GiteaPlatform.list_issues_by_label).parameters['state'].default == 'open'; assert .parameters['sort'].default == 'created'; assert .parameters['direction'].default == 'asc'; assert inspect.signature(GiteaPlatform.close_issue).parameters['comment'].default is None; assert inspect.signature(GiteaPlatform.create_label).parameters['description'].default == ''"
+    },
+    {
+      "id": "TS-05-P6",
+      "property_id": "05-PROP-6",
+      "validates": [
+        "05-REQ-1.E1"
+      ],
+      "description": "ConfigError raised by _validate_url always propagates unchanged from the GiteaPlatform constructor without being caught or re-wrapped.",
+      "for_any_strategy": "Generate various ConfigError messages and have _validate_url raise them; attempt GiteaPlatform construction",
+      "invariant_check": "For each raised ConfigError: assert that the exception type caught at the call site is exactly ConfigError; assert it is not IntegrationError or any other type; assert the original error message is preserved unchanged in the propagated exception"
+    },
+    {
+      "id": "TS-05-P7",
+      "property_id": "05-PROP-7",
+      "validates": [
+        "05-REQ-7.2"
+      ],
+      "description": "For any call to close_issue with comment=None, exactly one HTTP request is made (PATCH state=closed) and zero requests are made to the comments endpoint.",
+      "for_any_strategy": "Generate arbitrary issue_number values; call close_issue(issue_number, comment=None) with HTTP mocked",
+      "invariant_check": "Assert that the total number of HTTP calls equals exactly 1; assert that the single call is PATCH to /api/v1/repos/{owner}/{repo}/issues/{issue_number}; assert no POST to /api/v1/repos/{owner}/{repo}/issues/{issue_number}/comments is made; this loop terminates after exactly 1 iteration"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-05-E1",
+      "requirement_id": "05-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that ConfigError propagates directly from the constructor when _validate_url raises, with no GiteaPlatform instance created.",
+      "preconditions": [
+        "afissues._ssrf._validate_url is patchable",
+        "ConfigError is importable from afissues.errors"
+      ],
+      "input": "GiteaPlatform('org', 'repo', 'token', '169.254.169.254') with _validate_url mocked to raise ConfigError('SSRF disallowed')",
+      "expected": "ConfigError is raised; no GiteaPlatform instance is created; error is not re-wrapped as IntegrationError",
+      "assertion_pseudocode": "with mock(_validate_url, raises=ConfigError('SSRF disallowed')):\n  with assert_raises(ConfigError) as exc:\n    GiteaPlatform('org', 'repo', 'token', '169.254.169.254')\n  assert type(exc) == ConfigError\n  assert not isinstance(exc, IntegrationError)"
+    },
+    {
+      "id": "TS-05-E2",
+      "requirement_id": "05-REQ-1.E2",
+      "kind": "unit",
+      "description": "Verifies that the constructor uses the token as-is in the Authorization header without any validation or sanitization.",
+      "preconditions": [
+        "afissues._ssrf._validate_url is mocked to return None"
+      ],
+      "input": "GiteaPlatform('org', 'repo', 'a!weird#token$value', 'gitea.example.com')",
+      "expected": "Authorization header equals 'token a!weird#token$value' verbatim",
+      "assertion_pseudocode": "with mock(_validate_url, returns=None):\n  platform = GiteaPlatform('org', 'repo', 'a!weird#token$value', 'gitea.example.com')\n  assert platform.auth_headers['Authorization'] == 'token a!weird#token$value'"
+    },
+    {
+      "id": "TS-05-E3",
+      "requirement_id": "05-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that _resolve_label_id raises IntegrationError with response text truncated to 500 chars when the labels GET returns non-2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET to /api/v1/repos/myorg/myrepo/labels is mocked to return 500 with a 600-character error body"
+      ],
+      "input": "await platform._resolve_label_id('bug') with empty cache",
+      "expected": "IntegrationError is raised; error message contains at most 500 characters of response text",
+      "assertion_pseudocode": "long_error = 'E' * 600\nwith mock_http_get('.../labels', 500, text=long_error):\n  with assert_raises(IntegrationError) as exc:\n    await platform._resolve_label_id('bug')\n  # Extract the raw response text portion from the error message\n  error_msg = str(exc)\n  # Count response text characters embedded — must be <= 500\n  assert len(error_msg) <= len('prefix') + 500 + len('suffix')  # error message with at most 500 chars of response"
+    },
+    {
+      "id": "TS-05-E4",
+      "requirement_id": "05-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies that create_issue raises IntegrationError with response text truncated to 500 characters on non-2xx response.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 500 with a 600-character error body"
+      ],
+      "input": "await platform.create_issue('Title', 'Body', [])",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "long_error = 'X' * 600\nwith mock_http_post('.../issues', 500, text=long_error):\n  with assert_raises(IntegrationError) as exc:\n    await platform.create_issue('Title', 'Body', [])\n  assert 'X' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E5",
+      "requirement_id": "05-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verifies that create_issue maps a null or absent body field in the response to empty string.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 201 with JSON where body field is null"
+      ],
+      "input": "await platform.create_issue('Title', 'Body', [])",
+      "expected": "IssueResult.body == ''",
+      "assertion_pseudocode": "mock_response = {\"number\": 1, \"title\": \"Title\", \"html_url\": \"http://x/1\", \"body\": None, \"labels\": []}\nwith mock_http_post('.../issues', 201, mock_response):\n  result = await platform.create_issue('Title', 'Body', [])\n  assert result.body == ''"
+    },
+    {
+      "id": "TS-05-E6",
+      "requirement_id": "05-REQ-3.E3",
+      "kind": "unit",
+      "description": "Verifies that create_issue maps an absent labels field in the response to an empty tuple.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 201 with JSON missing the labels field"
+      ],
+      "input": "await platform.create_issue('Title', 'Body', [])",
+      "expected": "IssueResult.labels == ()",
+      "assertion_pseudocode": "mock_response = {\"number\": 1, \"title\": \"Title\", \"html_url\": \"http://x/1\", \"body\": \"\"}\nwith mock_http_post('.../issues', 201, mock_response):\n  result = await platform.create_issue('Title', 'Body', [])\n  assert result.labels == ()"
+    },
+    {
+      "id": "TS-05-E7",
+      "requirement_id": "05-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label raises IntegrationError with truncated response text on non-200 status.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 422 with a 600-character error body"
+      ],
+      "input": "await platform.list_issues_by_label('bug')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_get('.../issues', 422, text='E'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.list_issues_by_label('bug')\n  assert 'E' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E8",
+      "requirement_id": "05-REQ-4.E2",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label returns an empty list when the API returns an empty array.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 200 with []"
+      ],
+      "input": "await platform.list_issues_by_label('bug')",
+      "expected": "Returns []",
+      "assertion_pseudocode": "with mock_http_get('.../issues', 200, []):\n  result = await platform.list_issues_by_label('bug')\n  assert result == []"
+    },
+    {
+      "id": "TS-05-E9",
+      "requirement_id": "05-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verifies that add_issue_comment raises IntegrationError with truncated response text on non-2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 500 with 600-char error body"
+      ],
+      "input": "await platform.add_issue_comment(1, 'text')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_post('.../issues/1/comments', 500, text='F'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.add_issue_comment(1, 'text')\n  assert 'F' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E10",
+      "requirement_id": "05-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies that assign_label raises IntegrationError with truncated response text on non-2xx response.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 1",
+        "HTTP POST returns 422 with 600-char error body"
+      ],
+      "input": "await platform.assign_label(1, 'bug')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=1), mock_http_post('.../issues/1/labels', 422, text='G'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.assign_label(1, 'bug')\n  assert 'G' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E11",
+      "requirement_id": "05-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verifies that close_issue raises IntegrationError with truncated response text when the PATCH returns non-2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH returns 500 with 600-char error body"
+      ],
+      "input": "await platform.close_issue(1, comment=None)",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_patch('.../issues/1', 500, text='H'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.close_issue(1, comment=None)\n  assert 'H' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E12",
+      "requirement_id": "05-REQ-7.E2",
+      "kind": "unit",
+      "description": "Verifies that close_issue propagates IntegrationError from add_issue_comment and does not make the PATCH request.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "add_issue_comment is mocked to raise IntegrationError"
+      ],
+      "input": "await platform.close_issue(5, comment='Some comment')",
+      "expected": "IntegrationError propagates; no PATCH request is made",
+      "assertion_pseudocode": "with mock(platform.add_issue_comment, raises=IntegrationError('comment failed')), \\\n     mock_http_patch as mock_patch:\n  with assert_raises(IntegrationError):\n    await platform.close_issue(5, comment='Some comment')\n  assert mock_patch.call_count == 0"
+    },
+    {
+      "id": "TS-05-E13",
+      "requirement_id": "05-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verifies that remove_label raises IntegrationError when DELETE returns a status other than 204, 404, or 422.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id is mocked to return 10",
+        "HTTP DELETE returns 500 with 600-char error body"
+      ],
+      "input": "await platform.remove_label(1, 'bug')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock(_resolve_label_id, returns=10), mock_http_delete('.../issues/1/labels/10', 500, text='I'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.remove_label(1, 'bug')\n  assert 'I' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E14",
+      "requirement_id": "05-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments raises IntegrationError with truncated response text on non-200 status.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 403 with 600-char error body"
+      ],
+      "input": "await platform.list_issue_comments(5)",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_get('.../issues/5/comments', 403, text='J'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.list_issue_comments(5)\n  assert 'J' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E15",
+      "requirement_id": "05-REQ-9.E2",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments returns an empty list when the issue has no comments.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 200 with []"
+      ],
+      "input": "await platform.list_issue_comments(1)",
+      "expected": "Returns []",
+      "assertion_pseudocode": "with mock_http_get('.../issues/1/comments', 200, []):\n  result = await platform.list_issue_comments(1)\n  assert result == []"
+    },
+    {
+      "id": "TS-05-E16",
+      "requirement_id": "05-REQ-10.E1",
+      "kind": "unit",
+      "description": "Verifies that get_issue raises IntegrationError with truncated response text on non-200 status.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 404 with 600-char error body"
+      ],
+      "input": "await platform.get_issue(99)",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_get('.../issues/99', 404, text='K'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.get_issue(99)\n  assert 'K' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E17",
+      "requirement_id": "05-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verifies that update_issue raises IntegrationError with truncated response text on non-2xx status.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP PATCH returns 500 with 600-char error body"
+      ],
+      "input": "await platform.update_issue(3, 'new body')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_patch('.../issues/3', 500, text='L'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.update_issue(3, 'new body')\n  assert 'L' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E18",
+      "requirement_id": "05-REQ-12.E1",
+      "kind": "unit",
+      "description": "Verifies that create_label raises IntegrationError with truncated response text when POST returns non-2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "_resolve_label_id raises IntegrationError (label not found)",
+        "HTTP POST returns 500 with 600-char error body"
+      ],
+      "input": "await platform.create_label('newlabel', 'aabbcc')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock(_resolve_label_id, raises=IntegrationError), mock_http_post('.../labels', 500, text='M'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.create_label('newlabel', 'aabbcc')\n  assert 'M' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E19",
+      "requirement_id": "05-REQ-13.E1",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError with truncated response text on non-2xx, non-409 POST failure.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 500 with 600-char error body"
+      ],
+      "input": "await platform.create_pr('Title', 'Body', 'head', 'base')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_post('.../pulls', 500, text='N'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.create_pr('Title', 'Body', 'head', 'base')\n  assert 'N' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E20",
+      "requirement_id": "05-REQ-13.E2",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError with truncated response text when the follow-up GET after 409 returns non-2xx.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP POST returns 409",
+        "Follow-up HTTP GET returns 500 with 600-char error body"
+      ],
+      "input": "await platform.create_pr('Title', 'Body', 'head', 'base')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_post('.../pulls', 409, {}), mock_http_get('.../pulls', 500, text='O'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.create_pr('Title', 'Body', 'head', 'base')\n  assert 'O' * 501 not in str(exc)"
+    },
+    {
+      "id": "TS-05-E21",
+      "requirement_id": "05-REQ-15.E1",
+      "kind": "unit",
+      "description": "Verifies that search_issues raises IntegrationError with truncated response text on non-2xx GET response.",
+      "preconditions": [
+        "GiteaPlatform instance is created with _validate_url mocked",
+        "HTTP GET returns 503 with 600-char error body"
+      ],
+      "input": "await platform.search_issues('Fix')",
+      "expected": "IntegrationError raised; embedded response text <= 500 characters",
+      "assertion_pseudocode": "with mock_http_get('.../issues', 503, text='P'*600):\n  with assert_raises(IntegrationError) as exc:\n    await platform.search_issues('Fix')\n  assert 'P' * 501 not in str(exc)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-05-SMOKE-1",
+      "execution_path_id": "05-PATH-1",
+      "description": "Smoke test for the happy path of creating an issue with labels: verifies that _resolve_label_id fetches labels on cache miss, POSTs the issue with numeric label IDs, and returns a correctly mapped IssueResult.",
+      "trigger": "Call GiteaPlatform.create_issue('Fix crash', 'Description', ['bug']) with empty label cache and mocked HTTP responses",
+      "real_components": [
+        "GiteaPlatform",
+        "_resolve_label_id",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._http HTTP client GET and POST calls",
+        "afissues._ssrf._validate_url"
+      ],
+      "expected_effects": [
+        "GET /api/v1/repos/myorg/myrepo/labels is called exactly once, populating the label cache with {'bug': <id>}",
+        "POST /api/v1/repos/myorg/myrepo/issues is called with labels=[<numeric_id>] in the body",
+        "Returned IssueResult has correct number, title, html_url, body, and labels fields",
+        "Label cache contains 'bug' → numeric ID after the call"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-2",
+      "execution_path_id": "05-PATH-2",
+      "description": "Smoke test for create_pr with 409 duplicate detection: verifies that on 409, the implementation fetches existing PR and returns its html_url.",
+      "trigger": "Call GiteaPlatform.create_pr('Fix bug', 'Body', 'fix-branch', 'main') with POST mocked to return 409 and GET mocked to return the existing PR",
+      "real_components": [
+        "GiteaPlatform",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._http HTTP client POST and GET calls",
+        "afissues._ssrf._validate_url"
+      ],
+      "expected_effects": [
+        "POST /api/v1/repos/myorg/myrepo/pulls is attempted and receives 409",
+        "GET /api/v1/repos/myorg/myrepo/pulls with head=fix-branch, base=main, state=open is issued",
+        "html_url from the first existing PR in the GET response is returned as a string",
+        "No IntegrationError is raised"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-3",
+      "execution_path_id": "05-PATH-3",
+      "description": "Smoke test for close_issue with a comment: verifies that add_issue_comment is called before the PATCH state=closed, and both succeed.",
+      "trigger": "Call GiteaPlatform.close_issue(42, 'Resolved by PR #7') with mocked HTTP for POST to comments and PATCH to issues",
+      "real_components": [
+        "GiteaPlatform",
+        "add_issue_comment",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._http HTTP client POST and PATCH calls",
+        "afissues._ssrf._validate_url"
+      ],
+      "expected_effects": [
+        "POST /api/v1/repos/myorg/myrepo/issues/42/comments is called first with body='Resolved by PR #7'",
+        "PATCH /api/v1/repos/myorg/myrepo/issues/42 is called after the comment POST with {state: closed}",
+        "Returns None without raising any exception"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-4",
+      "execution_path_id": "05-PATH-4",
+      "description": "Smoke test for create_label idempotency when label already exists: verifies no POST is made and returns None silently.",
+      "trigger": "Call GiteaPlatform.create_label('bug', 'ff0000', 'A bug report') with _resolve_label_id returning a numeric ID (label exists)",
+      "real_components": [
+        "GiteaPlatform",
+        "_resolve_label_id",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._http HTTP client GET and POST calls",
+        "afissues._ssrf._validate_url"
+      ],
+      "expected_effects": [
+        "_resolve_label_id is called and returns a numeric ID",
+        "No POST to /api/v1/repos/myorg/myrepo/labels is made",
+        "Method returns None without raising any exception"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-5",
+      "execution_path_id": "05-PATH-5",
+      "description": "End-to-end smoke test: operator configures type=gitea, platform_factory constructs GiteaPlatform, check_credentials succeeds, and create_issue returns IssueResult.",
+      "trigger": "Configure platform_factory with type='gitea'; call check_credentials() then create_issue() with mocked HTTP",
+      "real_components": [
+        "platform_factory (agentfox/nightshift/platform_factory.py)",
+        "GiteaPlatform",
+        "_resolve_label_id",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._http HTTP client",
+        "afissues._ssrf._validate_url"
+      ],
+      "expected_effects": [
+        "platform_factory returns a GiteaPlatform instance for type='gitea'",
+        "GiteaPlatform constructor calls _validate_url and initializes label cache",
+        "check_credentials() GET /api/v1/repos/myorg/myrepo returns 200 and returns None",
+        "create_issue() fetches labels via GET, POSTs issue, returns IssueResult with number, title, html_url, body, labels"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-6",
+      "execution_path_id": "05-PATH-6",
+      "description": "Error path smoke test: SSRF-disallowed URL causes ConfigError during GiteaPlatform construction, propagating to the caller.",
+      "trigger": "Call GiteaPlatform('org', 'repo', 'token', '169.254.169.254') with _validate_url mocked to raise ConfigError",
+      "real_components": [
+        "GiteaPlatform",
+        "afissues._ssrf._validate_url"
+      ],
+      "mockable": [
+        "afissues._ssrf._validate_url (mocked to raise ConfigError)"
+      ],
+      "expected_effects": [
+        "_validate_url is called with '169.254.169.254' and raises ConfigError",
+        "ConfigError propagates to the caller without being caught or re-wrapped",
+        "No GiteaPlatform instance is created",
+        "Caller receives ConfigError (not IntegrationError or any other type)"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

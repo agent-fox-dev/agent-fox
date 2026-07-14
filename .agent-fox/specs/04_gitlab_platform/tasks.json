@@ -1,0 +1,1818 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "gitlab_platform",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/afissues/tests/unit/test_gitlab.py -q --cov=afissues/gitlab --cov-branch --cov-report=term-missing",
+    "all_tests": "pytest packages/afissues/tests/ -q",
+    "linter": "ruff check packages/afissues/afissues/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "03",
+      "from_group": 10,
+      "to_group": 1,
+      "relationship": "afissues package must exist with protocol, errors, and GitHub modules before GitLab implementation begins",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write unit tests: GitLabPlatform constructor, module structure, and SSRF",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write tests for GitLabPlatform constructor happy path and class attributes",
+          "details": [
+            "Create packages/afissues/tests/unit/test_gitlab.py",
+            "Test forge_type == 'gitlab', URL-encoded project_id, api_base_url, and auth_headers",
+            "Test that no persistent httpx.AsyncClient is held as instance attribute",
+            "Test module docstring mentions 'api' and 'read_api'/'403'",
+            "Test 'from afissues import GitLabPlatform' succeeds"
+          ],
+          "test_spec_refs": [
+            "TS-04-1",
+            "TS-04-3",
+            "TS-04-4",
+            "TS-04-5"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-1.3",
+            "04-REQ-1.4",
+            "04-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write tests for GitLabPlatform constructor SSRF and URL-encoding edge cases",
+          "details": [
+            "Test ConfigError raised for private RFC-1918 IP (e.g. '192.168.1.1')",
+            "Confirm IntegrationError is NOT raised and httpx.AsyncClient is never instantiated",
+            "Test URL-encoding of project_id with slashes and spaces",
+            "Patch _validate_url from _ssrf.py for isolation"
+          ],
+          "test_spec_refs": [
+            "TS-04-2",
+            "TS-04-E1",
+            "TS-04-E2"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.2",
+            "04-REQ-1.E1",
+            "04-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write tests for create_issue, list_issues_by_label happy paths",
+          "details": [
+            "Patch request_with_retry to return mock httpx.Response for create_issue (201)",
+            "Verify POST body has title, description, comma-joined labels",
+            "Verify IssueResult mapping: iid→number, web_url→html_url, description→body, labels array→tuple",
+            "Verify GET params: state mapping ('open'→'opened', 'closed' and 'all' pass through), order_by mapping, sort/direction pass-through, per_page=100"
+          ],
+          "test_spec_refs": [
+            "TS-04-6",
+            "TS-04-7",
+            "TS-04-8",
+            "TS-04-9"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-3.1",
+            "04-REQ-3.2",
+            "04-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write tests for create_issue and list_issues_by_label error/edge cases",
+          "details": [
+            "Test IntegrationError raised on non-201 from create_issue; response text truncated to 500 chars",
+            "Test description: null in response → IssueResult.body == ''",
+            "Test IntegrationError raised on non-200 from list_issues_by_label"
+          ],
+          "test_spec_refs": [
+            "TS-04-E3",
+            "TS-04-E4",
+            "TS-04-E5"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.E1",
+            "04-REQ-2.E2",
+            "04-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write tests for add_issue_comment, assign_label, close_issue happy paths and edge cases",
+          "details": [
+            "Test POST to notes endpoint with {'body': body}; 201 returns normally",
+            "Test IntegrationError on non-201 from add_issue_comment",
+            "Test PUT with {'add_labels': label}; 200 returns normally",
+            "Test IntegrationError on non-200 from assign_label",
+            "Test close_issue with non-empty comment: two calls (notes POST then issue PUT with state_event='close')",
+            "Test close_issue with empty/None comment: only one call (PUT with state_event='close')",
+            "Test close_issue propagates IntegrationError from comment step without attempting close PUT"
+          ],
+          "test_spec_refs": [
+            "TS-04-10",
+            "TS-04-11",
+            "TS-04-12",
+            "TS-04-13",
+            "TS-04-E6",
+            "TS-04-E7",
+            "TS-04-E8"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.1",
+            "04-REQ-4.E1",
+            "04-REQ-5.1",
+            "04-REQ-5.E1",
+            "04-REQ-6.1",
+            "04-REQ-6.2",
+            "04-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write tests for remove_label, list_issue_comments happy paths and edge cases",
+          "details": [
+            "Test PUT with {'remove_labels': label}; 200 returns normally; idempotent (no error for missing label)",
+            "Test list_issue_comments GET params: sort=asc, order_by=created_at, per_page=100, no activity_filter",
+            "Test system notes (system==true) are filtered out client-side",
+            "Test IssueComment mapping: id, body, author.username→user, created_at",
+            "Test IntegrationError on non-200 from list_issue_comments"
+          ],
+          "test_spec_refs": [
+            "TS-04-14",
+            "TS-04-15",
+            "TS-04-16",
+            "TS-04-E9",
+            "TS-04-E10",
+            "TS-04-E11"
+          ],
+          "requirement_refs": [
+            "04-REQ-7.1",
+            "04-REQ-7.E1",
+            "04-REQ-8.1",
+            "04-REQ-8.2",
+            "04-REQ-8.E1",
+            "04-REQ-8.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new test functions in test_gitlab.py are collected by pytest with no import errors: pytest packages/afissues/tests/unit/test_gitlab.py --collect-only",
+          "Tests covering TS-04-1 through TS-04-16 and TS-04-E1 through TS-04-E11 are present as distinct test functions",
+          "All tests currently fail (red) against a stub GitLabPlatform, confirming they are meaningful",
+          "No live HTTP calls made: confirm all request_with_retry usages are patched via unittest.mock",
+          "Linter passes on new test file: ruff check packages/afissues/tests/unit/test_gitlab.py"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write unit tests: get_issue, update_issue, create_label, create_pr, close, search_issues, check_credentials",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write tests for get_issue, update_issue happy paths and edge cases",
+          "details": [
+            "Test GET /issues/{iid} with null description → body defaults to ''",
+            "Test IssueResult field mapping for get_issue",
+            "Test IntegrationError on 404 from get_issue",
+            "Test PUT /issues/{iid} with {'description': body} for update_issue",
+            "Test IntegrationError on non-200 from update_issue"
+          ],
+          "test_spec_refs": [
+            "TS-04-17",
+            "TS-04-18",
+            "TS-04-E12",
+            "TS-04-E13"
+          ],
+          "requirement_refs": [
+            "04-REQ-9.1",
+            "04-REQ-9.E1",
+            "04-REQ-10.1",
+            "04-REQ-10.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write tests for create_label happy paths and edge cases",
+          "details": [
+            "Test POST /labels with color '#'+hex, name, description; 201 returns None",
+            "Test 409 response treated as success: returns None, no exception raised",
+            "Test non-201/non-409 (e.g. 422) raises IntegrationError",
+            "Verify return type annotation is -> None"
+          ],
+          "test_spec_refs": [
+            "TS-04-19",
+            "TS-04-20",
+            "TS-04-E14"
+          ],
+          "requirement_refs": [
+            "04-REQ-11.1",
+            "04-REQ-11.2",
+            "04-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write tests for create_pr happy paths and all edge cases",
+          "details": [
+            "Test POST /merge_requests with source_branch, target_branch, title, description; 201 returns web_url",
+            "Test 409 fallback GET returns 200 with MR list → returns web_url of first result",
+            "Test fallback GET returns 200 but empty list → IntegrationError with descriptive message",
+            "Test fallback GET returns non-200 → IntegrationError referencing original 409 context",
+            "Test initial POST returns non-201/non-409 → IntegrationError, only one HTTP call made"
+          ],
+          "test_spec_refs": [
+            "TS-04-21",
+            "TS-04-22",
+            "TS-04-E15",
+            "TS-04-E16",
+            "TS-04-E17"
+          ],
+          "requirement_refs": [
+            "04-REQ-12.1",
+            "04-REQ-12.2",
+            "04-REQ-12.E1",
+            "04-REQ-12.E2",
+            "04-REQ-12.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write tests for close(), search_issues, and check_credentials",
+          "details": [
+            "Test close() returns None with no HTTP calls",
+            "Test search_issues GET with search param, state mapping, per_page=100; returns list[IssueResult]",
+            "Test IntegrationError on non-200 from search_issues",
+            "Test check_credentials raises IntegrationError on 401 and 403 only",
+            "Test check_credentials returns None on 404 and 500"
+          ],
+          "test_spec_refs": [
+            "TS-04-23",
+            "TS-04-24",
+            "TS-04-25",
+            "TS-04-E18",
+            "TS-04-E19",
+            "TS-04-E20"
+          ],
+          "requirement_refs": [
+            "04-REQ-13.1",
+            "04-REQ-14.1",
+            "04-REQ-14.E1",
+            "04-REQ-15.1",
+            "04-REQ-15.E1",
+            "04-REQ-15.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write tests for parse_remote (gitlab) happy paths and edge cases",
+          "details": [
+            "Test HTTPS URL: 'https://gitlab.com/group/subgroup/project.git' → ('group/subgroup', 'project')",
+            "Test SSH URL: 'git@gitlab.com:group/subgroup/project.git' → ('group/subgroup', 'project')",
+            "Test returns None for GitHub URL, non-URL strings, empty string, URL with port, single-segment HTTPS path",
+            "Test never raises exception for any input"
+          ],
+          "test_spec_refs": [
+            "TS-04-26",
+            "TS-04-27",
+            "TS-04-28",
+            "TS-04-E21",
+            "TS-04-E22",
+            "TS-04-E23"
+          ],
+          "requirement_refs": [
+            "04-REQ-16.1",
+            "04-REQ-16.2",
+            "04-REQ-16.3",
+            "04-REQ-16.E1",
+            "04-REQ-16.E2",
+            "04-REQ-16.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.6",
+          "title": "Write tests for parse_github_remote rename and _ssrf.py / _http.py extraction",
+          "details": [
+            "Test 'from afissues.github import parse_remote' succeeds",
+            "Test 'from afissues import parse_github_remote' raises ImportError/AttributeError",
+            "Test all four _ssrf symbols importable from afissues._ssrf",
+            "Test SSRFGuardTransport is subclass of httpx.AsyncHTTPTransport",
+            "Test _check_address raises ConfigError (not IntegrationError) for private IP",
+            "Test _ssrf not in afissues.__all__"
+          ],
+          "test_spec_refs": [
+            "TS-04-29",
+            "TS-04-30",
+            "TS-04-31",
+            "TS-04-32",
+            "TS-04-E24"
+          ],
+          "requirement_refs": [
+            "04-REQ-17.1",
+            "04-REQ-17.E1",
+            "04-REQ-18.1",
+            "04-REQ-18.2",
+            "04-REQ-18.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All new test functions for groups 2.1-2.6 collected with no import errors: pytest packages/afissues/tests/unit/test_gitlab.py --collect-only",
+          "Tests TS-04-17 through TS-04-32 and TS-04-E12 through TS-04-E24 are present as distinct test functions",
+          "All new tests currently fail (red) against stub implementations",
+          "No live HTTP calls: all request_with_retry usages are patched",
+          "Linter passes: ruff check packages/afissues/tests/unit/test_gitlab.py"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write unit tests: _http.py request_with_retry, platform factory, smoke tests",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for request_with_retry in _http.py",
+          "details": [
+            "Test correct signature: method, url, timeout, transport, max_retries, backoff_base, **kwargs",
+            "Test creates new AsyncClient per call via async with",
+            "Test retries on ConnectTimeout, ConnectError, ReadTimeout up to max_retries",
+            "Test re-raises last ConnectTimeout after 3 exhausted attempts",
+            "Test HTTP 429 returned without retry (single attempt)",
+            "Test GitHubPlatform._request delegates to request_with_retry (inspect source)",
+            "Patch asyncio.sleep to avoid real delays in retry tests"
+          ],
+          "test_spec_refs": [
+            "TS-04-33",
+            "TS-04-34",
+            "TS-04-35",
+            "TS-04-E25",
+            "TS-04-E26"
+          ],
+          "requirement_refs": [
+            "04-REQ-19.1",
+            "04-REQ-19.2",
+            "04-REQ-19.3",
+            "04-REQ-19.E1",
+            "04-REQ-19.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write tests for platform factory GitLab routing and type annotations",
+          "details": [
+            "Test create_platform with type='gitlab' returns GitLabPlatform using GITLAB_TOKEN and resolved project_id",
+            "Test _SUPPORTED_PLATFORMS contains 'github', 'gitlab', 'gitea'",
+            "Test return type annotation of create_platform references PlatformProtocol (not GitHubPlatform)",
+            "Test ConfigError raised when parse_remote returns None and no project_id in config",
+            "Test ConfigError raised when GITLAB_TOKEN env var is absent"
+          ],
+          "test_spec_refs": [
+            "TS-04-36",
+            "TS-04-37",
+            "TS-04-E27",
+            "TS-04-E28"
+          ],
+          "requirement_refs": [
+            "04-REQ-20.1",
+            "04-REQ-20.2",
+            "04-REQ-20.E1",
+            "04-REQ-20.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write tests for platform factory Gitea lazy-import stub",
+          "details": [
+            "Test ConfigError with 'not yet available' message when afissues.gitea cannot be imported",
+            "Test factory module imports successfully even when afissues.gitea is absent",
+            "Test ConfigError raised when platform type is unsupported (e.g. 'bitbucket')",
+            "Use sys.modules patching to simulate absent afissues.gitea"
+          ],
+          "test_spec_refs": [
+            "TS-04-38",
+            "TS-04-39",
+            "TS-04-E29"
+          ],
+          "requirement_refs": [
+            "04-REQ-21.1",
+            "04-REQ-21.2",
+            "04-REQ-21.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write coverage and regression validation tests",
+          "details": [
+            "Document the coverage command: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-report=term-missing",
+            "Confirm existing GitHubPlatform test suite runs unchanged: pytest packages/afissues/tests/unit/test_github.py -v",
+            "Add a conftest.py or test helper that asserts no live HTTP calls occur (block socket.connect)"
+          ],
+          "test_spec_refs": [
+            "TS-04-40",
+            "TS-04-41"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.1",
+            "04-REQ-22.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.5",
+          "title": "Write property tests for field mapping, SSRF, retries, and parse_remote",
+          "details": [
+            "Use parametrize or hypothesis for property-based tests",
+            "TS-04-P1: IssueResult fields sourced only from documented GitLab fields; extra fields ignored",
+            "TS-04-P2: IssueComment fields sourced only from documented GitLab note fields",
+            "TS-04-P3: SSRF violations raise ConfigError; valid hosts succeed",
+            "TS-04-P4: request_with_retry never exceeds max_retries",
+            "TS-04-P5: create_label always returns None on 201/409; IntegrationError otherwise",
+            "TS-04-P6: list_issue_comments never returns system==true notes",
+            "TS-04-P7: parse_remote never raises exceptions for any input",
+            "TS-04-P8: No persistent AsyncClient stored on instance after method calls",
+            "TS-04-P9: platform_factory imports successfully regardless of afissues.gitea availability"
+          ],
+          "test_spec_refs": [
+            "TS-04-P1",
+            "TS-04-P2",
+            "TS-04-P3",
+            "TS-04-P4",
+            "TS-04-P5",
+            "TS-04-P6",
+            "TS-04-P7",
+            "TS-04-P8",
+            "TS-04-P9"
+          ],
+          "requirement_refs": [
+            "04-PROP-1",
+            "04-PROP-2",
+            "04-PROP-3",
+            "04-PROP-4",
+            "04-PROP-5",
+            "04-PROP-6",
+            "04-PROP-7",
+            "04-PROP-8",
+            "04-PROP-9"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All test functions for group 3 collected with no import errors: pytest packages/afissues/tests/unit/ --collect-only",
+          "Tests TS-04-33 through TS-04-41 and TS-04-P1 through TS-04-P9 are present as distinct test functions",
+          "Smoke test stubs exist as skipped or xfail tests for TS-04-SMOKE-1 through TS-04-SMOKE-5",
+          "All new tests currently fail (red) against stub implementations",
+          "Linter passes: ruff check packages/afissues/tests/unit/"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Extract SSRF guard utilities into afissues/_ssrf.py",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Create afissues/_ssrf.py with extracted SSRF utilities",
+          "details": [
+            "Create packages/afissues/afissues/_ssrf.py",
+            "Move _validate_url, _validate_transport_address, _check_address, SSRFGuardTransport from github.py",
+            "_check_address must raise ConfigError (not IntegrationError) on SSRF violation",
+            "Do NOT add _ssrf to afissues/__init__.py (underscore = internal)",
+            "Preserve all existing functionality exactly"
+          ],
+          "test_spec_refs": [
+            "TS-04-30",
+            "TS-04-31",
+            "TS-04-32"
+          ],
+          "requirement_refs": [
+            "04-REQ-18.1",
+            "04-REQ-18.2",
+            "04-REQ-18.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Update afissues/github.py to import from _ssrf.py",
+          "details": [
+            "Remove duplicated SSRF code from github.py",
+            "Add 'from afissues._ssrf import _validate_url, _validate_transport_address, _check_address, SSRFGuardTransport'",
+            "Ensure no behavioural change to GitHubPlatform",
+            "Run existing GitHubPlatform tests to confirm no regression"
+          ],
+          "test_spec_refs": [
+            "TS-04-30",
+            "TS-04-35"
+          ],
+          "requirement_refs": [
+            "04-REQ-18.1",
+            "04-REQ-19.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Rename parse_github_remote to parse_remote in afissues/github.py and update all call sites",
+          "details": [
+            "Rename parse_github_remote → parse_remote in afissues/github.py",
+            "Search entire monorepo for all imports/uses of parse_github_remote and update them",
+            "Remove the transitional parse_github_remote re-export from afissues/__init__.py",
+            "Confirm no remaining references to parse_github_remote anywhere in monorepo"
+          ],
+          "test_spec_refs": [
+            "TS-04-29",
+            "TS-04-E24"
+          ],
+          "requirement_refs": [
+            "04-REQ-17.1",
+            "04-REQ-17.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "afissues._ssrf imports all four symbols without error: python -c 'from afissues._ssrf import _validate_url, _validate_transport_address, _check_address, SSRFGuardTransport'",
+          "_check_address raises ConfigError for private IPs: TS-04-31 passes",
+          "_ssrf not in afissues.__all__: TS-04-32 passes",
+          "parse_remote importable from afissues.github; parse_github_remote raises ImportError: TS-04-29, TS-04-E24 pass",
+          "All existing GitHubPlatform tests pass unchanged: pytest packages/afissues/tests/unit/test_github.py -q",
+          "No linter warnings: ruff check packages/afissues/afissues/_ssrf.py packages/afissues/afissues/github.py"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Extract HTTP retry helper into afissues/_http.py",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Create afissues/_http.py with request_with_retry function",
+          "details": [
+            "Create packages/afissues/afissues/_http.py",
+            "Implement: async def request_with_retry(method, url, *, timeout, transport=None, max_retries=3, backoff_base=1.0, **kwargs) -> httpx.Response",
+            "Create new httpx.AsyncClient per call via 'async with httpx.AsyncClient(transport=transport, timeout=timeout) as client'",
+            "Delegate to getattr(client, method)(url, **kwargs)",
+            "Retry on ConnectTimeout, ConnectError, ReadTimeout with exponential backoff (1s, 2s, 4s)",
+            "HTTP-level responses (4xx, 5xx, 429) returned as-is without retry",
+            "Re-raise last exception after max_retries exhausted",
+            "Use asyncio.sleep for backoff delays"
+          ],
+          "test_spec_refs": [
+            "TS-04-33",
+            "TS-04-34",
+            "TS-04-E25",
+            "TS-04-E26"
+          ],
+          "requirement_refs": [
+            "04-REQ-19.1",
+            "04-REQ-19.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Update GitHubPlatform._request to delegate to request_with_retry",
+          "details": [
+            "Import request_with_retry from afissues._http in afissues/github.py",
+            "Update GitHubPlatform._request to call request_with_retry internally",
+            "Do NOT change _request's method signature or any observable behaviour",
+            "Run full GitHubPlatform test suite to confirm zero regressions"
+          ],
+          "test_spec_refs": [
+            "TS-04-35",
+            "TS-04-41"
+          ],
+          "requirement_refs": [
+            "04-REQ-19.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Verify _http.py is not re-exported from afissues/__init__.py",
+          "details": [
+            "Confirm _http is not in afissues/__init__.py imports or __all__",
+            "Underscore prefix marks it as internal",
+            "Verify request_with_retry is directly importable from afissues._http for testing"
+          ],
+          "test_spec_refs": [
+            "TS-04-33"
+          ],
+          "requirement_refs": [
+            "04-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "request_with_retry importable: python -c 'from afissues._http import request_with_retry'",
+          "Retry behaviour tests pass: pytest packages/afissues/tests/unit/test_gitlab.py -k 'request_with_retry' -q",
+          "All existing GitHubPlatform tests pass unchanged: pytest packages/afissues/tests/unit/test_github.py -q",
+          "GitHubPlatform._request source references request_with_retry: TS-04-35 passes",
+          "No linter warnings: ruff check packages/afissues/afissues/_http.py packages/afissues/afissues/github.py"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "checkpoint",
+      "title": "Infrastructure checkpoint: _ssrf.py, _http.py, and github.py refactor verified",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Run full afissues unit test suite to confirm no regressions from infrastructure changes",
+          "details": [
+            "Run: pytest packages/afissues/tests/unit/ -q",
+            "All pre-existing GitHubPlatform tests must pass",
+            "New _ssrf and _http tests must pass (green)",
+            "No import errors for any afissues module"
+          ],
+          "test_spec_refs": [
+            "TS-04-35",
+            "TS-04-41"
+          ],
+          "requirement_refs": [
+            "04-REQ-18.1",
+            "04-REQ-19.3",
+            "04-REQ-22.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Confirm no SSRF or retry logic duplication remains in github.py",
+          "details": [
+            "Inspect afissues/github.py to confirm SSRF functions are removed (not duplicated)",
+            "Inspect afissues/github.py to confirm retry logic is delegated to request_with_retry",
+            "Use grep or ruff to detect any residual _validate_url / SSRFGuardTransport definitions in github.py"
+          ],
+          "test_spec_refs": [
+            "TS-04-30"
+          ],
+          "requirement_refs": [
+            "04-REQ-18.1",
+            "04-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Full unit test suite passes: pytest packages/afissues/tests/unit/ -q exits with code 0",
+          "No SSRF definitions in github.py: grep -n '_validate_url\\|SSRFGuardTransport' packages/afissues/afissues/github.py shows only imports, not definitions",
+          "No retry loop in github.py: grep -n 'ConnectTimeout\\|backoff' packages/afissues/afissues/github.py shows only import or delegation",
+          "Linter clean: ruff check packages/afissues/afissues/"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement GitLabPlatform class: constructor, create_issue, list_issues_by_label",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create afissues/gitlab.py with module docstring and GitLabPlatform constructor",
+          "details": [
+            "Create packages/afissues/afissues/gitlab.py",
+            "Write module docstring documenting 'api' scope requirement and 403 for read_api",
+            "Implement class GitLabPlatform with forge_type = 'gitlab'",
+            "Constructor: __init__(self, project_id: str, token: str, url: str = 'gitlab.com')",
+            "Call _validate_url(url) from _ssrf.py at construction time; raises ConfigError on SSRF violation",
+            "URL-encode project_id internally using urllib.parse.quote(project_id, safe='')",
+            "Set self._base_url = f'https://{url}/api/v4'",
+            "Set self._headers = {'PRIVATE-TOKEN': token}",
+            "Do NOT store persistent httpx.AsyncClient as instance attribute",
+            "Add GitLabPlatform to afissues/__init__.py re-exports"
+          ],
+          "test_spec_refs": [
+            "TS-04-1",
+            "TS-04-2",
+            "TS-04-3",
+            "TS-04-4",
+            "TS-04-5"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-1.2",
+            "04-REQ-1.3",
+            "04-REQ-1.4",
+            "04-REQ-1.5",
+            "04-REQ-1.E1",
+            "04-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Implement create_issue method",
+          "details": [
+            "POST /api/v4/projects/{encoded_project_id}/issues",
+            "Request JSON: {'title': title, 'description': body, 'labels': ','.join(labels)}",
+            "On 201: map iid→number, web_url→html_url, description→body (default ''), labels array→tuple, title→title",
+            "Return IssueResult",
+            "On non-201: raise IntegrationError with response.text[:500]",
+            "Call request_with_retry from _http.py with SSRFGuardTransport and headers"
+          ],
+          "test_spec_refs": [
+            "TS-04-6",
+            "TS-04-E3",
+            "TS-04-E4"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-2.E1",
+            "04-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Implement list_issues_by_label method",
+          "details": [
+            "GET /api/v4/projects/{encoded_project_id}/issues",
+            "Map state: 'open'→'opened'; 'closed' and 'all' pass through",
+            "Map sort: 'created'→'created_at', 'updated'→'updated_at' for order_by param",
+            "Map direction: 'asc'/'desc' pass through as GitLab 'sort' param",
+            "Always include per_page=100",
+            "On 200: map each item to IssueResult using standard field mapping",
+            "On non-200: raise IntegrationError with response.text[:500]"
+          ],
+          "test_spec_refs": [
+            "TS-04-7",
+            "TS-04-8",
+            "TS-04-9",
+            "TS-04-E5"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.1",
+            "04-REQ-3.2",
+            "04-REQ-3.3",
+            "04-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Implement parse_remote function for GitLab URLs",
+          "details": [
+            "Implement parse_remote(remote_url: str) -> tuple[str, str] | None at module level",
+            "Support HTTPS: https://gitlab.com/group[/subgroup]/project.git",
+            "Support SSH: git@gitlab.com:group[/subgroup]/project.git",
+            "Return (namespace_path, project_name) where namespace is everything before final segment",
+            "Return None for non-GitLab hostnames, port numbers, single-segment paths, malformed URLs",
+            "NEVER raise exceptions; wrap all parsing in try/except",
+            "Require at least two path segments (namespace + project)"
+          ],
+          "test_spec_refs": [
+            "TS-04-26",
+            "TS-04-27",
+            "TS-04-28",
+            "TS-04-E21",
+            "TS-04-E22",
+            "TS-04-E23"
+          ],
+          "requirement_refs": [
+            "04-REQ-16.1",
+            "04-REQ-16.2",
+            "04-REQ-16.3",
+            "04-REQ-16.E1",
+            "04-REQ-16.E2",
+            "04-REQ-16.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Tests TS-04-1 through TS-04-9, TS-04-26 through TS-04-28, TS-04-E1 through TS-04-E5, TS-04-E21 through TS-04-E23 pass: pytest packages/afissues/tests/unit/test_gitlab.py -k 'constructor or create_issue or list_issues or parse_remote' -q",
+          "GitLabPlatform importable from afissues: python -c 'from afissues import GitLabPlatform'",
+          "Module docstring present with 'api' scope: TS-04-4 passes",
+          "Linter passes: ruff check packages/afissues/afissues/gitlab.py",
+          "All existing tests still pass: pytest packages/afissues/tests/unit/test_github.py -q"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement GitLabPlatform: add_issue_comment, assign_label, close_issue, remove_label, list_issue_comments",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement add_issue_comment and assign_label methods",
+          "details": [
+            "add_issue_comment: POST /api/v4/projects/{id}/issues/{iid}/notes with {'body': body}; 201 OK; else IntegrationError",
+            "assign_label: PUT /api/v4/projects/{id}/issues/{iid} with {'add_labels': label}; 200 OK; else IntegrationError",
+            "Both methods use request_with_retry with SSRFGuardTransport and PRIVATE-TOKEN headers",
+            "Truncate response.text to 500 chars in IntegrationError messages"
+          ],
+          "test_spec_refs": [
+            "TS-04-10",
+            "TS-04-11",
+            "TS-04-E6",
+            "TS-04-E7"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.1",
+            "04-REQ-4.E1",
+            "04-REQ-5.1",
+            "04-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement close_issue method",
+          "details": [
+            "If comment is truthy: call add_issue_comment first (propagate IntegrationError if it fails)",
+            "Then PUT /api/v4/projects/{id}/issues/{iid} with {'state_event': 'close'}",
+            "If comment is falsy: skip add_issue_comment, only send the PUT",
+            "200 from PUT returns normally; non-200 raises IntegrationError"
+          ],
+          "test_spec_refs": [
+            "TS-04-12",
+            "TS-04-13",
+            "TS-04-E8"
+          ],
+          "requirement_refs": [
+            "04-REQ-6.1",
+            "04-REQ-6.2",
+            "04-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Implement remove_label method",
+          "details": [
+            "PUT /api/v4/projects/{id}/issues/{iid} with {'remove_labels': label}",
+            "200 OK; else IntegrationError",
+            "GitLab silently ignores labels not present (idempotent by API design)",
+            "Use request_with_retry with PRIVATE-TOKEN headers"
+          ],
+          "test_spec_refs": [
+            "TS-04-14",
+            "TS-04-E9"
+          ],
+          "requirement_refs": [
+            "04-REQ-7.1",
+            "04-REQ-7.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Implement list_issue_comments method",
+          "details": [
+            "GET /api/v4/projects/{id}/issues/{iid}/notes with params: sort=asc, order_by=created_at, per_page=100",
+            "Do NOT send activity_filter parameter",
+            "Filter client-side: exclude notes where note['system'] == True",
+            "Map surviving notes: id→id, body→body, author.username→user, created_at→created_at",
+            "Return list[IssueComment]",
+            "On non-200: raise IntegrationError with response.text[:500]"
+          ],
+          "test_spec_refs": [
+            "TS-04-15",
+            "TS-04-16",
+            "TS-04-E10",
+            "TS-04-E11"
+          ],
+          "requirement_refs": [
+            "04-REQ-8.1",
+            "04-REQ-8.2",
+            "04-REQ-8.E1",
+            "04-REQ-8.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Tests TS-04-10 through TS-04-16, TS-04-E6 through TS-04-E11 pass: pytest packages/afissues/tests/unit/test_gitlab.py -k 'add_issue_comment or assign_label or close_issue or remove_label or list_issue_comments' -q",
+          "activity_filter never sent: TS-04-16 passes",
+          "System notes filtered: TS-04-E10 passes (only system==false notes returned)",
+          "IntegrationError truncation verified: TS-04-E6, TS-04-E7, TS-04-E8, TS-04-E11 pass",
+          "Linter passes: ruff check packages/afissues/afissues/gitlab.py"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement GitLabPlatform: get_issue, update_issue, create_label, create_pr, close, search_issues, check_credentials",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement get_issue and update_issue methods",
+          "details": [
+            "get_issue: GET /api/v4/projects/{id}/issues/{iid}; map standard fields; description null → ''",
+            "update_issue: PUT /api/v4/projects/{id}/issues/{iid} with {'description': body}",
+            "Both raise IntegrationError on non-200 with response.text[:500]"
+          ],
+          "test_spec_refs": [
+            "TS-04-17",
+            "TS-04-18",
+            "TS-04-E12",
+            "TS-04-E13"
+          ],
+          "requirement_refs": [
+            "04-REQ-9.1",
+            "04-REQ-9.E1",
+            "04-REQ-10.1",
+            "04-REQ-10.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement create_label method",
+          "details": [
+            "POST /api/v4/projects/{id}/labels with {'name': name, 'color': '#'+color, 'description': description}",
+            "201 → return None",
+            "409 → return None (idempotent; label already exists)",
+            "Any other non-2xx → raise IntegrationError with response.text[:500]",
+            "Method typed -> None"
+          ],
+          "test_spec_refs": [
+            "TS-04-19",
+            "TS-04-20",
+            "TS-04-E14"
+          ],
+          "requirement_refs": [
+            "04-REQ-11.1",
+            "04-REQ-11.2",
+            "04-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Implement create_pr method with 409 fallback logic",
+          "details": [
+            "POST /api/v4/projects/{id}/merge_requests with source_branch=head, target_branch=base, title, description",
+            "201 → return web_url",
+            "409 → GET /api/v4/projects/{id}/merge_requests?source_branch={head}&target_branch={base}&state=opened",
+            "Fallback 200 + non-empty list → return first result's web_url",
+            "Fallback 200 + empty list → raise IntegrationError with message about 409 duplicate and no open MR found",
+            "Fallback non-200 → raise IntegrationError referencing original 409 and fallback status",
+            "Other non-201/non-409 → raise IntegrationError with response.text[:500]"
+          ],
+          "test_spec_refs": [
+            "TS-04-21",
+            "TS-04-22",
+            "TS-04-E15",
+            "TS-04-E16",
+            "TS-04-E17"
+          ],
+          "requirement_refs": [
+            "04-REQ-12.1",
+            "04-REQ-12.2",
+            "04-REQ-12.E1",
+            "04-REQ-12.E2",
+            "04-REQ-12.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.4",
+          "title": "Implement close(), search_issues, and check_credentials methods",
+          "details": [
+            "close(): return None immediately; no I/O; no HTTP calls",
+            "search_issues: GET /api/v4/projects/{id}/issues with search=title_prefix, state mapped, per_page=100; return list[IssueResult]",
+            "check_credentials: GET /api/v4/projects/{id}; raise IntegrationError ONLY on 401/403; return None for all other statuses (including 404, 500)"
+          ],
+          "test_spec_refs": [
+            "TS-04-23",
+            "TS-04-24",
+            "TS-04-25",
+            "TS-04-E18",
+            "TS-04-E19",
+            "TS-04-E20"
+          ],
+          "requirement_refs": [
+            "04-REQ-13.1",
+            "04-REQ-14.1",
+            "04-REQ-14.E1",
+            "04-REQ-15.1",
+            "04-REQ-15.E1",
+            "04-REQ-15.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Tests TS-04-17 through TS-04-25, TS-04-E12 through TS-04-E20 pass: pytest packages/afissues/tests/unit/test_gitlab.py -k 'get_issue or update_issue or create_label or create_pr or close or search_issues or check_credentials' -q",
+          "create_label returns None on 201 and 409: TS-04-19, TS-04-20 pass",
+          "create_pr fallback logic correct: TS-04-22, TS-04-E15, TS-04-E16 pass",
+          "check_credentials only raises on 401/403: TS-04-25, TS-04-E19 pass",
+          "Linter passes: ruff check packages/afissues/afissues/gitlab.py"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "GitLabPlatform implementation checkpoint: all method tests green",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full GitLabPlatform unit test suite and verify ≥90% branch coverage",
+          "details": [
+            "Run: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-report=term-missing -q",
+            "Confirm exit code 0",
+            "Confirm branch coverage ≥ 90% for afissues/gitlab.py",
+            "If coverage < 90%, identify uncovered branches and add targeted tests"
+          ],
+          "test_spec_refs": [
+            "TS-04-40"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Verify GitHubPlatform regression: all existing tests still pass",
+          "details": [
+            "Run: pytest packages/afissues/tests/unit/test_github.py -v",
+            "All previously passing tests must continue to pass",
+            "No new failures introduced by _ssrf.py/_http.py extraction or github.py refactor"
+          ],
+          "test_spec_refs": [
+            "TS-04-41"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Verify correctness properties and protocol compliance",
+          "details": [
+            "Confirm all 12 PlatformProtocol methods are implemented (no NotImplementedError stubs)",
+            "Confirm search_issues and check_credentials non-protocol methods are implemented",
+            "Run property tests: pytest packages/afissues/tests/unit/test_gitlab.py -k 'property or prop' -q",
+            "Verify IssueResult and IssueComment use only documented field mappings"
+          ],
+          "test_spec_refs": [
+            "TS-04-P1",
+            "TS-04-P2",
+            "TS-04-P5",
+            "TS-04-P6",
+            "TS-04-P7",
+            "TS-04-P8"
+          ],
+          "requirement_refs": [
+            "04-PROP-1",
+            "04-PROP-2",
+            "04-PROP-5",
+            "04-PROP-6",
+            "04-PROP-7",
+            "04-PROP-8"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Branch coverage ≥ 90%: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-fail-under=90 -q",
+          "All GitHubPlatform tests pass: pytest packages/afissues/tests/unit/test_github.py -q exits with code 0",
+          "All 14 GitLabPlatform methods implemented (no raise NotImplementedError): grep -n 'raise NotImplementedError' packages/afissues/afissues/gitlab.py returns no results",
+          "Full test suite clean: pytest packages/afissues/tests/unit/ -q exits with code 0",
+          "Linter clean: ruff check packages/afissues/afissues/"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Update platform factory with GitLab routing, Gitea stub, and type annotations",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Add 'gitlab' and 'gitea' to _SUPPORTED_PLATFORMS and update return type annotations",
+          "details": [
+            "Open agentfox/nightshift/platform_factory.py",
+            "Add 'gitlab' and 'gitea' to _SUPPORTED_PLATFORMS list",
+            "Update create_platform() and create_platform_safe() return type annotations from GitHubPlatform to PlatformProtocol",
+            "Import PlatformProtocol from afissues.protocol at module level",
+            "Import GitLabPlatform from afissues.gitlab at module level",
+            "Do NOT import afissues.gitea at module level"
+          ],
+          "test_spec_refs": [
+            "TS-04-37",
+            "TS-04-39"
+          ],
+          "requirement_refs": [
+            "04-REQ-20.2",
+            "04-REQ-21.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Implement GitLab routing in create_platform and create_platform_safe",
+          "details": [
+            "In the 'gitlab' branch: read GITLAB_TOKEN from os.environ; raise ConfigError if absent",
+            "Call afissues.gitlab.parse_remote on git remote URL; if returns (ns, proj), combine as 'ns/proj'",
+            "Fall back to platform.project_id from config if parse_remote returns None",
+            "Raise ConfigError with descriptive message if neither source provides a project identifier",
+            "Construct GitLabPlatform(project_id=..., token=..., url=platform.url or 'gitlab.com')",
+            "Apply same routing to both create_platform() and create_platform_safe()"
+          ],
+          "test_spec_refs": [
+            "TS-04-36",
+            "TS-04-E27",
+            "TS-04-E28"
+          ],
+          "requirement_refs": [
+            "04-REQ-20.1",
+            "04-REQ-20.E1",
+            "04-REQ-20.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Implement Gitea lazy-import stub in factory",
+          "details": [
+            "In the 'gitea' branch: use try/except ImportError around 'from afissues.gitea import GiteaPlatform, parse_remote as gitea_parse_remote'",
+            "On ImportError: raise ConfigError('The Gitea platform is not yet available. Install the afissues package with Gitea support.')",
+            "If import succeeds (future): read GITEA_TOKEN, resolve owner/repo from gitea_parse_remote or config, require platform.url (no default), construct GiteaPlatform",
+            "For unsupported type: raise ConfigError listing supported platforms"
+          ],
+          "test_spec_refs": [
+            "TS-04-38",
+            "TS-04-39",
+            "TS-04-E29"
+          ],
+          "requirement_refs": [
+            "04-REQ-21.1",
+            "04-REQ-21.2",
+            "04-REQ-21.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "Factory tests pass: pytest packages/afissues/tests/unit/ -k 'factory or platform_factory' -q",
+          "_SUPPORTED_PLATFORMS contains 'github', 'gitlab', 'gitea': TS-04-37 passes",
+          "GitLab routing constructs GitLabPlatform: TS-04-36 passes",
+          "Missing GITLAB_TOKEN raises ConfigError: TS-04-E28 passes",
+          "Missing project identifier raises ConfigError: TS-04-E27 passes",
+          "Gitea unavailable raises ConfigError: TS-04-38 passes",
+          "Factory imports without error when afissues.gitea absent: TS-04-39 passes",
+          "Linter passes: ruff check agentfox/nightshift/platform_factory.py"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and smoke tests",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Trace execution paths: verify each path's entry point calls the next function in the chain",
+          "details": [
+            "PATH-1: confirm create_platform() → GitLabPlatform() → _validate_url() → create_issue() → request_with_retry() → IssueResult; no stubs remain",
+            "PATH-2: confirm create_pr() → POST merge_requests → 409 → GET merge_requests fallback → web_url returned",
+            "PATH-3: confirm close_issue() → add_issue_comment() → PUT state_event=close; both HTTP calls wired",
+            "PATH-4: confirm SSRF violation → ConfigError propagated from constructor through factory to caller",
+            "PATH-5: confirm Gitea ImportError → ConfigError with expected message",
+            "Verify each method in GitLabPlatform calls request_with_retry (not a raw httpx call)"
+          ],
+          "test_spec_refs": [
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-1.2",
+            "04-REQ-19.1",
+            "04-REQ-20.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Verify return value propagation through factory and platform methods",
+          "details": [
+            "Confirm create_platform() returns GitLabPlatform instance (not None or base type)",
+            "Confirm create_issue() IssueResult fields are consumed by calling code (number, html_url)",
+            "Confirm create_pr() web_url string is returned to caller, not discarded",
+            "Confirm close_issue() return value (None) propagated without error"
+          ],
+          "test_spec_refs": [
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "04-REQ-20.1",
+            "04-REQ-2.1",
+            "04-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Run all smoke tests with real components and mocked HTTP",
+          "details": [
+            "SMOKE-1: factory → GitLabPlatform → create_issue → assign_label; both calls include PRIVATE-TOKEN",
+            "SMOKE-2: create_pr 409 → fallback GET → web_url returned",
+            "SMOKE-3: close_issue with comment → two HTTP calls in correct order",
+            "SMOKE-4: SSRF violation raises ConfigError; no network activity",
+            "SMOKE-5: Gitea unavailable → ConfigError with descriptive message",
+            "All smoke tests use mocked HTTP; no live calls to gitlab.com"
+          ],
+          "test_spec_refs": [
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-2",
+            "TS-04-SMOKE-3",
+            "TS-04-SMOKE-4",
+            "TS-04-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Stub and dead-code audit of gitlab.py and _http.py",
+          "details": [
+            "Search for stub markers in gitlab.py: grep -n 'raise NotImplementedError\\|return None  #.*stub\\|pass  #.*stub\\|TODO' packages/afissues/afissues/gitlab.py",
+            "Search for stub markers in _http.py: same pattern",
+            "Search for stub markers in _ssrf.py and platform_factory.py",
+            "Confirm all 14 GitLabPlatform methods have real implementations (not bare 'pass' or 'return None' without logic)",
+            "Confirm request_with_retry retry loop is implemented (not pass-through)"
+          ],
+          "test_spec_refs": [
+            "TS-04-40"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.1",
+            "04-REQ-19.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.5",
+          "title": "Run full test suite, coverage check, and linter for final sign-off",
+          "details": [
+            "Run: pytest packages/afissues/tests/unit/ -q --tb=short",
+            "Run: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-fail-under=90 -q",
+            "Run: pytest packages/afissues/tests/unit/test_github.py -q (must pass unchanged)",
+            "Run: ruff check packages/afissues/afissues/ agentfox/nightshift/platform_factory.py",
+            "Confirm GitLabPlatform importable from afissues: python -c 'from afissues import GitLabPlatform, GitHubPlatform'",
+            "Confirm no references to parse_github_remote: grep -rn 'parse_github_remote' packages/ agentfox/ returns no results"
+          ],
+          "test_spec_refs": [
+            "TS-04-40",
+            "TS-04-41"
+          ],
+          "requirement_refs": [
+            "04-REQ-22.1",
+            "04-REQ-22.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "Full unit test suite passes: pytest packages/afissues/tests/unit/ -q exits with code 0",
+          "Branch coverage ≥ 90% for gitlab.py: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-fail-under=90 -q",
+          "All GitHubPlatform tests pass unchanged: pytest packages/afissues/tests/unit/test_github.py -q exits with code 0",
+          "No stub markers in implementation files: grep -rn 'raise NotImplementedError' packages/afissues/afissues/gitlab.py packages/afissues/afissues/_http.py returns no results",
+          "No parse_github_remote references: grep -rn 'parse_github_remote' packages/ agentfox/ returns no results",
+          "Public API intact: python -c 'from afissues import GitLabPlatform, GitHubPlatform; from afissues._http import request_with_retry; from afissues._ssrf import SSRFGuardTransport' exits with code 0",
+          "Factory module loads cleanly: python -c 'import agentfox.nightshift.platform_factory' exits with code 0",
+          "Linter clean across all changed files: ruff check packages/afissues/afissues/ agentfox/nightshift/platform_factory.py exits with code 0"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "04-REQ-1.1",
+      "test_spec_id": "TS-04-1",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.2",
+      "test_spec_id": "TS-04-2",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.3",
+      "test_spec_id": "TS-04-3",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.4",
+      "test_spec_id": "TS-04-4",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.5",
+      "test_spec_id": "TS-04-5",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.E1",
+      "test_spec_id": "TS-04-E1",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.E2",
+      "test_spec_id": "TS-04-E2",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.1",
+      "test_spec_id": "TS-04-6",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.E1",
+      "test_spec_id": "TS-04-E3",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.E2",
+      "test_spec_id": "TS-04-E4",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.1",
+      "test_spec_id": "TS-04-7",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.2",
+      "test_spec_id": "TS-04-8",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.3",
+      "test_spec_id": "TS-04-9",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.E1",
+      "test_spec_id": "TS-04-E5",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-4.1",
+      "test_spec_id": "TS-04-10",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-4.E1",
+      "test_spec_id": "TS-04-E6",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.1",
+      "test_spec_id": "TS-04-11",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.E1",
+      "test_spec_id": "TS-04-E7",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.1",
+      "test_spec_id": "TS-04-12",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.2",
+      "test_spec_id": "TS-04-13",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.E1",
+      "test_spec_id": "TS-04-E8",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-7.1",
+      "test_spec_id": "TS-04-14",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-7.E1",
+      "test_spec_id": "TS-04-E9",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-8.1",
+      "test_spec_id": "TS-04-15",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-8.2",
+      "test_spec_id": "TS-04-16",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-8.E1",
+      "test_spec_id": "TS-04-E10",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-8.E2",
+      "test_spec_id": "TS-04-E11",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-9.1",
+      "test_spec_id": "TS-04-17",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-9.E1",
+      "test_spec_id": "TS-04-E12",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-10.1",
+      "test_spec_id": "TS-04-18",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-10.E1",
+      "test_spec_id": "TS-04-E13",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-11.1",
+      "test_spec_id": "TS-04-19",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-11.2",
+      "test_spec_id": "TS-04-20",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-11.E1",
+      "test_spec_id": "TS-04-E14",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-12.1",
+      "test_spec_id": "TS-04-21",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-12.2",
+      "test_spec_id": "TS-04-22",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-12.E1",
+      "test_spec_id": "TS-04-E15",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-12.E2",
+      "test_spec_id": "TS-04-E16",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-12.E3",
+      "test_spec_id": "TS-04-E17",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-13.1",
+      "test_spec_id": "TS-04-23",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-14.1",
+      "test_spec_id": "TS-04-24",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-14.E1",
+      "test_spec_id": "TS-04-E18",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-15.1",
+      "test_spec_id": "TS-04-25",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-15.E1",
+      "test_spec_id": "TS-04-E19",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-15.E2",
+      "test_spec_id": "TS-04-E20",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.1",
+      "test_spec_id": "TS-04-26",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.2",
+      "test_spec_id": "TS-04-27",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.3",
+      "test_spec_id": "TS-04-28",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.E1",
+      "test_spec_id": "TS-04-E21",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.E2",
+      "test_spec_id": "TS-04-E22",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-16.E3",
+      "test_spec_id": "TS-04-E23",
+      "task_id": "7.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-17.1",
+      "test_spec_id": "TS-04-29",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-17.E1",
+      "test_spec_id": "TS-04-E24",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-18.1",
+      "test_spec_id": "TS-04-30",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-18.2",
+      "test_spec_id": "TS-04-31",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-18.3",
+      "test_spec_id": "TS-04-32",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-19.1",
+      "test_spec_id": "TS-04-33",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-19.2",
+      "test_spec_id": "TS-04-34",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-19.3",
+      "test_spec_id": "TS-04-35",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-19.E1",
+      "test_spec_id": "TS-04-E25",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-19.E2",
+      "test_spec_id": "TS-04-E26",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-20.1",
+      "test_spec_id": "TS-04-36",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-20.2",
+      "test_spec_id": "TS-04-37",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-20.E1",
+      "test_spec_id": "TS-04-E27",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-20.E2",
+      "test_spec_id": "TS-04-E28",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-21.1",
+      "test_spec_id": "TS-04-38",
+      "task_id": "11.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-21.2",
+      "test_spec_id": "TS-04-39",
+      "task_id": "11.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-21.E1",
+      "test_spec_id": "TS-04-E29",
+      "task_id": "11.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-22.1",
+      "test_spec_id": "TS-04-40",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-22.2",
+      "test_spec_id": "TS-04-41",
+      "task_id": "10.2",
+      "test_path": null
+    }
+  ]
+}

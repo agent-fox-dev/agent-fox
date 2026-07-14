@@ -1,0 +1,1393 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "gitlab_platform",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-04-1",
+      "requirement_id": "04-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform initialises correctly with all expected class attributes, URL-encoded project_id, API base URL, and auth headers.",
+      "preconditions": [
+        "afissues package is installed with afissues/gitlab.py present",
+        "_ssrf.py contains a _validate_url function that accepts 'gitlab.com' without raising"
+      ],
+      "input": {
+        "project_id": "group/subgroup/project",
+        "token": "my-token",
+        "url": "gitlab.com"
+      },
+      "expected": "Instance created with forge_type == 'gitlab', encoded project_id == 'group%2Fsubgroup%2Fproject', api_base_url == 'https://gitlab.com/api/v4', auth_headers == {'PRIVATE-TOKEN': 'my-token'}",
+      "assertion_pseudocode": "platform = GitLabPlatform('group/subgroup/project', 'my-token', 'gitlab.com')\nassert platform.forge_type == 'gitlab'\nassert platform._encoded_project_id == 'group%2Fsubgroup%2Fproject'  # or equivalent internal attribute\nassert platform._base_url == 'https://gitlab.com/api/v4'\nassert platform._headers == {'PRIVATE-TOKEN': 'my-token'}"
+    },
+    {
+      "id": "TS-04-2",
+      "requirement_id": "04-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform constructor raises ConfigError when given a URL that resolves to a private/loopback IP address.",
+      "preconditions": [
+        "_ssrf.py _validate_url raises ConfigError for private IP addresses",
+        "afissues.errors.ConfigError is importable"
+      ],
+      "input": {
+        "project_id": "group/project",
+        "token": "tok",
+        "url": "192.168.1.1"
+      },
+      "expected": "ConfigError is raised before any HTTP client is created; no network activity occurs",
+      "assertion_pseudocode": "with pytest.raises(ConfigError):\n    GitLabPlatform('group/project', 'tok', '192.168.1.1')"
+    },
+    {
+      "id": "TS-04-3",
+      "requirement_id": "04-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform does not hold a persistent httpx.AsyncClient as an instance attribute after construction.",
+      "preconditions": [
+        "GitLabPlatform is instantiated with valid arguments",
+        "_validate_url accepts 'gitlab.com'"
+      ],
+      "input": {
+        "project_id": "group/project",
+        "token": "tok",
+        "url": "gitlab.com"
+      },
+      "expected": "No httpx.AsyncClient instance is stored as an instance attribute on the platform object",
+      "assertion_pseudocode": "platform = GitLabPlatform('group/project', 'tok', 'gitlab.com')\nassert not any(isinstance(v, httpx.AsyncClient) for v in vars(platform).values())"
+    },
+    {
+      "id": "TS-04-4",
+      "requirement_id": "04-REQ-1.4",
+      "kind": "unit",
+      "description": "Verifies that afissues/gitlab.py has a module docstring that mentions the 'api' token scope requirement.",
+      "preconditions": [
+        "afissues/gitlab.py exists and is importable"
+      ],
+      "input": {},
+      "expected": "Module __doc__ is non-empty and contains the string 'api' referencing the required token scope",
+      "assertion_pseudocode": "import afissues.gitlab as gl_module\nassert gl_module.__doc__ is not None\nassert 'api' in gl_module.__doc__\nassert 'read_api' in gl_module.__doc__ or '403' in gl_module.__doc__"
+    },
+    {
+      "id": "TS-04-5",
+      "requirement_id": "04-REQ-1.5",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform is importable from the afissues package's public API.",
+      "preconditions": [
+        "afissues/__init__.py re-exports GitLabPlatform"
+      ],
+      "input": {},
+      "expected": "from afissues import GitLabPlatform succeeds and returns the GitLabPlatform class",
+      "assertion_pseudocode": "from afissues import GitLabPlatform\nassert GitLabPlatform is not None\nassert GitLabPlatform.__name__ == 'GitLabPlatform'"
+    },
+    {
+      "id": "TS-04-6",
+      "requirement_id": "04-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that create_issue sends correct POST request to GitLab API and maps response fields to IssueResult.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project', token='tok'",
+        "request_with_retry is patched to return a mock httpx.Response with status_code=201 and JSON body: {iid: 42, title: 'Fix bug', web_url: 'https://gitlab.com/group/project/-/issues/42', description: 'Some body', labels: ['bug', 'fix']}"
+      ],
+      "input": {
+        "body": "Some body",
+        "labels": [
+          "bug",
+          "fix"
+        ],
+        "title": "Fix bug"
+      },
+      "expected": "IssueResult with number=42, title='Fix bug', html_url='https://gitlab.com/group/project/-/issues/42', body='Some body', labels=('bug', 'fix')",
+      "assertion_pseudocode": "mock_response = MockResponse(status_code=201, json={'iid': 42, 'title': 'Fix bug', 'web_url': 'https://gitlab.com/group/project/-/issues/42', 'description': 'Some body', 'labels': ['bug', 'fix']})\nwith patch('afissues._http.request_with_retry', return_value=mock_response):\n    result = await platform.create_issue('Fix bug', 'Some body', ['bug', 'fix'])\nassert result.number == 42\nassert result.title == 'Fix bug'\nassert result.html_url == 'https://gitlab.com/group/project/-/issues/42'\nassert result.body == 'Some body'\nassert result.labels == ('bug', 'fix')\n# Verify POST was called with correct JSON\nverify_call_json == {'title': 'Fix bug', 'description': 'Some body', 'labels': 'bug,fix'}"
+    },
+    {
+      "id": "TS-04-7",
+      "requirement_id": "04-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label sends correct GET request with mapped query parameters and returns list of IssueResult.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project', token='tok'",
+        "request_with_retry is patched to return status_code=200 with JSON list of issue objects"
+      ],
+      "input": {
+        "direction": "desc",
+        "label": "bug",
+        "sort": "created",
+        "state": "open"
+      },
+      "expected": "GET request sent with params: labels='bug', state='opened', order_by='created_at', sort='desc', per_page=100; returns list of IssueResult objects",
+      "assertion_pseudocode": "mock_response = MockResponse(status_code=200, json=[{'iid': 1, 'title': 'T', 'web_url': 'url', 'description': 'b', 'labels': ['bug']}])\nwith patch('afissues._http.request_with_retry', return_value=mock_response) as mock_req:\n    results = await platform.list_issues_by_label('bug', 'open', 'created', 'desc')\ncall_params = mock_req.call_args.kwargs['params']\nassert call_params['labels'] == 'bug'\nassert call_params['state'] == 'opened'\nassert call_params['order_by'] == 'created_at'\nassert call_params['sort'] == 'desc'\nassert call_params['per_page'] == 100\nassert len(results) == 1\nassert isinstance(results[0], IssueResult)"
+    },
+    {
+      "id": "TS-04-8",
+      "requirement_id": "04-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label maps state='open' to 'opened' and passes 'closed' and 'all' through unchanged.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=200 with empty JSON list"
+      ],
+      "input": {
+        "states_to_test": [
+          "open",
+          "closed",
+          "all"
+        ]
+      },
+      "expected": "'open' becomes 'opened' in query params; 'closed' stays 'closed'; 'all' stays 'all'",
+      "assertion_pseudocode": "for (input_state, expected_state) in [('open', 'opened'), ('closed', 'closed'), ('all', 'all')]:\n    with patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=[])) as mock_req:\n        await platform.list_issues_by_label('label', input_state, 'created', 'asc')\n    assert mock_req.call_args.kwargs['params']['state'] == expected_state"
+    },
+    {
+      "id": "TS-04-9",
+      "requirement_id": "04-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label maps sort values 'created'/'updated' to order_by 'created_at'/'updated_at' and passes direction through as GitLab sort param.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=200 with empty JSON list"
+      ],
+      "input": {
+        "directions": [
+          "asc",
+          "desc"
+        ],
+        "sort_mappings": [
+          [
+            "created",
+            "created_at"
+          ],
+          [
+            "updated",
+            "updated_at"
+          ]
+        ]
+      },
+      "expected": "order_by param matches mapped value; sort param equals direction value unchanged",
+      "assertion_pseudocode": "for (sort_in, order_by_expected) in [('created', 'created_at'), ('updated', 'updated_at')]:\n    for direction in ['asc', 'desc']:\n        with patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=[])) as mock_req:\n            await platform.list_issues_by_label('label', 'open', sort_in, direction)\n        params = mock_req.call_args.kwargs['params']\n        assert params['order_by'] == order_by_expected\n        assert params['sort'] == direction"
+    },
+    {
+      "id": "TS-04-10",
+      "requirement_id": "04-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that add_issue_comment sends correct POST to notes endpoint and returns normally on HTTP 201.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=201"
+      ],
+      "input": {
+        "body": "This is a comment",
+        "issue_number": 5
+      },
+      "expected": "POST sent to /api/v4/projects/group%2Fproject/issues/5/notes with JSON {'body': 'This is a comment'}; returns normally",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(201)) as mock_req:\n    await platform.add_issue_comment(5, 'This is a comment')\ncall_url = mock_req.call_args.args[1]  # or kwargs['url']\nassert '/issues/5/notes' in call_url\nassert mock_req.call_args.kwargs['json'] == {'body': 'This is a comment'}"
+    },
+    {
+      "id": "TS-04-11",
+      "requirement_id": "04-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that assign_label sends a PUT request with add_labels field and returns normally on HTTP 200.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200"
+      ],
+      "input": {
+        "issue_number": 7,
+        "label": "in-progress"
+      },
+      "expected": "PUT sent to /api/v4/projects/group%2Fproject/issues/7 with JSON {'add_labels': 'in-progress'}; returns normally",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200)) as mock_req:\n    await platform.assign_label(7, 'in-progress')\nassert mock_req.call_args.args[0].lower() == 'put'\nassert '/issues/7' in mock_req.call_args.args[1]\nassert mock_req.call_args.kwargs['json'] == {'add_labels': 'in-progress'}"
+    },
+    {
+      "id": "TS-04-12",
+      "requirement_id": "04-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that close_issue with a non-empty comment calls add_issue_comment first, then sends PUT with state_event=close.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched: first call returns 201 (comment), second call returns 200 (close)"
+      ],
+      "input": {
+        "comment": "Closing this issue.",
+        "issue_number": 10
+      },
+      "expected": "Two HTTP calls made: POST to notes endpoint with comment body, then PUT to issue endpoint with {state_event: 'close'}; returns normally",
+      "assertion_pseudocode": "responses = [MockResponse(201), MockResponse(200)]\nwith patch('afissues._http.request_with_retry', side_effect=responses) as mock_req:\n    await platform.close_issue(10, 'Closing this issue.')\nassert mock_req.call_count == 2\nfirst_call = mock_req.call_args_list[0]\nassert 'notes' in first_call.args[1]\nassert first_call.kwargs['json']['body'] == 'Closing this issue.'\nsecond_call = mock_req.call_args_list[1]\nassert second_call.kwargs['json']['state_event'] == 'close'"
+    },
+    {
+      "id": "TS-04-13",
+      "requirement_id": "04-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies that close_issue with empty/None comment sends only the PUT with state_event=close, no comment call.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200"
+      ],
+      "input": {
+        "comment": "",
+        "issue_number": 10
+      },
+      "expected": "Only one HTTP call made (the PUT with state_event=close); no notes POST is sent",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200)) as mock_req:\n    await platform.close_issue(10, '')\nassert mock_req.call_count == 1\nassert mock_req.call_args.kwargs['json']['state_event'] == 'close'"
+    },
+    {
+      "id": "TS-04-14",
+      "requirement_id": "04-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies that remove_label sends PUT with remove_labels field and returns normally on HTTP 200.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200"
+      ],
+      "input": {
+        "issue_number": 3,
+        "label": "wontfix"
+      },
+      "expected": "PUT sent to /api/v4/projects/group%2Fproject/issues/3 with JSON {'remove_labels': 'wontfix'}; returns normally",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200)) as mock_req:\n    await platform.remove_label(3, 'wontfix')\nassert mock_req.call_args.args[0].lower() == 'put'\nassert '/issues/3' in mock_req.call_args.args[1]\nassert mock_req.call_args.kwargs['json'] == {'remove_labels': 'wontfix'}"
+    },
+    {
+      "id": "TS-04-15",
+      "requirement_id": "04-REQ-8.1",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments sends GET with correct params, filters out system notes, and maps remaining notes to IssueComment.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200 with JSON: [{id:1, body:'hello', author:{username:'alice'}, created_at:'2024-01-01T00:00:00Z', system:false}, {id:2, body:'system note', author:{username:'gitlab'}, created_at:'2024-01-02T00:00:00Z', system:true}]"
+      ],
+      "input": {
+        "issue_number": 5
+      },
+      "expected": "GET sent with params sort=asc, order_by=created_at, per_page=100, no activity_filter; only one IssueComment returned with id=1, body='hello', user='alice'",
+      "assertion_pseudocode": "notes_json = [{'id':1,'body':'hello','author':{'username':'alice'},'created_at':'2024-01-01T00:00:00Z','system':False}, {'id':2,'body':'sys','author':{'username':'gitlab'},'created_at':'2024-01-02T00:00:00Z','system':True}]\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=notes_json)) as mock_req:\n    comments = await platform.list_issue_comments(5)\nparams = mock_req.call_args.kwargs['params']\nassert params['sort'] == 'asc'\nassert params['order_by'] == 'created_at'\nassert params['per_page'] == 100\nassert 'activity_filter' not in params\nassert len(comments) == 1\nassert comments[0].id == 1\nassert comments[0].body == 'hello'\nassert comments[0].user == 'alice'\nassert comments[0].created_at == '2024-01-01T00:00:00Z'"
+    },
+    {
+      "id": "TS-04-16",
+      "requirement_id": "04-REQ-8.2",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments never sends the activity_filter query parameter to the API.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=200 with empty JSON list"
+      ],
+      "input": {
+        "issue_number": 1
+      },
+      "expected": "The request params dict does not contain 'activity_filter' key",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=[])) as mock_req:\n    await platform.list_issue_comments(1)\nparams = mock_req.call_args.kwargs.get('params', {})\nassert 'activity_filter' not in params"
+    },
+    {
+      "id": "TS-04-17",
+      "requirement_id": "04-REQ-9.1",
+      "kind": "unit",
+      "description": "Verifies that get_issue sends correct GET request and maps response fields to IssueResult including null description defaulting to empty string.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200 with JSON: {iid:15, title:'My Issue', web_url:'https://gitlab.com/group/project/-/issues/15', description:None, labels:[]}"
+      ],
+      "input": {
+        "issue_number": 15
+      },
+      "expected": "IssueResult with number=15, title='My Issue', html_url='https://gitlab.com/group/project/-/issues/15', body='', labels=()",
+      "assertion_pseudocode": "mock_json = {'iid':15,'title':'My Issue','web_url':'https://gitlab.com/group/project/-/issues/15','description':None,'labels':[]}\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=mock_json)):\n    result = await platform.get_issue(15)\nassert result.number == 15\nassert result.title == 'My Issue'\nassert result.html_url == 'https://gitlab.com/group/project/-/issues/15'\nassert result.body == ''\nassert result.labels == ()"
+    },
+    {
+      "id": "TS-04-18",
+      "requirement_id": "04-REQ-10.1",
+      "kind": "unit",
+      "description": "Verifies that update_issue sends PUT with description field mapped from body and returns normally on HTTP 200.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200"
+      ],
+      "input": {
+        "body": "Updated description text",
+        "issue_number": 8
+      },
+      "expected": "PUT sent to /api/v4/projects/group%2Fproject/issues/8 with JSON {'description': 'Updated description text'}; returns normally",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200)) as mock_req:\n    await platform.update_issue(8, 'Updated description text')\nassert mock_req.call_args.args[0].lower() == 'put'\nassert '/issues/8' in mock_req.call_args.args[1]\nassert mock_req.call_args.kwargs['json'] == {'description': 'Updated description text'}"
+    },
+    {
+      "id": "TS-04-19",
+      "requirement_id": "04-REQ-11.1",
+      "kind": "unit",
+      "description": "Verifies that create_label sends POST with color prefixed with '#' and returns None on HTTP 201.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=201"
+      ],
+      "input": {
+        "color": "ff0000",
+        "description": "Blocking issue",
+        "name": "blocker"
+      },
+      "expected": "POST sent to /api/v4/projects/group%2Fproject/labels with JSON {'name':'blocker','color':'#ff0000','description':'Blocking issue'}; returns None",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(201)) as mock_req:\n    result = await platform.create_label('blocker', 'ff0000', 'Blocking issue')\nassert result is None\nassert mock_req.call_args.kwargs['json']['color'] == '#ff0000'\nassert mock_req.call_args.kwargs['json']['name'] == 'blocker'"
+    },
+    {
+      "id": "TS-04-20",
+      "requirement_id": "04-REQ-11.2",
+      "kind": "unit",
+      "description": "Verifies that create_label treats HTTP 409 as success and returns None without raising any exception.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=409"
+      ],
+      "input": {
+        "color": "00ff00",
+        "description": "Already exists",
+        "name": "existing-label"
+      },
+      "expected": "No exception raised; return value is None",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(409)):\n    result = await platform.create_label('existing-label', '00ff00', 'Already exists')\nassert result is None"
+    },
+    {
+      "id": "TS-04-21",
+      "requirement_id": "04-REQ-12.1",
+      "kind": "unit",
+      "description": "Verifies that create_pr sends correct POST request and returns the web_url from response on HTTP 201.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=201 with JSON: {web_url: 'https://gitlab.com/group/project/-/merge_requests/1'}"
+      ],
+      "input": {
+        "base": "main",
+        "body": "This PR fixes the bug",
+        "head": "feature-branch",
+        "title": "Fix: resolve the bug"
+      },
+      "expected": "Returns 'https://gitlab.com/group/project/-/merge_requests/1'; POST body contains source_branch='feature-branch', target_branch='main', description='This PR fixes the bug'",
+      "assertion_pseudocode": "mock_json = {'web_url': 'https://gitlab.com/group/project/-/merge_requests/1'}\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(201, json=mock_json)) as mock_req:\n    url = await platform.create_pr('Fix: resolve the bug', 'This PR fixes the bug', 'feature-branch', 'main')\nassert url == 'https://gitlab.com/group/project/-/merge_requests/1'\nrequest_json = mock_req.call_args.kwargs['json']\nassert request_json['source_branch'] == 'feature-branch'\nassert request_json['target_branch'] == 'main'\nassert request_json['description'] == 'This PR fixes the bug'"
+    },
+    {
+      "id": "TS-04-22",
+      "requirement_id": "04-REQ-12.2",
+      "kind": "unit",
+      "description": "Verifies that create_pr on HTTP 409 performs fallback GET and returns web_url of existing open MR.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched: first call returns 409, second call (fallback GET) returns 200 with JSON list containing one MR with web_url='https://gitlab.com/group/project/-/merge_requests/3'"
+      ],
+      "input": {
+        "base": "main",
+        "body": "body",
+        "head": "feature",
+        "title": "My MR"
+      },
+      "expected": "Returns 'https://gitlab.com/group/project/-/merge_requests/3'; fallback GET includes source_branch=feature, target_branch=main, state=opened",
+      "assertion_pseudocode": "responses = [MockResponse(409, text='Conflict'), MockResponse(200, json=[{'web_url':'https://gitlab.com/group/project/-/merge_requests/3'}])]\nwith patch('afissues._http.request_with_retry', side_effect=responses) as mock_req:\n    url = await platform.create_pr('My MR', 'body', 'feature', 'main')\nassert url == 'https://gitlab.com/group/project/-/merge_requests/3'\nfallback_params = mock_req.call_args_list[1].kwargs['params']\nassert fallback_params['source_branch'] == 'feature'\nassert fallback_params['target_branch'] == 'main'\nassert fallback_params['state'] == 'opened'"
+    },
+    {
+      "id": "TS-04-23",
+      "requirement_id": "04-REQ-13.1",
+      "kind": "unit",
+      "description": "Verifies that close() returns None immediately without any I/O or side effects.",
+      "preconditions": [
+        "GitLabPlatform instantiated with valid arguments"
+      ],
+      "input": {},
+      "expected": "close() returns None; no HTTP calls are made",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry') as mock_req:\n    result = await platform.close()\nassert result is None\nassert mock_req.call_count == 0"
+    },
+    {
+      "id": "TS-04-24",
+      "requirement_id": "04-REQ-14.1",
+      "kind": "unit",
+      "description": "Verifies that search_issues sends GET with search param and state mapping, returns list of IssueResult without extra client-side filtering.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched to return status_code=200 with JSON list of issue objects"
+      ],
+      "input": {
+        "state": "open",
+        "title_prefix": "Fix:"
+      },
+      "expected": "GET sent with params search='Fix:', state='opened', per_page=100; returns list of IssueResult objects",
+      "assertion_pseudocode": "issues_json = [{'iid':1,'title':'Fix: bug','web_url':'url','description':'d','labels':[]}]\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=issues_json)) as mock_req:\n    results = await platform.search_issues('Fix:', 'open')\nparams = mock_req.call_args.kwargs['params']\nassert params['search'] == 'Fix:'\nassert params['state'] == 'opened'\nassert params['per_page'] == 100\nassert len(results) == 1\nassert isinstance(results[0], IssueResult)"
+    },
+    {
+      "id": "TS-04-25",
+      "requirement_id": "04-REQ-15.1",
+      "kind": "unit",
+      "description": "Verifies that check_credentials raises IntegrationError on 401 and 403 but returns normally on 404 and 500.",
+      "preconditions": [
+        "GitLabPlatform instantiated with project_id='group/project'",
+        "request_with_retry patched with various response status codes"
+      ],
+      "input": {
+        "statuses": [
+          401,
+          403,
+          404,
+          500
+        ]
+      },
+      "expected": "IntegrationError raised for 401 and 403; None returned for 404 and 500",
+      "assertion_pseudocode": "for status in [401, 403]:\n    with patch('afissues._http.request_with_retry', return_value=MockResponse(status, text='err')):\n        with pytest.raises(IntegrationError):\n            await platform.check_credentials()\nfor status in [404, 500]:\n    with patch('afissues._http.request_with_retry', return_value=MockResponse(status)):\n        result = await platform.check_credentials()\n        assert result is None"
+    },
+    {
+      "id": "TS-04-26",
+      "requirement_id": "04-REQ-16.1",
+      "kind": "unit",
+      "description": "Verifies that parse_remote correctly extracts namespace and project name from HTTPS GitLab remote URLs.",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "url": "https://gitlab.com/group/subgroup/project.git"
+      },
+      "expected": "Returns ('group/subgroup', 'project')",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nresult = parse_remote('https://gitlab.com/group/subgroup/project.git')\nassert result == ('group/subgroup', 'project')"
+    },
+    {
+      "id": "TS-04-27",
+      "requirement_id": "04-REQ-16.2",
+      "kind": "unit",
+      "description": "Verifies that parse_remote correctly extracts namespace and project name from SSH GitLab remote URLs.",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "url": "git@gitlab.com:group/subgroup/project.git"
+      },
+      "expected": "Returns ('group/subgroup', 'project')",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nresult = parse_remote('git@gitlab.com:group/subgroup/project.git')\nassert result == ('group/subgroup', 'project')"
+    },
+    {
+      "id": "TS-04-28",
+      "requirement_id": "04-REQ-16.3",
+      "kind": "unit",
+      "description": "Verifies that parse_remote returns None for URLs that do not match expected GitLab HTTPS or SSH patterns without raising exceptions.",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "invalid_urls": [
+          "https://github.com/org/repo.git",
+          "not-a-url",
+          "",
+          "https://gitlab.com:8080/group/project.git",
+          "git@github.com:org/repo.git"
+        ]
+      },
+      "expected": "None returned for each invalid URL; no exception raised",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nfor url in ['https://github.com/org/repo.git', 'not-a-url', '', 'https://gitlab.com:8080/group/project.git', 'git@github.com:org/repo.git']:\n    result = parse_remote(url)\n    assert result is None"
+    },
+    {
+      "id": "TS-04-29",
+      "requirement_id": "04-REQ-17.1",
+      "kind": "unit",
+      "description": "Verifies that afissues/github.py exports parse_remote (not parse_github_remote) and that afissues/__init__.py does not re-export parse_github_remote.",
+      "preconditions": [
+        "afissues package is installed after the rename PR is applied",
+        "afissues/github.py has been updated"
+      ],
+      "input": {},
+      "expected": "from afissues.github import parse_remote succeeds; import of parse_github_remote from afissues raises ImportError or AttributeError",
+      "assertion_pseudocode": "from afissues.github import parse_remote\nassert callable(parse_remote)\ntry:\n    from afissues import parse_github_remote\n    assert False, 'Expected ImportError or AttributeError'\nexcept (ImportError, AttributeError):\n    pass  # Expected: old name is removed\ntry:\n    from afissues.github import parse_github_remote\n    assert False, 'Expected ImportError'\nexcept ImportError:\n    pass"
+    },
+    {
+      "id": "TS-04-30",
+      "requirement_id": "04-REQ-18.1",
+      "kind": "unit",
+      "description": "Verifies that afissues/_ssrf.py exists, exports the required symbols, and is imported by both GitHubPlatform and GitLabPlatform.",
+      "preconditions": [
+        "afissues/_ssrf.py is present",
+        "afissues/github.py and afissues/gitlab.py both import from _ssrf"
+      ],
+      "input": {},
+      "expected": "All four symbols (_validate_url, _validate_transport_address, _check_address, SSRFGuardTransport) importable from afissues._ssrf",
+      "assertion_pseudocode": "from afissues._ssrf import _validate_url, _validate_transport_address, _check_address, SSRFGuardTransport\nassert callable(_validate_url)\nassert callable(_validate_transport_address)\nassert callable(_check_address)\nassert issubclass(SSRFGuardTransport, httpx.AsyncHTTPTransport)\nimport inspect, afissues.github, afissues.gitlab\ngithub_src = inspect.getsource(afissues.github)\ngitlab_src = inspect.getsource(afissues.gitlab)\nassert '_ssrf' in github_src\nassert '_ssrf' in gitlab_src"
+    },
+    {
+      "id": "TS-04-31",
+      "requirement_id": "04-REQ-18.2",
+      "kind": "unit",
+      "description": "Verifies that _check_address in _ssrf.py raises ConfigError (not IntegrationError) on SSRF violation.",
+      "preconditions": [
+        "afissues._ssrf._check_address is importable",
+        "A mock resolved address object representing a private IP is available"
+      ],
+      "input": {
+        "addr": "192.168.1.1 (private IP address mock)",
+        "url": "http://192.168.1.1"
+      },
+      "expected": "ConfigError raised; IntegrationError is not raised",
+      "assertion_pseudocode": "from afissues._ssrf import _check_address\nfrom afissues.errors import ConfigError, IntegrationError\nfrom ipaddress import ip_address\nprivate_addr = ip_address('192.168.1.1')  # represents private IP\nwith pytest.raises(ConfigError):\n    _check_address(private_addr, 'http://192.168.1.1')\n# Verify it is not IntegrationError\ntry:\n    _check_address(private_addr, 'http://192.168.1.1')\nexcept Exception as e:\n    assert not isinstance(e, IntegrationError)"
+    },
+    {
+      "id": "TS-04-32",
+      "requirement_id": "04-REQ-18.3",
+      "kind": "unit",
+      "description": "Verifies that _ssrf module is not re-exported from afissues/__init__.py.",
+      "preconditions": [
+        "afissues package is installed"
+      ],
+      "input": {},
+      "expected": "_ssrf is not present in afissues.__all__ and not importable as a top-level afissues symbol",
+      "assertion_pseudocode": "import afissues\nassert '_ssrf' not in getattr(afissues, '__all__', [])\nassert not hasattr(afissues, '_ssrf') or True  # underscore prefix signals internal; check __all__ is the authoritative check"
+    },
+    {
+      "id": "TS-04-33",
+      "requirement_id": "04-REQ-19.1",
+      "kind": "unit",
+      "description": "Verifies that request_with_retry has the correct signature, creates a new AsyncClient per call, and delegates method calls correctly.",
+      "preconditions": [
+        "afissues._http.request_with_retry is importable",
+        "httpx.AsyncClient is patchable"
+      ],
+      "input": {
+        "headers": {
+          "PRIVATE-TOKEN": "tok"
+        },
+        "method": "get",
+        "timeout": "httpx.Timeout(30)",
+        "url": "https://gitlab.com/api/v4/projects/1"
+      },
+      "expected": "Function creates AsyncClient with transport kwarg, calls client.get(url, headers=...), returns httpx.Response",
+      "assertion_pseudocode": "mock_response = MockResponse(200)\nmock_client = AsyncMock()\nmock_client.get = AsyncMock(return_value=mock_response)\nwith patch('httpx.AsyncClient', return_value=AsyncContextManager(mock_client)):\n    result = await request_with_retry('get', 'https://gitlab.com/api/v4/projects/1', timeout=httpx.Timeout(30), headers={'PRIVATE-TOKEN':'tok'})\nassert result.status_code == 200\nmock_client.get.assert_awaited_once()"
+    },
+    {
+      "id": "TS-04-34",
+      "requirement_id": "04-REQ-19.2",
+      "kind": "unit",
+      "description": "Verifies that request_with_retry retries on ConnectTimeout/ConnectError/ReadTimeout but not on HTTP 4xx/5xx responses.",
+      "preconditions": [
+        "afissues._http.request_with_retry is importable",
+        "asyncio.sleep is patchable to avoid real waits"
+      ],
+      "input": {
+        "max_retries": 3,
+        "sequence": [
+          "ConnectTimeout",
+          "ConnectTimeout",
+          "HTTP_200"
+        ]
+      },
+      "expected": "After 2 transient failures, successful response returned on 3rd attempt; total attempts == 3",
+      "assertion_pseudocode": "call_count = 0\nasync def fake_method(url, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    if call_count < 3:\n        raise httpx.ConnectTimeout('timeout')\n    return MockResponse(200)\nwith patch('asyncio.sleep'):\n    result = await request_with_retry('get', 'https://example.com', timeout=httpx.Timeout(5))\nassert result.status_code == 200\nassert call_count == 3\n# Also verify 429 is returned without retry\ncall_count_429 = 0\nasync def fake_429(url, **kwargs):\n    nonlocal call_count_429\n    call_count_429 += 1\n    return MockResponse(429)\nresult_429 = await request_with_retry('get', 'https://example.com', timeout=httpx.Timeout(5))\nassert result_429.status_code == 429\nassert call_count_429 == 1"
+    },
+    {
+      "id": "TS-04-35",
+      "requirement_id": "04-REQ-19.3",
+      "kind": "unit",
+      "description": "Verifies that GitHubPlatform._request delegates to request_with_retry and that all existing GitHubPlatform tests still pass.",
+      "preconditions": [
+        "afissues._http.request_with_retry is importable",
+        "afissues.github.GitHubPlatform is importable",
+        "Existing GitHubPlatform test suite is in packages/afissues/tests/unit/"
+      ],
+      "input": {},
+      "expected": "pytest packages/afissues/tests/unit/ exits with code 0; no GitHubPlatform tests fail",
+      "assertion_pseudocode": "# Run the existing test suite and assert it passes:\n# Command: pytest packages/afissues/tests/unit/test_github.py -v\n# All tests should pass with exit code 0\n# Also inspect source to confirm delegation:\nimport inspect, afissues.github\ngithub_src = inspect.getsource(afissues.github.GitHubPlatform._request)\nassert 'request_with_retry' in github_src"
+    },
+    {
+      "id": "TS-04-36",
+      "requirement_id": "04-REQ-20.1",
+      "kind": "unit",
+      "description": "Verifies that platform factory routes 'gitlab' type to GitLabPlatform using GITLAB_TOKEN and resolved project_id.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable",
+        "Environment variable GITLAB_TOKEN='test-token' is set",
+        "Platform config has type='gitlab', url='gitlab.com'",
+        "parse_remote is patched to return ('group', 'project')"
+      ],
+      "input": {
+        "platform_type": "gitlab",
+        "remote_url": "https://gitlab.com/group/project.git"
+      },
+      "expected": "create_platform() returns a GitLabPlatform instance with project_id='group/project', token='test-token'",
+      "assertion_pseudocode": "with patch.dict(os.environ, {'GITLAB_TOKEN': 'test-token'}):\n    with patch('afissues.gitlab.parse_remote', return_value=('group', 'project')):\n        platform = create_platform(config={'type': 'gitlab', 'url': 'gitlab.com'})\nassert isinstance(platform, GitLabPlatform)\nassert 'group%2Fproject' in platform._base_url or platform._project_id_raw == 'group/project'"
+    },
+    {
+      "id": "TS-04-37",
+      "requirement_id": "04-REQ-20.2",
+      "kind": "unit",
+      "description": "Verifies that platform factory includes 'gitlab' and 'gitea' in _SUPPORTED_PLATFORMS and that return type annotations reference PlatformProtocol.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable"
+      ],
+      "input": {},
+      "expected": "_SUPPORTED_PLATFORMS contains 'github', 'gitlab', 'gitea'; create_platform and create_platform_safe return type hints reference PlatformProtocol or a union",
+      "assertion_pseudocode": "import agentfox.nightshift.platform_factory as factory\nassert 'gitlab' in factory._SUPPORTED_PLATFORMS\nassert 'gitea' in factory._SUPPORTED_PLATFORMS\nassert 'github' in factory._SUPPORTED_PLATFORMS\nimport inspect\nhints = inspect.get_annotations(factory.create_platform)\nreturn_hint = hints.get('return', '')\nassert 'GitHubPlatform' not in str(return_hint) or 'PlatformProtocol' in str(return_hint)"
+    },
+    {
+      "id": "TS-04-38",
+      "requirement_id": "04-REQ-21.1",
+      "kind": "unit",
+      "description": "Verifies that platform factory raises ConfigError with descriptive message when Gitea is requested but afissues.gitea is not importable.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable",
+        "afissues.gitea does not exist (can be simulated by blocking the import)"
+      ],
+      "input": {
+        "platform_type": "gitea"
+      },
+      "expected": "ConfigError raised with message containing 'Gitea' and 'not yet available' or equivalent; factory module itself loads successfully",
+      "assertion_pseudocode": "import sys\nwith patch.dict(sys.modules, {'afissues.gitea': None}):\n    with pytest.raises(ConfigError) as exc_info:\n        create_platform(config={'type': 'gitea', 'url': 'gitea.example.com'})\nassert 'Gitea' in str(exc_info.value) or 'gitea' in str(exc_info.value).lower()\nassert 'not yet available' in str(exc_info.value) or 'not available' in str(exc_info.value)"
+    },
+    {
+      "id": "TS-04-39",
+      "requirement_id": "04-REQ-21.2",
+      "kind": "unit",
+      "description": "Verifies that importing platform_factory succeeds even when afissues/gitea.py does not exist.",
+      "preconditions": [
+        "afissues/gitea.py does not exist",
+        "afissues/github.py and afissues/gitlab.py exist"
+      ],
+      "input": {},
+      "expected": "import agentfox.nightshift.platform_factory succeeds without ImportError",
+      "assertion_pseudocode": "import sys\n# Remove gitea from modules to simulate it not existing\nsys.modules.pop('afissues.gitea', None)\ntry:\n    import importlib\n    importlib.invalidate_caches()\n    import agentfox.nightshift.platform_factory\nexcept ImportError as e:\n    assert False, f'Factory module failed to import: {e}'"
+    },
+    {
+      "id": "TS-04-40",
+      "requirement_id": "04-REQ-22.1",
+      "kind": "unit",
+      "description": "Verifies that the GitLabPlatform unit test suite achieves >=90% branch coverage for afissues/gitlab.py with no live HTTP calls.",
+      "preconditions": [
+        "pytest and pytest-cov are installed",
+        "packages/afissues/tests/unit/test_gitlab.py (or test_gitlab_*.py files) exist",
+        "No real network access in test environment"
+      ],
+      "input": {},
+      "expected": "pytest --cov=afissues/gitlab.py --cov-branch exits with code 0 and reports >=90% branch coverage",
+      "assertion_pseudocode": "# Shell command: pytest packages/afissues/tests/unit/test_gitlab.py --cov=afissues/gitlab --cov-branch --cov-report=term-missing\n# Assert exit code == 0\n# Assert coverage report shows branch coverage >= 90%\n# Verify no HTTP calls to external services by checking that all request_with_retry calls are patched"
+    },
+    {
+      "id": "TS-04-41",
+      "requirement_id": "04-REQ-22.2",
+      "kind": "unit",
+      "description": "Verifies that the existing GitHubPlatform test suite passes unchanged after the request_with_retry delegation refactor.",
+      "preconditions": [
+        "packages/afissues/tests/unit/ contains pre-existing GitHubPlatform tests",
+        "GitHubPlatform._request has been updated to delegate to request_with_retry"
+      ],
+      "input": {},
+      "expected": "pytest packages/afissues/tests/unit/test_github.py exits with code 0; all previously passing tests still pass",
+      "assertion_pseudocode": "# Shell command: pytest packages/afissues/tests/unit/test_github.py -v\n# All tests exit with PASSED status\n# Exit code == 0\n# No tests that previously passed now fail"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-04-P1",
+      "property_id": "04-PROP-1",
+      "validates": [
+        "04-REQ-2.1",
+        "04-REQ-3.1",
+        "04-REQ-9.1",
+        "04-REQ-14.1"
+      ],
+      "description": "For any valid GitLab API response processed by GitLabPlatform methods, IssueResult fields are populated exclusively from the documented field mappings with no extra fields leaking through.",
+      "for_any_strategy": "Randomly generated GitLab API response JSON dicts containing the documented fields (iid, title, web_url, description, labels) plus arbitrary extra fields (e.g. state, author, project_id, assignee)",
+      "invariant_check": "For each returned IssueResult: result.number comes from iid, result.title from title, result.html_url from web_url, result.body from description (defaulting to ''), result.labels is a tuple from labels array; no IssueResult attribute corresponds to any extra GitLab field (e.g. no result.state, result.author, result.project_id)"
+    },
+    {
+      "id": "TS-04-P2",
+      "property_id": "04-PROP-2",
+      "validates": [
+        "04-REQ-8.1"
+      ],
+      "description": "For any GitLab notes API response processed by list_issue_comments, IssueComment fields are populated exclusively from the documented field mappings with no extra GitLab-specific fields.",
+      "for_any_strategy": "Randomly generated GitLab note JSON objects containing id, body, author.username, created_at, system:false, plus arbitrary extra fields (e.g. noteable_type, project_id, resolvable, resolved)",
+      "invariant_check": "Each returned IssueComment: comment.id from id, comment.body from body, comment.user from author.username, comment.created_at from created_at; no extra attributes present in IssueComment"
+    },
+    {
+      "id": "TS-04-P3",
+      "property_id": "04-PROP-3",
+      "validates": [
+        "04-REQ-1.2",
+        "04-REQ-1.3",
+        "04-REQ-18.1",
+        "04-REQ-18.2"
+      ],
+      "description": "For any GitLabPlatform instance, every HTTP request passes through SSRFGuardTransport and SSRF violations always raise ConfigError at construction time.",
+      "for_any_strategy": "Arbitrary URL strings including valid hostnames, private IPs (10.x.x.x, 192.168.x.x, 172.16.x.x), loopback (127.x.x.x), link-local (169.254.x.x), and valid public hostnames",
+      "invariant_check": "For private/loopback/link-local IP URLs: ConfigError is raised in the constructor before any HTTP client is created; for valid public hostnames: constructor succeeds and SSRFGuardTransport is applied to all outgoing requests"
+    },
+    {
+      "id": "TS-04-P4",
+      "property_id": "04-PROP-4",
+      "validates": [
+        "04-REQ-19.1",
+        "04-REQ-19.E1"
+      ],
+      "description": "For any invocation of request_with_retry, the total number of HTTP attempts never exceeds max_retries regardless of how many consecutive transient errors occur.",
+      "for_any_strategy": "Any combination of max_retries in [1, 2, 3, 5, 10] and a sequence of transient errors (ConnectTimeout, ConnectError, ReadTimeout) longer than max_retries",
+      "invariant_check": "After the call completes (with success or exception), the total number of attempts recorded is exactly min(number_of_transient_errors_until_success_or_end, max_retries); the last exception is re-raised if all retries are exhausted"
+    },
+    {
+      "id": "TS-04-P5",
+      "property_id": "04-PROP-5",
+      "validates": [
+        "04-REQ-11.1",
+        "04-REQ-11.2"
+      ],
+      "description": "For any invocation of GitLabPlatform.create_label, the method returns None and raises no exception when the API returns 201 or 409, and raises IntegrationError for any other non-2xx status.",
+      "for_any_strategy": "Any combination of label name, color (bare hex), description, and API response status codes from the set {201, 409, 400, 403, 422, 500}",
+      "invariant_check": "result is None for status in {201, 409}; IntegrationError raised for status in {400, 403, 422, 500}; no other exception type is raised"
+    },
+    {
+      "id": "TS-04-P6",
+      "property_id": "04-PROP-6",
+      "validates": [
+        "04-REQ-8.1",
+        "04-REQ-8.E1"
+      ],
+      "description": "For any result list returned by GitLabPlatform.list_issue_comments, every IssueComment corresponds to a note with system==false from the API response.",
+      "for_any_strategy": "Randomly generated lists of GitLab note objects with arbitrary combinations of system:true and system:false values",
+      "invariant_check": "len(returned_comments) == count of notes where system==false in input; for each returned comment, the corresponding note in input has system==false"
+    },
+    {
+      "id": "TS-04-P7",
+      "property_id": "04-PROP-7",
+      "validates": [
+        "04-REQ-16.3",
+        "04-REQ-16.E1",
+        "04-REQ-16.E2",
+        "04-REQ-16.E3"
+      ],
+      "description": "For any string input to parse_remote in afissues/gitlab.py, the function either returns a tuple[str, str] or None and never raises any exception.",
+      "for_any_strategy": "Arbitrary strings including valid GitLab URLs, valid GitHub URLs, empty strings, None (if applicable), random byte strings, URLs with unusual schemes, very long strings",
+      "invariant_check": "No exception is ever raised; return value is either None or a tuple of exactly two non-empty strings"
+    },
+    {
+      "id": "TS-04-P8",
+      "property_id": "04-PROP-8",
+      "validates": [
+        "04-REQ-1.3",
+        "04-REQ-13.1"
+      ],
+      "description": "For any GitLabPlatform instance, no httpx.AsyncClient instance is retained as instance state after any method call completes.",
+      "for_any_strategy": "Any sequence of GitLabPlatform method calls (create_issue, list_issues_by_label, add_issue_comment, etc.) with mocked HTTP responses",
+      "invariant_check": "After each method call completes (success or exception), vars(platform) contains no httpx.AsyncClient instances; platform has no _client or equivalent persistent client attribute"
+    },
+    {
+      "id": "TS-04-P9",
+      "property_id": "04-PROP-9",
+      "validates": [
+        "04-REQ-21.2"
+      ],
+      "description": "For any import of platform_factory, the module loads successfully regardless of whether afissues/gitea.py exists.",
+      "for_any_strategy": "Import of platform_factory with afissues.gitea present in sys.modules vs. blocked/absent",
+      "invariant_check": "import agentfox.nightshift.platform_factory always succeeds without ImportError; the Gitea ImportError is only triggered when create_platform is called with type='gitea'"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-04-E1",
+      "requirement_id": "04-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform constructor raises ConfigError (not IntegrationError) for a private RFC-1918 IP address without constructing any HTTP client.",
+      "preconditions": [
+        "_ssrf.py _check_address raises ConfigError for private IPs",
+        "httpx.AsyncClient is patchable to detect if it was instantiated"
+      ],
+      "input": {
+        "project_id": "group/project",
+        "token": "tok",
+        "url": "192.168.1.1"
+      },
+      "expected": "ConfigError raised; httpx.AsyncClient constructor never called; IntegrationError is not raised",
+      "assertion_pseudocode": "from afissues.errors import ConfigError, IntegrationError\nwith patch('httpx.AsyncClient') as mock_client:\n    with pytest.raises(ConfigError):\n        GitLabPlatform('group/project', 'tok', '192.168.1.1')\nassert mock_client.call_count == 0\n# Also verify not IntegrationError\ntry:\n    GitLabPlatform('group/project', 'tok', '192.168.1.1')\nexcept ConfigError:\n    pass\nexcept IntegrationError:\n    assert False, 'Should not raise IntegrationError'"
+    },
+    {
+      "id": "TS-04-E2",
+      "requirement_id": "04-REQ-1.E2",
+      "kind": "unit",
+      "description": "Verifies that GitLabPlatform URL-encodes project_id containing slashes and special characters when building API URLs.",
+      "preconditions": [
+        "GitLabPlatform is instantiated with a project_id containing slashes"
+      ],
+      "input": {
+        "project_id": "my group/my project",
+        "token": "tok",
+        "url": "gitlab.com"
+      },
+      "expected": "Internal API URL contains 'my%20group%2Fmy%20project' (or equivalent percent-encoding) not the raw path",
+      "assertion_pseudocode": "platform = GitLabPlatform('my group/my project', 'tok', 'gitlab.com')\n# The encoded project_id used in URLs should not contain raw spaces or slashes\nencoded = platform._encoded_project_id  # or however it's stored\nassert ' ' not in encoded\nassert '/' not in encoded\nassert '%' in encoded  # percent-encoding applied"
+    },
+    {
+      "id": "TS-04-E3",
+      "requirement_id": "04-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that create_issue raises IntegrationError with response text truncated to 500 chars on non-201 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=422 with a text body of 600 characters"
+      ],
+      "input": {
+        "body": "body",
+        "labels": [],
+        "mock_status": 422,
+        "mock_text_length": 600,
+        "title": "Test"
+      },
+      "expected": "IntegrationError raised; error message contains at most 500 characters of response text",
+      "assertion_pseudocode": "long_text = 'x' * 600\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(422, text=long_text)):\n    with pytest.raises(IntegrationError) as exc_info:\n        await platform.create_issue('Test', 'body', [])\nerr_msg = str(exc_info.value)\nassert len(err_msg) <= 600  # message itself may be longer due to framing\n# The response text portion should be truncated to 500\nassert long_text[:500] in err_msg or long_text[:500][:50] in err_msg"
+    },
+    {
+      "id": "TS-04-E4",
+      "requirement_id": "04-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verifies that create_issue defaults IssueResult.body to empty string when GitLab returns description: null.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=201 with JSON including description: null"
+      ],
+      "input": {
+        "body": "",
+        "labels": [],
+        "title": "Null desc issue"
+      },
+      "expected": "IssueResult.body == ''",
+      "assertion_pseudocode": "mock_json = {'iid':1,'title':'Null desc issue','web_url':'url','description':None,'labels':[]}\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(201, json=mock_json)):\n    result = await platform.create_issue('Null desc issue', '', [])\nassert result.body == ''"
+    },
+    {
+      "id": "TS-04-E5",
+      "requirement_id": "04-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies that list_issues_by_label raises IntegrationError with truncated response text on non-200 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=403 with text body"
+      ],
+      "input": {
+        "direction": "asc",
+        "label": "bug",
+        "mock_status": 403,
+        "sort": "created",
+        "state": "open"
+      },
+      "expected": "IntegrationError raised; no list returned",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(403, text='Forbidden')):\n    with pytest.raises(IntegrationError):\n        await platform.list_issues_by_label('bug', 'open', 'created', 'asc')"
+    },
+    {
+      "id": "TS-04-E6",
+      "requirement_id": "04-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that add_issue_comment raises IntegrationError with truncated response text on non-201 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=404 with text body"
+      ],
+      "input": {
+        "body": "comment",
+        "issue_number": 99,
+        "mock_status": 404
+      },
+      "expected": "IntegrationError raised",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(404, text='Not Found')):\n    with pytest.raises(IntegrationError):\n        await platform.add_issue_comment(99, 'comment')"
+    },
+    {
+      "id": "TS-04-E7",
+      "requirement_id": "04-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verifies that assign_label raises IntegrationError with truncated response text on non-200 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=500"
+      ],
+      "input": {
+        "issue_number": 5,
+        "label": "bug",
+        "mock_status": 500
+      },
+      "expected": "IntegrationError raised",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(500, text='Server Error')):\n    with pytest.raises(IntegrationError):\n        await platform.assign_label(5, 'bug')"
+    },
+    {
+      "id": "TS-04-E8",
+      "requirement_id": "04-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies that close_issue propagates IntegrationError from add_issue_comment without attempting the close PUT.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to raise IntegrationError (simulated via non-201 response on notes POST)"
+      ],
+      "input": {
+        "comment": "Closing",
+        "issue_number": 10,
+        "mock_status_for_comment": 500
+      },
+      "expected": "IntegrationError raised after comment step; no second HTTP call (close PUT) is made",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(500, text='err')) as mock_req:\n    with pytest.raises(IntegrationError):\n        await platform.close_issue(10, 'Closing')\nassert mock_req.call_count == 1  # only the notes POST was attempted"
+    },
+    {
+      "id": "TS-04-E9",
+      "requirement_id": "04-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verifies that remove_label returns normally on HTTP 200 when label does not exist on the issue (GitLab silently ignores missing labels).",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=200 (GitLab ignores missing labels)"
+      ],
+      "input": {
+        "issue_number": 3,
+        "label": "nonexistent-label"
+      },
+      "expected": "No exception raised; returns normally",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(200)):\n    result = await platform.remove_label(3, 'nonexistent-label')\n# No exception was raised; result may be None"
+    },
+    {
+      "id": "TS-04-E10",
+      "requirement_id": "04-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments filters out all notes where system==true from the API response.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=200 with JSON list containing multiple system and non-system notes"
+      ],
+      "input": {
+        "issue_number": 5,
+        "notes": [
+          {
+            "author": {
+              "username": "alice"
+            },
+            "body": "user comment",
+            "created_at": "2024-01-01T00:00:00Z",
+            "id": 1,
+            "system": false
+          },
+          {
+            "author": {
+              "username": "gitlab"
+            },
+            "body": "system note",
+            "created_at": "2024-01-02T00:00:00Z",
+            "id": 2,
+            "system": true
+          },
+          {
+            "author": {
+              "username": "gitlab"
+            },
+            "body": "another system",
+            "created_at": "2024-01-03T00:00:00Z",
+            "id": 3,
+            "system": true
+          }
+        ]
+      },
+      "expected": "Only one IssueComment in returned list (id=1); system notes (id=2, id=3) are excluded",
+      "assertion_pseudocode": "notes_json = [{'id':1,'body':'user comment','author':{'username':'alice'},'created_at':'2024-01-01T00:00:00Z','system':False},{'id':2,'body':'sys','author':{'username':'gitlab'},'created_at':'2024-01-02T00:00:00Z','system':True},{'id':3,'body':'sys2','author':{'username':'gitlab'},'created_at':'2024-01-03T00:00:00Z','system':True}]\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(200, json=notes_json)):\n    comments = await platform.list_issue_comments(5)\nassert len(comments) == 1\nassert comments[0].id == 1"
+    },
+    {
+      "id": "TS-04-E11",
+      "requirement_id": "04-REQ-8.E2",
+      "kind": "unit",
+      "description": "Verifies that list_issue_comments raises IntegrationError with truncated response text on non-200 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=403"
+      ],
+      "input": {
+        "issue_number": 5,
+        "mock_status": 403
+      },
+      "expected": "IntegrationError raised",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(403, text='Forbidden')):\n    with pytest.raises(IntegrationError):\n        await platform.list_issue_comments(5)"
+    },
+    {
+      "id": "TS-04-E12",
+      "requirement_id": "04-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verifies that get_issue raises IntegrationError with truncated response text on HTTP 404.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=404 with text body"
+      ],
+      "input": {
+        "issue_number": 999,
+        "mock_status": 404
+      },
+      "expected": "IntegrationError raised; no IssueResult returned",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(404, text='Not Found')):\n    with pytest.raises(IntegrationError):\n        await platform.get_issue(999)"
+    },
+    {
+      "id": "TS-04-E13",
+      "requirement_id": "04-REQ-10.E1",
+      "kind": "unit",
+      "description": "Verifies that update_issue raises IntegrationError with truncated response text on non-200 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=422"
+      ],
+      "input": {
+        "body": "new body",
+        "issue_number": 8,
+        "mock_status": 422
+      },
+      "expected": "IntegrationError raised",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(422, text='Unprocessable')):\n    with pytest.raises(IntegrationError):\n        await platform.update_issue(8, 'new body')"
+    },
+    {
+      "id": "TS-04-E14",
+      "requirement_id": "04-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verifies that create_label raises IntegrationError on a non-201/non-409 error status (e.g. 422).",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=422"
+      ],
+      "input": {
+        "color": "zzzzzz",
+        "description": "invalid color",
+        "mock_status": 422,
+        "name": "badlabel"
+      },
+      "expected": "IntegrationError raised; not None returned",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(422, text='Validation failed')):\n    with pytest.raises(IntegrationError):\n        await platform.create_label('badlabel', 'zzzzzz', 'invalid color')"
+    },
+    {
+      "id": "TS-04-E15",
+      "requirement_id": "04-REQ-12.E1",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError when 409 fallback GET returns 200 but an empty list.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched: first call returns 409, second call (fallback GET) returns 200 with empty JSON list"
+      ],
+      "input": {
+        "base": "main",
+        "body": "body",
+        "head": "feature",
+        "title": "My MR"
+      },
+      "expected": "IntegrationError raised with descriptive message about 409 duplicate but no open MR found",
+      "assertion_pseudocode": "responses = [MockResponse(409, text='Conflict'), MockResponse(200, json=[])]\nwith patch('afissues._http.request_with_retry', side_effect=responses):\n    with pytest.raises(IntegrationError) as exc_info:\n        await platform.create_pr('My MR', 'body', 'feature', 'main')\nerr_msg = str(exc_info.value)\nassert '409' in err_msg or 'duplicate' in err_msg.lower() or 'no' in err_msg.lower()"
+    },
+    {
+      "id": "TS-04-E16",
+      "requirement_id": "04-REQ-12.E2",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError referencing original 409 context when fallback GET returns non-200 status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched: first call returns 409, second call (fallback GET) returns 500"
+      ],
+      "input": {
+        "base": "main",
+        "body": "body",
+        "head": "feature",
+        "title": "My MR"
+      },
+      "expected": "IntegrationError raised; error message references both '409' and the fallback GET failure status",
+      "assertion_pseudocode": "responses = [MockResponse(409, text='Conflict'), MockResponse(500, text='Server Error')]\nwith patch('afissues._http.request_with_retry', side_effect=responses):\n    with pytest.raises(IntegrationError) as exc_info:\n        await platform.create_pr('My MR', 'body', 'feature', 'main')\nerr_msg = str(exc_info.value)\nassert '409' in err_msg\nassert '500' in err_msg or 'fallback' in err_msg.lower()"
+    },
+    {
+      "id": "TS-04-E17",
+      "requirement_id": "04-REQ-12.E3",
+      "kind": "unit",
+      "description": "Verifies that create_pr raises IntegrationError with truncated response text on initial POST returning a non-201/non-409 error status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=403 with 600-char text body"
+      ],
+      "input": {
+        "base": "main",
+        "body": "body",
+        "head": "feature",
+        "mock_status": 403,
+        "title": "My MR"
+      },
+      "expected": "IntegrationError raised; only one HTTP call made (no fallback GET)",
+      "assertion_pseudocode": "long_text = 'x' * 600\nwith patch('afissues._http.request_with_retry', return_value=MockResponse(403, text=long_text)) as mock_req:\n    with pytest.raises(IntegrationError):\n        await platform.create_pr('My MR', 'body', 'feature', 'main')\nassert mock_req.call_count == 1  # no fallback GET"
+    },
+    {
+      "id": "TS-04-E18",
+      "requirement_id": "04-REQ-14.E1",
+      "kind": "unit",
+      "description": "Verifies that search_issues raises IntegrationError with truncated response text on non-200 HTTP status.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=500"
+      ],
+      "input": {
+        "mock_status": 500,
+        "state": "open",
+        "title_prefix": "Fix:"
+      },
+      "expected": "IntegrationError raised; no list returned",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(500, text='Server Error')):\n    with pytest.raises(IntegrationError):\n        await platform.search_issues('Fix:', 'open')"
+    },
+    {
+      "id": "TS-04-E19",
+      "requirement_id": "04-REQ-15.E1",
+      "kind": "unit",
+      "description": "Verifies that check_credentials returns normally without raising any exception when GitLab returns HTTP 404.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=404"
+      ],
+      "input": {
+        "mock_status": 404
+      },
+      "expected": "None returned; no exception raised",
+      "assertion_pseudocode": "with patch('afissues._http.request_with_retry', return_value=MockResponse(404)):\n    result = await platform.check_credentials()\nassert result is None"
+    },
+    {
+      "id": "TS-04-E20",
+      "requirement_id": "04-REQ-15.E2",
+      "kind": "unit",
+      "description": "Verifies that check_credentials raises IntegrationError with truncated response text on HTTP 401 and 403.",
+      "preconditions": [
+        "GitLabPlatform instantiated",
+        "request_with_retry patched to return status_code=401 or 403 with text body"
+      ],
+      "input": {
+        "mock_statuses": [
+          401,
+          403
+        ]
+      },
+      "expected": "IntegrationError raised for both 401 and 403",
+      "assertion_pseudocode": "for status in [401, 403]:\n    with patch('afissues._http.request_with_retry', return_value=MockResponse(status, text='Unauthorized')):\n        with pytest.raises(IntegrationError):\n            await platform.check_credentials()"
+    },
+    {
+      "id": "TS-04-E21",
+      "requirement_id": "04-REQ-16.E1",
+      "kind": "unit",
+      "description": "Verifies that parse_remote returns None for a GitHub HTTPS URL without raising any exception.",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "url": "https://github.com/org/repo.git"
+      },
+      "expected": "None returned; no exception raised",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nresult = parse_remote('https://github.com/org/repo.git')\nassert result is None"
+    },
+    {
+      "id": "TS-04-E22",
+      "requirement_id": "04-REQ-16.E2",
+      "kind": "unit",
+      "description": "Verifies that parse_remote returns None for an HTTPS GitLab URL that includes a port number.",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "url": "https://gitlab.com:8080/group/project.git"
+      },
+      "expected": "None returned; no exception raised",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nresult = parse_remote('https://gitlab.com:8080/group/project.git')\nassert result is None"
+    },
+    {
+      "id": "TS-04-E23",
+      "requirement_id": "04-REQ-16.E3",
+      "kind": "unit",
+      "description": "Verifies that parse_remote returns None for an HTTPS GitLab URL with only one path segment (no project path).",
+      "preconditions": [
+        "afissues.gitlab.parse_remote is importable"
+      ],
+      "input": {
+        "url": "https://gitlab.com/onlyone.git"
+      },
+      "expected": "None returned; no exception raised",
+      "assertion_pseudocode": "from afissues.gitlab import parse_remote\nresult = parse_remote('https://gitlab.com/onlyone.git')\nassert result is None"
+    },
+    {
+      "id": "TS-04-E24",
+      "requirement_id": "04-REQ-17.E1",
+      "kind": "unit",
+      "description": "Verifies that importing parse_github_remote after the rename PR raises ImportError or AttributeError, confirming the old name is removed.",
+      "preconditions": [
+        "afissues package is installed after rename PR is applied",
+        "afissues/github.py no longer contains parse_github_remote"
+      ],
+      "input": {},
+      "expected": "ImportError or AttributeError raised when attempting to import parse_github_remote from any afissues module",
+      "assertion_pseudocode": "import pytest\ntry:\n    from afissues.github import parse_github_remote\n    assert False, 'Expected ImportError'\nexcept ImportError:\n    pass  # Expected\ntry:\n    from afissues import parse_github_remote\n    assert False, 'Expected ImportError or AttributeError'\nexcept (ImportError, AttributeError):\n    pass"
+    },
+    {
+      "id": "TS-04-E25",
+      "requirement_id": "04-REQ-19.E1",
+      "kind": "unit",
+      "description": "Verifies that request_with_retry re-raises the last ConnectTimeout exception after exhausting all max_retries attempts.",
+      "preconditions": [
+        "afissues._http.request_with_retry is importable",
+        "asyncio.sleep is patched to avoid real delays"
+      ],
+      "input": {
+        "all_attempts_raise": "httpx.ConnectTimeout",
+        "max_retries": 3
+      },
+      "expected": "httpx.ConnectTimeout raised after exactly 3 attempts; no infinite loop",
+      "assertion_pseudocode": "attempt_count = 0\nasync def always_timeout(url, **kwargs):\n    nonlocal attempt_count\n    attempt_count += 1\n    raise httpx.ConnectTimeout('timeout')\nwith patch('asyncio.sleep'):\n    with patch.object(httpx.AsyncClient, 'get', side_effect=always_timeout):\n        with pytest.raises(httpx.ConnectTimeout):\n            await request_with_retry('get', 'https://example.com', timeout=httpx.Timeout(5), max_retries=3)\nassert attempt_count == 3"
+    },
+    {
+      "id": "TS-04-E26",
+      "requirement_id": "04-REQ-19.E2",
+      "kind": "unit",
+      "description": "Verifies that request_with_retry returns HTTP 429 response to caller without retrying.",
+      "preconditions": [
+        "afissues._http.request_with_retry is importable"
+      ],
+      "input": {
+        "mock_status": 429
+      },
+      "expected": "httpx.Response with status_code=429 returned after exactly one attempt; no retry performed",
+      "assertion_pseudocode": "call_count = 0\nasync def return_429(url, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    return MockResponse(429)\nwith patch.object(httpx.AsyncClient, 'get', side_effect=return_429):\n    result = await request_with_retry('get', 'https://example.com', timeout=httpx.Timeout(5))\nassert result.status_code == 429\nassert call_count == 1"
+    },
+    {
+      "id": "TS-04-E27",
+      "requirement_id": "04-REQ-20.E1",
+      "kind": "unit",
+      "description": "Verifies that platform factory raises ConfigError with a descriptive message when neither parse_remote nor project_id config field provides a GitLab project identifier.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable",
+        "GITLAB_TOKEN environment variable is set",
+        "parse_remote is patched to return None",
+        "Platform config has no project_id field"
+      ],
+      "input": {
+        "parse_remote_returns": null,
+        "platform_type": "gitlab",
+        "project_id_in_config": null
+      },
+      "expected": "ConfigError raised with message indicating that no GitLab project identifier could be determined",
+      "assertion_pseudocode": "with patch.dict(os.environ, {'GITLAB_TOKEN': 'tok'}):\n    with patch('afissues.gitlab.parse_remote', return_value=None):\n        with pytest.raises(ConfigError) as exc_info:\n            create_platform(config={'type': 'gitlab', 'url': 'gitlab.com'})\nassert 'project' in str(exc_info.value).lower() or 'identifier' in str(exc_info.value).lower()"
+    },
+    {
+      "id": "TS-04-E28",
+      "requirement_id": "04-REQ-20.E2",
+      "kind": "unit",
+      "description": "Verifies that platform factory raises ConfigError when GITLAB_TOKEN environment variable is not set.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable",
+        "GITLAB_TOKEN is NOT present in the environment"
+      ],
+      "input": {
+        "env_gitlab_token": null,
+        "platform_type": "gitlab"
+      },
+      "expected": "ConfigError raised indicating the missing GITLAB_TOKEN",
+      "assertion_pseudocode": "env = {k: v for k, v in os.environ.items() if k != 'GITLAB_TOKEN'}\nwith patch.dict(os.environ, env, clear=True):\n    with pytest.raises(ConfigError) as exc_info:\n        create_platform(config={'type': 'gitlab', 'url': 'gitlab.com', 'project_id': 'group/project'})\nassert 'GITLAB_TOKEN' in str(exc_info.value) or 'token' in str(exc_info.value).lower()"
+    },
+    {
+      "id": "TS-04-E29",
+      "requirement_id": "04-REQ-21.E1",
+      "kind": "unit",
+      "description": "Verifies that platform factory raises ConfigError with a message listing supported platforms when given an unsupported platform type.",
+      "preconditions": [
+        "agentfox/nightshift/platform_factory.py is importable"
+      ],
+      "input": {
+        "platform_type": "bitbucket"
+      },
+      "expected": "ConfigError raised; error message references the unsupported type or lists supported types",
+      "assertion_pseudocode": "with pytest.raises(ConfigError) as exc_info:\n    create_platform(config={'type': 'bitbucket'})\nerr_msg = str(exc_info.value)\nassert 'bitbucket' in err_msg.lower() or 'supported' in err_msg.lower() or 'github' in err_msg.lower()"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-04-SMOKE-1",
+      "execution_path_id": "04-PATH-1",
+      "description": "Smoke test for the end-to-end flow where agent-fox nightshift creates a GitLab issue and assigns a label using mocked HTTP responses.",
+      "trigger": "Call create_platform() with gitlab config, then call create_issue() followed by assign_label() on the returned platform instance",
+      "real_components": [
+        "agentfox/nightshift/platform_factory.py",
+        "packages/afissues/afissues/gitlab.py",
+        "packages/afissues/afissues/_ssrf.py",
+        "packages/afissues/afissues/_http.py"
+      ],
+      "mockable": [
+        "httpx.AsyncClient (mock HTTP responses for POST /issues returning 201 and PUT /issues/{iid} returning 200)",
+        "os.environ (inject GITLAB_TOKEN)",
+        "afissues.gitlab.parse_remote (return ('group', 'project'))"
+      ],
+      "expected_effects": [
+        "create_platform() returns a GitLabPlatform instance with forge_type='gitlab'",
+        "create_issue() returns an IssueResult with number=42, html_url matching the mocked web_url",
+        "assign_label() returns normally after a PUT with add_labels='workflow' is sent",
+        "Both HTTP calls include PRIVATE-TOKEN auth header",
+        "No live network calls are made"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-2",
+      "execution_path_id": "04-PATH-2",
+      "description": "Smoke test for the end-to-end flow where create_pr handles a 409 duplicate by querying the existing MR via fallback GET.",
+      "trigger": "Call create_pr() on a GitLabPlatform instance; first HTTP call returns 409; second HTTP call (fallback GET) returns 200 with existing MR list",
+      "real_components": [
+        "packages/afissues/afissues/gitlab.py",
+        "packages/afissues/afissues/_http.py"
+      ],
+      "mockable": [
+        "httpx.AsyncClient (first call returns 409 Conflict; second call returns 200 with [{web_url: 'https://gitlab.com/group/project/-/merge_requests/3'}])"
+      ],
+      "expected_effects": [
+        "create_pr() makes exactly two HTTP calls",
+        "First call is POST to /merge_requests with correct source_branch/target_branch",
+        "Second call is GET to /merge_requests?source_branch=feature&target_branch=main&state=opened",
+        "Return value is 'https://gitlab.com/group/project/-/merge_requests/3'",
+        "No exception is raised"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-3",
+      "execution_path_id": "04-PATH-3",
+      "description": "Smoke test for the end-to-end flow where close_issue adds a comment then closes the issue.",
+      "trigger": "Call close_issue(issue_number=10, comment='Closing this issue.') on a GitLabPlatform instance with mocked HTTP responses",
+      "real_components": [
+        "packages/afissues/afissues/gitlab.py",
+        "packages/afissues/afissues/_http.py"
+      ],
+      "mockable": [
+        "httpx.AsyncClient (first call POST /notes returns 201; second call PUT /issues/{iid} returns 200)"
+      ],
+      "expected_effects": [
+        "Exactly two HTTP calls are made",
+        "First call is POST to /issues/10/notes with body='Closing this issue.'",
+        "Second call is PUT to /issues/10 with state_event='close'",
+        "close_issue() returns normally (None)",
+        "Both calls include PRIVATE-TOKEN auth header"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-4",
+      "execution_path_id": "04-PATH-4",
+      "description": "Smoke test verifying that SSRF violation in platform URL is blocked at construction time with ConfigError.",
+      "trigger": "Call create_platform() with platform.type='gitlab' and platform.url='192.168.1.100'",
+      "real_components": [
+        "agentfox/nightshift/platform_factory.py",
+        "packages/afissues/afissues/gitlab.py",
+        "packages/afissues/afissues/_ssrf.py"
+      ],
+      "mockable": [
+        "os.environ (inject GITLAB_TOKEN and set up git remote URL)",
+        "afissues.gitlab.parse_remote (return ('group', 'project'))",
+        "socket.getaddrinfo (return private IP address for 192.168.1.100)"
+      ],
+      "expected_effects": [
+        "ConfigError is raised before any HTTP client is instantiated",
+        "No network activity occurs",
+        "IntegrationError is NOT raised",
+        "Error message references the SSRF violation"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-5",
+      "execution_path_id": "04-PATH-5",
+      "description": "Smoke test verifying that requesting the Gitea platform before afissues.gitea is available raises ConfigError with a clear message.",
+      "trigger": "Call create_platform() with platform.type='gitea' when afissues.gitea cannot be imported",
+      "real_components": [
+        "agentfox/nightshift/platform_factory.py"
+      ],
+      "mockable": [
+        "sys.modules (block afissues.gitea to simulate it not existing)",
+        "os.environ (inject GITEA_TOKEN)"
+      ],
+      "expected_effects": [
+        "create_platform() raises ConfigError",
+        "Error message contains 'Gitea' and indicates the platform is not yet available",
+        "Factory module itself was importable before create_platform() was called",
+        "No ImportError propagates to the caller; only ConfigError is raised"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}
