@@ -243,9 +243,7 @@ class TestConstructorTokenVerbatim:
         from afissues.gitea import GiteaPlatform
 
         with patch(_VALIDATE_URL_TARGET):
-            platform = GiteaPlatform(
-                "org", "repo", "a!weird#token$value", "gitea.example.com"
-            )
+            platform = GiteaPlatform("org", "repo", "a!weird#token$value", "gitea.example.com")
         assert platform._auth_headers["Authorization"] == "token a!weird#token$value"
 
 
@@ -487,9 +485,7 @@ class TestParseRemoteAnyHostname:
         """TS-05-49: Internal/arbitrary hostname is accepted."""
         from afissues.gitea import parse_remote
 
-        result = parse_remote(
-            "https://my-internal-server.corp.local/team/project.git"
-        )
+        result = parse_remote("https://my-internal-server.corp.local/team/project.git")
         assert result == ("team", "project")
 
     def test_ip_hostname(self) -> None:
@@ -542,8 +538,9 @@ class TestCreateIssueWithLabels:
         client = _mock_client(post=mock_post)
 
         # Mock _resolve_label_id to return a known numeric ID
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=42
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=42),
         ):
             result = await platform.create_issue("Fix crash", "Description here", ["bug"])
 
@@ -763,9 +760,7 @@ class TestListIssuesByLabelParams:
         client = _mock_client(get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.list_issues_by_label(
-                "bug", state="open", sort="created", direction="asc"
-            )
+            result = await platform.list_issues_by_label("bug", state="open", sort="created", direction="asc")
 
         assert len(requests_made) == 1
         _, params = requests_made[0]
@@ -799,9 +794,7 @@ class TestListIssuesByLabelSortMapping:
             ("updated", "desc", "recentupdate"),
         ],
     )
-    async def test_sort_direction_mapping(
-        self, sort_in: str, dir_in: str, expected_sort: str
-    ) -> None:
+    async def test_sort_direction_mapping(self, sort_in: str, dir_in: str, expected_sort: str) -> None:
         """TS-05-14: sort+direction maps to Gitea's combined sort values."""
         platform = _make_platform()
 
@@ -816,9 +809,7 @@ class TestListIssuesByLabelSortMapping:
         client = _mock_client(get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.list_issues_by_label(
-                "bug", state="open", sort=sort_in, direction=dir_in
-            )
+            await platform.list_issues_by_label("bug", state="open", sort=sort_in, direction=dir_in)
 
         assert requests_made[0]["sort"] == expected_sort
 
@@ -848,9 +839,7 @@ class TestListIssuesByLabelSortFallback:
         client = _mock_client(get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.list_issues_by_label(
-                "bug", sort="comments", direction="asc"
-            )
+            result = await platform.list_issues_by_label("bug", sort="comments", direction="asc")
 
         assert requests_made[0]["sort"] == "newest"
         assert result == []
@@ -1044,8 +1033,9 @@ class TestAssignLabel:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=99
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=99),
         ):
             result = await platform.assign_label(5, "enhancement")
 
@@ -1074,8 +1064,9 @@ class TestAssignLabelError:
         mock_resp = _json_response(422, text=long_error)
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.assign_label(1, "bug")
@@ -1120,8 +1111,9 @@ class TestCloseIssueWithComment:
 
         client = _mock_client(patch=mock_patch)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "add_issue_comment", side_effect=mock_add_comment
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "add_issue_comment", side_effect=mock_add_comment),
         ):
             result = await platform.close_issue(42, "Closing comment")
 
@@ -1153,9 +1145,10 @@ class TestCloseIssueNoComment:
 
         client = _mock_client(patch=mock_patch)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "add_issue_comment", new_callable=AsyncMock
-        ) as mock_comment:
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "add_issue_comment", new_callable=AsyncMock) as mock_comment,
+        ):
             result = await platform.close_issue(42, comment=None)
 
         mock_comment.assert_not_called()
@@ -1238,11 +1231,14 @@ class TestCloseIssueCommentFailurePropagation:
 
         client = _mock_client(patch=mock_patch)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "add_issue_comment",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("comment failed"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "add_issue_comment",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("comment failed"),
+            ),
         ):
             with pytest.raises(IntegrationError, match="comment failed"):
                 await platform.close_issue(5, comment="Some comment")
@@ -1274,8 +1270,9 @@ class TestRemoveLabel:
 
         client = _mock_client(delete=mock_delete)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=55
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=55),
         ):
             result = await platform.remove_label(3, "wontfix")
 
@@ -1308,11 +1305,14 @@ class TestRemoveLabelMissingLabelSilent:
 
         client = _mock_client(delete=mock_delete)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             result = await platform.remove_label(3, "ghost-label")
 
@@ -1337,8 +1337,9 @@ class TestRemoveLabel404:
         mock_resp = _json_response(404, text="not found")
         client = _mock_client(delete=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10),
         ):
             result = await platform.remove_label(5, "bug")
 
@@ -1362,8 +1363,9 @@ class TestRemoveLabel422:
         mock_resp = _json_response(422, text="unprocessable")
         client = _mock_client(delete=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10),
         ):
             result = await platform.remove_label(5, "bug")
 
@@ -1389,8 +1391,9 @@ class TestRemoveLabelError:
         mock_resp = _json_response(500, text=long_error)
         client = _mock_client(delete=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.remove_label(1, "bug")
@@ -1725,8 +1728,9 @@ class TestCreateLabelIdempotent:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=7
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=7),
         ):
             result = await platform.create_label("bug", "ff0000")
 
@@ -1748,9 +1752,7 @@ class TestCreateLabelCreatesNew:
         """TS-05-33: _resolve_label_id raises; POST has name, color='#ff0000', description."""
         platform = _make_platform()
 
-        mock_label_resp = _json_response(
-            201, {"id": 15, "name": "newlabel", "color": "#ff0000"}
-        )
+        mock_label_resp = _json_response(201, {"id": 15, "name": "newlabel", "color": "#ff0000"})
 
         requests_made: list[tuple[str, dict]] = []
 
@@ -1760,11 +1762,14 @@ class TestCreateLabelCreatesNew:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             result = await platform.create_label("newlabel", "ff0000", "A new label")
 
@@ -1790,9 +1795,7 @@ class TestCreateLabelCacheUpdate:
         """TS-05-34: After create_label, _resolve_label_id('fresh') returns 99 from cache."""
         platform = _make_platform()
 
-        mock_label_resp = _json_response(
-            201, {"id": 99, "name": "fresh", "color": "#aabbcc"}
-        )
+        mock_label_resp = _json_response(201, {"id": 99, "name": "fresh", "color": "#aabbcc"})
 
         # Track whether resolve was called (should not be after cache insert)
         resolve_calls = 0
@@ -1808,10 +1811,13 @@ class TestCreateLabelCacheUpdate:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            side_effect=mock_resolve,
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                side_effect=mock_resolve,
+            ),
         ):
             await platform.create_label("fresh", "aabbcc")
 
@@ -1847,11 +1853,14 @@ class TestCreateLabelColorPrefix:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             await platform.create_label("test", "123abc")
 
@@ -1877,11 +1886,14 @@ class TestCreateLabelError:
         mock_resp = _json_response(500, text=long_error)
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.create_label("newlabel", "aabbcc")
@@ -1919,9 +1931,7 @@ class TestCreatePrSuccess:
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="Fix bug", body="PR body", head="fix-branch", base="main"
-            )
+            result = await platform.create_pr(title="Fix bug", body="PR body", head="fix-branch", base="main")
 
         assert len(requests_made) == 1
         _, body = requests_made[0]
@@ -1968,9 +1978,7 @@ class TestCreatePr409WithMatch:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="Fix bug", body="Body", head="fix-branch", base="main"
-            )
+            result = await platform.create_pr(title="Fix bug", body="Body", head="fix-branch", base="main")
 
         assert result == "http://gitea.example.com/myorg/myrepo/pulls/2"
         assert "post" in call_log
@@ -2004,9 +2012,7 @@ class TestCreatePr409NoMatch:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="Fix bug", body="Body", head="fix-branch", base="main"
-                )
+                await platform.create_pr(title="Fix bug", body="Body", head="fix-branch", base="main")
 
         error_msg = str(exc_info.value).lower()
         assert "409" in str(exc_info.value) or "existing" in error_msg or "no" in error_msg
@@ -2032,9 +2038,7 @@ class TestCreatePrPostError:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="Title", body="Body", head="head", base="base"
-                )
+                await platform.create_pr(title="Title", body="Body", head="head", base="base")
 
         error_msg = str(exc_info.value)
         assert "N" * 501 not in error_msg
@@ -2069,9 +2073,7 @@ class TestCreatePrGetError:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="Title", body="Body", head="head", base="base"
-                )
+                await platform.create_pr(title="Title", body="Body", head="head", base="base")
 
         error_msg = str(exc_info.value)
         assert "O" * 501 not in error_msg
@@ -2439,20 +2441,21 @@ class TestPropertyLabelCacheConsistency:
         platform._cache_populated = True
         cache_before = dict(platform._label_cache)
 
-        mock_label_resp = _json_response(
-            201, {"id": 42, "name": "newlabel", "color": "#ff0000"}
-        )
+        mock_label_resp = _json_response(201, {"id": 42, "name": "newlabel", "color": "#ff0000"})
 
         async def mock_post(url, *, json=None, headers=None, **kw):
             return mock_label_resp
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             await platform.create_label("newlabel", "ff0000")
 
@@ -2531,12 +2534,15 @@ class TestPropertyNumericLabelIds:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            return_value=numeric_id,
-        ) as mock_resolve:
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                return_value=numeric_id,
+            ) as mock_resolve,
+        ):
             await platform.create_issue("Title", "Body", [label_name])
 
         # _resolve_label_id was called before any HTTP request
@@ -2566,12 +2572,15 @@ class TestPropertyNumericLabelIds:
 
         client = _mock_client(post=mock_post)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            return_value=numeric_id,
-        ) as mock_resolve:
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                return_value=numeric_id,
+            ) as mock_resolve,
+        ):
             await platform.assign_label(5, label_name)
 
         mock_resolve.assert_called_once_with(label_name)
@@ -2596,12 +2605,15 @@ class TestPropertyNumericLabelIds:
 
         client = _mock_client(delete=mock_delete)
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            return_value=numeric_id,
-        ) as mock_resolve:
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                return_value=numeric_id,
+            ) as mock_resolve,
+        ):
             await platform.remove_label(3, label_name)
 
         mock_resolve.assert_called_once_with(label_name)
@@ -2681,8 +2693,9 @@ class TestPropertyErrorTruncation:
         mock_resp = _json_response(422, text=error_body)
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.assign_label(1, "bug")
@@ -2715,8 +2728,9 @@ class TestPropertyErrorTruncation:
         mock_resp = _json_response(500, text=error_body)
         client = _mock_client(delete=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.remove_label(1, "bug")
@@ -2781,11 +2795,14 @@ class TestPropertyErrorTruncation:
         mock_resp = _json_response(500, text=error_body)
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
-        with patch(_TARGET, return_value=client), patch.object(
-            platform,
-            "_resolve_label_id",
-            new_callable=AsyncMock,
-            side_effect=IntegrationError("not found"),
+        with (
+            patch(_TARGET, return_value=client),
+            patch.object(
+                platform,
+                "_resolve_label_id",
+                new_callable=AsyncMock,
+                side_effect=IntegrationError("not found"),
+            ),
         ):
             with pytest.raises(IntegrationError) as exc_info:
                 await platform.create_label("newlabel", "aabbcc")
@@ -2804,9 +2821,7 @@ class TestPropertyErrorTruncation:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="T", body="B", head="h", base="b"
-                )
+                await platform.create_pr(title="T", body="B", head="h", base="b")
 
         if body_len > 500:
             assert error_body not in str(exc_info.value)
@@ -2864,9 +2879,7 @@ class TestPropertyTypeIssuesAlwaysPresent:
         client = _mock_client(get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.list_issues_by_label(
-                label, state=state, sort=sort, direction=direction
-            )
+            await platform.list_issues_by_label(label, state=state, sort=sort, direction=direction)
 
         assert len(captured_params) == 1
         assert captured_params[0].get("type") == "issues"
@@ -2881,9 +2894,7 @@ class TestPropertyTypeIssuesAlwaysPresent:
             ("a b c", "open"),
         ],
     )
-    async def test_search_issues_type_issues_with_various_params(
-        self, prefix: str, state: str
-    ) -> None:
+    async def test_search_issues_type_issues_with_various_params(self, prefix: str, state: str) -> None:
         """TS-05-P4: type=issues always present for search_issues."""
         platform = _make_platform()
         mock_resp = _json_response(200, [])
@@ -2927,10 +2938,7 @@ class TestPropertyDefaultParamsMatchProtocol:
         # Also verify they match the protocol exactly
         assert sig.parameters["state"].default == proto_sig.parameters["state"].default
         assert sig.parameters["sort"].default == proto_sig.parameters["sort"].default
-        assert (
-            sig.parameters["direction"].default
-            == proto_sig.parameters["direction"].default
-        )
+        assert sig.parameters["direction"].default == proto_sig.parameters["direction"].default
 
     def test_close_issue_comment_default(self) -> None:
         """TS-05-P5: close_issue comment default matches protocol."""
@@ -2950,10 +2958,7 @@ class TestPropertyDefaultParamsMatchProtocol:
         proto_sig = inspect.signature(PlatformProtocol.create_label)
 
         assert sig.parameters["description"].default == ""
-        assert (
-            sig.parameters["description"].default
-            == proto_sig.parameters["description"].default
-        )
+        assert sig.parameters["description"].default == proto_sig.parameters["description"].default
 
 
 # ===========================================================================
@@ -3029,9 +3034,7 @@ class TestPropertyCloseIssueNoCommentSingleCall:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("issue_number", [1, 42, 100, 9999])
-    async def test_close_issue_none_comment_exactly_one_http_call(
-        self, issue_number: int
-    ) -> None:
+    async def test_close_issue_none_comment_exactly_one_http_call(self, issue_number: int) -> None:
         """TS-05-P7: Exactly 1 HTTP call (PATCH) for any issue_number with comment=None."""
         platform = _make_platform()
 
@@ -3124,9 +3127,7 @@ class TestSmokeCreateIssueWithLabels:
         client = _mock_client(get=mock_get, post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_issue(
-                "Fix crash", "Description", ["bug"]
-            )
+            result = await platform.create_issue("Fix crash", "Description", ["bug"])
 
         # Verify execution order: GET labels first, then POST issue
         assert len(call_log) == 2
@@ -3166,9 +3167,7 @@ class TestSmokeCreatePrDuplicate:
         platform = _make_platform()
 
         mock_post_resp = _json_response(409, {})
-        existing_pr = [
-            {"html_url": "http://gitea.example.com/myorg/myrepo/pulls/7"}
-        ]
+        existing_pr = [{"html_url": "http://gitea.example.com/myorg/myrepo/pulls/7"}]
         mock_get_resp = _json_response(200, existing_pr)
 
         call_log: list[str] = []
@@ -3187,9 +3186,7 @@ class TestSmokeCreatePrDuplicate:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="Fix bug", body="Body", head="fix-branch", base="main"
-            )
+            result = await platform.create_pr(title="Fix bug", body="Body", head="fix-branch", base="main")
 
         # POST attempted first, then GET to find existing
         assert call_log == ["POST", "GET"]
@@ -3306,9 +3303,7 @@ class TestSmokeEndToEnd:
         mock_cred_resp = _json_response(200, {})
 
         # 3. GET /labels for _resolve_label_id
-        mock_labels_resp = _json_response(
-            200, [{"id": 5, "name": "bug"}]
-        )
+        mock_labels_resp = _json_response(200, [{"id": 5, "name": "bug"}])
 
         # 4. POST /issues
         mock_issue_resp = _json_response(

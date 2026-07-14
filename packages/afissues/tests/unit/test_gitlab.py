@@ -1241,9 +1241,7 @@ class TestCreatePrFallback:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            url = await platform.create_pr(
-                title="My MR", body="body", head="feature", base="main"
-            )
+            url = await platform.create_pr(title="My MR", body="body", head="feature", base="main")
 
         assert url == "https://gitlab.com/group/project/-/merge_requests/3"
 
@@ -1279,9 +1277,7 @@ class TestCreatePrFallbackEmpty:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="My MR", body="body", head="feature", base="main"
-                )
+                await platform.create_pr(title="My MR", body="body", head="feature", base="main")
 
         err_msg = str(exc_info.value)
         assert "409" in err_msg or "duplicate" in err_msg.lower() or "no" in err_msg.lower()
@@ -1311,9 +1307,7 @@ class TestCreatePrFallbackGetFails:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError) as exc_info:
-                await platform.create_pr(
-                    title="My MR", body="body", head="feature", base="main"
-                )
+                await platform.create_pr(title="My MR", body="body", head="feature", base="main")
 
         err_msg = str(exc_info.value)
         assert "409" in err_msg
@@ -1350,9 +1344,7 @@ class TestCreatePrDirectError:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="My MR", body="body", head="feature", base="main"
-                )
+                await platform.create_pr(title="My MR", body="body", head="feature", base="main")
 
         # Only the POST was attempted; no fallback GET
         assert call_count == 1

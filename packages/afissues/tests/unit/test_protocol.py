@@ -31,27 +31,17 @@ class TestPlatformProtocol:
     def test_is_protocol(self) -> None:
         from afissues.protocol import PlatformProtocol
 
-        assert getattr(PlatformProtocol, "_is_protocol", False), (
-            "PlatformProtocol must be a typing.Protocol subclass"
-        )
+        assert getattr(PlatformProtocol, "_is_protocol", False), "PlatformProtocol must be a typing.Protocol subclass"
 
     def test_has_12_async_methods(self) -> None:
         from afissues.protocol import PlatformProtocol
 
         # Collect public methods defined directly on PlatformProtocol
         protocol_methods = {
-            name
-            for name, obj in vars(PlatformProtocol).items()
-            if callable(obj) and not name.startswith("_")
+            name for name, obj in vars(PlatformProtocol).items() if callable(obj) and not name.startswith("_")
         }
-        async_methods = {
-            name
-            for name in protocol_methods
-            if inspect.iscoroutinefunction(vars(PlatformProtocol)[name])
-        }
-        assert len(async_methods) == 12, (
-            f"Expected 12 async methods, got {len(async_methods)}: {sorted(async_methods)}"
-        )
+        async_methods = {name for name in protocol_methods if inspect.iscoroutinefunction(vars(PlatformProtocol)[name])}
+        assert len(async_methods) == 12, f"Expected 12 async methods, got {len(async_methods)}: {sorted(async_methods)}"
 
     def test_close_is_async(self) -> None:
         """Drift: close() is async in the actual codebase."""
@@ -119,9 +109,7 @@ class TestIssueResult:
     def test_field_access(self) -> None:
         from afissues.protocol import IssueResult
 
-        issue = IssueResult(
-            number=42, title="Bug", html_url="https://example.com", body="desc", labels=("bug",)
-        )
+        issue = IssueResult(number=42, title="Bug", html_url="https://example.com", body="desc", labels=("bug",))
         assert issue.number == 42
         assert issue.title == "Bug"
         assert issue.html_url == "https://example.com"

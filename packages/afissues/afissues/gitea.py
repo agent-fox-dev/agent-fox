@@ -94,10 +94,7 @@ class GiteaPlatform:
         self._cache_populated: bool = False
 
     def __repr__(self) -> str:
-        return (
-            f"GiteaPlatform(owner={self._owner!r}, repo={self._repo!r}, "
-            f"base_url={self._base_url!r})"
-        )
+        return f"GiteaPlatform(owner={self._owner!r}, repo={self._repo!r}, base_url={self._base_url!r})"
 
     async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
         """Execute an HTTP request with retry on transient network errors.
@@ -139,8 +136,7 @@ class GiteaPlatform:
         # Cache already populated — label does not exist (05-REQ-2.4).
         if self._cache_populated:
             raise IntegrationError(
-                f"Label {label_name!r} not found in repo "
-                f"{self._owner}/{self._repo}",
+                f"Label {label_name!r} not found in repo {self._owner}/{self._repo}",
             )
 
         # Cache miss — fetch all labels and populate (05-REQ-2.2).
@@ -153,8 +149,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to fetch labels ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to fetch labels ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         for item in resp.json():
@@ -164,8 +159,7 @@ class GiteaPlatform:
         # Check if the requested label was found (05-REQ-2.3).
         if label_name not in self._label_cache:
             raise IntegrationError(
-                f"Label {label_name!r} not found in repo "
-                f"{self._owner}/{self._repo}",
+                f"Label {label_name!r} not found in repo {self._owner}/{self._repo}",
             )
 
         return self._label_cache[label_name]
@@ -199,8 +193,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to create issue ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to create issue ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         return _map_issue(resp.json())
@@ -236,8 +229,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to list issues ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to list issues ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         return [_map_issue(item) for item in resp.json()]
@@ -251,22 +243,16 @@ class GiteaPlatform:
 
         Requirements: 05-REQ-5.1, 05-REQ-5.2
         """
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}/comments"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
         ) as client:
-            resp = await client.post(
-                url, json={"body": body}, headers=self._auth_headers
-            )
+            resp = await client.post(url, json={"body": body}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to add comment ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to add comment ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
     async def assign_label(
@@ -280,22 +266,16 @@ class GiteaPlatform:
         """
         label_id = await self._resolve_label_id(label)
 
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}/labels"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
         ) as client:
-            resp = await client.post(
-                url, json={"labels": [label_id]}, headers=self._auth_headers
-            )
+            resp = await client.post(url, json={"labels": [label_id]}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to assign label ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to assign label ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
     async def close_issue(
@@ -310,22 +290,16 @@ class GiteaPlatform:
         if comment is not None:
             await self.add_issue_comment(issue_number, comment)
 
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
         ) as client:
-            resp = await client.patch(
-                url, json={"state": "closed"}, headers=self._auth_headers
-            )
+            resp = await client.patch(url, json={"state": "closed"}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to close issue ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to close issue ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
     async def remove_label(
@@ -342,10 +316,7 @@ class GiteaPlatform:
         except IntegrationError:
             return  # Label doesn't exist in repo — silently succeed.
 
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}/labels/{label_id}"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels/{label_id}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
@@ -356,8 +327,7 @@ class GiteaPlatform:
             return  # Success or idempotent (label not on issue).
 
         raise IntegrationError(
-            f"Failed to remove label ({resp.status_code}): "
-            f"{_truncate_response(resp.text)}",
+            f"Failed to remove label ({resp.status_code}): {_truncate_response(resp.text)}",
         )
 
     async def list_issue_comments(
@@ -368,10 +338,7 @@ class GiteaPlatform:
 
         Requirements: 05-REQ-9.1, 05-REQ-9.2
         """
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}/comments"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
@@ -380,8 +347,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to list comments ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to list comments ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         return [
@@ -402,10 +368,7 @@ class GiteaPlatform:
 
         Requirements: 05-REQ-10.1
         """
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
@@ -414,8 +377,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to get issue ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to get issue ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         return _map_issue(resp.json())
@@ -429,22 +391,16 @@ class GiteaPlatform:
 
         Requirements: 05-REQ-11.1, 05-REQ-11.2
         """
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
             transport=_SSRFGuardTransport(),
         ) as client:
-            resp = await client.patch(
-                url, json={"body": body}, headers=self._auth_headers
-            )
+            resp = await client.patch(url, json={"body": body}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to update issue ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to update issue ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
     async def create_label(
@@ -477,8 +433,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to create label ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to create label ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         # Single-entry cache insert — no full re-fetch (05-REQ-12.3).
@@ -516,27 +471,22 @@ class GiteaPlatform:
                 timeout=_GITEA_TIMEOUT,
                 transport=_SSRFGuardTransport(),
             ) as client:
-                get_resp = await client.get(
-                    url, params=params, headers=self._auth_headers
-                )
+                get_resp = await client.get(url, params=params, headers=self._auth_headers)
 
             if get_resp.status_code < 200 or get_resp.status_code >= 300:
                 raise IntegrationError(
-                    f"Failed to find existing PR ({get_resp.status_code}): "
-                    f"{_truncate_response(get_resp.text)}",
+                    f"Failed to find existing PR ({get_resp.status_code}): {_truncate_response(get_resp.text)}",
                 )
 
             existing = get_resp.json()
             if not existing:
                 raise IntegrationError(
-                    f"409 duplicate returned but no existing open PR found "
-                    f"for head={head} base={base}",
+                    f"409 duplicate returned but no existing open PR found for head={head} base={base}",
                 )
             return existing[0]["html_url"]
 
         raise IntegrationError(
-            f"Failed to create PR ({resp.status_code}): "
-            f"{_truncate_response(resp.text)}",
+            f"Failed to create PR ({resp.status_code}): {_truncate_response(resp.text)}",
         )
 
     async def search_issues(
@@ -564,8 +514,7 @@ class GiteaPlatform:
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
-                f"Failed to search issues ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}",
+                f"Failed to search issues ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
         return [_map_issue(item) for item in resp.json()]

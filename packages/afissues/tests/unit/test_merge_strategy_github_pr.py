@@ -94,18 +94,14 @@ class TestCreatePrSuccess:
 
         requests_made: list[tuple[str, str, dict | None]] = []
 
-        async def mock_post(
-            url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any
-        ) -> MagicMock:
+        async def mock_post(url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any) -> MagicMock:
             requests_made.append(("POST", url, json))
             return mock_resp
 
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="My PR", body="body text", head="feat/x", base="main"
-            )
+            result = await platform.create_pr(title="My PR", body="body text", head="feat/x", base="main")
 
         assert result == "https://github.com/owner/repo/pull/99"
 
@@ -128,9 +124,7 @@ class TestCreatePrSuccess:
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="My PR", body="body text", head="feat/x", base="main"
-            )
+            await platform.create_pr(title="My PR", body="body text", head="feat/x", base="main")
 
         assert post_count == 1
 
@@ -152,9 +146,7 @@ class TestCreatePrSuccess:
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="PR Title", body="body", head="feat/x", base="main"
-            )
+            await platform.create_pr(title="PR Title", body="body", head="feat/x", base="main")
 
         assert len(captured_urls) == 1
         assert "/repos/myorg/myrepo/pulls" in captured_urls[0]
@@ -170,9 +162,7 @@ class TestCreatePrSuccess:
 
         captured_payloads: list[dict] = []
 
-        async def mock_post(
-            url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any
-        ) -> MagicMock:
+        async def mock_post(url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any) -> MagicMock:
             captured_payloads.append(json or {})
             return mock_resp
 
@@ -204,18 +194,14 @@ class TestCreatePrSuccess:
 
         captured_headers: list[dict] = []
 
-        async def mock_post(
-            url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any
-        ) -> MagicMock:
+        async def mock_post(url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any) -> MagicMock:
             captured_headers.append(headers or {})
             return mock_resp
 
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="T", body="B", head="H", base="main"
-            )
+            await platform.create_pr(title="T", body="B", head="H", base="main")
 
         assert len(captured_headers) == 1
         h = captured_headers[0]
@@ -242,9 +228,7 @@ class TestCreatePrSuccess:
         client = _mock_client(post=AsyncMock(return_value=mock_resp), get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="T", body="B", head="H", base="main"
-            )
+            await platform.create_pr(title="T", body="B", head="H", base="main")
 
         assert get_count == 0
 
@@ -290,9 +274,7 @@ class TestCreatePrDuplicateIdempotent:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="My PR", body="body", head="feat/x", base="main"
-            )
+            result = await platform.create_pr(title="My PR", body="body", head="feat/x", base="main")
 
         assert result == "https://github.com/owner/repo/pull/7"
 
@@ -320,9 +302,7 @@ class TestCreatePrDuplicateIdempotent:
 
         with patch(_TARGET, return_value=client):
             # Must NOT raise IntegrationError
-            result = await platform.create_pr(
-                title="My PR", body="body", head="feat/x", base="main"
-            )
+            result = await platform.create_pr(title="My PR", body="body", head="feat/x", base="main")
             assert isinstance(result, str)
 
     async def test_422_duplicate_sends_get_with_head_and_base(self) -> None:
@@ -357,9 +337,7 @@ class TestCreatePrDuplicateIdempotent:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="PR", body="body", head="feat/x", base="main"
-            )
+            await platform.create_pr(title="PR", body="body", head="feat/x", base="main")
 
         assert len(get_requests) == 1
         url, params = get_requests[0]
@@ -396,9 +374,7 @@ class TestCreatePrDuplicateIdempotent:
         )
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="PR", body="body", head="feat/x", base="main"
-            )
+            result = await platform.create_pr(title="PR", body="body", head="feat/x", base="main")
 
         assert result == "https://github.com/owner/repo/pull/3"
 
@@ -429,9 +405,7 @@ class TestCreatePrErrorResponses:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_422_without_duplicate_message_raises_integration_error(self) -> None:
         """A 422 response without the duplicate-PR indicator raises
@@ -451,9 +425,7 @@ class TestCreatePrErrorResponses:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_422_with_empty_errors_raises_integration_error(self) -> None:
         """A 422 response with an empty errors list raises IntegrationError."""
@@ -469,9 +441,7 @@ class TestCreatePrErrorResponses:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_422_with_no_errors_key_raises_integration_error(self) -> None:
         """A 422 response without an 'errors' key raises IntegrationError."""
@@ -487,9 +457,7 @@ class TestCreatePrErrorResponses:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_integration_error_includes_status_details(self) -> None:
         """IntegrationError includes failure details for diagnosis."""
@@ -500,9 +468,7 @@ class TestCreatePrErrorResponses:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError, match="500|failed|error"):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
 
 # ---------------------------------------------------------------------------
@@ -536,9 +502,7 @@ class TestCreatePrTimeoutPropagation:
         with patch(_TARGET, return_value=client):
             with patch(_SLEEP_TARGET, new_callable=AsyncMock):
                 with pytest.raises(httpx.ReadTimeout):
-                    await platform.create_pr(
-                        title="T", body="B", head="H", base="main"
-                    )
+                    await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_connect_timeout_propagates(self) -> None:
         """httpx.ConnectTimeout propagates from create_pr() after retries
@@ -551,9 +515,7 @@ class TestCreatePrTimeoutPropagation:
         with patch(_TARGET, return_value=client):
             with patch(_SLEEP_TARGET, new_callable=AsyncMock):
                 with pytest.raises(httpx.ConnectTimeout):
-                    await platform.create_pr(
-                        title="T", body="B", head="H", base="main"
-                    )
+                    await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_connect_error_propagates(self) -> None:
         """httpx.ConnectError propagates from create_pr() after retries
@@ -566,9 +528,7 @@ class TestCreatePrTimeoutPropagation:
         with patch(_TARGET, return_value=client):
             with patch(_SLEEP_TARGET, new_callable=AsyncMock):
                 with pytest.raises(httpx.ConnectError):
-                    await platform.create_pr(
-                        title="T", body="B", head="H", base="main"
-                    )
+                    await platform.create_pr(title="T", body="B", head="H", base="main")
 
     async def test_timeout_not_wrapped_in_integration_error(self) -> None:
         """Transport timeouts are NOT wrapped in IntegrationError by
@@ -581,9 +541,7 @@ class TestCreatePrTimeoutPropagation:
         with patch(_TARGET, return_value=client):
             with patch(_SLEEP_TARGET, new_callable=AsyncMock):
                 with pytest.raises(httpx.ReadTimeout):
-                    await platform.create_pr(
-                        title="T", body="B", head="H", base="main"
-                    )
+                    await platform.create_pr(title="T", body="B", head="H", base="main")
                 # If create_pr wrapped it in IntegrationError, this test
                 # would fail because pytest.raises(httpx.ReadTimeout)
                 # would not match.
@@ -624,9 +582,7 @@ class TestCreatePrDuplicateNoExistingPr:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="feat/x", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="feat/x", base="main")
 
     async def test_422_duplicate_empty_get_does_not_return_url(self) -> None:
         """When GET returns no results after a 422 duplicate, no html_url is
@@ -651,13 +607,9 @@ class TestCreatePrDuplicateNoExistingPr:
         with patch(_TARGET, return_value=client):
             raised = False
             try:
-                result = await platform.create_pr(
-                    title="T", body="B", head="feat/x", base="main"
-                )
+                result = await platform.create_pr(title="T", body="B", head="feat/x", base="main")
                 # If we reach here, the test should fail
-                pytest.fail(
-                    f"Expected IntegrationError but got return value: {result!r}"
-                )
+                pytest.fail(f"Expected IntegrationError but got return value: {result!r}")
             except IntegrationError:
                 raised = True
             assert raised
@@ -697,9 +649,7 @@ class TestCreatePrSingleAttempt:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
         assert post_count == 1, f"Expected exactly 1 POST attempt, got {post_count}"
 
@@ -718,9 +668,7 @@ class TestCreatePrSingleAttempt:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
         assert post_count == 1
 
@@ -735,9 +683,7 @@ class TestCreatePrSingleAttempt:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="T", body="B", head="H", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="H", base="main")
 
         # AsyncMock records call_count
         assert mock_post.call_count == 1
@@ -768,7 +714,7 @@ class TestCreatePrRequestCountProperty:
             (403, False),
             (404, False),
             (500, False),
-            (422, True),   # duplicate-PR 422 -> GET follows
+            (422, True),  # duplicate-PR 422 -> GET follows
             (422, False),  # non-duplicate 422 -> no GET
         ],
         ids=[
@@ -781,9 +727,7 @@ class TestCreatePrRequestCountProperty:
             "non_duplicate_422",
         ],
     )
-    async def test_request_count_invariant(
-        self, status_code: int, is_duplicate_422: bool
-    ) -> None:
+    async def test_request_count_invariant(self, status_code: int, is_duplicate_422: bool) -> None:
         """POST count == 1; GET count <= 1 on duplicate-PR 422, else 0;
         total POST + GET <= 2."""
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
@@ -808,9 +752,7 @@ class TestCreatePrRequestCountProperty:
 
         post_text = str(post_json)
 
-        async def mock_post(
-            url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any
-        ) -> MagicMock:
+        async def mock_post(url: str, *, json: dict | None = None, headers: dict | None = None, **kw: Any) -> MagicMock:
             nonlocal post_count
             post_count += 1
             return _json_response(status_code, post_json, text=post_text)
@@ -829,33 +771,23 @@ class TestCreatePrRequestCountProperty:
 
         with patch(_TARGET, return_value=client):
             try:
-                await platform.create_pr(
-                    title="T", body="B", head="feat/x", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="feat/x", base="main")
             except (IntegrationError, NotImplementedError):
                 pass  # Expected for error status codes
 
         # Invariant: exactly one POST attempt
         assert post_count == 1, (
-            f"Expected exactly 1 POST, got {post_count} "
-            f"(status={status_code}, is_duplicate_422={is_duplicate_422})"
+            f"Expected exactly 1 POST, got {post_count} (status={status_code}, is_duplicate_422={is_duplicate_422})"
         )
 
         # Invariant: GET only on duplicate-PR 422
         if is_duplicate_422:
-            assert get_count <= 1, (
-                f"Expected at most 1 GET on duplicate-PR 422, got {get_count}"
-            )
+            assert get_count <= 1, f"Expected at most 1 GET on duplicate-PR 422, got {get_count}"
         else:
-            assert get_count == 0, (
-                f"Expected 0 GET requests for status {status_code} "
-                f"(non-duplicate), got {get_count}"
-            )
+            assert get_count == 0, f"Expected 0 GET requests for status {status_code} (non-duplicate), got {get_count}"
 
         # Invariant: total bounded
-        assert post_count + get_count <= 2, (
-            f"Total requests {post_count + get_count} exceeds bound of 2"
-        )
+        assert post_count + get_count <= 2, f"Total requests {post_count + get_count} exceeds bound of 2"
 
     async def test_201_success_no_get_request(self) -> None:
         """On 201 success: exactly 1 POST, 0 GET."""
@@ -880,9 +812,7 @@ class TestCreatePrRequestCountProperty:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="T", body="B", head="H", base="main"
-            )
+            await platform.create_pr(title="T", body="B", head="H", base="main")
 
         assert post_count == 1
         assert get_count == 0
@@ -916,9 +846,7 @@ class TestCreatePrRequestCountProperty:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            await platform.create_pr(
-                title="T", body="B", head="feat/x", base="main"
-            )
+            await platform.create_pr(title="T", body="B", head="feat/x", base="main")
 
         assert post_count == 1
         assert get_count == 1

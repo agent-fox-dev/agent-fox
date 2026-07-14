@@ -37,18 +37,14 @@ class TestPlatformProtocolCreatePrSignature:
         """PlatformProtocol has a create_pr attribute."""
         from afissues.protocol import PlatformProtocol
 
-        assert hasattr(PlatformProtocol, "create_pr"), (
-            "PlatformProtocol must declare a create_pr method"
-        )
+        assert hasattr(PlatformProtocol, "create_pr"), "PlatformProtocol must declare a create_pr method"
 
     def test_create_pr_is_coroutine_function(self) -> None:
         """create_pr is declared as an async method (coroutine function)."""
         from afissues.protocol import PlatformProtocol
 
         method = PlatformProtocol.create_pr
-        assert inspect.iscoroutinefunction(method), (
-            "create_pr must be an async method (coroutine function)"
-        )
+        assert inspect.iscoroutinefunction(method), "create_pr must be an async method (coroutine function)"
 
     def test_create_pr_title_param_is_keyword_only_str(self) -> None:
         """'title' parameter is keyword-only with str annotation."""
@@ -56,12 +52,8 @@ class TestPlatformProtocolCreatePrSignature:
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["title"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "title must be a keyword-only parameter"
-        )
-        assert param.annotation is str, (
-            "title must be annotated as str"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "title must be a keyword-only parameter"
+        assert param.annotation is str, "title must be annotated as str"
 
     def test_create_pr_body_param_is_keyword_only_str(self) -> None:
         """'body' parameter is keyword-only with str annotation."""
@@ -69,12 +61,8 @@ class TestPlatformProtocolCreatePrSignature:
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["body"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "body must be a keyword-only parameter"
-        )
-        assert param.annotation is str, (
-            "body must be annotated as str"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "body must be a keyword-only parameter"
+        assert param.annotation is str, "body must be annotated as str"
 
     def test_create_pr_head_param_is_keyword_only_str(self) -> None:
         """'head' parameter is keyword-only with str annotation."""
@@ -82,12 +70,8 @@ class TestPlatformProtocolCreatePrSignature:
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["head"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "head must be a keyword-only parameter"
-        )
-        assert param.annotation is str, (
-            "head must be annotated as str"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "head must be a keyword-only parameter"
+        assert param.annotation is str, "head must be annotated as str"
 
     def test_create_pr_base_param_is_keyword_only_str(self) -> None:
         """'base' parameter is keyword-only with str annotation."""
@@ -95,32 +79,22 @@ class TestPlatformProtocolCreatePrSignature:
 
         sig = inspect.signature(PlatformProtocol.create_pr)
         param = sig.parameters["base"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "base must be a keyword-only parameter"
-        )
-        assert param.annotation is str, (
-            "base must be annotated as str"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "base must be a keyword-only parameter"
+        assert param.annotation is str, "base must be annotated as str"
 
     def test_create_pr_return_annotation_is_str(self) -> None:
         """create_pr return annotation is str."""
         from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
-        assert sig.return_annotation is str, (
-            "create_pr must declare return type -> str"
-        )
+        assert sig.return_annotation is str, "create_pr must declare return type -> str"
 
     def test_create_pr_has_exactly_four_keyword_params(self) -> None:
         """create_pr has exactly four keyword-only parameters (title, body, head, base)."""
         from afissues.protocol import PlatformProtocol
 
         sig = inspect.signature(PlatformProtocol.create_pr)
-        kw_params = [
-            name
-            for name, p in sig.parameters.items()
-            if p.kind == inspect.Parameter.KEYWORD_ONLY
-        ]
+        kw_params = [name for name, p in sig.parameters.items() if p.kind == inspect.Parameter.KEYWORD_ONLY]
         assert kw_params == ["title", "body", "head", "base"], (
             f"Expected keyword-only params [title, body, head, base], got {kw_params}"
         )
@@ -131,9 +105,7 @@ class TestPlatformProtocolCreatePrSignature:
 
         method = PlatformProtocol.create_pr
         assert method.__doc__ is not None, "create_pr must have a docstring"
-        assert "html_url" in method.__doc__, (
-            "create_pr docstring must mention 'html_url'"
-        )
+        assert "html_url" in method.__doc__, "create_pr docstring must mention 'html_url'"
 
     def test_create_pr_docstring_mentions_integration_error(self) -> None:
         """create_pr docstring references 'IntegrationError'."""
@@ -141,9 +113,7 @@ class TestPlatformProtocolCreatePrSignature:
 
         method = PlatformProtocol.create_pr
         assert method.__doc__ is not None, "create_pr must have a docstring"
-        assert "IntegrationError" in method.__doc__, (
-            "create_pr docstring must mention 'IntegrationError'"
-        )
+        assert "IntegrationError" in method.__doc__, "create_pr docstring must mention 'IntegrationError'"
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +259,7 @@ class TestNullPlatformCreatePrProperty:
         base=st.text(min_size=0, max_size=100),
     )
     @settings(max_examples=50)
-    async def test_always_raises_not_implemented_error(
-        self, title: str, body: str, head: str, base: str
-    ) -> None:
+    async def test_always_raises_not_implemented_error(self, title: str, body: str, head: str, base: str) -> None:
         """For any string arguments, NullPlatform.create_pr() always raises
         NotImplementedError."""
         from afissues.protocol import NullPlatform
@@ -347,9 +315,7 @@ class TestNullPlatformCreatePrProperty:
             ("a" * 500, "b" * 500, "c" * 200, "d" * 200),
         ],
     )
-    async def test_parametrized_always_raises(
-        self, title: str, body: str, head: str, base: str
-    ) -> None:
+    async def test_parametrized_always_raises(self, title: str, body: str, head: str, base: str) -> None:
         """Parametrized: NotImplementedError is always raised for various inputs."""
         from afissues.protocol import NullPlatform
 
@@ -364,9 +330,7 @@ class TestNullPlatformCreatePrProperty:
         platform = NullPlatform()
         raised = False
         try:
-            result = await platform.create_pr(
-                title="T", body="B", head="H", base="main"
-            )
+            result = await platform.create_pr(title="T", body="B", head="H", base="main")
             # If we reach here, the test should fail
             pytest.fail(f"Expected NotImplementedError but got return value: {result!r}")
         except NotImplementedError:

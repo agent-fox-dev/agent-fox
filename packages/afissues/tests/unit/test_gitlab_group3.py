@@ -524,7 +524,8 @@ class TestFactoryGiteaAvailable:
     """
 
     def test_creates_gitea_platform_when_configured(
-        self, tmp_path: MagicMock,
+        self,
+        tmp_path: MagicMock,
     ) -> None:
         """Gitea is available — factory returns GiteaPlatform (05-REQ-18.1)."""
         from agentfox.nightshift.platform_factory import create_platform
@@ -579,7 +580,8 @@ class TestFactoryUnsupportedPlatform:
     """TS-04-E29: Factory error for unsupported platform type."""
 
     def test_raises_config_error_unsupported_type(
-        self, tmp_path: MagicMock,
+        self,
+        tmp_path: MagicMock,
     ) -> None:
         """TS-04-E29: Error for unsupported platform type."""
         from agentfox.nightshift.platform_factory import create_platform
@@ -793,7 +795,8 @@ class TestPropertyCreateLabelIdempotency:
         """TS-04-P5: create_label returns None on 201 and 409."""
         platform = _make_platform()
         mock_resp = _json_response(
-            status, text="OK" if status == 201 else "Conflict",
+            status,
+            text="OK" if status == 201 else "Conflict",
         )
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
@@ -897,9 +900,7 @@ class TestPropertyParseRemoteNeverRaises:
 
         result = parse_remote(url)
         assert result is None or (
-            isinstance(result, tuple)
-            and len(result) == 2
-            and all(isinstance(s, str) and s for s in result)
+            isinstance(result, tuple) and len(result) == 2 and all(isinstance(s, str) and s for s in result)
         )
 
 
@@ -1010,7 +1011,8 @@ class TestSmokeCreateIssueAndLabel:
 
     @pytest.mark.asyncio
     async def test_e2e_create_issue_and_label(
-        self, tmp_path: MagicMock,
+        self,
+        tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-1: Full E2E with mocked HTTP responses."""
         from afissues.gitlab import GitLabPlatform
@@ -1035,7 +1037,9 @@ class TestSmokeCreateIssueAndLabel:
 
         with (
             patch.dict(
-                "os.environ", {"GITLAB_TOKEN": "test-token"}, clear=False,
+                "os.environ",
+                {"GITLAB_TOKEN": "test-token"},
+                clear=False,
             ),
             patch(
                 "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
@@ -1074,9 +1078,7 @@ class TestSmokeCreatePrFallback:
                     200,
                     [
                         {
-                            "web_url": (
-                                "https://gitlab.com/g/p/-/merge_requests/3"
-                            ),
+                            "web_url": ("https://gitlab.com/g/p/-/merge_requests/3"),
                         },
                     ],
                 ),
@@ -1114,7 +1116,8 @@ class TestSmokeSSRFBlocked:
     """TS-04-SMOKE-4: SSRF violation blocked at construction time."""
 
     def test_ssrf_blocked_at_construction(
-        self, tmp_path: MagicMock,
+        self,
+        tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-4: SSRF violation raises ConfigError."""
         from agentfox.nightshift.platform_factory import create_platform
@@ -1138,7 +1141,8 @@ class TestSmokeGiteaAvailable:
     """
 
     def test_gitea_available_creates_platform(
-        self, tmp_path: MagicMock,
+        self,
+        tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-5 (updated): Gitea available creates GiteaPlatform."""
         from agentfox.nightshift.platform_factory import create_platform

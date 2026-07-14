@@ -166,13 +166,16 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `ensure_integration_branch` | `workspace.integration` | Set up the integration branch for merging. |
 | `push_to_remote` | `workspace.git` | `(branch, cwd, remote="origin") -> None` -- push a branch to origin. |
 
-### Platform (`agentfox.platform`)
+### Platform (via `afissues`)
+
+The platform/forge abstraction layer has been extracted to the standalone
+[`afissues`](../afissues/) package. Import from `afissues` directly:
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `PlatformProtocol` | `platform.protocol` | Protocol for issue/PR management: `create_issue`, `list_issues_by_label`, `add_issue_comment`, `assign_label`, `close_issue`, `create_pull_request`, etc. |
-| `IssueResult` | `platform.protocol` | Dataclass: `number`, `title`, `body`, `state`, `labels`, `url`. |
-| `GitHubPlatform` | `platform.github` | GitHub implementation of `PlatformProtocol` using the `gh` CLI. |
+| `PlatformProtocol` | `afissues.protocol` | Protocol for issue/PR management: `create_issue`, `list_issues_by_label`, `add_issue_comment`, `assign_label`, `close_issue`, `create_pull_request`, etc. |
+| `IssueResult` | `afissues.protocol` | Dataclass: `number`, `title`, `body`, `labels`, `html_url`. |
+| `GitHubPlatform` | `afissues.github` | GitHub implementation of `PlatformProtocol` using `httpx.AsyncClient`. |
 
 ### Security (`agentfox.core.security`)
 

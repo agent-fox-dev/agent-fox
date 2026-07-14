@@ -67,8 +67,7 @@ class TestMigrationDirectoryStructure:
             }
         ]
         assert len(relocated) >= 9, (
-            f"Expected >= 9 relocated platform test files, got {len(relocated)}: "
-            f"{[Path(f).name for f in relocated]}"
+            f"Expected >= 9 relocated platform test files, got {len(relocated)}: {[Path(f).name for f in relocated]}"
         )
 
     def test_conftest_exists(self) -> None:
@@ -96,9 +95,7 @@ class TestConftestImports:
         if not conftest_path.exists():
             pytest.skip("conftest.py not yet relocated")
         content = conftest_path.read_text()
-        assert "agentfox.platform" not in content, (
-            "conftest.py still references agentfox.platform"
-        )
+        assert "agentfox.platform" not in content, "conftest.py still references agentfox.platform"
 
     def test_conftest_references_afissues_or_is_empty(self) -> None:
         """conftest.py references afissues or is minimal (empty/no imports)."""
@@ -110,9 +107,7 @@ class TestConftestImports:
         # Either the file imports afissues, or the unused fixture was removed.
         has_afissues_ref = "afissues" in content
         is_minimal = content.strip() == "" or "import" not in content
-        assert has_afissues_ref or is_minimal, (
-            "conftest.py should reference afissues or be minimal after relocation"
-        )
+        assert has_afissues_ref or is_minimal, "conftest.py should reference afissues or be minimal after relocation"
 
 
 # ── TS-03-33: test_overhaul_props.py imports from afissues ──────────
@@ -127,9 +122,7 @@ class TestPropertyTestImports:
         if not prop_path.exists():
             pytest.skip("test_overhaul_props.py not yet relocated")
         content = prop_path.read_text()
-        assert "agentfox.platform" not in content, (
-            "test_overhaul_props.py still references agentfox.platform"
-        )
+        assert "agentfox.platform" not in content, "test_overhaul_props.py still references agentfox.platform"
 
     def test_property_test_imports_afissues(self) -> None:
         """Property test imports from afissues."""
@@ -137,9 +130,7 @@ class TestPropertyTestImports:
         if not prop_path.exists():
             pytest.skip("test_overhaul_props.py not yet relocated")
         content = prop_path.read_text()
-        assert "afissues" in content, (
-            "test_overhaul_props.py must import from afissues"
-        )
+        assert "afissues" in content, "test_overhaul_props.py must import from afissues"
 
 
 # ── TS-03-34: Old platform test directory deleted ────────────────────
@@ -150,18 +141,14 @@ class TestOldPlatformDirDeleted:
 
     def test_old_platform_dir_does_not_exist(self) -> None:
         """The old platform test directory must be deleted after relocation."""
-        assert not os.path.exists(_OLD_PLATFORM_DIR), (
-            f"Old platform test directory still exists: {_OLD_PLATFORM_DIR}"
-        )
+        assert not os.path.exists(_OLD_PLATFORM_DIR), f"Old platform test directory still exists: {_OLD_PLATFORM_DIR}"
 
     def test_no_test_files_remain(self) -> None:
         """No test files remain under the old platform directory."""
         if not os.path.exists(_OLD_PLATFORM_DIR):
             return  # Directory deleted — test passes
         test_files = glob.glob(str(_OLD_PLATFORM_DIR / "test_*.py"))
-        assert len(test_files) == 0, (
-            f"Test files remain in deleted directory: {[Path(f).name for f in test_files]}"
-        )
+        assert len(test_files) == 0, f"Test files remain in deleted directory: {[Path(f).name for f in test_files]}"
 
     def test_no_conftest_remains(self) -> None:
         """No conftest.py remains under the old platform directory."""

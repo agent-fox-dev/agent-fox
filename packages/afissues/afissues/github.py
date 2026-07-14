@@ -679,10 +679,7 @@ class GitHubPlatform:
             # success, mirroring the pattern established by create_label().
             try:
                 errors = resp.json().get("errors", [])
-                is_duplicate = any(
-                    "pull request already exists" in (e.get("message") or "").lower()
-                    for e in errors
-                )
+                is_duplicate = any("pull request already exists" in (e.get("message") or "").lower() for e in errors)
             except Exception:
                 is_duplicate = False
 

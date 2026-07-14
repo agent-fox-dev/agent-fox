@@ -36,9 +36,7 @@ class TestPackagesReadme:
             and "afissues" in content
             and any(arrow in content for arrow in ("──▶", "-->", "→", "──►"))
         )
-        assert has_arrow, (
-            "Dependency edge 'agentfox ──▶ afissues' not found in packages/README.md"
-        )
+        assert has_arrow, "Dependency edge 'agentfox ──▶ afissues' not found in packages/README.md"
 
 
 # ── TS-03-40: root README.md includes afissues ──────────────────────
@@ -58,6 +56,4 @@ class TestRootReadme:
         readme_path = _WORKSPACE_ROOT / "README.md"
         content = readme_path.read_text()
         count = content.count("afissues")
-        assert count >= 3, (
-            f"afissues should appear >= 3 times in root README.md, found {count}"
-        )
+        assert count >= 3, f"afissues should appear >= 3 times in root README.md, found {count}"

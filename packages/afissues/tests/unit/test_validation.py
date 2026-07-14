@@ -43,14 +43,11 @@ class TestNoAgentfoxPlatformImports:
             content = Path(path).read_text()
             for i, line in enumerate(content.splitlines(), 1):
                 stripped = line.strip()
-                if "agentfox.platform" in stripped and (
-                    stripped.startswith("from ") or stripped.startswith("import ")
-                ):
+                if "agentfox.platform" in stripped and (stripped.startswith("from ") or stripped.startswith("import ")):
                     rel = Path(path).relative_to(_WORKSPACE_ROOT)
                     violations.append(f"{rel}:{i}: {stripped}")
-        assert not violations, (
-            f"Found {len(violations)} stale agentfox.platform import(s):\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, f"Found {len(violations)} stale agentfox.platform import(s):\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -86,18 +83,14 @@ class TestPublicSymbolsImportable:
         for symbol in self._EXPECTED_SYMBOLS:
             if not hasattr(afissues, symbol):
                 missing.append(symbol)
-        assert not missing, (
-            f"Missing symbols in afissues namespace: {missing}"
-        )
+        assert not missing, f"Missing symbols in afissues namespace: {missing}"
 
     def test_symbol_count(self) -> None:
         """At least 15 public symbols are re-exported."""
         import afissues
 
         present = [s for s in self._EXPECTED_SYMBOLS if hasattr(afissues, s)]
-        assert len(present) == 15, (
-            f"Expected 15 symbols, found {len(present)}: {present}"
-        )
+        assert len(present) == 15, f"Expected 15 symbols, found {len(present)}: {present}"
 
 
 # ── TS-03-P6: IntegrationError.retryable defaults to True ───────────
@@ -158,9 +151,8 @@ class TestImportWithoutAgentfox:
                 stripped = line.strip()
                 if stripped.startswith(("import agentfox", "from agentfox")):
                     violations.append(f"{Path(path).name}: {stripped}")
-        assert not violations, (
-            "afissues has agentfox imports (would fail without agentfox):\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "afissues has agentfox imports (would fail without agentfox):\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
     def test_core_import_succeeds(self) -> None:
@@ -187,9 +179,7 @@ class TestTypeCheckerResolution:
         import afissues
 
         pkg_dir = Path(afissues.__file__).parent
-        assert (pkg_dir / "py.typed").exists(), (
-            "py.typed not found in installed afissues package"
-        )
+        assert (pkg_dir / "py.typed").exists(), "py.typed not found in installed afissues package"
 
 
 # ── TS-03-E1: Python < 3.12 rejection ───────────────────────────────

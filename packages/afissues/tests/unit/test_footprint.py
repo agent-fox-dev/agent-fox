@@ -56,9 +56,8 @@ class TestNoWorkspaceImportsInSource:
             for pkg in _WORKSPACE_PKGS:
                 if pkg in content:
                     violations.append(f"{Path(path).name} references {pkg}")
-        assert not violations, (
-            "Workspace package references found in afissues source:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Workspace package references found in afissues source:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -71,18 +70,14 @@ class TestNightshiftNoAfissuesDep:
     def test_nightshift_deps_exclude_afissues(self) -> None:
         """afissues must not appear in nightshift's dependencies."""
         # Find nightshift pyproject.toml(s) - could be under packages/ or at root
-        nightshift_tomls = glob.glob(
-            str(_WORKSPACE_ROOT / "packages" / "*" / "pyproject.toml")
-        )
+        nightshift_tomls = glob.glob(str(_WORKSPACE_ROOT / "packages" / "*" / "pyproject.toml"))
         for toml_path in nightshift_tomls:
             if "nightshift" not in toml_path:
                 continue
             with open(toml_path, "rb") as f:
                 toml = tomllib.load(f)
             deps = toml.get("project", {}).get("dependencies", [])
-            assert not any("afissues" in dep for dep in deps), (
-                f"afissues should not be in nightshift deps: {deps}"
-            )
+            assert not any("afissues" in dep for dep in deps), f"afissues should not be in nightshift deps: {deps}"
 
 
 # ── TS-03-38: af/pyproject.toml unchanged ───────────────────────────
@@ -97,9 +92,7 @@ class TestAfPackageUnchanged:
         with open(af_toml_path, "rb") as f:
             toml = tomllib.load(f)
         deps = toml.get("project", {}).get("dependencies", [])
-        assert not any("afissues" in dep for dep in deps), (
-            f"afissues should not be in af deps: {deps}"
-        )
+        assert not any("afissues" in dep for dep in deps), f"afissues should not be in af deps: {deps}"
 
 
 # ── TS-03-P1: Property — afissues modules have zero workspace imports
@@ -117,21 +110,15 @@ class TestWorkspaceImportIsolationProperty:
         """Collect all .py files in the afissues source directory."""
         return [Path(p) for p in glob.glob(str(_AFISSUES_SRC / "**" / "*.py"), recursive=True)]
 
-    def test_every_module_has_no_workspace_imports(
-        self, afissues_modules: list[Path]
-    ) -> None:
+    def test_every_module_has_no_workspace_imports(self, afissues_modules: list[Path]) -> None:
         """For every afissues module: no workspace package references."""
         assert len(afissues_modules) > 0, "No afissues modules found"
         for mod_path in afissues_modules:
             content = mod_path.read_text()
             for pkg in _WORKSPACE_PKGS:
-                assert pkg not in content, (
-                    f"Module {mod_path.name} references workspace package '{pkg}'"
-                )
+                assert pkg not in content, f"Module {mod_path.name} references workspace package '{pkg}'"
 
-    def test_only_httpx_and_stdlib_imports(
-        self, afissues_modules: list[Path]
-    ) -> None:
+    def test_only_httpx_and_stdlib_imports(self, afissues_modules: list[Path]) -> None:
         """For every afissues module: imports are from httpx, stdlib, or afissues itself."""
         assert len(afissues_modules) > 0, "No afissues modules found"
         for mod_path in afissues_modules:

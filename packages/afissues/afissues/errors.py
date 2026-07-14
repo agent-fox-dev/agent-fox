@@ -35,8 +35,6 @@ class IntegrationError(AfIssuesError):
             retried. Defaults to ``True``.
     """
 
-    def __init__(
-        self, message: str = "", *, retryable: bool = True, **context: object
-    ) -> None:
+    def __init__(self, message: str = "", *, retryable: bool = True, **context: object) -> None:
         super().__init__(message, **context)
         self.retryable = retryable
