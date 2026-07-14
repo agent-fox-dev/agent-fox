@@ -5,6 +5,7 @@ description = "Core library for the agent-fox autonomous coding-agent orchestrat
 requires-python = ">=3.12"
 dependencies = [
     "afaudit>=4.2.0",
+    "afissues>=4.2.0",
     "afspec>=4.2.0",
     "click>=8.1",
     "pydantic>=2.13",
@@ -47,6 +48,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 afaudit = { workspace = true }
+afissues = { workspace = true }
 afspec = { workspace = true }
 
 [tool.pytest.ini_options]

@@ -40,6 +40,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 af = { workspace = true }
 afaudit = { workspace = true }
+afissues = { workspace = true }
 agentfox = { workspace = true }
 afspec = { workspace = true }
 agentspec = { workspace = true }
