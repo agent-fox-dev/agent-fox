@@ -1,4 +1,4 @@
-"""Tests for GitHubPlatform REST API and parse_github_remote.
+"""Tests for GitHubPlatform REST API and parse_remote.
 
 Test Spec: TS-19-14 (HTTPS parse), TS-19-15 (SSH parse),
            TS-19-E9 (non-GitHub URL)
@@ -11,45 +11,45 @@ from GitHubPlatform in spec 65 (65-REQ-4.2).
 
 from __future__ import annotations
 
-from agentfox.platform.github import GitHubPlatform, parse_github_remote
+from agentfox.platform.github import GitHubPlatform, parse_remote
 
 # ---------------------------------------------------------------------------
-# TS-19-14: parse_github_remote HTTPS
+# TS-19-14: parse_remote HTTPS
 # ---------------------------------------------------------------------------
 
 
-class TestParseGithubRemoteHTTPS:
+class TestParseRemoteHTTPS:
     """TS-19-14: Parses owner/repo from HTTPS GitHub URL.
 
     Requirement: 19-REQ-4.4
     """
 
     def test_https_with_git_suffix(self) -> None:
-        result = parse_github_remote("https://github.com/owner/repo.git")
+        result = parse_remote("https://github.com/owner/repo.git")
         assert result == ("owner", "repo")
 
     def test_https_without_git_suffix(self) -> None:
-        result = parse_github_remote("https://github.com/owner/repo")
+        result = parse_remote("https://github.com/owner/repo")
         assert result == ("owner", "repo")
 
 
 # ---------------------------------------------------------------------------
-# TS-19-15: parse_github_remote SSH
+# TS-19-15: parse_remote SSH
 # ---------------------------------------------------------------------------
 
 
-class TestParseGithubRemoteSSH:
+class TestParseRemoteSSH:
     """TS-19-15: Parses owner/repo from SSH GitHub URL.
 
     Requirement: 19-REQ-4.4
     """
 
     def test_ssh_format(self) -> None:
-        result = parse_github_remote("git@github.com:owner/repo.git")
+        result = parse_remote("git@github.com:owner/repo.git")
         assert result == ("owner", "repo")
 
     def test_ssh_without_git_suffix(self) -> None:
-        result = parse_github_remote("git@github.com:owner/repo")
+        result = parse_remote("git@github.com:owner/repo")
         assert result == ("owner", "repo")
 
 
@@ -58,22 +58,22 @@ class TestParseGithubRemoteSSH:
 # ---------------------------------------------------------------------------
 
 
-class TestParseGithubRemoteNonGithub:
+class TestParseRemoteNonGithub:
     """TS-19-E9: Non-GitHub remote URL returns None from parser.
 
     Requirement: 19-REQ-4.E4
     """
 
     def test_gitlab_returns_none(self) -> None:
-        result = parse_github_remote("https://gitlab.com/owner/repo.git")
+        result = parse_remote("https://gitlab.com/owner/repo.git")
         assert result is None
 
     def test_bitbucket_returns_none(self) -> None:
-        result = parse_github_remote("https://bitbucket.org/owner/repo.git")
+        result = parse_remote("https://bitbucket.org/owner/repo.git")
         assert result is None
 
     def test_random_url_returns_none(self) -> None:
-        result = parse_github_remote("https://example.com/foo/bar.git")
+        result = parse_remote("https://example.com/foo/bar.git")
         assert result is None
 
 

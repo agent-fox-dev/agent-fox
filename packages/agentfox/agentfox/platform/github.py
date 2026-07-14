@@ -12,15 +12,15 @@ Requirements: 19-REQ-4.1, 19-REQ-4.2, 19-REQ-4.3, 19-REQ-4.4,
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
 import re
-import socket
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 
-from agentfox.core.errors import ConfigError, IntegrationError
+from agentfox.core.errors import IntegrationError
+from agentfox.platform._ssrf import SSRFGuardTransport as _SSRFGuardTransport
+from agentfox.platform._ssrf import _validate_url as _validate_github_url
 from agentfox.platform.protocol import IssueComment, IssueResult
 
 logger = logging.getLogger(__name__)
@@ -45,111 +45,6 @@ def _truncate_response(text: str) -> str:
     if len(text) <= _MAX_ERROR_TEXT:
         return text
     return text[:_MAX_ERROR_TEXT] + "..."
-
-
-def _validate_github_url(url: str) -> None:
-    """Validate that ``url`` does not point to a restricted IP address.
-
-    Strips an optional port suffix (host:port), then resolves the hostname
-    and checks every returned address against private, loopback, and
-    link-local ranges.  Raises ``ConfigError`` if any restricted address is
-    found.
-
-    Requirements: 221-REQ-1.*, 221-REQ-2.*
-    """
-    # Try parsing as a bare IP address first (handles both IPv4 and IPv6).
-    try:
-        addr = ipaddress.ip_address(url)
-        _check_address(addr, url)
-        return
-    except ValueError:
-        pass
-
-    # Use urlsplit with a synthetic scheme to correctly separate host and port,
-    # including bracketed IPv6 addresses like [2001:db8::1]:8080.
-    parsed = urlsplit(f"https://{url}")
-    host = parsed.hostname or url
-
-    # host is a hostname — resolve it and check each resulting address.
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except (OSError, UnicodeError):
-        logger.warning("DNS resolution failed for %r; allowing URL through", url)
-        return
-
-    for info in infos:
-        addr_str = info[4][0]
-        try:
-            addr = ipaddress.ip_address(addr_str)
-        except ValueError:
-            continue
-        _check_address(addr, url)
-
-
-def _check_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str) -> None:
-    """Raise ConfigError if *addr* is a restricted address."""
-    if (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-        or addr.is_unspecified
-    ):
-        raise ConfigError(
-            f"GitHub URL {url!r} resolves to a restricted IP address: {addr}",
-        )
-
-
-def _validate_transport_address(host: str) -> None:
-    """Resolve *host* and reject restricted addresses at connection time.
-
-    Closes the TOCTOU window between construction-time URL validation and
-    the actual TCP connection.  Unlike ``_validate_github_url``, a DNS
-    failure here is passed through — the parent transport will surface a
-    ``ConnectError`` as expected.
-
-    Requirements: 580-AC-1, 580-AC-4, 580-AC-5
-    """
-    # Handle bare IP literals without a DNS lookup.
-    try:
-        addr = ipaddress.ip_address(host)
-        _check_address(addr, host)
-        return
-    except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except (OSError, UnicodeError):
-        # DNS failure at connection time — let the transport surface the error.
-        return
-
-    for info in infos:
-        addr_str = info[4][0]
-        try:
-            addr = ipaddress.ip_address(addr_str)
-        except ValueError:
-            continue
-        _check_address(addr, host)
-
-
-class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
-    """Validating transport that re-checks DNS before each TCP connection.
-
-    Closes the TOCTOU window between construction-time URL validation and
-    the actual TCP connection by resolving and validating the target host
-    on every request.  ``ConfigError`` is raised — before any bytes are
-    sent — if DNS has rebound to a restricted address.
-
-    Requirements: 580-AC-1, 580-AC-4, 580-AC-5
-    """
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        host = request.url.host
-        if host:
-            _validate_transport_address(host)
-        return await super().handle_async_request(request)
 
 
 class GitHubPlatform:
@@ -715,7 +610,7 @@ class GitHubPlatform:
         logger.info("Closed issue #%d", issue_number)
 
 
-def parse_github_remote(remote_url: str) -> tuple[str, str] | None:
+def parse_remote(remote_url: str) -> tuple[str, str] | None:
     """Extract (owner, repo) from a GitHub remote URL.
 
     Supports HTTPS and SSH formats:

@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from agentfox.platform.github import GitHubPlatform, parse_github_remote
+from agentfox.platform.github import GitHubPlatform, parse_remote
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def _resolve_github_remote(project_root: Path) -> tuple[str, str]:
     owner, repo = "owner", "repo"
     rc, stdout, _ = run_git_sync(["remote", "get-url", "origin"], cwd=project_root)
     if rc == 0:
-        parsed = parse_github_remote(stdout.strip())
+        parsed = parse_remote(stdout.strip())
         if parsed:
             owner, repo = parsed
     return owner, repo

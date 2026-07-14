@@ -25,7 +25,7 @@ from agentfox.core.config import AgentFoxConfig, PlatformConfig
 from agentfox.core.config_gen import extract_schema
 from agentfox.core.errors import ConfigError
 from agentfox.nightshift.platform_factory import create_platform
-from agentfox.platform.github import GitHubPlatform, _validate_github_url, parse_github_remote
+from agentfox.platform.github import GitHubPlatform, _validate_github_url, parse_remote
 from agentfox.workspace import WorkspaceInfo
 from agentfox.workspace.harvest import post_harvest_integrate
 from hypothesis import assume, given, settings
@@ -121,7 +121,7 @@ class TestNoPushInstructionsInTemplates:
 class TestRemoteUrlParsingRoundtrip:
     """TS-19-P2: GitHub URLs parse correctly, non-GitHub URLs return None.
 
-    Property 6: For any valid GitHub remote URL, parse_github_remote()
+    Property 6: For any valid GitHub remote URL, parse_remote()
     returns the correct (owner, repo) tuple.
     Validates: 19-REQ-4.4, 19-REQ-4.E4
     """
@@ -131,7 +131,7 @@ class TestRemoteUrlParsingRoundtrip:
     def test_https_url_parses(self, owner: str, repo: str) -> None:
         """HTTPS GitHub URLs parse to (owner, repo)."""
         url = f"https://github.com/{owner}/{repo}.git"
-        result = parse_github_remote(url)
+        result = parse_remote(url)
         assert result == (owner, repo)
 
     @given(owner=_github_name, repo=_github_repo)
@@ -139,7 +139,7 @@ class TestRemoteUrlParsingRoundtrip:
     def test_ssh_url_parses(self, owner: str, repo: str) -> None:
         """SSH GitHub URLs parse to (owner, repo)."""
         url = f"git@github.com:{owner}/{repo}.git"
-        result = parse_github_remote(url)
+        result = parse_remote(url)
         assert result == (owner, repo)
 
     @given(
@@ -157,7 +157,7 @@ class TestRemoteUrlParsingRoundtrip:
         """Non-GitHub URLs return None."""
         assume("github.com" not in host)
         url = f"https://{host}/owner/repo.git"
-        result = parse_github_remote(url)
+        result = parse_remote(url)
         assert result is None
 
 
@@ -277,7 +277,7 @@ class TestNoGithubApiInPostHarvest:
         source = inspect.getsource(post_harvest_integrate)
         assert "GitHubPlatform" not in source
         assert "httpx" not in source
-        assert "parse_github_remote" not in source
+        assert "parse_remote" not in source
         assert "GITHUB_PAT" not in source
 
 
