@@ -14,23 +14,22 @@ changing code.
 
 ## Built-in Profiles
 
-agent-fox ships with profiles for all six archetypes and their modes:
+agent-fox ships with profiles for all five archetypes and their modes:
 
 | Profile file | Archetype | Mode | Purpose |
 |---|---|---|---|
-| `agent.md` | (all) | — | Base instructions shared by every agent: project orientation, exploration steps, structure |
-| `coder.md` | coder | — | Implementation agent: test-first workflow, commit discipline, input triage |
+| `agent.md` | (all) | — | Base profile shared by every agent: pre-injected context acknowledgment, orientation guidance, external reference verification, git workflow, scope discipline, documentation conventions |
+| `coder.md` | coder | — | Implementation agent: Quick Triage, task group routing, input triage, session summary |
 | `coder_fix.md` | coder | fix | Fix-mode variant for the night-shift fix pipeline |
-| `reviewer.md` | reviewer | — | Base reviewer (fallback when no mode-specific profile exists) |
-| `reviewer_pre-review.md` | reviewer | pre-review | Spec quality review before coding |
-| `reviewer_drift-review.md` | reviewer | drift-review | Spec-vs-codebase drift detection |
+| `reviewer.md` | reviewer | — | Base reviewer (also used by pre-flight mode, which combines spec quality review and drift detection) |
 | `reviewer_audit-review.md` | reviewer | audit-review | Test quality validation against test spec contracts |
 | `reviewer_fix-review.md` | reviewer | fix-review | Fix patch review with extended tool access |
 | `verifier.md` | verifier | — | Post-implementation verification against requirements |
-| `maintainer.md` | maintainer | — | Base maintainer (night-shift operations) |
-| `maintainer_fix-triage.md` | maintainer | fix-triage | Issue triage and batch prioritization |
+| `gate.md` | gate | — | Lightweight checkpoint verification (runs subtask commands only) |
+| `maintainer.md` | maintainer | — | Base maintainer: hunt mode (codebase scanning) and extraction mode (transcript analysis) |
+| `maintainer_fix-triage.md` | maintainer | fix-triage | Issue triage and acceptance criteria generation |
 
-These files live in `agent_fox/_templates/profiles/` inside the package.
+These files live in `agentfox/_templates/profiles/` inside the package.
 
 ## Profile Structure
 
@@ -52,6 +51,31 @@ archetype — but most follow a common pattern:
 Profiles can include YAML frontmatter (between `---` delimiters) for metadata.
 Frontmatter is stripped before injection into the prompt — it is never seen by
 the agent.
+
+### Ownership Split
+
+`agent.md` (Layer 1) and archetype profiles (Layer 2) have a clear ownership
+boundary. Universal rules live in `agent.md` and are never repeated in
+archetype profiles:
+
+**`agent.md` owns:**
+- Pre-injected context acknowledgment (steering, spec artifacts, knowledge)
+- Orientation guidance (git state check, codebase exploration, ADR reading)
+- External reference verification (stale file paths and line numbers)
+- Project structure and spec-driven workflow overview
+- Quality commands (`make check` / `make test`)
+- Git workflow (conventional commits, commit discipline, no Co-Authored-By,
+  never push to remote)
+- Scope discipline (one change per session, no unrelated fixes)
+- Documentation conventions (ADRs, errata, when to update docs)
+
+**Archetype profiles own only role-specific content:**
+- Identity and purpose
+- Role-specific rules (e.g., coder: never modify spec files)
+- Role-specific workflow (Quick Triage, Task Group Routing, verification
+  checklist, output schemas)
+- Role-specific tool constraints where they differ from the generic set
+- Role-specific input triage and output format
 
 ## Profile Resolution
 
@@ -116,7 +140,7 @@ You can define entirely new archetypes by placing a profile file in
 `.agent-fox/profiles/{name}.md`. The system detects custom profiles via
 `has_custom_profile()` and resolves them through the same priority chain.
 Custom archetypes can be assigned to task groups using archetype tags in
-`tasks.md` (e.g., `[archetype: my-custom-agent]`).
+`tasks.json` (e.g., `[archetype: my-custom-agent]`).
 
 ## How Profiles Fit Into Prompt Assembly
 
@@ -128,10 +152,14 @@ in the Architecture Guide.
 
 The three layers are:
 
-1. **Agent base profile** (`agent.md`) — shared instructions for all agents
+1. **Agent base profile** (`agent.md`) — universal rules for all agents (see
+   Ownership Split above)
 2. **Archetype profile** (e.g., `coder.md`) — role-specific behavioral guidance
-3. **Task context** — spec documents, knowledge facts, steering directives,
-   prior findings
+3. **Task context** — spec documents (scoped to the active task group),
+   knowledge facts, steering directives, prior findings
 
 Each layer is loaded independently and concatenated with section separators.
 The agent sees a single coherent system prompt composed of all three layers.
+Because universal rules live exclusively in Layer 1, archetype profiles
+(Layer 2) do not repeat them — each rule appears exactly once in the combined
+prompt.
