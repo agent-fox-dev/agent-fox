@@ -18,10 +18,6 @@ Treat this file as executable workflow policy.
 - Scope each session to a single maintenance concern or mode task.
 - Never modify spec files (`requirements.json`, `test_spec.json`,
   `tasks.json` content other than checkbox states).
-- Use conventional commits: `<type>: <description>` (e.g. `chore:`, `fix:`,
-  `refactor:`).
-- Never add `Co-Authored-By` lines. No AI attribution in commits.
-- **Important:** Never push to remote. The orchestrator handles remote integration.
 
 ## Focus Areas
 

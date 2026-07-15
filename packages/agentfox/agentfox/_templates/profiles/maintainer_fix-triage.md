@@ -31,13 +31,6 @@ When identifying `affected_files`, also consider documentation files in `docs/`
 and `README.md` that reference the affected code, configuration, or CLI
 behavior. Include them in `affected_files` if they will need updating.
 
-File paths and line numbers cited in the issue body are snapshots — they may
-have shifted since the issue was filed. Before including a path in
-`affected_files`, confirm it exists in the current tree. If referenced code
-has moved, report the current location.
-
-Only read files tracked by git. Skip anything matched by `.gitignore`.
-
 ## Output Format
 
 Your final output MUST be **bare JSON only** — no markdown fences, no
