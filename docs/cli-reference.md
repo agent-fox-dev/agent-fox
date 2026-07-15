@@ -211,6 +211,8 @@ agent-fox code [OPTIONS]
 | `--watch` | flag | off | Keep running and poll for new specs after all tasks complete |
 | `--watch-interval N` | int | 60 | Seconds between watch polls (minimum: 10) |
 | `--force-clean` | flag | off | Automatically remove untracked files and reset dirty index before dispatch |
+| `--no-parallel` | flag | off | Force serial execution (`parallel=1`) for this run |
+| `--archive` | flag | off | Move completed specs to `specs/archive/` after execution |
 | `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Runs the orchestrator, which dispatches coding sessions to a Claude agent for
@@ -243,9 +245,9 @@ Completed tasks are excluded from all sections of the output so that only
 remaining work is displayed.
 
 **Mutual exclusion with execution flags:** `--dry-run` cannot be combined with
-`--watch` or `--force-clean`. If any of these flags are provided alongside
-`--dry-run`, the command exits with code 1 and an error message listing all
-incompatible flags.
+`--watch`, `--force-clean`, `--no-parallel`, or `--archive`. If any of these
+flags are provided alongside `--dry-run`, the command exits with code 1 and
+an error message listing all incompatible flags.
 
 **Daemon guard bypass:** Because `--dry-run` is a read-only operation, it
 bypasses the nightshift daemon PID guard. You can run `code --dry-run` even
@@ -303,6 +305,29 @@ invocation into a long-lived process that picks up new work as it appears.
 ```bash
 # Keep the orchestrator running, check for new specs every 30 seconds
 agent-fox code --watch --watch-interval 30
+```
+
+#### Serial Mode (`--no-parallel`)
+
+When `--no-parallel` is set, the orchestrator forces serial execution
+(`parallel=1`) for this run regardless of the `orchestrator.parallel` value
+in `config.toml`. This is useful for debugging or isolating flaky behavior
+without modifying the config file. The override is transient — the config
+file is not modified.
+
+```bash
+agent-fox code --no-parallel
+```
+
+#### Archive Mode (`--archive`)
+
+When `--archive` is set, completed specs are moved to `specs/archive/` after
+execution finishes. A spec is eligible for archiving when all of its task
+group nodes have `completed` status. Partially completed specs are left in
+place.
+
+```bash
+agent-fox code --archive
 ```
 
 **Exit codes:**

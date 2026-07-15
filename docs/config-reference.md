@@ -64,11 +64,13 @@ Controls workspace health checks, automatic cleanup, and branch configuration.
 |-------|------|---------|--------|-------------|
 | `force_clean` | bool | `false` | -- | Automatically remove untracked files and reset dirty index before session dispatch instead of aborting. Can also be set via `--force-clean` CLI flag on the `code` command (CLI flag takes precedence). |
 | `integration_branch` | str | `"main"` | -- | Git branch used as the integration target for all merges. Feature branches are created from this branch and squash-merged back into it. Use `"develop"` for git-flow workflows. |
+| `merge_strategy` | str | `"direct"` | -- | Post-session branch integration strategy: `"direct"` (squash-merge to integration branch), `"branch"` (keep feature branch locally without merging), or `"pr"` (open a GitHub PR targeting the integration branch). |
 
 ```toml
 [workspace]
 force_clean = false
 integration_branch = "main"
+merge_strategy = "direct"
 ```
 
 ---

@@ -200,9 +200,11 @@ The system prompt is built by concatenating three layers, separated by section
 breaks:
 
 **Layer 1: Agent base profile.** Loaded from `agent.md`, this layer
-provides instructions shared by every agent regardless of archetype — project
-orientation steps, directory structure conventions, and general policies. This layer replaces the traditional
-`CLAUDE.md` file for orchestrated sessions.
+provides instructions shared by every agent regardless of archetype —
+acknowledgment of pre-injected context, lightweight orientation guidance,
+external reference verification, directory structure, git workflow rules,
+scope discipline, and documentation conventions. This layer replaces the
+traditional `CLAUDE.md` file for orchestrated sessions.
 
 **Layer 2: Archetype profile.** Loaded from the archetype's profile file
 (e.g., `coder.md`, `reviewer_pre-review.md`), this layer defines the agent's
@@ -243,7 +245,12 @@ The task context layer is assembled from the following sources, in order:
    section headers. JSON artifacts (`requirements.json`, `test_spec.json`,
    `tasks.json`) are loaded via `afspec` and rendered to markdown;
    `architecture.md` is read directly. Missing files are logged as warnings but
-   do not prevent the session from running. See
+   do not prevent the session from running. When a `task_group` is provided,
+   rendering is **scoped to the active group**: only requirements and test
+   cases referenced by the group's subtasks (via `requirement_refs` and
+   `test_spec_refs`) are rendered in full, non-target groups appear as one-line
+   summaries with completion counts, and a `## Spec Overview` lists all
+   requirement IDs for orientation. See
    [Part 6: Spec Format v1.3](06-spec-format-v13.md#context-assembly) for
    details on the rendering pipeline.
 
@@ -311,7 +318,10 @@ The task prompt is a short, archetype-specific instruction:
 
 - **Coder sessions** receive explicit instructions: implement task group N
   from specification X, update checkbox states in `tasks.json`, commit with
-  conventional messages, and run quality gates before finalizing.
+  conventional messages, and run quality gates before finalizing. When the
+  orchestrator's preflight check ran before launch, a `## Preflight State`
+  section is appended with gate results (checkbox completion, active findings,
+  test baseline), allowing the coder to skip its redundant Quick Triage.
 - **Non-coder sessions** (reviewer, verifier) receive a concise prompt that
   defers to the system prompt profile for detailed instructions.
 

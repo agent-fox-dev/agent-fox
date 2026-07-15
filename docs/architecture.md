@@ -355,7 +355,10 @@ Before dispatching a task, the `DispatchManager` runs a preparation pipeline:
 3. **Preflight check** (coder tasks only, first attempt). The preflight
    verifier checks whether all checkboxes in `tasks.json` are already marked
    complete, no active critical findings exist, and tests pass. If all three
-   hold, the session is skipped — the work is already done.
+   hold, the session is skipped — the work is already done. When the verdict
+   is LAUNCH, the gate results are captured as a `PreflightResult` and
+   forwarded to the coder's task prompt as a `## Preflight State` section,
+   so the coder can skip its redundant Quick Triage checks.
 4. **Parameter resolution.** The archetype's model tier and variant, security
    allowlist, session timeout, max turns, thinking configuration, and budget
    cap are resolved from the archetype registry, mode overrides, and
@@ -644,8 +647,10 @@ Layer 3: Task context        (spec docs + knowledge + findings + steering)
 ```
 
 **Layer 1 — Agent base profile.** The `agent.md` template provides instructions
-shared by every agent regardless of archetype: project orientation steps,
-directory structure conventions, and general policies.
+shared by every agent regardless of archetype: acknowledgment of pre-injected
+context (steering, spec artifacts, knowledge), lightweight orientation guidance,
+external reference verification, directory structure conventions, git workflow
+rules, scope discipline, and documentation conventions.
 
 **Layer 2 — Archetype profile.** Loaded from a markdown profile file for the
 session's archetype and mode. Profile resolution uses a four-step priority chain
@@ -665,7 +670,14 @@ without modifying the package.
 1. **Spec documents.** Spec artifacts rendered as markdown section headers.
    JSON artifacts are loaded via `afspec` and rendered to markdown;
    `architecture.md` is read directly. Missing files are logged as warnings
-   but do not prevent the session.
+   but do not prevent the session. When a `task_group` is provided, rendering
+   is **scoped**: only requirements and test cases referenced by the active
+   group's subtasks (via `requirement_refs` and `test_spec_refs`) are rendered
+   in full. Non-target task groups appear as one-line summaries with completion
+   counts. A `## Spec Overview` section always lists all requirement IDs and
+   titles for orientation. The `## Test Commands` section is always included.
+   Falls back to unscoped (full) rendering when the target group's subtasks
+   have no refs.
 
 2. **DB-backed findings.** Review findings and drift findings are queried from
    DuckDB and rendered as structured markdown (grouped by severity). This gives
@@ -721,8 +733,12 @@ The task prompt is short and archetype-specific:
 
 - **Coder sessions** receive explicit instructions: implement task group N from
   specification X, update checkbox states in `tasks.json`, commit with
-  conventional messages, and run quality gates before finalizing. For retry
-  attempts, the previous error and active critical/major findings are prepended.
+  conventional messages, and run quality gates before finalizing. When the
+  orchestrator's preflight check ran before launch, a `## Preflight State`
+  section is appended with the gate results (checkbox completion, active
+  findings, test baseline), allowing the coder to skip its redundant Quick
+  Triage checks. For retry attempts, the previous error and active
+  critical/major findings are prepended.
 
 - **Review/verification sessions** receive a concise prompt that defers to the
   archetype profile for detailed instructions, since the profile fully specifies
