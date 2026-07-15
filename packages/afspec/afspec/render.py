@@ -725,8 +725,10 @@ def render_tasks_scoped(t: Tasks, target_group: int) -> str:
                 for check in group.verification.checks:
                     lines.append(f"    - {check}")
         else:
-            # One-line summary for other groups
-            lines.append(f"- {group_checkbox} {group.id}. {group.title}")
+            # One-line summary with completion count for other groups
+            done_count = sum(1 for s in non_dropped if s.state == SubtaskState.DONE)
+            total_count = len(non_dropped)
+            lines.append(f"- {group_checkbox} {group.id}. {group.title} ({done_count}/{total_count} subtasks done)")
 
         lines.append("")
 

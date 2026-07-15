@@ -317,6 +317,12 @@ class TestRenderTasksScoped:
         # Group 2 should be a summary — its subtask 2.1 should NOT appear
         assert "2.1" not in md
 
+    def test_summary_includes_completion_count(self, valid_spec_dir: Path) -> None:
+        """Non-target group summaries include subtask completion count."""
+        spec = load_spec(valid_spec_dir)
+        md = render_tasks_scoped(spec.tasks, target_group=1)
+        assert "subtasks done)" in md
+
     def test_test_commands_always_included(self, valid_spec_dir: Path) -> None:
         """Test Commands section is always included."""
         spec = load_spec(valid_spec_dir)
