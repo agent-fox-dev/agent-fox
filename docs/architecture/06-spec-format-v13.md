@@ -173,11 +173,18 @@ agent's context window. For v1.3 specs, this means converting JSON artifacts
 back to human-readable markdown — agents work with natural language, not raw
 JSON.
 
-The context assembly pipeline loads the spec via `afspec.load_spec()`, renders
-each artifact to markdown via `afspec.render_individual()`, and wraps each
-rendered block in a section header. If `architecture.md` exists, it is read
-directly from disk (it is already markdown). The system falls back to raw file
-reads on `afspec` load errors, providing graceful degradation.
+The context assembly pipeline loads the spec via `afspec.load_spec()` and
+renders each artifact to markdown. When a `task_group` is provided, the
+pipeline uses `afspec.render_individual_scoped()` to filter content to the
+active group: only requirements and test cases referenced by the group's
+subtasks (via `requirement_refs` and `test_spec_refs`) are rendered in full,
+non-target groups appear as one-line summaries with completion counts, and a
+`## Spec Overview` section lists all requirement IDs for orientation.
+Without a `task_group`, the pipeline falls back to `afspec.render_individual()`
+for unscoped (full) rendering. Each rendered block is wrapped in a section
+header. If `architecture.md` exists, it is read directly from disk (it is
+already markdown). The system falls back to raw file reads on `afspec` load
+errors, providing graceful degradation.
 
 ### Helper Functions
 
@@ -247,7 +254,7 @@ to handle.
 ## Night-Shift In-Memory Specs
 
 The night-shift fix pipeline generates lightweight in-memory specs from
-GitHub issues rather than writing spec files to disk. When triage produces
+platform issues rather than writing spec files to disk. When triage produces
 acceptance criteria, `build_afspec_from_triage()` constructs a full `afspec`
 `Spec` object with requirements, test specs, and a single task group. This
 object is rendered via `afspec.render_individual()` and injected into coder

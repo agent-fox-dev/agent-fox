@@ -3,26 +3,28 @@
 ## Purpose and Placement
 
 Night-shift is a fix-only maintenance daemon that runs continuously,
-processing `af:fix`-labelled GitHub issues without human intervention. While
-the spec-driven pipeline ([Parts 1–3](01-spec-authoring.md)) implements
-features from authored specifications, night-shift operates in the opposite
-direction: it picks up issues filed against the codebase and generates the
-fixes needed to resolve them.
+processing `af:fix`-labelled issues without human intervention. It works with
+any configured platform — GitHub, GitLab, or Gitea. While the spec-driven
+pipeline ([Parts 1–3](01-spec-authoring.md)) implements features from authored
+specifications, night-shift operates in the opposite direction: it picks up
+issues filed against the codebase and generates the fixes needed to resolve
+them.
 
 The two modes are complementary. The spec pipeline builds new capabilities
 by executing a human-authored plan. Night-shift maintains the codebase by
 fixing issues that have been triaged and labelled for automatic repair. The
-fix pipeline reuses the same session infrastructure — Claude agents in
-isolated workspaces — but with automatically generated specs rather than
-human-authored ones.
+fix pipeline reuses the same session infrastructure — agents in isolated
+workspaces — but with automatically generated specs rather than human-authored
+ones.
 
 ---
 
 ## Conceptual Model
 
-Night-shift operates as a single-stream fix loop: it polls GitHub for
-issues labelled `af:fix`, determines a safe processing order using
-dependency analysis, and executes a multi-stage fix pipeline for each issue.
+Night-shift operates as a single-stream fix loop: it polls the configured
+platform for issues labelled `af:fix`, determines a safe processing order
+using dependency analysis, and executes a multi-stage fix pipeline for each
+issue.
 
 The fix stream runs on a timer (default: every fifteen minutes) because it
 is lightweight — it queries GitHub for labelled issues and dispatches fix
@@ -36,9 +38,9 @@ at its configured interval.
 
 ### Fetching Issues
 
-The fix stream queries GitHub for open issues with the `af:fix` label. A
-human must review issues and apply the `af:fix` label to approve automated
-repair — night-shift never processes unlabelled issues.
+The fix stream queries the configured platform for open issues with the
+`af:fix` label. A human must review issues and apply the `af:fix` label to
+approve automated repair — night-shift never processes unlabelled issues.
 
 Issues are sorted by creation date ascending as a baseline ordering, with
 a secondary sort by issue number to guarantee determinism.
@@ -54,9 +56,10 @@ dependency language — patterns like "depends on #N", "blocked by #N",
 "after #N", "requires #N" — using case-insensitive regex matching. These
 produce hard edges in the dependency graph.
 
-**GitHub cross-references.** The system queries the GitHub timeline API for
-cross-reference events between issues in the batch. When issue A's timeline
-shows a cross-reference to issue B, a potential dependency edge is recorded.
+**Platform cross-references.** On platforms that support it (e.g. GitHub's
+timeline API), the system queries cross-reference events between issues in
+the batch. When issue A's timeline shows a cross-reference to issue B, a
+potential dependency edge is recorded.
 
 **AI batch triage.** A Maintainer agent in `hunt` mode (SIMPLE model tier,
 read-only access) receives all issue titles and body previews (first 500
@@ -78,9 +81,9 @@ processed in creation-date order.
 ### Supersession Detection
 
 Some issues become obsolete when another is fixed. The batch triage stage
-identifies these pairs and closes the obsolete issue before processing
-begins, preventing wasted work. Superseded issues receive the `af:fixed`
-label and a comment noting which issue supersedes them.
+identifies these pairs and closes the obsolete issue via the platform API
+before processing begins, preventing wasted work. Superseded issues receive
+the `af:fixed` label and a comment noting which issue supersedes them.
 
 ### Topological Sort
 
@@ -123,15 +126,15 @@ containing:
   (SIMPLE/STANDARD/ADVANCED), `variant` (null/fast/standard/extended),
   `confidence` (0–1), and `rationale`.
 
-The triage report is posted as a comment on the GitHub issue, providing
-visibility into the system's analysis. The acceptance criteria are injected
-into both the coder and reviewer prompts in subsequent stages.
+The triage report is posted as a comment on the issue via the platform API,
+providing visibility into the system's analysis. The acceptance criteria are
+injected into both the coder and reviewer prompts in subsequent stages.
 
 ### Stage 2: In-Memory Spec Construction
 
-The fix pipeline generates a lightweight in-memory spec from the issue
-rather than writing spec files to disk. This avoids polluting
-`.agent-fox/specs/` with ephemeral repair specifications.
+The fix pipeline generates a lightweight in-memory spec from the issue rather
+than writing spec files to disk. This avoids polluting `.agent-fox/specs/`
+with ephemeral repair specifications.
 
 **`InMemorySpec`** captures the minimal information needed to drive a
 coding session:
@@ -188,7 +191,7 @@ per-criterion assessments and an overall verdict (PASS/FAIL). If the
 reviewer's output cannot be parsed, the system retries the reviewer once
 before treating it as a parse failure.
 
-The review verdict is posted as a comment on the GitHub issue.
+The review verdict is posted as a comment on the issue via the platform API.
 
 If the overall verdict is PASS, the loop exits successfully. If FAIL and
 retries remain, the review feedback is stored and injected into the next
@@ -213,7 +216,7 @@ After the coder-reviewer loop completes successfully:
 
 ### Post-Pipeline Issue Updates
 
-The pipeline updates the GitHub issue based on the outcome:
+The pipeline updates the issue via the platform API based on the outcome:
 
 - **Successful merge**: The issue receives the `af:fixed` label and is
   closed with a comment pointing to the fix branch.
@@ -235,11 +238,11 @@ from fix sessions feeds back into the knowledge store for future sessions.
 ## Drain Behavior
 
 The fix stream does not process one batch of issues per interval. Instead,
-a drain loop re-polls GitHub after each fix and continues processing until
-zero `af:fix` issues remain, with a safety valve of 50 iterations. A `seen`
-set prevents re-processing recently closed issues that the API may still
-return due to eventual consistency. A separate `_processed_issues` instance
-set provides additional deduplication across drain cycles.
+a drain loop re-polls the platform after each fix and continues processing
+until zero `af:fix` issues remain, with a safety valve of 50 iterations. A
+`seen` set prevents re-processing recently closed issues that the API may
+still return due to eventual consistency. A separate `_processed_issues`
+instance set provides additional deduplication across drain cycles.
 
 The drain loop respects cost limits, session limits, and shutdown signals
 between iterations. This means starting night-shift with many `af:fix`
@@ -256,7 +259,7 @@ reported in another — for example, fixing a deprecated API usage might also
 resolve the linter warning that flagged it.
 
 Staleness detection uses an AI evaluation to determine which remaining
-issues may have been resolved by the fix, followed by GitHub API
+issues may have been resolved by the fix, followed by platform API
 verification to confirm the issue is still open. Issues identified as stale
 are closed with a comment noting which fix resolved them and assigned the
 `af:fixed` label.
@@ -265,7 +268,7 @@ are closed with a comment noting which fix resolved them and assigned the
 
 ## Labels
 
-Night-shift uses GitHub labels to manage its fix workflow lifecycle:
+Night-shift uses platform labels to manage its fix workflow lifecycle:
 
 | Label | Applied by | Meaning |
 |-------|-----------|---------|
@@ -285,11 +288,11 @@ All labels are automatically created on the GitHub repository by
 
 ### Startup
 
-On startup, the engine validates that a platform is configured (GitHub is
-required for issue management), initializes the platform client, initializes
-the knowledge store, cleans up stale merge locks and audit files, and writes
-a PID file to `.agent-fox/daemon.pid`. The first fix cycle fires immediately
-without waiting for the timer interval.
+On startup, the engine validates that a platform is configured (one of
+`github`, `gitlab`, or `gitea` is required for issue management), initializes
+the platform client, initializes the knowledge store, cleans up stale merge
+locks and audit files, and writes a PID file to `.agent-fox/daemon.pid`. The
+first fix cycle fires immediately without waiting for the timer interval.
 
 ### Event Loop
 
@@ -344,8 +347,8 @@ The intended workflow is:
 - The merge lock ensures that if both do run concurrently, they serialize
   their merge operations rather than corrupting the branch.
 
-Night-shift issues are visible in GitHub alongside human-filed issues. A
-human reviewing the repository sees a unified view of both feature work
+Night-shift issues are visible on the platform alongside human-filed issues.
+A human reviewing the repository sees a unified view of both feature work
 (from specs) and maintenance work (from night-shift), with clear labels
 (`af:fix` for approved repairs) distinguishing the two.
 

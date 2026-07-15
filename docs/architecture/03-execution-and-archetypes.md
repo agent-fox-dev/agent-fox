@@ -96,8 +96,8 @@ finish cleanly).
 
 ## Session Lifecycle
 
-Each task in the graph is executed as a session — a single invocation of a
-Claude agent in an isolated workspace. The session lifecycle has four phases.
+Each task in the graph is executed as a session — a single invocation of an
+agent in an isolated workspace. The session lifecycle has four phases.
 
 ### Prepare
 
@@ -122,10 +122,19 @@ preparation the project requires.
 
 ### Execute
 
-The session is executed through a backend abstraction. The system sends the
-system prompt and task prompt to the Claude agent SDK, which runs the agent
-loop — the agent reads files, writes code, runs commands, and produces output
-over multiple turns.
+The session is executed through a backend abstraction layer that supports
+multiple AI providers. The configured backend (`backend.provider` in
+`config.toml`) determines which SDK is used:
+
+| Provider | Backend | SDK |
+|----------|---------|-----|
+| `claude` (default) | Claude agent SDK | `claude-agent-sdk` |
+| `deepagents` | DeepAgents adapter | `deepagents` |
+| `google` | Google ADK adapter | `google-adk` |
+
+All backends implement the same `Backend` protocol, streaming canonical
+message types (tool use, assistant text, thinking blocks) regardless of the
+underlying SDK. The orchestrator and session lifecycle are backend-agnostic.
 
 Key parameters are resolved per session:
 
@@ -141,13 +150,21 @@ Key parameters are resolved per session:
 - **Budget cap**: Optional per-session USD limit.
 - **Fallback model**: Alternative model if the primary is unavailable.
 
-The backend streams canonical messages (tool use, assistant text, thinking
-blocks) which are logged for audit and used for knowledge extraction.
+The backend streams canonical messages which are logged for audit and used
+for knowledge extraction.
 
 ### Harvest
 
 On session completion, if the session produced commits on its feature branch,
-those commits are integrated into the integration branch. The harvest process:
+those commits are integrated according to the configured `workspace.merge_strategy`:
+
+| Strategy | Behavior |
+|----------|----------|
+| `direct` (default) | Squash-merge the feature branch into the integration branch |
+| `branch` | Keep the feature branch locally without merging |
+| `pr` | Push the feature branch and open a pull request via the platform API |
+
+**Direct mode** (the default) follows this process:
 
 1. Acquires the merge lock (an intra-process asyncio lock combined with an
    inter-process file lock) to serialize merge operations.
@@ -157,9 +174,17 @@ those commits are integrated into the integration branch. The harvest process:
    the feature branch contains. This keeps the integration branch history linear and
    readable.
 4. If the squash merge has conflicts, spawns a merge agent — a dedicated
-   Claude session with a restricted prompt that only resolves conflicts,
+   session with a restricted prompt that only resolves conflicts,
    without making any other changes.
 5. After merging, optionally pushes the integration branch to the remote.
+
+**Branch mode** skips merging entirely — the feature branch is preserved for
+manual review or later integration.
+
+**PR mode** pushes the feature branch to the remote, collects the changed
+file list, and calls `platform.create_pr()` to open a pull request targeting
+the integration branch. The PR body includes the spec name, task group, and
+changed files.
 
 The merge lock prevents two sessions from merging simultaneously, which would
 risk corrupting the integration branch. The lock has stale detection: if a lock
@@ -207,11 +232,11 @@ scope discipline, and documentation conventions. This layer replaces the
 traditional `CLAUDE.md` file for orchestrated sessions.
 
 **Layer 2: Archetype profile.** Loaded from the archetype's profile file
-(e.g., `coder.md`, `reviewer_pre-review.md`), this layer defines the agent's
+(e.g., `coder.md`, `reviewer_audit-review.md`), this layer defines the agent's
 identity, rules, focus areas, constraints, and output format. Mode-specific
 profiles are resolved before base profiles — if a session runs the reviewer
-archetype in pre-review mode, the system loads `reviewer_pre-review.md` rather
-than `reviewer.md`. For details on profile resolution and customization, see
+archetype in audit-review mode, the system loads `reviewer_audit-review.md`
+rather than `reviewer.md`. For details on profile resolution and customization, see
 the [Profiles Guide](../profiles.md).
 
 **Layer 3: Task context.** Assembled from multiple sources (see Context
@@ -336,7 +361,7 @@ address identified issues in the retry.
 
 An archetype defines the role, capabilities, and constraints of an agent
 session. Each archetype has a prompt profile, a model tier, an effort level,
-a tool allowlist, and behavioral rules. The archetype registry contains six
+a tool allowlist, and behavioral rules. The archetype registry contains five
 built-in entries. Several support **modes**: named variants that override
 specific fields (injection point, tool allowlist, model tier) while inheriting
 everything else from the base entry. Modes are the mechanism by which a single
@@ -347,8 +372,7 @@ registry entry serves multiple distinct roles.
 | Entry | Modes | Purpose |
 |---|---|---|
 | **coder** | `fix` | Implementation — writes code, tests, commits |
-| **reviewer** | `pre-review`, `drift-review`, `audit-review`, `fix-review` | Review — examines specs and code, produces structured findings |
-| **curator** | — | Post-implementation curation — runs after coders, before verifier |
+| **reviewer** | `pre-flight`, `audit-review`, `fix-review` | Review — examines specs and code, produces structured findings |
 | **verifier** | — | Verification — runs tests, checks requirements, produces pass/fail assessments |
 | **gate** | — | Checkpoint verification — lightweight mid-spec progress checks |
 | **maintainer** | `hunt`, `fix-triage`, `extraction` | Night-shift internal — not user-facing |
@@ -371,25 +395,22 @@ and has unrestricted tool access. A `fix` mode variant is used by the
 
 ### Reviewer
 
-A unified review archetype that covers three conceptually distinct review
-roles through its mode system. All reviewer modes produce structured JSON
-output that the orchestrator uses for blocking decisions, retry triggers, and
-knowledge accumulation. Reviewer modes cannot modify code — their tool
-allowlists are restricted to read-only operations.
+A unified review archetype that covers distinct review roles through its
+mode system. All reviewer modes produce structured JSON output that the
+orchestrator uses for blocking decisions, retry triggers, and knowledge
+accumulation. Reviewer modes cannot modify code — their tool allowlists are
+restricted to read-only operations.
 
-**Pre-review mode** (injection: `auto_pre`) reviews spec quality before
-implementation begins. It examines completeness, consistency, feasibility,
-testability, edge case coverage, and security. It produces findings with
-severity levels (critical, major, minor, observation). This mode has no shell
-access at all — it works entirely from the spec documents provided in context.
-
-**Drift-review mode** (injection: `auto_pre`) validates spec assumptions
-against the actual codebase. It checks whether referenced files, functions,
-and interfaces exist at their stated locations and whether signatures match
-spec descriptions. It produces drift findings. This mode has read-only
-filesystem access (`ls`, `cat`, `git`, `grep`, `find`, `head`, `tail`, `wc`).
-It is automatically skipped for specs that reference no existing code — there
-is nothing to detect drift against.
+**Pre-flight mode** (injection: `auto_pre`) combines spec quality review and
+codebase drift detection into a single session before implementation begins.
+It examines spec completeness, consistency, feasibility, testability, edge
+case coverage, and security, while also validating spec assumptions against
+the actual codebase (referenced files exist, function signatures match,
+interfaces are consistent). It produces both review findings (severity-
+classified) and drift findings. This mode has read-only filesystem access
+(`ls`, `cat`, `git`, `grep`, `find`, `head`, `tail`, `wc`). The pre-flight
+node uses the base `reviewer.md` profile. If critical findings exceed the
+configured blocking threshold, downstream coder tasks are blocked.
 
 **Audit-review mode** (injection: `auto_mid`) validates test quality against
 test spec contracts after tests are written. It examines coverage, assertion
@@ -398,38 +419,21 @@ each test spec entry, producing per-entry assessments (PASS, WEAK, MISSING,
 MISALIGNED). This mode has read-only access plus `uv` for test collection.
 It triggers predecessor retries when tests are missing or misaligned.
 
-**Fix-review mode** is used by the `agent-fox fix` pipeline and night-shift's
-fix pipeline. It operates at the ADVANCED model tier with broader tool access
-including `make` and `uv`.
-
-Pre-review and drift-review both run at the `auto_pre` injection point. When
-both are enabled, they execute in parallel before the first coder group. If
-either produces blocking findings (critical findings exceeding the configured
-threshold), downstream coder tasks are blocked.
+**Fix-review mode** is used by night-shift's fix pipeline. It operates at the
+ADVANCED model tier with broader tool access including `make` and `uv`.
 
 The reviewer archetype is controlled by a single configuration toggle
-(`archetypes.reviewer`). Enabling or disabling it affects all four modes.
-Legacy configuration keys (`skeptic`, `oracle`, `auditor`) are accepted and
-mapped to the corresponding reviewer modes with deprecation warnings.
-
-### Curator
-
-Performs post-implementation curation (injection: `auto_post`, injection order
-10). The Curator runs after the last coder group and before the Verifier,
-forming a quality chain: last coder → Curator → Verifier. It has read-only
-tool access plus `make`, operates at the STANDARD model tier with medium
-effort, and is always clamped to exactly one instance. The Curator is enabled
-by default and controlled by the `archetypes.curator` configuration toggle.
+(`archetypes.reviewer`). Enabling or disabling it affects all modes.
 
 ### Verifier
 
-Performs post-implementation verification (injection: `auto_post`, injection
-order 20). It runs the test suite, checks each requirement against the
-acceptance criteria, and produces per-requirement results (PASS, FAIL,
-PARTIAL). The Verifier runs after the Curator and has full tool access (it
-needs to run tests). It can trigger retries of its predecessor — if
-verification fails, the orchestrator may re-run the preceding coder session
-with the Verifier's findings injected as context.
+Performs post-implementation verification (injection: `auto_post`). It runs
+the test suite, checks each requirement against the acceptance criteria, and
+produces per-requirement results (PASS, FAIL, PARTIAL). The Verifier runs
+after the last coder group and has full tool access (it needs to run tests).
+It can trigger retries of its predecessor — if verification fails, the
+orchestrator may re-run the preceding coder session with the Verifier's
+findings injected as context.
 
 ### Gate
 
@@ -479,12 +483,11 @@ the same task. When they do, their outputs are merged using mode-specific
 convergence strategies. A single dispatcher (`converge_reviewer`) routes to
 the correct algorithm by mode.
 
-**Pre-review and drift-review convergence** uses majority-gating for critical
-findings. All findings across instances are merged and deduplicated. A critical
-finding counts toward blocking only if it appears in at least a majority of
-instances (ceiling of N/2). This prevents a single overzealous instance from
-blocking progress on a spurious finding. Non-critical findings are
-union-merged.
+**Pre-flight convergence** uses majority-gating for critical findings. All
+findings across instances are merged and deduplicated. A critical finding
+counts toward blocking only if it appears in at least a majority of instances
+(ceiling of N/2). This prevents a single overzealous instance from blocking
+progress on a spurious finding. Non-critical findings are union-merged.
 
 **Audit-review convergence** uses union semantics with worst-result-wins. For
 each test spec entry, the worst result across all instances is taken. This is
@@ -514,10 +517,10 @@ The task node is marked COMPLETED in the graph. Three post-success evaluations
 may alter downstream behavior:
 
 **Review blocking.** If the session was a review agent with blocking authority
-(Reviewer in pre-review or drift-review mode), the handler evaluates whether
-the findings exceed the configured blocking threshold. Critical security
-findings always block regardless of threshold. If the threshold is exceeded,
-downstream coder tasks are blocked via cascade BFS.
+(Reviewer in pre-flight mode), the handler evaluates whether the findings
+exceed the configured blocking threshold. Critical security findings always
+block regardless of threshold. If the threshold is exceeded, downstream coder
+tasks are blocked via cascade BFS.
 
 **Retry-predecessor.** The audit-review and verifier archetypes both have
 `retry_predecessor=true`. When their session completes with failing outputs
@@ -591,11 +594,9 @@ entries and modes are:
 | coder | STANDARD | adaptive | xhigh |
 | coder (fix) | STANDARD | adaptive | xhigh |
 | reviewer (base) | STANDARD | disabled | high |
-| reviewer (pre-review) | ADVANCED | disabled | high |
-| reviewer (drift-review) | STANDARD | disabled | high |
+| reviewer (pre-flight) | ADVANCED | disabled | high |
 | reviewer (audit-review) | ADVANCED | disabled | high |
 | reviewer (fix-review) | ADVANCED | disabled | high |
-| curator | STANDARD | disabled | medium |
 | verifier | STANDARD | disabled | high |
 | gate | STANDARD | disabled | low |
 | maintainer (base) | STANDARD | disabled | medium |
@@ -640,9 +641,10 @@ would add overhead without proportional benefit.
 
 ### The Develop Branch
 
-The configured integration branch (default: `main`) is the sole merge target. All session work merges into it,
-never into `main`. Feature branches are local-only — they are never pushed to
-the remote. Only the integration branch is pushed.
+The configured integration branch (default: `main`) is the sole merge target
+when using `direct` merge strategy. Feature branches are local-only in
+`direct` and `branch` modes — they are only pushed to the remote in `pr` mode.
+See [Harvest](#harvest) for the three merge strategy options.
 
 Before the first session, the orchestrator ensures the integration branch
 exists and is synchronized with the remote. If it does not exist locally, it
