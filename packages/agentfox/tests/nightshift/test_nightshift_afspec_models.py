@@ -376,8 +376,8 @@ class TestRenderInmemorySpecSections:
         # Track the actual return value since wraps doesn't set return_value
         captured = {}
 
-        def tracking_wrapper(spec):
-            result = render_inmemory_spec_sections(spec)
+        def tracking_wrapper(spec, **kwargs):
+            result = render_inmemory_spec_sections(spec, **kwargs)
             captured["result"] = result
             return result
 

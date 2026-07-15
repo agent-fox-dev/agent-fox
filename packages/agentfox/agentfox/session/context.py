@@ -61,11 +61,20 @@ _SECTION_HEADERS: dict[str, str] = {
 }
 
 
-def render_inmemory_spec_sections(spec: Any) -> list[str]:
+def render_inmemory_spec_sections(
+    spec: Any,
+    task_group: int | None = None,
+) -> list[str]:
     """Render an in-memory afspec Spec to per-artifact markdown sections.
 
     Accepts a single ``Spec`` argument and returns a list of markdown
     section strings by delegating to ``afspec.render_individual(spec)``.
+
+    When *task_group* is provided, renders scoped content: only
+    requirements and test cases referenced by the target group's
+    subtasks, with other task groups shown as one-line summaries.
+    Falls back to unscoped rendering when the target group has no
+    ``requirement_refs`` or ``test_spec_refs``.
 
     Performs no file system reads or writes.  Exceptions from
     ``render_individual`` propagate to the caller as-is.
@@ -74,7 +83,10 @@ def render_inmemory_spec_sections(spec: Any) -> list[str]:
     """
     import afspec
 
-    rendered = afspec.render_individual(spec)
+    if task_group is not None:
+        rendered = afspec.render_individual_scoped(spec, task_group)
+    else:
+        rendered = afspec.render_individual(spec)
 
     sections: list[str] = []
     for key, header in _SECTION_HEADERS.items():
@@ -85,11 +97,17 @@ def render_inmemory_spec_sections(spec: Any) -> list[str]:
     return sections
 
 
-def _render_spec_sections(spec_dir: Path) -> list[str]:
+def _render_spec_sections(
+    spec_dir: Path,
+    task_group: int | None = None,
+) -> list[str]:
     """Load a v1.2 spec and render per-artifact markdown sections.
 
     Returns a list of rendered section strings.  Raises ``afspec.LoadError``
     on malformed specs (caller handles fallback).
+
+    When *task_group* is provided, renders scoped content filtered to
+    the target group's referenced requirements and test cases.
 
     Delegates rendering to ``render_inmemory_spec_sections`` after loading
     the Spec from disk, eliminating duplicated rendering logic.
@@ -100,7 +118,7 @@ def _render_spec_sections(spec_dir: Path) -> list[str]:
     import afspec
 
     spec = afspec.load_spec(spec_dir)
-    sections = render_inmemory_spec_sections(spec)
+    sections = render_inmemory_spec_sections(spec, task_group=task_group)
 
     # architecture.md is a plain markdown file in v1.2
     arch_path = spec_dir / "architecture.md"
@@ -387,7 +405,7 @@ def assemble_context(
     file_sections: list[str] = []
 
     try:
-        raw_sections = _render_spec_sections(spec_dir)
+        raw_sections = _render_spec_sections(spec_dir, task_group=task_group)
         # Sanitize rendered spec sections for safe prompt inclusion
         file_sections = [sanitize_prompt_content(s, label="spec") for s in raw_sections]
     except Exception:

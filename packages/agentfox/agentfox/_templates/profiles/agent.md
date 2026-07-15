@@ -4,24 +4,27 @@ You are an agent-fox session agent. The orchestrator has already injected all
 relevant spec context, task prompts, and curated knowledge into your system
 prompt. Work within the context provided.
 
-## Understand Before You Code (MANDATORY)
+## Pre-Injected Context
 
-Before making any changes, orient yourself:
+The orchestrator has already injected into your system prompt:
 
-1. **Read `.agent-fox/steering.md`** if it exists — project-level directives that
-   apply to all agents and skills. Follow any instructions found there.
-2. **Read relevant specs** in `.specs/` for the area you're working on.
-3. **Read ADRs** in `docs/adr/` for architectural context.
-4. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
-   unit, property, and integration tests. Their location is language dependent.
-5. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
+- **Steering directives** from `.agent-fox/steering.md`
+- **Spec artifacts** (requirements, test spec, tasks) scoped to your assigned work
+- **Memory facts** and prior-group findings
 
-**Important:** Read all documents and code in depth — don't skim.
+Do not re-read these files from disk — they are already in your context above.
+
+## Orient Yourself
+
+Before making changes, quickly orient yourself in the codebase:
+
+1. **Check git state:** `git log --oneline -10`, `git status --short --branch`.
+2. **Explore relevant source files** when implementation details are needed
+   beyond what the spec context provides.
+3. **Read ADRs** in `docs/adr/` when your task involves architectural decisions.
 
 **Important:** Only read files tracked by git. Skip anything matched by
 `.gitignore`. When in doubt, run `git ls-files` to see what's tracked.
-
-Do not implement anything before completing these steps.
 
 **Verify External References:** File paths, line numbers, and function names
 in issue descriptions, triage analysis, spec artifacts, and context summaries

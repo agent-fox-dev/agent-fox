@@ -10,9 +10,15 @@ from afspec import (
     load_spec,
     render_combined,
     render_ears_sentence,
+    render_individual_scoped,
     render_requirements,
     render_tasks,
     render_test_spec,
+)
+from afspec.render import (
+    render_requirements_scoped,
+    render_tasks_scoped,
+    render_test_spec_scoped,
 )
 
 # ---------------------------------------------------------------------------
@@ -227,3 +233,132 @@ def test_smoke_render(valid_spec_dir: Path) -> None:
     assert "SHALL" in md
     # Contains rendered task groups with checkboxes
     assert "[ ]" in md or "[x]" in md
+
+
+# ---------------------------------------------------------------------------
+# Scoped rendering (issue #717)
+# ---------------------------------------------------------------------------
+
+class TestRenderRequirementsScoped:
+    """Scoped requirements rendering filters to matching refs."""
+
+    def test_includes_matching_requirement(self, valid_spec_dir: Path) -> None:
+        """Requirements with matching acceptance criteria IDs are included."""
+        spec = load_spec(valid_spec_dir)
+        md = render_requirements_scoped(spec.requirements, {"01-REQ-1.1"})
+        assert "### 01-REQ-1:" in md
+        assert "## Requirements" in md
+
+    def test_spec_overview_lists_all_requirements(self, valid_spec_dir: Path) -> None:
+        """Spec Overview lists all requirement IDs regardless of filter."""
+        spec = load_spec(valid_spec_dir)
+        md = render_requirements_scoped(spec.requirements, {"01-REQ-1.1"})
+        assert "## Spec Overview" in md
+        assert "01-REQ-1" in md
+
+    def test_includes_design_context_sections(self, valid_spec_dir: Path) -> None:
+        """Correctness properties, execution paths, error handling always included."""
+        spec = load_spec(valid_spec_dir)
+        md = render_requirements_scoped(spec.requirements, {"01-REQ-1.1"})
+        assert "## Correctness Properties" in md
+        assert "## Execution Paths" in md
+        assert "## Error Handling" in md
+
+    def test_excludes_non_matching_requirements(self, valid_spec_dir: Path) -> None:
+        """Requirements not matching the ref set are excluded from full rendering."""
+        spec = load_spec(valid_spec_dir)
+        # Filter with a non-existent ref
+        md = render_requirements_scoped(spec.requirements, {"NONEXISTENT-REQ"})
+        # Should still have the overview but no full requirement detail
+        assert "## Spec Overview" in md
+        assert "(other group)" in md
+
+
+class TestRenderTestSpecScoped:
+    """Scoped test spec rendering filters to matching IDs."""
+
+    def test_includes_matching_test_case(self, valid_spec_dir: Path) -> None:
+        """Test cases with matching IDs are included."""
+        spec = load_spec(valid_spec_dir)
+        all_ids = {tc.id for tc in spec.test_spec.test_cases}
+        if all_ids:
+            target_id = next(iter(all_ids))
+            md = render_test_spec_scoped(spec.test_spec, {target_id})
+            assert target_id in md
+
+    def test_excludes_non_matching_test_cases(self, valid_spec_dir: Path) -> None:
+        """Test cases not in the filter set are excluded."""
+        spec = load_spec(valid_spec_dir)
+        md = render_test_spec_scoped(spec.test_spec, {"NONEXISTENT-TS"})
+        # Section headers present but no test case content
+        assert "## Test Cases" in md
+        assert "## Coverage" in md
+
+    def test_coverage_always_included(self, valid_spec_dir: Path) -> None:
+        """Coverage section is always included regardless of filter."""
+        spec = load_spec(valid_spec_dir)
+        md = render_test_spec_scoped(spec.test_spec, set())
+        assert "## Coverage" in md
+
+
+class TestRenderTasksScoped:
+    """Scoped tasks rendering shows target group in full, others as summaries."""
+
+    def test_target_group_has_subtasks(self, valid_spec_dir: Path) -> None:
+        """Target group renders with full subtask detail."""
+        spec = load_spec(valid_spec_dir)
+        md = render_tasks_scoped(spec.tasks, target_group=1)
+        assert "1.1" in md  # subtask ID
+
+    def test_other_groups_are_summaries(self, valid_spec_dir: Path) -> None:
+        """Non-target groups render as one-line summaries (no subtask detail)."""
+        spec = load_spec(valid_spec_dir)
+        md = render_tasks_scoped(spec.tasks, target_group=1)
+        # Group 2 should be a summary — its subtask 2.1 should NOT appear
+        assert "2.1" not in md
+
+    def test_test_commands_always_included(self, valid_spec_dir: Path) -> None:
+        """Test Commands section is always included."""
+        spec = load_spec(valid_spec_dir)
+        md = render_tasks_scoped(spec.tasks, target_group=1)
+        assert "## Test Commands" in md
+
+    def test_traceability_always_included(self, valid_spec_dir: Path) -> None:
+        """Traceability section is always included."""
+        spec = load_spec(valid_spec_dir)
+        md = render_tasks_scoped(spec.tasks, target_group=1)
+        assert "## Traceability" in md
+
+
+class TestRenderIndividualScoped:
+    """Integration: render_individual_scoped scopes all artifacts."""
+
+    def test_scoped_output_has_all_sections(self, valid_spec_dir: Path) -> None:
+        """Scoped rendering produces all expected keys."""
+        spec = load_spec(valid_spec_dir)
+        result = render_individual_scoped(spec, target_group=1)
+        assert "requirements" in result
+        assert "test_spec" in result
+        assert "tasks" in result
+
+    def test_scoped_requirements_contain_overview(self, valid_spec_dir: Path) -> None:
+        """Scoped requirements include Spec Overview."""
+        spec = load_spec(valid_spec_dir)
+        result = render_individual_scoped(spec, target_group=1)
+        assert "## Spec Overview" in result["requirements"]
+
+    def test_scoped_tasks_show_target_detail(self, valid_spec_dir: Path) -> None:
+        """Scoped tasks show target group subtasks."""
+        spec = load_spec(valid_spec_dir)
+        result = render_individual_scoped(spec, target_group=1)
+        assert "1.1" in result["tasks"]
+
+    def test_nonexistent_group_falls_back_to_unscoped(self, valid_spec_dir: Path) -> None:
+        """Non-existent target group falls back to unscoped rendering."""
+        from afspec import render_individual
+
+        spec = load_spec(valid_spec_dir)
+        scoped = render_individual_scoped(spec, target_group=999)
+        unscoped = render_individual(spec)
+        assert scoped["requirements"] == unscoped["requirements"]
+        assert scoped["test_spec"] == unscoped["test_spec"]

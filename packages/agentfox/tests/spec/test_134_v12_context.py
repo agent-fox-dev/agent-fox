@@ -659,17 +659,26 @@ class TestEmptyArtifactOmitted:
         v12_spec_dir: Path,
         knowledge_conn: duckdb.DuckDBPyConnection,
     ) -> None:
-        """When render_individual returns empty for tasks, ## Tasks is absent."""
+        """When render returns empty for tasks, ## Tasks is absent."""
         import afspec
 
         original_render = afspec.render_individual
+        original_scoped = afspec.render_individual_scoped
 
         def mock_render(spec):
             result = original_render(spec)
             result["tasks"] = ""
             return result
 
-        with patch("afspec.render_individual", side_effect=mock_render):
+        def mock_scoped(spec, target_group):
+            result = original_scoped(spec, target_group)
+            result["tasks"] = ""
+            return result
+
+        with (
+            patch("afspec.render_individual", side_effect=mock_render),
+            patch("afspec.render_individual_scoped", side_effect=mock_scoped),
+        ):
             context = assemble_context(v12_spec_dir, 1, conn=knowledge_conn)
 
         assert "## Tasks" not in context

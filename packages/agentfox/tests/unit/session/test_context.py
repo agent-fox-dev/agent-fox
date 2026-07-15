@@ -161,6 +161,176 @@ class TestTestSpecOrdering:
         assert "## Tasks" in ctx
 
 
+class TestScopedContextAssembly:
+    """Issue #717: Context assembly scopes spec content to the active task group."""
+
+    def test_scoped_context_includes_spec_overview(
+        self,
+        tmp_path: Path,
+        knowledge_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Scoped context includes Spec Overview for orientation."""
+        spec_dir = _make_scoped_spec_dir(tmp_path)
+        ctx = assemble_context(spec_dir, task_group=2, conn=knowledge_conn)
+        assert "Spec Overview" in ctx
+
+    def test_scoped_context_shows_target_group_subtasks(
+        self,
+        tmp_path: Path,
+        knowledge_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Scoped context includes subtask detail for the target group."""
+        spec_dir = _make_scoped_spec_dir(tmp_path)
+        ctx = assemble_context(spec_dir, task_group=2, conn=knowledge_conn)
+        assert "2.1" in ctx
+
+    def test_scoped_context_summarizes_other_groups(
+        self,
+        tmp_path: Path,
+        knowledge_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Scoped context excludes subtask detail for non-target groups."""
+        spec_dir = _make_scoped_spec_dir(tmp_path)
+        ctx = assemble_context(spec_dir, task_group=2, conn=knowledge_conn)
+        # Group 1's subtask 1.1 should not appear (only group title)
+        assert "1.1" not in ctx
+
+    def test_scoped_context_always_includes_test_commands(
+        self,
+        tmp_path: Path,
+        knowledge_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Test Commands section is always included in scoped context."""
+        spec_dir = _make_scoped_spec_dir(tmp_path)
+        ctx = assemble_context(spec_dir, task_group=2, conn=knowledge_conn)
+        assert "Test Commands" in ctx
+
+
+def _make_scoped_spec_dir(tmp_path: Path) -> Path:
+    """Create a spec directory with multiple groups and refs for scoping tests."""
+    import json
+
+    spec_dir = tmp_path / "specs" / "scoped_spec"
+    spec_dir.mkdir(parents=True)
+
+    (spec_dir / "prd.md").write_text(
+        '---\nspec_id: "scoped"\nspec_name: "scoped"\ntitle: "Scoped"\n'
+        'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
+        'source: "test"\nschema_version: 1\n---\n# Scoped\n'
+    )
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "scoped",
+                "spec_name": "scoped",
+                "schema_version": 1,
+                "introduction": "Test requirements",
+                "glossary": {},
+                "requirements": [
+                    {
+                        "id": "REQ-A",
+                        "title": "Requirement A",
+                        "user_story": {"role": "user", "goal": "do A", "benefit": "get A"},
+                        "acceptance_criteria": [
+                            {
+                                "id": "REQ-A.1",
+                                "ears_pattern": "ubiquitous",
+                                "system": "sys",
+                                "action": "act A",
+                            }
+                        ],
+                        "edge_cases": [],
+                    },
+                    {
+                        "id": "REQ-B",
+                        "title": "Requirement B",
+                        "user_story": {"role": "user", "goal": "do B", "benefit": "get B"},
+                        "acceptance_criteria": [
+                            {
+                                "id": "REQ-B.1",
+                                "ears_pattern": "ubiquitous",
+                                "system": "sys",
+                                "action": "act B",
+                            }
+                        ],
+                        "edge_cases": [],
+                    },
+                ],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            }
+        )
+    )
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "scoped",
+                "spec_name": "scoped",
+                "schema_version": 1,
+                "test_cases": [
+                    {"id": "TS-A-1", "requirement_id": "REQ-A", "kind": "unit", "description": "Test for A"},
+                    {"id": "TS-B-1", "requirement_id": "REQ-B", "kind": "unit", "description": "Test for B"},
+                ],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {"requirements_covered": [], "properties_covered": [], "paths_covered": [], "gaps": []},
+            }
+        )
+    )
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "scoped",
+                "spec_name": "scoped",
+                "schema_version": 1,
+                "test_commands": {"spec_tests": "pytest", "all_tests": "make test", "linter": "ruff check"},
+                "dependencies": [],
+                "task_groups": [
+                    {
+                        "id": 1,
+                        "kind": "standard",
+                        "title": "Group one",
+                        "subtasks": [
+                            {
+                                "id": "1.1",
+                                "title": "Subtask one-one",
+                                "state": "done",
+                                "details": [],
+                                "test_spec_refs": ["TS-A-1"],
+                                "requirement_refs": ["REQ-A.1"],
+                                "optional": False,
+                            }
+                        ],
+                        "verification": {"id": "", "checks": []},
+                    },
+                    {
+                        "id": 2,
+                        "kind": "standard",
+                        "title": "Group two",
+                        "subtasks": [
+                            {
+                                "id": "2.1",
+                                "title": "Subtask two-one",
+                                "state": "pending",
+                                "details": [],
+                                "test_spec_refs": ["TS-B-1"],
+                                "requirement_refs": ["REQ-B.1"],
+                                "optional": False,
+                            }
+                        ],
+                        "verification": {"id": "", "checks": []},
+                    },
+                ],
+                "traceability": [],
+            }
+        )
+    )
+    return spec_dir
+
+
 class TestMissingTestSpecFile:
     """TS-15-E1: Missing spec files handled gracefully.
 
