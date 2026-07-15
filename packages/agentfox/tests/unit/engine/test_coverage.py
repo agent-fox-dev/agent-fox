@@ -587,6 +587,173 @@ class TestResultHandlerCoverageIntegration:
         assert result is None
 
 
+class TestProcessCoverageRegressionBlocking:
+    """Integration test: process() with coverage regression must not call _handle_success.
+
+    Reproduces issue #722: coverage gate blocks the node but _handle_success
+    unconditionally marks it completed, orphan-blocking dependents.
+    """
+
+    def test_process_skips_handle_success_when_coverage_blocks(self, tmp_path: Path) -> None:
+        """AC-1, AC-4: Coder node stays blocked after coverage regression."""
+        from agentfox.engine.graph_sync import GraphSync
+        from agentfox.engine.state import ExecutionState, SessionRecord
+
+        node_states = {
+            "spec:0:coder": "in_progress",
+            "spec:0:verifier": "pending",
+        }
+        edges = {"spec:0:coder": [], "spec:0:verifier": ["spec:0:coder"]}
+        graph_sync = GraphSync(node_states, edges)
+
+        state = ExecutionState(
+            plan_hash="test",
+            node_states=node_states,
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.__contains__ = lambda self, x: True
+
+        def _get_archetype(g, nid):
+            return "coder" if "coder" in nid else "verifier"
+
+        block_calls = []
+
+        def _block_task(node_id, st, reason):
+            block_calls.append(node_id)
+            cascade_blocked = graph_sync.mark_blocked(node_id, reason)
+            st.blocked_reasons[node_id] = reason
+            for blocked_id in cascade_blocked:
+                st.blocked_reasons[blocked_id] = f"Blocked by upstream task {node_id}"
+
+        handler = SessionResultHandler(
+            graph_sync=graph_sync,
+            max_retries=2,
+            task_callback=None,
+            sink=None,
+            run_id="test-run",
+            graph=mock_graph,
+            archetypes_config=None,
+            knowledge_db_conn=None,
+            block_task_fn=_block_task,
+            check_block_budget_fn=MagicMock(),
+        )
+
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
+        handler._get_node_state("spec:0:coder").coverage_baseline = baseline
+        handler._coverage_tool = CoverageTool("pytest-cov", ["echo"], "coverage.json")
+
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 50, 100)})
+        record = SessionRecord(
+            node_id="spec:0:coder",
+            attempt=1,
+            status="completed",
+            input_tokens=100,
+            output_tokens=50,
+            cost=0.01,
+            duration_ms=1000,
+            error_message=None,
+            timestamp="2026-07-15T00:00:00Z",
+            files_touched=["a.py"],
+        )
+
+        with (
+            patch(
+                "agentfox.engine.result_handler.measure_coverage",
+                return_value=current,
+            ),
+            patch(
+                "agentfox.engine.result_handler.get_node_archetype",
+                side_effect=_get_archetype,
+            ),
+            patch(
+                "agentfox.engine.result_handler.update_state_with_session",
+            ),
+        ):
+            handler.process(record, 1, state, {})
+
+        assert graph_sync.node_states["spec:0:coder"] == "blocked"
+        assert "spec:0:coder" in state.blocked_reasons
+        assert graph_sync.node_states["spec:0:verifier"] == "blocked"
+        assert "spec:0:verifier" in state.blocked_reasons
+
+    def test_process_runs_handle_success_without_regression(self, tmp_path: Path) -> None:
+        """AC-3: Normal completion without regression runs _handle_success."""
+        from agentfox.engine.graph_sync import GraphSync
+        from agentfox.engine.state import ExecutionState, SessionRecord
+
+        node_states = {
+            "spec:0:coder": "in_progress",
+            "spec:0:verifier": "pending",
+        }
+        edges = {"spec:0:coder": [], "spec:0:verifier": ["spec:0:coder"]}
+        graph_sync = GraphSync(node_states, edges)
+
+        state = ExecutionState(
+            plan_hash="test",
+            node_states=node_states,
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.__contains__ = lambda self, x: True
+
+        def _get_archetype(g, nid):
+            return "coder" if "coder" in nid else "verifier"
+
+        handler = SessionResultHandler(
+            graph_sync=graph_sync,
+            max_retries=2,
+            task_callback=None,
+            sink=None,
+            run_id="test-run",
+            graph=mock_graph,
+            archetypes_config=None,
+            knowledge_db_conn=None,
+            block_task_fn=MagicMock(),
+            check_block_budget_fn=MagicMock(),
+        )
+
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
+        handler._get_node_state("spec:0:coder").coverage_baseline = baseline
+        handler._coverage_tool = CoverageTool("pytest-cov", ["echo"], "coverage.json")
+
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 90, 100)})
+        record = SessionRecord(
+            node_id="spec:0:coder",
+            attempt=1,
+            status="completed",
+            input_tokens=100,
+            output_tokens=50,
+            cost=0.01,
+            duration_ms=1000,
+            error_message=None,
+            timestamp="2026-07-15T00:00:00Z",
+            files_touched=["a.py"],
+        )
+
+        with (
+            patch(
+                "agentfox.engine.result_handler.measure_coverage",
+                return_value=current,
+            ),
+            patch(
+                "agentfox.engine.result_handler.get_node_archetype",
+                side_effect=_get_archetype,
+            ),
+            patch(
+                "agentfox.engine.result_handler.update_state_with_session",
+            ),
+            patch(
+                "agentfox.engine.result_handler.evaluate_review_blocking",
+                return_value=MagicMock(should_block=False),
+            ),
+        ):
+            handler.process(record, 1, state, {})
+
+        assert graph_sync.node_states["spec:0:coder"] == "completed"
+        assert "spec:0:coder" not in state.blocked_reasons
+
+
 class TestMigrationV21:
     def test_drops_dead_columns(self) -> None:
         import duckdb

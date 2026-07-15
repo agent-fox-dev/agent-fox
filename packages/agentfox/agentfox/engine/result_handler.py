@@ -547,7 +547,8 @@ class SessionResultHandler:
         self._get_node_state(node_id)
 
         if record.status == "completed":
-            self._handle_success(record, state, error_tracker)
+            if record.node_id not in state.blocked_reasons:
+                self._handle_success(record, state, error_tracker)
         elif record.status == "timeout":
             # 75-REQ-1.1, 75-REQ-1.3: Route timeout to dedicated handler
             self._handle_timeout(record, attempt, state, error_tracker)
