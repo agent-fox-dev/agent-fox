@@ -98,3 +98,35 @@ class TestOverridePreservation:
         assert result.hot_load == default_config.hot_load
         assert result.session_timeout == default_config.session_timeout
         assert result.inter_session_delay == default_config.inter_session_delay
+
+
+class TestParallelOverride:
+    """Property tests for the --no-parallel override.
+
+    Verifies that the parallel override is applied correctly and
+    does not interfere with other config fields.
+    """
+
+    @given(
+        config_parallel=st.integers(min_value=1, max_value=8),
+    )
+    @settings(max_examples=50)
+    def test_parallel_override_forces_serial(self, config_parallel: int) -> None:
+        """parallel=1 override always results in config.parallel == 1."""
+        from agentfox.engine.run import _apply_overrides  # type: ignore[import-not-found]  # noqa: I001
+
+        config = OrchestratorConfig(parallel=config_parallel)
+        result = _apply_overrides(config, parallel=1)
+        assert result.parallel == 1
+
+    @given(
+        config_parallel=st.integers(min_value=1, max_value=8),
+    )
+    @settings(max_examples=50)
+    def test_no_parallel_override_preserves_value(self, config_parallel: int) -> None:
+        """When parallel override is None, config.parallel is preserved."""
+        from agentfox.engine.run import _apply_overrides  # type: ignore[import-not-found]  # noqa: I001
+
+        config = OrchestratorConfig(parallel=config_parallel)
+        result = _apply_overrides(config, parallel=None)
+        assert result.parallel == config_parallel

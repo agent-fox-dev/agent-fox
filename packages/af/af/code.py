@@ -377,6 +377,7 @@ def _check_dry_run_conflicts(
     watch: bool,
     force_clean: bool,
     archive: bool = False,
+    no_parallel: bool = False,
 ) -> list[str]:
     """Return list of flag names incompatible with --dry-run, or empty list.
 
@@ -392,6 +393,8 @@ def _check_dry_run_conflicts(
         conflicts.append("--force-clean")
     if archive:
         conflicts.append("--archive")
+    if no_parallel:
+        conflicts.append("--no-parallel")
     return conflicts
 
 
@@ -433,6 +436,12 @@ def _check_dry_run_conflicts(
     default=False,
     help="Move completed specs to specs/archive/ after execution",
 )
+@click.option(
+    "--no-parallel",
+    is_flag=True,
+    default=False,
+    help="Force serial execution (parallel=1) for this run",
+)
 @click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
 def code_cmd(
@@ -443,6 +452,7 @@ def code_cmd(
     force_clean: bool,
     dry_run: bool,
     archive: bool,
+    no_parallel: bool,
     json: bool | None,
 ) -> None:
     """Execute the task plan."""
@@ -463,6 +473,7 @@ def code_cmd(
         watch=watch,
         force_clean=force_clean,
         archive=archive,
+        no_parallel=no_parallel,
     )
     if conflicts:
         flag_list = ", ".join(conflicts)
@@ -555,6 +566,7 @@ def code_cmd(
                 config,
                 watch=watch,
                 watch_interval=watch_interval,
+                parallel=1 if no_parallel else None,
                 specs_dir=Path(specs_dir) if specs_dir else None,
                 activity_callback=progress.activity_callback,
                 task_callback=task_cb,

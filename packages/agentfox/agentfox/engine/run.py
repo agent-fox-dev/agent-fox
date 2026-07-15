@@ -62,6 +62,7 @@ def _apply_overrides(
     max_cost: float | None = None,
     max_sessions: int | None = None,
     watch_interval: int | None = None,
+    parallel: int | None = None,
 ) -> OrchestratorConfig:
     """Return a new OrchestratorConfig with CLI overrides applied.
 
@@ -80,6 +81,8 @@ def _apply_overrides(
         overrides["max_sessions"] = max_sessions
     if watch_interval is not None:
         overrides["watch_interval"] = watch_interval
+    if parallel is not None:
+        overrides["parallel"] = parallel
     if overrides:
         merged = config.model_dump()
         merged.update(overrides)
@@ -224,6 +227,7 @@ async def run_code(
     max_sessions: int | None = None,
     watch: bool = False,
     watch_interval: int | None = None,
+    parallel: int | None = None,
     specs_dir: Path | None = None,
     activity_callback: ActivityCallback | None = None,
     task_callback: TaskCallback | None = None,
@@ -239,6 +243,7 @@ async def run_code(
         config: Loaded AgentFoxConfig.
         watch: Keep running and poll for new specs.
         watch_interval: Seconds between watch polls.
+        parallel: Override for parallel session count.
         specs_dir: Path to specs directory (default: .specs).
         activity_callback: Optional callback for tool activity display.
         task_callback: Optional callback for task event display.
@@ -255,6 +260,7 @@ async def run_code(
             max_cost=max_cost,
             max_sessions=max_sessions,
             watch_interval=watch_interval,
+            parallel=parallel,
         )
     except Exception:
         orch_config = config.orchestrator

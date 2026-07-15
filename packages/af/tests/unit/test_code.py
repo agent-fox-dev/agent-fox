@@ -677,6 +677,56 @@ class TestArchiveFlag:
         assert "archive directory does not exist" in result.output.lower()
 
 
+class TestNoParallelFlag:
+    """Tests for the --no-parallel flag on the code command.
+
+    Requirements: issue #716
+    """
+
+    def test_no_parallel_flag_accepted(self, cli_runner: CliRunner) -> None:
+        """The --no-parallel flag is recognized by the CLI."""
+        result = cli_runner.invoke(main, ["code", "--help"])
+        assert "--no-parallel" in result.output
+
+    def test_no_parallel_passes_parallel_1_to_run_code(self, cli_runner: CliRunner) -> None:
+        """--no-parallel passes parallel=1 to run_code."""
+        state = _make_execution_state(run_status="completed")
+        mock_rc = _mock_run_code(state)
+        with (
+            patch("af.code.run_code", mock_rc),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code", "--no-parallel"])
+
+        assert result.exit_code == 0
+        mock_rc.assert_called_once()
+        call_kwargs = mock_rc.call_args
+        assert call_kwargs.kwargs.get("parallel") == 1
+
+    def test_without_no_parallel_passes_none(self, cli_runner: CliRunner) -> None:
+        """Without --no-parallel, parallel=None is passed to run_code."""
+        state = _make_execution_state(run_status="completed")
+        mock_rc = _mock_run_code(state)
+        with (
+            patch("af.code.run_code", mock_rc),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert result.exit_code == 0
+        mock_rc.assert_called_once()
+        call_kwargs = mock_rc.call_args
+        assert call_kwargs.kwargs.get("parallel") is None
+
+    def test_no_parallel_dry_run_conflict(self, cli_runner: CliRunner) -> None:
+        """--no-parallel and --dry-run are mutually exclusive."""
+        result = cli_runner.invoke(main, ["code", "--no-parallel", "--dry-run"])
+        assert result.exit_code == 1
+        assert "--no-parallel" in result.output
+
+
 class TestPerSpecSummary:
     """NS-REQ-1 through NS-REQ-5: per-spec task-group progress in summary.
 
