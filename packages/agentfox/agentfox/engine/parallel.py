@@ -92,6 +92,7 @@ class ParallelRunner:
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
+        preflight_summary: str | None = None,
     ) -> SessionRecord:
         """Execute a single session and return the record.
 
@@ -124,6 +125,7 @@ class ParallelRunner:
                 run_id=run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
+                preflight_summary=preflight_summary,
             )
         except Exception as exc:
             logger.error(
@@ -187,6 +189,7 @@ class ParallelRunner:
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
+        preflight_summary: str | None = None,
     ) -> SessionRecord:
         """Execute a single session via the factory-created runner."""
         runner = self._session_runner_factory(
@@ -198,4 +201,6 @@ class ParallelRunner:
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,
         )
+        if preflight_summary is not None:
+            runner._preflight_summary = preflight_summary
         return await invoke_runner(runner, node_id, attempt, previous_error)

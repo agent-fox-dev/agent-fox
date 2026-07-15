@@ -17,7 +17,12 @@ Treat this file as executable workflow policy.
 
 ## Quick Triage
 
-Before reading any spec files or exploring the codebase, perform this check:
+**If a `## Preflight State` section is present in your task prompt**, the
+orchestrator has already verified checkbox states, findings, and test baseline.
+Skip this section entirely and proceed to **Task Group Routing** below.
+
+Otherwise, perform this check before reading any spec files or exploring the
+codebase:
 
 1. **Inspect checkbox states** in `tasks.json` for your assigned task group only.
    Count how many subtasks are `[x]` vs `[ ]`. If any subtask in your assigned

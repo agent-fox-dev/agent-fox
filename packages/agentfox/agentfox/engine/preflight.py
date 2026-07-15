@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,39 @@ _TEST_TIMEOUT_SECONDS = 300
 class PreflightVerdict(StrEnum):
     LAUNCH = "launch"
     SKIP = "skip"
+
+
+@dataclass(frozen=True)
+class PreflightResult:
+    """Structured result from a preflight check.
+
+    Captures the verdict and the state of each gate so the coder
+    session can skip redundant Quick Triage checks.
+    """
+
+    verdict: PreflightVerdict
+    checkboxes_done: bool
+    has_findings: bool
+    tests_passed: bool | None  # None = not run (short-circuited)
+
+    def format_summary(self) -> str:
+        """Format a human-readable summary for inclusion in the task prompt."""
+        cb = "all complete" if self.checkboxes_done else "incomplete"
+        findings = "active critical/major findings" if self.has_findings else "none"
+        if self.tests_passed is None:
+            tests = "not run (short-circuited)"
+        elif self.tests_passed:
+            tests = "pass"
+        else:
+            tests = "fail"
+        return (
+            "## Preflight State (from orchestrator)\n\n"
+            f"- Subtask checkboxes: {cb}\n"
+            f"- Active findings: {findings}\n"
+            f"- Test baseline: {tests}\n\n"
+            "The orchestrator has already verified these gates. "
+            "Skip Quick Triage and proceed directly to implementation."
+        )
 
 
 def is_task_group_done_db(
@@ -150,35 +184,61 @@ def run_preflight(
     conn: Any | None,
     specs_dir: Path,
     cwd: Path,
-) -> PreflightVerdict:
+) -> PreflightResult:
     """Run the pre-flight check for a coder session.
 
     Gates are evaluated in order with short-circuit: if any gate
     fails, the check returns LAUNCH immediately to avoid running
     later (more expensive) gates.
-    """
-    if not is_task_group_done(conn, spec_name, group_number, specs_dir):
-        return PreflightVerdict.LAUNCH
 
-    if has_active_critical_findings(conn, spec_name, group_number):
+    Returns a ``PreflightResult`` with the verdict and gate states.
+    """
+    checkboxes_done = is_task_group_done(conn, spec_name, group_number, specs_dir)
+
+    if not checkboxes_done:
+        return PreflightResult(
+            verdict=PreflightVerdict.LAUNCH,
+            checkboxes_done=False,
+            has_findings=False,
+            tests_passed=None,
+        )
+
+    findings = has_active_critical_findings(conn, spec_name, group_number)
+    if findings:
         logger.info(
             "Preflight: %s:%d has done checkboxes but active findings, launching coder",
             spec_name,
             group_number,
         )
-        return PreflightVerdict.LAUNCH
+        return PreflightResult(
+            verdict=PreflightVerdict.LAUNCH,
+            checkboxes_done=True,
+            has_findings=True,
+            tests_passed=None,
+        )
 
-    if not do_tests_pass(cwd):
+    tests_ok = do_tests_pass(cwd)
+    if not tests_ok:
         logger.info(
             "Preflight: %s:%d has done checkboxes but tests fail, launching coder",
             spec_name,
             group_number,
         )
-        return PreflightVerdict.LAUNCH
+        return PreflightResult(
+            verdict=PreflightVerdict.LAUNCH,
+            checkboxes_done=True,
+            has_findings=False,
+            tests_passed=False,
+        )
 
     logger.info(
         "Preflight: %s:%d is complete — checkboxes done, no findings, tests pass. Skipping coder session.",
         spec_name,
         group_number,
     )
-    return PreflightVerdict.SKIP
+    return PreflightResult(
+        verdict=PreflightVerdict.SKIP,
+        checkboxes_done=True,
+        has_findings=False,
+        tests_passed=True,
+    )

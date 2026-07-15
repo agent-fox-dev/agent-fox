@@ -184,6 +184,34 @@ class TestTaskPromptReferencesTasksJson:
         )
 
 
+class TestPreflightSummaryInTaskPrompt:
+    """Issue #718: preflight summary included in task prompt."""
+
+    def test_preflight_summary_appended_when_provided(self) -> None:
+        """Task prompt includes preflight section when summary is provided."""
+        summary = (
+            "## Preflight State (from orchestrator)\n\n"
+            "- Subtask checkboxes: incomplete\n"
+            "- Active findings: none\n"
+            "- Test baseline: not run (short-circuited)\n"
+        )
+        result = build_task_prompt(2, "my_spec", preflight_summary=summary)
+        assert "## Preflight State" in result
+        assert "Subtask checkboxes: incomplete" in result
+
+    def test_no_preflight_when_none(self) -> None:
+        """Task prompt omits preflight section when summary is None."""
+        result = build_task_prompt(2, "my_spec", preflight_summary=None)
+        assert "Preflight State" not in result
+
+    def test_no_preflight_for_non_coder(self) -> None:
+        """Non-coder archetypes ignore preflight_summary."""
+        result = build_task_prompt(
+            2, "my_spec", archetype="reviewer", preflight_summary="## Preflight State\n"
+        )
+        assert "Preflight State" not in result
+
+
 class TestNonCoderTaskPromptOmitsGroupNumber:
     """AC-2 regression guard: verifier (and other non-coder archetypes)
     must never have a task group number in their task prompt, even if

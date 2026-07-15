@@ -99,12 +99,14 @@ def build_task_prompt(
     spec_name: str,
     archetype: str = "coder",
     mode: str | None = None,
+    preflight_summary: str | None = None,
 ) -> str:
     """Build an enriched task prompt.
 
     For coder archetypes: includes spec name, task group, instructions to
     update checkbox states, commit on the feature branch, and run quality
-    gates.
+    gates.  When *preflight_summary* is provided, appends a
+    ``## Preflight State`` section so the coder can skip Quick Triage.
 
     For non-coder archetypes (reviewer, verifier, etc.): returns a concise
     prompt that defers to the system prompt profile for detailed
@@ -116,6 +118,8 @@ def build_task_prompt(
         archetype: Archetype name (defaults to ``"coder"``).
         mode: Optional archetype mode variant (97-REQ-5.3). Used for
             mode-specific profile resolution.
+        preflight_summary: Optional preflight gate summary from the
+            orchestrator. When present, the coder skips Quick Triage.
 
     Raises:
         ValueError: If *task_group* < 1 for coder archetype.
@@ -131,7 +135,7 @@ def build_task_prompt(
     if task_group < 1:
         raise ValueError(f"task_group must be >= 1, got {task_group}")
 
-    return (
+    prompt = (
         f"Implement task group {task_group} from specification "
         f"`{spec_name}`.\n"
         f"\n"
@@ -149,3 +153,8 @@ def build_task_prompt(
         f"ensure quality gates pass. Fix any failures before finalizing "
         f"the commit.\n"
     )
+
+    if preflight_summary:
+        prompt += f"\n{preflight_summary}\n"
+
+    return prompt

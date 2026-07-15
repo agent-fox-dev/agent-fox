@@ -368,11 +368,13 @@ class NodeSessionRunner:
             mode=self._mode,
             project_dir=repo_root,
         )
+        preflight_summary = getattr(self, "_preflight_summary", None)
         task_prompt = build_task_prompt(
             task_group=self._task_group,
             spec_name=self._spec_name,
             archetype=self._archetype,
             mode=self._mode,
+            preflight_summary=preflight_summary,
         )
 
         if previous_error and attempt > 1:

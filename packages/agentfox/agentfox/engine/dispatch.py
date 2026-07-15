@@ -116,6 +116,7 @@ class SerialRunner:
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
+        preflight_summary: str | None = None,
     ) -> SessionRecord:
         """Execute a single session and return the outcome record."""
         from agentfox.engine.state import invoke_runner
@@ -129,6 +130,8 @@ class SerialRunner:
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,
         )
+        if preflight_summary is not None:
+            runner._preflight_summary = preflight_summary
         return await invoke_runner(runner, node_id, attempt, previous_error)
 
     async def delay(self) -> None:
@@ -174,7 +177,7 @@ class SerialDispatcher:
             if launch is None:
                 continue
 
-            _, attempt, previous_error, node_archetype, node_instances, node_mode = launch
+            _, attempt, previous_error, node_archetype, node_instances, node_mode, preflight_summary = launch
 
             if not first_dispatch:
                 await orch._dispatch_mgr.serial_runner.delay()
@@ -197,6 +200,7 @@ class SerialDispatcher:
                 run_id=orch._run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
+                preflight_summary=preflight_summary,
             )
 
             if orch._result_handler is None:
@@ -335,7 +339,7 @@ class ParallelDispatcher:
             if launch is None:
                 continue
 
-            _, attempt, previous_error, archetype, instances, node_mode = launch
+            _, attempt, previous_error, archetype, instances, node_mode, preflight_summary = launch
 
             orch._graph_sync.mark_in_progress(node_id)
 
@@ -355,6 +359,7 @@ class ParallelDispatcher:
                     run_id=orch._run_id,
                     timeout_override=timeout_override,
                     max_turns_override=max_turns_override,
+                    preflight_summary=preflight_summary,
                 ),
                 name=f"parallel-{node_id}",
             )
@@ -440,6 +445,7 @@ class DispatchManager:
         self._task_callback = task_callback
         self._planning_config = planning_config
         self._result_handler: Any | None = None
+        self._preflight_summaries: dict[str, str] = {}
 
         self.serial_runner = SerialRunner(
             session_runner_factory=session_runner_factory,
@@ -477,7 +483,7 @@ class DispatchManager:
         node_id: str,
         state: Any,
         error_tracker: dict[str, str | None],
-    ) -> tuple[str, int, str | None, str, int, str | None] | None:
+    ) -> tuple[str, int, str | None, str, int, str | None, str | None] | None:
         """Check whether a node may launch.
 
         Performs a pre-session workspace health check before creating the
@@ -486,8 +492,8 @@ class DispatchManager:
         fail-open (dispatch proceeds).
 
         Returns a tuple of (verdict, attempt, previous_error, archetype,
-        instances, mode) if the node is allowed to launch,
-        or None if it was blocked/limited.
+        instances, mode, preflight_summary) if the node is allowed to
+        launch, or None if it was blocked/limited.
         """
         # 118-REQ-4.1: Pre-session workspace health check
         try:
@@ -589,8 +595,9 @@ class DispatchManager:
             rh.record_attempt(node_id, attempt)
         previous_error = error_tracker.get(node_id)
         instances = self.get_node_instances(node_id)
+        preflight_summary = self._preflight_summaries.pop(node_id, None)
 
-        return (verdict, attempt, previous_error, archetype, instances, mode)
+        return (verdict, attempt, previous_error, archetype, instances, mode, preflight_summary)
 
     def _check_launch(
         self,
@@ -624,7 +631,11 @@ class DispatchManager:
         return "limited"
 
     def _run_preflight(self, node_id: str) -> bool:
-        """Run pre-flight check and skip the session if work is done."""
+        """Run pre-flight check and skip the session if work is done.
+
+        When the verdict is LAUNCH, stores the preflight summary for
+        inclusion in the coder's task prompt (avoids redundant Quick Triage).
+        """
         from agentfox.core.config import resolve_spec_root
         from agentfox.core.node_id import parse_node_id
 
@@ -637,14 +648,18 @@ class DispatchManager:
         if specs_dir is None:
             return False
 
-        verdict = run_preflight(
+        result = run_preflight(
             spec_name=parsed.spec_name,
             group_number=parsed.group_number,
             conn=self._knowledge_db_conn,
             specs_dir=specs_dir,
             cwd=Path.cwd(),
         )
-        if verdict != PreflightVerdict.SKIP:
+
+        if result.verdict == PreflightVerdict.LAUNCH:
+            self._preflight_summaries[node_id] = result.format_summary()
+
+        if result.verdict != PreflightVerdict.SKIP:
             return False
 
         if self._graph_sync is not None:

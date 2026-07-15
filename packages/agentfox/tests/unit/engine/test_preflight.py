@@ -236,8 +236,9 @@ class TestRunPreflight:
     def test_incomplete_task_returns_launch(self, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "pending")
-        verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
-        assert verdict == PreflightVerdict.LAUNCH
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        assert result.verdict == PreflightVerdict.LAUNCH
+        assert result.checkboxes_done is False
 
     def test_done_with_findings_returns_launch(self, tmp_path: Path) -> None:
         conn = _make_conn()
@@ -250,28 +251,46 @@ class TestRunPreflight:
                 (gen_random_uuid(), 'critical', 'broken', 'spec', '1', 'sess-1')
             """
         )
-        verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
-        assert verdict == PreflightVerdict.LAUNCH
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        assert result.verdict == PreflightVerdict.LAUNCH
+        assert result.checkboxes_done is True
+        assert result.has_findings is True
 
     @patch("agentfox.engine.preflight.do_tests_pass", return_value=False)
     def test_done_no_findings_tests_fail_returns_launch(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
-        verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
-        assert verdict == PreflightVerdict.LAUNCH
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        assert result.verdict == PreflightVerdict.LAUNCH
+        assert result.tests_passed is False
 
     @patch("agentfox.engine.preflight.do_tests_pass", return_value=True)
     def test_all_gates_pass_returns_skip(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
-        verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
-        assert verdict == PreflightVerdict.SKIP
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        assert result.verdict == PreflightVerdict.SKIP
+        assert result.checkboxes_done is True
+        assert result.has_findings is False
+        assert result.tests_passed is True
 
     @patch("agentfox.engine.preflight.do_tests_pass", return_value=True)
     def test_short_circuits_on_first_failure(self, mock_tests: MagicMock, tmp_path: Path) -> None:
         """Tests are not run when task group is incomplete."""
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "pending")
-        verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
-        assert verdict == PreflightVerdict.LAUNCH
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        assert result.verdict == PreflightVerdict.LAUNCH
+        assert result.tests_passed is None
         mock_tests.assert_not_called()
+
+    def test_format_summary_includes_gate_states(self, tmp_path: Path) -> None:
+        """format_summary produces a readable preflight section."""
+        conn = _make_conn()
+        _insert_plan_node(conn, "spec:1", "spec", 1, "pending")
+        result = run_preflight("spec", 1, conn, tmp_path, tmp_path)
+        summary = result.format_summary()
+        assert "## Preflight State" in summary
+        assert "Subtask checkboxes:" in summary
+        assert "Active findings:" in summary
+        assert "Test baseline:" in summary
