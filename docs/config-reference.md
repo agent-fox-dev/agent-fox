@@ -202,28 +202,53 @@ success = "green"
 
 ## platform
 
-Issue-tracker integration. Set `type = "github"` to enable GitHub Issues
-support for Night Shift and the fix pipeline.
+Issue-tracker integration for Night Shift and the fix pipeline. Supports
+GitHub, GitLab, and Gitea forges.
 
 > **Note:** This is a hidden section.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `type` | str | `"none"` | -- | Platform type: `"none"` or `"github"` |
-| `url` | str | `""` | -- | Issue tracker base URL (inferred from type when left empty) |
+| `type` | str | `"none"` | -- | Platform type: `"none"`, `"github"`, `"gitlab"`, or `"gitea"` |
+| `url` | str | `""` | -- | Issue tracker base URL (inferred from type when left empty for GitHub and GitLab; **required** for Gitea) |
+
+### Authentication
+
+Each platform requires a token in an environment variable:
+
+| Platform | Environment variable | Default host |
+|----------|---------------------|--------------|
+| `github` | `GITHUB_PAT` | `github.com` |
+| `gitlab` | `GITLAB_TOKEN` | `gitlab.com` |
+| `gitea`  | `GITEA_TOKEN` | *(none — `url` required)* |
+
+The repository owner and name are resolved automatically from the git remote
+URL. For GitLab, the project path (`namespace/project`) is parsed from the
+remote.
 
 **SSRF protection:** The `url` field is validated against private, loopback,
 link-local, and reserved IP ranges at both configuration time and connection
-time. GitHub Enterprise instances on internal networks with private IPs will
-be rejected. All API calls automatically retry up to 3 times on transport
+time. Self-hosted instances on internal networks with private IPs will be
+rejected. All API calls automatically retry up to 3 times on transport
 errors with exponential backoff.
 
-**Example:**
+**Examples:**
 
 ```toml
+# GitHub (public or Enterprise)
 [platform]
 type = "github"
 url = "https://github.com/my-org/my-repo"
+
+# GitLab (public or self-hosted)
+[platform]
+type = "gitlab"
+url = "https://gitlab.com/my-group/my-project"
+
+# Gitea (self-hosted — url is required)
+[platform]
+type = "gitea"
+url = "https://gitea.example.com/my-org/my-repo"
 ```
 
 ---

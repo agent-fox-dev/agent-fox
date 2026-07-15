@@ -248,8 +248,8 @@ class PlatformConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    type: str = Field(default="none", description="Platform type (none or github)")
-    url: str = Field(default="", description="Issue tracker URL (defaults from type)")
+    type: str = Field(default="none", description="Platform type (none, github, gitlab, or gitea)")
+    url: str = Field(default="", description="Issue tracker URL (defaults from type; required for gitea)")
 
 
 class KnowledgeProviderConfig(BaseModel):
