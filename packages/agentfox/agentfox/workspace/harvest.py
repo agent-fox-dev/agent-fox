@@ -379,9 +379,11 @@ async def _harvest_under_lock(
     Requirements: 45-REQ-4.1, 45-REQ-6.1, 118-REQ-2.3,
                   121-REQ-1.1, 121-REQ-1.3, 121-REQ-1.4, 121-REQ-1.E1
     """
-    # Ensure a clean working tree before any merge operation. A prior
-    # failed harvest may have left tracked files dirty, which would cause
-    # subsequent checkout/merge commands to fail.
+    # Reset the index and working tree before any merge operation.
+    # A prior failed harvest may have left squash-merge changes staged
+    # in the index (e.g., when the merge agent timed out or the process
+    # was interrupted). git merge --squash requires a clean index.
+    await run_git(["reset", "HEAD"], cwd=repo_root, check=False)
     await run_git(["checkout", "--", "."], cwd=repo_root, check=False)
 
     # Remove untracked files that would block the merge. A prior session

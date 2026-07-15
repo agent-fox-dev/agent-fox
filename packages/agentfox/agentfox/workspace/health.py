@@ -138,30 +138,46 @@ async def force_clean_workspace(
             )
             failed_untracked.append(rel_path)
 
-    # Reset dirty index via git checkout -- .
+    # Unstage and restore dirty index files. git checkout -- . alone
+    # only overwrites the working tree from the index — it does NOT
+    # unstage staged changes. We need git reset HEAD first to unstage,
+    # then git checkout -- . to restore the working tree.
     remaining_dirty: list[str] = []
     if report.dirty_index_files:
         try:
             rc, _stdout, stderr = await run_git(
-                ["checkout", "--", "."],
+                ["reset", "HEAD"],
                 cwd=repo_root,
                 check=False,
             )
             if rc != 0:
                 logger.warning(
-                    "Force-clean: git checkout -- . failed (rc=%d): %s",
+                    "Force-clean: git reset HEAD failed (rc=%d): %s",
                     rc,
                     stderr.strip(),
                 )
                 remaining_dirty = list(report.dirty_index_files)
             else:
-                logger.warning(
-                    "Force-clean: reset dirty index files: %s",
-                    ", ".join(report.dirty_index_files),
+                rc, _stdout, stderr = await run_git(
+                    ["checkout", "--", "."],
+                    cwd=repo_root,
+                    check=False,
                 )
+                if rc != 0:
+                    logger.warning(
+                        "Force-clean: git checkout -- . failed (rc=%d): %s",
+                        rc,
+                        stderr.strip(),
+                    )
+                    remaining_dirty = list(report.dirty_index_files)
+                else:
+                    logger.warning(
+                        "Force-clean: reset dirty index files: %s",
+                        ", ".join(report.dirty_index_files),
+                    )
         except Exception:
             logger.warning(
-                "Force-clean: git checkout raised an exception",
+                "Force-clean: git reset/checkout raised an exception",
                 exc_info=True,
             )
             remaining_dirty = list(report.dirty_index_files)

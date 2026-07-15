@@ -67,7 +67,7 @@ class MergeLock:
     def __init__(
         self,
         repo_root: Path,
-        timeout: float = 300.0,
+        timeout: float = 3600.0,
         stale_timeout: float = _DEFAULT_STALE_TIMEOUT,
         poll_interval: float = 1.0,
     ) -> None:
