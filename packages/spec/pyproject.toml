@@ -1,12 +1,12 @@
 [project]
 name = "spec"
-version = "4.2.3"
+version = "4.2.4"
 description = "CLI for AI-powered spec creation"
 requires-python = ">=3.12"
 dependencies = [
-    "afspec>=4.2.3",
-    "agentfox>=4.2.3",
-    "agentspec>=4.2.3",
+    "afspec>=4.2.4",
+    "agentfox>=4.2.4",
+    "agentspec>=4.2.4",
     "click>=8.1",
     "rich>=13.0",
 ]
