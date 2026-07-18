@@ -389,82 +389,85 @@ async def _harvest_under_lock(
     # Remove untracked files that would block the merge. A prior session
     # may have created files (e.g. test files) that now exist both as
     # untracked in the working tree and in the incoming feature branch.
-    await _clean_conflicting_untracked(repo_root, workspace.branch, force_clean=force_clean)
+    # Wrap the entire merge block in try/finally so orphan files left by
+    # a failed merge are always cleaned up (issue #724).
+    try:
+        await _clean_conflicting_untracked(repo_root, workspace.branch, force_clean=force_clean)
 
-    # Capture the list of changed files before switching branches
-    changed_files = await get_changed_files(
-        repo_root,
-        workspace.branch,
-        dev_branch,
-    )
-
-    # Checkout the development branch in the main repo
-    await checkout_branch(repo_root, dev_branch)
-
-    # Squash merge produces a single commit on dev_branch, collapsing
-    # any internal merge topology on the feature branch.
-    merge_rc, merge_stdout, merge_stderr = await run_git(
-        ["merge", "--squash", "--", workspace.branch],
-        cwd=repo_root,
-        check=False,
-    )
-    if merge_rc != 0:
-        # Spawn merge agent to resolve conflicts (45-REQ-4.1, 45-REQ-6.1)
-        merge_detail = merge_stderr.strip() or merge_stdout.strip()
-        logger.info(
-            "Squash merge of '%s' had conflicts, spawning merge agent",
+        # Capture the list of changed files before switching branches
+        changed_files = await get_changed_files(
+            repo_root,
             workspace.branch,
+            dev_branch,
         )
-        resolved = await run_merge_agent(
-            worktree_path=repo_root,
-            conflict_output=merge_detail,
-            model_id="ADVANCED",
-        )
-        if not resolved:
-            # Abort the failed squash merge and raise.
-            # Squash does not set MERGE_HEAD, so use reset --merge.
-            await run_git(
-                ["reset", "--merge"],
-                cwd=repo_root,
-                check=False,
-            )
-            raise IntegrationError(
-                f"Merge agent failed to resolve conflicts for '{workspace.branch}' into '{dev_branch}'",
-                branch=workspace.branch,
-            )
-    else:
-        # Squash stages changes but does not commit. Commit them now,
-        # unless the squash resulted in no changes (identical content
-        # already on dev_branch).
-        diff_rc, _, _ = await run_git(
-            ["diff", "--cached", "--quiet"],
+
+        # Checkout the development branch in the main repo
+        await checkout_branch(repo_root, dev_branch)
+
+        # Squash merge produces a single commit on dev_branch, collapsing
+        # any internal merge topology on the feature branch.
+        merge_rc, merge_stdout, merge_stderr = await run_git(
+            ["merge", "--squash", "--", workspace.branch],
             cwd=repo_root,
             check=False,
         )
-        if diff_rc != 0:
-            msg = await _build_squash_message(
-                repo_root,
+        if merge_rc != 0:
+            # Spawn merge agent to resolve conflicts (45-REQ-4.1, 45-REQ-6.1)
+            merge_detail = merge_stderr.strip() or merge_stdout.strip()
+            logger.info(
+                "Squash merge of '%s' had conflicts, spawning merge agent",
                 workspace.branch,
-                dev_branch,
             )
-            await run_git(["commit", "-m", msg], cwd=repo_root)
+            resolved = await run_merge_agent(
+                worktree_path=repo_root,
+                conflict_output=merge_detail,
+                model_id="ADVANCED",
+            )
+            if not resolved:
+                # Abort the failed squash merge and raise.
+                # Squash does not set MERGE_HEAD, so use reset --merge.
+                await run_git(
+                    ["reset", "--merge"],
+                    cwd=repo_root,
+                    check=False,
+                )
+                raise IntegrationError(
+                    f"Merge agent failed to resolve conflicts for '{workspace.branch}' into '{dev_branch}'",
+                    branch=workspace.branch,
+                )
+        else:
+            # Squash stages changes but does not commit. Commit them now,
+            # unless the squash resulted in no changes (identical content
+            # already on dev_branch).
+            diff_rc, _, _ = await run_git(
+                ["diff", "--cached", "--quiet"],
+                cwd=repo_root,
+                check=False,
+            )
+            if diff_rc != 0:
+                msg = await _build_squash_message(
+                    repo_root,
+                    workspace.branch,
+                    dev_branch,
+                )
+                await run_git(["commit", "-m", msg], cwd=repo_root)
 
-    logger.info(
-        "Squash merge of '%s' into '%s' succeeded",
-        workspace.branch,
-        dev_branch,
-    )
-
-    # Remove any untracked files left over after the squash merge.
-    # Prior sessions may have created files (tests, configs) that now
-    # exist as committed on the integration branch but also linger as
-    # untracked artifacts in the working tree.  If left behind, they
-    # block the pre-dispatch health check for subsequent tasks.
-    await run_git(
-        ["clean", "-fd", "--exclude", ".agent-fox"],
-        cwd=repo_root,
-        check=False,
-    )
+        logger.info(
+            "Squash merge of '%s' into '%s' succeeded",
+            workspace.branch,
+            dev_branch,
+        )
+    finally:
+        # Always clean up the working tree, even on failure (issue #724).
+        # These commands are idempotent and use check=False so they never
+        # raise.  --exclude .agent-fox protects active worktrees.
+        await run_git(["reset", "HEAD"], cwd=repo_root, check=False)
+        await run_git(["checkout", "--", "."], cwd=repo_root, check=False)
+        await run_git(
+            ["clean", "-fd", "--exclude", ".agent-fox"],
+            cwd=repo_root,
+            check=False,
+        )
 
     # Push develop to origin inside the lock (121-REQ-1.1, 121-REQ-1.3).
     # The push happens while the merge lock is still held so concurrent

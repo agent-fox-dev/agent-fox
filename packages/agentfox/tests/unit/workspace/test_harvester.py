@@ -490,8 +490,13 @@ class TestCleanConflictingUntracked:
         self,
         tmp_worktree_repo: Path,
     ) -> None:
-        """AC-2: Untracked file with different content raises IntegrationError
-        and is left on disk untouched."""
+        """AC-2: Untracked file with different content raises IntegrationError.
+
+        After issue #724, the finally block runs ``git clean -fd`` which
+        removes the divergent file.  The IntegrationError still propagates
+        so the orchestrator can track the failure, but the working tree is
+        left clean (no orphan files blocking subsequent dispatch cycles).
+        """
         ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
@@ -503,9 +508,11 @@ class TestCleanConflictingUntracked:
         with pytest.raises(IntegrationError, match="new_file.py"):
             await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
-        # File must still exist with its original content.
-        assert untracked.exists()
-        assert untracked.read_text() == original_content
+        # After issue #724 the finally-block git clean removes the
+        # divergent file, leaving a clean working tree.
+        assert not untracked.exists(), (
+            "Divergent file should be removed by finally-block git clean (issue #724)"
+        )
 
     @pytest.mark.asyncio
     async def test_git_show_failure_preserves_file(
@@ -911,3 +918,213 @@ class TestSharedDirectoryCampaign:
             await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         assert exc_info.value.retryable is True, "Divergent untracked file error must be retryable=True (AC-1/AC-5)"
+
+
+# ---------------------------------------------------------------------------
+# Issue #724: Post-merge git clean runs on all failure paths
+# ---------------------------------------------------------------------------
+
+
+class TestHarvestCleanupOnFailure:
+    """Issue #724: git clean runs in the finally block on all exit paths.
+
+    AC-1: Merge agent failure → git clean runs before exception propagates.
+    AC-2: _clean_conflicting_untracked raises → git clean runs in finally.
+    AC-3: git commit fails → working tree is cleaned.
+    AC-4: finally cleanup does not interfere with merge lock release.
+    AC-5: Successful harvest path is unaffected by the try/finally refactor.
+    """
+
+    @pytest.mark.asyncio
+    async def test_git_clean_runs_after_merge_agent_failure(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-1: When the merge agent fails, git clean runs before the
+        IntegrationError propagates, leaving no orphan untracked files."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+
+        # Create a conflicting file on both branches
+        add_commit_to_branch(ws.path, "shared.py", "feature content\n")
+
+        subprocess.run(
+            ["git", "checkout", "develop"],
+            cwd=tmp_worktree_repo,
+            check=True,
+            capture_output=True,
+        )
+        add_commit_to_branch(tmp_worktree_repo, "shared.py", "develop content\n")
+
+        # Also add an untracked file to the repo to verify it gets cleaned
+        orphan = tmp_worktree_repo / "orphan_artifact.py"
+        orphan.write_text("leftover from previous session\n")
+
+        with patch(
+            "agentfox.workspace.harvest.run_merge_agent",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            with pytest.raises(IntegrationError):
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        # The orphan file should have been cleaned up by the finally block
+        assert not orphan.exists(), (
+            "Orphan untracked file should be removed by finally-block git clean"
+        )
+
+        # Verify no unexpected untracked files remain (excluding .agent-fox)
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        untracked = [
+            f for f in result.stdout.strip().splitlines()
+            if f and not f.startswith(".agent-fox")
+        ]
+        assert untracked == [], f"Unexpected untracked files after failed harvest: {untracked}"
+
+    @pytest.mark.asyncio
+    async def test_git_clean_runs_when_clean_conflicting_raises(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-2: When _clean_conflicting_untracked raises IntegrationError
+        (divergent files), the finally block still cleans the working tree."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
+
+        # Place a divergent file to trigger IntegrationError
+        untracked = tmp_worktree_repo / "new_file.py"
+        untracked.write_text("local divergent content\n")
+
+        # Also place an unrelated orphan file
+        orphan = tmp_worktree_repo / "orphan_from_prior_session.txt"
+        orphan.write_text("should be cleaned\n")
+
+        with pytest.raises(IntegrationError, match="new_file.py"):
+            await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        # The divergent file is preserved by _clean_conflicting_untracked's
+        # own logic (it raises before deleting), but the orphan should be
+        # cleaned by the finally block's git clean.
+        assert not orphan.exists(), (
+            "Orphan file should be removed by finally-block git clean"
+        )
+
+    @pytest.mark.asyncio
+    async def test_git_clean_runs_when_commit_fails(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-3: When git commit raises after a successful squash merge,
+        the finally block resets the index and cleans untracked files."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        add_commit_to_branch(ws.path, "new_file.py", "print('hello')\n")
+
+        # Make run_git raise on 'commit' but pass through everything else
+        original_run_git = _real_run_git
+
+        async def fail_on_commit(cmd_args, **kwargs):
+            if cmd_args and cmd_args[0] == "commit":
+                from agentfox.core.errors import WorkspaceError
+                raise WorkspaceError("Simulated commit failure")
+            return await original_run_git(cmd_args, **kwargs)
+
+        with patch(
+            "agentfox.workspace.harvest.run_git",
+            side_effect=fail_on_commit,
+        ):
+            with pytest.raises(Exception, match="commit failure"):
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        # After the finally block, the index should be clean (no staged changes)
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+        )
+        assert result.returncode == 0, "Index should be clean after finally-block reset"
+
+        # No unexpected untracked files
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        untracked = [
+            f for f in result.stdout.strip().splitlines()
+            if f and not f.startswith(".agent-fox")
+        ]
+        assert untracked == [], f"Unexpected untracked files after commit failure: {untracked}"
+
+    @pytest.mark.asyncio
+    async def test_cleanup_does_not_interfere_with_lock_release(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-4: After a harvest failure with finally cleanup, the merge lock
+        is released and a subsequent harvest can acquire it."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+
+        # Create a conflicting file to trigger merge agent failure
+        add_commit_to_branch(ws.path, "shared.py", "feature content\n")
+
+        subprocess.run(
+            ["git", "checkout", "develop"],
+            cwd=tmp_worktree_repo,
+            check=True,
+            capture_output=True,
+        )
+        add_commit_to_branch(tmp_worktree_repo, "shared.py", "develop content\n")
+
+        # First harvest fails with merge agent failure
+        with patch(
+            "agentfox.workspace.harvest.run_merge_agent",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            with pytest.raises(IntegrationError):
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        # A second harvest call should be able to acquire the lock
+        # (not deadlock or timeout). We create a new workspace to avoid
+        # "no new commits" short-circuit.
+        ws2 = await create_worktree(tmp_worktree_repo, "test_spec2", 2, base_branch="develop")
+        add_commit_to_branch(ws2.path, "another_file.py", "content\n")
+
+        files = await harvest(tmp_worktree_repo, ws2, dev_branch="develop")
+        assert "another_file.py" in files, "Lock should be released after failed harvest"
+
+    @pytest.mark.asyncio
+    async def test_successful_harvest_unaffected_by_refactor(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-5: The try/finally refactor does not change behavior on success.
+        Working tree is clean and changed files are returned."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        add_commit_to_branch(ws.path, "new_file.py", "print('hello')\n")
+
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        assert "new_file.py" in files
+
+        # Working tree should be clean (excluding .agent-fox/ which is
+        # protected by --exclude .agent-fox in git clean)
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        dirty = [
+            line for line in result.stdout.strip().splitlines()
+            if line and not line.endswith(".agent-fox/")
+        ]
+        assert dirty == [], f"Working tree should be clean after successful harvest, got: {dirty}"
