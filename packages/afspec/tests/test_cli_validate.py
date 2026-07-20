@@ -38,10 +38,13 @@ from afspec.models import (
     Criterion,
     EARSPattern,
     EdgeCaseTest,
+    ExecutionPath,
     PRDDocument,
     PRDFrontmatter,
+    PathStep,
     Requirement,
     Requirements,
+    SmokeTest,
     Spec,
     Subtask,
     TaskGroup,
@@ -359,7 +362,7 @@ def _write_spec_fixture(
             "subtasks": [
                 {
                     "id": "2.1",
-                    "title": "Verify wiring",
+                    "title": "Trace execution paths and stub/dead-code audit",
                     "details": ["Check end-to-end wiring"],
                     "test_spec_refs": [f"TS-{spec_id}-SMOKE-1"],
                     "requirement_refs": [f"{spec_id}-REQ-1"],
@@ -776,6 +779,7 @@ def _build_spec_first_group_standard() -> Spec:
                     ],
                 )
             ],
+            execution_paths=[ExecutionPath(id="BC-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="BC",
@@ -796,6 +800,7 @@ def _build_spec_first_group_standard() -> Spec:
                     description="Edge case test",
                 )
             ],
+            smoke_tests=[SmokeTest(id="TS-BC-SMOKE-1", execution_path_id="BC-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="BC",
@@ -822,7 +827,8 @@ def _build_spec_first_group_standard() -> Spec:
                     subtasks=[
                         Subtask(
                             id="2.1",
-                            title="Verify wiring",
+                            title="Trace execution paths and stub/dead-code audit",
+                            test_spec_refs=["TS-BC-SMOKE-1"],
                             requirement_refs=["BC-REQ-1"],
                         )
                     ],
@@ -938,6 +944,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                     ],
                 ),
             ],
+            execution_paths=[ExecutionPath(id="MT-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="MT",
@@ -964,6 +971,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                     description="Edge case test",
                 )
             ],
+            smoke_tests=[SmokeTest(id="TS-MT-SMOKE-1", execution_path_id="MT-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="MT",
@@ -1017,7 +1025,8 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                     subtasks=[
                         Subtask(
                             id="4.1",
-                            title="Verify wiring",
+                            title="Trace execution paths and stub/dead-code audit",
+                            test_spec_refs=["TS-MT-SMOKE-1"],
                             requirement_refs=["MT-REQ-1"],
                         )
                     ],

@@ -25,10 +25,13 @@ from __future__ import annotations
 from afspec.models import (
     Criterion,
     EARSPattern,
+    ExecutionPath,
     PRDDocument,
     PRDFrontmatter,
+    PathStep,
     Requirement,
     Requirements,
+    SmokeTest,
     Spec,
     Subtask,
     TaskGroup,
@@ -159,7 +162,8 @@ def _build_spec_with_subtask_refs(
             subtasks=[
                 Subtask(
                     id="2.1",
-                    title="Verify wiring",
+                    title="Trace execution paths and stub/dead-code audit",
+                    test_spec_refs=["TS-SO-SMOKE-1"],
                     requirement_refs=["SO-REQ-1"],
                 )
             ],
@@ -192,11 +196,13 @@ def _build_spec_with_subtask_refs(
             spec_name="subtask_overload_test",
             introduction="Test spec for single subtask overload warning.",
             requirements=[req],
+            execution_paths=[ExecutionPath(id="SO-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="SO",
             spec_name="subtask_overload_test",
             test_cases=test_cases,
+            smoke_tests=[SmokeTest(id="TS-SO-SMOKE-1", execution_path_id="SO-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="SO",

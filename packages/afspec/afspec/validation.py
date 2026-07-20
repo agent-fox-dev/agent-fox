@@ -274,6 +274,94 @@ def validate_schema(spec: Spec) -> list[ValidationError]:
 
 
 # ---------------------------------------------------------------------------
+# Wiring-verification semantic validation
+# ---------------------------------------------------------------------------
+
+_SMOKE_TEST_RE = re.compile(r"^TS-\w+-SMOKE-")
+_STUB_AUDIT_RE = re.compile(r"stub|dead[\s_-]?code", re.IGNORECASE)
+
+
+def _validate_wiring_semantics(spec: Spec) -> list[ValidationError]:
+    """Validate semantic content of the wiring_verification group.
+
+    Checks three wiring-1 sub-rules on the final task group when it has
+    ``kind: wiring_verification``:
+
+    1. At least one subtask has non-empty ``test_spec_refs``.
+    2. At least one ``test_spec_ref`` matches the smoke-test ID pattern
+       ``TS-{spec_id}-SMOKE-*``.
+    3. At least one subtask title/details or verification check references
+       a stub/dead-code audit.
+    """
+    errors: list[ValidationError] = []
+    groups = spec.tasks.task_groups
+    if not groups:
+        return errors
+
+    wiring = groups[-1]
+    if wiring.kind.value != "wiring_verification":
+        return errors
+
+    idx = len(groups) - 1
+
+    has_refs = any(st.test_spec_refs for st in wiring.subtasks)
+    if not has_refs:
+        errors.append(
+            ValidationError(
+                file="tasks.json",
+                path=f"task_groups[{idx}].subtasks",
+                message=(
+                    "Wiring verification group has no subtask with "
+                    "test_spec_refs; wiring checks must reference tests"
+                ),
+                rule="wiring-1",
+            )
+        )
+
+    has_smoke = any(
+        _SMOKE_TEST_RE.match(ref)
+        for st in wiring.subtasks
+        for ref in st.test_spec_refs
+    )
+    if not has_smoke:
+        errors.append(
+            ValidationError(
+                file="tasks.json",
+                path=f"task_groups[{idx}].subtasks",
+                message=(
+                    "Wiring verification group has no smoke test "
+                    "reference (expected pattern TS-*-SMOKE-*)"
+                ),
+                rule="wiring-1",
+            )
+        )
+
+    has_stub = any(
+        _STUB_AUDIT_RE.search(text)
+        for st in wiring.subtasks
+        for text in [st.title] + list(st.details)
+    )
+    if not has_stub and wiring.verification:
+        has_stub = any(
+            _STUB_AUDIT_RE.search(c) for c in wiring.verification.checks
+        )
+    if not has_stub:
+        errors.append(
+            ValidationError(
+                file="tasks.json",
+                path=f"task_groups[{idx}]",
+                message=(
+                    "Wiring verification group has no subtask or "
+                    "verification check referencing stub/dead-code audit"
+                ),
+                rule="wiring-1",
+            )
+        )
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Cross-file integrity validation
 # ---------------------------------------------------------------------------
 
@@ -631,6 +719,26 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
             )
         seen_pairs.add(pair)
 
+    # -----------------------------------------------------------------------
+    # Rule 9: subtask requirement_refs must resolve to known
+    # requirement or criterion IDs
+    # -----------------------------------------------------------------------
+    for group in spec.tasks.task_groups:
+        for subtask in group.subtasks:
+            for ref in subtask.requirement_refs:
+                if ref not in all_req_and_criterion_ids:
+                    errors.append(
+                        ValidationError(
+                            file="tasks.json",
+                            path=f"task_groups.{group.id}.subtasks.{subtask.id}.requirement_refs",
+                            message=(
+                                f"Subtask {subtask.id} references requirement_ref "
+                                f"'{ref}' which does not exist in requirements"
+                            ),
+                            rule="cross-file-9",
+                        )
+                    )
+
     return errors
 
 
@@ -639,13 +747,34 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
 # ---------------------------------------------------------------------------
 
 
+def _extract_interface_contracts(spec: Spec) -> dict[str, set[str]]:
+    """Extract backtick terms from criteria actions paired with return_contracts.
+
+    Returns a dict mapping each backtick-wrapped term found in a criterion's
+    ``action`` field to the set of ``return_contract`` values associated with
+    criteria containing that term (only non-empty contracts are included).
+    """
+    contracts: dict[str, set[str]] = {}
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria + req.edge_cases:
+            rc = criterion.return_contract
+            if not rc:
+                continue
+            terms = _extract_backtick_terms(criterion.action)
+            for term in terms:
+                if term not in contracts:
+                    contracts[term] = set()
+                contracts[term].add(rc)
+    return contracts
+
+
 def validate_cross_spec(
     specs: dict[str, Spec],
     graph: DependencyGraph,
 ) -> list[ValidationError]:
     """Check cross-spec interface consistency rules.
 
-    Validates three rules across all specs in the dependency graph:
+    Validates five rules across all specs in the dependency graph:
 
     1. **cross-spec-1**: Duplicate external API symbol with different
        signature across any two specs.
@@ -653,6 +782,10 @@ def validate_cross_spec(
        different definitions across specs.
     3. **cross-spec-3**: Dependency on unknown spec — a task dependency
        references a spec not present in *specs*.
+    4. **cross-spec-4**: Interface contract mismatch — a downstream spec's
+       criteria reference upstream functions with different return contracts.
+    5. **cross-spec-5**: Missing boundary coverage — a downstream spec has
+       no execution path referencing an actor from the upstream spec.
 
     Args:
         specs: Mapping of spec_id to loaded ``Spec`` objects.
@@ -736,6 +869,93 @@ def validate_cross_spec(
                         rule="cross-spec-3",
                     )
                 )
+
+    # ------------------------------------------------------------------
+    # Check 4 (cross-spec-4): Interface contract mismatch along
+    # dependency edges.
+    # ------------------------------------------------------------------
+    seen_edges: set[tuple[str, str]] = set()
+    for edge in graph.edges():
+        pair = (edge.from_spec, edge.to_spec)
+        if pair in seen_edges:
+            continue
+        seen_edges.add(pair)
+
+        upstream = specs.get(edge.from_spec)
+        downstream = specs.get(edge.to_spec)
+        if upstream is None or downstream is None:
+            continue
+
+        up_contracts = _extract_interface_contracts(upstream)
+        down_contracts = _extract_interface_contracts(downstream)
+
+        for term in sorted(set(up_contracts) & set(down_contracts)):
+            up_rc = up_contracts[term]
+            down_rc = down_contracts[term]
+            if not up_rc & down_rc:
+                errors.append(
+                    ValidationError(
+                        file="requirements.json",
+                        path="requirements.return_contract",
+                        message=(
+                            f"Interface contract mismatch for '{term}' "
+                            f"between spec {edge.from_spec} and spec "
+                            f"{edge.to_spec}: upstream declares "
+                            f"{sorted(up_rc)}, downstream assumes "
+                            f"{sorted(down_rc)}"
+                        ),
+                        rule="cross-spec-4",
+                    )
+                )
+
+    # ------------------------------------------------------------------
+    # Check 5 (cross-spec-5): Downstream spec must have at least one
+    # execution path with a step referencing an upstream actor.
+    # ------------------------------------------------------------------
+    seen_edges_5: set[tuple[str, str]] = set()
+    for edge in graph.edges():
+        pair = (edge.from_spec, edge.to_spec)
+        if pair in seen_edges_5:
+            continue
+        seen_edges_5.add(pair)
+
+        upstream = specs.get(edge.from_spec)
+        downstream = specs.get(edge.to_spec)
+        if upstream is None or downstream is None:
+            continue
+
+        upstream_actors: set[str] = set()
+        for path in upstream.requirements.execution_paths:
+            for step in path.steps:
+                if step.actor:
+                    upstream_actors.add(step.actor.lower())
+
+        if not upstream_actors:
+            continue
+
+        found = False
+        for path in downstream.requirements.execution_paths:
+            for step in path.steps:
+                if step.actor and step.actor.lower() in upstream_actors:
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            errors.append(
+                ValidationError(
+                    file="requirements.json",
+                    path="execution_paths",
+                    message=(
+                        f"Spec {edge.to_spec} depends on spec "
+                        f"{edge.from_spec} but has no execution path "
+                        f"with a step referencing an actor from spec "
+                        f"{edge.from_spec}"
+                    ),
+                    rule="cross-spec-5",
+                )
+            )
 
     return errors
 
@@ -825,6 +1045,7 @@ def validate(spec: Spec) -> ValidationResult:
     errors: list[ValidationError] = []
     errors.extend(validate_schema(spec))
     errors.extend(validate_cross_file(spec))
+    errors.extend(_validate_wiring_semantics(spec))
 
     warnings: list[ValidationWarning] = []
     for group in spec.tasks.task_groups:

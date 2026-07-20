@@ -58,3 +58,9 @@ The final wiring_verification group must include subtasks that cover:
 3. Run smoke tests — all SMOKE tests pass with real components.
 4. Stub/dead-code audit — search for language-appropriate stub markers. Examples: Go → `panic("not implemented")`, bare `return nil` in non-trivial paths, `// TODO`; Python → `return None`, `pass` in non-abstract methods, `raise NotImplementedError`; TypeScript → `throw new Error("not implemented")`. Use the markers appropriate to the PRD's language.
 5. Cross-spec entry point verification — if paths start in another spec, confirm they are called from production code.
+6. Call-site verification — for every function defined by an acceptance criterion that has a `return_contract`, include a subtask that verifies the function is called from production code (not just defined and tested). A function can be fully specified, implemented, and tested yet still be dead code if nothing wires it into the application entry point.
+
+**Structural requirements (validated by `spec validate`):**
+- At least one subtask in the wiring_verification group MUST have non-empty `test_spec_refs`.
+- At least one `test_spec_ref` MUST reference a smoke test (pattern `TS-{spec_id}-SMOKE-*`).
+- At least one subtask title, detail, or verification check MUST reference a stub/dead-code audit.

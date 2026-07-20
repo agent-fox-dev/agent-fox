@@ -23,10 +23,13 @@ from __future__ import annotations
 from afspec.models import (
     Criterion,
     EARSPattern,
+    ExecutionPath,
     PRDDocument,
     PRDFrontmatter,
+    PathStep,
     Requirement,
     Requirements,
+    SmokeTest,
     Spec,
     Subtask,
     TaskGroup,
@@ -119,7 +122,8 @@ def _build_valid_spec_with_oversized_refs(total_refs: int = 16) -> Spec:
             subtasks=[
                 Subtask(
                     id="2.1",
-                    title="Verify wiring",
+                    title="Trace execution paths and stub/dead-code audit",
+                    test_spec_refs=["TS-08-SMOKE-1"],
                     requirement_refs=["08-REQ-1"],
                 ),
             ],
@@ -154,11 +158,13 @@ def _build_valid_spec_with_oversized_refs(total_refs: int = 16) -> Spec:
             spec_name="test_validation_contract",
             introduction="Test spec for validation contract.",
             requirements=[req],
+            execution_paths=[ExecutionPath(id="08-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="08",
             spec_name="test_validation_contract",
             test_cases=test_cases,
+            smoke_tests=[SmokeTest(id="TS-08-SMOKE-1", execution_path_id="08-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="08",

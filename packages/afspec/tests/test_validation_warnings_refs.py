@@ -29,10 +29,13 @@ import pytest
 from afspec.models import (
     Criterion,
     EARSPattern,
+    ExecutionPath,
     PRDDocument,
     PRDFrontmatter,
+    PathStep,
     Requirement,
     Requirements,
+    SmokeTest,
     Spec,
     Subtask,
     TaskGroup,
@@ -224,6 +227,7 @@ def _build_spec_with_refs(
 
     # Append wiring_verification group
     wv_id = len(groups) + 1
+    smoke_tsid = "TS-R-SMOKE-1"
     groups.append(
         TaskGroup(
             id=wv_id,
@@ -232,7 +236,8 @@ def _build_spec_with_refs(
             subtasks=[
                 Subtask(
                     id=f"{wv_id}.1",
-                    title="Verify wiring",
+                    title="Trace execution paths and stub/dead-code audit",
+                    test_spec_refs=[smoke_tsid],
                     requirement_refs=["R-REQ-1"],
                 )
             ],
@@ -265,11 +270,13 @@ def _build_spec_with_refs(
             spec_name="refs_test",
             introduction="Test spec for test_spec_refs warning.",
             requirements=[req],
+            execution_paths=[ExecutionPath(id="R-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="R",
             spec_name="refs_test",
             test_cases=test_cases,
+            smoke_tests=[SmokeTest(id="TS-R-SMOKE-1", execution_path_id="R-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="R",
@@ -305,6 +312,7 @@ def _build_spec_with_only_verification_subtask() -> Spec:
         )
     ]
 
+    smoke_tsid = "TS-EV-SMOKE-1"
     groups = [
         TaskGroup(
             id=1,
@@ -320,8 +328,8 @@ def _build_spec_with_only_verification_subtask() -> Spec:
             subtasks=[
                 Subtask(
                     id="2.1",
-                    title="Verify wiring",
-                    test_spec_refs=[baseline_tsid],
+                    title="Verify wiring and stub/dead-code audit",
+                    test_spec_refs=[smoke_tsid],
                     requirement_refs=["EV-REQ-1"],
                 )
             ],
@@ -354,11 +362,13 @@ def _build_spec_with_only_verification_subtask() -> Spec:
             spec_name="edge_validation",
             introduction="Edge case spec.",
             requirements=[req],
+            execution_paths=[ExecutionPath(id="EV-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="EV",
             spec_name="edge_validation",
             test_cases=test_cases,
+            smoke_tests=[SmokeTest(id=smoke_tsid, execution_path_id="EV-PATH-1", description="Wiring smoke test")],
         ),
         tasks=Tasks(
             spec_id="EV",
