@@ -463,6 +463,101 @@ class TestCrossFile9RequirementRefs:
         assert [e for e in validate_cross_file(spec) if e.rule == "cross-file-9"] == []
 
 
+# ===========================================================================
+# Error-path return_contract warning
+# ===========================================================================
+
+
+class TestErrorPathReturnContractWarning:
+    """Warning for error-path criteria with null return_contract."""
+
+    def test_error_action_null_contract_produces_warning(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="return an error when the input is invalid",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert len(rc_warnings) >= 1
+        assert "W-REQ-1.1" in rc_warnings[0].entity_id
+
+    def test_error_action_with_contract_no_warning(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="return an error when the input is invalid",
+            return_contract="returns HTTP 400 with JSON body {error: string}",
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert rc_warnings == []
+
+    def test_non_error_action_null_contract_no_warning(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="log the event to the audit trail",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert rc_warnings == []
+
+    def test_edge_case_error_null_contract_produces_warning(self) -> None:
+        edge = Criterion(
+            id="W-REQ-1.E1",
+            ears_pattern=EARSPattern.UNWANTED,
+            error_condition="request is unauthorized",
+            system="system",
+            action="reject the request with an unauthorized error",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].edge_cases = [edge]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert len(rc_warnings) >= 1
+
+    def test_warning_does_not_block_validity(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="fail with a timeout error",
+            return_contract=None,
+        )
+        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
+        path = ExecutionPath(
+            id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")]
+        )
+        spec = _build_wiring_spec(
+            wiring_test_spec_refs=["TS-W-SMOKE-1"],
+            wiring_title="Stub audit",
+            smoke_tests_list=[smoke],
+            execution_paths_list=[path],
+        )
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        assert result.valid is True
+        assert len(result.warnings) >= 1
+
+
+# ===========================================================================
+# Golden spec regression: clean spec still passes all rules
+# ===========================================================================
+
+
 class TestGoldenSpecNoFalsePositives:
     def test_validate_golden_spec_still_valid(self, valid_spec_dir: Path) -> None:
         from afspec import load_spec

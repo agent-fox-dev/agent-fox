@@ -1030,6 +1030,40 @@ def _check_subtask_overload(group: TaskGroup) -> list[ValidationWarning]:
     return warnings
 
 
+_ERROR_PATH_RE = re.compile(
+    r"\b(?:error|fail|reject|denied|deny|invalid|unauthorized|"
+    r"unauthorised|forbidden|timeout|not found)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_error_path_return_contract(spec: Spec) -> list[ValidationWarning]:
+    """Warn when error-path criteria have a null ``return_contract``.
+
+    Scans acceptance criteria and edge cases for action text containing
+    error-indicating keywords.  If such a criterion has
+    ``return_contract is None``, a warning is emitted because the error
+    response format is likely unspecified.
+    """
+    warnings: list[ValidationWarning] = []
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria + req.edge_cases:
+            if criterion.return_contract is not None:
+                continue
+            if _ERROR_PATH_RE.search(criterion.action):
+                warnings.append(
+                    ValidationWarning(
+                        message=(
+                            f"Criterion {criterion.id} describes an error "
+                            f"path but has null return_contract — the "
+                            f"caller-observable error response is unspecified"
+                        ),
+                        entity_id=criterion.id,
+                    )
+                )
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Combined validation
 # ---------------------------------------------------------------------------
@@ -1052,6 +1086,7 @@ def validate(spec: Spec) -> ValidationResult:
         warnings.extend(_check_group_test_spec_refs(group))
         warnings.extend(_check_group_subtask_count(group))
         warnings.extend(_check_subtask_overload(group))
+    warnings.extend(_check_error_path_return_contract(spec))
 
     return ValidationResult(
         valid=len(errors) == 0,

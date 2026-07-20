@@ -39,9 +39,9 @@ from afspec.models import (
     EARSPattern,
     EdgeCaseTest,
     ExecutionPath,
+    PathStep,
     PRDDocument,
     PRDFrontmatter,
-    PathStep,
     Requirement,
     Requirements,
     SmokeTest,
@@ -207,6 +207,7 @@ def _write_spec_fixture(
                         "error_condition": "the system encounters invalid input",
                         "system": "the system",
                         "action": "reports an error",
+                        "return_contract": "returns an error value",
                     }
                 ],
             }
@@ -779,7 +780,9 @@ def _build_spec_first_group_standard() -> Spec:
                     ],
                 )
             ],
-            execution_paths=[ExecutionPath(id="BC-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[
+                ExecutionPath(id="BC-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])
+            ],
         ),
         test_spec=TestSpec(
             spec_id="BC",
@@ -944,7 +947,9 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                     ],
                 ),
             ],
-            execution_paths=[ExecutionPath(id="MT-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[
+                ExecutionPath(id="MT-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])
+            ],
         ),
         test_spec=TestSpec(
             spec_id="MT",

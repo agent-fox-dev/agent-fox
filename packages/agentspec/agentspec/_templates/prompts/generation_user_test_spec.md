@@ -15,6 +15,14 @@ Cross-check against the requirements artifact before submitting. Any missing cov
 - `preconditions` must list all system state required before the test runs (database state, config, running services).
 - `expected` must describe concrete observable outcomes, not vague statements.
 
+### Error response verification
+For every edge case or acceptance criterion whose `action` describes an error condition (error returned, request rejected, validation failed), the corresponding test case MUST assert the **caller-observable error response**, not just that an error occurred internally. Specifically:
+- If the system exposes an HTTP API, assert the HTTP status code and response body structure.
+- If the system is a CLI, assert the exit code and stderr output.
+- If the system is a library, assert the error type/value returned to the caller.
+
+The `expected` field must include the concrete error response shape, not just "an error is returned." If the requirement's `return_contract` is null for an error path, flag this in the test description as needing a return contract.
+
 ### Language consistency
 The `assertion_pseudocode` must use language-agnostic pseudocode as stated above.
 However, test `preconditions` and `expected` descriptions should reference the

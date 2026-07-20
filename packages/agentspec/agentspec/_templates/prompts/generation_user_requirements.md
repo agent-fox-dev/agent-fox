@@ -29,7 +29,7 @@ The `error_handling` array maps error conditions to system behavior. Each entry 
 Each execution path traces a user-visible feature from entry point to observable side effect using logical actors (not module names). Every path must start at a user action and end at a concrete side effect. Steps need `actor` and `action` fields. At least two steps per path.
 
 ### Return contracts
-Set `return_contract` to a non-null string on every criterion whose action produces an observable response — HTTP status codes, return values, response bodies, error messages. Only use null when the action has no caller-visible output (e.g. a background side effect). Concrete return contracts make implementation and testing significantly easier.
+Set `return_contract` to a non-null string on every criterion whose action produces an observable response — HTTP status codes, return values, response bodies, error messages. **This includes error paths**: if a criterion or edge case describes a failure condition, the return_contract must specify what the caller observes (e.g., "returns HTTP 401 with JSON body {error: string}", "returns (nil, ErrUnauthorized)"). Only use null when the action has no caller-visible output (e.g. a background side effect with no response). Concrete return contracts make implementation and testing significantly easier.
 
 ### Correctness properties
 Each property's `validates` array must reference acceptance criterion IDs that exist in `requirements`.
@@ -52,6 +52,12 @@ retries, or calls to external services, you MUST generate edge cases covering:
   library consumed by a CLI or application, library code must never terminate
   the process directly. The edge case must specify that errors are signaled
   via return values or exceptions, not process termination.
+
+- **External API response variance** — when the system calls an external API,
+  edge cases must cover: the API returning an error status, the API returning
+  a success status with missing or null fields the system depends on, and the
+  API returning an unexpected data shape. These are the most common source of
+  "works in development, breaks in production" defects for API integrations.
 
 These are the most common source of "works on happy path, breaks in
 production" defects. Do not skip them.
