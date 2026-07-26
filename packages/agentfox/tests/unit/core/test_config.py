@@ -26,7 +26,7 @@ class TestConfigDefaults:
         config = load_config(path=config_file)
 
         assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
         assert config.orchestrator.sync_interval is None
         assert config.orchestrator.max_retries == 2
         assert config.orchestrator.session_timeout == 45
@@ -39,7 +39,7 @@ class TestConfigDefaults:
 
         config = load_config(path=config_file)
 
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
 
 
 class TestConfigOverrides:
@@ -90,7 +90,7 @@ class TestConfigMissingFile:
         config = load_config(path=Path("/tmp/nonexistent_config_12345.toml"))
 
         assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
 
 
 class TestConfigInvalidTOML:
@@ -116,7 +116,7 @@ class TestConfigUnrecognizedKeys:
         config = load_config(path=config_file)
 
         assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2  # defaults applied
+        assert config.orchestrator.parallel == 4  # defaults applied
 
     def test_unknown_field_in_known_section_ignored(self, tmp_path: Path) -> None:
         """Unknown fields within known sections are silently ignored."""

@@ -192,7 +192,7 @@ class TestRoundTripDefaultEquivalence:
         assert isinstance(config, AgentFoxConfig)
 
         # Promoted values are loaded correctly
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
 
 
 class TestMergeValuePreservation:

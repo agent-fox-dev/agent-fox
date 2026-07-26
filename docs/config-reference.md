@@ -101,7 +101,7 @@ Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `parallel` | int | `2` | 1--8 | Maximum number of parallel coding sessions |
+| `parallel` | int | `4` | 1--8 | Maximum number of parallel coding sessions |
 | `max_budget_usd` | float | `20.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
 | `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |

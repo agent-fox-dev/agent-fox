@@ -31,7 +31,7 @@ class TestConfigDefaultsCompleteness:
         config = load_config(path=config_file)
 
         assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
         assert config.orchestrator.sync_interval is None
         assert config.orchestrator.max_retries == 2
         assert config.orchestrator.session_timeout == 45

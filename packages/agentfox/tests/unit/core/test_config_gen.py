@@ -112,8 +112,8 @@ class TestTemplateGeneration:
 
         # parallel has bounds 1-8 and is a promoted field
         assert "1-8" in template, "Missing bounds for parallel field"
-        # parallel default is 2
-        assert "default: 2" in template, "Missing default for parallel"
+        # parallel default is 4
+        assert "default: 4" in template, "Missing default for parallel"
         # verifier instances is clamped to 1 (98-REQ-6.2) and is promoted
         assert "verifier = 1" in template, "Missing verifier instances field in template"
 

@@ -141,7 +141,7 @@ class BackendConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=2, description="Maximum parallel sessions")
+    parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=4, description="Maximum parallel sessions")
     sync_interval: int | None = Field(
         default=None,
         description="Sync barrier interval. None = auto (parallel * 3), 0 = disabled, positive = explicit override.",
