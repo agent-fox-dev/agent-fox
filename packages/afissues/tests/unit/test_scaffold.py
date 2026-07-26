@@ -42,7 +42,7 @@ class TestPyprojectMetadata:
         assert pyproject["project"]["name"] == "afissues"
 
     def test_version_is_4_2_0(self, pyproject: dict) -> None:
-        assert pyproject["project"]["version"] == "4.2.5"
+        assert pyproject["project"]["version"] == "4.2.6"
 
     def test_requires_python_ge_312(self, pyproject: dict) -> None:
         assert pyproject["project"]["requires-python"] == ">=3.12"
@@ -62,7 +62,7 @@ class TestWorkspaceMembership:
         import importlib.metadata
 
         version = importlib.metadata.version("afissues")
-        assert "4.2.5" in version
+        assert "4.2.6" in version
 
 
 # ── TS-03-3: py.typed marker file ──────────────────────────────────
