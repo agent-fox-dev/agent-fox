@@ -5714,14 +5714,14 @@ class TestSmokePathMergedPrDetected:
         with (
             patch(
                 "agentfox.nightshift.engine.process_pr_issue",
-                wraps=None,
+                new_callable=AsyncMock,
             ) as mock_process,
             caplog.at_level(logging.INFO),
         ):
             # Use real process_pr_issue for smoke test
             from agentfox.nightshift.pr_feedback import process_pr_issue
 
-            mock_process.side_effect = lambda **kwargs: process_pr_issue(**kwargs)
+            mock_process.side_effect = process_pr_issue
 
             await engine._check_open_prs()
 
@@ -5819,6 +5819,12 @@ class TestSmokeCiFailureReEntry:
                     return_value=(b"src/signup.py\n", b""),
                 )
                 proc.wait = AsyncMock(return_value=0)
+            elif "status" in cmd_str:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(
+                    return_value=(b" M src/signup.py\n", b""),
+                )
+                proc.wait = AsyncMock(return_value=0)
             elif "push" in cmd_str:
                 call_order.append("push")
                 proc.returncode = 0
@@ -5833,7 +5839,7 @@ class TestSmokeCiFailureReEntry:
         with (
             patch(
                 "agentfox.nightshift.engine.process_pr_issue",
-                wraps=None,
+                new_callable=AsyncMock,
             ) as mock_process,
             patch(
                 "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
@@ -5851,9 +5857,9 @@ class TestSmokeCiFailureReEntry:
         ):
             from agentfox.nightshift.pr_feedback import process_pr_issue
 
-            async def _process_with_pipeline(**kwargs):
+            async def _process_with_pipeline(issue, **kwargs):
                 kwargs["pipeline"] = mock_pipeline
-                return await process_pr_issue(**kwargs)
+                return await process_pr_issue(issue, **kwargs)
 
             mock_process.side_effect = _process_with_pipeline
 
@@ -6130,13 +6136,13 @@ class TestSmokeDaemonLifecycleMergeDetection:
         with (
             patch(
                 "agentfox.nightshift.engine.process_pr_issue",
-                wraps=None,
+                new_callable=AsyncMock,
             ) as mock_process,
             caplog.at_level(logging.INFO),
         ):
             from agentfox.nightshift.pr_feedback import process_pr_issue
 
-            mock_process.side_effect = lambda **kwargs: process_pr_issue(**kwargs)
+            mock_process.side_effect = process_pr_issue
 
             await engine._check_open_prs()
 
