@@ -720,6 +720,7 @@ class TestHandleResultPostsTrackingComment:
         )
         pipeline = _make_fix_pipeline(merge_strategy="pr", platform=mock_platform)
         pipeline._pr_number = 42
+        pipeline._pr_url = "https://github.com/owner/repo/pull/42"
 
         issue = _make_issue()
         spec = _make_spec()
@@ -751,6 +752,7 @@ class TestHandleResultPostsTrackingComment:
         )
         pipeline = _make_fix_pipeline(merge_strategy="pr", platform=mock_platform)
         pipeline._pr_number = 42
+        pipeline._pr_url = "https://github.com/owner/repo/pull/42"
 
         issue = _make_issue()
         spec = _make_spec()

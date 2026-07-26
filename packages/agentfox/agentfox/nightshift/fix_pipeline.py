@@ -15,6 +15,7 @@ Requirements: 61-REQ-6.1, 61-REQ-6.2, 61-REQ-6.3, 61-REQ-6.4,
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
-from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
+from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE, LABEL_PR
 from afissues.protocol import IssueResult
 
 from agentfox.core.config import AgentFoxConfig
@@ -46,6 +47,44 @@ if TYPE_CHECKING:
     from agentfox.nightshift.coder_reviewer import CoderReviewerResult
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# PR tracking comment utilities (06-REQ-10.1, 06-REQ-10.2, 06-REQ-10.3)
+# ---------------------------------------------------------------------------
+
+PR_TRACKING_PATTERN: re.Pattern[str] = re.compile(
+    r"<!-- af:pr-tracking pr_number=(\d+) attempt=(\d+) -->"
+)
+
+
+def format_tracking_comment(
+    pr_number: int,
+    attempt: int,
+    pr_url: str,
+    message: str,
+) -> str:
+    """Format a machine-readable PR tracking comment.
+
+    Returns a string with the HTML comment tag on the first line and the
+    human-readable message on the second line.
+
+    Requirements: 06-REQ-10.2
+    """
+    return f"<!-- af:pr-tracking pr_number={pr_number} attempt={attempt} -->\n{message}"
+
+
+def parse_tracking_comment(body: str) -> tuple[int, int] | None:
+    """Extract ``(pr_number, attempt)`` from a tracking comment body.
+
+    Returns ``None`` if no tracking comment tag is found.
+
+    Requirements: 06-REQ-10.3
+    """
+    m = PR_TRACKING_PATTERN.search(body)
+    if m is None:
+        return None
+    return int(m.group(1)), int(m.group(2))
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +254,7 @@ class FixPipeline:
         self._knowledge_provider = knowledge_provider
         self._run_id: str = ""
         self._pr_number: int | None = None
+        self._pr_url: str | None = None
 
     async def _post_comment(self, issue_number: int, message: str) -> None:
         """Post a comment on an issue, logging failures without raising."""
@@ -1213,9 +1253,10 @@ class FixPipeline:
                 base=self._config.workspace.integration_branch,
             )
 
-            # 06-REQ-8.3 / 06-REQ-8.1: Store PR number for tracking
+            # 06-REQ-8.3 / 06-REQ-8.1: Store PR number and URL for tracking
             # BEFORE returning pr_created status.
             self._pr_number = result.number
+            self._pr_url = result.html_url
             logger.info("Pull request created: %s", result.html_url)
             return "pr_created", changed_files
 
@@ -1249,12 +1290,14 @@ class FixPipeline:
         spec: InMemorySpec,
         harvest_result: str,
     ) -> None:
-        """Handle post-harvest outcome: error, no_changes, or merged.
+        """Handle post-harvest outcome: error, no_changes, pr_created, or merged.
 
         Updates the GitHub issue with the appropriate comment and labels,
         and marks the run as completed.
 
-        Requirements: 61-REQ-6.1, 61-REQ-6.E2
+        Requirements: 61-REQ-6.1, 61-REQ-6.E2,
+                      06-REQ-9.1, 06-REQ-9.2, 06-REQ-9.3,
+                      06-REQ-9.E1, 06-REQ-9.E2, 06-REQ-10.4
         """
         if harvest_result == "error":
             await self._post_comment(
@@ -1291,6 +1334,48 @@ class FixPipeline:
                     issue.number,
                     exc,
                 )
+            self._try_complete_run("completed")
+            return
+
+        if harvest_result == "pr_created":
+            # 06-REQ-9.E2: _pr_number must be set before pr_created status.
+            assert self._pr_number is not None, (
+                "_pr_number must be set before pr_created status"
+            )
+
+            # 06-REQ-9.1: Add af:pr label. Let IntegrationError propagate
+            # (06-REQ-9.E1) — do NOT wrap in try/except to avoid leaving
+            # the issue in a partially labeled state that could trigger
+            # premature close.
+            await self._platform.assign_label(  # type: ignore[attr-defined]
+                issue.number,
+                LABEL_PR,
+            )
+
+            # 06-REQ-9.1: Remove af:fix label.
+            try:
+                await self._platform.remove_label(  # type: ignore[attr-defined]
+                    issue.number,
+                    "af:fix",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to remove af:fix label from issue #%d: %s",
+                    issue.number,
+                    exc,
+                )
+
+            # 06-REQ-10.4: Format and post tracking comment.
+            pr_url = self._pr_url or ""
+            comment_body = format_tracking_comment(
+                pr_number=self._pr_number,
+                attempt=1,
+                pr_url=pr_url,
+                message=f"Pull request created: {pr_url}",
+            )
+            await self._post_comment(issue.number, comment_body)
+
+            # 06-REQ-9.3: Do NOT apply af:fixed and do NOT close the issue.
             self._try_complete_run("completed")
             return
 
