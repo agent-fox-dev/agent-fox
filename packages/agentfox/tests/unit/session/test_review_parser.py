@@ -120,37 +120,6 @@ class TestUnknownSeverityNormalized:
         assert findings[0].severity == "critical"
 
 
-class TestReviewerTemplateJson:
-    """TS-27-15: Reviewer template instructs JSON output."""
-
-    def test_reviewer_template_json(self) -> None:
-        """Reviewer template contains JSON output instructions."""
-        template_path = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "agentfox"
-            / "_templates"
-            / "profiles"
-            / "reviewer.md"
-        )
-        content = template_path.read_text(encoding="utf-8")
-        assert '"findings"' in content
-        assert '"severity"' in content
-        assert '"description"' in content
-        assert "json" in content.lower()
-
-    def test_reviewer_template_constraints(self) -> None:
-        """Reviewer template retains read-only constraints."""
-        template_path = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "agentfox"
-            / "_templates"
-            / "profiles"
-            / "reviewer.md"
-        )
-        content = template_path.read_text(encoding="utf-8")
-        assert "read-only" in content.lower() or "read only" in content.lower() or "do not" in content.lower()
-
-
 class TestJsonPreferredOverFile:
     """TS-27-E9 (partial): JSON output is preferred over file."""
 

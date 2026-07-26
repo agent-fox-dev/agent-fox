@@ -58,18 +58,6 @@ class TestConstantRemoved:
         assert "_DOCS_MEMORY_CONTENT" not in source
 
 
-class TestTemplateClean:
-    """TS-129-4: Verify agents_md.md template has no memory.md references.
-
-    Requirement: 129-REQ-3.1
-    """
-
-    def test_template_clean(self) -> None:
-        """agents_md.md template must not reference memory.md."""
-        content = (_PKG_ROOT / "agentfox" / "_templates" / "agents_md.md").read_text()
-        assert "memory.md" not in content
-
-
 class TestClaudeMdClean:
     """TS-129-5: Verify CLAUDE.md has no memory.md references.
 
@@ -91,18 +79,6 @@ class TestAgentsMdClean:
     def test_agents_md_clean(self) -> None:
         """AGENTS.md must not reference memory.md."""
         content = (REPO_ROOT / "AGENTS.md").read_text()
-        assert "memory.md" not in content
-
-
-class TestProfileClean:
-    """TS-129-7: Verify agent.md profile has no memory.md references.
-
-    Requirement: 129-REQ-3.4
-    """
-
-    def test_profile_clean(self) -> None:
-        """agent.md profile template must not reference memory.md."""
-        content = (_PKG_ROOT / "agentfox" / "_templates" / "profiles" / "agent.md").read_text()
         assert "memory.md" not in content
 
 

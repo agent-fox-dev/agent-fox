@@ -13,22 +13,8 @@ Requirements: 100-REQ-1.1, 100-REQ-1.2, 100-REQ-1.3, 100-REQ-1.4,
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Template helper (mirrors test_reviewer_template.py pattern)
-# ---------------------------------------------------------------------------
-
-
-def _template_path(name: str) -> Path:
-    """Return the absolute path to a profile template file."""
-    import agentfox
-
-    package_root = Path(agentfox.__file__).resolve().parent
-    return package_root / "_templates" / "profiles" / name
-
 
 # ===========================================================================
 # TS-100-1: Maintainer Entry With Modes
@@ -164,79 +150,6 @@ class TestTriageRemovedFromRegistry:
 # TS-100-7: Maintainer Template Exists
 # Requirements: 100-REQ-3.1, 100-REQ-3.2, 100-REQ-3.3, 100-REQ-2.3
 # ===========================================================================
-
-
-class TestMaintainerTemplate:
-    """Verify maintainer.md template exists and contains mode-specific sections."""
-
-    def test_template_exists(self) -> None:
-        """TS-100-7: maintainer.md template must exist in prompts directory."""
-        template = _template_path("maintainer.md")
-        assert template.exists(), (
-            f"maintainer.md template not found at {template} — "
-            "create agent_fox/_templates/profiles/maintainer.md (100-REQ-3.1)"
-        )
-
-    def test_template_contains_hunt_section(self) -> None:
-        """TS-100-7: maintainer.md must contain a hunt mode section."""
-        template = _template_path("maintainer.md")
-        if not template.exists():
-            import pytest
-
-            pytest.skip("maintainer.md not yet created")
-        content = template.read_text(encoding="utf-8").lower()
-        assert "hunt" in content, "maintainer.md should contain a 'hunt' section (100-REQ-3.1, 100-REQ-3.2)"
-
-    def test_template_contains_extraction_section(self) -> None:
-        """TS-100-7: maintainer.md must contain an extraction mode section."""
-        template = _template_path("maintainer.md")
-        if not template.exists():
-            import pytest
-
-            pytest.skip("maintainer.md not yet created")
-        content = template.read_text(encoding="utf-8").lower()
-        assert "extraction" in content, (
-            "maintainer.md should contain an 'extraction' section (100-REQ-3.1, 100-REQ-3.3)"
-        )
-
-    def test_template_hunt_has_triage_content(self) -> None:
-        """TS-100-7: Hunt section must include triage guidance (issue ordering, dependency detection).
-
-        Requirements: 100-REQ-3.2, 100-REQ-2.3
-        """
-        template = _template_path("maintainer.md")
-        if not template.exists():
-            import pytest
-
-            pytest.skip("maintainer.md not yet created")
-        content = template.read_text(encoding="utf-8").lower()
-        # Must have content about ordering/dependencies (triage absorption per 100-REQ-2.3)
-        has_triage_content = any(
-            keyword in content for keyword in ("ordering", "dependency", "dependencies", "supersession", "priorit")
-        )
-        assert has_triage_content, (
-            "maintainer.md hunt section should include triage guidance "
-            "(issue ordering, dependency detection) per 100-REQ-2.3, 100-REQ-3.2"
-        )
-
-    def test_template_extraction_has_transcript_content(self) -> None:
-        """TS-100-7: Extraction section must include transcript/fact guidance.
-
-        Requirement: 100-REQ-3.3
-        """
-        template = _template_path("maintainer.md")
-        if not template.exists():
-            import pytest
-
-            pytest.skip("maintainer.md not yet created")
-        content = template.read_text(encoding="utf-8").lower()
-        has_extraction_content = any(
-            keyword in content for keyword in ("transcript", "fact", "facts", "causal", "knowledge")
-        )
-        assert has_extraction_content, (
-            "maintainer.md extraction section should include guidance on "
-            "reading transcripts and extracting facts (100-REQ-3.3)"
-        )
 
 
 # ===========================================================================

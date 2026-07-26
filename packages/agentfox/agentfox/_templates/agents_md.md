@@ -10,11 +10,10 @@ Before making any changes, orient yourself:
 1. **Read `README.md`** for project overview and quick-start.
 2. **Read `.agent-fox/steering.md`** if it exists — project-level directives that
    apply to all agents and skills. Follow any instructions found there.
-3. **Read relevant specs** in `{{SPEC_ROOT}}/` for the area you're working on.
-4. **Read ADRs** in `docs/adr/` for architectural context.
-5. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
+3. **Read ADRs and errata** in `docs/` for architectural context.
+4. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
    unit, property, and integration tests. Their location is language dependent.
-6. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
+5. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
 
 **Important:** Read all documents and code in depth — don't skim.
 
@@ -36,35 +35,16 @@ docs/                   # Documentation
 ## Spec-Driven Workflow
 
 This project uses spec-driven development. Specifications live in
-`{{SPEC_ROOT}}/NN_name/` (numbered by creation order) and contain these artifacts:
+`{{SPEC_ROOT}}/NN_name/` (numbered by creation order) and contain:
 
-- `prd.md` — product requirements document (source of truth for intent,
-  goals, tech stack, and high-level design)
-- `requirements.json` — EARS-syntax acceptance criteria, correctness
-  properties, execution paths, error handling, external API contracts,
-  and glossary
-- `test_spec.json` — language-agnostic test contracts (unit, property,
-  edge-case, and smoke tests)
+- `prd.md` — product requirements, goals, tech stack, high-level design
+- `requirements.json` — EARS-syntax acceptance criteria, execution paths, external API contracts, glossary
+- `test_spec.json` — language-agnostic test contracts
 - `tasks.json` — implementation plan with subtask states and test commands
-- `architecture.md` — (optional) architecture overview for complex specs
+- `architecture.md` — (optional) detailed architecture
 
-### Where to find design information
-
-Design-relevant information is distributed across spec artifacts rather than
-in a single design document:
-
-| What you need | Where to find it |
-|---------------|-----------------|
-| High-level architecture, tech stack, package layout | `prd.md` |
-| Interfaces, function signatures, external API contracts | `requirements.json` → `external_apis` |
-| Data flow, execution paths | `requirements.json` → `execution_paths` |
-| Invariants, correctness properties | `requirements.json` → `correctness_properties` |
-| Error handling contracts | `requirements.json` → `error_handling` |
-| Domain terminology | `requirements.json` → `glossary` |
-| Detailed architecture (when present) | `architecture.md` |
-
-When implementing, cross-reference `external_apis` against the actual
-installed libraries — API signatures in specs may be unverified assumptions.
+Cross-reference `external_apis` in `requirements.json` against installed
+libraries — API signatures in specs may be unverified assumptions.
 
 ## Quality Commands
 

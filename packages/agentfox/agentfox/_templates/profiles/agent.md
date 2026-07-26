@@ -1,38 +1,19 @@
 ## Project Context
 
-You are an agent-fox session agent. The orchestrator has already injected all
-relevant spec context, task prompts, and curated knowledge into your system
-prompt. Work within the context provided.
-
-## Pre-Injected Context
-
-The orchestrator has already injected into your system prompt:
-
-- **Steering directives** from `.agent-fox/steering.md`
-- **Spec artifacts** (requirements, test spec, tasks) scoped to your assigned work
-- **Memory facts** and prior-group findings
-
-Do not re-read these files from disk — they are already in your context above.
+You are an agent-fox session agent. Spec artifacts, steering directives,
+memory facts, and task prompts are already injected into your system prompt —
+do not re-read them from disk.
 
 ## Orient Yourself
 
-Before making changes, quickly orient yourself in the codebase:
+Before making changes:
 
-1. **Check git state:** `git log --oneline -10`, `git status --short --branch`.
-2. **Explore relevant source files** when implementation details are needed
-   beyond what the spec context provides.
-3. **Read ADRs** in `docs/adr/` when your task involves architectural decisions.
+1. Check git state: `git log --oneline -10`, `git status --short --branch`.
+2. Explore relevant source files beyond what context provides.
+3. Read ADRs in `docs/adr/` for architectural decisions.
 
-**Important:** Only read files tracked by git. Skip anything matched by
-`.gitignore`. When in doubt, run `git ls-files` to see what's tracked.
-
-**Verify External References:** File paths, line numbers, and function names
-in issue descriptions, triage analysis, spec artifacts, and context summaries
-are snapshots from when they were written. Before navigating to or acting on a
-specific file:line reference, confirm the file still exists at that path and
-the referenced code is at (or near) the cited line. Files may have been
-renamed, moved, or reorganized; line numbers shift with every edit. Use `grep`
-or search to locate the actual code if references are stale.
+Only read git-tracked files. File paths and line numbers in context are
+snapshots — confirm they are current before acting on them.
 
 ## Project Structure
 
@@ -46,14 +27,9 @@ docs/                   # Documentation
 
 ## Spec-Driven Workflow
 
-This project uses spec-driven development. Specifications live in
-`.specs/NN_name/` (numbered by creation order) and contain five artifacts:
-
-- `prd.md` — product requirements document (source of truth)
-- `requirements.json` — EARS-syntax acceptance criteria
-- `test_spec.json` — language-agnostic test contracts
-- `tasks.json` — implementation plan with state machine
-- `architecture.md` — (optional) architecture overview
+Specifications live in `.specs/NN_name/` and contain: `prd.md`,
+`requirements.json`, `test_spec.json`, `tasks.json`, and optionally
+`architecture.md`.
 
 ## Quality Commands
 
@@ -66,6 +42,8 @@ The exact test and lint commands for this project are defined in the
 **Test Commands** section of `tasks.json` (rendered in your context under
 `## Test Commands`). Always use those commands instead of assuming a specific
 test runner or linter.
+
+**Important:** If `make check` or `make test` are not present, look for language specific test suites.
 
 ## Git Workflow
 
@@ -85,13 +63,6 @@ test runner or linter.
 
 ## Documentation
 
-- **ADRs** live in `docs/adr/NN-imperative-verb-phrase.md`. To choose NN,
-  list existing files, find the max numeric prefix, and use the next number
-  zero-padded to two digits for consistency (three digits once past 99).
-- **Errata** live in `docs/errata/NN_snake_case_topic.md` — for spec
-  divergences. NN is the spec number the erratum relates to (e.g.
-  `28_github_issue_rest_api.md` for spec 28). For project-wide errata not
-  tied to a specific spec, omit the numeric prefix.
-- **Other docs** live in `docs/{topic}.md`.
-- When you add or change user-facing behavior, public APIs, configuration, or
-  architecture, update the relevant documentation in the same session.
+- **ADRs:** `docs/adr/NN-imperative-verb-phrase.md` (NN = next sequential number, zero-padded).
+- **Errata:** `docs/errata/NN_snake_case_topic.md` for spec divergences.
+- Update relevant docs when changing user-facing behavior or APIs.

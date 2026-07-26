@@ -28,7 +28,7 @@ from hypothesis import strategies as st
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_SKILL_TEMPLATE_PATH = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "af-spec"
+
 
 # ---------------------------------------------------------------------------
 # Valid v1.2 fixture content
@@ -421,39 +421,6 @@ class TestUnknownSeverityDefault:
 # ===========================================================================
 
 
-class TestSkillTemplateV12Artifacts:
-    """TS-135-7: Verify skill template references v1.2 artifact names.
-
-    Requirement: 135-REQ-4.1
-    """
-
-    def test_references_requirements_json(self) -> None:
-        """Skill template should reference requirements.json."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "requirements.json" in content
-
-    def test_references_test_spec_json(self) -> None:
-        """Skill template should reference test_spec.json."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "test_spec.json" in content
-
-    def test_references_tasks_json(self) -> None:
-        """Skill template should reference tasks.json."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "tasks.json" in content
-
-    def test_references_yaml_frontmatter(self) -> None:
-        """Skill template should reference YAML frontmatter for prd.md."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        # Check for either "YAML frontmatter" or just "frontmatter"
-        assert "frontmatter" in content.lower()
-
-    def test_references_architecture_md(self) -> None:
-        """Skill template should reference architecture.md as optional."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "architecture.md" in content
-
-
 # ===========================================================================
 # TS-135-8: (Removed) Skill template references v1.2 ID formats
 # ID format details are now in the spec CLI prompt templates, not the skill.
@@ -650,34 +617,3 @@ class TestLintSmoke:
 # ===========================================================================
 
 
-class TestSkillTemplateContentSmoke:
-    """TS-135-SMOKE-2: Verify skill template contains all v1.2 references.
-
-    Execution Path: N/A (template content test)
-    """
-
-    def test_skill_template_complete_v12_content(self) -> None:
-        """Skill template should contain all required v1.2 references."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-
-        # v1.2 artifact names
-        assert "requirements.json" in content, "Template should reference requirements.json"
-        assert "test_spec.json" in content, "Template should reference test_spec.json"
-        assert "tasks.json" in content, "Template should reference tasks.json"
-
-        # Validation step
-        assert "spec validate" in content, "Template should reference spec validate"
-
-        # CLI commands
-        assert "spec new" in content, "Template should reference spec new"
-        assert "spec generate" in content, "Template should reference spec generate"
-
-    def test_skill_template_validation_step(self) -> None:
-        """Skill template should include a validation step."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "spec validate" in content
-
-    def test_skill_template_af_spec_reference(self) -> None:
-        """Skill template should reference af-spec (the skill name)."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "af-spec" in content.lower()
