@@ -22,8 +22,8 @@ import httpx
 
 from afissues._ssrf import (
     SSRFGuardTransport,
-    _check_address,
-    _validate_transport_address,
+    _check_address,  # noqa: F401 – re-exported for backward compat
+    _validate_transport_address,  # noqa: F401 – re-exported for backward compat
     _validate_url,
 )
 from afissues.errors import ConfigError, IntegrationError  # noqa: F401 – ConfigError re-exported for SSRF callers
