@@ -1,10 +1,11 @@
 """Platform protocol: abstract issue-tracking and PR operations.
 
 Defines the interface for platform implementations (GitHub, GitLab, etc.),
-along with frozen dataclasses for issue results and comments, and a no-op
-``NullPlatform`` stub.
+along with frozen dataclasses for issue results, comments, and PR-related
+types, and a no-op ``NullPlatform`` stub.
 
-Requirements: 03-REQ-2.1, 03-REQ-2.2, 03-REQ-2.3, 03-REQ-2.4
+Requirements: 03-REQ-2.1, 03-REQ-2.2, 03-REQ-2.3, 03-REQ-2.4,
+              06-REQ-2.1, 06-REQ-2.2, 06-REQ-2.3, 06-REQ-2.4, 06-REQ-2.5
 """
 
 from dataclasses import dataclass
@@ -36,6 +37,64 @@ class IssueComment:
     body: str
     user: str  # login
     created_at: str  # ISO 8601
+
+
+@dataclass(frozen=True)
+class PrResult:
+    """Structured result for ``create_pr()`` operations.
+
+    Requirements: 06-REQ-2.1
+    """
+
+    html_url: str
+    number: int
+
+
+@dataclass(frozen=True)
+class PrState:
+    """Current state of a pull request.
+
+    Requirements: 06-REQ-2.2
+    """
+
+    number: int
+    state: str
+    merged: bool
+    head_sha: str
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    """Single CI check-run result from a pull request.
+
+    When the GitHub API returns ``output: null``, the mapping code should
+    set ``output_title=""`` and ``output_summary=""``, keeping both fields
+    as non-optional strings.
+
+    Requirements: 06-REQ-2.3, 06-REQ-2.5
+    """
+
+    name: str
+    status: str
+    conclusion: str | None
+    output_title: str
+    output_summary: str
+
+
+@dataclass(frozen=True)
+class ReviewComment:
+    """Single pull request review.
+
+    ``submitted_at`` holds the raw ISO 8601 timestamp string as returned
+    by the GitHub API — no parsing is performed.
+
+    Requirements: 06-REQ-2.4
+    """
+
+    user: str
+    state: str
+    body: str
+    submitted_at: str
 
 
 @runtime_checkable

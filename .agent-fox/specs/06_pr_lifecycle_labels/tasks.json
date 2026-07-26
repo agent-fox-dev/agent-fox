@@ -473,7 +473,7 @@
             "06-REQ-2.1",
             "06-REQ-2.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -494,7 +494,7 @@
             "06-REQ-2.4",
             "06-REQ-2.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -510,7 +510,7 @@
           "requirement_refs": [
             "06-REQ-2.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

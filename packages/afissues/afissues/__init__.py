@@ -23,10 +23,14 @@ from afissues.labels import (
     LabelSpec,
 )
 from afissues.protocol import (
+    CheckResult,
     IssueComment,
     IssueResult,
     NullPlatform,
     PlatformProtocol,
+    PrResult,
+    PrState,
+    ReviewComment,
 )
 
 __all__ = [
@@ -35,6 +39,10 @@ __all__ = [
     "NullPlatform",
     "IssueResult",
     "IssueComment",
+    "PrResult",
+    "PrState",
+    "CheckResult",
+    "ReviewComment",
     # afissues.gitea
     "GiteaPlatform",
     "parse_gitea_remote",
