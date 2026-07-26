@@ -665,3 +665,160 @@ class TestBarrierProgressPrint:
             )
 
         assert sync_called, "sync_develop_bidirectional must still be called after print failure"
+
+
+# ---------------------------------------------------------------------------
+# Issue #731: Reduced barrier frequency and conditional drain
+# ---------------------------------------------------------------------------
+
+
+class TestSyncIntervalMultiplier:
+    """NS-REQ-1 / TS-NS-1: effective_sync_interval uses multiplier of 5."""
+
+    def test_auto_sync_interval_parallel_2(self) -> None:
+        """parallel=2 → effective_sync_interval = 10."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(parallel=2)
+        assert config.effective_sync_interval == 10
+
+    def test_auto_sync_interval_parallel_4(self) -> None:
+        """parallel=4 → effective_sync_interval = 20."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(parallel=4)
+        assert config.effective_sync_interval == 20
+
+    def test_explicit_sync_interval_overrides(self) -> None:
+        """Explicit sync_interval is used verbatim regardless of multiplier."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(parallel=4, sync_interval=7)
+        assert config.effective_sync_interval == 7
+
+
+class TestBarrierReturnsFalseNoNewSpecs:
+    """NS-REQ-2 / TS-NS-2: Barrier returns False when no new specs found."""
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_hot_load_disabled(self, tmp_path: Path) -> None:
+        """Barrier returns False when hot_load_enabled is False."""
+        state = _make_barrier_state()
+        with (
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
+            patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
+        ):
+            result = await run_sync_barrier_sequence(
+                state=state,
+                sync_interval=5,
+                repo_root=tmp_path,
+                integration_branch="main",
+                emit_audit=MagicMock(),
+                specs_dir=None,
+                hot_load_enabled=False,
+                hot_load_fn=AsyncMock(return_value=False),
+                sync_plan_fn=MagicMock(),
+                barrier_callback=None,
+            )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_hot_load_finds_nothing(self, tmp_path: Path) -> None:
+        """Barrier returns False when hot_load_fn returns False (no new specs)."""
+        state = _make_barrier_state()
+        with (
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
+            patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
+        ):
+            result = await run_sync_barrier_sequence(
+                state=state,
+                sync_interval=5,
+                repo_root=tmp_path,
+                integration_branch="main",
+                emit_audit=MagicMock(),
+                specs_dir=tmp_path,
+                hot_load_enabled=True,
+                hot_load_fn=AsyncMock(return_value=False),
+                sync_plan_fn=MagicMock(),
+                barrier_callback=None,
+            )
+        assert result is False
+
+
+class TestBarrierReturnsTrueNewSpecs:
+    """NS-REQ-3 / TS-NS-3: Barrier returns True when new specs found."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_hot_load_finds_new_specs(self, tmp_path: Path) -> None:
+        """Barrier returns True when hot_load_fn returns True (new specs)."""
+        state = _make_barrier_state()
+        with (
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
+            patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
+        ):
+            result = await run_sync_barrier_sequence(
+                state=state,
+                sync_interval=5,
+                repo_root=tmp_path,
+                integration_branch="main",
+                emit_audit=MagicMock(),
+                specs_dir=tmp_path,
+                hot_load_enabled=True,
+                hot_load_fn=AsyncMock(return_value=True),
+                sync_plan_fn=MagicMock(),
+                barrier_callback=None,
+            )
+        assert result is True
+
+
+class TestVerifyWorktreesAlwaysCalled:
+    """NS-REQ-4 / TS-NS-4: verify_worktrees called regardless of drain mode."""
+
+    @pytest.mark.asyncio
+    async def test_verify_worktrees_called_no_new_specs(self, tmp_path: Path) -> None:
+        """verify_worktrees is called even when no new specs discovered."""
+        mock_verify = AsyncMock(return_value=[])
+        with (
+            patch("agentfox.engine.barrier.verify_worktrees", mock_verify),
+            patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
+        ):
+            result = await run_sync_barrier_sequence(
+                state=_make_barrier_state(),
+                sync_interval=5,
+                repo_root=tmp_path,
+                integration_branch="main",
+                emit_audit=MagicMock(),
+                specs_dir=None,
+                hot_load_enabled=False,
+                hot_load_fn=AsyncMock(return_value=False),
+                sync_plan_fn=MagicMock(),
+                barrier_callback=None,
+            )
+        mock_verify.assert_called_once_with(tmp_path)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_verify_worktrees_logs_orphans(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Orphaned worktrees are logged as warnings in non-drain mode."""
+        orphan_path = tmp_path / ".agent-fox" / "worktrees" / "stale-branch"
+        mock_verify = AsyncMock(return_value=[orphan_path])
+        with (
+            caplog.at_level(logging.INFO, logger="agentfox.engine.barrier"),
+            patch("agentfox.engine.barrier.verify_worktrees", mock_verify),
+            patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
+        ):
+            await run_sync_barrier_sequence(
+                state=_make_barrier_state(),
+                sync_interval=5,
+                repo_root=tmp_path,
+                integration_branch="main",
+                emit_audit=MagicMock(),
+                specs_dir=None,
+                hot_load_enabled=False,
+                hot_load_fn=AsyncMock(return_value=False),
+                sync_plan_fn=MagicMock(),
+                barrier_callback=None,
+            )
+        mock_verify.assert_called_once()

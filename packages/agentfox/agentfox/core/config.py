@@ -144,7 +144,7 @@ class OrchestratorConfig(BaseModel):
     parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=4, description="Maximum parallel sessions")
     sync_interval: int | None = Field(
         default=None,
-        description="Sync barrier interval. None = auto (parallel * 3), 0 = disabled, positive = explicit override.",
+        description="Sync barrier interval. None = auto (parallel * 5), 0 = disabled, positive = explicit override.",
     )
 
     @field_validator("sync_interval")
@@ -203,12 +203,12 @@ class OrchestratorConfig(BaseModel):
     def effective_sync_interval(self) -> int:
         """Resolve the effective barrier interval.
 
-        - ``None`` (default): auto-compute as ``parallel * 3``.
+        - ``None`` (default): auto-compute as ``parallel * 5``.
         - ``0``: barriers disabled.
         - Positive int: used verbatim as a user override.
         """
         if self.sync_interval is None:
-            return self.parallel * 3
+            return self.parallel * 5
         return self.sync_interval
 
     @field_validator("max_blocked_fraction")

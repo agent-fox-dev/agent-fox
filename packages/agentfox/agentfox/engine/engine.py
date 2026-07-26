@@ -673,17 +673,22 @@ class Orchestrator:
             if new_tasks:
                 return None
 
-    async def _run_sync_barrier_if_needed(self, state: ExecutionState) -> None:
+    async def _run_sync_barrier_if_needed(self, state: ExecutionState) -> bool:
+        """Run the sync barrier sequence if needed.
+
+        Returns True if the barrier discovered new specs requiring a
+        pool drain, False otherwise (including when no barrier fires).
+        """
         effective = self._config.effective_sync_interval
         if effective == 0:
-            return
+            return False
         completed_count = _count_node_status(state.node_states, "completed")
         if not should_trigger_barrier(completed_count, effective):
-            return
+            return False
         _ib = "main"
         if self._full_config is not None:
             _ib = self._full_config.workspace.integration_branch
-        await run_sync_barrier_sequence(
+        return await run_sync_barrier_sequence(
             state=state,
             sync_interval=effective,
             repo_root=self._repo_root,
@@ -786,7 +791,12 @@ class Orchestrator:
             return True
         return False
 
-    async def _hot_load_new_specs(self, state: ExecutionState) -> None:
+    async def _hot_load_new_specs(self, state: ExecutionState) -> bool:
+        """Hot-load new specs into the graph.
+
+        Returns True if new specs were discovered and incorporated
+        (graph was mutated), False otherwise.
+        """
         assert self._specs_dir is not None  # noqa: S101
         assert self._graph_sync is not None  # noqa: S101
         assert self._graph is not None  # noqa: S101
@@ -794,6 +804,7 @@ class Orchestrator:
         _ib = "main"
         if self._full_config is not None:
             _ib = self._full_config.workspace.integration_branch
+        prev_node_count = len(self._graph.nodes)
         self._graph, self._graph_sync = await hot_load_into_graph(
             specs_dir=self._specs_dir,
             graph=self._graph,
@@ -806,6 +817,7 @@ class Orchestrator:
         )
         self._dispatch_mgr.set_graph(self._graph)
         self._dispatch_mgr.set_graph_sync(self._graph_sync)
+        return len(self._graph.nodes) > prev_node_count
 
     def _reload_config(self) -> None:
         result = self._config_reloader.reload(

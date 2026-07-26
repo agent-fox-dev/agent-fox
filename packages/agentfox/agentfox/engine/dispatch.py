@@ -263,18 +263,24 @@ class ParallelDispatcher:
                 error_tracker,
             )
 
-            if barrier_needed and pool:
-                if orch._signal.interrupted:
-                    break
-                logger.info("Barrier triggered — draining %d in-flight tasks", len(pool))
-                try:
-                    drain_done, pool = await asyncio.wait(pool)
-                except asyncio.CancelledError:
-                    break
-                self.process_completed(drain_done, state, error_tracker)
-
             if barrier_needed:
-                await orch._run_sync_barrier_if_needed(state)
+                # Run barrier operations (worktree verification, sync,
+                # config reload) without draining the in-flight pool.
+                # Only drain when hot-load discovers new specs requiring
+                # graph mutation (#731).
+                needs_drain = await orch._run_sync_barrier_if_needed(state)
+                if needs_drain and pool:
+                    if orch._signal.interrupted:
+                        break
+                    logger.info(
+                        "Hot-loaded new specs — draining %d in-flight tasks",
+                        len(pool),
+                    )
+                    try:
+                        drain_done, pool = await asyncio.wait(pool)
+                    except asyncio.CancelledError:
+                        break
+                    self.process_completed(drain_done, state, error_tracker)
 
             if not orch._signal.interrupted:
                 new_ready = graph_sync.ready_tasks()

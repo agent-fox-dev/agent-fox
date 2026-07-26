@@ -175,10 +175,17 @@ async def run_sync_barrier_sequence(
     barrier_callback: Callable[[], None] | None,
     knowledge_db_conn: Any | None = None,
     reload_config_fn: Callable[[], None] | None = None,
-) -> None:
+) -> bool:
     """Execute the sync barrier sequence.
 
     Called when the completed task count crosses a sync_interval boundary.
+    Non-draining barrier operations (worktree verification, bidirectional
+    sync, config reload, barrier callback) run without requiring in-flight
+    tasks to complete first.
+
+    Returns True if hot-load discovered new specs (graph was mutated),
+    indicating the caller should drain the in-flight pool before
+    dispatching new tasks. Returns False otherwise.
 
     Retained operational steps:
     1. Verify worktrees (51-REQ-2.*)
@@ -242,9 +249,12 @@ async def run_sync_barrier_sequence(
     )
 
     # 06-REQ-6.3: Hot-load new specs (with gated discovery)
+    new_specs_found = False
     if specs_dir is not None and hot_load_enabled:
         try:
-            await hot_load_fn(state)
+            result = await hot_load_fn(state)
+            if result:
+                new_specs_found = True
             # Persist immediately so a crash doesn't lose new specs
             sync_plan_fn(state)
         except Exception:
@@ -263,3 +273,5 @@ async def run_sync_barrier_sequence(
             reload_config_fn()
         except Exception:
             logger.warning("Config reload failed at barrier", exc_info=True)
+
+    return new_specs_found
