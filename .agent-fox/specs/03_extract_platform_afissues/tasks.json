@@ -142,7 +142,7 @@
             "03-REQ-4.2",
             "03-REQ-4.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -175,7 +175,7 @@
             "03-REQ-5.5",
             "03-REQ-5.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -191,7 +191,7 @@
           "requirement_refs": [
             "03-REQ-6.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -231,7 +231,7 @@
             "03-REQ-8.6",
             "03-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
