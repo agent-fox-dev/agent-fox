@@ -2317,16 +2317,15 @@ class TestCheckCredentials503:
 
 
 class TestPlatformFactoryGitea:
-    """Verify platform_factory constructs GiteaPlatform for type='gitea'."""
+    """Verify GiteaPlatform can be constructed with expected parameters.
 
-    def test_factory_creates_gitea_platform(self) -> None:
-        """TS-05-50: type='gitea' config → GiteaPlatform instance with forge_type='gitea'.
+    The full factory integration test (create_platform with type='gitea')
+    lives in packages/agentfox/tests/unit/nightshift/test_platform_factory_gitea.py.
+    This test verifies the afissues-side constructor contract.
+    """
 
-        This test patches the factory's create_platform function to accept
-        Gitea configuration, since the factory currently only supports GitHub
-        and will be refactored by spec 04 to support multi-platform routing.
-        We test that GiteaPlatform can be constructed with the expected parameters.
-        """
+    def test_gitea_platform_construction(self) -> None:
+        """TS-05-50: GiteaPlatform instance with forge_type='gitea' can be constructed."""
         from afissues.gitea import GiteaPlatform
 
         with patch(_VALIDATE_URL_TARGET):
@@ -2362,15 +2361,15 @@ class TestGiteaImports:
 
 
 class TestReExports:
-    """Verify GiteaPlatform can be imported alongside other platform classes."""
+    """Verify GiteaPlatform is re-exported from afissues top-level package."""
 
-    def test_all_platforms_importable(self) -> None:
-        """TS-05-52: GiteaPlatform, GitHubPlatform importable from platform modules."""
-        from afissues.gitea import GiteaPlatform  # noqa: F811
-        from afissues.github import GitHubPlatform
+    def test_all_platforms_importable_from_top_level(self) -> None:
+        """TS-05-52: from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform all succeed."""
+        from afissues import GiteaPlatform, GitHubPlatform, GitLabPlatform  # noqa: F811
 
         assert GiteaPlatform is not None
         assert GitHubPlatform is not None
+        assert GitLabPlatform is not None
 
 
 # ===========================================================================

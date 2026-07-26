@@ -14,7 +14,7 @@ import pytest
 # Patch target for _resolve_remote in the factory module.
 _RESOLVE_REMOTE = "agentfox.nightshift.platform_factory._resolve_remote"
 # Patch target for the SSRF guard called inside the GiteaPlatform constructor.
-_VALIDATE_URL = "afissues.gitea._validate_github_url"
+_VALIDATE_URL = "afissues.gitea._validate_url"
 
 
 class TestPlatformFactoryGitea:
