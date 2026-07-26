@@ -17,17 +17,18 @@ from typing import TYPE_CHECKING
 
 from afaudit.emit import emit_audit_event as _emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
+from afissues.labels import LABEL_FIX, LABEL_FIXED, LABEL_PR
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.nightshift.dep_graph import build_graph, build_parallel_graph, merge_edges
 from agentfox.nightshift.fix_pipeline import FixPipeline
+from agentfox.nightshift.pr_feedback import process_pr_issue
 from agentfox.nightshift.reference_parser import (
     fetch_github_relationships,
     parse_text_references,
 )
 from agentfox.nightshift.staleness import check_staleness
 from agentfox.nightshift.triage import run_batch_triage
-from afissues.labels import LABEL_FIX, LABEL_FIXED
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback
 
 if TYPE_CHECKING:
@@ -37,6 +38,11 @@ if TYPE_CHECKING:
     from agentfox.knowledge.fox_provider import KnowledgeProvider
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of af:pr issues processed per poll cycle.
+# Issues beyond this cap are deferred to the next cycle.
+# Requirements: 07-REQ-3.3
+_MAX_PR_CHECKS: int = 5
 
 
 @dataclass(frozen=True)
@@ -682,3 +688,39 @@ class NightShiftEngine:
 
         logger.warning("Issue drain safety valve reached after %d iterations", self._MAX_DRAIN_ITERATIONS)
         return False
+
+    async def _check_open_prs(self) -> None:
+        """Poll for open af:pr issues and process each sequentially.
+
+        Lists issues labelled ``af:pr`` in oldest-first order, caps the
+        batch to ``_MAX_PR_CHECKS``, and awaits ``process_pr_issue()``
+        for each one.  ``issue_checks_completed`` is incremented after
+        each successful call.
+
+        Requirements: 07-REQ-3.1, 07-REQ-3.2, 07-REQ-3.E1, 07-REQ-3.E2
+        """
+        issues = await self._platform.list_issues_by_label(LABEL_PR)  # type: ignore[attr-defined]
+        issues = issues[:_MAX_PR_CHECKS]
+
+        if not issues:
+            return
+
+        pipeline = FixPipeline(
+            config=self._config,
+            platform=self._platform,
+            activity_callback=self._activity_callback,
+            task_callback=self._task_callback,
+            sink_dispatcher=self._sink,
+            spinner_callback=self._spinner_callback,
+            conn=self._conn,
+            knowledge_provider=self._knowledge_provider,
+        )
+
+        for issue in issues:
+            await process_pr_issue(
+                issue,
+                config=self._config,
+                platform=self._platform,
+                pipeline=pipeline,
+            )
+            self.state.issue_checks_completed += 1

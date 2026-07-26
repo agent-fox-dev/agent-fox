@@ -155,7 +155,8 @@ def build_streams(
     # Get interval from config
     issue_check_interval = getattr(ns, "issue_check_interval", 900)
 
-    # Build streams — only fix-pipeline (125-REQ-3.3)
+    # Build streams — fix-pipeline first, then optional pr-feedback
+    # (125-REQ-3.3, 07-REQ-2.1)
     streams: list[WorkStream] = []
 
     streams.append(
@@ -168,5 +169,21 @@ def build_streams(
             interval=issue_check_interval,
         )
     )
+
+    # PR feedback stream: only enabled when merge_strategy='pr' and
+    # platform is not 'none' (07-REQ-2.1, 07-REQ-2.2).
+    merge_strategy = getattr(getattr(config, "workspace", None), "merge_strategy", "direct")
+    pr_check_interval = getattr(ns, "pr_check_interval", 900)
+    if merge_strategy == "pr" and platform_type != "none":
+        streams.append(
+            EngineWorkStream(
+                stream_name="pr-feedback",
+                engine=engine,
+                method_name="_check_open_prs",
+                budget=budget,
+                enabled=True,
+                interval=pr_check_interval,
+            )
+        )
 
     return streams

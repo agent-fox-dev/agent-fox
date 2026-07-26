@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentfox.nightshift.streams import WorkStream
     from afissues.protocol import PlatformProtocol
+
+    from agentfox.nightshift.streams import WorkStream
 
 from afaudit.emit import emit_audit_event as _emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
@@ -35,11 +36,13 @@ logger = logging.getLogger(__name__)
 _STREAM_DISPLAY_NAMES: dict[str, str] = {
     "fix-pipeline": "fix check",
     "spec-executor": "spec check",
+    "pr-feedback": "PR check",
 }
 
 _STREAM_ACTIVE_LABELS: dict[str, str] = {
     "spec-executor": "spec sessions",
     "fix-pipeline": "fix pipeline",
+    "pr-feedback": "PR feedback",
 }
 
 
@@ -166,10 +169,11 @@ class DaemonRunner:
                   85-REQ-4.2, 85-REQ-4.3, 85-REQ-9.2
     """
 
-    # Priority order for stream execution (85-REQ-4.2, 85-REQ-4.3).
+    # Priority order for stream execution (85-REQ-4.2, 85-REQ-4.3, 07-REQ-2.3).
     _PRIORITY_ORDER = [
         "spec-executor",
         "fix-pipeline",
+        "pr-feedback",
     ]
 
     def __init__(
