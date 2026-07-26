@@ -782,7 +782,7 @@
           "requirement_refs": [
             "06-REQ-8.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -806,7 +806,7 @@
             "06-REQ-8.4",
             "06-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

@@ -645,29 +645,29 @@ class TestHarvestAndIntegratePrPartialFailure:
 
 
 # ---------------------------------------------------------------------------
-# TS-02-E6: In nightshift pr mode partial failure (push succeeded,
-#           create_pr raises IntegrationError), _integrate_fix() logs ERROR,
-#           posts branch-mode comment, marks job complete, does not retry.
+# TS-02-E6: In nightshift pr mode, if create_pr raises IntegrationError,
+#           the exception propagates from _integrate_fix() and _pr_number
+#           remains None.
 #
-# Requirements: 02-REQ-4.E3
+# Updated by spec 06 (06-REQ-8.4): the previous branch-mode fallback
+# (02-REQ-4.E3) was removed to prevent premature issue closing.  See
+# docs/errata/06_pr_create_exception_propagation.md.
+#
+# Requirements: 06-REQ-8.4 (supersedes 02-REQ-4.E3)
 # ---------------------------------------------------------------------------
 
 
 class TestIntegrateFixPrPartialFailure:
-    """TS-02-E6: In nightshift pr mode partial failure (push succeeded,
-    create_pr raises IntegrationError), _integrate_fix() logs ERROR with
-    remote branch URL, posts branch-mode comment, does not close issue,
-    and returns a completed result without retry.
+    """TS-02-E6 (updated for spec 06): In nightshift pr mode, if create_pr
+    raises IntegrationError after push succeeded, _integrate_fix() lets the
+    exception propagate and _pr_number remains None.
 
-    Requirements: 02-REQ-4.E3
+    Requirements: 06-REQ-8.4 (supersedes 02-REQ-4.E3)
     """
 
     @pytest.mark.asyncio
-    async def test_error_log_with_remote_branch_url(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """ERROR log contains 'PR creation failed' and remote branch URL."""
+    async def test_error_log_with_remote_branch_url(self) -> None:
+        """IntegrationError from create_pr propagates from _integrate_fix."""
         mock_platform = _make_mock_platform(owner="owner", repo="repo")
         mock_platform.create_pr = AsyncMock(
             side_effect=IntegrationError("PR creation failed"),
@@ -678,26 +678,10 @@ class TestIntegrateFixPrPartialFailure:
         workspace = _make_workspace(branch="fix/issue-42")
 
         with (
-            caplog.at_level(logging.DEBUG),
-            patch.object(
-                pipeline,
-                "_harvest_and_push",
-                new_callable=AsyncMock,
-                return_value=["auth/login.py"],
-            ),
             patch.object(
                 pipeline,
                 "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_push_fix_branch_upstream",
-                new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_update_spinner",
             ),
             patch(
                 "agentfox.workspace.git.get_changed_files",
@@ -714,29 +698,15 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=True,
             ),
         ):
-            await pipeline._integrate_fix(issue, spec, workspace)
+            with pytest.raises(IntegrationError, match="PR creation failed"):
+                await pipeline._integrate_fix(issue, spec, workspace)
 
-        error_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.ERROR and "PR creation failed" in r.message
-        ]
-        assert len(error_lines) >= 1, (
-            "Expected ERROR log about PR creation failure"
-        )
-        # Check remote branch URL is present in the error log
-        error_messages = " ".join(r.message for r in error_lines)
-        assert (
-            "https://github.com/owner/repo/tree/fix/issue-42" in error_messages
-        ), (
-            f"ERROR log should contain remote branch URL; "
-            f"messages: {error_messages}"
-        )
+        assert pipeline._pr_number is None
 
     @pytest.mark.asyncio
     async def test_posts_branch_mode_comment(self) -> None:
-        """Branch-mode comment is posted to the originating issue on
-        partial failure."""
+        """IntegrationError from create_pr propagates; no branch-mode
+        comment is posted by _integrate_fix (the caller handles it)."""
         mock_platform = _make_mock_platform(owner="owner", repo="repo")
         mock_platform.create_pr = AsyncMock(
             side_effect=IntegrationError("API error"),
@@ -749,23 +719,8 @@ class TestIntegrateFixPrPartialFailure:
         with (
             patch.object(
                 pipeline,
-                "_harvest_and_push",
-                new_callable=AsyncMock,
-                return_value=["auth/login.py"],
-            ),
-            patch.object(
-                pipeline,
                 "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_push_fix_branch_upstream",
-                new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_update_spinner",
             ),
             patch(
                 "agentfox.workspace.git.get_changed_files",
@@ -782,30 +737,17 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=True,
             ),
         ):
-            await pipeline._integrate_fix(issue, spec, workspace)
+            with pytest.raises(IntegrationError):
+                await pipeline._integrate_fix(issue, spec, workspace)
 
-        expected_comment = (
-            "Fix branch created: `fix/issue-42`. "
-            "Merge strategy is set to `branch` "
-            "— please review and merge manually."
-        )
-        comment_calls = mock_platform.add_issue_comment.call_args_list
-        found = False
-        for c in comment_calls:
-            args, kwargs = c
-            body_text = args[1] if len(args) > 1 else kwargs.get("body", "")
-            if expected_comment in body_text:
-                found = True
-                break
-        assert found, (
-            f"Expected branch-mode comment not found in add_issue_comment calls. "
-            f"Calls made: {comment_calls}"
-        )
+        # No branch-mode comment posted by _integrate_fix — the caller
+        # (process_issue) handles the exception and posts its own comment.
+        mock_platform.add_issue_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_issue_close_not_called(self) -> None:
-        """close_issue is NOT called on partial failure — the issue stays
-        open for manual resolution."""
+        """close_issue is NOT called when create_pr raises — the exception
+        propagates and the issue stays open."""
         mock_platform = _make_mock_platform(owner="owner", repo="repo")
         mock_platform.create_pr = AsyncMock(
             side_effect=IntegrationError("API error"),
@@ -818,23 +760,8 @@ class TestIntegrateFixPrPartialFailure:
         with (
             patch.object(
                 pipeline,
-                "_harvest_and_push",
-                new_callable=AsyncMock,
-                return_value=["auth/login.py"],
-            ),
-            patch.object(
-                pipeline,
                 "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_push_fix_branch_upstream",
-                new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_update_spinner",
             ),
             patch(
                 "agentfox.workspace.git.get_changed_files",
@@ -851,16 +778,17 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=True,
             ),
         ):
-            await pipeline._integrate_fix(issue, spec, workspace)
+            with pytest.raises(IntegrationError):
+                await pipeline._integrate_fix(issue, spec, workspace)
 
         mock_platform.close_issue.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_completed_result_no_retry(self) -> None:
-        """Returns a completed result (no retry triggered) on partial
-        failure. The nightshift job is marked complete.
+        """IntegrationError propagates from _integrate_fix; _pr_number
+        remains None so _handle_result is never called with pr_created.
 
-        Note: _integrate_fix returns tuple[str, list[str]] (2-tuple).
+        Note: _integrate_fix now raises instead of returning a tuple.
         """
         mock_platform = _make_mock_platform(owner="owner", repo="repo")
         mock_platform.create_pr = AsyncMock(
@@ -874,23 +802,8 @@ class TestIntegrateFixPrPartialFailure:
         with (
             patch.object(
                 pipeline,
-                "_harvest_and_push",
-                new_callable=AsyncMock,
-                return_value=["auth/login.py"],
-            ),
-            patch.object(
-                pipeline,
                 "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_push_fix_branch_upstream",
-                new_callable=AsyncMock,
-            ),
-            patch.object(
-                pipeline,
-                "_update_spinner",
             ),
             patch(
                 "agentfox.workspace.git.get_changed_files",
@@ -907,16 +820,11 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=True,
             ),
         ):
-            result = await pipeline._integrate_fix(issue, spec, workspace)
+            with pytest.raises(IntegrationError):
+                await pipeline._integrate_fix(issue, spec, workspace)
 
-        assert len(result) == 2, f"Expected 2-tuple, got {len(result)}-tuple"
-        status, changed_files = result
-        assert isinstance(status, str)
-        assert isinstance(changed_files, list)
-        # Status should not indicate error/retry
-        assert status != "error", (
-            "Partial failure should not return 'error' status"
-        )
+        # _pr_number stays None — no partial state exposed
+        assert pipeline._pr_number is None
 
 
 # ---------------------------------------------------------------------------

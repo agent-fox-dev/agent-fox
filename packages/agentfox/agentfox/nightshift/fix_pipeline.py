@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 
 from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
-from afissues.errors import IntegrationError
 from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
 from afissues.protocol import IssueResult
 
@@ -1202,38 +1201,20 @@ class FixPipeline:
                 issue_title=issue.title,
                 changed_files=changed_files,
             )
-            try:
-                result = await platform.create_pr(
-                    title=pr_title,
-                    body=pr_body,
-                    head=workspace.branch,
-                    base=self._config.workspace.integration_branch,
-                )
-            except IntegrationError:
-                # 02-REQ-4.E3: Partial failure — branch pushed but PR
-                # creation failed.  Log the error with the remote branch
-                # URL, post branch-mode comment, and fall back to branch
-                # mode semantics.
-                branch_url = (
-                    f"https://github.com/{platform._owner}/{platform._repo}"
-                    f"/tree/{workspace.branch}"
-                )
-                logger.error(
-                    "PR creation failed. Branch available at: %s",
-                    branch_url,
-                )
-                comment = (
-                    f"Fix branch created: `{spec.branch_name}`. "
-                    f"Merge strategy is set to `branch` "
-                    f"— please review and merge manually."
-                )
-                await self._platform.add_issue_comment(
-                    issue.number, comment,
-                )
-                return "merged", changed_files
+            # 06-REQ-8.4: Do NOT wrap create_pr() in try/except — let
+            # exceptions propagate naturally so _pr_number stays None on
+            # failure and _handle_result is never called with "pr_created".
+            # This supersedes the previous 02-REQ-4.E3 branch-mode
+            # fallback (see docs/errata/06_pr_create_exception_propagation.md).
+            result = await platform.create_pr(
+                title=pr_title,
+                body=pr_body,
+                head=workspace.branch,
+                base=self._config.workspace.integration_branch,
+            )
 
-            # 06-REQ-7.5 / 06-REQ-8.1: Store PR number for tracking;
-            # use result.html_url for logging.
+            # 06-REQ-8.3 / 06-REQ-8.1: Store PR number for tracking
+            # BEFORE returning pr_created status.
             self._pr_number = result.number
             logger.info("Pull request created: %s", result.html_url)
             return "pr_created", changed_files

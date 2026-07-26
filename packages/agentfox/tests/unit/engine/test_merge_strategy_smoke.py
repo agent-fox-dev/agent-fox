@@ -593,21 +593,22 @@ class TestSmokePrModeFallbackNoPlatform:
 
 
 class TestSmokeNightshiftPrPartialFailure:
-    """TS-02-SMOKE-5: End-to-end nightshift pr mode partial failure — branch
-    is pushed but PR creation fails; branch-mode comment is posted and job
-    is marked complete.
+    """TS-02-SMOKE-5 (updated for spec 06): End-to-end nightshift pr mode
+    partial failure — branch is pushed but PR creation fails; exception
+    propagates from _integrate_fix (06-REQ-8.4) and _pr_number stays None.
+
+    The previous branch-mode fallback (02-REQ-4.E3) was removed to prevent
+    premature issue closing.  See
+    docs/errata/06_pr_create_exception_propagation.md.
 
     Execution Path: 02-PATH-5
-    Requirements: 02-REQ-4.E3, 02-REQ-9.4
+    Requirements: 06-REQ-8.4 (supersedes 02-REQ-4.E3)
     """
 
     @pytest.mark.asyncio
-    async def test_full_partial_failure_path(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Push succeeds -> create_pr raises IntegrationError -> ERROR log ->
-        branch-mode comment -> return 'merged'.
+    async def test_full_partial_failure_path(self) -> None:
+        """Push succeeds -> create_pr raises IntegrationError -> exception
+        propagates -> _pr_number remains None.
         """
         mock_platform = _make_mock_platform(owner="owner", repo="repo")
         mock_platform.create_pr = AsyncMock(
@@ -621,20 +622,10 @@ class TestSmokeNightshiftPrPartialFailure:
         workspace = _make_workspace(branch="fix/issue-42")
 
         with (
-            caplog.at_level(logging.DEBUG),
-            patch.object(
-                pipeline, "_harvest_and_push",
-                new_callable=AsyncMock, return_value=["auth/login.py"],
-            ),
             patch.object(
                 pipeline, "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
             ),
-            patch.object(
-                pipeline, "_push_fix_branch_upstream",
-                new_callable=AsyncMock,
-            ),
-            patch.object(pipeline, "_update_spinner"),
             patch(
                 "agentfox.workspace.git.get_changed_files",
                 new_callable=AsyncMock, return_value=["auth/login.py"],
@@ -648,7 +639,8 @@ class TestSmokeNightshiftPrPartialFailure:
                 new_callable=AsyncMock, return_value=True,
             ) as mock_push,
         ):
-            result = await pipeline._integrate_fix(issue, spec, workspace)
+            with pytest.raises(IntegrationError, match="GitHub PR creation failed"):
+                await pipeline._integrate_fix(issue, spec, workspace)
 
         # 1. Push was called (succeeds)
         assert mock_push.call_count == 1
@@ -656,31 +648,11 @@ class TestSmokeNightshiftPrPartialFailure:
         # 2. create_pr was called (and raised)
         mock_platform.create_pr.assert_called_once()
 
-        # 3. ERROR log with remote branch URL
-        error_logs = [
-            r for r in caplog.records
-            if r.levelno == logging.ERROR and "PR creation failed" in r.message
-        ]
-        assert len(error_logs) == 1
-        assert "https://github.com/owner/repo/tree/fix/issue-42" in error_logs[0].message
+        # 3. _pr_number stays None — no partial state exposed
+        assert pipeline._pr_number is None
 
-        # 4. Branch-mode comment posted
-        mock_platform.add_issue_comment.assert_called_once()
-        comment_args = mock_platform.add_issue_comment.call_args
-        comment_body = (
-            comment_args.args[1]
-            if len(comment_args.args) > 1
-            else comment_args.kwargs.get("body", "")
-        )
-        assert "Fix branch created:" in comment_body
-        assert "fix/issue-42" in comment_body
-        assert "review and merge manually" in comment_body
-
-        # 5. close_issue NOT called
+        # 4. close_issue NOT called
         mock_platform.close_issue.assert_not_called()
-
-        # 6. Return value — merged, not error
-        assert result == ("merged", ["auth/login.py"])
 
 
 # ---------------------------------------------------------------------------
