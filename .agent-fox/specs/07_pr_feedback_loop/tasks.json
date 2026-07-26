@@ -1104,7 +1104,7 @@
             "07-REQ-15.1",
             "07-REQ-15.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1130,7 +1130,7 @@
             "07-REQ-8.1",
             "07-REQ-12.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1160,7 +1160,7 @@
             "07-REQ-12.3",
             "07-REQ-16.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1183,7 +1183,7 @@
             "07-REQ-15.2",
             "07-REQ-15.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1192,7 +1192,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
