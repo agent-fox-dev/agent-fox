@@ -28,6 +28,9 @@ LABEL_NO_CHANGE: str = "af:no-change"
 #: Applied when all task groups for a spec are completed — awaiting verification.
 LABEL_IMPLEMENTED: str = "af:implemented"
 
+#: Applied when a pull request has been created and is awaiting merge.
+LABEL_PR: str = "af:pr"
+
 #: Priority labels for processing order (high > medium/none > low).
 LABEL_PRIORITY_HIGH: str = "priority:high"
 LABEL_PRIORITY_MEDIUM: str = "priority:medium"
@@ -69,5 +72,10 @@ REQUIRED_LABELS: list[LabelSpec] = [
         name=LABEL_IMPLEMENTED,
         color="0969da",
         description="Spec implementation complete — awaiting manual verification",
+    ),
+    LabelSpec(
+        name=LABEL_PR,
+        color="#1d76db",
+        description="Pull request created — awaiting merge",
     ),
 ]
