@@ -1,8 +1,8 @@
 """Verification checklist builder for the verifier archetype.
 
-Builds a structured checklist from tasks.json checkboxes and requirements.json
-acceptance criteria — injected into the verifier's session context so it can
-enforce task completion and requirement coverage.
+Builds a requirement-to-test coverage mapping from requirements.json —
+injected into the verifier's session context so it can enforce requirement
+coverage. Task completion state is already visible in the ## Tasks section.
 """
 
 from __future__ import annotations
@@ -13,17 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class SubtaskAuditEntry:
-    """Audit entry for a single subtask checkbox."""
-
-    group_number: int
-    subtask_id: str
-    title: str
-    checked: bool
-    skipped: bool  # [-] or [~] markers
 
 
 @dataclass(frozen=True)
@@ -40,7 +29,6 @@ class VerificationChecklist:
     """Complete verification checklist for a spec."""
 
     spec_name: str
-    task_audit: list[SubtaskAuditEntry]
     requirement_coverage: list[RequirementMapping]
 
 
@@ -59,50 +47,12 @@ def build_verification_checklist(
         A populated VerificationChecklist.
     """
     spec_name = spec_dir.name
-
-    task_audit = _audit_task_checkboxes(spec_dir)
     requirement_coverage = scan_requirement_test_coverage(spec_dir, tests_dir)
 
     return VerificationChecklist(
         spec_name=spec_name,
-        task_audit=task_audit,
         requirement_coverage=requirement_coverage,
     )
-
-
-def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
-    """Parse tasks and audit every subtask checkbox state.
-
-    Loads tasks.json via afspec and extracts subtask state from Pydantic
-    models.
-
-    Requirements: 134-REQ-4.1, 134-REQ-4.E1
-    """
-    try:
-        import afspec
-
-        spec = afspec.load_spec(spec_dir)
-    except Exception:
-        # 134-REQ-4.E1: return empty list and log warning on load failure
-        logger.warning("Failed to load tasks.json via afspec in %s", spec_dir)
-        return []
-
-    entries: list[SubtaskAuditEntry] = []
-    for group in spec.tasks.task_groups:
-        for subtask in group.subtasks:
-            # Map SubtaskState enum to checked/skipped booleans
-            checked = subtask.state.value == "done"
-            skipped = subtask.state.value == "dropped"
-            entries.append(
-                SubtaskAuditEntry(
-                    group_number=group.id,
-                    subtask_id=subtask.id,
-                    title=subtask.title,
-                    checked=checked,
-                    skipped=skipped,
-                )
-            )
-    return entries
 
 
 def scan_requirement_test_coverage(
@@ -202,32 +152,6 @@ def render_checklist_markdown(checklist: VerificationChecklist) -> str:
         "",
     ]
 
-    # Task completion audit
-    lines.append("### Task Completion Audit")
-    lines.append("")
-    if checklist.task_audit:
-        lines.append("| Group | Subtask | Title | Status |")
-        lines.append("|-------|---------|-------|--------|")
-        for entry in checklist.task_audit:
-            if entry.skipped:
-                status = "SKIPPED"
-            elif entry.checked:
-                status = "DONE"
-            else:
-                status = "**UNCHECKED**"
-            lines.append(f"| {entry.group_number} | {entry.subtask_id} | {entry.title} | {status} |")
-        unchecked = [e for e in checklist.task_audit if not e.checked and not e.skipped]
-        lines.append("")
-        if unchecked:
-            lines.append(
-                f"**{len(unchecked)} unchecked subtask(s).** Each must be completed or documented in an erratum."
-            )
-        else:
-            lines.append("All subtasks completed or intentionally skipped.")
-    else:
-        lines.append("No tasks found.")
-    lines.append("")
-
     # Requirement-to-test coverage
     lines.append("### Requirement-to-Test Coverage")
     lines.append("")
@@ -258,7 +182,6 @@ def render_checklist_markdown(checklist: VerificationChecklist) -> str:
     # Enforcement rules
     lines.append("### Enforcement Rules")
     lines.append("")
-    lines.append("- Any **UNCHECKED** subtask → FAIL verdict.")
     lines.append("- Any **UNCOVERED** requirement without test coverage → FAIL verdict.")
 
     return "\n".join(lines)

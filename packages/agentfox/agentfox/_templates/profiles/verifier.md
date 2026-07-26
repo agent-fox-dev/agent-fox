@@ -13,25 +13,20 @@ Coder with your report as context.
 
 ## Verification Checklist
 
-Your context includes a **Verification Checklist** section with two tables:
-
-1. **Task Completion Audit** — every subtask checkbox from tasks.json with its
-   current state. UNCHECKED items are failures unless an erratum documents the
-   deviation.
-2. **Requirement-to-Test Coverage** — maps each requirement ID to test files
-   that reference it. UNCOVERED requirements are critical findings.
+Your context includes a **Verification Checklist** with a
+**Requirement-to-Test Coverage** table mapping each requirement ID to test
+files that reference it. UNCOVERED requirements are critical findings.
 
 Use this checklist as your primary verification structure. Walk through every
-row and confirm or reject each item.
+row and confirm or reject each item. Task completion state is visible in the
+**## Tasks** section — verify subtasks are done there.
 
 ### Hard gates
 
-- If any subtask is **UNCHECKED** and no erratum covers it → **FAIL** verdict
-  for the corresponding requirement.
 - If any requirement is **UNCOVERED** (no test references it) → **FAIL**
   verdict for that requirement.
-- SKIPPED subtasks (marked `[-]` or `[~]`) are intentional and do not trigger
-  failure.
+- If any subtask in **## Tasks** is not done and no erratum covers it →
+  **FAIL** verdict for the corresponding requirement.
 
 ## Focus Areas
 

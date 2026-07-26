@@ -115,9 +115,7 @@ class TestVerifierChecklistInjection:
             archetype="verifier",
         )
         assert "Verification Checklist" in context
-        assert "Task Completion Audit" in context
-        assert "1.1" in context
-        assert "1.2" in context
+        assert "Requirement-to-Test Coverage" in context
 
     def test_coder_context_excludes_checklist(self, tmp_path: Path) -> None:
         spec_dir = _setup_spec(tmp_path)
@@ -141,18 +139,6 @@ class TestVerifierChecklistInjection:
             project_root=tmp_path,
         )
         assert "Verification Checklist" not in context
-
-    def test_checklist_includes_unchecked_warning(self, tmp_path: Path) -> None:
-        spec_dir = _setup_spec(tmp_path)
-        conn = _make_conn()
-        context = assemble_context(
-            spec_dir,
-            task_group=1,
-            conn=conn,
-            project_root=tmp_path,
-            archetype="verifier",
-        )
-        assert "UNCHECKED" in context
 
     def test_checklist_includes_requirement_coverage(self, tmp_path: Path) -> None:
         spec_dir = _setup_spec(tmp_path)

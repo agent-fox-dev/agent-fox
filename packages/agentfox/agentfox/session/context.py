@@ -44,14 +44,6 @@ class PriorFinding:
 # Findings rendering
 # ---------------------------------------------------------------------------
 
-# Archetype-produced files — only present after the corresponding archetype
-# (Reviewer / Verifier) has run.  Included silently when they exist on disk,
-# skipped silently when they don't.
-_ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
-    ("review.md", "## Reviewer Findings"),
-    ("verification.md", "## Verification Report"),
-]
-
 # v1.2 artifact-to-header mapping for JSON-based specs rendered via afspec.
 # Requirements: 134-REQ-1.1, 134-REQ-2.1
 _SECTION_HEADERS: dict[str, str] = {
@@ -353,82 +345,31 @@ def assemble_context(
 ) -> str:
     """Assemble task-specific context for a coding session.
 
-    conn must be a read-only connection; write operations
-    (_migrate_legacy_files) is performed
-    at orchestrator startup, not here.  See 06-REQ-5.1, 06-REQ-6.1,
-    06-REQ-7.1, 06-REQ-7.2.
+    Renders spec documents via afspec (v1.2 JSON format), steering
+    directives, memory facts, prior group findings, and archetype-specific
+    sections (retry history for reviewers, verification checklist for
+    verifiers).
 
-    Renders spec documents via afspec (v1.2 JSON format).
-
-    Renders review/verification/drift sections from DuckDB
-    (27-REQ-5.1, 27-REQ-5.2, 38-REQ-4.1, 38-REQ-4.2).
-    DB errors propagate — no file-based fallback (38-REQ-3.E1).
-
-    Appends relevant memory facts (if provided).
-
-    When project_root is provided, includes steering directives from
-    .agent-fox/steering.md after spec files and before memory facts
-    (64-REQ-2.1, 64-REQ-2.2).
-
-    When archetype is ``"verifier"``, appends a structured verification
-    checklist (task completion audit + requirement-to-test coverage).
+    Review/drift findings are NOT rendered here — they arrive via
+    FoxKnowledgeProvider memory facts to avoid duplication.
 
     Returns a formatted string with section headers.
-
-    Logs a warning for any missing spec file but does not raise.
     """
     sections: list[str] = []
 
     # Derive spec_name from directory name
     spec_name = spec_dir.name
 
-    # DB-backed rendering — errors propagate (38-REQ-3.E1, 38-REQ-4.2)
-    db_rendered_files: set[str] = set()
-
-    # DB-backed rendering (27-REQ-5.1, 27-REQ-5.2, 38-REQ-4.3)
-    review_md = render_review_context(conn, spec_name)
-    if review_md is not None:
-        sections.append(review_md)
-        db_rendered_files.add("review.md")
-
-    verification_md = render_verification_context(conn, spec_name)
-    if verification_md is not None:
-        sections.append(verification_md)
-        db_rendered_files.add("verification.md")
-
-    # Render drift-review report (32-REQ-8.1)
-    drift_md = render_drift_context(conn, spec_name)
-    if drift_md is not None:
-        sections.append(drift_md)
-
     # 03-REQ-4.1, 134-REQ-1.1: Read spec documents via afspec (v1.2 JSON)
-    file_sections: list[str] = []
-
     try:
         raw_sections = _render_spec_sections(spec_dir, task_group=task_group)
-        # Sanitize rendered spec sections for safe prompt inclusion
-        file_sections = [sanitize_prompt_content(s, label="spec") for s in raw_sections]
+        sections.extend(sanitize_prompt_content(s, label="spec") for s in raw_sections)
     except Exception:
         logger.warning(
             "Failed to load spec in %s",
             spec_dir,
             exc_info=True,
         )
-
-    # Include archetype-produced files (review.md, verification.md) only
-    # when they exist on disk and weren't already rendered from the DB.
-    for filename, header in _ARCHETYPE_SPEC_FILES:
-        if filename in db_rendered_files:
-            continue
-        filepath = spec_dir / filename
-        if not filepath.exists():
-            continue
-        content = filepath.read_text(encoding="utf-8")
-        safe_content = sanitize_prompt_content(content, label="spec")
-        file_sections.append(f"{header}\n\n{safe_content}")
-
-    # Insert file sections before DB-rendered sections
-    sections = file_sections + sections
 
     # 64-REQ-2.1, 64-REQ-2.2: Include steering directives after spec files,
     # before memory facts.

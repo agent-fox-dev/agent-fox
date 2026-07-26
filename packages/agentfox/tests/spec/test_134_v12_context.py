@@ -21,8 +21,6 @@ from agentfox.graph.spec_helpers import count_ts_entries, spec_has_existing_code
 from agentfox.session.context import assemble_context
 from agentfox.spec.verification_checklist import (
     RequirementMapping,
-    SubtaskAuditEntry,
-    _audit_task_checkboxes,
     build_verification_checklist,
     scan_requirement_test_coverage,
 )
@@ -346,18 +344,6 @@ def malformed_test_spec_dir(tmp_path: Path) -> Path:
     return spec_dir
 
 
-@pytest.fixture
-def malformed_tasks_dir(tmp_path: Path) -> Path:
-    """A v1.2 spec directory with malformed tasks.json."""
-    spec_dir = tmp_path / "specs" / "134_bad_tasks"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "prd.md").write_text(PRD_MD_VALID)
-    (spec_dir / "requirements.json").write_text(REQUIREMENTS_JSON_VALID)
-    (spec_dir / "test_spec.json").write_text(TEST_SPEC_JSON_VALID)
-    (spec_dir / "tasks.json").write_text("{bad json!!")
-    return spec_dir
-
-
 # ===========================================================================
 # TS-134-1: v1.2 format detection in assemble_context
 # ===========================================================================
@@ -517,46 +503,6 @@ class TestExistingCodeV12:
 
 
 # ===========================================================================
-# TS-134-8: v1.2 verification checklist extracts tasks from JSON
-# ===========================================================================
-
-
-class TestChecklistTasksV12:
-    """TS-134-8: Verify _audit_task_checkboxes loads tasks.json via afspec.
-
-    Requirement: 134-REQ-4.1
-    """
-
-    def test_returns_subtask_entries(self, v12_spec_dir: Path) -> None:
-        """Returns a non-empty list of SubtaskAuditEntry objects."""
-        entries = _audit_task_checkboxes(v12_spec_dir)
-        assert len(entries) > 0
-        assert all(isinstance(e, SubtaskAuditEntry) for e in entries)
-
-    def test_subtask_ids_match_json(self, v12_spec_dir: Path) -> None:
-        """Subtask IDs match those in tasks.json."""
-        entries = _audit_task_checkboxes(v12_spec_dir)
-        ids = {e.subtask_id for e in entries}
-        assert "1.1" in ids
-        assert "1.2" in ids
-        assert "2.1" in ids
-
-    def test_checked_state_matches_json(self, v12_spec_dir: Path) -> None:
-        """Checked state reflects tasks.json subtask state."""
-        entries = _audit_task_checkboxes(v12_spec_dir)
-        entry_map = {e.subtask_id: e for e in entries}
-        assert entry_map["1.1"].checked is True
-        assert entry_map["1.2"].checked is False
-
-    def test_group_numbers_match(self, v12_spec_dir: Path) -> None:
-        """Group numbers match the task group IDs from tasks.json."""
-        entries = _audit_task_checkboxes(v12_spec_dir)
-        entry_map = {e.subtask_id: e for e in entries}
-        assert entry_map["1.1"].group_number == 1
-        assert entry_map["2.1"].group_number == 2
-
-
-# ===========================================================================
 # TS-134-9: v1.2 verification checklist extracts requirements from JSON
 # ===========================================================================
 
@@ -712,33 +658,6 @@ class TestCountTsLoadFailure:
 
 
 # ===========================================================================
-# TS-134-E4: Verification checklist returns empty on JSON load failure
-# ===========================================================================
-
-
-class TestChecklistLoadFailure:
-    """TS-134-E4: Checklist functions return empty on load failure.
-
-    Requirement: 134-REQ-4.E1
-    """
-
-    def test_audit_returns_empty(self, malformed_tasks_dir: Path) -> None:
-        """_audit_task_checkboxes returns empty list for malformed tasks.json."""
-        entries = _audit_task_checkboxes(malformed_tasks_dir)
-        assert entries == []
-
-    def test_audit_warning_logged(
-        self,
-        malformed_tasks_dir: Path,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """A warning is logged when tasks.json loading fails."""
-        with caplog.at_level(logging.WARNING):
-            _audit_task_checkboxes(malformed_tasks_dir)
-        assert any("task" in r.message.lower() or "fail" in r.message.lower() for r in caplog.records)
-
-
-# ===========================================================================
 # TS-134-P2: v1.2 rendering preserves section order
 # ===========================================================================
 
@@ -838,8 +757,6 @@ def test_req_134_1_1():
 
         checklist = build_verification_checklist(v12_spec_dir, tests_dir=tests_dir)
 
-        # Task audit: tasks.json has 2 groups with subtasks
-        assert len(checklist.task_audit) >= 3
         assert len(checklist.requirement_coverage) >= 1
         covered = [m for m in checklist.requirement_coverage if m.covered]
         assert len(covered) >= 1

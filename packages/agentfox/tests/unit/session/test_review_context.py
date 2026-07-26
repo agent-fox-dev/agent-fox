@@ -210,29 +210,32 @@ class TestDbUnavailableFallback:
         assert "Requirements" in result
         conn.close()
 
-    def test_db_error_propagates(self, tmp_path: Path) -> None:
-        """assemble_context propagates DB errors (38-REQ-3.E1).
+    def test_closed_conn_does_not_crash_assembly(self, tmp_path: Path) -> None:
+        """assemble_context tolerates a closed connection for spec-only assembly.
 
-        Updated from fallback behavior to error propagation per spec 38.
+        Review/drift findings are no longer rendered from DB in assemble_context
+        (they arrive via FoxKnowledgeProvider memory facts), so a closed
+        connection only affects prior-group queries which are wrapped in
+        try/except.
         """
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
         _write_spec(spec_dir)
-        (spec_dir / "review.md").write_text("# Skeptic Review\n- [severity: minor] Fallback test\n")
 
-        # Use a closed connection to trigger an error
         conn = duckdb.connect(":memory:")
         conn.close()
 
-        with pytest.raises(duckdb.ConnectionException):
-            assemble_context(spec_dir, 1, conn=conn)
+        result = assemble_context(spec_dir, 1, conn=conn)
+        assert "Requirements" in result
 
 
 class TestLegacyFileMigration:
-    """TS-27-17, TS-27-18: Legacy file migration via assemble_context."""
+    """TS-27-17, TS-27-18: Legacy file migration via _migrate_legacy_files."""
 
     def test_legacy_review_migration(self, tmp_path: Path) -> None:
-        """Legacy review.md is migrated to DB on context assembly."""
+        """Legacy review.md is migrated to DB records."""
+        from agentfox.knowledge.review_store import query_active_findings
+        from agentfox.session.context import _migrate_legacy_files
         from tests.unit.knowledge.conftest import create_schema
 
         spec_dir = tmp_path / "test_spec"
@@ -245,48 +248,24 @@ class TestLegacyFileMigration:
         conn = duckdb.connect(":memory:")
         create_schema(conn)
 
-        result = assemble_context(spec_dir, 1, conn=conn)
-        # Should contain the migrated finding rendered from DB
-        assert "critical" in result.lower()
-        assert "Legacy finding" in result
-        conn.close()
-
-    def test_legacy_verification_migration(self, tmp_path: Path) -> None:
-        """Legacy verification.md is migrated to DB on context assembly."""
-        from tests.unit.knowledge.conftest import create_schema
-
-        spec_dir = tmp_path / "test_spec"
-        spec_dir.mkdir()
-        _write_spec(spec_dir)
-        (spec_dir / "verification.md").write_text(
-            "# Verification Report\n\n"
-            "| Requirement | Status | Notes |\n"
-            "|-------------|--------|-------|\n"
-            "| 05-REQ-1.1 | PASS | OK |\n"
-        )
-
-        conn = duckdb.connect(":memory:")
-        create_schema(conn)
-
-        result = assemble_context(spec_dir, 1, conn=conn)
-        assert "05-REQ-1.1" in result
-        assert "PASS" in result
+        _migrate_legacy_files(conn, spec_dir, "test_spec")
+        findings = query_active_findings(conn, "test_spec")
+        assert len(findings) > 0
+        assert any("Legacy finding" in f.description for f in findings)
         conn.close()
 
     def test_legacy_parse_failure_skips(self, tmp_path: Path) -> None:
         """Bad legacy files are skipped without blocking."""
+        from agentfox.session.context import _migrate_legacy_files
         from tests.unit.knowledge.conftest import create_schema
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
         _write_spec(spec_dir)
-        # Write something that won't match the pattern
         (spec_dir / "review.md").write_text("Random garbage content\n")
 
         conn = duckdb.connect(":memory:")
         create_schema(conn)
 
-        # Should not raise
-        result = assemble_context(spec_dir, 1, conn=conn)
-        assert "Requirements" in result
+        _migrate_legacy_files(conn, spec_dir, "test_spec")
         conn.close()

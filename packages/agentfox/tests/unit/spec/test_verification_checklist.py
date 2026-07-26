@@ -112,205 +112,6 @@ def _write_spec(
     (spec_dir / "test_spec.json").write_text(json.dumps(test_spec_data, indent=2), encoding="utf-8")
 
 
-class TestSubtaskAudit:
-    def test_all_checked_returns_no_unchecked(self, tmp_path: Path) -> None:
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Write failing tests",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Write unit tests",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.2",
-                            "title": "Write integration tests",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.V",
-                            "title": "Verify task group 1",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                }
-            ],
-        )
-        checklist = build_verification_checklist(spec_dir)
-        unchecked = [e for e in checklist.task_audit if not e.checked]
-        assert unchecked == []
-
-    def test_unchecked_subtasks_flagged(self, tmp_path: Path) -> None:
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Write failing tests",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Write unit tests",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.2",
-                            "title": "Write integration tests",
-                            "state": "pending",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.V",
-                            "title": "Verify task group 1",
-                            "state": "pending",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                }
-            ],
-        )
-        checklist = build_verification_checklist(spec_dir)
-        unchecked = [e for e in checklist.task_audit if not e.checked]
-        assert len(unchecked) == 2
-        ids = {e.subtask_id for e in unchecked}
-        assert "1.2" in ids
-        assert "1.V" in ids
-
-    def test_multiple_groups_audited(self, tmp_path: Path) -> None:
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Write failing tests",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Unit tests",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                },
-                {
-                    "id": 2,
-                    "kind": "standard",
-                    "title": "Implement",
-                    "subtasks": [
-                        {
-                            "id": "2.1",
-                            "title": "Core logic",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "2.2",
-                            "title": "Edge cases",
-                            "state": "pending",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                },
-            ],
-        )
-        checklist = build_verification_checklist(spec_dir)
-        groups = {e.group_number for e in checklist.task_audit}
-        assert 1 in groups
-        assert 2 in groups
-
-    def test_skipped_subtasks_excluded(self, tmp_path: Path) -> None:
-        """Subtasks marked as dropped are intentionally skipped."""
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Partially done",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Done",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.2",
-                            "title": "Skipped intentionally",
-                            "state": "dropped",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.3",
-                            "title": "Not applicable",
-                            "state": "dropped",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                }
-            ],
-        )
-        checklist = build_verification_checklist(spec_dir)
-        unchecked = [e for e in checklist.task_audit if not e.checked and not e.skipped]
-        assert unchecked == []
-
-
 class TestRequirementTestCoverage:
     def test_requirement_found_in_test_docstring(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
@@ -398,50 +199,9 @@ class TestRequirementTestCoverage:
 
 
 class TestRenderChecklistMarkdown:
-    def test_renders_task_audit_section(self, tmp_path: Path) -> None:
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Write tests",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Unit tests",
-                            "state": "done",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                        {
-                            "id": "1.2",
-                            "title": "Integration tests",
-                            "state": "pending",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                }
-            ],
-        )
-        checklist = build_verification_checklist(spec_dir)
-        md = render_checklist_markdown(checklist)
-        assert "## Verification Checklist" in md
-        assert "Task Completion Audit" in md
-        assert "1.1" in md
-        assert "1.2" in md
-
     def test_renders_requirement_coverage(self, tmp_path: Path) -> None:
         checklist = VerificationChecklist(
             spec_name="10_my_spec",
-            task_audit=[],
             requirement_coverage=[
                 RequirementMapping("10-REQ-1.1", True, ["test_core.py"]),
                 RequirementMapping("10-REQ-1.2", False, []),
@@ -456,7 +216,6 @@ class TestRenderChecklistMarkdown:
     def test_empty_checklist_renders_cleanly(self) -> None:
         checklist = VerificationChecklist(
             spec_name="10_my_spec",
-            task_audit=[],
             requirement_coverage=[],
         )
         md = render_checklist_markdown(checklist)
@@ -534,12 +293,11 @@ class TestBuildVerificationChecklist:
         )
         checklist = build_verification_checklist(spec_dir, tests_dir=tests_dir)
         assert checklist.spec_name == "10_my_spec"
-        assert len(checklist.task_audit) > 0
         assert len(checklist.requirement_coverage) == 1
         assert checklist.requirement_coverage[0].covered is True
 
-    def test_missing_tasks_file_returns_empty_audit(self, tmp_path: Path) -> None:
+    def test_missing_requirements_file_returns_empty_coverage(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
         spec_dir.mkdir()
         checklist = build_verification_checklist(spec_dir)
-        assert checklist.task_audit == []
+        assert checklist.requirement_coverage == []
