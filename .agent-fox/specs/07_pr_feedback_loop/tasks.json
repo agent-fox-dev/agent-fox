@@ -836,7 +836,7 @@
             "07-REQ-9.E2",
             "07-REQ-9.E3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -860,7 +860,7 @@
             "07-REQ-13.2",
             "07-REQ-13.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -869,7 +869,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

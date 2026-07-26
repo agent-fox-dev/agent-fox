@@ -11,8 +11,11 @@ Requirements: 07-REQ-4 through 07-REQ-16
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import pathlib
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -454,6 +457,7 @@ async def _run_feedback_iteration(
     config: object,
     platform: PlatformProtocol,
     pipeline: FixPipeline,
+    has_changes: bool | None = None,
 ) -> None:
     """Orchestrate a single feedback re-entry iteration.
 
@@ -462,9 +466,15 @@ async def _run_feedback_iteration(
 
     Requirements: 07-REQ-8, 07-REQ-9, 07-REQ-11, 07-REQ-12, 07-REQ-13
     """
+    from agentfox.nightshift.spec_builder import (
+        InMemorySpec,
+        sanitise_branch_name,
+    )
+    from agentfox.workspace.worktree import WorkspaceInfo
+
     max_retries = config.night_shift.max_pr_retries
 
-    # Retry limit check
+    # Retry limit check (07-REQ-8)
     if attempt > max_retries:
         logger.info(
             "Retry limit reached for issue #%d, PR #%d "
@@ -477,9 +487,209 @@ async def _run_feedback_iteration(
         await platform.add_issue_comment(issue.number, _RETRY_LIMIT_MESSAGE)
         return None
 
-    raise NotImplementedError(
-        "_run_feedback_iteration: worktree/coder/push not yet implemented"
-    )
+    branch = sanitise_branch_name(issue.title, issue.number)
+    integration_branch = config.workspace.integration_branch
+    new_attempt = attempt + 1
+
+    try:
+        # Step 1: Set up worktree (07-REQ-9.1)
+        worktree_path = await _setup_feedback_worktree(
+            issue=issue, config=config,
+        )
+
+        # Step 2: Compute affected_files via git diff (07-REQ-11.3)
+        affected_files: list[str] = []
+        try:
+            diff_proc = await asyncio.create_subprocess_exec(
+                "git", "diff", "--name-only", integration_branch, branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            diff_stdout, _ = await diff_proc.communicate()
+            if diff_proc.returncode == 0 and diff_stdout:
+                affected_files = [
+                    f for f in diff_stdout.decode(errors="replace").strip().split("\n")
+                    if f
+                ]
+        except Exception as exc:
+            logger.warning(
+                "git diff --name-only failed for issue #%d, PR #%d "
+                "— defaulting affected_files to []. %s",
+                issue.number,
+                pr_number,
+                exc,
+            )
+
+        # Step 3: Collect feedback context (07-REQ-10)
+        feedback_text = _collect_feedback(
+            trigger=trigger,
+            ci_failures=ci_failures,
+            review_comments=review_comments,
+        )
+
+        # Step 4: Construct synthetic TriageResult (07-REQ-11.1)
+        triage = TriageResult(
+            summary=issue.title,
+            affected_files=affected_files,
+            criteria=[],
+            assessed_complexity=None,
+            issue_body=issue.body,
+        )
+
+        # Step 5: Build coder prompt (07-REQ-11.2)
+        spec = InMemorySpec(
+            issue_number=issue.number,
+            title=issue.title,
+            task_prompt=f"Fix: {issue.title}",
+            system_context=issue.body or "",
+            branch_name=branch,
+        )
+
+        system_prompt, task_prompt = pipeline._build_coder_prompt(
+            spec,
+            triage,
+            review_feedback=feedback_text,
+            prior_context="",
+            knowledge_context="",
+        )
+
+        # Step 6: Run coder session (07-REQ-11.2)
+        workspace = WorkspaceInfo(
+            path=pathlib.Path(worktree_path),
+            branch=branch,
+            spec_name=f"feedback-{issue.number}",
+            task_group=1,
+        )
+
+        model_id = getattr(config.night_shift, "model_id", None)
+        try:
+            await pipeline._run_coder_session(
+                workspace,
+                spec,
+                system_prompt,
+                task_prompt,
+                model_id=model_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Error in feedback iteration for issue #%d, PR #%d: "
+                "coder session raised — %s",
+                issue.number,
+                pr_number,
+                exc,
+            )
+            return None
+
+        # Step 7: Post tracking comment BEFORE push (07-REQ-12.1)
+        tracking_comment = format_tracking_comment(
+            pr_number=pr_number,
+            attempt=new_attempt,
+            pr_url="",
+            message=_FEEDBACK_ITERATION_MESSAGE.format(attempt=new_attempt),
+        )
+        try:
+            await platform.add_issue_comment(issue.number, tracking_comment)
+        except Exception as exc:
+            logger.error(
+                "Error in feedback iteration for issue #%d, PR #%d: "
+                "failed to post tracking comment — %s",
+                issue.number,
+                pr_number,
+                exc,
+            )
+            return None
+
+        # Step 8: Check for changes after coder session (07-REQ-12.2, 12.3)
+        coder_made_changes = True
+        if has_changes is not None:
+            coder_made_changes = has_changes
+        else:
+            try:
+                status_proc = await asyncio.create_subprocess_exec(
+                    "git", "status", "--porcelain",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=worktree_path,
+                )
+                status_stdout, _ = await status_proc.communicate()
+                if not status_stdout or not status_stdout.strip():
+                    coder_made_changes = False
+            except Exception:
+                pass  # Assume changes exist on error
+
+        if not coder_made_changes:
+            # No changes — skip push, post warning comment
+            await platform.add_issue_comment(
+                issue.number, _NO_CHANGES_MESSAGE,
+            )
+            logger.warning(
+                "Feedback iteration %d for issue #%d, PR #%d: "
+                "coder produced no changes.",
+                new_attempt,
+                issue.number,
+                pr_number,
+            )
+            return None
+
+        # Step 9: Auto-commit pending changes (07-REQ-12.2)
+        try:
+            await pipeline._auto_commit_pending_changes(workspace)
+        except Exception as exc:
+            logger.error(
+                "Error in feedback iteration for issue #%d, PR #%d: "
+                "auto-commit failed — %s",
+                issue.number,
+                pr_number,
+                exc,
+            )
+            return None
+
+        # Step 10: Force-push (07-REQ-12.2)
+        try:
+            push_proc = await asyncio.create_subprocess_exec(
+                "git", "push", "--force", "origin", branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=worktree_path,
+            )
+            await push_proc.communicate()
+            if push_proc.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    push_proc.returncode, f"git push --force origin {branch}",
+                )
+        except Exception as exc:
+            logger.error(
+                "Error in feedback iteration for issue #%d, PR #%d: "
+                "git push --force failed — %s",
+                issue.number,
+                pr_number,
+                exc,
+            )
+            return None
+
+        logger.info(
+            "Feedback iteration %d complete for issue #%d, PR #%d.",
+            new_attempt,
+            issue.number,
+            pr_number,
+        )
+        return None
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Error in feedback iteration for issue #%d, PR #%d: %s",
+            issue.number,
+            pr_number,
+            exc,
+        )
+        return None
+    finally:
+        # Always cleanup worktree (07-REQ-13.1)
+        _cleanup_feedback_worktree(issue.number)
 
 
 # ---------------------------------------------------------------------------
@@ -487,22 +697,100 @@ async def _run_feedback_iteration(
 # ---------------------------------------------------------------------------
 
 
+_GIT_SUBPROCESS_TIMEOUT = 120  # seconds
+
+
 async def _setup_feedback_worktree(
-    issue_number: int,
-    branch: str,
     *,
+    issue: IssueResult,
+    config: object,
     worktree_base: str = "worktrees",
 ) -> str:
     """Set up a feedback worktree for the given issue.
 
-    Runs ``git fetch origin <branch>`` then
+    Derives the fix branch name via ``sanitise_branch_name``, then runs
+    ``git fetch origin <branch>`` followed by
     ``git worktree add worktrees/feedback-<issue_number> <branch>``.
 
-    Requirements: 07-REQ-9.1
+    Returns the worktree path string on success; raises an exception on
+    fetch or worktree-add failure.
+
+    Requirements: 07-REQ-9.1, 07-REQ-9.E1, 07-REQ-9.E2, 07-REQ-9.E3
     """
-    raise NotImplementedError(
-        "_setup_feedback_worktree not yet implemented"
+    branch = sanitise_branch_name(issue.title, issue.number)
+    worktree_path = str(
+        pathlib.Path(worktree_base) / f"feedback-{issue.number}"
     )
+
+    # Step 1: git fetch origin <branch>
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                "git", "fetch", "origin", branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
+        )
+    except TimeoutError:
+        logger.error(
+            "git fetch timed out for issue #%d, branch %s",
+            issue.number,
+            branch,
+        )
+        raise
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode(errors="replace").strip() if stderr else "unknown error"
+        logger.error(
+            "git fetch failed for issue #%d, branch %s — %s",
+            issue.number,
+            branch,
+            error_msg,
+        )
+        raise subprocess.CalledProcessError(
+            proc.returncode, f"git fetch origin {branch}",
+        )
+
+    # Step 2: git worktree add
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                "git", "worktree", "add", worktree_path, branch,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
+        )
+    except TimeoutError:
+        logger.error(
+            "git worktree add timed out for issue #%d, path %s",
+            issue.number,
+            worktree_path,
+        )
+        raise
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode(errors="replace").strip() if stderr else "unknown error"
+        logger.error(
+            "git worktree add failed for issue #%d, path %s — %s",
+            issue.number,
+            worktree_path,
+            error_msg,
+        )
+        raise subprocess.CalledProcessError(
+            proc.returncode, f"git worktree add {worktree_path} {branch}",
+        )
+
+    return worktree_path
 
 
 # ---------------------------------------------------------------------------
@@ -517,17 +805,27 @@ def _cleanup_feedback_worktree(
 ) -> None:
     """Remove the feedback worktree directory if it exists.
 
-    Silently no-ops if the directory does not exist.
+    Silently no-ops if the directory does not exist.  If removal itself
+    fails (e.g. permission error), logs at WARNING and does *not*
+    re-raise — the finally block must never mask the original exception.
 
-    Requirements: 07-REQ-13.1, 07-REQ-13.2
+    Requirements: 07-REQ-9.2, 07-REQ-13.1, 07-REQ-13.2, 07-REQ-13.E1
     """
-    import pathlib
-
     worktree_path = pathlib.Path(worktree_base) / f"feedback-{issue_number}"
-    if worktree_path.exists():
-        shutil.rmtree(worktree_path)
-    else:
+    if not worktree_path.exists():
         logger.debug(
             "Feedback worktree not found for issue #%d — skipping cleanup.",
             issue_number,
         )
+        return None
+
+    try:
+        shutil.rmtree(worktree_path)
+    except Exception as exc:
+        logger.warning(
+            "Failed to remove feedback worktree for issue #%d at %s — %s",
+            issue_number,
+            worktree_path,
+            exc,
+        )
+    return None
