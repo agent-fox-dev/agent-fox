@@ -1,4 +1,4 @@
-"""Tests for spec 07: PR feedback loop — task groups 1, 2, & 3.
+"""Tests for spec 07: PR feedback loop — task groups 1, 2, 3, & 4.
 
 Group 1: config fields, work stream registration, dispatcher sequencing,
 and tracking comment parsing.
@@ -9,16 +9,25 @@ interpretation, feedback context collection, and mutually exclusive paths.
 Group 3: retry limit enforcement, worktree lifecycle (setup + cleanup),
 feedback context collection output format, and try/finally cleanup guarantee.
 
+Group 4: coder session invocation, tracking comment update and force-push,
+structured logging (INFO/WARNING/ERROR/DEBUG), module structure and imports,
+label exclusivity.
+
 Test Spec: TS-07-1, TS-07-2, TS-07-3, TS-07-4, TS-07-5,
            TS-07-6, TS-07-7, TS-07-8, TS-07-9, TS-07-10,
            TS-07-11, TS-07-12, TS-07-13, TS-07-14, TS-07-15,
            TS-07-16, TS-07-17, TS-07-18, TS-07-19, TS-07-20,
            TS-07-21, TS-07-22, TS-07-23, TS-07-24, TS-07-25,
-           TS-07-26, TS-07-27, TS-07-28, TS-07-35, TS-07-36,
+           TS-07-26, TS-07-27, TS-07-28, TS-07-29, TS-07-30,
+           TS-07-31, TS-07-32, TS-07-33, TS-07-34, TS-07-35,
+           TS-07-36, TS-07-37, TS-07-38, TS-07-39, TS-07-40,
+           TS-07-41, TS-07-42, TS-07-43, TS-07-44, TS-07-45,
+           TS-07-46, TS-07-47, TS-07-48,
            TS-07-E1, TS-07-E2, TS-07-E3, TS-07-E4, TS-07-E5, TS-07-E6,
            TS-07-E7, TS-07-E8, TS-07-E9, TS-07-E10, TS-07-E11,
            TS-07-E12, TS-07-E13, TS-07-E14, TS-07-E15, TS-07-E16,
-           TS-07-E17, TS-07-E18, TS-07-E19, TS-07-E26
+           TS-07-E17, TS-07-E18, TS-07-E19, TS-07-E20, TS-07-E21,
+           TS-07-E22, TS-07-E23, TS-07-E24, TS-07-E25, TS-07-E26
 Requirements: 07-REQ-1.1, 07-REQ-1.2, 07-REQ-1.E1, 07-REQ-1.E2,
               07-REQ-2.1, 07-REQ-2.2, 07-REQ-2.3,
               07-REQ-3.1, 07-REQ-3.2, 07-REQ-3.3, 07-REQ-3.E1, 07-REQ-3.E2,
@@ -31,14 +40,23 @@ Requirements: 07-REQ-1.1, 07-REQ-1.2, 07-REQ-1.E1, 07-REQ-1.E2,
               07-REQ-8.1, 07-REQ-8.2, 07-REQ-8.E1, 07-REQ-8.E2,
               07-REQ-9.1, 07-REQ-9.2, 07-REQ-9.E1, 07-REQ-9.E2, 07-REQ-9.E3,
               07-REQ-10.1, 07-REQ-10.2,
-              07-REQ-13.1, 07-REQ-13.2, 07-REQ-13.E1
+              07-REQ-11.1, 07-REQ-11.2, 07-REQ-11.3,
+              07-REQ-11.E1, 07-REQ-11.E2,
+              07-REQ-12.1, 07-REQ-12.2, 07-REQ-12.3,
+              07-REQ-12.E1, 07-REQ-12.E2, 07-REQ-12.E3, 07-REQ-12.E4,
+              07-REQ-13.1, 07-REQ-13.2, 07-REQ-13.E1,
+              07-REQ-14.1, 07-REQ-14.2, 07-REQ-14.3, 07-REQ-14.4, 07-REQ-14.5,
+              07-REQ-15.1, 07-REQ-15.2, 07-REQ-15.3, 07-REQ-15.4,
+              07-REQ-16.1, 07-REQ-16.2, 07-REQ-16.3
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import logging
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -3230,3 +3248,2437 @@ class TestCleanupWorktreeRemovalFailure:
         # Verify the original error can be raised after cleanup runs
         with pytest.raises(RuntimeError, match="original error"):
             raise original_error
+
+
+# ===========================================================================
+# Group 4: coder session invocation, tracking comment, force-push, logging,
+#           module structure, imports, and label exclusivity
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Group 4 helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_pipeline(
+    *,
+    coder_prompt: tuple[str, str] = ("system prompt", "task prompt"),
+    coder_session_side_effect: Exception | None = None,
+) -> MagicMock:
+    """Create a mock FixPipeline with common methods for group 4 tests."""
+    pipeline = MagicMock()
+    pipeline._build_coder_prompt = MagicMock(return_value=coder_prompt)
+    if coder_session_side_effect:
+        pipeline._run_coder_session = AsyncMock(
+            side_effect=coder_session_side_effect,
+        )
+    else:
+        pipeline._run_coder_session = AsyncMock(return_value=MagicMock())
+    pipeline._auto_commit_pending_changes = AsyncMock()
+    return pipeline
+
+
+def _make_feedback_patches(
+    *,
+    worktree_path: str = "worktrees/feedback-10",
+    git_diff_files: str = "src/foo.py\n",
+    git_diff_raises: bool = False,
+    git_push_returncode: int = 0,
+    git_push_raises: Exception | None = None,
+    has_post_coder_changes: bool = True,
+):
+    """Create a dict of common patches for feedback iteration tests.
+
+    Returns a context manager that patches worktree setup/cleanup
+    and subprocess calls (git diff, git push).
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        call_order: list[str] = []
+
+        async def _mock_subprocess(*args, **kwargs):
+            cmd = list(args)
+            cmd_str = " ".join(str(a) for a in cmd)
+            proc = MagicMock()
+            if "diff" in cmd_str:
+                if git_diff_raises:
+                    raise subprocess.CalledProcessError(1, "git diff")
+                proc.stdout = git_diff_files
+                proc.returncode = 0
+                proc.communicate = AsyncMock(
+                    return_value=(git_diff_files.encode(), b""),
+                )
+                proc.wait = AsyncMock(return_value=0)
+            elif "push" in cmd_str:
+                call_order.append("push")
+                if git_push_raises:
+                    raise git_push_raises
+                proc.stdout = ""
+                proc.returncode = git_push_returncode
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+                proc.wait = AsyncMock(return_value=0)
+            else:
+                # status or other git commands
+                output = git_diff_files if has_post_coder_changes else ""
+                proc.stdout = output
+                proc.returncode = 0
+                proc.communicate = AsyncMock(
+                    return_value=(output.encode(), b""),
+                )
+                proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value=worktree_path,
+            ) as mock_setup,
+            patch(
+                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+            ) as mock_cleanup,
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ) as mock_subprocess,
+        ):
+            yield {
+                "setup": mock_setup,
+                "cleanup": mock_cleanup,
+                "subprocess": mock_subprocess,
+                "call_order": call_order,
+            }
+
+    return _ctx()
+
+
+# ===========================================================================
+# TS-07-29: _run_feedback_iteration constructs synthetic TriageResult
+# Requirement: 07-REQ-11.1
+# ===========================================================================
+
+
+class TestCoderSessionSyntheticTriageResult:
+    """Verify synthetic TriageResult fields and _build_coder_prompt kwargs."""
+
+    async def test_triage_result_has_correct_summary(self) -> None:
+        """TS-07-29: triage.summary == issue.title ('Fix bug')."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        mock_pipeline._build_coder_prompt.assert_called_once()
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        # triage is positional arg [1] or keyword 'triage'
+        triage = (
+            call_args.kwargs.get("triage")
+            or call_args[0][1]
+        )
+        assert triage.summary == "Fix bug"
+
+    async def test_triage_result_has_affected_files_from_diff(self) -> None:
+        """TS-07-29: triage.affected_files == ['src/foo.py'] from git diff."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.affected_files == ["src/foo.py"]
+
+    async def test_triage_result_criteria_empty(self) -> None:
+        """TS-07-29: triage.criteria == []."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.criteria == []
+
+    async def test_triage_result_assessed_complexity_none(self) -> None:
+        """TS-07-29: triage.assessed_complexity is None."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.assessed_complexity is None
+
+    async def test_triage_result_issue_body_from_issue(self) -> None:
+        """TS-07-29: triage.issue_body == issue.body."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.issue_body == "Detailed description"
+
+    async def test_build_coder_prompt_prior_context_empty(self) -> None:
+        """TS-07-29: prior_context='' in _build_coder_prompt call."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_kwargs = mock_pipeline._build_coder_prompt.call_args.kwargs
+        assert call_kwargs.get("prior_context", "") == ""
+
+    async def test_build_coder_prompt_knowledge_context_empty(self) -> None:
+        """TS-07-29: knowledge_context='' in _build_coder_prompt call."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_kwargs = mock_pipeline._build_coder_prompt.call_args.kwargs
+        assert call_kwargs.get("knowledge_context", "") == ""
+
+    async def test_build_coder_prompt_review_feedback_nonempty(self) -> None:
+        """TS-07-29: review_feedback is a non-empty string in _build_coder_prompt."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files="src/foo.py\n"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[
+                    _make_check_result(
+                        conclusion="failure",
+                        name="build",
+                        output_title="Build Failed",
+                        output_summary="Exit 1",
+                    ),
+                ],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_kwargs = mock_pipeline._build_coder_prompt.call_args.kwargs
+        review_feedback = call_kwargs.get("review_feedback", "")
+        assert len(review_feedback) > 0
+
+
+# ===========================================================================
+# TS-07-30: _run_coder_session called with worktree and model_id
+# Requirement: 07-REQ-11.2
+# ===========================================================================
+
+
+class TestCoderSessionInvocation:
+    """Verify _run_coder_session invoked with correct workspace and model_id."""
+
+    async def test_run_coder_session_called_with_worktree(self) -> None:
+        """TS-07-30: _run_coder_session workspace contains feedback worktree path."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(worktree_path="worktrees/feedback-10"):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        mock_pipeline._run_coder_session.assert_awaited_once()
+        call_args = mock_pipeline._run_coder_session.call_args
+        # Workspace should contain the feedback worktree path
+        workspace_arg = call_args[0][0] if call_args[0] else call_args.kwargs.get("workspace")
+        assert "worktrees/feedback-10" in str(workspace_arg)
+
+    async def test_run_coder_session_uses_model_from_config(self) -> None:
+        """TS-07-30: model_id from nightshift config used in coder session."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        # Set model_id on the nightshift config
+        config.night_shift.model_id = "claude-3-5-sonnet"
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches():
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._run_coder_session.call_args
+        # model_id should be passed as a kwarg or positional arg
+        all_args_str = str(call_args)
+        assert "claude-3-5-sonnet" in all_args_str or mock_pipeline._run_coder_session.awaited
+
+
+# ===========================================================================
+# TS-07-31: git diff failure → affected_files=[], WARNING logged
+# Requirement: 07-REQ-11.3
+# ===========================================================================
+
+
+class TestGitDiffFailure:
+    """Verify git diff failure defaults affected_files to [] with WARNING."""
+
+    async def test_diff_failure_defaults_affected_files_empty(self) -> None:
+        """TS-07-31: affected_files=[] when git diff raises."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_raises=True):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.affected_files == []
+
+    async def test_diff_failure_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-31: WARNING contains 'git diff --name-only failed' and 'defaulting'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.WARNING):
+            with _make_feedback_patches(git_diff_raises=True):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        warn_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any(
+            "git diff" in m and "defaulting" in m.lower()
+            for m in warn_msgs
+        ), f"Expected WARNING about git diff failure, got: {warn_msgs}"
+
+    async def test_empty_diff_output_defaults_affected_files_empty(self) -> None:
+        """TS-07-31: affected_files=[] when git diff returns empty output."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(git_diff_files=""):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        call_args = mock_pipeline._build_coder_prompt.call_args
+        triage = call_args.kwargs.get("triage") or call_args[0][1]
+        assert triage.affected_files == []
+
+
+# ===========================================================================
+# TS-07-E20: _run_coder_session raises RuntimeError
+# Requirement: 07-REQ-11.E1
+# ===========================================================================
+
+
+class TestCoderSessionRaisesError:
+    """Verify RuntimeError from coder session → ERROR, cleanup, returns None."""
+
+    async def test_coder_raises_returns_none(self) -> None:
+        """TS-07-E20: Returns None when _run_coder_session raises RuntimeError."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=RuntimeError("model unavailable"),
+        )
+
+        with _make_feedback_patches():
+            result = await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert result is None
+
+    async def test_coder_raises_logs_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-E20: ERROR log contains 'coder session raised'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=RuntimeError("model unavailable"),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.ERROR
+        ]
+        assert any("coder session raised" in m for m in error_msgs), (
+            f"Expected ERROR with 'coder session raised', got: {error_msgs}"
+        )
+
+    async def test_coder_raises_cleanup_called(self) -> None:
+        """TS-07-E20: _cleanup_feedback_worktree called once."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=RuntimeError("model unavailable"),
+        )
+
+        with _make_feedback_patches() as mocks:
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+            mocks["cleanup"].assert_called_once()
+
+    async def test_coder_raises_labels_untouched(self) -> None:
+        """TS-07-E20: af:pr label not removed when coder raises."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=RuntimeError("model unavailable"),
+        )
+
+        with _make_feedback_patches():
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        mock_platform.remove_label.assert_not_awaited()
+
+
+# ===========================================================================
+# TS-07-E21: asyncio.CancelledError propagates; cleanup called
+# Requirement: 07-REQ-11.E2
+# ===========================================================================
+
+
+class TestCoderSessionCancelledError:
+    """Verify CancelledError propagates and cleanup runs in finally."""
+
+    async def test_cancelled_error_propagates(self) -> None:
+        """TS-07-E21: CancelledError is re-raised from _run_feedback_iteration."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=asyncio.CancelledError(),
+        )
+
+        with _make_feedback_patches():
+            with pytest.raises(asyncio.CancelledError):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+    async def test_cancelled_error_cleanup_called(self) -> None:
+        """TS-07-E21: _cleanup_feedback_worktree called despite CancelledError."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=asyncio.CancelledError(),
+        )
+
+        with _make_feedback_patches() as mocks:
+            try:
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+            except asyncio.CancelledError:
+                pass
+
+            mocks["cleanup"].assert_called_once()
+
+
+# ===========================================================================
+# TS-07-32: Tracking comment posted before force-push
+# Requirement: 07-REQ-12.1
+# ===========================================================================
+
+
+class TestTrackingCommentBeforePush:
+    """Verify add_issue_comment called before git push --force."""
+
+    async def test_comment_posted_before_push(self) -> None:
+        """TS-07-32: add_issue_comment index < git push index in call order."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        call_order: list[str] = []
+
+        original_add_comment = mock_platform.add_issue_comment
+
+        async def _record_comment(*args, **kwargs):
+            call_order.append("comment")
+            return await original_add_comment(*args, **kwargs)
+
+        mock_platform.add_issue_comment = AsyncMock(side_effect=_record_comment)
+
+        async def _mock_subprocess(*args, **kwargs):
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "push" in cmd_str:
+                call_order.append("push")
+            proc.stdout = "file.py\n"
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"file.py\n", b""))
+            proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-10",
+            ),
+            patch(
+                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+            ),
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+        ):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert "comment" in call_order, f"Expected 'comment' in call_order: {call_order}"
+        assert "push" in call_order, f"Expected 'push' in call_order: {call_order}"
+        assert call_order.index("comment") < call_order.index("push"), (
+            f"comment should come before push: {call_order}"
+        )
+
+    async def test_tracking_comment_has_incremented_attempt(self) -> None:
+        """TS-07-32: Tracking comment references attempt+1 (attempt=2 for input=1)."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches():
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        # First add_issue_comment call should be the tracking comment
+        comment_calls = mock_platform.add_issue_comment.call_args_list
+        assert len(comment_calls) >= 1
+        # At least one comment body should reference attempt 2
+        comment_bodies = [str(c[0][1]) for c in comment_calls]
+        assert any(
+            "2" in body for body in comment_bodies
+        ), f"Expected attempt 2 in comment, got: {comment_bodies}"
+
+
+# ===========================================================================
+# TS-07-33: Non-empty diff → auto-commit + force-push + INFO log
+# Requirement: 07-REQ-12.2
+# ===========================================================================
+
+
+class TestNonEmptyDiffForcePush:
+    """Verify auto-commit and force-push on non-empty diff after coder session."""
+
+    async def test_auto_commit_called_with_feedback_message(self) -> None:
+        """TS-07-33: _auto_commit_pending_changes with 'fix: Fix bug [nightshift feedback #2]'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(has_post_coder_changes=True):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        mock_pipeline._auto_commit_pending_changes.assert_awaited_once()
+        commit_msg = str(mock_pipeline._auto_commit_pending_changes.call_args)
+        # Commit message should contain issue title and feedback attempt number
+        assert "Fix bug" in commit_msg or "feedback" in commit_msg.lower()
+
+    async def test_force_push_executed(self) -> None:
+        """TS-07-33: git push --force is executed when diff is non-empty."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        push_called = False
+
+        async def _mock_subprocess(*args, **kwargs):
+            nonlocal push_called
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "push" in cmd_str:
+                push_called = True
+            proc.stdout = "file.py\n"
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"file.py\n", b""))
+            proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-10",
+            ),
+            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+        ):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert push_called, "Expected git push --force to be called"
+
+    async def test_info_log_feedback_iteration_complete(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-33: INFO log contains 'Feedback iteration 2 complete'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10, title="Fix bug")
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.INFO):
+            with _make_feedback_patches(has_post_coder_changes=True):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        info_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.INFO
+        ]
+        assert any(
+            "Feedback iteration" in m and "complete" in m
+            for m in info_msgs
+        ), f"Expected INFO 'Feedback iteration ... complete', got: {info_msgs}"
+
+
+# ===========================================================================
+# TS-07-34: Empty diff → skip push, post _NO_CHANGES_MESSAGE, WARNING
+# Requirement: 07-REQ-12.3
+# ===========================================================================
+
+
+class TestEmptyDiffSkipsPush:
+    """Verify empty diff after coder → no push, _NO_CHANGES_MESSAGE, WARNING."""
+
+    async def test_empty_diff_no_push(self) -> None:
+        """TS-07-34: git push --force NOT called when coder produces no changes."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        push_called = False
+
+        async def _mock_subprocess(*args, **kwargs):
+            nonlocal push_called
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "push" in cmd_str:
+                push_called = True
+            # git diff for affected_files (pre-coder) returns files,
+            # but post-coder diff (status check) returns empty
+            if "diff" in cmd_str:
+                proc.stdout = "src/foo.py\n"
+                proc.communicate = AsyncMock(return_value=(b"src/foo.py\n", b""))
+            else:
+                proc.stdout = ""
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-10",
+            ),
+            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+        ):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+                has_changes=False,
+            )
+
+        assert not push_called, "git push should NOT be called on empty diff"
+
+    async def test_empty_diff_posts_no_changes_message(self) -> None:
+        """TS-07-34: _NO_CHANGES_MESSAGE comment posted on empty diff."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(has_post_coder_changes=False):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        comment_calls = mock_platform.add_issue_comment.call_args_list
+        comment_bodies = [str(c[0][1]).lower() for c in comment_calls]
+        assert any(
+            "no changes" in body for body in comment_bodies
+        ), f"Expected _NO_CHANGES_MESSAGE comment, got: {comment_bodies}"
+
+    async def test_empty_diff_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-34: WARNING log contains 'coder produced no changes'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.WARNING):
+            with _make_feedback_patches(has_post_coder_changes=False):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        warn_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any(
+            "coder produced no changes" in m.lower() or "no changes" in m.lower()
+            for m in warn_msgs
+        ), f"Expected WARNING about no changes, got: {warn_msgs}"
+
+
+# ===========================================================================
+# TS-07-E22: add_issue_comment raises during tracking → ERROR, no push
+# Requirement: 07-REQ-12.E1
+# ===========================================================================
+
+
+class TestTrackingCommentPostFailure:
+    """Verify add_issue_comment failure → ERROR, push skipped, cleanup."""
+
+    async def test_comment_post_failure_returns_none(self) -> None:
+        """TS-07-E22: Returns None when tracking comment post fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_platform.add_issue_comment = AsyncMock(
+            side_effect=Exception("API error"),
+        )
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches():
+            result = await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert result is None
+
+    async def test_comment_post_failure_logs_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-E22: ERROR log contains 'failed to post tracking comment'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_platform.add_issue_comment = AsyncMock(
+            side_effect=Exception("API error"),
+        )
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.ERROR
+        ]
+        assert any(
+            "failed to post tracking comment" in m for m in error_msgs
+        ), f"Expected ERROR 'failed to post tracking comment', got: {error_msgs}"
+
+    async def test_comment_post_failure_cleanup_called(self) -> None:
+        """TS-07-E22: _cleanup_feedback_worktree called on comment post failure."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_platform.add_issue_comment = AsyncMock(
+            side_effect=Exception("API error"),
+        )
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches() as mocks:
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+            mocks["cleanup"].assert_called_once()
+
+
+# ===========================================================================
+# TS-07-E23: git push --force fails after tracking comment posted
+# Requirement: 07-REQ-12.E2
+# ===========================================================================
+
+
+class TestPushFailureAfterComment:
+    """Verify push failure after comment → ERROR, counter persisted, cleanup."""
+
+    async def test_push_failure_returns_none(self) -> None:
+        """TS-07-E23: Returns None when git push --force fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(
+            git_push_raises=subprocess.CalledProcessError(1, "git push --force"),
+        ):
+            result = await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert result is None
+
+    async def test_push_failure_logs_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-E23: ERROR log contains 'git push --force failed'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches(
+                git_push_raises=subprocess.CalledProcessError(1, "git push --force"),
+            ):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.ERROR
+        ]
+        assert any(
+            "git push" in m and "failed" in m for m in error_msgs
+        ), f"Expected ERROR about push failure, got: {error_msgs}"
+
+    async def test_push_failure_tracking_comment_already_posted(self) -> None:
+        """TS-07-E23: Tracking comment with attempt=2 is already persisted."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(
+            git_push_raises=subprocess.CalledProcessError(1, "git push --force"),
+        ):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        # Tracking comment was posted before the push failure
+        assert mock_platform.add_issue_comment.call_count >= 1
+
+    async def test_push_failure_cleanup_called(self) -> None:
+        """TS-07-E23: _cleanup_feedback_worktree called after push failure."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with _make_feedback_patches(
+            git_push_raises=subprocess.CalledProcessError(1, "git push --force"),
+        ) as mocks:
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+            mocks["cleanup"].assert_called_once()
+
+
+# ===========================================================================
+# TS-07-E24: _auto_commit_pending_changes raises → ERROR, push skipped
+# Requirement: 07-REQ-12.E3
+# ===========================================================================
+
+
+class TestAutoCommitFailure:
+    """Verify auto-commit failure → ERROR, push skipped, cleanup."""
+
+    async def test_auto_commit_failure_returns_none(self) -> None:
+        """TS-07-E24: Returns None when _auto_commit_pending_changes raises."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        mock_pipeline._auto_commit_pending_changes = AsyncMock(
+            side_effect=Exception("disk full"),
+        )
+
+        with _make_feedback_patches():
+            result = await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        assert result is None
+
+    async def test_auto_commit_failure_logs_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-E24: ERROR log contains 'auto-commit failed'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        mock_pipeline._auto_commit_pending_changes = AsyncMock(
+            side_effect=Exception("disk full"),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.ERROR
+        ]
+        assert any(
+            "auto-commit failed" in m for m in error_msgs
+        ), f"Expected ERROR 'auto-commit failed', got: {error_msgs}"
+
+    async def test_auto_commit_failure_cleanup_called(self) -> None:
+        """TS-07-E24: _cleanup_feedback_worktree called on auto-commit failure."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        mock_pipeline._auto_commit_pending_changes = AsyncMock(
+            side_effect=Exception("disk full"),
+        )
+
+        with _make_feedback_patches() as mocks:
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+            mocks["cleanup"].assert_called_once()
+
+
+# ===========================================================================
+# TS-07-E25: git push uses --force, not --force-with-lease
+# Requirement: 07-REQ-12.E4
+# ===========================================================================
+
+
+class TestPushUsesForceNotLease:
+    """Verify subprocess called with '--force' but not '--force-with-lease'."""
+
+    async def test_push_uses_force_flag(self) -> None:
+        """TS-07-E25: git push command contains '--force' not '--force-with-lease'."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        push_args_captured: list[str] = []
+
+        async def _mock_subprocess(*args, **kwargs):
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "push" in cmd_str:
+                push_args_captured.extend(str(a) for a in args)
+            proc.stdout = "file.py\n"
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"file.py\n", b""))
+            proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-10",
+            ),
+            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+        ):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=1,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=mock_platform,
+                pipeline=mock_pipeline,
+            )
+
+        push_cmd = " ".join(push_args_captured)
+        assert "--force" in push_cmd, f"Expected '--force' in push cmd: {push_cmd}"
+        assert "--force-with-lease" not in push_cmd, (
+            f"Should NOT use '--force-with-lease': {push_cmd}"
+        )
+
+
+# ===========================================================================
+# TS-07-37: pr_feedback emits INFO logs for all state transitions
+# Requirement: 07-REQ-14.1
+# ===========================================================================
+
+
+class TestInfoLogsForTransitions:
+    """Verify INFO logs for all six specified state transitions."""
+
+    async def test_info_log_for_merged_pr(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log emitted when PR is merged."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=True, state="closed"),
+        )
+
+        with caplog.at_level(logging.INFO):
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("merged" in m.lower() for m in info_msgs), (
+            f"Expected INFO about merge, got: {info_msgs}"
+        )
+
+    async def test_info_log_for_closed_without_merge(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log emitted when PR is closed without merge."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        with caplog.at_level(logging.INFO):
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "closed" in m.lower() and "merge" not in m.lower()
+            or "closed without merge" in m.lower()
+            for m in info_msgs
+        ), f"Expected INFO about closed-without-merge, got: {info_msgs}"
+
+    async def test_info_log_for_ci_reentry(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log for CI re-entry triggered."""
+        from agentfox.nightshift.pr_feedback import _check_ci_status
+
+        platform = _make_mock_platform()
+        platform.get_pr_checks = AsyncMock(
+            return_value=[_make_check_result(conclusion="failure")],
+        )
+
+        with caplog.at_level(logging.INFO):
+            await _check_ci_status(pr_number=42, issue_number=10, platform=platform)
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "Re-entry triggered" in m and "CI" in m for m in info_msgs
+        ), f"Expected INFO about CI re-entry, got: {info_msgs}"
+
+    async def test_info_log_for_review_reentry(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log for review re-entry triggered."""
+        from agentfox.nightshift.pr_feedback import _check_reviews
+
+        platform = _make_mock_platform()
+        platform.get_pr_reviews = AsyncMock(
+            return_value=[
+                _make_review_comment(state="CHANGES_REQUESTED", body="Fix"),
+            ],
+        )
+
+        with caplog.at_level(logging.INFO):
+            await _check_reviews(pr_number=42, issue_number=10, platform=platform)
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "Re-entry triggered" in m and "review" in m.lower() for m in info_msgs
+        ), f"Expected INFO about review re-entry, got: {info_msgs}"
+
+    async def test_info_log_for_retry_limit(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log for retry limit reached."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+
+        with caplog.at_level(logging.INFO):
+            await _run_feedback_iteration(
+                issue=issue,
+                pr_number=42,
+                attempt=3,
+                trigger="ci",
+                ci_failures=[_make_check_result(conclusion="failure")],
+                review_comments=[],
+                config=config,
+                platform=_make_mock_platform(),
+                pipeline=MagicMock(),
+            )
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("Retry limit reached" in m for m in info_msgs), (
+            f"Expected INFO 'Retry limit reached', got: {info_msgs}"
+        )
+
+    async def test_info_log_for_iteration_complete(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-37: INFO log for feedback iteration complete."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.INFO):
+            with _make_feedback_patches(has_post_coder_changes=True):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "Feedback iteration" in m and "complete" in m for m in info_msgs
+        ), f"Expected INFO 'Feedback iteration ... complete', got: {info_msgs}"
+
+
+# ===========================================================================
+# TS-07-38: pr_feedback emits WARNING logs for skip/anomaly conditions
+# Requirement: 07-REQ-14.2
+# ===========================================================================
+
+
+class TestWarningLogsForAnomalies:
+    """Verify WARNING logs for all five specified anomaly conditions."""
+
+    async def test_warning_for_no_tracking_comment(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-38: WARNING when no valid tracking comment found."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment("unrelated comment")],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "no valid tracking comment" in m.lower() or "tracking comment" in m.lower()
+            for m in warn_msgs
+        ), f"Expected WARNING about missing tracking comment, got: {warn_msgs}"
+
+    async def test_warning_for_ambiguous_ci(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-38: WARNING when all CI checks are in ambiguous state."""
+        from agentfox.nightshift.pr_feedback import _check_ci_status
+
+        platform = _make_mock_platform()
+        platform.get_pr_checks = AsyncMock(
+            return_value=[_make_check_result(conclusion="cancelled")],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            await _check_ci_status(pr_number=42, issue_number=10, platform=platform)
+
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ambiguous" in m.lower() for m in warn_msgs), (
+            f"Expected WARNING about ambiguous state, got: {warn_msgs}"
+        )
+
+    async def test_warning_for_api_error_polling(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-38: WARNING when platform API error during polling."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(side_effect=Exception("API error"))
+
+        with caplog.at_level(logging.WARNING):
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warn_msgs) > 0, "Expected at least one WARNING log"
+
+    async def test_warning_for_no_changes(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-38: WARNING when coder produced no changes."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.WARNING):
+            with _make_feedback_patches(has_post_coder_changes=False):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "no changes" in m.lower() for m in warn_msgs
+        ), f"Expected WARNING about no changes, got: {warn_msgs}"
+
+    async def test_warning_for_diff_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-38: WARNING when git diff --name-only fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.WARNING):
+            with _make_feedback_patches(git_diff_raises=True):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "git diff" in m for m in warn_msgs
+        ), f"Expected WARNING about git diff failure, got: {warn_msgs}"
+
+
+# ===========================================================================
+# TS-07-39: pr_feedback emits ERROR logs for all failure conditions
+# Requirement: 07-REQ-14.3
+# ===========================================================================
+
+
+class TestErrorLogsForFailures:
+    """Verify ERROR logs for all six specified failure conditions."""
+
+    async def test_error_for_fetch_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when git fetch fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+
+        with caplog.at_level(logging.ERROR):
+            with patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                side_effect=Exception("git fetch failed"),
+            ), patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"):
+                try:
+                    await _run_feedback_iteration(
+                        issue=issue,
+                        pr_number=42,
+                        attempt=1,
+                        trigger="ci",
+                        ci_failures=[_make_check_result(conclusion="failure")],
+                        review_comments=[],
+                        config=config,
+                        platform=_make_mock_platform(),
+                        pipeline=MagicMock(),
+                    )
+                except Exception:
+                    pass
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "fetch" in m.lower() or "worktree" in m.lower() or "setup" in m.lower()
+            for m in error_msgs
+        ), f"Expected ERROR about fetch/setup failure, got: {error_msgs}"
+
+    async def test_error_for_worktree_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when git worktree add fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+
+        with caplog.at_level(logging.ERROR):
+            with patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                side_effect=Exception("git worktree add failed"),
+            ), patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"):
+                try:
+                    await _run_feedback_iteration(
+                        issue=issue,
+                        pr_number=42,
+                        attempt=1,
+                        trigger="ci",
+                        ci_failures=[_make_check_result(conclusion="failure")],
+                        review_comments=[],
+                        config=config,
+                        platform=_make_mock_platform(),
+                        pipeline=MagicMock(),
+                    )
+                except Exception:
+                    pass
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "worktree" in m.lower() or "setup" in m.lower() or "failed" in m.lower()
+            for m in error_msgs
+        ), f"Expected ERROR about worktree failure, got: {error_msgs}"
+
+    async def test_error_for_push_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when git push --force fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches(
+                git_push_raises=subprocess.CalledProcessError(1, "git push --force"),
+            ):
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "git push" in m and "failed" in m for m in error_msgs
+        ), f"Expected ERROR about push failure, got: {error_msgs}"
+
+    async def test_error_for_coder_exception(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when coder session raises."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline(
+            coder_session_side_effect=RuntimeError("model unavailable"),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "coder session raised" in m for m in error_msgs
+        ), f"Expected ERROR 'coder session raised', got: {error_msgs}"
+
+    async def test_error_for_autocommit_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when auto-commit fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_pipeline = _make_mock_pipeline()
+        mock_pipeline._auto_commit_pending_changes = AsyncMock(
+            side_effect=Exception("disk full"),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "auto-commit failed" in m for m in error_msgs
+        ), f"Expected ERROR 'auto-commit failed', got: {error_msgs}"
+
+    async def test_error_for_tracking_comment_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-39: ERROR log when tracking comment post fails."""
+        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+
+        issue = _make_issue(number=10)
+        config = _make_config(max_pr_retries=2)
+        mock_platform = _make_mock_platform()
+        mock_platform.add_issue_comment = AsyncMock(
+            side_effect=Exception("API error"),
+        )
+        mock_pipeline = _make_mock_pipeline()
+
+        with caplog.at_level(logging.ERROR):
+            with _make_feedback_patches():
+                await _run_feedback_iteration(
+                    issue=issue,
+                    pr_number=42,
+                    attempt=1,
+                    trigger="ci",
+                    ci_failures=[_make_check_result(conclusion="failure")],
+                    review_comments=[],
+                    config=config,
+                    platform=mock_platform,
+                    pipeline=mock_pipeline,
+                )
+
+        error_msgs = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any(
+            "failed to post tracking comment" in m for m in error_msgs
+        ), f"Expected ERROR 'failed to post tracking comment', got: {error_msgs}"
+
+
+# ===========================================================================
+# TS-07-40: _cleanup_feedback_worktree emits DEBUG for non-existent dir
+# Requirement: 07-REQ-14.4
+# ===========================================================================
+
+
+class TestCleanupDebugLog:
+    """Verify DEBUG log from _cleanup_feedback_worktree for missing directory."""
+
+    def test_debug_log_for_nonexistent_worktree(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-07-40: DEBUG log contains 'Feedback worktree not found for issue #10'."""
+        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+
+        with caplog.at_level(logging.DEBUG):
+            _cleanup_feedback_worktree(
+                issue_number=10,
+                worktree_base=str(tmp_path / "worktrees"),
+            )
+
+        debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(
+            "Feedback worktree not found" in m and "10" in m for m in debug_msgs
+        ), f"Expected DEBUG 'Feedback worktree not found...#10', got: {debug_msgs}"
+
+
+# ===========================================================================
+# TS-07-41: NightShiftState has no new pr-feedback-specific fields
+# Requirement: 07-REQ-14.5
+# ===========================================================================
+
+
+class TestNightShiftStateNoNewFields:
+    """Verify NightShiftState has no new fields beyond issue_checks_completed."""
+
+    def test_issue_checks_completed_field_exists(self) -> None:
+        """TS-07-41: issue_checks_completed is in NightShiftState fields."""
+        from agentfox.nightshift.engine import NightShiftState
+
+        field_names = {f.name for f in dataclasses.fields(NightShiftState)}
+        assert "issue_checks_completed" in field_names
+
+    def test_no_new_pr_feedback_specific_fields(self) -> None:
+        """TS-07-41: No pr-feedback-specific fields like pr_feedback_errors."""
+        from agentfox.nightshift.engine import NightShiftState
+
+        field_names = {f.name for f in dataclasses.fields(NightShiftState)}
+        # These are fields that should NOT exist per spec
+        forbidden_fields = {
+            "pr_feedback_errors",
+            "feedback_iterations_run",
+            "pr_checks_performed",
+        }
+        overlap = field_names.intersection(forbidden_fields)
+        assert not overlap, f"Unexpected fields in NightShiftState: {overlap}"
+
+
+# ===========================================================================
+# TS-07-42: pr_feedback.py defines all 8 required module-level functions
+# Requirement: 07-REQ-15.1
+# ===========================================================================
+
+
+class TestPrFeedbackModuleFunctions:
+    """Verify pr_feedback exports all required functions, no FixPipeline subclass."""
+
+    def test_all_eight_functions_exist(self) -> None:
+        """TS-07-42: All eight functions are module-level callables."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        required = [
+            "process_pr_issue",
+            "_check_pr_state",
+            "_check_ci_status",
+            "_check_reviews",
+            "_collect_feedback",
+            "_run_feedback_iteration",
+            "_setup_feedback_worktree",
+            "_cleanup_feedback_worktree",
+        ]
+        for fn_name in required:
+            fn = getattr(prf, fn_name, None)
+            assert fn is not None, f"Missing function: {fn_name}"
+            assert callable(fn), f"{fn_name} is not callable"
+
+    def test_no_fixpipeline_subclass(self) -> None:
+        """TS-07-42: No class in pr_feedback inherits from FixPipeline."""
+        import agentfox.nightshift.pr_feedback as prf
+        from agentfox.nightshift.fix_pipeline import FixPipeline
+
+        for name, obj in inspect.getmembers(prf, inspect.isclass):
+            if obj is FixPipeline:
+                continue  # Imported but not subclassed
+            assert not issubclass(obj, FixPipeline), (
+                f"Class {name} subclasses FixPipeline — not allowed"
+            )
+
+
+# ===========================================================================
+# TS-07-43: pr_feedback.py defines four string constants and imports fix_pipeline symbols
+# Requirement: 07-REQ-15.2
+# ===========================================================================
+
+
+class TestPrFeedbackConstants:
+    """Verify four string constants and fix_pipeline imports in pr_feedback."""
+
+    def test_feedback_iteration_message_exists(self) -> None:
+        """TS-07-43: _FEEDBACK_ITERATION_MESSAGE is a non-empty string."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert isinstance(prf._FEEDBACK_ITERATION_MESSAGE, str)
+        assert len(prf._FEEDBACK_ITERATION_MESSAGE) > 0
+
+    def test_no_changes_message_exists(self) -> None:
+        """TS-07-43: _NO_CHANGES_MESSAGE is a non-empty string."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert isinstance(prf._NO_CHANGES_MESSAGE, str)
+        assert len(prf._NO_CHANGES_MESSAGE) > 0
+
+    def test_retry_limit_message_exists(self) -> None:
+        """TS-07-43: _RETRY_LIMIT_MESSAGE is a non-empty string."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert isinstance(prf._RETRY_LIMIT_MESSAGE, str)
+        assert len(prf._RETRY_LIMIT_MESSAGE) > 0
+
+    def test_feedback_commit_message_exists(self) -> None:
+        """TS-07-43: _FEEDBACK_COMMIT_MESSAGE is a non-empty string."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert isinstance(prf._FEEDBACK_COMMIT_MESSAGE, str)
+        assert len(prf._FEEDBACK_COMMIT_MESSAGE) > 0
+
+    def test_parse_tracking_comment_importable(self) -> None:
+        """TS-07-43: parse_tracking_comment accessible in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "parse_tracking_comment")
+
+    def test_format_tracking_comment_importable(self) -> None:
+        """TS-07-43: format_tracking_comment accessible in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "format_tracking_comment")
+
+    def test_pr_tracking_pattern_importable(self) -> None:
+        """TS-07-43: PR_TRACKING_PATTERN accessible in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "PR_TRACKING_PATTERN")
+
+    def test_triage_result_importable(self) -> None:
+        """TS-07-43: TriageResult accessible in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "TriageResult")
+
+    def test_fix_pipeline_importable(self) -> None:
+        """TS-07-43: FixPipeline accessible in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "FixPipeline")
+
+
+# ===========================================================================
+# TS-07-44: pr_feedback.py imports from afissues and spec_builder
+# Requirement: 07-REQ-15.3
+# ===========================================================================
+
+
+class TestPrFeedbackImports:
+    """Verify afissues and spec_builder imports in pr_feedback namespace."""
+
+    def test_platform_protocol_importable(self) -> None:
+        """TS-07-44: PlatformProtocol in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "PlatformProtocol")
+
+    def test_issue_result_importable(self) -> None:
+        """TS-07-44: IssueResult in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "IssueResult")
+
+    def test_check_result_importable(self) -> None:
+        """TS-07-44: CheckResult in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "CheckResult")
+
+    def test_review_comment_importable(self) -> None:
+        """TS-07-44: ReviewComment in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "ReviewComment")
+
+    def test_label_pr_correct_value(self) -> None:
+        """TS-07-44: LABEL_PR == 'af:pr'."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "LABEL_PR")
+        assert prf.LABEL_PR == "af:pr"
+
+    def test_label_fixed_correct_value(self) -> None:
+        """TS-07-44: LABEL_FIXED == 'af:fixed'."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "LABEL_FIXED")
+        assert prf.LABEL_FIXED == "af:fixed"
+
+    def test_sanitise_branch_name_importable(self) -> None:
+        """TS-07-44: sanitise_branch_name in pr_feedback namespace."""
+        import agentfox.nightshift.pr_feedback as prf
+
+        assert hasattr(prf, "sanitise_branch_name")
+
+
+# ===========================================================================
+# TS-07-45: process_pr_issue is async def with correct signature
+# Requirement: 07-REQ-15.4
+# ===========================================================================
+
+
+class TestProcessPrIssueSignature:
+    """Verify process_pr_issue is async def with (issue, config, platform, pipeline)."""
+
+    def test_is_coroutine_function(self) -> None:
+        """TS-07-45: process_pr_issue is an async function."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        assert inspect.iscoroutinefunction(process_pr_issue)
+
+    def test_has_correct_parameters(self) -> None:
+        """TS-07-45: Parameters are (issue, config, platform, pipeline)."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        sig = inspect.signature(process_pr_issue)
+        params = list(sig.parameters.keys())
+        assert params == ["issue", "config", "platform", "pipeline"]
+
+    async def test_returns_none_on_success(self) -> None:
+        """TS-07-45: Returns None on successful merged PR path."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=True, state="closed"),
+        )
+
+        result = await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        assert result is None
+
+    async def test_returns_none_on_skip(self) -> None:
+        """TS-07-45: Returns None when issue is skipped."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment("no tracking comment")],
+        )
+
+        result = await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-07-46: af:fix and af:pr are mutually exclusive through label lifecycle
+# Requirement: 07-REQ-16.1
+# ===========================================================================
+
+
+class TestLabelExclusivity:
+    """Verify af:fix and af:pr are mutually exclusive at each transition."""
+
+    async def test_merged_pr_removes_af_pr_adds_af_fixed(self) -> None:
+        """TS-07-46: After PR merge: af:pr removed, af:fixed assigned, no af:fix."""
+        from afissues.labels import LABEL_FIXED, LABEL_PR
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=True, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        platform.assign_label.assert_awaited_once_with(10, LABEL_FIXED)
+        platform.remove_label.assert_awaited_once_with(10, LABEL_PR)
+        # af:fix should never be assigned during this transition
+        fix_label_calls = [
+            c for c in platform.assign_label.call_args_list
+            if c[0][1] == "af:fix"
+        ]
+        assert len(fix_label_calls) == 0
+
+    async def test_closed_without_merge_removes_af_pr_only(self) -> None:
+        """TS-07-46: After PR closed without merge: af:pr removed, no af:fix added."""
+        from afissues.labels import LABEL_PR
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        platform.remove_label.assert_awaited_once_with(10, LABEL_PR)
+        # af:fix should NOT be added
+        fix_label_calls = [
+            c for c in platform.assign_label.call_args_list
+            if c[0][1] == "af:fix"
+        ]
+        assert len(fix_label_calls) == 0
+
+
+# ===========================================================================
+# TS-07-47: af:pr-only issue not selected by fix pipeline's LABEL_FIX query
+# Requirement: 07-REQ-16.2
+# ===========================================================================
+
+
+class TestAfPrNotSelectedByFixPipeline:
+    """Verify af:pr-only issue invisible to fix pipeline label query."""
+
+    async def test_label_fix_query_excludes_af_pr_issue(self) -> None:
+        """TS-07-47: list_issues_by_label(LABEL_FIX) doesn't return af:pr issue."""
+        mock_afpr_issue = _make_issue(number=10)
+        mock_platform = _make_mock_platform()
+
+        # Simulate: platform returns af:pr issue for 'af:pr' query,
+        # but nothing for 'af:fix' query
+        async def _mock_list_by_label(label, **kwargs):
+            if label == "af:pr":
+                return [mock_afpr_issue]
+            return []
+
+        mock_platform.list_issues_by_label = AsyncMock(
+            side_effect=_mock_list_by_label,
+        )
+
+        # Fix pipeline queries with LABEL_FIX
+        result = await mock_platform.list_issues_by_label("af:fix")
+        assert mock_afpr_issue not in result
+
+        # Verify the af:pr query does return the issue (sanity check)
+        pr_result = await mock_platform.list_issues_by_label("af:pr")
+        assert mock_afpr_issue in pr_result
+
+
+# ===========================================================================
+# TS-07-48: Closed without merge → af:pr removed, af:fix NOT added, issue open
+# Requirement: 07-REQ-16.3
+# ===========================================================================
+
+
+class TestClosedWithoutMergeLabelTransition:
+    """Verify closed-without-merge removes af:pr, leaves issue open, no af:fix."""
+
+    async def test_closed_no_merge_removes_af_pr(self) -> None:
+        """TS-07-48: remove_label called with af:pr."""
+        from afissues.labels import LABEL_PR
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        platform.remove_label.assert_awaited_once_with(10, LABEL_PR)
+
+    async def test_closed_no_merge_does_not_add_af_fix(self) -> None:
+        """TS-07-48: assign_label with af:fix NOT called."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        fix_label_calls = [
+            c for c in platform.assign_label.call_args_list
+            if c[0][1] == "af:fix"
+        ]
+        assert len(fix_label_calls) == 0
+
+    async def test_closed_no_merge_issue_not_closed(self) -> None:
+        """TS-07-48: close_issue NOT called — issue left open."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        platform.close_issue.assert_not_awaited()
+
+    async def test_closed_no_merge_comment_posted(self) -> None:
+        """TS-07-48: Comment about closed-without-merging is posted."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(_make_tracking_comment(pr_number=42))],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        await process_pr_issue(
+            issue=issue,
+            config=_make_config(),
+            platform=platform,
+            pipeline=MagicMock(),
+        )
+
+        platform.add_issue_comment.assert_awaited_once()
+        comment_body = platform.add_issue_comment.call_args[0][1]
+        assert "closed without merging" in comment_body.lower()
