@@ -559,7 +559,7 @@
             "07-REQ-5.E1",
             "07-REQ-16.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -592,7 +592,7 @@
             "07-REQ-16.1",
             "07-REQ-12.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -601,7 +601,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
