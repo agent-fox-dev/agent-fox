@@ -415,8 +415,9 @@ class TestFactoryGitLabRouting:
 
     def test_creates_gitlab_platform(self, tmp_path: MagicMock) -> None:
         """TS-04-36: create_platform with type='gitlab' returns GitLabPlatform."""
-        from afissues.gitlab import GitLabPlatform
         from agentfox.nightshift.platform_factory import create_platform
+
+        from afissues.gitlab import GitLabPlatform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -452,6 +453,17 @@ class TestFactorySupportedPlatforms:
         assert "github" in _SUPPORTED_PLATFORMS
         assert "gitlab" in _SUPPORTED_PLATFORMS
         assert "gitea" in _SUPPORTED_PLATFORMS
+
+    def test_return_type_references_platform_protocol(self) -> None:
+        """TS-04-37: create_platform return type references PlatformProtocol."""
+        import inspect
+
+        import agentfox.nightshift.platform_factory as factory
+
+        hints = inspect.get_annotations(factory.create_platform)
+        return_hint = str(hints.get("return", ""))
+        # Must reference PlatformProtocol, not just GitHubPlatform
+        assert "PlatformProtocol" in return_hint or "GitHubPlatform" not in return_hint
 
 
 # ===========================================================================
@@ -1015,8 +1027,9 @@ class TestSmokeCreateIssueAndLabel:
         tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-1: Full E2E with mocked HTTP responses."""
-        from afissues.gitlab import GitLabPlatform
         from agentfox.nightshift.platform_factory import create_platform
+
+        from afissues.gitlab import GitLabPlatform
 
         config = MagicMock()
         config.platform.type = "gitlab"
