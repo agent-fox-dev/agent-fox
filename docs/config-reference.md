@@ -377,7 +377,7 @@ archetype name and supports:
 | `effort` | str\|null | `null` | Output effort level: `low`, `medium`, `high`, `xhigh`, or `max`. Controls thinking depth and token spend. Null = registry default. |
 | `allowlist` | list[str]\|null | `null` | Bash command allowlist override. Null = registry default. |
 | `max_budget_usd` | float\|null | `null` | Per-archetype budget ceiling in USD. Null = inherit global `orchestrator.max_budget_usd`. 0 = unlimited. |
-| `compaction` | bool\|null | `null` | Enable server-side context compaction to prevent context overflow in long sessions. Null = registry default (False). |
+| `compaction` | bool\|null | `null` | Enable server-side context compaction to prevent context overflow in long sessions. Null = registry default (archetype-specific: `true` for coder, `false` for others). |
 | `modes` | dict[str, PerArchetypeConfig] | `{}` | Per-mode overrides (same fields as above, keyed by mode name). |
 
 **Example:**

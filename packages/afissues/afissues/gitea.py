@@ -4,12 +4,14 @@ Implements PlatformProtocol for Gitea-hosted repositories, providing
 issue creation, label management, comment handling, and pull request
 operations via the Gitea REST API v1.
 
-Follows the same HTTP integration pattern as GitHubPlatform: SSRF
+Follows the same HTTP integration pattern as GitLabPlatform: SSRF
 validation at construction, SSRFGuardTransport for request-time
 DNS re-checks, and retry-on-transient-error via request_with_retry.
+All protocol methods delegate to ``self._request()`` which wraps
+``request_with_retry`` from ``afissues._http``.
 
 This module is self-contained: it imports only from ``afissues.errors``,
-``afissues.protocol``, ``afissues.github`` (shared SSRF/retry infra),
+``afissues.protocol``, ``afissues._http``, ``afissues._ssrf``,
 ``httpx``, and the standard library.
 
 Requirements: 05-REQ-1.* through 05-REQ-19.*
@@ -37,7 +39,7 @@ _GITEA_TIMEOUT = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
 # Maximum number of attempts before giving up (1 initial + 2 retries).
 _MAX_RETRIES = 3
 
-# Base backoff in seconds; doubles on each retry (0s, 1s, 2s, …).
+# Base backoff in seconds; doubles on each retry (0s, 1s, 2s, ...).
 _RETRY_BACKOFF = 1.0
 
 # Sort+direction mapping from protocol params to Gitea combined sort values.
@@ -79,7 +81,7 @@ class GiteaPlatform:
     forge_type: str = "gitea"
 
     def __init__(self, owner: str, repo: str, token: str, url: str) -> None:
-        # SSRF guard — must run before any other initialization.
+        # SSRF guard -- must run before any other initialization.
         # ConfigError propagates directly to the caller (05-REQ-1.E1).
         _validate_url(url)
 
@@ -97,8 +99,11 @@ class GiteaPlatform:
         """Execute an HTTP request with retry on transient network errors.
 
         Delegates to the shared ``request_with_retry`` helper from
-        ``afissues.github``.  Creates a new ``AsyncClient`` with
+        ``afissues._http``.  Creates a new ``AsyncClient`` with
         ``_GITEA_TIMEOUT`` and ``SSRFGuardTransport`` for each attempt.
+
+        All protocol methods route through this method to ensure
+        consistent retry behaviour matching GitLabPlatform.
 
         Requirements: 05-REQ-1.5
         """
@@ -126,23 +131,19 @@ class GiteaPlatform:
 
         Requirements: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-2.4
         """
-        # Cache hit — return immediately (05-REQ-2.1).
+        # Cache hit -- return immediately (05-REQ-2.1).
         if label_name in self._label_cache:
             return self._label_cache[label_name]
 
-        # Cache already populated — label does not exist (05-REQ-2.4).
+        # Cache already populated -- label does not exist (05-REQ-2.4).
         if self._cache_populated:
             raise IntegrationError(
                 f"Label {label_name!r} not found in repo {self._owner}/{self._repo}",
             )
 
-        # Cache miss — fetch all labels and populate (05-REQ-2.2).
+        # Cache miss -- fetch all labels and populate (05-REQ-2.2).
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/labels"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, headers=self._auth_headers)
+        resp = await self._request("get", url, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -182,11 +183,7 @@ class GiteaPlatform:
             payload["labels"] = label_ids
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.post(url, json=payload, headers=self._auth_headers)
+        resp = await self._request("post", url, json=payload, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -218,11 +215,7 @@ class GiteaPlatform:
         }
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, params=params, headers=self._auth_headers)
+        resp = await self._request("get", url, params=params, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -241,11 +234,7 @@ class GiteaPlatform:
         Requirements: 05-REQ-5.1, 05-REQ-5.2
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.post(url, json={"body": body}, headers=self._auth_headers)
+        resp = await self._request("post", url, json={"body": body}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -264,11 +253,9 @@ class GiteaPlatform:
         label_id = await self._resolve_label_id(label)
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.post(url, json={"labels": [label_id]}, headers=self._auth_headers)
+        resp = await self._request(
+            "post", url, json={"labels": [label_id]}, headers=self._auth_headers
+        )
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -288,11 +275,9 @@ class GiteaPlatform:
             await self.add_issue_comment(issue_number, comment)
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.patch(url, json={"state": "closed"}, headers=self._auth_headers)
+        resp = await self._request(
+            "patch", url, json={"state": "closed"}, headers=self._auth_headers
+        )
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -311,14 +296,13 @@ class GiteaPlatform:
         try:
             label_id = await self._resolve_label_id(label)
         except IntegrationError:
-            return  # Label doesn't exist in repo — silently succeed.
+            return  # Label doesn't exist in repo -- silently succeed.
 
-        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels/{label_id}"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.delete(url, headers=self._auth_headers)
+        url = (
+            f"{self._base_url}/repos/{self._owner}/{self._repo}"
+            f"/issues/{issue_number}/labels/{label_id}"
+        )
+        resp = await self._request("delete", url, headers=self._auth_headers)
 
         if resp.status_code in (204, 404, 422):
             return  # Success or idempotent (label not on issue).
@@ -336,11 +320,7 @@ class GiteaPlatform:
         Requirements: 05-REQ-9.1, 05-REQ-9.2
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, headers=self._auth_headers)
+        resp = await self._request("get", url, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -366,11 +346,7 @@ class GiteaPlatform:
         Requirements: 05-REQ-10.1
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, headers=self._auth_headers)
+        resp = await self._request("get", url, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -389,11 +365,9 @@ class GiteaPlatform:
         Requirements: 05-REQ-11.1, 05-REQ-11.2
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.patch(url, json={"body": body}, headers=self._auth_headers)
+        resp = await self._request(
+            "patch", url, json={"body": body}, headers=self._auth_headers
+        )
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -412,9 +386,9 @@ class GiteaPlatform:
         """
         try:
             await self._resolve_label_id(name)
-            return  # Label already exists — no-op (05-REQ-12.1).
+            return  # Label already exists -- no-op (05-REQ-12.1).
         except IntegrationError:
-            pass  # Label not found — proceed to create.
+            pass  # Label not found -- proceed to create.
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/labels"
         payload = {
@@ -422,18 +396,14 @@ class GiteaPlatform:
             "color": f"#{color}",
             "description": description,
         }
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.post(url, json=payload, headers=self._auth_headers)
+        resp = await self._request("post", url, json=payload, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
                 f"Failed to create label ({resp.status_code}): {_truncate_response(resp.text)}",
             )
 
-        # Single-entry cache insert — no full re-fetch (05-REQ-12.3).
+        # Single-entry cache insert -- no full re-fetch (05-REQ-12.3).
         data = resp.json()
         self._label_cache[name] = data["id"]
 
@@ -452,34 +422,30 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/pulls"
         payload = {"title": title, "body": body, "head": head, "base": base}
 
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.post(url, json=payload, headers=self._auth_headers)
+        resp = await self._request("post", url, json=payload, headers=self._auth_headers)
 
         if 200 <= resp.status_code < 300:
             data = resp.json()
             return PrResult(html_url=data["html_url"], number=data["number"])
 
         if resp.status_code == 409:
-            # Duplicate PR — look up existing open PR (05-REQ-13.2).
+            # Duplicate PR -- look up existing open PR (05-REQ-13.2).
             params = {"head": head, "base": base, "state": "open"}
-            async with httpx.AsyncClient(
-                timeout=_GITEA_TIMEOUT,
-                transport=SSRFGuardTransport(),
-            ) as client:
-                get_resp = await client.get(url, params=params, headers=self._auth_headers)
+            get_resp = await self._request(
+                "get", url, params=params, headers=self._auth_headers
+            )
 
             if get_resp.status_code < 200 or get_resp.status_code >= 300:
                 raise IntegrationError(
-                    f"Failed to find existing PR ({get_resp.status_code}): {_truncate_response(get_resp.text)}",
+                    f"Failed to find existing PR ({get_resp.status_code}): "
+                    f"{_truncate_response(get_resp.text)}",
                 )
 
             existing = get_resp.json()
             if not existing:
                 raise IntegrationError(
-                    f"409 duplicate returned but no existing open PR found for head={head} base={base}",
+                    f"409 duplicate returned but no existing open PR found "
+                    f"for head={head} base={base}",
                 )
             return PrResult(html_url=existing[0]["html_url"], number=existing[0]["number"])
 
@@ -504,11 +470,7 @@ class GiteaPlatform:
         }
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, params=params, headers=self._auth_headers)
+        resp = await self._request("get", url, params=params, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -523,11 +485,7 @@ class GiteaPlatform:
         Requirements: 05-REQ-16.1, 05-REQ-16.2, 05-REQ-16.3, 05-REQ-16.4
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}"
-        async with httpx.AsyncClient(
-            timeout=_GITEA_TIMEOUT,
-            transport=SSRFGuardTransport(),
-        ) as client:
-            resp = await client.get(url, headers=self._auth_headers)
+        resp = await self._request("get", url, headers=self._auth_headers)
 
         if resp.status_code in (401, 403):
             raise IntegrationError(
@@ -557,7 +515,7 @@ _REMOTE_RE = re.compile(
 def parse_remote(remote_url: str) -> tuple[str, str] | None:
     """Extract (owner, repo) from a Gitea remote URL.
 
-    Accepts any hostname — the platform factory determines which
+    Accepts any hostname -- the platform factory determines which
     parser to invoke based on configured platform type.
 
     Returns None for URLs that cannot be parsed.

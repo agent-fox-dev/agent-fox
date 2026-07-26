@@ -126,13 +126,15 @@ def resolve_compaction(config: AgentFoxConfig, archetype: str, *, mode: str | No
     Resolution order (highest to lowest priority):
       1. archetypes.overrides.<name>.modes.<mode>.compaction (mode-level override)
       2. archetypes.overrides.<name>.compaction (unified table)
-      3. Registry default (False)
+      3. Registry default (archetype-specific: True for coder, False for others)
 
     Returns ``True`` when server-side context compaction should be enabled,
     ``False`` otherwise.
 
     Requirements: NS-REQ-2.1
     """
+    from agentfox.archetypes import resolve_effective_config
+
     override = config.archetypes.overrides.get(archetype)
 
     # 1. Mode-level config override (highest priority)
@@ -145,8 +147,10 @@ def resolve_compaction(config: AgentFoxConfig, archetype: str, *, mode: str | No
     if override is not None and override.compaction is not None:
         return override.compaction
 
-    # 3. Registry default: compaction is off by default
-    return False
+    # 3. Registry default (via mode-resolved effective config)
+    entry = get_archetype(archetype)
+    effective = resolve_effective_config(entry, mode)
+    return effective.default_compaction
 
 
 def resolve_max_budget(config: AgentFoxConfig, archetype: str | None = None) -> float | None:

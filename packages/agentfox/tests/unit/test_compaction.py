@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from agentfox.archetypes import ARCHETYPE_REGISTRY
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
@@ -30,7 +31,33 @@ from agentfox.engine.sdk_params import (
 )
 
 # ---------------------------------------------------------------------------
-# TS-NS-1: PerArchetypeConfig compaction field round-trips through TOML
+# TS-NS-1: ArchetypeEntry.default_compaction field and registry values
+# Requirement: NS-REQ-1
+# ---------------------------------------------------------------------------
+
+
+class TestArchetypeRegistryCompaction:
+    """ARCHETYPE_REGISTRY entries have correct default_compaction values."""
+
+    def test_coder_default_compaction_is_true(self) -> None:
+        """Coder archetype has default_compaction=True."""
+        assert ARCHETYPE_REGISTRY["coder"].default_compaction is True
+
+    def test_reviewer_default_compaction_is_false(self) -> None:
+        """Reviewer archetype has default_compaction=False."""
+        assert ARCHETYPE_REGISTRY["reviewer"].default_compaction is False
+
+    def test_other_archetypes_default_compaction_is_false(self) -> None:
+        """All non-coder archetypes have default_compaction=False."""
+        for name, entry in ARCHETYPE_REGISTRY.items():
+            if name != "coder":
+                assert entry.default_compaction is False, (
+                    f"Expected default_compaction=False for archetype '{name}'"
+                )
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-1 continued: PerArchetypeConfig compaction field round-trips through TOML
 # Requirement: NS-REQ-1
 # ---------------------------------------------------------------------------
 
@@ -103,10 +130,15 @@ class TestResolveCompaction:
         )
         assert resolve_compaction(config, "coder") is False
 
-    def test_default_is_false(self) -> None:
-        """Registry default for compaction is False."""
+    def test_coder_default_is_true(self) -> None:
+        """Registry default for compaction is True for coder."""
         config = AgentFoxConfig()
-        assert resolve_compaction(config, "coder") is False
+        assert resolve_compaction(config, "coder") is True
+
+    def test_non_coder_default_is_false(self) -> None:
+        """Registry default for compaction is False for non-coder archetypes."""
+        config = AgentFoxConfig()
+        assert resolve_compaction(config, "reviewer") is False
 
     def test_none_override_falls_through_to_default(self) -> None:
         """PerArchetypeConfig with compaction=None falls through to default."""
@@ -115,7 +147,7 @@ class TestResolveCompaction:
                 overrides={"coder": PerArchetypeConfig(compaction=None)},
             )
         )
-        assert resolve_compaction(config, "coder") is False
+        assert resolve_compaction(config, "coder") is True
 
     def test_mode_level_override_takes_precedence(self) -> None:
         """Mode-level compaction overrides per-archetype level."""
@@ -183,10 +215,16 @@ class TestResolvedSessionParamsCompaction:
         params = resolve_session_params(config, "coder")
         assert params.compaction is True
 
-    def test_resolve_session_params_default_compaction(self) -> None:
-        """resolve_session_params() defaults compaction to False."""
+    def test_resolve_session_params_default_compaction_coder(self) -> None:
+        """resolve_session_params() defaults compaction to True for coder."""
         config = AgentFoxConfig()
         params = resolve_session_params(config, "coder")
+        assert params.compaction is True
+
+    def test_resolve_session_params_default_compaction_reviewer(self) -> None:
+        """resolve_session_params() defaults compaction to False for non-coder."""
+        config = AgentFoxConfig()
+        params = resolve_session_params(config, "reviewer")
         assert params.compaction is False
 
 

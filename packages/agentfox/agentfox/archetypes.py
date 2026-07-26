@@ -63,6 +63,7 @@ class ArchetypeEntry:
     default_max_turns: int = 200
     default_thinking_mode: str = "disabled"
     default_effort: str = "high"
+    default_compaction: bool = False
     injection_order: int = 100
     modes: dict[str, ModeConfig] = field(default_factory=dict)  # 97-REQ-1.2
 
@@ -77,6 +78,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         default_max_turns=300,
         default_thinking_mode="adaptive",
         default_effort="xhigh",
+        default_compaction=True,
         modes={
             "fix": ModeConfig(
                 model_tier="STANDARD",  # 15-REQ-8.1
