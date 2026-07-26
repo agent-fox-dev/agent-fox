@@ -561,10 +561,7 @@ class DispatchManager:
             and hasattr(self._result_handler, "is_workspace_backoff_active")
             and self._result_handler.is_workspace_backoff_active(node_id)
         ):
-            logger.debug(
-                "Workspace backoff active for %s, skipping dispatch cycle",
-                node_id,
-            )
+            self._result_handler.log_backoff_once(node_id, "workspace")
             return None
 
         if (
@@ -572,10 +569,7 @@ class DispatchManager:
             and hasattr(self._result_handler, "is_environment_backoff_active")
             and self._result_handler.is_environment_backoff_active(node_id)
         ):
-            logger.debug(
-                "Environment failure backoff active for %s, skipping dispatch cycle",
-                node_id,
-            )
+            self._result_handler.log_backoff_once(node_id, "environment")
             return None
 
         archetype = self.get_node_archetype(node_id)

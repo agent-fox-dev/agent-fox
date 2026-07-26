@@ -67,8 +67,10 @@ class _NodeRetryState:
     coverage_baseline: Any = field(default=None, repr=False)
     workspace_failures: int = 0
     workspace_next_eligible: float = 0.0
+    workspace_backoff_logged: bool = False
     environment_failures: int = 0
     environment_next_eligible: float = 0.0
+    environment_backoff_logged: bool = False
 
 
 class SessionResultHandler:
@@ -803,6 +805,34 @@ class SessionResultHandler:
             return False
         return time.monotonic() < ns.environment_next_eligible
 
+    def log_backoff_once(self, node_id: str, kind: str) -> None:
+        """Log a backoff-active message at most once per backoff window.
+
+        Called by the dispatch loop on every cycle where backoff is active.
+        Emits a DEBUG log on the first call within a window; subsequent
+        calls within the same window are suppressed.  The flag resets
+        automatically when a new failure triggers a fresh backoff window
+        (see ``_handle_workspace_setup_failure`` / ``_handle_environment_failure``).
+        """
+        ns = self._node_retry_states.get(node_id)
+        if ns is None:
+            return
+
+        if kind == "workspace":
+            if not ns.workspace_backoff_logged:
+                ns.workspace_backoff_logged = True
+                logger.debug(
+                    "Workspace backoff active for %s, skipping dispatch cycles until eligible",
+                    node_id,
+                )
+        elif kind == "environment":
+            if not ns.environment_backoff_logged:
+                ns.environment_backoff_logged = True
+                logger.debug(
+                    "Environment failure backoff active for %s, skipping dispatch cycles until eligible",
+                    node_id,
+                )
+
     def _handle_workspace_setup_failure(
         self,
         record: SessionRecord,
@@ -844,6 +874,7 @@ class SessionResultHandler:
 
         delay = min(2**count, _MAX_WORKSPACE_BACKOFF_SECONDS)
         ns.workspace_next_eligible = time.monotonic() + delay
+        ns.workspace_backoff_logged = False  # reset so next window logs once
 
         logger.warning(
             "Workspace setup failed for %s (%d/%d), backing off %ds: %s",
@@ -909,6 +940,7 @@ class SessionResultHandler:
 
         delay = min(2**count, _MAX_ENVIRONMENT_BACKOFF_SECONDS)
         ns.environment_next_eligible = time.monotonic() + delay
+        ns.environment_backoff_logged = False  # reset so next window logs once
 
         logger.warning(
             "Environment failure for %s (%d/%d), backing off %ds: %s",

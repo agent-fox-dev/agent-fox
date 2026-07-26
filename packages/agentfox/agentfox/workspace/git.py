@@ -192,8 +192,12 @@ async def create_branch(
         if "already exists" in stderr:
             logger.debug("Branch '%s' already exists, skipping creation", branch_name)
             return
+        stderr_snippet = stderr.strip()
+        msg = f"git branch failed (exit code {returncode})"
+        if stderr_snippet:
+            msg = f"{msg}: {stderr_snippet}"
         raise WorkspaceError(
-            f"git branch failed (exit code {returncode})",
+            msg,
             details=stderr,
             returncode=returncode,
         )
