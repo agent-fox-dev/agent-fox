@@ -1,0 +1,1583 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "pr_feedback_loop",
+  "schema_version": 1,
+  "introduction": "The PR Feedback Loop extends the nightshift autonomous coding agent to monitor open pull requests after creation, detect CI failures and reviewer change requests, and iteratively re-run the coder with failure context injected \u2014 closing the loop between PR creation and merge without human intervention.",
+  "glossary": {
+    "CheckResult": "Type returned by get_pr_checks representing a single CI check with name, status, conclusion, output_title, and output_summary fields",
+    "DaemonRunner": "Class in daemon.py that manages the priority-ordered execution of named work streams",
+    "EngineWorkStream": "Class in streams.py that wraps an async engine method and fires it on a configured interval as part of the nightshift scheduling loop",
+    "FixPipeline": "Class in fix_pipeline.py whose methods (_build_coder_prompt, _run_coder_session, _auto_commit_pending_changes) are called by pr_feedback.py via composition",
+    "IssueComment": "Type returned by list_issue_comments representing a single issue comment with body field",
+    "IssueResult": "Type returned by list_issues_by_label representing a single GitHub issue with number, title, body, and label fields",
+    "LABEL_FIXED": "Constant string 'af:fixed' from afissues.labels used when closing a merged PR issue",
+    "LABEL_PR": "Constant string 'af:pr' from afissues.labels used to query and manipulate the PR-monitoring label",
+    "NightShiftConfig": "Pydantic v2 model in config.py holding all nightshift configuration fields including the new pr_check_interval and max_pr_retries",
+    "NightShiftEngine": "Core engine class in engine.py to which _check_open_prs() is added as an async dispatcher method",
+    "NightShiftState": "Dataclass in engine.py holding runtime counters for the nightshift daemon; issue_checks_completed is incremented per processed PR issue",
+    "PR_TRACKING_PATTERN": "Compiled regex pattern imported from fix_pipeline.py (spec 06) used to identify and parse nightshift tracking comments on issues",
+    "PlatformProtocol": "Protocol interface in afissues.protocol defining async methods for interacting with the code hosting platform (GitHub)",
+    "PrState": "Type returned by get_pr_state containing merged (bool) and state (str) fields describing the current state of a pull request",
+    "ReviewComment": "Type returned by get_pr_reviews representing a single PR review with user, body, and state fields",
+    "TriageResult": "Frozen dataclass from fix_pipeline.py representing the triage analysis of an issue; synthetic instances are constructed for feedback re-entry",
+    "WorkspaceConfig": "Pydantic model in config.py holding workspace settings including merge_strategy and integration_branch",
+    "_MAX_PR_CHECKS": "Hardcoded constant (value 5) in engine.py that caps the number of issues processed per poll cycle in _check_open_prs()",
+    "_auto_commit_pending_changes": "FixPipeline helper that stages and commits all pending changes in the worktree with a given commit message",
+    "_build_coder_prompt": "FixPipeline method that constructs the system and task prompts for a coder session given a triage result and optional review feedback",
+    "_check_open_prs": "Async method on NightShiftEngine that lists open af:pr issues and dispatches each to process_pr_issue() sequentially",
+    "_cleanup_feedback_worktree": "Function in pr_feedback.py that removes the feedback worktree directory; silently no-ops if the directory does not exist",
+    "_collect_feedback": "Function in pr_feedback.py that formats CI failure details or review comments as a markdown string for injection as review_feedback",
+    "_run_coder_session": "Async FixPipeline method that executes a coder agent session in a given workspace",
+    "_run_feedback_iteration": "Function in pr_feedback.py that orchestrates the full feedback re-entry sequence: fetch, worktree, coder session, tracking comment, force-push, cleanup",
+    "_setup_feedback_worktree": "Function in pr_feedback.py that runs git fetch then git worktree add for the fix branch at worktrees/feedback-{issue_number}",
+    "af:fix": "GitHub issue label applied by nightshift when an issue is queued for automated fixing via the fix pipeline",
+    "af:fixed": "GitHub issue label applied by nightshift when a pull request has been merged and the originating issue is considered resolved",
+    "af:pr": "GitHub issue label applied by nightshift when a pull request has been created for the issue, indicating the issue is in PR-monitoring state",
+    "attempt": "Integer counter embedded in the tracking comment indicating how many times nightshift has pushed to this PR (1 = original, 2+ = feedback iterations)",
+    "build_streams": "Function in streams.py that constructs and returns the list of EngineWorkStream instances including the new pr-feedback stream",
+    "feedback worktree": "Git worktree created by _setup_feedback_worktree() at worktrees/feedback-{issue_number} on the fix branch for a feedback iteration",
+    "fix branch": "Git branch named fix/{issue_number}-{slug} created by the fix pipeline for a specific issue; the branch nightshift force-pushes to during feedback iterations",
+    "fix_pipeline": "Module agentfox/nightshift/fix_pipeline.py containing the FixPipeline class and tracking comment utilities introduced by spec 06",
+    "format_tracking_comment": "Function imported from fix_pipeline.py that renders a new tracking comment string with updated pr_number, attempt, pr_url, and message",
+    "integration_branch": "WorkspaceConfig field naming the base branch against which the fix branch is diffed to compute affected_files",
+    "issue_checks_completed": "Field on NightShiftState incremented by _check_open_prs() each time an issue is processed in a poll cycle",
+    "knowledge_context": "Parameter of _build_coder_prompt() carrying retrieved knowledge; passed as empty string for feedback re-entry",
+    "max_pr_retries": "NightShiftConfig field controlling the maximum number of feedback iterations allowed per PR before requiring manual attention",
+    "merge_strategy": "WorkspaceConfig field controlling how nightshift submits fixes; the pr-feedback stream is only enabled when this equals 'pr'",
+    "parse_tracking_comment": "Function imported from fix_pipeline.py that extracts pr_number and attempt from a tracking comment body",
+    "pr-feedback": "The name of the work stream entry added to the nightshift scheduler that periodically polls open pull requests for state changes",
+    "pr_check_interval": "NightShiftConfig field controlling the number of seconds between PR status poll cycles (minimum 60)",
+    "pr_feedback": "New module agentfox/nightshift/pr_feedback.py containing all PR monitoring and feedback re-entry logic defined by this spec",
+    "prior_context": "Parameter of _build_coder_prompt() carrying prior attempt context; passed as empty string for feedback re-entry",
+    "process_pr_issue": "Main entry point in pr_feedback.py that orchestrates the full PR check and feedback re-entry flow for a single issue",
+    "review_feedback": "Parameter passed to _build_coder_prompt() containing the formatted markdown string of CI failures or review comments for the coder to address",
+    "sanitise_branch_name": "Function from spec_builder.py that converts an issue title and number into a valid git branch name slug",
+    "worktrees": "Directory under the nightshift working root where git worktrees for both fix pipeline and feedback iterations are created",
+    "\"fix-pipeline\"": "String literal value: \"fix-pipeline\"",
+    "\"pr-feedback\"": "String literal value: \"pr-feedback\"",
+    "## CI Failures": "Domain term used in specification",
+    "## Review Feedback": "Domain term used in specification",
+    "(trigger: Literal['ci', 'review'], ci_failures: list[CheckResult], review_comments: list[ReviewComment]) -> str": "Function/method call or signature: ",
+    "--force-with-lease": "Domain term used in specification",
+    "_FEEDBACK_COMMIT_MESSAGE": "Private function/method/constant in the module",
+    "_FEEDBACK_COMMIT_MESSAGE.format(issue_title=issue.title, attempt=attempt+1)": "Function/method call or signature: _FEEDBACK_COMMIT_MESSAGE.format",
+    "_FEEDBACK_ITERATION_MESSAGE": "Private function/method/constant in the module",
+    "_MAX_PR_CHECKS = 5": "Private function/method/constant in the module",
+    "_NO_CHANGES_MESSAGE": "Private function/method/constant in the module",
+    "_RETRY_LIMIT_MESSAGE": "Private function/method/constant in the module",
+    "_check_ci_status": "Private function/method/constant in the module",
+    "_check_open_prs()": "Function/method call or signature: _check_open_prs",
+    "_check_pr_state": "Private function/method/constant in the module",
+    "_check_reviews": "Private function/method/constant in the module",
+    "_cleanup_feedback_worktree(issue.number)": "Function/method call or signature: _cleanup_feedback_worktree",
+    "add_issue_comment": "Domain term used in specification",
+    "affected_files": "Domain term used in specification",
+    "afissues.labels": "Module path or method reference: afissues.labels",
+    "afissues.protocol": "Module path or method reference: afissues.protocol",
+    "agentfox.nightshift.fix_pipeline": "Module path or method reference: agentfox.nightshift.fix_pipeline",
+    "agentfox.nightshift.spec_builder": "Module path or method reference: agentfox.nightshift.spec_builder",
+    "assessed_complexity=None": "Assignment or constant definition",
+    "assign_label": "Domain term used in specification",
+    "async def _check_open_prs(self) -> None": "Function/method call or signature: async def _check_open_prs",
+    "async def process_pr_issue(issue: IssueResult, config: NightShiftConfig, platform: PlatformProtocol, pipeline: FixPipeline) -> None": "Function/method call or signature: async def process_pr_issue",
+    "attempt <= max_pr_retries": "Comparison expression used in logic conditions",
+    "attempt == 1": "Comparison expression used in logic conditions",
+    "attempt > max_pr_retries": "Comparison expression used in logic conditions",
+    "body": "Domain term used in specification",
+    "ci_failures": "Domain term used in specification",
+    "close_issue": "Domain term used in specification",
+    "conclusion": "Domain term used in specification",
+    "conclusion == 'failure'": "Comparison expression used in logic conditions",
+    "conclusion == 'success'": "Comparison expression used in logic conditions",
+    "conclusion == 'timed_out'": "Comparison expression used in logic conditions",
+    "config.night_shift.max_pr_retries": "Module path or method reference: config.night_shift.max_pr_retries",
+    "criteria=[]": "Assignment or constant definition",
+    "engine.py": "Module path or method reference: engine.py",
+    "format_tracking_comment(pr_number=pr_number, attempt=attempt+1, pr_url='', message=_FEEDBACK_ITERATION_MESSAGE.format(attempt=attempt+1))": "Function/method call or signature: format_tracking_comment",
+    "git diff --name-only": "Git command: git diff --name-only",
+    "git diff --name-only <integration_branch> <fix_branch>": "Git command: git diff --name-only <integration_branch> <fix_branch>",
+    "git fetch origin <branch>": "Git command: git fetch origin <branch>",
+    "git push --force": "Git command: git push --force",
+    "git worktree add": "Git command: git worktree add",
+    "git worktree add worktrees/feedback-{issue.number} <branch>": "Git command: git worktree add worktrees/feedback-{issue.number} <branch>",
+    "issue_body=issue.body": "Assignment or constant definition",
+    "list_issues_by_label": "Domain term used in specification",
+    "list_issues_by_label(LABEL_FIX)": "Function/method call or signature: list_issues_by_label",
+    "merged == False": "Comparison expression used in logic conditions",
+    "merged == True": "Comparison expression used in logic conditions",
+    "name": "Domain term used in specification",
+    "output_summary": "Domain term used in specification",
+    "output_title": "Domain term used in specification",
+    "pipeline._auto_commit_pending_changes": "Module path or method reference: pipeline._auto_commit_pending_changes",
+    "pipeline._auto_commit_pending_changes()": "Function/method call or signature: pipeline._auto_commit_pending_changes",
+    "pipeline._build_coder_prompt(spec, triage, review_feedback=<collected_feedback>, prior_context='', knowledge_context='')": "Function/method call or signature: pipeline._build_coder_prompt",
+    "pipeline._run_coder_session": "Module path or method reference: pipeline._run_coder_session",
+    "pipeline._run_coder_session()": "Function/method call or signature: pipeline._run_coder_session",
+    "platform.add_issue_comment": "Module path or method reference: platform.add_issue_comment",
+    "platform.add_issue_comment(issue.number, comment)": "Function/method call or signature: platform.add_issue_comment",
+    "platform.assign_label(issue.number, LABEL_FIXED)": "Function/method call or signature: platform.assign_label",
+    "platform.close_issue(issue.number, 'PR #{pr_number} merged.')": "Function/method call or signature: platform.close_issue",
+    "platform.get_pr_checks": "Module path or method reference: platform.get_pr_checks",
+    "platform.get_pr_checks(pr_number)": "Function/method call or signature: platform.get_pr_checks",
+    "platform.get_pr_reviews": "Module path or method reference: platform.get_pr_reviews",
+    "platform.get_pr_state": "Module path or method reference: platform.get_pr_state",
+    "platform.get_pr_state(pr_number)": "Function/method call or signature: platform.get_pr_state",
+    "platform.list_issue_comments": "Module path or method reference: platform.list_issue_comments",
+    "platform.list_issue_comments(issue.number)": "Function/method call or signature: platform.list_issue_comments",
+    "platform.list_issues_by_label(LABEL_PR)": "Function/method call or signature: platform.list_issues_by_label",
+    "platform.remove_label(issue.number, LABEL_PR)": "Function/method call or signature: platform.remove_label",
+    "pr_feedback.py": "Module path or method reference: pr_feedback.py",
+    "pr_number": "Domain term used in specification",
+    "process_pr_issue()": "Function/method call or signature: process_pr_issue",
+    "review_comments": "Domain term used in specification",
+    "sanitise_branch_name(issue.title, issue.number)": "Function/method call or signature: sanitise_branch_name",
+    "state": "Domain term used in specification",
+    "state == 'APPROVED'": "Comparison expression used in logic conditions",
+    "state == 'CHANGES_REQUESTED'": "Comparison expression used in logic conditions",
+    "state == 'COMMENTED'": "Comparison expression used in logic conditions",
+    "state == 'DISMISSED'": "Comparison expression used in logic conditions",
+    "state == 'closed'": "Comparison expression used in logic conditions",
+    "state == 'open'": "Comparison expression used in logic conditions",
+    "status == 'in_progress'": "Comparison expression used in logic conditions",
+    "status == 'queued'": "Comparison expression used in logic conditions",
+    "summary=issue.title": "Assignment or constant definition",
+    "trigger='ci'": "Assignment or constant definition",
+    "trigger='review'": "Assignment or constant definition",
+    "user": "Domain term used in specification",
+    "worktrees/feedback-{issue_number}": "Domain term used in specification"
+  },
+  "requirements": [
+    {
+      "id": "07-REQ-1",
+      "title": "PR feedback configuration fields",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "configure how frequently PRs are polled and how many feedback iterations are allowed",
+        "benefit": "tune the feedback loop for my team's CI speed and risk tolerance"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`NightShiftConfig`",
+          "action": "exposes a `pr_check_interval` integer field with default value 900 and a Pydantic v2 validator that clamps the value to a minimum of 60, following the same pattern as the existing clamp_interval_minimum validator",
+          "return_contract": "field reads back the clamped integer value; values below 60 are silently raised to 60"
+        },
+        {
+          "id": "07-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`NightShiftConfig`",
+          "action": "exposes a `max_pr_retries` integer field with default value 2 and a Pydantic v2 validator that clamps the value to the inclusive range [0, 10]",
+          "return_contract": "field reads back the clamped integer value; values below 0 are raised to 0, values above 10 are lowered to 10"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`NightShiftConfig`",
+          "action": "clamps the stored value to 60 without raising a validation error",
+          "return_contract": "field value is 60",
+          "error_condition": "`pr_check_interval` is set to a value below 60 (e.g., 30)"
+        },
+        {
+          "id": "07-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "`NightShiftConfig`",
+          "action": "clamps the stored value to the nearest boundary without raising a validation error",
+          "return_contract": "field value is 0 for -1 input, 10 for 15 input",
+          "error_condition": "`max_pr_retries` is set to a value outside [0, 10] (e.g., -1 or 15)"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-2",
+      "title": "PR feedback work stream registration",
+      "user_story": {
+        "role": "nightshift daemon",
+        "goal": "run PR monitoring as a lower-priority background stream",
+        "benefit": "existing PR issues are checked regularly without blocking new issue fixing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-2.1",
+          "ears_pattern": "state_driven",
+          "system": "`build_streams`",
+          "action": "includes a `\"pr-feedback\"` `EngineWorkStream` wrapping `_check_open_prs` with interval set to `pr_check_interval`",
+          "return_contract": "returned stream list contains the pr-feedback entry at a position after the fix-pipeline entry",
+          "state": "`merge_strategy` is 'pr' and the platform type is not 'none'"
+        },
+        {
+          "id": "07-REQ-2.2",
+          "ears_pattern": "state_driven",
+          "system": "`build_streams`",
+          "action": "does not include a `\"pr-feedback\"` `EngineWorkStream` in the returned list",
+          "return_contract": "returned stream list contains no entry named pr-feedback",
+          "state": "`merge_strategy` is not 'pr' or the platform type is 'none'"
+        },
+        {
+          "id": "07-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`DaemonRunner`",
+          "action": "places `\"pr-feedback\"` after `\"fix-pipeline\"` in the priority order list so that new issue fixes take precedence over PR monitoring",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "07-REQ-3",
+      "title": "PR issue dispatcher (_check_open_prs)",
+      "user_story": {
+        "role": "nightshift engine",
+        "goal": "list and process open af:pr issues on each poll cycle",
+        "benefit": "PR state changes are detected and acted on without human monitoring"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "`_check_open_prs`",
+          "action": "calls `platform.list_issues_by_label(LABEL_PR)` with default oldest-first ordering and caps the result to the first `_MAX_PR_CHECKS` (5) issues, then sequentially awaits `process_pr_issue()` for each, incrementing `issue_checks_completed` after each call",
+          "return_contract": "returns None; issues beyond the cap are deferred to the next cycle",
+          "trigger": "the `EngineWorkStream` fires on the `pr_check_interval` schedule"
+        },
+        {
+          "id": "07-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_check_open_prs`",
+          "action": "is declared as `async def _check_open_prs(self) -> None` and awaits each `process_pr_issue()` call sequentially without concurrent gather",
+          "return_contract": "no concurrent worktree creation occurs across issues in a single poll cycle"
+        },
+        {
+          "id": "07-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "module `engine.py`",
+          "action": "defines `_MAX_PR_CHECKS = 5` as a module-level constant adjacent to `_check_open_prs()`, not inside `pr_feedback.py`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-3.E1",
+          "ears_pattern": "event_driven",
+          "system": "`_check_open_prs`",
+          "action": "processes only the first 5 issues in oldest-first order; remaining issues are not processed in this cycle",
+          "return_contract": "returns None; no error is raised for the deferred issues",
+          "trigger": "`list_issues_by_label` returns more than 5 issues"
+        },
+        {
+          "id": "07-REQ-3.E2",
+          "ears_pattern": "event_driven",
+          "system": "`_check_open_prs`",
+          "action": "does nothing and returns immediately",
+          "return_contract": "returns None; `issue_checks_completed` is not incremented",
+          "trigger": "`list_issues_by_label` returns an empty list"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-4",
+      "title": "Tracking comment parsing for PR issue",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "extract the PR number and attempt count from the issue's tracking comment",
+        "benefit": "subsequent PR state checks and retry limit enforcement use accurate metadata"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "lists issue comments via `platform.list_issue_comments(issue.number)`, finds the last comment in list order matching `PR_TRACKING_PATTERN`, and extracts `pr_number` and `attempt` using `parse_tracking_comment`",
+          "return_contract": "extracted pr_number (int) and attempt (int) are used for subsequent steps; function returns None on success",
+          "trigger": "called for an issue"
+        },
+        {
+          "id": "07-REQ-4.2",
+          "ears_pattern": "unwanted",
+          "system": "`process_pr_issue`",
+          "action": "logs a WARNING with the issue number and skips the issue without modifying any labels or posting any comment",
+          "return_contract": "returns None; `af:pr` label remains on the issue for retry on the next poll cycle",
+          "error_condition": "no comment matches `PR_TRACKING_PATTERN` or `parse_tracking_comment` returns None (malformed comment)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-4.E1",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "uses the last matching item in the list (oldest-first API ordering) as the most recent tracking comment",
+          "return_contract": "pr_number and attempt are extracted from the last matching comment",
+          "trigger": "multiple comments match `PR_TRACKING_PATTERN`"
+        },
+        {
+          "id": "07-REQ-4.E2",
+          "ears_pattern": "unwanted",
+          "system": "`process_pr_issue`",
+          "action": "logs a WARNING with the issue number and exception message, skips the issue, leaves all labels intact",
+          "return_contract": "returns None; no comment is posted to the issue",
+          "error_condition": "`platform.list_issue_comments` raises a platform API exception"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-5",
+      "title": "PR state detection and label transitions",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "detect merged and closed PRs and update issue state accordingly",
+        "benefit": "merged issues are automatically closed and labelled as fixed without human intervention"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "sequentially calls `platform.assign_label(issue.number, LABEL_FIXED)`, `platform.remove_label(issue.number, LABEL_PR)`, `platform.close_issue(issue.number, 'PR #{pr_number} merged.')`, then logs at INFO",
+          "return_contract": "returns None; issue is closed with af:fixed label and no af:pr label",
+          "trigger": "`platform.get_pr_state(pr_number)` returns `merged == True`"
+        },
+        {
+          "id": "07-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "posts comment 'PR #{pr_number} was closed without merging. Removing af:pr label for manual triage.', calls `platform.remove_label(issue.number, LABEL_PR)`, leaves the issue open, logs at INFO",
+          "return_contract": "returns None; issue remains open without af:pr label",
+          "trigger": "`platform.get_pr_state(pr_number)` returns `state == 'closed'` and `merged == False`"
+        },
+        {
+          "id": "07-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "continues to CI check step without modifying labels or posting comments",
+          "return_contract": "proceeds to `_check_ci_status` step",
+          "trigger": "`platform.get_pr_state(pr_number)` returns `state == 'open'`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "`process_pr_issue`",
+          "action": "logs a WARNING with the issue number, PR number, and exception message; skips the issue; leaves all labels intact; posts no comment",
+          "return_contract": "returns None; af:pr label remains for retry on the next poll cycle",
+          "error_condition": "`platform.get_pr_state` raises a platform API exception"
+        },
+        {
+          "id": "07-REQ-5.E2",
+          "ears_pattern": "unwanted",
+          "system": "`process_pr_issue`",
+          "action": "logs a WARNING and skips the issue for this cycle; on the next poll cycle all three operations are re-applied in order \u2014 already-completed steps are idempotent no-ops at the GitHub API level",
+          "return_contract": "returns None; issue retried next cycle with no data corruption",
+          "error_condition": "a platform API exception is raised mid-sequence during merged PR label transition (e.g., `assign_label` succeeds but `close_issue` raises)"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-6",
+      "title": "CI check status interpretation",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "determine whether CI results warrant a feedback re-entry or a wait",
+        "benefit": "the coder is only re-invoked for actionable failures, preventing wasted cycles"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "skips the issue and waits for the next poll cycle without logging at WARNING or ERROR",
+          "return_contract": "returns a skip signal; no re-entry is triggered",
+          "trigger": "at least one `CheckResult` has `status == 'in_progress'` or `status == 'queued'`"
+        },
+        {
+          "id": "07-REQ-6.2",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "triggers feedback re-entry and logs at INFO: 'Re-entry triggered for issue #{n}, PR #{pr}: CI failure/timeout.'",
+          "return_contract": "returns a re-entry signal with the list of failed/timed-out CheckResult items",
+          "trigger": "at least one `CheckResult` has `conclusion == 'failure'` or `conclusion == 'timed_out'`"
+        },
+        {
+          "id": "07-REQ-6.3",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "skips the issue and logs at WARNING: 'Skipped issue #{n}, PR #{pr}: all checks in ambiguous state (cancelled/action_required/stale).'",
+          "return_contract": "returns a skip signal; no re-entry is triggered",
+          "trigger": "all checks have `conclusion` in {'cancelled', 'action_required', 'stale'} with none having `conclusion == 'success'`"
+        },
+        {
+          "id": "07-REQ-6.4",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "proceeds to the review check step",
+          "return_contract": "returns a pass-through signal to _check_reviews",
+          "trigger": "all checks have `conclusion == 'success'`"
+        },
+        {
+          "id": "07-REQ-6.5",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "treats the absence of CI as equivalent to all passing and proceeds to the review check step",
+          "return_contract": "returns a pass-through signal to _check_reviews",
+          "trigger": "the check list returned by `platform.get_pr_checks(pr_number)` is empty"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-6.E1",
+          "ears_pattern": "event_driven",
+          "system": "`_check_ci_status`",
+          "action": "triggers feedback re-entry because at least one check has a failure conclusion",
+          "return_contract": "returns a re-entry signal; INFO logged",
+          "trigger": "the check list contains a mix of 'success' and 'failure' conclusions"
+        },
+        {
+          "id": "07-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "`_check_ci_status`",
+          "action": "logs a WARNING with the issue number, PR number, and exception message; skips the issue; leaves all labels intact",
+          "return_contract": "returns None; af:pr label remains for retry on the next poll cycle",
+          "error_condition": "`platform.get_pr_checks` raises a platform API exception"
+        },
+        {
+          "id": "07-REQ-6.E3",
+          "ears_pattern": "unwanted",
+          "system": "`_check_ci_status`",
+          "action": "treats the check as in an ambiguous state (does not treat it as success or failure); logs a WARNING if all checks are in this ambiguous state",
+          "return_contract": "does not trigger re-entry based on a null conclusion",
+          "error_condition": "`platform.get_pr_checks` returns a `CheckResult` with a null or missing `conclusion` field"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-7",
+      "title": "Review state interpretation",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "detect reviewer change requests and trigger feedback re-entry",
+        "benefit": "reviewer feedback is addressed automatically without human forwarding"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "`_check_reviews`",
+          "action": "triggers feedback re-entry and logs at INFO: 'Re-entry triggered for issue #{n}, PR #{pr}: reviewer requested changes.'",
+          "return_contract": "returns a re-entry signal with the list of active ReviewComment items",
+          "trigger": "the latest non-dismissed `ReviewComment` has `state == 'CHANGES_REQUESTED'`"
+        },
+        {
+          "id": "07-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "`_check_reviews`",
+          "action": "skips the issue \u2014 the PR is healthy and awaiting a human merge decision",
+          "return_contract": "returns a skip signal; no re-entry triggered",
+          "trigger": "the latest non-dismissed review has `state == 'APPROVED'` or `state == 'COMMENTED'`, or there are no non-dismissed reviews"
+        },
+        {
+          "id": "07-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`_check_reviews`",
+          "action": "filters out all `ReviewComment` entries with `state == 'DISMISSED'` before determining the latest active review state",
+          "return_contract": "dismissed reviews have no effect on the re-entry decision"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_check_reviews`",
+          "action": "logs a WARNING with the issue number, PR number, and exception message; skips the issue; leaves all labels intact",
+          "return_contract": "returns None; af:pr label remains for retry on the next poll cycle",
+          "error_condition": "`platform.get_pr_reviews` raises a platform API exception"
+        },
+        {
+          "id": "07-REQ-7.E2",
+          "ears_pattern": "event_driven",
+          "system": "`_check_reviews`",
+          "action": "treats the review list as empty and skips the issue",
+          "return_contract": "returns a skip signal; no re-entry triggered",
+          "trigger": "all reviews have `state == 'DISMISSED'`"
+        },
+        {
+          "id": "07-REQ-7.E3",
+          "ears_pattern": "unwanted",
+          "system": "`_check_reviews`",
+          "action": "does not count the malformed entry as CHANGES_REQUESTED; treats it as non-triggering",
+          "return_contract": "no re-entry triggered based on a null state field",
+          "error_condition": "`platform.get_pr_reviews` returns a `ReviewComment` with a null or missing `state` field"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-8",
+      "title": "Retry limit enforcement",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "prevent the feedback loop from retrying indefinitely on a PR that the coder cannot fix",
+        "benefit": "stalled PRs surface for human attention rather than consuming resources in a loop"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-8.1",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "logs at INFO: 'Retry limit reached for issue #{n}, PR #{pr} (attempt {attempt}/{max_pr_retries + 1}). Needs manual attention.' and posts the _RETRY_LIMIT_MESSAGE comment to the issue; leaves `af:pr` label in place; does not run the coder",
+          "return_contract": "returns None; no worktree is created; af:pr label remains",
+          "trigger": "`attempt` parsed from the tracking comment is greater than `config.night_shift.max_pr_retries`"
+        },
+        {
+          "id": "07-REQ-8.2",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "proceeds with the full feedback iteration: fetch, worktree creation, coder session, tracking comment, force-push",
+          "return_contract": "returns None after completing or encountering an error in the iteration",
+          "trigger": "`attempt` is less than or equal to `config.night_shift.max_pr_retries`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-8.E1",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "evaluates 1 > 0 as True, stops immediately with the retry limit message and INFO log; no feedback iteration runs",
+          "return_contract": "returns None; no worktree is created",
+          "trigger": "`max_pr_retries` is 0 and the first feedback trigger fires with `attempt == 1`"
+        },
+        {
+          "id": "07-REQ-8.E2",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "re-entry runs; on the second feedback iteration (attempt=2) the incremented counter posted becomes 3, and any subsequent trigger with attempt=3 will halt",
+          "return_contract": "up to 2 feedback iterations execute; 3rd trigger stops with retry limit message",
+          "trigger": "`max_pr_retries` is 2 and `attempt` is 1 or 2"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-9",
+      "title": "Feedback worktree setup and teardown",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "create and clean up a git worktree for each feedback iteration",
+        "benefit": "the coder has an isolated workspace on the fix branch without interfering with other operations"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "`_setup_feedback_worktree`",
+          "action": "first runs `git fetch origin <branch>` where branch is derived via `sanitise_branch_name(issue.title, issue.number)`, then runs `git worktree add worktrees/feedback-{issue.number} <branch>` targeting the fix branch HEAD",
+          "return_contract": "returns the worktree path string on success; raises an exception on fetch or worktree add failure",
+          "trigger": "called during a feedback iteration"
+        },
+        {
+          "id": "07-REQ-9.2",
+          "ears_pattern": "event_driven",
+          "system": "`_cleanup_feedback_worktree`",
+          "action": "removes the worktree directory at `worktrees/feedback-{issue_number}`; if the directory does not exist, silently no-ops and logs at DEBUG: 'Feedback worktree not found for issue #{n} \u2014 skipping cleanup.'",
+          "return_contract": "returns None; never raises an exception regardless of directory existence",
+          "trigger": "called in a finally block during or after a feedback iteration"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_setup_feedback_worktree`",
+          "action": "treats the failure as a worktree creation error: logs at ERROR, does not attempt `git worktree add`; `_cleanup_feedback_worktree` is called in the finally block and silently no-ops since no directory was created",
+          "return_contract": "raises an exception; issue is skipped for this cycle; af:pr label remains",
+          "error_condition": "`git fetch origin <branch>` fails due to network error or branch not found on origin"
+        },
+        {
+          "id": "07-REQ-9.E2",
+          "ears_pattern": "unwanted",
+          "system": "`_setup_feedback_worktree`",
+          "action": "logs at ERROR; `_cleanup_feedback_worktree` is called in the finally block and silently no-ops since the directory was not created",
+          "return_contract": "raises an exception; issue is skipped for this cycle; af:pr label remains",
+          "error_condition": "`git worktree add` fails after a successful fetch (e.g., disk space exhaustion or branch name conflict)"
+        },
+        {
+          "id": "07-REQ-9.E3",
+          "ears_pattern": "unwanted",
+          "system": "`_setup_feedback_worktree`",
+          "action": "the subprocess call must be wrapped with a timeout; if the timeout fires, the subprocess is terminated, an exception is raised, and the finally block calls `_cleanup_feedback_worktree`",
+          "return_contract": "raises a timeout exception; issue is skipped for this cycle",
+          "error_condition": "a git subprocess hangs and does not return"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-10",
+      "title": "Feedback context collection",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "format CI failures or review comments as structured markdown for the coder",
+        "benefit": "the coder receives precise, actionable context for the re-coding session"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-10.1",
+          "ears_pattern": "event_driven",
+          "system": "`_collect_feedback`",
+          "action": "formats the `ci_failures` list under a `## CI Failures` heading, including each `CheckResult`'s `name`, `output_title`, and `output_summary` fields; produces no `## Review Feedback` section",
+          "return_contract": "returns a non-empty markdown string containing exactly one section headed '## CI Failures'",
+          "trigger": "called with `trigger='ci'`"
+        },
+        {
+          "id": "07-REQ-10.2",
+          "ears_pattern": "event_driven",
+          "system": "`_collect_feedback`",
+          "action": "formats the `review_comments` list under a `## Review Feedback` heading, including each `ReviewComment`'s `user`, `body`, and `state` fields; produces no `## CI Failures` section",
+          "return_contract": "returns a non-empty markdown string containing exactly one section headed '## Review Feedback'",
+          "trigger": "called with `trigger='review'`"
+        },
+        {
+          "id": "07-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`_collect_feedback`",
+          "action": "accepts signature `(trigger: Literal['ci', 'review'], ci_failures: list[CheckResult], review_comments: list[ReviewComment]) -> str` and always formats exactly one section, since CI and review re-entry paths are mutually exclusive",
+          "return_contract": "returns a str; never combines both sections in a single output"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "07-REQ-11",
+      "title": "Coder session invocation during feedback re-entry",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "re-run the coder with failure context on the fix branch",
+        "benefit": "the coder can address CI failures or reviewer changes autonomously"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-11.1",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "constructs a synthetic `TriageResult` with `summary=issue.title`, `affected_files` from `git diff --name-only <integration_branch> <fix_branch>` run in the feedback worktree, `criteria=[]`, `assessed_complexity=None`, `issue_body=issue.body`; then calls `pipeline._build_coder_prompt(spec, triage, review_feedback=<collected_feedback>, prior_context='', knowledge_context='')`",
+          "return_contract": "coder prompt is constructed with the review_feedback parameter populated and prior_context and knowledge_context both empty strings",
+          "trigger": "retry limit is not exceeded"
+        },
+        {
+          "id": "07-REQ-11.2",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "invokes `pipeline._run_coder_session()` with the feedback worktree workspace and the same model ID used by the original fix pipeline (read from the nightshift model configuration)",
+          "return_contract": "awaits the coder session coroutine; returns the session result object",
+          "trigger": "coder prompt has been constructed"
+        },
+        {
+          "id": "07-REQ-11.3",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "defaults `affected_files` to an empty list and logs a WARNING: 'git diff --name-only failed for issue #{n}, PR #{pr} \u2014 defaulting affected_files to [].'",
+          "return_contract": "coder session proceeds with affected_files=[]",
+          "trigger": "`git diff --name-only <integration_branch> <fix_branch>` fails or returns empty output"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_run_feedback_iteration`",
+          "action": "logs at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: coder session raised \u2014 {exc}.'; skips the issue for this cycle; calls `_cleanup_feedback_worktree` in the finally block; leaves all labels intact",
+          "return_contract": "returns None; af:pr label remains on the issue",
+          "error_condition": "`pipeline._run_coder_session` raises an exception"
+        },
+        {
+          "id": "07-REQ-11.E2",
+          "ears_pattern": "unwanted",
+          "system": "`_run_feedback_iteration`",
+          "action": "the calling coroutine must propagate the asyncio CancelledError or timeout exception; the finally block calls `_cleanup_feedback_worktree`; ERROR is logged",
+          "return_contract": "exception propagated; issue skipped; worktree cleaned up",
+          "error_condition": "`pipeline._run_coder_session` does not return within a reasonable timeout"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-12",
+      "title": "Tracking comment update and force-push",
+      "user_story": {
+        "role": "nightshift PR feedback module",
+        "goal": "persist the incremented attempt counter before pushing changes",
+        "benefit": "the retry count is never lost even if the push fails, preventing indefinite re-triggering"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-12.1",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "posts an updated tracking comment using `format_tracking_comment(pr_number=pr_number, attempt=attempt+1, pr_url='', message=_FEEDBACK_ITERATION_MESSAGE.format(attempt=attempt+1))` via `platform.add_issue_comment(issue.number, comment)`",
+          "return_contract": "tracking comment is posted to the issue before any diff check or force-push; `add_issue_comment` returns None on success",
+          "trigger": "the coder session completes and before computing the diff"
+        },
+        {
+          "id": "07-REQ-12.2",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "calls `pipeline._auto_commit_pending_changes()` with commit message `_FEEDBACK_COMMIT_MESSAGE.format(issue_title=issue.title, attempt=attempt+1)`, then runs `git push --force` on the fix branch to origin",
+          "return_contract": "PR is updated with new commits; logs at INFO: 'Feedback iteration {attempt+1} complete for issue #{n}, PR #{pr}.'",
+          "trigger": "tracking comment is posted successfully and the coder produced file changes (non-empty diff)"
+        },
+        {
+          "id": "07-REQ-12.3",
+          "ears_pattern": "event_driven",
+          "system": "`_run_feedback_iteration`",
+          "action": "skips the force-push; posts a _NO_CHANGES_MESSAGE comment to the issue; logs at WARNING; the attempt counter is already incremented in the tracking comment",
+          "return_contract": "returns None after cleanup; no force-push is executed",
+          "trigger": "tracking comment is posted successfully and the coder produced an empty diff"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-12.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_run_feedback_iteration`",
+          "action": "logs at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: failed to post tracking comment \u2014 {exc}.'; skips the force-push; calls `_cleanup_feedback_worktree` in the finally block; old attempt counter remains on the issue",
+          "return_contract": "returns None; af:pr label remains; next poll cycle re-triggers with the original counter",
+          "error_condition": "`platform.add_issue_comment` raises during tracking comment posting"
+        },
+        {
+          "id": "07-REQ-12.E2",
+          "ears_pattern": "unwanted",
+          "system": "`_run_feedback_iteration`",
+          "action": "logs at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: git push --force failed \u2014 {exc}.'; calls `_cleanup_feedback_worktree` in the finally block; the incremented counter remains persisted in the tracking comment",
+          "return_contract": "returns None; af:pr label remains; next cycle retries with the incremented counter or halts at the limit",
+          "error_condition": "`git push --force` fails after tracking comment has already been posted"
+        },
+        {
+          "id": "07-REQ-12.E3",
+          "ears_pattern": "unwanted",
+          "system": "`_run_feedback_iteration`",
+          "action": "logs at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: auto-commit failed \u2014 {exc}.'; skips the force-push; calls `_cleanup_feedback_worktree` in the finally block",
+          "return_contract": "returns None; af:pr label remains",
+          "error_condition": "`pipeline._auto_commit_pending_changes` raises"
+        },
+        {
+          "id": "07-REQ-12.E4",
+          "ears_pattern": "ubiquitous",
+          "system": "`_run_feedback_iteration`",
+          "action": "uses `git push --force` (not `--force-with-lease`) because the previous worktree was destroyed and the local ref is stale; `--force-with-lease` would fail in this scenario",
+          "return_contract": null
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-13",
+      "title": "Worktree cleanup in error paths",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "ensure no orphaned git worktrees accumulate on the filesystem when feedback iterations fail",
+        "benefit": "disk space is not exhausted and subsequent git operations are not blocked by stale worktrees"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-13.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_run_feedback_iteration`",
+          "action": "wraps all feedback iteration operations (fetch through force-push) in a try/finally block that calls `_cleanup_feedback_worktree(issue.number)` unconditionally on exit",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-13.2",
+          "ears_pattern": "event_driven",
+          "system": "`_cleanup_feedback_worktree`",
+          "action": "silently no-ops and logs at DEBUG: 'Feedback worktree not found for issue #{n} \u2014 skipping cleanup.' without raising any exception",
+          "return_contract": "returns None; no exception is raised",
+          "trigger": "the worktree directory `worktrees/feedback-{issue_number}` does not exist"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-13.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_cleanup_feedback_worktree`",
+          "action": "logs the failure at WARNING and does not re-raise; the finally block must not mask the original exception by raising a secondary one",
+          "return_contract": "returns None; original exception from the try block propagates normally",
+          "error_condition": "the worktree removal command itself fails (e.g., permission error)"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-14",
+      "title": "Structured logging for PR feedback loop",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "monitor PR feedback loop health through structured log output",
+        "benefit": "all state transitions and failures are observable without adding new state counters"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-14.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback` module",
+          "action": "emits INFO logs for: PR merged and issue closed; PR closed without merge; re-entry triggered by CI; re-entry triggered by review; retry limit reached; feedback iteration complete",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-14.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback` module",
+          "action": "emits WARNING logs for: missing or malformed tracking comment; ambiguous CI state; platform API error during polling phase; coder produced no changes; `git diff --name-only` failure",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-14.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback` module",
+          "action": "emits ERROR logs for: fetch failure; worktree creation failure; force-push failure; coder session exception; auto-commit failure; tracking comment post failure",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-14.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback` module",
+          "action": "emits DEBUG log when `_cleanup_feedback_worktree` is called for a non-existent directory",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-14.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`NightShiftState`",
+          "action": "requires no new fields beyond the existing `issue_checks_completed` counter; all observability is provided via structured log lines",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "07-REQ-15",
+      "title": "Module structure and composition",
+      "user_story": {
+        "role": "nightshift developer",
+        "goal": "implement PR feedback logic in a focused, composable module",
+        "benefit": "the feedback module remains maintainable and does not complicate the FixPipeline class hierarchy"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-15.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback.py`",
+          "action": "defines `process_pr_issue`, `_check_pr_state`, `_check_ci_status`, `_check_reviews`, `_collect_feedback`, `_run_feedback_iteration`, `_setup_feedback_worktree`, and `_cleanup_feedback_worktree` as module-level functions; does not subclass `FixPipeline`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-15.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback.py`",
+          "action": "defines module-level string constants: `_FEEDBACK_ITERATION_MESSAGE`, `_NO_CHANGES_MESSAGE`, `_RETRY_LIMIT_MESSAGE`, `_FEEDBACK_COMMIT_MESSAGE`; imports `parse_tracking_comment`, `format_tracking_comment`, `PR_TRACKING_PATTERN`, `TriageResult`, `FixPipeline` from `agentfox.nightshift.fix_pipeline`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-15.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`pr_feedback.py`",
+          "action": "imports `PlatformProtocol`, `IssueResult`, `CheckResult`, `ReviewComment` from `afissues.protocol`; imports `LABEL_PR`, `LABEL_FIXED` from `afissues.labels`; imports `sanitise_branch_name` from `agentfox.nightshift.spec_builder`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-15.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`process_pr_issue`",
+          "action": "is declared as `async def process_pr_issue(issue: IssueResult, config: NightShiftConfig, platform: PlatformProtocol, pipeline: FixPipeline) -> None` and receives a `FixPipeline` reference for composition",
+          "return_contract": "returns None in all cases (success or skip)"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "07-REQ-16",
+      "title": "Label exclusivity and fix-pipeline guard",
+      "user_story": {
+        "role": "nightshift fix pipeline",
+        "goal": "never double-process an issue that is already under PR monitoring",
+        "benefit": "the fix pipeline and PR feedback loop operate on disjoint issue sets with no additional guard code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-16.1",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift label lifecycle",
+          "action": "ensures `af:fix` and `af:pr` are mutually exclusive on any issue at any time; spec 06 removes `af:fix` and adds `af:pr` when a PR is created; this spec removes `af:pr` when a PR is merged or closed without merge",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-16.2",
+          "ears_pattern": "state_driven",
+          "system": "fix pipeline",
+          "action": "does not select the issue via `list_issues_by_label(LABEL_FIX)` and never processes it",
+          "return_contract": "the issue is invisible to the fix pipeline query",
+          "state": "an issue carries only `af:pr` (no `af:fix`)"
+        },
+        {
+          "id": "07-REQ-16.3",
+          "ears_pattern": "event_driven",
+          "system": "`process_pr_issue`",
+          "action": "removes `af:pr` from the issue and leaves the issue open without `af:fix`; the fix pipeline only re-picks the issue if `af:fix` is subsequently re-added by a human labeling action",
+          "return_contract": "returns None; issue is open with no nightshift labels",
+          "trigger": "a PR is closed without merge"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "07-PROP-1",
+      "title": "Retry limit is never exceeded",
+      "for_any": "issue with `attempt` read from tracking comment and `max_pr_retries` from config",
+      "invariant": "feedback re-entry (worktree creation, coder session, force-push) is only executed when `attempt <= max_pr_retries`; when `attempt > max_pr_retries`, only a limit-reached comment is posted",
+      "validates": [
+        "07-REQ-8.1",
+        "07-REQ-8.2",
+        "07-REQ-8.E1",
+        "07-REQ-8.E2"
+      ]
+    },
+    {
+      "id": "07-PROP-2",
+      "title": "af:pr and af:fix labels are mutually exclusive",
+      "for_any": "any GitHub issue managed by nightshift",
+      "invariant": "no issue carries both `af:pr` and `af:fix` simultaneously at any point during or after a nightshift operation",
+      "validates": [
+        "07-REQ-16.1",
+        "07-REQ-16.2",
+        "07-REQ-16.3"
+      ]
+    },
+    {
+      "id": "07-PROP-3",
+      "title": "Tracking comment is persisted before force-push",
+      "for_any": "any feedback iteration that completes the tracking comment step",
+      "invariant": "the incremented attempt counter tracking comment is posted to the issue before any force-push is attempted; if the force-push fails the counter remains visible on the issue",
+      "validates": [
+        "07-REQ-12.1",
+        "07-REQ-12.2",
+        "07-REQ-12.E2"
+      ]
+    },
+    {
+      "id": "07-PROP-4",
+      "title": "Feedback worktree is always cleaned up",
+      "for_any": "any execution of _run_feedback_iteration regardless of success or failure",
+      "invariant": "_cleanup_feedback_worktree is called in a finally block; if the worktree directory does not exist, cleanup silently no-ops without raising",
+      "validates": [
+        "07-REQ-13.1",
+        "07-REQ-13.2",
+        "07-REQ-13.E1"
+      ]
+    },
+    {
+      "id": "07-PROP-5",
+      "title": "CI and review re-entry paths are mutually exclusive",
+      "for_any": "any single call to process_pr_issue",
+      "invariant": "_collect_feedback is called with exactly one trigger value ('ci' or 'review') and never both; CI failure in step 3 prevents step 4 from executing",
+      "validates": [
+        "07-REQ-6.2",
+        "07-REQ-7.1",
+        "07-REQ-10.3"
+      ]
+    },
+    {
+      "id": "07-PROP-6",
+      "title": "Poll cycle cap prevents excessive API usage",
+      "for_any": "any poll cycle fired by the pr-feedback EngineWorkStream",
+      "invariant": "at most `_MAX_PR_CHECKS` (5) issues are processed per cycle regardless of how many af:pr issues exist; older issues are always processed before newer ones",
+      "validates": [
+        "07-REQ-3.1",
+        "07-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "07-PROP-7",
+      "title": "Platform API errors during polling never post comments",
+      "for_any": "any platform API exception raised during the polling phase of process_pr_issue",
+      "invariant": "no comment is posted to the issue on polling-phase API failures; only a WARNING log is emitted and the issue is skipped",
+      "validates": [
+        "07-REQ-5.E1",
+        "07-REQ-6.E2",
+        "07-REQ-7.E1",
+        "07-REQ-4.E2"
+      ]
+    },
+    {
+      "id": "07-PROP-8",
+      "title": "max_pr_retries=0 disables all feedback iterations",
+      "for_any": "any feedback trigger when max_pr_retries is configured to 0",
+      "invariant": "no worktree is created, no coder session runs, and no force-push occurs; only the retry limit comment and INFO log are emitted",
+      "validates": [
+        "07-REQ-8.E1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "07-PATH-1",
+      "title": "Merged PR detected and issue closed automatically",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream on the pr_check_interval schedule"
+        },
+        {
+          "actor": "NightShiftEngine._check_open_prs",
+          "action": "calls platform.list_issues_by_label(LABEL_PR) and receives a list of open af:pr issues in oldest-first order"
+        },
+        {
+          "actor": "NightShiftEngine._check_open_prs",
+          "action": "caps the list to _MAX_PR_CHECKS issues and awaits process_pr_issue() for the first issue"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "calls platform.list_issue_comments(issue.number) and finds the last comment matching PR_TRACKING_PATTERN"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "calls parse_tracking_comment on the matching comment to extract pr_number and attempt"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.get_pr_state(pr_number) and receives PrState with merged=True"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.assign_label(issue.number, LABEL_FIXED), platform.remove_label(issue.number, LABEL_PR), platform.close_issue(issue.number, 'PR #{pr_number} merged.')"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "logs at INFO: 'PR #{pr} merged for issue #{n}. Closed with af:fixed.' and returns"
+        },
+        {
+          "actor": "NightShiftEngine._check_open_prs",
+          "action": "increments state.issue_checks_completed and proceeds to the next issue if any"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-2",
+      "title": "CI failure triggers feedback re-entry and coder re-run",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream"
+        },
+        {
+          "actor": "NightShiftEngine._check_open_prs",
+          "action": "lists af:pr issues and awaits process_pr_issue() for an open-PR issue"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "parses tracking comment to extract pr_number=42 and attempt=1"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.get_pr_state(42) and receives state='open', merged=False"
+        },
+        {
+          "actor": "_check_ci_status",
+          "action": "calls platform.get_pr_checks(42) and finds one CheckResult with conclusion='failure'"
+        },
+        {
+          "actor": "_check_ci_status",
+          "action": "logs at INFO: 'Re-entry triggered for issue #{n}, PR #{pr}: CI failure/timeout.' and returns re-entry signal"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "evaluates attempt=1 <= max_pr_retries=2 and proceeds"
+        },
+        {
+          "actor": "_collect_feedback",
+          "action": "formats the failed CheckResult under ## CI Failures and returns a markdown string"
+        },
+        {
+          "actor": "_setup_feedback_worktree",
+          "action": "runs git fetch origin fix/42-slug then git worktree add worktrees/feedback-42 on the fix branch"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "runs git diff --name-only integration_branch fix_branch to compute affected_files"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "constructs a synthetic TriageResult with issue title, affected_files, and issue body"
+        },
+        {
+          "actor": "FixPipeline._build_coder_prompt",
+          "action": "builds system and task prompts with review_feedback=<ci_markdown>, prior_context='', knowledge_context=''"
+        },
+        {
+          "actor": "FixPipeline._run_coder_session",
+          "action": "executes the coder session in the feedback worktree"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "calls format_tracking_comment(pr_number=42, attempt=2, pr_url='', message=_FEEDBACK_ITERATION_MESSAGE) and platform.add_issue_comment to post the updated tracking comment"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "computes the diff; finds non-empty changes"
+        },
+        {
+          "actor": "FixPipeline._auto_commit_pending_changes",
+          "action": "commits changes with message 'fix: <issue title> [nightshift feedback #2]'"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "runs git push --force on the fix branch to origin"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "logs at INFO: 'Feedback iteration 2 complete for issue #{n}, PR #42.'"
+        },
+        {
+          "actor": "_cleanup_feedback_worktree",
+          "action": "removes the worktree at worktrees/feedback-42"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-3",
+      "title": "Reviewer change request triggers feedback re-entry",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "parses tracking comment and extracts pr_number and attempt"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "receives state='open' from get_pr_state; proceeds to CI check"
+        },
+        {
+          "actor": "_check_ci_status",
+          "action": "all checks have conclusion='success'; returns pass-through signal to review check"
+        },
+        {
+          "actor": "_check_reviews",
+          "action": "calls platform.get_pr_reviews(pr_number); filters out DISMISSED reviews; latest active review has state='CHANGES_REQUESTED'"
+        },
+        {
+          "actor": "_check_reviews",
+          "action": "logs at INFO: 'Re-entry triggered for issue #{n}, PR #{pr}: reviewer requested changes.' and returns re-entry signal"
+        },
+        {
+          "actor": "_collect_feedback",
+          "action": "called with trigger='review'; formats reviewer user, body, state under ## Review Feedback"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "runs full feedback iteration: fetch, worktree, coder, tracking comment, force-push, cleanup"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-4",
+      "title": "Retry limit reached \u2014 PR flagged for manual attention",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "parses tracking comment and extracts attempt=3 with max_pr_retries=2"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "receives state='open'; proceeds to CI check"
+        },
+        {
+          "actor": "_check_ci_status",
+          "action": "returns re-entry signal (CI failure detected)"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "evaluates attempt=3 > max_pr_retries=2 as True; stops re-entry"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "logs at INFO: 'Retry limit reached for issue #{n}, PR #{pr} (attempt 3/3). Needs manual attention.'"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "posts _RETRY_LIMIT_MESSAGE comment to the issue via platform.add_issue_comment"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "leaves af:pr label in place and returns None; no worktree is created"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-5",
+      "title": "PR closed without merge \u2014 issue left open for manual triage",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "parses tracking comment successfully"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.get_pr_state(pr_number) and receives state='closed', merged=False"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.add_issue_comment with 'PR #{pr_number} was closed without merging. Removing af:pr label for manual triage.'"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.remove_label(issue.number, LABEL_PR); logs at INFO"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "returns None; issue is open without any af:pr or af:fixed label"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-6",
+      "title": "Full end-to-end: nightshift daemon creates PR then detects merge and closes issue",
+      "steps": [
+        {
+          "actor": "human operator",
+          "action": "configures nightshift with merge_strategy='pr' and starts the daemon"
+        },
+        {
+          "actor": "DaemonRunner",
+          "action": "initialises work streams including fix-pipeline and pr-feedback in priority order"
+        },
+        {
+          "actor": "EngineWorkStream (fix-pipeline)",
+          "action": "fires; NightShiftEngine._drain_issues picks up a labeled af:fix issue and runs the fix pipeline"
+        },
+        {
+          "actor": "FixPipeline (spec 06)",
+          "action": "creates a PR on GitHub; removes af:fix; adds af:pr; posts initial tracking comment with attempt=1 to the issue"
+        },
+        {
+          "actor": "EngineWorkStream (pr-feedback)",
+          "action": "fires after pr_check_interval seconds; NightShiftEngine._check_open_prs lists af:pr issues"
+        },
+        {
+          "actor": "process_pr_issue",
+          "action": "parses tracking comment from the issue; extracts pr_number and attempt=1"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "calls platform.get_pr_state; human has merged the PR; receives merged=True"
+        },
+        {
+          "actor": "_check_pr_state",
+          "action": "assigns af:fixed label, removes af:pr label, closes issue with comment 'PR #{pr_number} merged.'"
+        },
+        {
+          "actor": "NightShiftEngine._check_open_prs",
+          "action": "increments issue_checks_completed; cycle completes"
+        },
+        {
+          "actor": "human operator",
+          "action": "observes the issue is closed with af:fixed label and the merge confirmation comment"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-7",
+      "title": "Coder produces no changes during feedback iteration",
+      "steps": [
+        {
+          "actor": "EngineWorkStream scheduler",
+          "action": "fires the pr-feedback stream; CI failure detected for an open PR"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "retry limit not exceeded; runs fetch and worktree setup"
+        },
+        {
+          "actor": "FixPipeline._run_coder_session",
+          "action": "completes but produces no file changes in the worktree"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "posts updated tracking comment with incremented attempt counter before diff check"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "computes diff; diff is empty; skips force-push"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "posts _NO_CHANGES_MESSAGE comment to the issue via platform.add_issue_comment"
+        },
+        {
+          "actor": "_run_feedback_iteration",
+          "action": "logs at WARNING: 'Feedback iteration {attempt} for issue #{n}, PR #{pr}: coder produced no changes.'"
+        },
+        {
+          "actor": "_cleanup_feedback_worktree",
+          "action": "removes the feedback worktree; returns None"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "07-ERR-1",
+      "condition": "Platform API exception raised during the polling phase (get_pr_state, get_pr_checks, get_pr_reviews, list_issue_comments, or label operations)",
+      "behavior": "Log at WARNING with issue number, PR number, and exception message. Skip the issue for this poll cycle. Leave all labels intact. Post no comment to the issue. Retry on the next poll cycle.",
+      "requirement_id": "07-REQ-5.E1"
+    },
+    {
+      "id": "07-ERR-2",
+      "condition": "Platform API exception raised mid-sequence during merged PR label transition (e.g., assign_label succeeds but close_issue raises)",
+      "behavior": "Log at WARNING. Skip the issue for this cycle. All three operations (assign_label, remove_label, close_issue) are idempotent at the GitHub API level; re-application on the next cycle is safe.",
+      "requirement_id": "07-REQ-5.E2"
+    },
+    {
+      "id": "07-ERR-3",
+      "condition": "No tracking comment matching PR_TRACKING_PATTERN found on the issue, or parse_tracking_comment returns None (malformed comment)",
+      "behavior": "Log at WARNING: 'Skipped issue #{n}: no valid tracking comment found. Will retry next cycle.' Skip the issue. Leave af:pr label in place for retry on the next poll cycle. Post no comment.",
+      "requirement_id": "07-REQ-4.2"
+    },
+    {
+      "id": "07-ERR-4",
+      "condition": "git fetch origin <branch> fails during _setup_feedback_worktree (network error or branch not found on origin)",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: git fetch failed \u2014 {exc}.' Skip the issue. Leave all labels intact. _cleanup_feedback_worktree silently no-ops in the finally block.",
+      "requirement_id": "07-REQ-9.E1"
+    },
+    {
+      "id": "07-ERR-5",
+      "condition": "git worktree add fails after a successful fetch (disk space exhaustion, branch name conflict, or other git error)",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: git worktree add failed \u2014 {exc}.' Skip the issue. Leave all labels intact. _cleanup_feedback_worktree silently no-ops in the finally block.",
+      "requirement_id": "07-REQ-9.E2"
+    },
+    {
+      "id": "07-ERR-6",
+      "condition": "platform.add_issue_comment raises during tracking comment posting in step 5 of feedback re-entry",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: failed to post tracking comment \u2014 {exc}.' Skip the force-push. Call _cleanup_feedback_worktree. Old attempt counter remains; next cycle re-triggers with the correct counter.",
+      "requirement_id": "07-REQ-12.E1"
+    },
+    {
+      "id": "07-ERR-7",
+      "condition": "git push --force fails after tracking comment has been successfully posted",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: git push --force failed \u2014 {exc}.' Call _cleanup_feedback_worktree in the finally block. Incremented attempt counter is already persisted. Leave af:pr label intact. Next cycle retries or hits the limit.",
+      "requirement_id": "07-REQ-12.E2"
+    },
+    {
+      "id": "07-ERR-8",
+      "condition": "_run_coder_session raises an exception during the feedback iteration",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: coder session raised \u2014 {exc}.' Skip the issue. Call _cleanup_feedback_worktree in the finally block. Leave all labels intact.",
+      "requirement_id": "07-REQ-11.E1"
+    },
+    {
+      "id": "07-ERR-9",
+      "condition": "_auto_commit_pending_changes raises during the feedback iteration",
+      "behavior": "Log at ERROR: 'Error in feedback iteration for issue #{n}, PR #{pr}: auto-commit failed \u2014 {exc}.' Skip the force-push. Call _cleanup_feedback_worktree in the finally block. Leave af:pr label intact.",
+      "requirement_id": "07-REQ-12.E3"
+    },
+    {
+      "id": "07-ERR-10",
+      "condition": "All CI checks have conclusion in {cancelled, action_required, stale} with none having conclusion='success'",
+      "behavior": "Log at WARNING: 'Skipped issue #{n}, PR #{pr}: all checks in ambiguous state (cancelled/action_required/stale).' Skip the issue for this cycle. No re-entry is triggered.",
+      "requirement_id": "07-REQ-6.3"
+    },
+    {
+      "id": "07-ERR-11",
+      "condition": "_cleanup_feedback_worktree is called and the worktree directory does not exist",
+      "behavior": "Silently no-op. Log at DEBUG: 'Feedback worktree not found for issue #{n} \u2014 skipping cleanup.' Do not raise any exception.",
+      "requirement_id": "07-REQ-13.2"
+    },
+    {
+      "id": "07-ERR-12",
+      "condition": "git diff --name-only command fails or returns empty output when computing affected_files",
+      "behavior": "Default affected_files to []. Log at WARNING: 'git diff --name-only failed for issue #{n}, PR #{pr} \u2014 defaulting affected_files to [].' Continue the coder session with the empty list.",
+      "requirement_id": "07-REQ-11.3"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "afissues",
+      "version": "4.2.6",
+      "symbols": [
+        {
+          "name": "PlatformProtocol.get_pr_state",
+          "import_path": "afissues.protocol",
+          "signature": "async (pr_number: int) -> PrState",
+          "notes": "From spec 06 (pr_lifecycle_labels). Returns PrState with merged: bool and state: str fields."
+        },
+        {
+          "name": "PlatformProtocol.get_pr_checks",
+          "import_path": "afissues.protocol",
+          "signature": "async (pr_number: int) -> list[CheckResult]",
+          "notes": "From spec 06. Each CheckResult has name, status, conclusion, output_title, output_summary fields."
+        },
+        {
+          "name": "PlatformProtocol.get_pr_reviews",
+          "import_path": "afissues.protocol",
+          "signature": "async (pr_number: int) -> list[ReviewComment]",
+          "notes": "From spec 06. Each ReviewComment has user, body, state fields."
+        },
+        {
+          "name": "PlatformProtocol.list_issues_by_label",
+          "import_path": "afissues.protocol",
+          "signature": "async (label: str, ...) -> list[IssueResult]",
+          "notes": "Existing method. Default sort=created, direction=asc produces oldest-first ordering."
+        },
+        {
+          "name": "PlatformProtocol.list_issue_comments",
+          "import_path": "afissues.protocol",
+          "signature": "async (issue_number: int) -> list[IssueComment]",
+          "notes": "Existing method. Returns comments oldest-first per GitHub API default ordering."
+        },
+        {
+          "name": "PlatformProtocol.assign_label",
+          "import_path": "afissues.protocol",
+          "signature": "async (issue_number: int, label: str) -> None",
+          "notes": "Existing method. Idempotent at the GitHub API level."
+        },
+        {
+          "name": "PlatformProtocol.remove_label",
+          "import_path": "afissues.protocol",
+          "signature": "async (issue_number: int, label: str) -> None",
+          "notes": "Existing method. Idempotent at the GitHub API level."
+        },
+        {
+          "name": "PlatformProtocol.close_issue",
+          "import_path": "afissues.protocol",
+          "signature": "async (issue_number: int, comment: str | None) -> None",
+          "notes": "Existing method. Idempotent at the GitHub API level."
+        },
+        {
+          "name": "PlatformProtocol.add_issue_comment",
+          "import_path": "afissues.protocol",
+          "signature": "async (issue_number: int, body: str) -> None",
+          "notes": "Existing method."
+        },
+        {
+          "name": "LABEL_PR",
+          "import_path": "afissues.labels",
+          "signature": "str = 'af:pr'",
+          "notes": "From spec 06."
+        },
+        {
+          "name": "LABEL_FIXED",
+          "import_path": "afissues.labels",
+          "signature": "str = 'af:fixed'",
+          "notes": "Existing constant."
+        },
+        {
+          "name": "LABEL_FIX",
+          "import_path": "afissues.labels",
+          "signature": "str = 'af:fix'",
+          "notes": "Existing constant."
+        }
+      ]
+    },
+    {
+      "package": "agentfox",
+      "version": "4.2.6",
+      "symbols": [
+        {
+          "name": "parse_tracking_comment",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "(body: str) -> tuple[int, int] | None",
+          "notes": "From spec 06. Returns (pr_number, attempt) or None if malformed."
+        },
+        {
+          "name": "format_tracking_comment",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "(pr_number, attempt, pr_url, message) -> str",
+          "notes": "From spec 06. pr_url passed as '' for feedback iteration comments."
+        },
+        {
+          "name": "PR_TRACKING_PATTERN",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "re.Pattern",
+          "notes": "From spec 06. Used to find tracking comments in list_issue_comments results."
+        },
+        {
+          "name": "TriageResult",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "@dataclass(frozen=True)",
+          "notes": "Existing. Synthetic instances constructed for feedback re-entry with summary, affected_files, criteria, assessed_complexity, issue_body fields."
+        },
+        {
+          "name": "FixPipeline._build_coder_prompt",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "(spec, triage, review_feedback, prior_context, knowledge_context) -> tuple[str, str]",
+          "notes": "Existing. prior_context='' and knowledge_context='' passed for feedback re-entry."
+        },
+        {
+          "name": "FixPipeline._run_coder_session",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "async (workspace, spec, system_prompt, task_prompt, model_id) -> object",
+          "notes": "Existing. model_id sourced from nightshift model configuration."
+        },
+        {
+          "name": "FixPipeline._auto_commit_pending_changes",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "(commit_message: str) -> None",
+          "notes": "Existing commit helper. Commit message format: 'fix: {issue_title} [nightshift feedback #{attempt}]'."
+        },
+        {
+          "name": "sanitise_branch_name",
+          "import_path": "agentfox.nightshift.spec_builder",
+          "signature": "(title: str, issue_number: int | None) -> str",
+          "notes": "Existing. Used to derive the fix branch name from issue title and number."
+        },
+        {
+          "name": "NightShiftEngine",
+          "import_path": "agentfox.nightshift.engine",
+          "signature": "class",
+          "notes": "Adding _check_open_prs() as async def method and _MAX_PR_CHECKS = 5 as module-level constant."
+        },
+        {
+          "name": "NightShiftState",
+          "import_path": "agentfox.nightshift.engine",
+          "signature": "@dataclass",
+          "notes": "Has issue_checks_completed counter. No new fields added by this spec."
+        },
+        {
+          "name": "build_streams",
+          "import_path": "agentfox.nightshift.streams",
+          "signature": "(config, *, engine, budget) -> list[WorkStream]",
+          "notes": "Adding the pr-feedback EngineWorkStream entry."
+        },
+        {
+          "name": "EngineWorkStream",
+          "import_path": "agentfox.nightshift.streams",
+          "signature": "class",
+          "notes": "Used to wrap _check_open_prs with the configured pr_check_interval."
+        },
+        {
+          "name": "DaemonRunner",
+          "import_path": "agentfox.nightshift.daemon",
+          "signature": "class",
+          "notes": "Priority list updated to include pr-feedback after fix-pipeline."
+        },
+        {
+          "name": "NightShiftConfig",
+          "import_path": "agentfox.core.config",
+          "signature": "Pydantic model",
+          "notes": "Adding pr_check_interval and max_pr_retries fields with validators."
+        },
+        {
+          "name": "WorkspaceConfig",
+          "import_path": "agentfox.core.config",
+          "signature": "Pydantic model",
+          "notes": "Reading merge_strategy and integration_branch fields."
+        }
+      ]
+    }
+  ]
+}

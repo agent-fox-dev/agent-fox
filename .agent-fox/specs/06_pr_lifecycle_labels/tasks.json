@@ -1,0 +1,1437 @@
+{
+  "$schema": null,
+  "spec_id": "06",
+  "spec_name": "pr_lifecycle_labels",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/ -q -k 'spec06 or pr_lifecycle'",
+    "all_tests": "pytest -q",
+    "linter": "ruff check"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "02",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Assumes create_pr() exists on protocol and _integrate_fix() handles PR mode",
+      "sentinel": false
+    },
+    {
+      "depends_on_spec": "03",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Protocol types and labels live in afissues package",
+      "sentinel": false
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: label constant, dataclass definitions, and protocol declarations",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write tests for LABEL_PR constant and REQUIRED_LABELS bootstrap entry",
+          "details": [
+            "Test that `LABEL_PR == 'af:pr'` and `REQUIRED_LABELS` contains correct LabelSpec entry with color `#1d76db`.",
+            "Test that bootstrap calls GitHub API to create the label when absent.",
+            "Test that `LABEL_PR` is importable from top-level `afissues`.",
+            "Test that bootstrap raises `IntegrationError` and halts when GitHub API returns error on label creation."
+          ],
+          "test_spec_refs": [
+            "TS-06-1",
+            "TS-06-2",
+            "TS-06-3",
+            "TS-06-E1"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-1.2",
+            "06-REQ-1.3",
+            "06-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write tests for PrResult and PrState frozen dataclasses",
+          "details": [
+            "Test `PrResult(html_url=..., number=...)` constructs correctly with `frozen=True`.",
+            "Test `PrState(number=..., state=..., merged=..., head_sha=...)` constructs correctly with `frozen=True`.",
+            "Test that mutation of any field on `PrResult` or `PrState` raises `FrozenInstanceError`."
+          ],
+          "test_spec_refs": [
+            "TS-06-4",
+            "TS-06-5",
+            "TS-06-E2"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-2.2",
+            "06-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write tests for CheckResult and ReviewComment frozen dataclasses",
+          "details": [
+            "Test `CheckResult` fields including `conclusion: str | None` accepting None.",
+            "Test `ReviewComment` stores `submitted_at` as raw ISO 8601 string without parsing.",
+            "Test that API response with `output: null` maps to `output_title=''` and `output_summary=''`.",
+            "Test all four dataclasses importable from top-level `afissues`.",
+            "Test mutation raises `FrozenInstanceError` on `CheckResult` and `ReviewComment`."
+          ],
+          "test_spec_refs": [
+            "TS-06-6",
+            "TS-06-7",
+            "TS-06-8",
+            "TS-06-9",
+            "TS-06-E2"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.3",
+            "06-REQ-2.4",
+            "06-REQ-2.5",
+            "06-REQ-2.6",
+            "06-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write tests for PlatformProtocol new method declarations and NullPlatform stubs",
+          "details": [
+            "Test that `PlatformProtocol.get_pr_state` is an async method with return type `PrState`.",
+            "Test that `PlatformProtocol.get_pr_checks` is an async method with return type `list[CheckResult]`.",
+            "Test that `PlatformProtocol.get_pr_reviews` is an async method with return type `list[ReviewComment]`.",
+            "Test that each of the three new `NullPlatform` methods raises `NotImplementedError`."
+          ],
+          "test_spec_refs": [
+            "TS-06-10",
+            "TS-06-11",
+            "TS-06-12",
+            "TS-06-13"
+          ],
+          "requirement_refs": [
+            "06-REQ-3.1",
+            "06-REQ-3.2",
+            "06-REQ-3.3",
+            "06-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All tests in group 1 are collected by pytest without import errors: `pytest tests/ -q --collect-only -k 'spec06'`",
+          "Tests for label constants, dataclass structure, and protocol declarations are present and fail (red) before implementation.",
+          "No linter warnings in new test files: `ruff check tests/`",
+          "Requirements 06-REQ-1.1, 06-REQ-1.2, 06-REQ-1.3, 06-REQ-1.E1, 06-REQ-2.1 through 06-REQ-2.6, 06-REQ-3.1 through 06-REQ-3.4 have corresponding tests."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: GitHubPlatform method implementations and create_pr return type",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write tests for GitHubPlatform.get_pr_state",
+          "details": [
+            "Test that `get_pr_state(42)` calls `GET /repos/{owner}/{repo}/pulls/42` and maps response to `PrState`.",
+            "Test that non-2xx response raises `IntegrationError`.",
+            "Test that a response missing `head` field raises `KeyError` or `IntegrationError`.",
+            "Test that timeout/retry exhaustion raises `IntegrationError` without hanging."
+          ],
+          "test_spec_refs": [
+            "TS-06-14",
+            "TS-06-15",
+            "TS-06-E3",
+            "TS-06-E4"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-4.2",
+            "06-REQ-4.E1",
+            "06-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write tests for GitHubPlatform.get_pr_checks including pagination and null output",
+          "details": [
+            "Test that `get_pr_checks(42)` fetches head SHA via `get_pr_state` then calls check-runs endpoint.",
+            "Test pagination: total_count=35 results in two page requests returning all 35 results.",
+            "Test that check run with `output: null` produces `output_title=''` and `output_summary=''`.",
+            "Test that missing `check_runs` or `total_count` in response raises `KeyError` or `IntegrationError`.",
+            "Test that a paginated request failing on page 2 raises `IntegrationError` without partial result.",
+            "Test optional 10-page safety cap: method terminates and returns at most 300 runs."
+          ],
+          "test_spec_refs": [
+            "TS-06-16",
+            "TS-06-17",
+            "TS-06-18",
+            "TS-06-E5",
+            "TS-06-E6",
+            "TS-06-E7"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.1",
+            "06-REQ-5.2",
+            "06-REQ-5.3",
+            "06-REQ-5.E1",
+            "06-REQ-5.E2",
+            "06-REQ-5.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write tests for GitHubPlatform.get_pr_reviews",
+          "details": [
+            "Test that `get_pr_reviews(42)` calls `GET /repos/{owner}/{repo}/pulls/42/reviews` and returns ordered list.",
+            "Test that all review states (APPROVED, DISMISSED, CHANGES_REQUESTED, COMMENTED) are returned unfiltered.",
+            "Test that response missing `state` field on a review object raises `KeyError` or `IntegrationError`.",
+            "Test that non-2xx GitHub response raises `IntegrationError`."
+          ],
+          "test_spec_refs": [
+            "TS-06-19",
+            "TS-06-20",
+            "TS-06-E8",
+            "TS-06-E9"
+          ],
+          "requirement_refs": [
+            "06-REQ-6.1",
+            "06-REQ-6.2",
+            "06-REQ-6.E1",
+            "06-REQ-6.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write tests for create_pr() return type change to PrResult",
+          "details": [
+            "Test that `PlatformProtocol.create_pr()` return annotation is `PrResult`.",
+            "Test that 201 response extracts `html_url` and `number` and returns `PrResult`.",
+            "Test that 422 recovery path returns `PrResult` with `html_url` and `number` from matched PR.",
+            "Test that `session_lifecycle.py` accesses `result.html_url` without `AttributeError`.",
+            "Test that `fix_pipeline.py` accesses `result.html_url` and `result.number` correctly.",
+            "Test that 422 recovery with empty list raises `IntegrationError`.",
+            "Test that 201 body missing `number` raises `KeyError` or `IntegrationError`."
+          ],
+          "test_spec_refs": [
+            "TS-06-21",
+            "TS-06-22",
+            "TS-06-23",
+            "TS-06-24",
+            "TS-06-25",
+            "TS-06-E10",
+            "TS-06-E11"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.1",
+            "06-REQ-7.2",
+            "06-REQ-7.3",
+            "06-REQ-7.4",
+            "06-REQ-7.5",
+            "06-REQ-7.E1",
+            "06-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All tests in group 2 are collected by pytest without import errors: `pytest tests/ -q --collect-only -k 'spec06'`",
+          "Tests for `get_pr_state`, `get_pr_checks`, `get_pr_reviews`, and `create_pr` return type are present and fail (red) before implementation.",
+          "No linter warnings in new test files: `ruff check tests/`",
+          "Requirements 06-REQ-4.1 through 06-REQ-7.E2 have corresponding tests."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: premature-close bug fix, _handle_result, and tracking comment utilities",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for _integrate_fix returning pr_created and _pr_number propagation",
+          "details": [
+            "Test that `_integrate_fix()` returns `('pr_created', changed_files)` when `merge_strategy='pr'`.",
+            "Test that `FixPipeline.__init__` initialises `self._pr_number = None`.",
+            "Test that `self._pr_number == result.number` after `create_pr()` succeeds.",
+            "Test that exception from `create_pr()` propagates and `self._pr_number` remains `None`.",
+            "Test that timeout in `create_pr()` raises `IntegrationError` and `_pr_number` stays `None`."
+          ],
+          "test_spec_refs": [
+            "TS-06-26",
+            "TS-06-27",
+            "TS-06-28",
+            "TS-06-29",
+            "TS-06-E12"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-8.2",
+            "06-REQ-8.3",
+            "06-REQ-8.4",
+            "06-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write regression tests for _handle_result with pr_created status (premature-close fix)",
+          "details": [
+            "Premature-close regression: assert `_handle_result('pr_created')` does NOT close issue and does NOT apply `af:fixed`.",
+            "Test idempotency: `af:pr` already present → no raise, tracking comment still posted.",
+            "Test that `af:fixed` is never applied and `close_issue()` is never called for `pr_created`.",
+            "Test that failing `assign_label('af:pr')` raises `IntegrationError` without close.",
+            "Test that `_pr_number=None` with status `pr_created` raises `RuntimeError` or `AssertionError`."
+          ],
+          "test_spec_refs": [
+            "TS-06-30",
+            "TS-06-31",
+            "TS-06-32",
+            "TS-06-E13",
+            "TS-06-E14"
+          ],
+          "requirement_refs": [
+            "06-REQ-9.1",
+            "06-REQ-9.2",
+            "06-REQ-9.3",
+            "06-REQ-9.E1",
+            "06-REQ-9.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write tests for tracking comment utilities and _handle_result comment posting",
+          "details": [
+            "Test `PR_TRACKING_PATTERN` is a `re.Pattern` matching `<!-- af:pr-tracking pr_number=42 attempt=1 -->`.",
+            "Test `format_tracking_comment` produces HTML comment tag on first line and message on second line.",
+            "Test `parse_tracking_comment` returns `(pr_number, attempt)` as integers, or `None` when absent.",
+            "Test `_handle_result` posts comment with correct tracking comment body including HTML tag.",
+            "Test all three utilities are importable at module level from `agentfox.nightshift.fix_pipeline`.",
+            "Test that multiple tags in body returns first match.",
+            "Test that empty string or untagged body returns `None` without raising."
+          ],
+          "test_spec_refs": [
+            "TS-06-33",
+            "TS-06-34",
+            "TS-06-35",
+            "TS-06-36",
+            "TS-06-37",
+            "TS-06-E15",
+            "TS-06-E16"
+          ],
+          "requirement_refs": [
+            "06-REQ-10.1",
+            "06-REQ-10.2",
+            "06-REQ-10.3",
+            "06-REQ-10.4",
+            "06-REQ-10.5",
+            "06-REQ-10.E1",
+            "06-REQ-10.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write property-based tests for correctness properties",
+          "details": [
+            "Property test TS-06-P1: `_handle_result('pr_created')` never closes issue or applies `af:fixed` for any label set.",
+            "Property test TS-06-P2: `parse_tracking_comment(format_tracking_comment(n, a, url, msg)) == (n, a)` for all valid inputs using hypothesis.",
+            "Property test TS-06-P3: null output always yields `output_title=''` and `output_summary=''` as `str`.",
+            "Property test TS-06-P4: all four dataclasses raise `FrozenInstanceError` on any field mutation.",
+            "Property test TS-06-P5: when `_integrate_fix` returns `pr_created`, `_pr_number` equals `result.number`.",
+            "Property test TS-06-P6: `NullPlatform` always raises `NotImplementedError` for all three new methods."
+          ],
+          "test_spec_refs": [
+            "TS-06-P1",
+            "TS-06-P2",
+            "TS-06-P3",
+            "TS-06-P4",
+            "TS-06-P5",
+            "TS-06-P6"
+          ],
+          "requirement_refs": [
+            "06-REQ-9.1",
+            "06-REQ-9.3",
+            "06-REQ-10.2",
+            "06-REQ-10.3",
+            "06-REQ-2.5",
+            "06-REQ-5.3",
+            "06-REQ-2.1",
+            "06-REQ-2.2",
+            "06-REQ-2.3",
+            "06-REQ-2.4",
+            "06-REQ-8.1",
+            "06-REQ-8.3",
+            "06-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All tests in group 3 are collected by pytest without import errors: `pytest tests/ -q --collect-only -k 'spec06'`",
+          "Premature-close regression test is present, clearly named, and fails red before implementation.",
+          "Tracking comment round-trip property test uses hypothesis and fails red before implementation.",
+          "No linter warnings in new test files: `ruff check tests/`",
+          "Requirements 06-REQ-8.1 through 06-REQ-10.E2 have corresponding tests."
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement af:pr label constant and afissues.labels bootstrap entry",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Add LABEL_PR constant and LabelSpec entry to afissues/labels.py",
+          "details": [
+            "Add `LABEL_PR = 'af:pr'` constant to `afissues/labels.py`.",
+            "Add a `LabelSpec` entry in `REQUIRED_LABELS` with `name='af:pr'`, `color='#1d76db'`, `description='Pull request created — awaiting merge'`.",
+            "Ensure the bootstrap routine reads `REQUIRED_LABELS` and creates missing labels — verify no new bootstrap code is needed since the routine already iterates `REQUIRED_LABELS`."
+          ],
+          "test_spec_refs": [
+            "TS-06-1"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Re-export LABEL_PR from afissues/__init__.py",
+          "details": [
+            "Add `LABEL_PR` to the imports/exports in `afissues/__init__.py`.",
+            "Ensure `from afissues import LABEL_PR` resolves to `'af:pr'`."
+          ],
+          "test_spec_refs": [
+            "TS-06-3"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Tests TS-06-1, TS-06-2, TS-06-3 pass: `pytest tests/ -q -k 'TS_06_1 or TS_06_2 or TS_06_3'`",
+          "No linter warnings: `ruff check afissues/labels.py afissues/__init__.py`",
+          "Requirements 06-REQ-1.1, 06-REQ-1.2, 06-REQ-1.3 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement the four frozen dataclasses in afissues/protocol.py and re-export from __init__",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Define PrResult and PrState frozen dataclasses in afissues/protocol.py",
+          "details": [
+            "Define `@dataclass(frozen=True) class PrResult` with `html_url: str` and `number: int`.",
+            "Define `@dataclass(frozen=True) class PrState` with `number: int`, `state: str`, `merged: bool`, `head_sha: str`."
+          ],
+          "test_spec_refs": [
+            "TS-06-4",
+            "TS-06-5"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Define CheckResult and ReviewComment frozen dataclasses in afissues/protocol.py",
+          "details": [
+            "Define `@dataclass(frozen=True) class CheckResult` with `name: str`, `status: str`, `conclusion: str | None`, `output_title: str`, `output_summary: str`.",
+            "Define `@dataclass(frozen=True) class ReviewComment` with `user: str`, `state: str`, `body: str`, `submitted_at: str`.",
+            "Document in docstrings that `output_title` and `output_summary` are empty strings when GitHub API returns null output."
+          ],
+          "test_spec_refs": [
+            "TS-06-6",
+            "TS-06-7",
+            "TS-06-8"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.3",
+            "06-REQ-2.4",
+            "06-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Re-export all four new dataclasses from afissues/__init__.py",
+          "details": [
+            "Add `PrResult`, `PrState`, `CheckResult`, `ReviewComment` to exports in `afissues/__init__.py`.",
+            "Verify `from afissues import PrResult, PrState, CheckResult, ReviewComment` succeeds."
+          ],
+          "test_spec_refs": [
+            "TS-06-9"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Tests TS-06-4 through TS-06-9 pass: `pytest tests/ -q -k 'TS_06_4 or TS_06_5 or TS_06_6 or TS_06_7 or TS_06_8 or TS_06_9'`",
+          "Property test TS-06-P4 (immutability) passes: `pytest tests/ -q -k 'TS_06_P4'`",
+          "No linter warnings: `ruff check afissues/protocol.py afissues/__init__.py`",
+          "Requirements 06-REQ-2.1 through 06-REQ-2.6 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Extend PlatformProtocol with three new method declarations and add NullPlatform stubs",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Add get_pr_state, get_pr_checks, get_pr_reviews abstract methods to PlatformProtocol",
+          "details": [
+            "Add `async def get_pr_state(self, pr_number: int) -> PrState: ...` to `PlatformProtocol`.",
+            "Add `async def get_pr_checks(self, pr_number: int) -> list[CheckResult]: ...` to `PlatformProtocol`.",
+            "Add `async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]: ...` to `PlatformProtocol`.",
+            "Ensure method annotations are fully resolvable for `get_type_hints()` inspection."
+          ],
+          "test_spec_refs": [
+            "TS-06-10",
+            "TS-06-11",
+            "TS-06-12"
+          ],
+          "requirement_refs": [
+            "06-REQ-3.1",
+            "06-REQ-3.2",
+            "06-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Add NotImplementedError stubs for new methods on NullPlatform",
+          "details": [
+            "Implement `get_pr_state`, `get_pr_checks`, `get_pr_reviews` on `NullPlatform` each with `raise NotImplementedError`.",
+            "Pattern must match existing `NullPlatform.create_pr()` stub style."
+          ],
+          "test_spec_refs": [
+            "TS-06-13"
+          ],
+          "requirement_refs": [
+            "06-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Change create_pr() return type to PrResult in PlatformProtocol",
+          "details": [
+            "Update `PlatformProtocol.create_pr()` signature from `-> str` to `-> PrResult`.",
+            "Update any docstrings or type comments referencing the old return type."
+          ],
+          "test_spec_refs": [
+            "TS-06-21"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Tests TS-06-10, TS-06-11, TS-06-12, TS-06-13, TS-06-21 pass: `pytest tests/ -q -k 'TS_06_10 or TS_06_11 or TS_06_12 or TS_06_13 or TS_06_21'`",
+          "Property test TS-06-P6 passes: `pytest tests/ -q -k 'TS_06_P6'`",
+          "No linter warnings: `ruff check afissues/protocol.py`",
+          "Requirements 06-REQ-3.1 through 06-REQ-3.4, 06-REQ-7.1 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement GitHubPlatform.get_pr_state and update create_pr() return type",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Implement GitHubPlatform.get_pr_state using _request() helper",
+          "details": [
+            "Implement `async def get_pr_state(self, pr_number: int) -> PrState` on `GitHubPlatform`.",
+            "Call `GET /repos/{owner}/{repo}/pulls/{pr_number}` via `self._request()`.",
+            "Map response: `PrState(number=data['number'], state=data['state'], merged=data['merged'], head_sha=data['head']['sha'])`.",
+            "Let `KeyError` propagate naturally for missing fields; `IntegrationError` propagates from `_request()`."
+          ],
+          "test_spec_refs": [
+            "TS-06-14",
+            "TS-06-15",
+            "TS-06-E3",
+            "TS-06-E4"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-4.2",
+            "06-REQ-4.E1",
+            "06-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Update GitHubPlatform.create_pr() to return PrResult instead of str",
+          "details": [
+            "Change happy path to return `PrResult(html_url=data['html_url'], number=data['number'])`.",
+            "On 422 recovery path, extract both `html_url` and `number` from the first matched PR.",
+            "If 422 recovery lookup returns empty list, raise `IntegrationError`.",
+            "Let `KeyError` propagate if 201 response body is missing `html_url` or `number`."
+          ],
+          "test_spec_refs": [
+            "TS-06-22",
+            "TS-06-23",
+            "TS-06-E10",
+            "TS-06-E11"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.2",
+            "06-REQ-7.3",
+            "06-REQ-7.E1",
+            "06-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Update callers: session_lifecycle.py and fix_pipeline.py to use result.html_url",
+          "details": [
+            "In `session_lifecycle.py`, change bare string usage of `create_pr()` return to `result.html_url`.",
+            "In `fix_pipeline.py`, use `result.html_url` for logging and `result.number` for tracking comment context.",
+            "Search codebase for any other callers of `create_pr()` and update them."
+          ],
+          "test_spec_refs": [
+            "TS-06-24",
+            "TS-06-25"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.4",
+            "06-REQ-7.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Tests TS-06-14, TS-06-15, TS-06-21, TS-06-22, TS-06-23, TS-06-24, TS-06-25 pass: `pytest tests/ -q -k 'TS_06_14 or TS_06_15 or TS_06_22 or TS_06_23 or TS_06_24 or TS_06_25'`",
+          "Edge case tests TS-06-E3, TS-06-E4, TS-06-E10, TS-06-E11 pass: `pytest tests/ -q -k 'TS_06_E3 or TS_06_E4 or TS_06_E10 or TS_06_E11'`",
+          "No linter warnings: `ruff check afissues/github.py agentfox/nightshift/session_lifecycle.py agentfox/nightshift/fix_pipeline.py`",
+          "Requirements 06-REQ-4.1, 06-REQ-4.2, 06-REQ-7.2 through 06-REQ-7.5 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement GitHubPlatform.get_pr_checks with pagination and get_pr_reviews",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement GitHubPlatform.get_pr_checks with head SHA fetch and null output handling",
+          "details": [
+            "Implement `async def get_pr_checks(self, pr_number: int) -> list[CheckResult]` on `GitHubPlatform`.",
+            "First call `await self.get_pr_state(pr_number)` to obtain `head_sha`.",
+            "Fetch `GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs` via `_request()`.",
+            "Map each check run: `output_title = run['output']['title'] if run['output'] else ''`, same for `output_summary`.",
+            "Let `KeyError` propagate for missing `check_runs` or `total_count`."
+          ],
+          "test_spec_refs": [
+            "TS-06-16",
+            "TS-06-18",
+            "TS-06-E5"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.1",
+            "06-REQ-5.3",
+            "06-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Add pagination logic to get_pr_checks with optional 10-page safety cap",
+          "details": [
+            "After the first page, check if `total_count > len(page_results)`; if so, fetch subsequent pages.",
+            "Accumulate all `CheckResult` objects across pages.",
+            "Stop at page 10 (300 results) at implementer's discretion as safety cap.",
+            "If any page request raises `IntegrationError`, propagate immediately without returning partial list."
+          ],
+          "test_spec_refs": [
+            "TS-06-17",
+            "TS-06-E6",
+            "TS-06-E7"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.2",
+            "06-REQ-5.E2",
+            "06-REQ-5.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Implement GitHubPlatform.get_pr_reviews",
+          "details": [
+            "Implement `async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]` on `GitHubPlatform`.",
+            "Call `GET /repos/{owner}/{repo}/pulls/{pr_number}/reviews` via `_request()`.",
+            "Map each review: `ReviewComment(user=r['user']['login'], state=r['state'], body=r['body'], submitted_at=r['submitted_at'])`.",
+            "Return reviews in API response order with no filtering.",
+            "Let `KeyError` or `IntegrationError` propagate for malformed or error responses."
+          ],
+          "test_spec_refs": [
+            "TS-06-19",
+            "TS-06-20",
+            "TS-06-E8",
+            "TS-06-E9"
+          ],
+          "requirement_refs": [
+            "06-REQ-6.1",
+            "06-REQ-6.2",
+            "06-REQ-6.E1",
+            "06-REQ-6.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Tests TS-06-16, TS-06-17, TS-06-18, TS-06-19, TS-06-20 pass: `pytest tests/ -q -k 'TS_06_16 or TS_06_17 or TS_06_18 or TS_06_19 or TS_06_20'`",
+          "Edge case tests TS-06-E5, TS-06-E6, TS-06-E7, TS-06-E8, TS-06-E9 pass: `pytest tests/ -q -k 'TS_06_E5 or TS_06_E6 or TS_06_E7 or TS_06_E8 or TS_06_E9'`",
+          "Property test TS-06-P3 passes: `pytest tests/ -q -k 'TS_06_P3'`",
+          "No linter warnings: `ruff check afissues/github.py`",
+          "Requirements 06-REQ-5.1 through 06-REQ-6.E2 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Fix premature-close bug: update _integrate_fix return value and add _pr_number attribute",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Add self._pr_number instance attribute to FixPipeline.__init__",
+          "details": [
+            "Add `self._pr_number: int | None = None` to `FixPipeline.__init__()` in `fix_pipeline.py`.",
+            "Ensure placement is consistent with existing instance attribute initialisation pattern."
+          ],
+          "test_spec_refs": [
+            "TS-06-27"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Change _integrate_fix to return pr_created and set self._pr_number after create_pr()",
+          "details": [
+            "In the PR mode branch of `_integrate_fix()`, after `result = await self.platform.create_pr(...)`, set `self._pr_number = result.number`.",
+            "Return `('pr_created', changed_files)` instead of `('merged', changed_files)`.",
+            "Do NOT wrap `create_pr()` in try/except — let exceptions propagate naturally so `_pr_number` stays `None` on failure.",
+            "Confirm `self._pr_number` is set BEFORE the return statement."
+          ],
+          "test_spec_refs": [
+            "TS-06-26",
+            "TS-06-28",
+            "TS-06-29",
+            "TS-06-E12"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-8.3",
+            "06-REQ-8.4",
+            "06-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Tests TS-06-26, TS-06-27, TS-06-28, TS-06-29 pass: `pytest tests/ -q -k 'TS_06_26 or TS_06_27 or TS_06_28 or TS_06_29'`",
+          "Edge case tests TS-06-E12 passes: `pytest tests/ -q -k 'TS_06_E12'`",
+          "Property test TS-06-P5 passes: `pytest tests/ -q -k 'TS_06_P5'`",
+          "No linter warnings: `ruff check agentfox/nightshift/fix_pipeline.py`",
+          "Requirements 06-REQ-8.1 through 06-REQ-8.E1 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement tracking comment utilities and _handle_result pr_created handler",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Add PR_TRACKING_PATTERN, format_tracking_comment, and parse_tracking_comment to fix_pipeline.py",
+          "details": [
+            "Add `import re` if not already present in `fix_pipeline.py`.",
+            "Define `PR_TRACKING_PATTERN = re.compile(r'<!-- af:pr-tracking pr_number=(\\d+) attempt=(\\d+) -->')` at module level.",
+            "Define `def format_tracking_comment(pr_number: int, attempt: int, pr_url: str, message: str) -> str` returning `f'<!-- af:pr-tracking pr_number={pr_number} attempt={attempt} -->\\n{message}'`.",
+            "Define `def parse_tracking_comment(body: str) -> tuple[int, int] | None` using `PR_TRACKING_PATTERN.search(body)`; return `(int(m.group(1)), int(m.group(2)))` or `None`."
+          ],
+          "test_spec_refs": [
+            "TS-06-33",
+            "TS-06-34",
+            "TS-06-35",
+            "TS-06-37",
+            "TS-06-E15",
+            "TS-06-E16"
+          ],
+          "requirement_refs": [
+            "06-REQ-10.1",
+            "06-REQ-10.2",
+            "06-REQ-10.3",
+            "06-REQ-10.5",
+            "06-REQ-10.E1",
+            "06-REQ-10.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Implement _handle_result handler for pr_created status",
+          "details": [
+            "In `_handle_result()`, add a branch for `status == 'pr_created'`.",
+            "Guard: `assert self._pr_number is not None, 'pr_number must be set before pr_created status'`.",
+            "Add `af:pr` label via platform API; remove `af:fix` label via platform API.",
+            "Call `format_tracking_comment(pr_number=self._pr_number, attempt=1, pr_url=result.html_url, message=f'Pull request created: {result.html_url}')` and post as a new comment.",
+            "Do NOT call any close API; do NOT apply `af:fixed`.",
+            "Idempotency: label operations are already no-ops at GitHub API level; always post a new comment regardless."
+          ],
+          "test_spec_refs": [
+            "TS-06-30",
+            "TS-06-31",
+            "TS-06-32",
+            "TS-06-36",
+            "TS-06-E13",
+            "TS-06-E14"
+          ],
+          "requirement_refs": [
+            "06-REQ-9.1",
+            "06-REQ-9.2",
+            "06-REQ-9.3",
+            "06-REQ-9.E1",
+            "06-REQ-9.E2",
+            "06-REQ-10.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Tests TS-06-30, TS-06-31, TS-06-32, TS-06-33, TS-06-34, TS-06-35, TS-06-36, TS-06-37 pass: `pytest tests/ -q -k 'TS_06_30 or TS_06_31 or TS_06_32 or TS_06_33 or TS_06_34 or TS_06_35 or TS_06_36 or TS_06_37'`",
+          "Edge case tests TS-06-E13, TS-06-E14, TS-06-E15, TS-06-E16 pass: `pytest tests/ -q -k 'TS_06_E13 or TS_06_E14 or TS_06_E15 or TS_06_E16'`",
+          "Property tests TS-06-P1 and TS-06-P2 pass: `pytest tests/ -q -k 'TS_06_P1 or TS_06_P2'`",
+          "No linter warnings: `ruff check agentfox/nightshift/fix_pipeline.py`",
+          "Requirements 06-REQ-9.1 through 06-REQ-10.5 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "checkpoint",
+      "title": "Checkpoint: full spec test suite green, all property tests passing",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Run full spec test suite and confirm all unit and property tests pass",
+          "details": [
+            "Run `pytest tests/ -q -k 'spec06 or pr_lifecycle'` and confirm zero failures.",
+            "Confirm all six property tests (TS-06-P1 through TS-06-P6) pass.",
+            "Confirm all 16 edge case tests (TS-06-E1 through TS-06-E16) pass."
+          ],
+          "test_spec_refs": [
+            "TS-06-1",
+            "TS-06-P1",
+            "TS-06-P2",
+            "TS-06-P3",
+            "TS-06-P4",
+            "TS-06-P5",
+            "TS-06-P6"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-2.1",
+            "06-REQ-3.1",
+            "06-REQ-4.1",
+            "06-REQ-5.1",
+            "06-REQ-6.1",
+            "06-REQ-7.1",
+            "06-REQ-8.1",
+            "06-REQ-9.1",
+            "06-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Confirm no regressions in existing test suite",
+          "details": [
+            "Run `pytest -q` (full suite) and confirm no pre-existing tests are broken by the `create_pr()` return type change or `_integrate_fix()` status change.",
+            "Check specifically for any test referencing the old `'merged'` return value from PR mode."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run linter across all modified modules",
+          "details": [
+            "Run `ruff check afissues/ agentfox/nightshift/` and confirm zero warnings.",
+            "Ensure all new symbols are properly typed and no `Any` types are introduced inadvertently."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "Full spec test suite passes: `pytest tests/ -q -k 'spec06 or pr_lifecycle'` with zero failures.",
+          "All property tests pass with hypothesis: `pytest tests/ -q -k 'TS_06_P'`.",
+          "Full regression suite passes: `pytest -q` with zero new failures.",
+          "Zero linter warnings: `ruff check afissues/ agentfox/nightshift/`."
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, smoke tests, and dead-code audit",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Run smoke tests for happy path, idempotent retry, protocol consumer, and bootstrap",
+          "details": [
+            "Run TS-06-SMOKE-1: fix pipeline creates PR, assigns `af:pr`, posts tracking comment, issue stays open.",
+            "Run TS-06-SMOKE-2: idempotent retry with `af:pr` already present — no raise, new comment posted.",
+            "Run TS-06-SMOKE-3: `get_pr_state`, `get_pr_checks`, `get_pr_reviews` return correct frozen dataclasses.",
+            "Run TS-06-SMOKE-4: bootstrap creates `af:pr` label from `REQUIRED_LABELS`.",
+            "Confirm `close_issue()` is never called in SMOKE-1 or SMOKE-2."
+          ],
+          "test_spec_refs": [
+            "TS-06-SMOKE-1",
+            "TS-06-SMOKE-2",
+            "TS-06-SMOKE-3",
+            "TS-06-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-9.1",
+            "06-REQ-10.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Trace execution paths: verify _integrate_fix pr_created return flows into _handle_result",
+          "details": [
+            "Trace 06-PATH-1: confirm `_integrate_fix()` returns `('pr_created', ...)` which is received by `_handle_result()` in production call chain.",
+            "Confirm `_handle_result()` branching on `'pr_created'` status is wired to real label/comment platform calls.",
+            "Confirm no intermediate stub returns the old `'merged'` value for PR mode.",
+            "Trace 06-PATH-4: confirm bootstrap reads `REQUIRED_LABELS` and calls label creation API for `af:pr`."
+          ],
+          "test_spec_refs": [
+            "TS-06-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Verify return value propagation: PrResult.number reaches tracking comment",
+          "details": [
+            "Confirm `create_pr()` return value `PrResult` is consumed by `_integrate_fix()` — `result.number` stored in `self._pr_number`.",
+            "Confirm `self._pr_number` is read by `_handle_result()` and passed to `format_tracking_comment(pr_number=self._pr_number, attempt=1, ...)`.",
+            "Confirm `result.html_url` is used in `session_lifecycle.py` and `fix_pipeline.py` log statements without `AttributeError`.",
+            "Confirm tracking comment body posted to GitHub contains the literal `pr_number` value from the `PrResult`."
+          ],
+          "test_spec_refs": [
+            "TS-06-25",
+            "TS-06-36"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.2",
+            "06-REQ-8.3",
+            "06-REQ-10.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Stub and dead-code audit: verify no raise NotImplementedError in production paths",
+          "details": [
+            "Search `afissues/github.py` for `raise NotImplementedError` — must appear ONLY in `NullPlatform`, not in `GitHubPlatform`.",
+            "Search `agentfox/nightshift/fix_pipeline.py` for `pass` in non-abstract methods and bare `return None` in methods that should return values.",
+            "Confirm `format_tracking_comment`, `parse_tracking_comment`, and `PR_TRACKING_PATTERN` are all callable/accessible at module level (not stubs).",
+            "Confirm `get_pr_state`, `get_pr_checks`, `get_pr_reviews` on `GitHubPlatform` all contain real API call logic, not `raise NotImplementedError`.",
+            "Run `grep -rn 'raise NotImplementedError' afissues/github.py` — result must be empty."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-5.1",
+            "06-REQ-6.1",
+            "06-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.5",
+          "title": "Cross-spec entry point verification: create_pr callers updated in all dependent modules",
+          "details": [
+            "Confirm `session_lifecycle.py` uses `result.html_url` — search for any bare string assignment from `create_pr()` return value.",
+            "Confirm `fix_pipeline.py` uses `result.html_url` for logging and `result.number` for tracking comment.",
+            "Search codebase for `create_pr()` call sites: `grep -rn 'create_pr(' agentfox/ afissues/'` — verify all callers handle `PrResult` not bare `str`.",
+            "Verify protocol consumers (including any spec-02 callers) compile without type errors."
+          ],
+          "test_spec_refs": [
+            "TS-06-24",
+            "TS-06-25"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.4",
+            "06-REQ-7.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.6",
+          "title": "Call-site verification: confirm new GitHub methods and utilities are called from production code",
+          "details": [
+            "Confirm `get_pr_state`, `get_pr_checks`, `get_pr_reviews` are called from at least one production code path (not only tests) — check `fix_pipeline.py` or the follow-on feedback module entry points.",
+            "Confirm `parse_tracking_comment` and `format_tracking_comment` are called from `_handle_result()` in production flow, not only importable.",
+            "Confirm `LABEL_PR` constant from `afissues.labels` is referenced in `_handle_result()` label assignment call.",
+            "Document any methods that are implemented but not yet called by production code as 'reserved for pr_feedback_loop spec' in a code comment."
+          ],
+          "test_spec_refs": [
+            "TS-06-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-5.1",
+            "06-REQ-6.1",
+            "06-REQ-10.2",
+            "06-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "All four smoke tests pass with real components: `pytest tests/ -q -k 'TS_06_SMOKE'`",
+          "Full test suite passes with zero failures: `pytest -q`",
+          "Zero linter warnings across all modified files: `ruff check afissues/ agentfox/nightshift/`",
+          "Stub audit clean: `grep -rn 'raise NotImplementedError' afissues/github.py` returns empty; `NullPlatform` stubs remain in `afissues/protocol.py`",
+          "Dead-code audit: no `pass` or `return None` stubs remain in `GitHubPlatform` new methods",
+          "Requirements 06-REQ-1.1, 06-REQ-2.1, 06-REQ-3.1, 06-REQ-4.1, 06-REQ-5.1, 06-REQ-6.1, 06-REQ-7.1, 06-REQ-8.1, 06-REQ-9.1, 06-REQ-10.1 all verified end-to-end via smoke tests",
+          "Execution paths 06-PATH-1, 06-PATH-2, 06-PATH-3, 06-PATH-4 confirmed through smoke tests and code tracing"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "06-REQ-1.1",
+      "test_spec_id": "TS-06-1",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.2",
+      "test_spec_id": "TS-06-2",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.3",
+      "test_spec_id": "TS-06-3",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.E1",
+      "test_spec_id": "TS-06-E1",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.1",
+      "test_spec_id": "TS-06-4",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.2",
+      "test_spec_id": "TS-06-5",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.3",
+      "test_spec_id": "TS-06-6",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.4",
+      "test_spec_id": "TS-06-7",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.5",
+      "test_spec_id": "TS-06-8",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.6",
+      "test_spec_id": "TS-06-9",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.E1",
+      "test_spec_id": "TS-06-E2",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.1",
+      "test_spec_id": "TS-06-10",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.2",
+      "test_spec_id": "TS-06-11",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.3",
+      "test_spec_id": "TS-06-12",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.4",
+      "test_spec_id": "TS-06-13",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.1",
+      "test_spec_id": "TS-06-14",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.2",
+      "test_spec_id": "TS-06-15",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.E1",
+      "test_spec_id": "TS-06-E3",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.E2",
+      "test_spec_id": "TS-06-E4",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.1",
+      "test_spec_id": "TS-06-16",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.2",
+      "test_spec_id": "TS-06-17",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.3",
+      "test_spec_id": "TS-06-18",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.E1",
+      "test_spec_id": "TS-06-E5",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.E2",
+      "test_spec_id": "TS-06-E6",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.E3",
+      "test_spec_id": "TS-06-E7",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.1",
+      "test_spec_id": "TS-06-19",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.2",
+      "test_spec_id": "TS-06-20",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.E1",
+      "test_spec_id": "TS-06-E8",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.E2",
+      "test_spec_id": "TS-06-E9",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.1",
+      "test_spec_id": "TS-06-21",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.2",
+      "test_spec_id": "TS-06-22",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.3",
+      "test_spec_id": "TS-06-23",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.4",
+      "test_spec_id": "TS-06-24",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.5",
+      "test_spec_id": "TS-06-25",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.E1",
+      "test_spec_id": "TS-06-E10",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.E2",
+      "test_spec_id": "TS-06-E11",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.1",
+      "test_spec_id": "TS-06-26",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.2",
+      "test_spec_id": "TS-06-27",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.3",
+      "test_spec_id": "TS-06-28",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.4",
+      "test_spec_id": "TS-06-29",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.E1",
+      "test_spec_id": "TS-06-E12",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.1",
+      "test_spec_id": "TS-06-30",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.2",
+      "test_spec_id": "TS-06-31",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.3",
+      "test_spec_id": "TS-06-32",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.E1",
+      "test_spec_id": "TS-06-E13",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.E2",
+      "test_spec_id": "TS-06-E14",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.1",
+      "test_spec_id": "TS-06-33",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.2",
+      "test_spec_id": "TS-06-34",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.3",
+      "test_spec_id": "TS-06-35",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.4",
+      "test_spec_id": "TS-06-36",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.5",
+      "test_spec_id": "TS-06-37",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.E1",
+      "test_spec_id": "TS-06-E15",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.E2",
+      "test_spec_id": "TS-06-E16",
+      "task_id": "10.1",
+      "test_path": null
+    }
+  ]
+}

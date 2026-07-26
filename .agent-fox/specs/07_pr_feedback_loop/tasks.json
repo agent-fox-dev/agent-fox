@@ -1,0 +1,1651 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "pr_feedback_loop",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/nightshift/test_pr_feedback_loop.py -q",
+    "all_tests": "pytest -q",
+    "linter": "ruff check agentfox/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "06",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Hard prerequisite — spec 06 (pr_lifecycle_labels) must be merged before spec 07 is implemented. Provides af:pr label, PrState, CheckResult, ReviewComment types, protocol methods (get_pr_state, get_pr_checks, get_pr_reviews), and tracking comment utilities.",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: config fields, work stream registration, and dispatcher",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write tests for NightShiftConfig pr_check_interval and max_pr_retries fields",
+          "details": [
+            "Test that pr_check_interval defaults to 900 and clamps values below 60 to 60 (e.g., input 30 → 60).",
+            "Test that max_pr_retries defaults to 2 and clamps to [0, 10] (e.g., -1 → 0, 15 → 10).",
+            "Verify no ValidationError is raised for out-of-range inputs — silent clamping only.",
+            "File: tests/nightshift/test_pr_feedback_loop.py, class TestConfigFields."
+          ],
+          "test_spec_refs": [
+            "TS-07-1",
+            "TS-07-2",
+            "TS-07-E1",
+            "TS-07-E2"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.1",
+            "07-REQ-1.2",
+            "07-REQ-1.E1",
+            "07-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write tests for build_streams pr-feedback registration and DaemonRunner priority",
+          "details": [
+            "Test that build_streams includes a 'pr-feedback' EngineWorkStream after 'fix-pipeline' when merge_strategy='pr' and platform type is not 'none'.",
+            "Test that build_streams omits 'pr-feedback' when merge_strategy is not 'pr' or platform type is 'none'.",
+            "Test that DaemonRunner.priority_order places 'pr-feedback' after 'fix-pipeline'.",
+            "Use a mock NightShiftEngine instance; verify interval matches pr_check_interval."
+          ],
+          "test_spec_refs": [
+            "TS-07-3",
+            "TS-07-4",
+            "TS-07-5"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.1",
+            "07-REQ-2.2",
+            "07-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write tests for _check_open_prs dispatcher sequencing and _MAX_PR_CHECKS constant",
+          "details": [
+            "Test that _check_open_prs calls list_issues_by_label(LABEL_PR), caps at 5, sequentially awaits process_pr_issue, and increments issue_checks_completed.",
+            "Test that calls are sequential (no concurrent gather) by recording call timestamps.",
+            "Test that _MAX_PR_CHECKS == 5 is in engine.py and NOT in pr_feedback.py.",
+            "Test cap with 8 issues: only first 5 processed. Test empty list: nothing processed, counter unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-07-6",
+            "TS-07-7",
+            "TS-07-8",
+            "TS-07-E3",
+            "TS-07-E4"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-3.3",
+            "07-REQ-3.E1",
+            "07-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write tests for tracking comment parsing (process_pr_issue step 1)",
+          "details": [
+            "Test that process_pr_issue finds the last PR_TRACKING_PATTERN match via list_issue_comments (oldest-first ordering).",
+            "Test that missing or malformed tracking comment → WARNING logged, no labels touched, returns None.",
+            "Test multiple matching comments: last one in list order is used (attempt=2 not attempt=1).",
+            "Test that list_issue_comments raising an exception → WARNING logged, issue skipped, no comment posted."
+          ],
+          "test_spec_refs": [
+            "TS-07-9",
+            "TS-07-10",
+            "TS-07-E5",
+            "TS-07-E6"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-4.2",
+            "07-REQ-4.E1",
+            "07-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.V",
+          "title": "Verify test group 1 passes",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: PR state detection and CI check interpretation",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write tests for merged PR label transitions and closed-without-merge handling",
+          "details": [
+            "Test merged=True: assign_label(LABEL_FIXED), remove_label(LABEL_PR), close_issue('PR #42 merged.') called in sequence; INFO logged.",
+            "Test closed+merged=False: comment posted, remove_label(LABEL_PR) called, close_issue NOT called; INFO logged.",
+            "Test state='open': no label modification, proceeds to CI check step.",
+            "Test get_pr_state raises: WARNING logged, no label ops, no comment, returns None.",
+            "Test mid-sequence failure (close_issue raises after assign_label succeeds): WARNING logged, issue skipped; verify idempotent re-application on next cycle."
+          ],
+          "test_spec_refs": [
+            "TS-07-11",
+            "TS-07-12",
+            "TS-07-13",
+            "TS-07-E7",
+            "TS-07-E8"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.1",
+            "07-REQ-5.2",
+            "07-REQ-5.3",
+            "07-REQ-5.E1",
+            "07-REQ-5.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write tests for _check_ci_status all 7 interpretation branches",
+          "details": [
+            "Branch 1: in_progress/queued → skip, no WARNING/ERROR.",
+            "Branch 2: conclusion='failure' → re-entry signal + INFO log.",
+            "Branch 3: conclusion='timed_out' → re-entry signal + INFO log.",
+            "Branch 4: all in {cancelled, action_required, stale}, none success → skip + WARNING.",
+            "Branch 5: all success → pass-through signal.",
+            "Branch 6: empty check list → pass-through signal, no warning.",
+            "Branch 7 (E9): mixed success+failure → re-entry triggered.",
+            "E10: get_pr_checks raises → WARNING, skip signal. E11: null conclusion → ambiguous, no re-entry."
+          ],
+          "test_spec_refs": [
+            "TS-07-14",
+            "TS-07-15",
+            "TS-07-16",
+            "TS-07-17",
+            "TS-07-18",
+            "TS-07-E9",
+            "TS-07-E10",
+            "TS-07-E11"
+          ],
+          "requirement_refs": [
+            "07-REQ-6.1",
+            "07-REQ-6.2",
+            "07-REQ-6.3",
+            "07-REQ-6.4",
+            "07-REQ-6.5",
+            "07-REQ-6.E1",
+            "07-REQ-6.E2",
+            "07-REQ-6.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write tests for _check_reviews filtering and re-entry decision",
+          "details": [
+            "Test CHANGES_REQUESTED as latest non-dismissed review → re-entry signal + INFO log.",
+            "Test APPROVED or COMMENTED as latest → skip signal.",
+            "Test no non-dismissed reviews (empty or all DISMISSED) → skip signal.",
+            "Test DISMISSED filtering: one CHANGES_REQUESTED surrounded by DISMISSED → re-entry based on non-dismissed.",
+            "Test get_pr_reviews raises → WARNING, skip. Test null state review → not treated as CHANGES_REQUESTED."
+          ],
+          "test_spec_refs": [
+            "TS-07-19",
+            "TS-07-20",
+            "TS-07-21",
+            "TS-07-E12",
+            "TS-07-E13",
+            "TS-07-E14"
+          ],
+          "requirement_refs": [
+            "07-REQ-7.1",
+            "07-REQ-7.2",
+            "07-REQ-7.3",
+            "07-REQ-7.E1",
+            "07-REQ-7.E2",
+            "07-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write tests for mutually exclusive CI/review re-entry paths",
+          "details": [
+            "Test that CI failure present AND review CHANGES_REQUESTED: only CI re-entry triggered, step 4 never reached, _collect_feedback called with trigger='ci' only.",
+            "Test that all CI pass AND review CHANGES_REQUESTED: review re-entry triggered, _collect_feedback called with trigger='review' only.",
+            "Verify _collect_feedback is called at most once per process_pr_issue invocation.",
+            "Confirm output never contains both ## CI Failures and ## Review Feedback sections simultaneously."
+          ],
+          "test_spec_refs": [
+            "TS-07-28"
+          ],
+          "requirement_refs": [
+            "07-REQ-6.2",
+            "07-REQ-7.1",
+            "07-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.V",
+          "title": "Verify test group 2 passes",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: retry limit, worktree lifecycle, and feedback context",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for retry limit enforcement",
+          "details": [
+            "Test attempt=3 > max_pr_retries=2: INFO 'Retry limit reached', RETRY_LIMIT_MESSAGE posted, no worktree created, returns None.",
+            "Test attempt=2 <= max_pr_retries=2: full iteration runs (worktree, coder, push).",
+            "Test max_pr_retries=0, attempt=1: evaluates 1>0 True, stops immediately, no worktree.",
+            "Test attempt=1 and attempt=2 with max_pr_retries=2 both run; attempt=3 halts.",
+            "Verify RETRY_LIMIT_MESSAGE string content matches _RETRY_LIMIT_MESSAGE constant."
+          ],
+          "test_spec_refs": [
+            "TS-07-22",
+            "TS-07-23",
+            "TS-07-E15",
+            "TS-07-E16"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.1",
+            "07-REQ-8.2",
+            "07-REQ-8.E1",
+            "07-REQ-8.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write tests for _setup_feedback_worktree and _cleanup_feedback_worktree",
+          "details": [
+            "Test _setup_feedback_worktree: git fetch then git worktree add at worktrees/feedback-{n} from fix branch HEAD.",
+            "Test _cleanup_feedback_worktree: non-existent dir → no-op, DEBUG log, no exception.",
+            "Test fetch failure → ERROR logged, worktree add NOT called, exception propagated.",
+            "Test worktree add failure after successful fetch → ERROR logged, exception propagated.",
+            "Test subprocess timeout → TimeoutError propagated, cleanup called in finally."
+          ],
+          "test_spec_refs": [
+            "TS-07-24",
+            "TS-07-25",
+            "TS-07-E17",
+            "TS-07-E18",
+            "TS-07-E19"
+          ],
+          "requirement_refs": [
+            "07-REQ-9.1",
+            "07-REQ-9.2",
+            "07-REQ-9.E1",
+            "07-REQ-9.E2",
+            "07-REQ-9.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write tests for _collect_feedback output format",
+          "details": [
+            "Test trigger='ci': output contains '## CI Failures' with name, output_title, output_summary; no '## Review Feedback' section.",
+            "Test trigger='review': output contains '## Review Feedback' with user, body, state; no '## CI Failures' section.",
+            "Test that the function signature accepts Literal['ci', 'review'] and always formats exactly one section.",
+            "Verify output is non-empty string in both cases."
+          ],
+          "test_spec_refs": [
+            "TS-07-26",
+            "TS-07-27",
+            "TS-07-28"
+          ],
+          "requirement_refs": [
+            "07-REQ-10.1",
+            "07-REQ-10.2",
+            "07-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write tests for try/finally cleanup guarantee in _run_feedback_iteration",
+          "details": [
+            "Test that _cleanup_feedback_worktree is called exactly once even when an exception is injected at any point in the iteration.",
+            "Test that _cleanup_feedback_worktree returns None and never raises when directory does not exist.",
+            "Test that when the removal command itself fails (PermissionError), WARNING is logged, exception is NOT re-raised, and original exception propagates normally.",
+            "Use parametrize to inject failures at fetch, worktree, coder, tracking comment, push, and auto-commit stages."
+          ],
+          "test_spec_refs": [
+            "TS-07-35",
+            "TS-07-36",
+            "TS-07-E26"
+          ],
+          "requirement_refs": [
+            "07-REQ-13.1",
+            "07-REQ-13.2",
+            "07-REQ-13.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.V",
+          "title": "Verify test group 3 passes",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: coder session invocation, tracking comment, force-push, and logging",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write tests for coder session invocation with synthetic TriageResult",
+          "details": [
+            "Test _build_coder_prompt called with prior_context='', knowledge_context='', populated review_feedback; TriageResult has correct summary, affected_files, criteria=[], assessed_complexity=None, issue_body.",
+            "Test _run_coder_session awaited with feedback worktree workspace and model_id from config.",
+            "Test git diff failure or empty output → affected_files=[], WARNING logged.",
+            "Test coder session raises RuntimeError → ERROR 'coder session raised', cleanup called, returns None.",
+            "Test asyncio.CancelledError propagates; cleanup called in finally."
+          ],
+          "test_spec_refs": [
+            "TS-07-29",
+            "TS-07-30",
+            "TS-07-31",
+            "TS-07-E20",
+            "TS-07-E21"
+          ],
+          "requirement_refs": [
+            "07-REQ-11.1",
+            "07-REQ-11.2",
+            "07-REQ-11.3",
+            "07-REQ-11.E1",
+            "07-REQ-11.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write tests for tracking comment posting and force-push ordering",
+          "details": [
+            "Test tracking comment posted before force-push (verify call order via side-effect recording); format_tracking_comment called with attempt+1 and pr_url=''.",
+            "Test non-empty diff path: _auto_commit_pending_changes called with 'fix: <title> [nightshift feedback #2]'; git push --force executed; INFO 'Feedback iteration 2 complete'.",
+            "Test empty diff path: push skipped, _NO_CHANGES_MESSAGE posted, WARNING logged.",
+            "Test add_issue_comment raises during tracking → ERROR, push skipped, cleanup called.",
+            "Test push fails after comment posted → incremented counter persisted, ERROR logged.",
+            "Test _auto_commit raises → ERROR, push skipped. Test push uses '--force' not '--force-with-lease'."
+          ],
+          "test_spec_refs": [
+            "TS-07-32",
+            "TS-07-33",
+            "TS-07-34",
+            "TS-07-E22",
+            "TS-07-E23",
+            "TS-07-E24",
+            "TS-07-E25"
+          ],
+          "requirement_refs": [
+            "07-REQ-12.1",
+            "07-REQ-12.2",
+            "07-REQ-12.3",
+            "07-REQ-12.E1",
+            "07-REQ-12.E2",
+            "07-REQ-12.E3",
+            "07-REQ-12.E4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write tests for structured logging (INFO, WARNING, ERROR, DEBUG levels)",
+          "details": [
+            "Test all 6 INFO log messages: merged, closed-no-merge, CI re-entry, review re-entry, retry limit, iteration complete.",
+            "Test all 5 WARNING log messages: missing tracking comment, ambiguous CI, API error polling, no changes, diff failure.",
+            "Test all 6 ERROR log messages: fetch fail, worktree fail, push fail, coder exception, auto-commit fail, tracking comment fail.",
+            "Test DEBUG log from _cleanup_feedback_worktree for non-existent directory.",
+            "Test NightShiftState has no new fields beyond issue_checks_completed (use dataclasses.fields inspection)."
+          ],
+          "test_spec_refs": [
+            "TS-07-37",
+            "TS-07-38",
+            "TS-07-39",
+            "TS-07-40",
+            "TS-07-41"
+          ],
+          "requirement_refs": [
+            "07-REQ-14.1",
+            "07-REQ-14.2",
+            "07-REQ-14.3",
+            "07-REQ-14.4",
+            "07-REQ-14.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write tests for module structure, imports, and label exclusivity",
+          "details": [
+            "Test pr_feedback.py exports all 8 required module-level functions and does not subclass FixPipeline.",
+            "Test all 4 string constants exist as non-empty strings; fix_pipeline symbols importable from pr_feedback namespace.",
+            "Test afissues imports (PlatformProtocol, IssueResult, CheckResult, ReviewComment, LABEL_PR, LABEL_FIXED) and sanitise_branch_name are in pr_feedback namespace.",
+            "Test process_pr_issue is async def with correct signature; returns None in all cases.",
+            "Test af:fix and af:pr are mutually exclusive through label lifecycle transitions.",
+            "Test issue with only af:pr not selected by fix pipeline's list_issues_by_label(LABEL_FIX).",
+            "Test closed-without-merge: af:pr removed, af:fix NOT added, issue left open."
+          ],
+          "test_spec_refs": [
+            "TS-07-42",
+            "TS-07-43",
+            "TS-07-44",
+            "TS-07-45",
+            "TS-07-46",
+            "TS-07-47",
+            "TS-07-48"
+          ],
+          "requirement_refs": [
+            "07-REQ-15.1",
+            "07-REQ-15.2",
+            "07-REQ-15.3",
+            "07-REQ-15.4",
+            "07-REQ-16.1",
+            "07-REQ-16.2",
+            "07-REQ-16.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.V",
+          "title": "Verify test group 4 passes",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write property tests and smoke tests",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write property tests for correctness invariants (PROP-1 through PROP-8)",
+          "details": [
+            "TS-07-P1: For any attempt/max_pr_retries combination, feedback re-entry only runs when attempt <= max_pr_retries.",
+            "TS-07-P2: af:pr and af:fix never simultaneously present after any nightshift operation.",
+            "TS-07-P3: Tracking comment always posted before force-push (call order invariant).",
+            "TS-07-P4: _cleanup_feedback_worktree called exactly once per _run_feedback_iteration regardless of failure point.",
+            "TS-07-P5: _collect_feedback called at most once per process_pr_issue; output has exactly one markdown section.",
+            "TS-07-P6: At most 5 issues processed per cycle; oldest-first ordering preserved.",
+            "TS-07-P7: No comment posted on polling-phase API exceptions; only WARNING logged.",
+            "TS-07-P8: max_pr_retries=0 → no worktree, no coder, no push for any trigger."
+          ],
+          "test_spec_refs": [
+            "TS-07-P1",
+            "TS-07-P2",
+            "TS-07-P3",
+            "TS-07-P4",
+            "TS-07-P5",
+            "TS-07-P6",
+            "TS-07-P7",
+            "TS-07-P8"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.1",
+            "07-REQ-8.2",
+            "07-REQ-12.1",
+            "07-REQ-13.1",
+            "07-REQ-6.2",
+            "07-REQ-3.1",
+            "07-REQ-5.E1",
+            "07-REQ-16.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write smoke tests for all 7 execution paths",
+          "details": [
+            "SMOKE-1: Merged PR detected → issue closed with af:fixed, af:pr removed, INFO logged.",
+            "SMOKE-2: CI failure → full feedback iteration with tracking comment (attempt=2, pr_url=''), force-push, cleanup.",
+            "SMOKE-3: All CI pass + review CHANGES_REQUESTED → _collect_feedback trigger='review', full iteration.",
+            "SMOKE-4: attempt=3, max_pr_retries=2 → retry limit reached, RETRY_LIMIT_MESSAGE posted, no worktree.",
+            "SMOKE-5: PR closed without merge → comment posted, af:pr removed, issue left open.",
+            "SMOKE-6: Full daemon lifecycle from stream registration through merge detection and issue close.",
+            "SMOKE-7: Empty diff after coder → push skipped, _NO_CHANGES_MESSAGE posted, attempt counter already incremented."
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-1",
+            "TS-07-SMOKE-2",
+            "TS-07-SMOKE-3",
+            "TS-07-SMOKE-4",
+            "TS-07-SMOKE-5",
+            "TS-07-SMOKE-6",
+            "TS-07-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.1",
+            "07-REQ-6.2",
+            "07-REQ-7.1",
+            "07-REQ-8.1",
+            "07-REQ-5.2",
+            "07-REQ-16.1",
+            "07-REQ-12.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.V",
+          "title": "Verify test group 5 passes",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement config fields and work stream wiring",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Add pr_check_interval and max_pr_retries to NightShiftConfig",
+          "details": [
+            "In agentfox/core/config.py, add `pr_check_interval: int = 900` with a field_validator that clamps to minimum 60, following the existing clamp_interval_minimum pattern.",
+            "Add `max_pr_retries: int = 2` with a field_validator that clamps to range [0, 10].",
+            "No ValidationError raised for out-of-range values — silent clamping only.",
+            "Add type annotations; ensure Pydantic v2 compatibility."
+          ],
+          "test_spec_refs": [
+            "TS-07-1",
+            "TS-07-2",
+            "TS-07-E1",
+            "TS-07-E2"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.1",
+            "07-REQ-1.2",
+            "07-REQ-1.E1",
+            "07-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Add pr-feedback EngineWorkStream to build_streams and update DaemonRunner priority",
+          "details": [
+            "In agentfox/nightshift/streams.py, add 'pr-feedback' EngineWorkStream wrapping engine._check_open_prs with interval=config.night_shift.pr_check_interval.",
+            "Enable only when config.workspace.merge_strategy == 'pr' and platform type is not 'none'.",
+            "Place after the 'fix-pipeline' entry in the returned stream list.",
+            "In agentfox/nightshift/daemon.py, update DaemonRunner's priority order list to include 'pr-feedback' after 'fix-pipeline'."
+          ],
+          "test_spec_refs": [
+            "TS-07-3",
+            "TS-07-4",
+            "TS-07-5"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.1",
+            "07-REQ-2.2",
+            "07-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Add _check_open_prs to NightShiftEngine and _MAX_PR_CHECKS constant to engine.py",
+          "details": [
+            "In agentfox/nightshift/engine.py, define _MAX_PR_CHECKS = 5 as a module-level constant adjacent to _check_open_prs().",
+            "Implement async def _check_open_prs(self) -> None on NightShiftEngine.",
+            "Call platform.list_issues_by_label(LABEL_PR) with default oldest-first ordering; slice to first _MAX_PR_CHECKS items.",
+            "Sequentially await process_pr_issue() for each issue (no asyncio.gather); increment state.issue_checks_completed after each call.",
+            "Return None; follow same pattern as existing _drain_issues() method."
+          ],
+          "test_spec_refs": [
+            "TS-07-6",
+            "TS-07-7",
+            "TS-07-8",
+            "TS-07-E3",
+            "TS-07-E4"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-3.3",
+            "07-REQ-3.E1",
+            "07-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.V",
+          "title": "Verify group 6 implementation passes tests",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement pr_feedback.py module skeleton, constants, and imports",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create pr_feedback.py with module-level constants, imports, and function stubs",
+          "details": [
+            "Create agentfox/nightshift/pr_feedback.py.",
+            "Import: parse_tracking_comment, format_tracking_comment, PR_TRACKING_PATTERN, TriageResult, FixPipeline from agentfox.nightshift.fix_pipeline.",
+            "Import: PlatformProtocol, IssueResult, CheckResult, ReviewComment from afissues.protocol; LABEL_PR, LABEL_FIXED from afissues.labels; sanitise_branch_name from agentfox.nightshift.spec_builder.",
+            "Import: NightShiftConfig from agentfox.core.config.",
+            "Define _FEEDBACK_ITERATION_MESSAGE, _NO_CHANGES_MESSAGE, _RETRY_LIMIT_MESSAGE, _FEEDBACK_COMMIT_MESSAGE as module-level string constants.",
+            "Stub all 8 functions (process_pr_issue, _check_pr_state, _check_ci_status, _check_reviews, _collect_feedback, _run_feedback_iteration, _setup_feedback_worktree, _cleanup_feedback_worktree) with raise NotImplementedError. No FixPipeline subclassing."
+          ],
+          "test_spec_refs": [
+            "TS-07-42",
+            "TS-07-43",
+            "TS-07-44",
+            "TS-07-45"
+          ],
+          "requirement_refs": [
+            "07-REQ-15.1",
+            "07-REQ-15.2",
+            "07-REQ-15.3",
+            "07-REQ-15.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Implement _collect_feedback and _check_pr_state",
+          "details": [
+            "Implement _collect_feedback(trigger: Literal['ci', 'review'], ci_failures: list[CheckResult], review_comments: list[ReviewComment]) -> str.",
+            "trigger='ci': format under ## CI Failures heading (name, output_title, output_summary); trigger='review': format under ## Review Feedback heading (user, body, state). Never both sections.",
+            "Implement _check_pr_state() that calls get_pr_state and handles merged (assign LABEL_FIXED, remove LABEL_PR, close_issue with 'PR #{n} merged.'), closed-without-merge (post comment, remove LABEL_PR), and open (pass-through). Log at INFO for merged and closed-without-merge.",
+            "Wrap get_pr_state call in try/except; log WARNING on API exception, return skip signal."
+          ],
+          "test_spec_refs": [
+            "TS-07-26",
+            "TS-07-27",
+            "TS-07-28",
+            "TS-07-11",
+            "TS-07-12",
+            "TS-07-13"
+          ],
+          "requirement_refs": [
+            "07-REQ-10.1",
+            "07-REQ-10.2",
+            "07-REQ-10.3",
+            "07-REQ-5.1",
+            "07-REQ-5.2",
+            "07-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Implement _check_ci_status and _check_reviews",
+          "details": [
+            "Implement _check_ci_status(): call get_pr_checks; if any in_progress/queued → skip; if any failure/timed_out → re-entry + INFO; if all in {cancelled,action_required,stale} none success → skip + WARNING; if all success or empty → pass-through.",
+            "Wrap get_pr_checks in try/except; log WARNING, return skip on exception. Handle null conclusion as ambiguous.",
+            "Implement _check_reviews(): call get_pr_reviews; filter out DISMISSED; check latest active review state; CHANGES_REQUESTED → re-entry + INFO; APPROVED/COMMENTED/none → skip.",
+            "Wrap get_pr_reviews in try/except; log WARNING, return skip on exception. Null state not treated as CHANGES_REQUESTED."
+          ],
+          "test_spec_refs": [
+            "TS-07-14",
+            "TS-07-15",
+            "TS-07-16",
+            "TS-07-17",
+            "TS-07-18",
+            "TS-07-19",
+            "TS-07-20",
+            "TS-07-21"
+          ],
+          "requirement_refs": [
+            "07-REQ-6.1",
+            "07-REQ-6.2",
+            "07-REQ-6.3",
+            "07-REQ-6.4",
+            "07-REQ-6.5",
+            "07-REQ-7.1",
+            "07-REQ-7.2",
+            "07-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.V",
+          "title": "Verify group 7 implementation passes tests",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement _setup_feedback_worktree and _cleanup_feedback_worktree",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement _setup_feedback_worktree with git fetch and worktree add",
+          "details": [
+            "Derive fix branch name via sanitise_branch_name(issue.title, issue.number).",
+            "Run `git fetch origin <branch>` with subprocess timeout; on failure log ERROR 'git fetch failed — {exc}' and raise.",
+            "Run `git worktree add worktrees/feedback-{issue.number} <branch>` with subprocess timeout; on failure log ERROR 'git worktree add failed — {exc}' and raise.",
+            "Return the worktree path string on success.",
+            "Wrap subprocess calls with timeout; on timeout terminate subprocess, log ERROR, raise TimeoutError."
+          ],
+          "test_spec_refs": [
+            "TS-07-24",
+            "TS-07-E17",
+            "TS-07-E18",
+            "TS-07-E19"
+          ],
+          "requirement_refs": [
+            "07-REQ-9.1",
+            "07-REQ-9.E1",
+            "07-REQ-9.E2",
+            "07-REQ-9.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement _cleanup_feedback_worktree with silent no-op for missing directory",
+          "details": [
+            "Check if worktrees/feedback-{issue_number} exists; if not, log DEBUG 'Feedback worktree not found for issue #{n} — skipping cleanup.' and return None.",
+            "If directory exists, run `git worktree remove` or rmtree; if removal fails, log WARNING (not ERROR), do NOT re-raise.",
+            "Return None in all cases; never raise from this function.",
+            "Ensure _run_feedback_iteration wraps all operations in try/finally calling _cleanup_feedback_worktree unconditionally."
+          ],
+          "test_spec_refs": [
+            "TS-07-25",
+            "TS-07-35",
+            "TS-07-36",
+            "TS-07-E26"
+          ],
+          "requirement_refs": [
+            "07-REQ-9.2",
+            "07-REQ-13.1",
+            "07-REQ-13.2",
+            "07-REQ-13.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.V",
+          "title": "Verify group 8 implementation passes tests",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement _run_feedback_iteration: retry guard, coder session, tracking comment, and force-push",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement retry limit check and _collect_feedback invocation in _run_feedback_iteration",
+          "details": [
+            "At entry, evaluate `if attempt > config.night_shift.max_pr_retries`: log INFO 'Retry limit reached...', post _RETRY_LIMIT_MESSAGE via add_issue_comment, return None without creating worktree.",
+            "Otherwise proceed with feedback iteration.",
+            "Call _collect_feedback(trigger, ci_failures, review_comments) to get formatted markdown string.",
+            "Ensure the guard correctly implements attempt semantics: attempt=1 > max_pr_retries=0 → stop; attempt=2 > max_pr_retries=2 is False → continue."
+          ],
+          "test_spec_refs": [
+            "TS-07-22",
+            "TS-07-23",
+            "TS-07-E15",
+            "TS-07-E16"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.1",
+            "07-REQ-8.2",
+            "07-REQ-8.E1",
+            "07-REQ-8.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement synthetic TriageResult construction and coder session invocation",
+          "details": [
+            "After worktree setup, run `git diff --name-only <integration_branch> <fix_branch>` in the feedback worktree; parse output to list. On failure/empty output: affected_files=[], log WARNING 'git diff --name-only failed...'.",
+            "Construct TriageResult(summary=issue.title, affected_files=affected_files, criteria=[], assessed_complexity=None, issue_body=issue.body).",
+            "Call pipeline._build_coder_prompt(spec, triage, review_feedback=collected_feedback, prior_context='', knowledge_context='').",
+            "Await pipeline._run_coder_session(workspace, spec, system_prompt, task_prompt, model_id) where model_id is from nightshift model config.",
+            "Wrap in try/except; on exception log ERROR 'coder session raised — {exc}'; cleanup called in finally; propagate asyncio.CancelledError."
+          ],
+          "test_spec_refs": [
+            "TS-07-29",
+            "TS-07-30",
+            "TS-07-31",
+            "TS-07-E20",
+            "TS-07-E21"
+          ],
+          "requirement_refs": [
+            "07-REQ-11.1",
+            "07-REQ-11.2",
+            "07-REQ-11.3",
+            "07-REQ-11.E1",
+            "07-REQ-11.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Implement tracking comment posting, diff check, auto-commit, and force-push",
+          "details": [
+            "Post tracking comment BEFORE diff check: call format_tracking_comment(pr_number, attempt=attempt+1, pr_url='', message=_FEEDBACK_ITERATION_MESSAGE.format(attempt=attempt+1)); call platform.add_issue_comment(issue.number, comment). On add_issue_comment exception: log ERROR 'failed to post tracking comment — {exc}', skip push, return (cleanup in finally).",
+            "Compute post-coder diff to check for changes. If empty: skip push, post _NO_CHANGES_MESSAGE, log WARNING 'coder produced no changes'.",
+            "If non-empty: call pipeline._auto_commit_pending_changes(commit_msg) with _FEEDBACK_COMMIT_MESSAGE.format(issue_title=..., attempt=attempt+1). On exception: log ERROR 'auto-commit failed — {exc}', skip push.",
+            "Run `git push --force` (NOT --force-with-lease) on fix branch. On failure: log ERROR 'git push --force failed — {exc}'.",
+            "Log INFO 'Feedback iteration {attempt+1} complete for issue #{n}, PR #{pr}.' on success."
+          ],
+          "test_spec_refs": [
+            "TS-07-32",
+            "TS-07-33",
+            "TS-07-34",
+            "TS-07-E22",
+            "TS-07-E23",
+            "TS-07-E24",
+            "TS-07-E25"
+          ],
+          "requirement_refs": [
+            "07-REQ-12.1",
+            "07-REQ-12.2",
+            "07-REQ-12.3",
+            "07-REQ-12.E1",
+            "07-REQ-12.E2",
+            "07-REQ-12.E3",
+            "07-REQ-12.E4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.4",
+          "title": "Implement process_pr_issue main orchestration function",
+          "details": [
+            "Implement async def process_pr_issue(issue: IssueResult, config: NightShiftConfig, platform: PlatformProtocol, pipeline: FixPipeline) -> None.",
+            "Step 1: list_issue_comments → find last PR_TRACKING_PATTERN match → parse_tracking_comment. Missing/malformed: log WARNING, return None.",
+            "Step 2: await _check_pr_state(); if merged or closed → return None.",
+            "Step 3: await _check_ci_status(); if re-entry signal → call _run_feedback_iteration with trigger='ci'; return.",
+            "Step 4: await _check_reviews(); if re-entry signal → call _run_feedback_iteration with trigger='review'; return.",
+            "Otherwise: return None (PR healthy, awaiting human merge). Wrap each platform call in try/except with WARNING log and return None on exception."
+          ],
+          "test_spec_refs": [
+            "TS-07-9",
+            "TS-07-10",
+            "TS-07-45"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-4.2",
+            "07-REQ-15.4",
+            "07-REQ-16.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.V",
+          "title": "Verify group 9 implementation passes tests",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Integration checkpoint: all unit tests pass, logging verified",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full test suite and verify all unit and property tests pass",
+          "details": [
+            "Run pytest tests/nightshift/test_pr_feedback_loop.py -q and verify all test classes pass.",
+            "Verify structured logging tests pass: all 6 INFO messages, 5 WARNING messages, 6 ERROR messages, 1 DEBUG message emitted correctly.",
+            "Verify NightShiftState has no new fields beyond issue_checks_completed.",
+            "Run ruff check agentfox/ and confirm no new linter warnings.",
+            "Review coverage report to ensure no untested branches in pr_feedback.py."
+          ],
+          "test_spec_refs": [
+            "TS-07-37",
+            "TS-07-38",
+            "TS-07-39",
+            "TS-07-40",
+            "TS-07-41"
+          ],
+          "requirement_refs": [
+            "07-REQ-14.1",
+            "07-REQ-14.2",
+            "07-REQ-14.3",
+            "07-REQ-14.4",
+            "07-REQ-14.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Verify property tests and label exclusivity invariants",
+          "details": [
+            "Run pytest tests/nightshift/test_pr_feedback_loop.py::TestPropertyInvariants -q and verify all 8 property tests pass.",
+            "Confirm af:fix and af:pr are mutually exclusive through simulated label lifecycle transitions.",
+            "Confirm issues with only af:pr are invisible to fix pipeline's list_issues_by_label(LABEL_FIX).",
+            "Confirm closed-without-merge removes af:pr and does not add af:fix.",
+            "Cross-check with smoke tests that demonstrate correct label state after each operation."
+          ],
+          "test_spec_refs": [
+            "TS-07-P1",
+            "TS-07-P2",
+            "TS-07-P3",
+            "TS-07-P4",
+            "TS-07-P5",
+            "TS-07-P6",
+            "TS-07-P7",
+            "TS-07-P8"
+          ],
+          "requirement_refs": [
+            "07-REQ-16.1",
+            "07-REQ-16.2",
+            "07-REQ-16.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.V",
+          "title": "Verify checkpoint 10 criteria",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, stub audit, and smoke tests",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Verify execution path entry points and function call chains contain no stubs",
+          "details": [
+            "Stub/dead-code audit: search agentfox/nightshift/pr_feedback.py and agentfox/nightshift/engine.py for `raise NotImplementedError`, bare `pass` in non-abstract methods, and `# TODO` markers. All stubs from group 7 must be replaced with real implementations.",
+            "Trace PATH-1: EngineWorkStream → _check_open_prs → process_pr_issue → _check_pr_state → assign_label/remove_label/close_issue. Verify each call chain is wired.",
+            "Trace PATH-2: _check_open_prs → process_pr_issue → _check_ci_status → _run_feedback_iteration → _setup_feedback_worktree → _run_coder_session → tracking comment → force-push → _cleanup_feedback_worktree. Verify full chain.",
+            "Confirm _check_open_prs is registered as the target of the 'pr-feedback' EngineWorkStream in build_streams (not a lambda or stub)."
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-1",
+            "TS-07-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-15.1",
+            "07-REQ-15.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify return value propagation and call-site wiring for all key functions",
+          "details": [
+            "Verify _check_ci_status return signal is consumed by process_pr_issue to decide re-entry vs pass-through (not discarded).",
+            "Verify _check_reviews return signal is consumed by process_pr_issue for review-triggered re-entry.",
+            "Verify _collect_feedback return value (markdown string) is passed as review_feedback parameter to _build_coder_prompt.",
+            "Verify format_tracking_comment return value is passed to platform.add_issue_comment (not discarded).",
+            "Verify issue_checks_completed is incremented in _check_open_prs after each process_pr_issue call (not just at the end).",
+            "Confirm process_pr_issue is imported and called from _check_open_prs in engine.py production code."
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-3",
+            "TS-07-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-5.1",
+            "07-REQ-6.2",
+            "07-REQ-7.1",
+            "07-REQ-8.1",
+            "07-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run all smoke tests with real components to verify end-to-end integration",
+          "details": [
+            "Run all 7 smoke tests: pytest tests/nightshift/test_pr_feedback_loop.py::TestSmoke -q. Verify all pass.",
+            "SMOKE-1: Merged PR → issue closed with af:fixed, af:pr removed. SMOKE-2: CI failure → full iteration. SMOKE-3: Review CHANGES_REQUESTED after all CI pass → review-triggered iteration.",
+            "SMOKE-4: Retry limit reached → no worktree, RETRY_LIMIT_MESSAGE posted. SMOKE-5: Closed without merge → af:pr removed, issue open. SMOKE-6: Full daemon lifecycle. SMOKE-7: Empty diff → push skipped, no-changes comment.",
+            "All smoke tests use real process_pr_issue, _check_open_prs, _check_pr_state, _check_ci_status, _check_reviews, _collect_feedback, _run_feedback_iteration, _setup_feedback_worktree, _cleanup_feedback_worktree implementations."
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-1",
+            "TS-07-SMOKE-2",
+            "TS-07-SMOKE-3",
+            "TS-07-SMOKE-4",
+            "TS-07-SMOKE-5",
+            "TS-07-SMOKE-6",
+            "TS-07-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.1",
+            "07-REQ-5.2",
+            "07-REQ-6.2",
+            "07-REQ-7.1",
+            "07-REQ-8.1",
+            "07-REQ-12.3",
+            "07-REQ-16.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Cross-spec entry point verification: confirm spec 06 symbols are called correctly",
+          "details": [
+            "Verify parse_tracking_comment is called with comment body string (not the full IssueComment object) in process_pr_issue.",
+            "Verify format_tracking_comment is called with keyword arguments matching its spec 06 signature: (pr_number, attempt, pr_url='', message=...).",
+            "Verify PR_TRACKING_PATTERN is used in a matching expression on comment bodies (not stored for later use).",
+            "Verify LABEL_PR ('af:pr') and LABEL_FIXED ('af:fixed') constants from afissues.labels are used in label operations (not hardcoded strings).",
+            "Verify FixPipeline methods are accessed via composition (pipeline._build_coder_prompt, pipeline._run_coder_session, pipeline._auto_commit_pending_changes) and not via inheritance.",
+            "Search production code for any accidental redefinition of LABEL_PR, LABEL_FIXED, or parse_tracking_comment in pr_feedback.py."
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-12.1",
+            "07-REQ-15.2",
+            "07-REQ-15.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.V",
+          "title": "Final wiring verification gate",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "07-REQ-1.1",
+      "test_spec_id": "TS-07-1",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-1.2",
+      "test_spec_id": "TS-07-2",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-1.E1",
+      "test_spec_id": "TS-07-E1",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-1.E2",
+      "test_spec_id": "TS-07-E2",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.1",
+      "test_spec_id": "TS-07-3",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.2",
+      "test_spec_id": "TS-07-4",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.3",
+      "test_spec_id": "TS-07-5",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.1",
+      "test_spec_id": "TS-07-6",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.2",
+      "test_spec_id": "TS-07-7",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.3",
+      "test_spec_id": "TS-07-8",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.E1",
+      "test_spec_id": "TS-07-E3",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.E2",
+      "test_spec_id": "TS-07-E4",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.1",
+      "test_spec_id": "TS-07-9",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.2",
+      "test_spec_id": "TS-07-10",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.E1",
+      "test_spec_id": "TS-07-E5",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.E2",
+      "test_spec_id": "TS-07-E6",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.1",
+      "test_spec_id": "TS-07-11",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.2",
+      "test_spec_id": "TS-07-12",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.3",
+      "test_spec_id": "TS-07-13",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.E1",
+      "test_spec_id": "TS-07-E7",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.E2",
+      "test_spec_id": "TS-07-E8",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.1",
+      "test_spec_id": "TS-07-14",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.2",
+      "test_spec_id": "TS-07-15",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.3",
+      "test_spec_id": "TS-07-16",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.4",
+      "test_spec_id": "TS-07-17",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.5",
+      "test_spec_id": "TS-07-18",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.E1",
+      "test_spec_id": "TS-07-E9",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.E2",
+      "test_spec_id": "TS-07-E10",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.E3",
+      "test_spec_id": "TS-07-E11",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.1",
+      "test_spec_id": "TS-07-19",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.2",
+      "test_spec_id": "TS-07-20",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.3",
+      "test_spec_id": "TS-07-21",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.E1",
+      "test_spec_id": "TS-07-E12",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.E2",
+      "test_spec_id": "TS-07-E13",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.E3",
+      "test_spec_id": "TS-07-E14",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.1",
+      "test_spec_id": "TS-07-22",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.2",
+      "test_spec_id": "TS-07-23",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.E1",
+      "test_spec_id": "TS-07-E15",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.E2",
+      "test_spec_id": "TS-07-E16",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.1",
+      "test_spec_id": "TS-07-24",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.2",
+      "test_spec_id": "TS-07-25",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.E1",
+      "test_spec_id": "TS-07-E17",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.E2",
+      "test_spec_id": "TS-07-E18",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.E3",
+      "test_spec_id": "TS-07-E19",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-10.1",
+      "test_spec_id": "TS-07-26",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-10.2",
+      "test_spec_id": "TS-07-27",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-10.3",
+      "test_spec_id": "TS-07-28",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-11.1",
+      "test_spec_id": "TS-07-29",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-11.2",
+      "test_spec_id": "TS-07-30",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-11.3",
+      "test_spec_id": "TS-07-31",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-11.E1",
+      "test_spec_id": "TS-07-E20",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-11.E2",
+      "test_spec_id": "TS-07-E21",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.1",
+      "test_spec_id": "TS-07-32",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.2",
+      "test_spec_id": "TS-07-33",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.3",
+      "test_spec_id": "TS-07-34",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.E1",
+      "test_spec_id": "TS-07-E22",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.E2",
+      "test_spec_id": "TS-07-E23",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.E3",
+      "test_spec_id": "TS-07-E24",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-12.E4",
+      "test_spec_id": "TS-07-E25",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-13.1",
+      "test_spec_id": "TS-07-35",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-13.2",
+      "test_spec_id": "TS-07-36",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-13.E1",
+      "test_spec_id": "TS-07-E26",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-14.1",
+      "test_spec_id": "TS-07-37",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-14.2",
+      "test_spec_id": "TS-07-38",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-14.3",
+      "test_spec_id": "TS-07-39",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-14.4",
+      "test_spec_id": "TS-07-40",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-14.5",
+      "test_spec_id": "TS-07-41",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-15.1",
+      "test_spec_id": "TS-07-42",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-15.2",
+      "test_spec_id": "TS-07-43",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-15.3",
+      "test_spec_id": "TS-07-44",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-15.4",
+      "test_spec_id": "TS-07-45",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-16.1",
+      "test_spec_id": "TS-07-46",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-16.2",
+      "test_spec_id": "TS-07-47",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-16.3",
+      "test_spec_id": "TS-07-48",
+      "task_id": "10.2",
+      "test_path": null
+    }
+  ]
+}

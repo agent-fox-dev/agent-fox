@@ -1,0 +1,192 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The `pr_lifecycle_labels` PRD is thorough, well-structured, and covers all required dimensions. Intent is crisp and actionable, goals are concrete and testable, non-goals are explicitly scoped, background provides strong motivation, and the solution section is detailed enough to drive implementation directly. The Verified External API section documents all local package symbols being modified or consumed. One active-spec overlap (`pr_feedback_loop`) is already acknowledged in Non-Goals, and dependencies on `merge_strategy` and `extract_platform_afissues` are declared in the Dependencies table. The PRD is ready to proceed to artifact generation, with two minor advisory notes surfaced below.",
+      "gaps": [
+        "The Dependencies table references specs by ordinal IDs ('02_merge_strategy', '03_extract_platform_afissues') but the Spec Landscape lists their canonical names as 'merge_strategy' and 'extract_platform_afissues'. The IDs should be aligned with the landscape identifiers to avoid ambiguity in tooling.",
+        "The GitHub REST API endpoints documented in Section 4 (get_pr_state, get_pr_checks, get_pr_reviews) are internal to the GitHub platform implementation, but the Verified External API section only covers the local `afissues`/`agentfox` symbols \u2014 it does not document the GitHub API's expected response shapes, error codes, or rate-limit behavior for the three new endpoints. This is a minor gap given the existing `_request()` helper abstracts retries and auth, but failure modes (e.g., 404 for unknown PR, 403 rate limit, partial check-run pages) are not addressed.",
+        "The spec notes that `get_pr_checks()` paginates when `total_count` exceeds the page size, but does not specify a maximum page limit or timeout guard, leaving open the possibility of unbounded pagination for PRs with very many check runs.",
+        "Overlap with active spec 'pr_feedback_loop': the new protocol methods (get_pr_state, get_pr_checks, get_pr_reviews) and the tracking comment utilities are explicitly designed as the foundation for `pr_feedback_loop`. The relationship is acknowledged in Non-Goals, but the PRD does not clarify whether `pr_feedback_loop` should declare a dependency on `pr_lifecycle_labels` or vice versa \u2014 this could cause sequencing ambiguity."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "The Dependencies table uses IDs '02_merge_strategy' and '03_extract_platform_afissues'. Should these be updated to match the canonical spec names 'merge_strategy' and 'extract_platform_afissues' as they appear in the Spec Landscape?",
+          "context": "Consistent naming between the Dependencies table and the Spec Landscape ensures automated tooling can resolve dependency graphs correctly.",
+          "options": [
+            "Yes, update to canonical names",
+            "No, the ordinal IDs are intentional and tooling handles the mapping"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "The Verified External API section covers local package symbols but does not document the GitHub REST API's failure modes for the three new endpoints (get_pr_state, get_pr_checks, get_pr_reviews). Should expected error codes (e.g., 404 for unknown PR, 422, 403 rate limit) and their handling be documented?",
+          "context": "Documenting GitHub API failure modes ensures implementers handle edge cases consistently and that the existing `_request()` helper's behavior is sufficient or needs augmentation.",
+          "options": [
+            "Add GitHub API failure modes to the Verified External API section",
+            "Defer to existing _request() helper behavior \u2014 no additional documentation needed"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should `pr_feedback_loop` declare an explicit dependency on `pr_lifecycle_labels` in its own PRD, or should `pr_lifecycle_labels` be considered a prerequisite implicitly understood from the Background context?",
+          "context": "The active `pr_feedback_loop` spec consumes the protocol methods and tracking comment utilities introduced here. Formalizing this dependency in `pr_feedback_loop`'s Dependencies table prevents sequencing issues during implementation planning.",
+          "options": [
+            "pr_feedback_loop should declare a formal dependency on pr_lifecycle_labels",
+            "The relationship is sufficiently documented in the Non-Goals of this spec \u2014 no change needed"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Is there an upper bound on the number of pages fetched during `get_pr_checks()` pagination, or should implementation apply a safety cap (e.g., max 10 pages / 300 check runs)?",
+          "context": "Without a pagination limit, a PR with an unusually large number of check runs could cause unbounded API calls during each monitoring cycle.",
+          "options": [
+            "Add a configurable or hardcoded pagination cap",
+            "No cap needed \u2014 check-run counts are bounded in practice by the CI configuration"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and thorough \u2014 it clearly defines the bug being fixed, introduces sound abstractions (PrResult, PrState, CheckResult, ReviewComment), and covers most implementation concerns. However, several gaps remain that could cause ambiguity or friction during implementation: the idempotent 422 PR path needs more detail, `attempt` tracking for the comment is undefined, label transition edge cases are unspecified, and a few error-handling and testing expectations are missing.",
+      "gaps": [
+        "The `attempt` value in the tracking comment is never defined \u2014 how is it computed? Is it derived from counting prior tracking comments on the issue, or stored elsewhere? This is critical for `format_tracking_comment()` callers.",
+        "The idempotent 422 path for `create_pr()` states the existing PR's number is extracted from a 'matched PR', but does not specify how the duplicate PR is located (e.g., listing open PRs by head branch, or parsing the 422 error body). This logic needs to be explicit.",
+        "Label transition edge cases are not addressed: what happens if `af:pr` is already present when `_handle_result()` runs (e.g., a retry scenario)? Should the handler be idempotent?",
+        "No testing expectations or contract for the new utility functions (`parse_tracking_comment`, `format_tracking_comment`) \u2014 are unit tests required? Are there acceptance criteria for the bug fix?",
+        "The `output_title` and `output_summary` fields on `CheckResult` are mapped from the GitHub API `output` object, but the spec does not clarify fallback values when `output` is null (GitHub does return null for some check runs).",
+        "The spec does not define what happens to `self._pr_number` if `create_pr()` raises \u2014 does `_handle_result()` receive a partial state? Should `_pr_number` default behavior be documented?",
+        "No mention of whether `af:pr` label needs to be created/ensured before the pipeline runs (i.e., is label bootstrapping handled by an existing mechanism, and does this spec need to call that out explicitly)?",
+        "The `ReviewComment.submitted_at` field uses a raw string \u2014 no format is specified (ISO 8601 assumed but not stated), which matters for the follow-on spec that will parse it."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "How is the `attempt` number computed when posting a tracking comment? For example: count of existing `<!-- af:pr-tracking ... -->` comments on the issue + 1, a value stored in `FixPipeline` instance state, or something else?",
+          "context": "The `format_tracking_comment()` function accepts an `attempt` parameter and the follow-on spec will call it too. Without a definition, implementers will make inconsistent choices.",
+          "options": [
+            "Count of prior matching tracking comments on the issue + 1 (requires fetching comments before posting)",
+            "A counter stored on `FixPipeline` instance (e.g., `self._attempt`), incremented each cycle",
+            "Always 1 for initial PR creation; the follow-on spec owns attempt > 1 logic",
+            "Not tracked in this spec \u2014 always omit or hardcode 1 for now"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How does `GitHubPlatform.create_pr()` locate the existing PR on the idempotent 422 path? Please specify the exact mechanism.",
+          "context": "The spec says 'the existing query for the duplicate PR also extracts number from the matched PR' but does not say how the PR is found. Implementers need this to be explicit.",
+          "options": [
+            "Parse the 422 error response body, which GitHub includes a reference URL in",
+            "Call `GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open` and take the first result",
+            "Call `GET /repos/{owner}/{repo}/pulls?head={branch}&state=all` and match by head ref",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should `_handle_result()` be idempotent when `af:pr` is already present on the issue (e.g., on a retry after a partial failure)?",
+          "context": "If the process crashes after adding `af:pr` but before posting the tracking comment, a retry will call `_handle_result()` again. The spec is silent on this.",
+          "options": [
+            "Yes \u2014 skip label changes if af:pr is already present, but always post a new tracking comment",
+            "Yes \u2014 fully idempotent: skip label changes and skip posting a duplicate comment if one already exists for this PR number",
+            "No \u2014 retries are not expected in this code path; document it as a known limitation",
+            "Unsure \u2014 leave to implementer discretion"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What are the fallback values for `CheckResult.output_title` and `CheckResult.output_summary` when the GitHub API returns `null` for the `output` object?",
+          "context": "GitHub check runs can have a null `output` field before completion. Without a specified fallback, different implementers will use different defaults (empty string, None, etc.), breaking the follow-on spec's consumers.",
+          "options": [
+            "Use empty string \"\" for both fields when output is null",
+            "Make both fields Optional[str] (str | None) and set to None",
+            "Use a sentinel like \"(no output)\" for readability",
+            "Exclude check runs with null output from the returned list"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Is label bootstrapping (ensuring `af:pr` exists in the repo before use) already handled by an existing mechanism in the codebase, or does this spec need to call it out explicitly?",
+          "context": "The spec adds `af:pr` to `REQUIRED_LABELS`. If there's an existing label-sync/bootstrap step that reads `REQUIRED_LABELS`, this is already covered. If not, it needs to be called out.",
+          "options": [
+            "Yes \u2014 an existing label bootstrap routine reads REQUIRED_LABELS and creates missing labels; nothing extra needed",
+            "No \u2014 this spec should explicitly note that the label bootstrap must be run before the new code is deployed",
+            "Unsure \u2014 needs verification"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should `ReviewComment.submitted_at` be typed as a raw `str` (ISO 8601 from GitHub), a `datetime` object, or something else?",
+          "context": "The follow-on spec will consume this field. Using a raw string defers parsing to the consumer; using datetime makes the dataclass self-contained but requires a parsing step here.",
+          "options": [
+            "Keep as str (ISO 8601 format, documented explicitly in the spec)",
+            "Change to datetime \u2014 parse in GitHubPlatform.get_pr_reviews() using datetime.fromisoformat()",
+            "Keep as str for now; the follow-on spec will decide"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Are there explicit acceptance criteria or required tests for this spec (e.g., a unit test for the premature-close bug fix, or a test that parse_tracking_comment round-trips correctly)?",
+          "context": "The spec describes behavior but has no testing section. For a bug fix, a regression test is typically expected.",
+          "options": [
+            "Yes \u2014 add a testing section listing required unit/integration tests",
+            "No \u2014 testing strategy is handled elsewhere (e.g., a separate test spec or CI policy)",
+            "Minimal \u2014 only a regression test for the premature-close bug is required"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now complete and implementation-ready. All seven previously identified gaps have been closed: attempt semantics are fully defined (always 1 here, > 1 owned by pr_feedback_loop), the idempotent 422 path is explicitly documented with the exact GET /pulls?head=... lookup, _handle_result() idempotency is specified (skip label changes if af:pr present, always post comment), CheckResult null-output fallbacks are documented (empty string), label bootstrapping is confirmed covered by the existing startup routine, ReviewComment.submitted_at is explicitly documented as ISO 8601 raw string, and a normative testing section captures key test contracts. All design decisions are updated to reflect the answers. The spec is coherent, internally consistent, and appropriately scoped.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "No, the ordinal IDs (02_merge_strategy, 03_extract_platform_afissues) match the spec directory names used by the spec CLI. This is the canonical format.",
+        "q2": "Defer to existing _request() helper behavior. It already handles retries, auth headers, and rate limiting. The three new methods follow the same pattern as existing GitHubPlatform methods.",
+        "q3": "pr_feedback_loop already declares a formal dependency on pr_lifecycle_labels in its Dependencies table. No change needed to this spec.",
+        "q4": "No cap needed. Check-run counts are bounded in practice by CI configuration. A safety cap of 10 pages (300 check runs) can be added during implementation if desired, but does not need to be in the spec."
+      },
+      "timestamp": "2026-07-26T09:34:25.082987+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Always 1 for initial PR creation in this spec. The follow-on pr_feedback_loop spec owns attempt > 1 logic. format_tracking_comment() accepts the attempt as a parameter; this spec always passes 1.",
+        "q2": "The existing GitHubPlatform.create_pr() already implements this: it calls GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open and takes the first result. The same mechanism now extracts both html_url and number from the matched PR. No change to the lookup logic, only to what fields are read from the result.",
+        "q3": "Yes \u2014 skip label changes if af:pr is already present, but always post a new tracking comment. This handles partial failure retries safely. The assign_label and remove_label calls are already idempotent at the GitHub API level (assigning an already-present label is a no-op), so no special guard code is needed beyond the existing API behavior.",
+        "q4": "Use empty string for both fields when output is null. This keeps the type as str (not Optional) and avoids None-handling complexity in consumers. The follow-on spec's feedback formatting can skip check runs with empty output_summary.",
+        "q5": "Yes \u2014 the existing nightshift label bootstrap routine reads REQUIRED_LABELS and creates missing labels at startup. Adding af:pr to REQUIRED_LABELS is sufficient.",
+        "q6": "Keep as str in ISO 8601 format as returned by the GitHub API. Document this explicitly in the dataclass field comment. Raw strings are simpler and avoid timezone-aware parsing complexity.",
+        "q7": "Testing strategy is handled by spec generate (test_spec.json will be generated in the next step). The spec generation step produces detailed test contracts including regression tests for the premature-close bug fix and round-trip tests for tracking comment utilities."
+      },
+      "timestamp": "2026-07-26T09:38:41.566510+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

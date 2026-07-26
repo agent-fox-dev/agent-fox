@@ -1,0 +1,1584 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "pr_feedback_loop",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-07-1",
+      "requirement_id": "07-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that NightShiftConfig exposes pr_check_interval with a default of 900 and clamps values below 60 to 60.",
+      "preconditions": [
+        "NightShiftConfig Pydantic model is importable from agentfox.core.config",
+        "Pydantic v2 validation is active"
+      ],
+      "input": {
+        "pr_check_interval": 900
+      },
+      "expected": "pr_check_interval field reads back 900 when set to default; field reads back 60 when set to any value below 60",
+      "assertion_pseudocode": "cfg_default = NightShiftConfig(); assert cfg_default.night_shift.pr_check_interval == 900; cfg_clamped = NightShiftConfig(night_shift={pr_check_interval: 30}); assert cfg_clamped.night_shift.pr_check_interval == 60"
+    },
+    {
+      "id": "TS-07-2",
+      "requirement_id": "07-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that NightShiftConfig exposes max_pr_retries with a default of 2 and clamps values to the inclusive range [0, 10].",
+      "preconditions": [
+        "NightShiftConfig Pydantic model is importable from agentfox.core.config",
+        "Pydantic v2 validation is active"
+      ],
+      "input": {
+        "max_pr_retries": 2
+      },
+      "expected": "max_pr_retries reads back 2 for default; values below 0 are clamped to 0; values above 10 are clamped to 10",
+      "assertion_pseudocode": "cfg_default = NightShiftConfig(); assert cfg_default.night_shift.max_pr_retries == 2; cfg_low = NightShiftConfig(night_shift={max_pr_retries: -1}); assert cfg_low.night_shift.max_pr_retries == 0; cfg_high = NightShiftConfig(night_shift={max_pr_retries: 15}); assert cfg_high.night_shift.max_pr_retries == 10"
+    },
+    {
+      "id": "TS-07-3",
+      "requirement_id": "07-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that build_streams includes a pr-feedback EngineWorkStream wrapping _check_open_prs after fix-pipeline when merge_strategy is 'pr' and platform is not 'none'.",
+      "preconditions": [
+        "agentfox.nightshift.streams.build_streams is importable",
+        "NightShiftConfig configured with merge_strategy='pr'",
+        "Platform type is not 'none'",
+        "A mock NightShiftEngine instance is available"
+      ],
+      "input": {
+        "config.workspace.merge_strategy": "pr",
+        "platform_type": "github"
+      },
+      "expected": "Returned stream list contains an entry named 'pr-feedback' positioned after the 'fix-pipeline' entry, with interval equal to pr_check_interval",
+      "assertion_pseudocode": "streams = build_streams(config, engine=mock_engine, budget=mock_budget); names = [s.name for s in streams]; assert 'pr-feedback' in names; assert names.index('pr-feedback') > names.index('fix-pipeline'); pr_stream = next(s for s in streams if s.name == 'pr-feedback'); assert pr_stream.interval == config.night_shift.pr_check_interval"
+    },
+    {
+      "id": "TS-07-4",
+      "requirement_id": "07-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that build_streams omits the pr-feedback stream when merge_strategy is not 'pr' or platform type is 'none'.",
+      "preconditions": [
+        "agentfox.nightshift.streams.build_streams is importable",
+        "A mock NightShiftEngine instance is available"
+      ],
+      "input": {
+        "config.workspace.merge_strategy": "direct",
+        "platform_type": "github"
+      },
+      "expected": "Returned stream list contains no entry named 'pr-feedback'",
+      "assertion_pseudocode": "streams_direct = build_streams(config_direct_strategy, engine=mock_engine, budget=mock_budget); assert all(s.name != 'pr-feedback' for s in streams_direct); streams_none_platform = build_streams(config_none_platform, engine=mock_engine, budget=mock_budget); assert all(s.name != 'pr-feedback' for s in streams_none_platform)"
+    },
+    {
+      "id": "TS-07-5",
+      "requirement_id": "07-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that DaemonRunner's priority list places 'pr-feedback' after 'fix-pipeline'.",
+      "preconditions": [
+        "agentfox.nightshift.daemon.DaemonRunner is importable",
+        "Priority list is accessible as a class or instance attribute"
+      ],
+      "input": {},
+      "expected": "The priority order list on DaemonRunner contains 'pr-feedback' at an index greater than the index of 'fix-pipeline'",
+      "assertion_pseudocode": "runner = DaemonRunner(streams=[], config=mock_config); priority = runner.priority_order; assert 'pr-feedback' in priority; assert priority.index('pr-feedback') > priority.index('fix-pipeline')"
+    },
+    {
+      "id": "TS-07-6",
+      "requirement_id": "07-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that _check_open_prs calls list_issues_by_label with LABEL_PR, caps results to 5, sequentially awaits process_pr_issue for each, and increments issue_checks_completed.",
+      "preconditions": [
+        "NightShiftEngine is instantiated with a mock platform returning 3 af:pr issues",
+        "process_pr_issue is mocked to return None",
+        "state.issue_checks_completed starts at 0"
+      ],
+      "input": {
+        "af:pr issues returned": 3
+      },
+      "expected": "platform.list_issues_by_label called with LABEL_PR; process_pr_issue called exactly 3 times sequentially; state.issue_checks_completed == 3",
+      "assertion_pseudocode": "await engine._check_open_prs(); assert mock_platform.list_issues_by_label.call_args[0][0] == LABEL_PR; assert mock_process_pr_issue.call_count == 3; assert engine.state.issue_checks_completed == 3"
+    },
+    {
+      "id": "TS-07-7",
+      "requirement_id": "07-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that _check_open_prs is declared as async def and awaits each process_pr_issue call sequentially without concurrent gather.",
+      "preconditions": [
+        "NightShiftEngine is instantiated with a mock platform returning 2 af:pr issues",
+        "process_pr_issue is mocked with an async function that records call order and timestamps"
+      ],
+      "input": {
+        "af:pr issues returned": 2
+      },
+      "expected": "Calls to process_pr_issue are sequential: second call begins only after the first coroutine completes; asyncio.gather is not used",
+      "assertion_pseudocode": "call_times = []; mock_process = AsyncMock(side_effect=record_call_time(call_times)); await engine._check_open_prs(); assert call_times[0]['end'] <= call_times[1]['start']  # no overlap; assert inspect.iscoroutinefunction(engine._check_open_prs)"
+    },
+    {
+      "id": "TS-07-8",
+      "requirement_id": "07-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that _MAX_PR_CHECKS = 5 is defined as a module-level constant in engine.py and not in pr_feedback.py.",
+      "preconditions": [
+        "agentfox.nightshift.engine module is importable",
+        "agentfox.nightshift.pr_feedback module is importable"
+      ],
+      "input": {},
+      "expected": "_MAX_PR_CHECKS equals 5 in engine module; pr_feedback module does not define _MAX_PR_CHECKS",
+      "assertion_pseudocode": "import agentfox.nightshift.engine as eng; import agentfox.nightshift.pr_feedback as prf; assert eng._MAX_PR_CHECKS == 5; assert not hasattr(prf, '_MAX_PR_CHECKS')"
+    },
+    {
+      "id": "TS-07-9",
+      "requirement_id": "07-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that process_pr_issue lists issue comments, finds the last PR_TRACKING_PATTERN match, and extracts pr_number and attempt via parse_tracking_comment.",
+      "preconditions": [
+        "mock platform returns a list of comments where the last matching comment has pr_number=42 and attempt=1",
+        "PR_TRACKING_PATTERN and parse_tracking_comment are imported from fix_pipeline"
+      ],
+      "input": {
+        "comments": [
+          "unrelated comment",
+          "<!-- af:pr-tracking pr_number=42 attempt=1 --> text"
+        ],
+        "issue.number": 10
+      },
+      "expected": "platform.list_issue_comments called with issue.number=10; parse_tracking_comment called with the last matching comment body; pr_number=42 and attempt=1 extracted for use in subsequent steps",
+      "assertion_pseudocode": "await process_pr_issue(issue=mock_issue(number=10), config=mock_config, platform=mock_platform, pipeline=mock_pipeline); assert mock_platform.list_issue_comments.called_with(10); assert captured_pr_number == 42; assert captured_attempt == 1"
+    },
+    {
+      "id": "TS-07-10",
+      "requirement_id": "07-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that process_pr_issue logs a WARNING and returns without modifying labels or posting comments when no comment matches PR_TRACKING_PATTERN.",
+      "preconditions": [
+        "mock platform returns comments with no PR_TRACKING_PATTERN matches",
+        "Logger is captured for assertion"
+      ],
+      "input": {
+        "comments": [
+          "just a regular comment"
+        ],
+        "issue.number": 10
+      },
+      "expected": "WARNING log emitted containing issue number; no label operations called; no add_issue_comment called; returns None; af:pr label remains on issue",
+      "assertion_pseudocode": "with capture_logs(level=WARNING) as logs: result = await process_pr_issue(issue=mock_issue(number=10), ...); assert result is None; assert any('no valid tracking comment' in l.message or str(10) in l.message for l in logs); assert mock_platform.assign_label.not_called(); assert mock_platform.remove_label.not_called(); assert mock_platform.add_issue_comment.not_called()"
+    },
+    {
+      "id": "TS-07-11",
+      "requirement_id": "07-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that when get_pr_state returns merged=True, the issue receives af:fixed label, loses af:pr label, is closed with the merged comment, and INFO is logged.",
+      "preconditions": [
+        "mock platform returns PrState(merged=True, state='closed') for get_pr_state",
+        "tracking comment parsed successfully with pr_number=42",
+        "Logger is captured"
+      ],
+      "input": {
+        "issue_number": 10,
+        "pr_number": 42,
+        "pr_state": {
+          "merged": true,
+          "state": "closed"
+        }
+      },
+      "expected": "assign_label(10, 'af:fixed') called; remove_label(10, 'af:pr') called; close_issue(10, 'PR #42 merged.') called in that order; INFO log emitted",
+      "assertion_pseudocode": "await process_pr_issue(...); calls = mock_platform.method_calls; assert calls[0] == call.assign_label(10, LABEL_FIXED); assert calls[1] == call.remove_label(10, LABEL_PR); assert calls[2] == call.close_issue(10, 'PR #42 merged.'); assert any('merged' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-12",
+      "requirement_id": "07-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that when get_pr_state returns state='closed' and merged=False, a comment is posted, af:pr label is removed, issue stays open, and INFO is logged.",
+      "preconditions": [
+        "mock platform returns PrState(merged=False, state='closed') for get_pr_state",
+        "tracking comment parsed successfully with pr_number=42"
+      ],
+      "input": {
+        "issue_number": 10,
+        "pr_number": 42,
+        "pr_state": {
+          "merged": false,
+          "state": "closed"
+        }
+      },
+      "expected": "add_issue_comment called with message containing 'closed without merging'; remove_label(10, 'af:pr') called; close_issue NOT called; issue remains open; INFO log emitted",
+      "assertion_pseudocode": "await process_pr_issue(...); assert mock_platform.add_issue_comment.called; comment_body = mock_platform.add_issue_comment.call_args[0][1]; assert 'closed without merging' in comment_body; assert mock_platform.remove_label.called_with(10, LABEL_PR); assert not mock_platform.close_issue.called; assert any('closed without merge' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-13",
+      "requirement_id": "07-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that when get_pr_state returns state='open', process_pr_issue continues to the CI check step without modifying labels or posting comments.",
+      "preconditions": [
+        "mock platform returns PrState(merged=False, state='open') for get_pr_state",
+        "_check_ci_status is mocked to return a skip signal",
+        "tracking comment parsed successfully"
+      ],
+      "input": {
+        "pr_state": {
+          "merged": false,
+          "state": "open"
+        }
+      },
+      "expected": "No label modification calls made at PR state step; _check_ci_status is called; no issue comment posted at this step",
+      "assertion_pseudocode": "await process_pr_issue(...); assert not mock_platform.assign_label.called; assert not mock_platform.remove_label.called; assert mock_check_ci_status.called"
+    },
+    {
+      "id": "TS-07-14",
+      "requirement_id": "07-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status returns a skip signal when at least one CheckResult has status='in_progress' or status='queued', without logging WARNING or ERROR.",
+      "preconditions": [
+        "mock platform returns [CheckResult(status='in_progress', conclusion=None)] for get_pr_checks"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": null,
+            "status": "in_progress"
+          }
+        ]
+      },
+      "expected": "Skip signal returned; no re-entry triggered; no WARNING or ERROR logged",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'skip'; assert mock_platform.add_issue_comment.not_called(); assert no WARNING or ERROR in captured_logs"
+    },
+    {
+      "id": "TS-07-15",
+      "requirement_id": "07-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status returns a re-entry signal and logs INFO when at least one CheckResult has conclusion='failure'.",
+      "preconditions": [
+        "mock platform returns [CheckResult(status='completed', conclusion='failure', name='build', output_title='Build failed', output_summary='Exit code 1')] for get_pr_checks"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": "failure",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected": "Re-entry signal returned with the failed CheckResult; INFO log contains 'Re-entry triggered' and 'CI failure/timeout'",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 're_entry'; assert len(result.ci_failures) == 1; assert any('Re-entry triggered' in l.message and 'CI failure' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-16",
+      "requirement_id": "07-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status skips and logs WARNING when all checks have conclusion in {cancelled, action_required, stale} with none having conclusion='success'.",
+      "preconditions": [
+        "mock platform returns checks where all conclusions are in {'cancelled', 'action_required', 'stale'}"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": "cancelled",
+            "status": "completed"
+          },
+          {
+            "conclusion": "stale",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected": "Skip signal returned; WARNING log contains 'ambiguous state' and issue/PR numbers",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'skip'; assert any('ambiguous state' in l.message for l in captured_warning_logs)"
+    },
+    {
+      "id": "TS-07-17",
+      "requirement_id": "07-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status returns a pass-through signal to proceed to review check when all checks have conclusion='success'.",
+      "preconditions": [
+        "mock platform returns [CheckResult(status='completed', conclusion='success')] for get_pr_checks"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": "success",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected": "Pass-through signal returned; _check_reviews will be called next; no re-entry triggered",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'pass_through'"
+    },
+    {
+      "id": "TS-07-18",
+      "requirement_id": "07-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status treats an empty check list as all passing and returns a pass-through signal.",
+      "preconditions": [
+        "mock platform returns [] for get_pr_checks"
+      ],
+      "input": {
+        "checks": []
+      },
+      "expected": "Pass-through signal returned; no re-entry triggered; no warning logged",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'pass_through'; assert no WARNING in captured_logs"
+    },
+    {
+      "id": "TS-07-19",
+      "requirement_id": "07-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that _check_reviews returns a re-entry signal and logs INFO when the latest non-dismissed review has state='CHANGES_REQUESTED'.",
+      "preconditions": [
+        "mock platform returns [ReviewComment(user='alice', body='Please fix this', state='CHANGES_REQUESTED')] for get_pr_reviews"
+      ],
+      "input": {
+        "reviews": [
+          {
+            "body": "Please fix this",
+            "state": "CHANGES_REQUESTED",
+            "user": "alice"
+          }
+        ]
+      },
+      "expected": "Re-entry signal returned; INFO log contains 'Re-entry triggered' and 'reviewer requested changes'",
+      "assertion_pseudocode": "result = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 're_entry'; assert any('reviewer requested changes' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-20",
+      "requirement_id": "07-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that _check_reviews returns a skip signal when the latest non-dismissed review has state='APPROVED' or 'COMMENTED', or there are no non-dismissed reviews.",
+      "preconditions": [
+        "mock platform returns [ReviewComment(state='APPROVED')] for get_pr_reviews"
+      ],
+      "input": {
+        "reviews": [
+          {
+            "state": "APPROVED"
+          }
+        ]
+      },
+      "expected": "Skip signal returned for APPROVED; skip signal returned for COMMENTED; skip signal returned when no non-dismissed reviews",
+      "assertion_pseudocode": "result_approved = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform_approved); assert result_approved.action == 'skip'; result_commented = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform_commented); assert result_commented.action == 'skip'; result_empty = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform_empty); assert result_empty.action == 'skip'"
+    },
+    {
+      "id": "TS-07-21",
+      "requirement_id": "07-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that _check_reviews filters out all DISMISSED reviews before determining the latest active review state.",
+      "preconditions": [
+        "mock platform returns [ReviewComment(state='DISMISSED'), ReviewComment(state='CHANGES_REQUESTED'), ReviewComment(state='DISMISSED')] for get_pr_reviews"
+      ],
+      "input": {
+        "reviews": [
+          {
+            "state": "DISMISSED"
+          },
+          {
+            "state": "CHANGES_REQUESTED"
+          },
+          {
+            "state": "DISMISSED"
+          }
+        ]
+      },
+      "expected": "CHANGES_REQUESTED is detected as the latest non-dismissed review; re-entry signal returned",
+      "assertion_pseudocode": "result = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 're_entry'"
+    },
+    {
+      "id": "TS-07-22",
+      "requirement_id": "07-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that when attempt > max_pr_retries, _run_feedback_iteration logs INFO with retry limit message, posts _RETRY_LIMIT_MESSAGE comment, leaves af:pr label, and does not create a worktree.",
+      "preconditions": [
+        "config.night_shift.max_pr_retries = 2",
+        "tracking comment has attempt=3",
+        "mock platform is set up",
+        "_setup_feedback_worktree is mocked"
+      ],
+      "input": {
+        "attempt": 3,
+        "max_pr_retries": 2
+      },
+      "expected": "INFO log contains 'Retry limit reached'; add_issue_comment called with _RETRY_LIMIT_MESSAGE text; _setup_feedback_worktree NOT called; returns None",
+      "assertion_pseudocode": "result = await _run_feedback_iteration(issue=mock_issue, pr_number=42, attempt=3, config=mock_config_retries_2, ...); assert result is None; assert mock_setup_worktree.not_called(); assert mock_platform.add_issue_comment.called; comment = mock_platform.add_issue_comment.call_args[0][1]; assert 'Feedback retry limit reached' in comment; assert any('Retry limit reached' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-23",
+      "requirement_id": "07-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that when attempt <= max_pr_retries, _run_feedback_iteration proceeds with the full feedback iteration.",
+      "preconditions": [
+        "config.night_shift.max_pr_retries = 2",
+        "tracking comment has attempt=2",
+        "_setup_feedback_worktree, coder session, and push are all mocked to succeed"
+      ],
+      "input": {
+        "attempt": 2,
+        "max_pr_retries": 2
+      },
+      "expected": "Full iteration runs: _setup_feedback_worktree called, coder session called, tracking comment posted, force-push executed",
+      "assertion_pseudocode": "result = await _run_feedback_iteration(issue=mock_issue, pr_number=42, attempt=2, config=mock_config_retries_2, ...); assert mock_setup_worktree.called; assert mock_run_coder_session.called; assert mock_platform.add_issue_comment.called; assert mock_git_push_force.called"
+    },
+    {
+      "id": "TS-07-24",
+      "requirement_id": "07-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that _setup_feedback_worktree runs git fetch origin <branch> first, then git worktree add at worktrees/feedback-{issue_number} on the fix branch.",
+      "preconditions": [
+        "git subprocess calls are mocked",
+        "sanitise_branch_name returns 'fix/10-my-issue' for the mock issue",
+        "issue.number = 10"
+      ],
+      "input": {
+        "issue.number": 10,
+        "issue.title": "My Issue"
+      },
+      "expected": "Subprocess called with ['git', 'fetch', 'origin', 'fix/10-my-issue'] first; then called with ['git', 'worktree', 'add', 'worktrees/feedback-10', 'fix/10-my-issue']; returns worktree path string",
+      "assertion_pseudocode": "worktree_path = await _setup_feedback_worktree(issue=mock_issue(number=10, title='My Issue'), config=mock_config); subprocess_calls = mock_subprocess.call_args_list; assert subprocess_calls[0].args[0] == ['git', 'fetch', 'origin', 'fix/10-my-issue']; assert subprocess_calls[1].args[0] == ['git', 'worktree', 'add', 'worktrees/feedback-10', 'fix/10-my-issue']; assert 'worktrees/feedback-10' in worktree_path"
+    },
+    {
+      "id": "TS-07-25",
+      "requirement_id": "07-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that _cleanup_feedback_worktree silently no-ops and logs at DEBUG when the worktree directory does not exist.",
+      "preconditions": [
+        "worktrees/feedback-10 directory does not exist",
+        "Logger is captured"
+      ],
+      "input": {
+        "issue_number": 10
+      },
+      "expected": "No exception raised; returns None; DEBUG log contains 'Feedback worktree not found for issue #10'",
+      "assertion_pseudocode": "result = _cleanup_feedback_worktree(issue_number=10, worktree_base='worktrees'); assert result is None; assert any('Feedback worktree not found' in l.message and '10' in l.message for l in captured_debug_logs)"
+    },
+    {
+      "id": "TS-07-26",
+      "requirement_id": "07-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that _collect_feedback with trigger='ci' returns markdown containing exactly one '## CI Failures' section with each failed CheckResult's name, output_title, and output_summary.",
+      "preconditions": [
+        "ci_failures contains one CheckResult with name='build', output_title='Build Failed', output_summary='Exit code 1'",
+        "review_comments is an empty list"
+      ],
+      "input": {
+        "ci_failures": [
+          {
+            "name": "build",
+            "output_summary": "Exit code 1",
+            "output_title": "Build Failed"
+          }
+        ],
+        "review_comments": [],
+        "trigger": "ci"
+      },
+      "expected": "Returned string contains '## CI Failures' heading; contains 'build', 'Build Failed', 'Exit code 1'; does not contain '## Review Feedback'",
+      "assertion_pseudocode": "output = _collect_feedback(trigger='ci', ci_failures=[mock_check_result], review_comments=[]); assert '## CI Failures' in output; assert 'build' in output; assert 'Build Failed' in output; assert 'Exit code 1' in output; assert '## Review Feedback' not in output"
+    },
+    {
+      "id": "TS-07-27",
+      "requirement_id": "07-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that _collect_feedback with trigger='review' returns markdown containing exactly one '## Review Feedback' section with reviewer user, body, and state.",
+      "preconditions": [
+        "review_comments contains one ReviewComment with user='alice', body='Please address this', state='CHANGES_REQUESTED'",
+        "ci_failures is an empty list"
+      ],
+      "input": {
+        "ci_failures": [],
+        "review_comments": [
+          {
+            "body": "Please address this",
+            "state": "CHANGES_REQUESTED",
+            "user": "alice"
+          }
+        ],
+        "trigger": "review"
+      },
+      "expected": "Returned string contains '## Review Feedback' heading; contains 'alice', 'Please address this', 'CHANGES_REQUESTED'; does not contain '## CI Failures'",
+      "assertion_pseudocode": "output = _collect_feedback(trigger='review', ci_failures=[], review_comments=[mock_review_comment]); assert '## Review Feedback' in output; assert 'alice' in output; assert 'Please address this' in output; assert 'CHANGES_REQUESTED' in output; assert '## CI Failures' not in output"
+    },
+    {
+      "id": "TS-07-28",
+      "requirement_id": "07-REQ-10.3",
+      "kind": "unit",
+      "description": "Verify that _collect_feedback signature accepts Literal['ci', 'review'] as trigger and never combines both sections in a single output.",
+      "preconditions": [
+        "pr_feedback module is importable",
+        "ci_failures and review_comments both contain items"
+      ],
+      "input": {
+        "ci_failures": [
+          {
+            "name": "test"
+          }
+        ],
+        "review_comments": [
+          {
+            "user": "bob"
+          }
+        ],
+        "trigger": "ci"
+      },
+      "expected": "When called with trigger='ci', only '## CI Failures' section appears; when called with trigger='review', only '## Review Feedback' section appears; the function never returns a string with both sections",
+      "assertion_pseudocode": "import inspect; sig = inspect.signature(_collect_feedback); assert 'trigger' in sig.parameters; output_ci = _collect_feedback(trigger='ci', ci_failures=[mock_cf], review_comments=[mock_rc]); assert '## CI Failures' in output_ci and '## Review Feedback' not in output_ci; output_rv = _collect_feedback(trigger='review', ci_failures=[mock_cf], review_comments=[mock_rc]); assert '## Review Feedback' in output_rv and '## CI Failures' not in output_rv"
+    },
+    {
+      "id": "TS-07-29",
+      "requirement_id": "07-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that _run_feedback_iteration constructs a synthetic TriageResult and calls _build_coder_prompt with prior_context='' and knowledge_context='' and review_feedback containing the collected feedback.",
+      "preconditions": [
+        "attempt=1 <= max_pr_retries=2",
+        "_setup_feedback_worktree mocked to succeed",
+        "_run_coder_session mocked to return a result",
+        "git diff mocked to return ['src/foo.py']",
+        "issue has title='Fix bug', body='Detailed description'"
+      ],
+      "input": {
+        "affected_files_from_diff": [
+          "src/foo.py"
+        ],
+        "attempt": 1,
+        "issue.body": "Detailed description",
+        "issue.title": "Fix bug"
+      },
+      "expected": "_build_coder_prompt called with triage.summary='Fix bug', triage.affected_files=['src/foo.py'], triage.criteria=[], triage.assessed_complexity=None, triage.issue_body='Detailed description', prior_context='', knowledge_context='', review_feedback=<non-empty markdown string>",
+      "assertion_pseudocode": "await _run_feedback_iteration(issue=mock_issue, pr_number=42, attempt=1, trigger='ci', ci_failures=[mock_cf], review_comments=[], config=mock_config, platform=mock_platform, pipeline=mock_pipeline); call_kwargs = mock_pipeline._build_coder_prompt.call_args[1]; assert call_kwargs['prior_context'] == ''; assert call_kwargs['knowledge_context'] == ''; triage = call_kwargs['triage'] or call_args[0][1]; assert triage.summary == 'Fix bug'; assert triage.affected_files == ['src/foo.py']; assert triage.criteria == []; assert triage.assessed_complexity is None; assert triage.issue_body == 'Detailed description'; assert len(call_kwargs['review_feedback']) > 0"
+    },
+    {
+      "id": "TS-07-30",
+      "requirement_id": "07-REQ-11.2",
+      "kind": "unit",
+      "description": "Verify that _run_feedback_iteration invokes pipeline._run_coder_session with the feedback worktree and the model ID from the nightshift config.",
+      "preconditions": [
+        "attempt=1 <= max_pr_retries=2",
+        "_setup_feedback_worktree returns 'worktrees/feedback-10'",
+        "_build_coder_prompt returns ('system prompt', 'task prompt')",
+        "nightshift model config provides a model_id"
+      ],
+      "input": {
+        "model_id": "claude-3-5-sonnet",
+        "worktree_path": "worktrees/feedback-10"
+      },
+      "expected": "_run_coder_session awaited with workspace containing 'worktrees/feedback-10' and model_id matching nightshift config model",
+      "assertion_pseudocode": "await _run_feedback_iteration(...); call_kwargs = mock_pipeline._run_coder_session.call_args; workspace_arg = call_kwargs[0][0] or call_kwargs['workspace']; assert 'worktrees/feedback-10' in str(workspace_arg); model_arg = call_kwargs[0][-1] or call_kwargs['model_id']; assert model_arg == mock_config.night_shift.model_id"
+    },
+    {
+      "id": "TS-07-31",
+      "requirement_id": "07-REQ-11.3",
+      "kind": "unit",
+      "description": "Verify that when git diff --name-only fails or returns empty output, affected_files defaults to [] and a WARNING is logged.",
+      "preconditions": [
+        "git diff subprocess is mocked to raise an exception or return empty string",
+        "attempt=1 <= max_pr_retries=2"
+      ],
+      "input": {
+        "git_diff_output": ""
+      },
+      "expected": "affected_files = [] in the synthetic TriageResult; WARNING log contains 'git diff --name-only failed' and 'defaulting affected_files to []'",
+      "assertion_pseudocode": "mock_git_diff.side_effect = subprocess.CalledProcessError(1, 'git diff'); await _run_feedback_iteration(...); triage_call = mock_pipeline._build_coder_prompt.call_args; triage = triage_call[0][1]; assert triage.affected_files == []; assert any('git diff' in l.message and 'defaulting' in l.message for l in captured_warning_logs)"
+    },
+    {
+      "id": "TS-07-32",
+      "requirement_id": "07-REQ-12.1",
+      "kind": "unit",
+      "description": "Verify that the tracking comment is posted before the diff check and force-push, using format_tracking_comment with attempt+1 and pr_url=''.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "coder session succeeds",
+        "mock platform records call order"
+      ],
+      "input": {
+        "attempt": 1,
+        "issue_number": 10,
+        "pr_number": 42
+      },
+      "expected": "add_issue_comment called before git push --force; comment body contains attempt=2 and pr_url is '' in the format_tracking_comment call; tracking comment references _FEEDBACK_ITERATION_MESSAGE",
+      "assertion_pseudocode": "call_order = []; mock_platform.add_issue_comment.side_effect = lambda *a: call_order.append('comment'); mock_git_push.side_effect = lambda *a: call_order.append('push'); await _run_feedback_iteration(attempt=1, ...); assert call_order.index('comment') < call_order.index('push'); comment_body = mock_platform.add_issue_comment.call_args[0][1]; assert 'attempt=2' in comment_body or 'attempt 2' in comment_body.lower()"
+    },
+    {
+      "id": "TS-07-33",
+      "requirement_id": "07-REQ-12.2",
+      "kind": "unit",
+      "description": "Verify that after a successful tracking comment post with a non-empty diff, _auto_commit_pending_changes is called with the feedback commit message and git push --force is executed.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "coder session produces changes (non-empty diff)",
+        "tracking comment posts successfully",
+        "mock git push is set up"
+      ],
+      "input": {
+        "attempt": 1,
+        "diff_non_empty": true,
+        "issue.title": "Fix bug"
+      },
+      "expected": "_auto_commit_pending_changes called with message 'fix: Fix bug [nightshift feedback #2]'; git push --force executed; INFO log contains 'Feedback iteration 2 complete'",
+      "assertion_pseudocode": "await _run_feedback_iteration(attempt=1, issue=mock_issue(title='Fix bug'), ...); commit_msg = mock_pipeline._auto_commit_pending_changes.call_args[0][0]; assert commit_msg == 'fix: Fix bug [nightshift feedback #2]'; assert mock_git_push_force.called; assert any('Feedback iteration 2 complete' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-34",
+      "requirement_id": "07-REQ-12.3",
+      "kind": "unit",
+      "description": "Verify that when the coder produces an empty diff, the force-push is skipped, a _NO_CHANGES_MESSAGE comment is posted, and a WARNING is logged.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "coder session succeeds but produces no file changes",
+        "tracking comment posts successfully",
+        "git diff is mocked to return empty output in the post-coder check"
+      ],
+      "input": {
+        "attempt": 1,
+        "diff_after_coder": ""
+      },
+      "expected": "git push --force NOT called; add_issue_comment called with _NO_CHANGES_MESSAGE text; WARNING log contains 'coder produced no changes'",
+      "assertion_pseudocode": "await _run_feedback_iteration(attempt=1, ...); assert not mock_git_push_force.called; no_change_calls = [c for c in mock_platform.add_issue_comment.call_args_list if 'no changes' in c[0][1].lower()]; assert len(no_change_calls) >= 1; assert any('coder produced no changes' in l.message for l in captured_warning_logs)"
+    },
+    {
+      "id": "TS-07-35",
+      "requirement_id": "07-REQ-13.1",
+      "kind": "unit",
+      "description": "Verify that _run_feedback_iteration wraps all operations in a try/finally that calls _cleanup_feedback_worktree unconditionally, even when an exception is raised mid-iteration.",
+      "preconditions": [
+        "attempt=1 <= max_pr_retries=2",
+        "_run_coder_session is mocked to raise an exception",
+        "_cleanup_feedback_worktree is mocked"
+      ],
+      "input": {
+        "coder_raises": "RuntimeError('coder failed')"
+      },
+      "expected": "_cleanup_feedback_worktree called exactly once despite the exception; exception does not propagate past process_pr_issue",
+      "assertion_pseudocode": "with pytest.raises(Exception): await _run_feedback_iteration(attempt=1, ..., pipeline=mock_pipeline_coder_raises); assert mock_cleanup.called; assert mock_cleanup.call_count == 1"
+    },
+    {
+      "id": "TS-07-36",
+      "requirement_id": "07-REQ-13.2",
+      "kind": "unit",
+      "description": "Verify that _cleanup_feedback_worktree returns None without raising when the worktree directory does not exist.",
+      "preconditions": [
+        "worktrees/feedback-10 directory does not exist on the filesystem"
+      ],
+      "input": {
+        "issue_number": 10
+      },
+      "expected": "Returns None; no exception raised; DEBUG log emitted",
+      "assertion_pseudocode": "result = _cleanup_feedback_worktree(issue_number=10); assert result is None; assert no_exception_raised; assert any('skipping cleanup' in l.message for l in captured_debug_logs)"
+    },
+    {
+      "id": "TS-07-37",
+      "requirement_id": "07-REQ-14.1",
+      "kind": "unit",
+      "description": "Verify that pr_feedback module emits INFO logs for all specified normal state transitions.",
+      "preconditions": [
+        "Logger is captured at INFO level",
+        "Various mock platform states are configured for each transition"
+      ],
+      "input": {
+        "transitions": [
+          "merged",
+          "closed_no_merge",
+          "ci_reentry",
+          "review_reentry",
+          "retry_limit",
+          "iteration_complete"
+        ]
+      },
+      "expected": "INFO log emitted for each of the six state transitions listed in the PRD section 6",
+      "assertion_pseudocode": "# Test merged transition: await process_pr_issue(...merged...); assert any('merged' in l.message and l.level == INFO for l in logs); # Test closed: await process_pr_issue(...closed...); assert any('closed without merge' in l.message and l.level == INFO for l in logs); # Test CI re-entry: assert any('Re-entry triggered' in l.message and 'CI' in l.message and l.level == INFO for l in logs); # Test review re-entry: assert any('Re-entry triggered' in l.message and 'reviewer' in l.message and l.level == INFO for l in logs); # Test retry limit: assert any('Retry limit reached' in l.message and l.level == INFO for l in logs); # Test iteration complete: assert any('Feedback iteration' in l.message and 'complete' in l.message and l.level == INFO for l in logs)"
+    },
+    {
+      "id": "TS-07-38",
+      "requirement_id": "07-REQ-14.2",
+      "kind": "unit",
+      "description": "Verify that pr_feedback module emits WARNING logs for all specified skip and anomaly conditions.",
+      "preconditions": [
+        "Logger is captured at WARNING level",
+        "Various error conditions are configured"
+      ],
+      "input": {
+        "conditions": [
+          "no_tracking_comment",
+          "ambiguous_ci",
+          "api_error_polling",
+          "no_changes",
+          "diff_failure"
+        ]
+      },
+      "expected": "WARNING log emitted for each of the five conditions listed in the PRD section 6",
+      "assertion_pseudocode": "# No tracking comment: assert any('no valid tracking comment' in l.message and l.level == WARNING for l in logs); # Ambiguous CI: assert any('ambiguous state' in l.message and l.level == WARNING for l in logs); # API error polling: assert any('platform API error' in l.message and l.level == WARNING for l in logs); # No changes: assert any('coder produced no changes' in l.message and l.level == WARNING for l in logs); # Diff failure: assert any('git diff' in l.message and l.level == WARNING for l in logs)"
+    },
+    {
+      "id": "TS-07-39",
+      "requirement_id": "07-REQ-14.3",
+      "kind": "unit",
+      "description": "Verify that pr_feedback module emits ERROR logs for all specified feedback iteration failure conditions.",
+      "preconditions": [
+        "Logger is captured at ERROR level",
+        "Each failure condition is triggered independently"
+      ],
+      "input": {
+        "conditions": [
+          "fetch_fail",
+          "worktree_fail",
+          "push_fail",
+          "coder_exception",
+          "autocommit_fail",
+          "tracking_comment_fail"
+        ]
+      },
+      "expected": "ERROR log emitted for each of the six failure conditions, each containing issue number, PR number, and exception details",
+      "assertion_pseudocode": "# Fetch failure: assert any('git fetch failed' in l.message and l.level == ERROR for l in logs); # Worktree: assert any('git worktree add failed' in l.message and l.level == ERROR for l in logs); # Push: assert any('git push --force failed' in l.message and l.level == ERROR for l in logs); # Coder: assert any('coder session raised' in l.message and l.level == ERROR for l in logs); # Commit: assert any('auto-commit failed' in l.message and l.level == ERROR for l in logs); # Tracking: assert any('failed to post tracking comment' in l.message and l.level == ERROR for l in logs)"
+    },
+    {
+      "id": "TS-07-40",
+      "requirement_id": "07-REQ-14.4",
+      "kind": "unit",
+      "description": "Verify that _cleanup_feedback_worktree emits a DEBUG log when called for a non-existent directory.",
+      "preconditions": [
+        "worktrees/feedback-10 does not exist",
+        "Logger captured at DEBUG level"
+      ],
+      "input": {
+        "issue_number": 10
+      },
+      "expected": "DEBUG log emitted containing 'Feedback worktree not found for issue #10'",
+      "assertion_pseudocode": "with capture_logs(level=DEBUG) as logs: _cleanup_feedback_worktree(issue_number=10); assert any('Feedback worktree not found' in l.message and '10' in l.message and l.level == DEBUG for l in logs)"
+    },
+    {
+      "id": "TS-07-41",
+      "requirement_id": "07-REQ-14.5",
+      "kind": "unit",
+      "description": "Verify that NightShiftState has no new fields beyond issue_checks_completed added by this spec.",
+      "preconditions": [
+        "agentfox.nightshift.engine.NightShiftState is importable"
+      ],
+      "input": {},
+      "expected": "NightShiftState dataclass fields include issue_checks_completed; no new pr-feedback-specific fields exist",
+      "assertion_pseudocode": "import dataclasses; from agentfox.nightshift.engine import NightShiftState; field_names = {f.name for f in dataclasses.fields(NightShiftState)}; assert 'issue_checks_completed' in field_names; new_fields = {'pr_feedback_errors', 'feedback_iterations_run', 'pr_checks_performed'}; assert not field_names.intersection(new_fields)"
+    },
+    {
+      "id": "TS-07-42",
+      "requirement_id": "07-REQ-15.1",
+      "kind": "unit",
+      "description": "Verify that pr_feedback.py defines all required module-level functions and does not subclass FixPipeline.",
+      "preconditions": [
+        "agentfox.nightshift.pr_feedback module is importable"
+      ],
+      "input": {},
+      "expected": "All eight functions exist as module-level callables; pr_feedback module defines no class inheriting from FixPipeline",
+      "assertion_pseudocode": "import agentfox.nightshift.pr_feedback as prf; import inspect; required = ['process_pr_issue', '_check_pr_state', '_check_ci_status', '_check_reviews', '_collect_feedback', '_run_feedback_iteration', '_setup_feedback_worktree', '_cleanup_feedback_worktree']; for fn in required: assert callable(getattr(prf, fn, None)); from agentfox.nightshift.fix_pipeline import FixPipeline; for name, obj in inspect.getmembers(prf, inspect.isclass): assert not issubclass(obj, FixPipeline) or obj is FixPipeline"
+    },
+    {
+      "id": "TS-07-43",
+      "requirement_id": "07-REQ-15.2",
+      "kind": "unit",
+      "description": "Verify that pr_feedback.py defines all four required module-level string constants and imports the specified symbols from fix_pipeline.",
+      "preconditions": [
+        "agentfox.nightshift.pr_feedback module is importable"
+      ],
+      "input": {},
+      "expected": "All four constants exist as non-empty strings; parse_tracking_comment, format_tracking_comment, PR_TRACKING_PATTERN, TriageResult, FixPipeline are importable from the module namespace",
+      "assertion_pseudocode": "import agentfox.nightshift.pr_feedback as prf; assert isinstance(prf._FEEDBACK_ITERATION_MESSAGE, str) and len(prf._FEEDBACK_ITERATION_MESSAGE) > 0; assert isinstance(prf._NO_CHANGES_MESSAGE, str) and len(prf._NO_CHANGES_MESSAGE) > 0; assert isinstance(prf._RETRY_LIMIT_MESSAGE, str) and len(prf._RETRY_LIMIT_MESSAGE) > 0; assert isinstance(prf._FEEDBACK_COMMIT_MESSAGE, str) and len(prf._FEEDBACK_COMMIT_MESSAGE) > 0; assert hasattr(prf, 'parse_tracking_comment'); assert hasattr(prf, 'format_tracking_comment'); assert hasattr(prf, 'PR_TRACKING_PATTERN'); assert hasattr(prf, 'TriageResult'); assert hasattr(prf, 'FixPipeline')"
+    },
+    {
+      "id": "TS-07-44",
+      "requirement_id": "07-REQ-15.3",
+      "kind": "unit",
+      "description": "Verify that pr_feedback.py imports PlatformProtocol, IssueResult, CheckResult, ReviewComment from afissues.protocol and LABEL_PR, LABEL_FIXED from afissues.labels and sanitise_branch_name from spec_builder.",
+      "preconditions": [
+        "agentfox.nightshift.pr_feedback module is importable"
+      ],
+      "input": {},
+      "expected": "All specified imports are available in the pr_feedback module namespace",
+      "assertion_pseudocode": "import agentfox.nightshift.pr_feedback as prf; assert hasattr(prf, 'PlatformProtocol'); assert hasattr(prf, 'IssueResult'); assert hasattr(prf, 'CheckResult'); assert hasattr(prf, 'ReviewComment'); assert hasattr(prf, 'LABEL_PR'); assert prf.LABEL_PR == 'af:pr'; assert hasattr(prf, 'LABEL_FIXED'); assert prf.LABEL_FIXED == 'af:fixed'; assert hasattr(prf, 'sanitise_branch_name')"
+    },
+    {
+      "id": "TS-07-45",
+      "requirement_id": "07-REQ-15.4",
+      "kind": "unit",
+      "description": "Verify that process_pr_issue is declared as async def with the correct signature and returns None in all cases.",
+      "preconditions": [
+        "agentfox.nightshift.pr_feedback module is importable"
+      ],
+      "input": {},
+      "expected": "process_pr_issue is a coroutine function; signature has parameters (issue: IssueResult, config: NightShiftConfig, platform: PlatformProtocol, pipeline: FixPipeline) -> None; returns None on both success and skip paths",
+      "assertion_pseudocode": "import inspect; from agentfox.nightshift.pr_feedback import process_pr_issue; assert inspect.iscoroutinefunction(process_pr_issue); sig = inspect.signature(process_pr_issue); params = list(sig.parameters.keys()); assert params == ['issue', 'config', 'platform', 'pipeline']; result = await process_pr_issue(mock_issue, mock_config, mock_platform, mock_pipeline); assert result is None"
+    },
+    {
+      "id": "TS-07-46",
+      "requirement_id": "07-REQ-16.1",
+      "kind": "integration",
+      "description": "Verify that af:fix and af:pr are mutually exclusive: when a PR is created by spec 06, af:fix is removed and af:pr is added; when a PR is merged or closed without merge, af:pr is removed.",
+      "preconditions": [
+        "Issue initially has af:fix label only",
+        "Spec 06 PR creation flow is simulated",
+        "Mock platform tracks label state"
+      ],
+      "input": {
+        "initial_labels": [
+          "af:fix"
+        ]
+      },
+      "expected": "After PR creation: labels = {'af:pr'}, not {'af:fix', 'af:pr'}; after PR merge: labels = {'af:fixed'}, no af:pr; after PR closed without merge: labels = {}, no af:pr, no af:fix",
+      "assertion_pseudocode": "labels = set(['af:fix']); simulate_pr_creation(labels); assert 'af:pr' in labels and 'af:fix' not in labels; simulate_pr_merge(labels); assert 'af:fixed' in labels and 'af:pr' not in labels; labels2 = set(['af:pr']); simulate_pr_closed_no_merge(labels2); assert 'af:pr' not in labels2 and 'af:fix' not in labels2"
+    },
+    {
+      "id": "TS-07-47",
+      "requirement_id": "07-REQ-16.2",
+      "kind": "unit",
+      "description": "Verify that an issue carrying only af:pr is not selected by the fix pipeline's list_issues_by_label(LABEL_FIX) query.",
+      "preconditions": [
+        "mock platform has an issue with only af:pr label",
+        "fix pipeline calls list_issues_by_label with LABEL_FIX"
+      ],
+      "input": {
+        "issue_labels": [
+          "af:pr"
+        ]
+      },
+      "expected": "list_issues_by_label(LABEL_FIX) does not return the af:pr-only issue; fix pipeline does not process it",
+      "assertion_pseudocode": "mock_platform.list_issues_by_label.side_effect = lambda label, **kw: [mock_afpr_issue] if label == 'af:pr' else []; result = await mock_platform.list_issues_by_label('af:fix'); assert mock_afpr_issue not in result"
+    },
+    {
+      "id": "TS-07-48",
+      "requirement_id": "07-REQ-16.3",
+      "kind": "unit",
+      "description": "Verify that when a PR is closed without merge, process_pr_issue removes af:pr and leaves the issue open without af:fix, requiring a human re-labeling action for fix pipeline re-pickup.",
+      "preconditions": [
+        "PR state is closed without merge",
+        "Issue has af:pr label",
+        "mock platform records all label operations"
+      ],
+      "input": {
+        "pr_state": {
+          "merged": false,
+          "state": "closed"
+        }
+      },
+      "expected": "remove_label called with af:pr; assign_label with af:fix NOT called; add_issue_comment called once for the closed-without-merging message; issue is left open",
+      "assertion_pseudocode": "await process_pr_issue(...); assert mock_platform.remove_label.called_with(issue.number, LABEL_PR); fix_label_calls = [c for c in mock_platform.assign_label.call_args_list if c[0][1] == 'af:fix']; assert len(fix_label_calls) == 0; assert not mock_platform.close_issue.called"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-07-P1",
+      "property_id": "07-PROP-1",
+      "validates": [
+        "07-REQ-8.1",
+        "07-REQ-8.2",
+        "07-REQ-8.E1",
+        "07-REQ-8.E2"
+      ],
+      "description": "For any combination of attempt and max_pr_retries, feedback re-entry (worktree, coder, push) is only executed when attempt <= max_pr_retries; when attempt > max_pr_retries only the limit comment is posted.",
+      "for_any_strategy": "integers attempt in range [1, 20] and max_pr_retries in range [0, 10], with all iteration helpers mocked to succeed",
+      "invariant_check": "if attempt > max_pr_retries: assert not setup_worktree_called and not coder_session_called and not git_push_called and limit_comment_posted else: assert setup_worktree_called and coder_session_called"
+    },
+    {
+      "id": "TS-07-P2",
+      "property_id": "07-PROP-2",
+      "validates": [
+        "07-REQ-16.1",
+        "07-REQ-16.2",
+        "07-REQ-16.3"
+      ],
+      "description": "For any nightshift operation on any issue, af:pr and af:fix labels are never simultaneously present on the same issue.",
+      "for_any_strategy": "simulated issue label states after each nightshift operation (PR creation, PR merge, PR closed-no-merge, feedback iteration), tracking label sets through transitions",
+      "invariant_check": "for every observable label state transition: assert not ('af:pr' in labels and 'af:fix' in labels)"
+    },
+    {
+      "id": "TS-07-P3",
+      "property_id": "07-PROP-3",
+      "validates": [
+        "07-REQ-12.1",
+        "07-REQ-12.2",
+        "07-REQ-12.E2"
+      ],
+      "description": "For any feedback iteration, the tracking comment with the incremented attempt counter is always posted before any force-push is attempted.",
+      "for_any_strategy": "any combination of coder results (changes/no-changes), with call order recorded via side-effect mocks on add_issue_comment and git push",
+      "invariant_check": "if force_push_called: assert comment_posted_time < force_push_time; if not comment_posted: assert not force_push_called"
+    },
+    {
+      "id": "TS-07-P4",
+      "property_id": "07-PROP-4",
+      "validates": [
+        "07-REQ-13.1",
+        "07-REQ-13.2",
+        "07-REQ-13.E1"
+      ],
+      "description": "For any execution of _run_feedback_iteration regardless of success or failure, _cleanup_feedback_worktree is always called exactly once, and it never raises even if the directory does not exist.",
+      "for_any_strategy": "any exception injected at any point in _run_feedback_iteration (fetch, worktree, coder, tracking comment, push, auto-commit), with _cleanup_feedback_worktree mocked to track calls",
+      "invariant_check": "assert cleanup.call_count == 1; assert no exception raised from cleanup"
+    },
+    {
+      "id": "TS-07-P5",
+      "property_id": "07-PROP-5",
+      "validates": [
+        "07-REQ-6.2",
+        "07-REQ-7.1",
+        "07-REQ-10.3"
+      ],
+      "description": "For any single call to process_pr_issue, _collect_feedback is called with exactly one trigger value and the result contains exactly one markdown section.",
+      "for_any_strategy": "any combination of CI check results and review states that trigger re-entry, with _collect_feedback call arguments captured",
+      "invariant_check": "assert collect_feedback.call_count <= 1 per process_pr_issue invocation; if called: assert trigger in ('ci', 'review'); assert output.count('## CI Failures') + output.count('## Review Feedback') == 1"
+    },
+    {
+      "id": "TS-07-P6",
+      "property_id": "07-PROP-6",
+      "validates": [
+        "07-REQ-3.1",
+        "07-REQ-3.E1"
+      ],
+      "description": "For any poll cycle, at most _MAX_PR_CHECKS (5) issues are processed regardless of how many af:pr issues exist, and older issues are always processed before newer ones.",
+      "for_any_strategy": "list sizes in range [0, 100] with issues having increasing created_at timestamps, _MAX_PR_CHECKS = 5",
+      "invariant_check": "assert process_pr_issue.call_count <= 5; processed = [c[0][0].number for c in process_pr_issue.call_args_list]; assert processed == sorted_oldest_first(all_issues)[:min(5, len(all_issues))]"
+    },
+    {
+      "id": "TS-07-P7",
+      "property_id": "07-PROP-7",
+      "validates": [
+        "07-REQ-5.E1",
+        "07-REQ-6.E2",
+        "07-REQ-7.E1",
+        "07-REQ-4.E2"
+      ],
+      "description": "For any platform API exception raised during the polling phase of process_pr_issue, no comment is ever posted to the issue and only a WARNING log is emitted.",
+      "for_any_strategy": "any platform method in {get_pr_state, get_pr_checks, get_pr_reviews, list_issue_comments, assign_label, remove_label, close_issue} raising any exception during polling phase",
+      "invariant_check": "assert mock_platform.add_issue_comment.call_count == 0; assert any(l.level == WARNING for l in captured_logs); assert not any(l.level == ERROR for l in captured_logs)"
+    },
+    {
+      "id": "TS-07-P8",
+      "property_id": "07-PROP-8",
+      "validates": [
+        "07-REQ-8.E1"
+      ],
+      "description": "For any feedback trigger when max_pr_retries is configured to 0, no worktree is created, no coder session runs, no force-push occurs, and only the retry limit comment and INFO log are emitted.",
+      "for_any_strategy": "any CI or review trigger with max_pr_retries=0 and any attempt value >= 1",
+      "invariant_check": "assert not setup_worktree_called; assert not coder_session_called; assert not git_push_called; assert limit_comment_posted; assert any(l.level == INFO and 'Retry limit' in l.message for l in captured_logs)"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-07-E1",
+      "requirement_id": "07-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that NightShiftConfig clamps pr_check_interval values below 60 (e.g., 30) to exactly 60 without raising a validation error.",
+      "preconditions": [
+        "NightShiftConfig is importable from agentfox.core.config"
+      ],
+      "input": {
+        "pr_check_interval": 30
+      },
+      "expected": "Config is created successfully; pr_check_interval reads back as 60; no ValidationError raised",
+      "assertion_pseudocode": "cfg = NightShiftConfig(night_shift={pr_check_interval: 30}); assert cfg.night_shift.pr_check_interval == 60"
+    },
+    {
+      "id": "TS-07-E2",
+      "requirement_id": "07-REQ-1.E2",
+      "kind": "unit",
+      "description": "Verify that NightShiftConfig clamps max_pr_retries values outside [0, 10] to the nearest boundary without raising a validation error.",
+      "preconditions": [
+        "NightShiftConfig is importable from agentfox.core.config"
+      ],
+      "input": {
+        "max_pr_retries_high": 15,
+        "max_pr_retries_low": -1
+      },
+      "expected": "max_pr_retries reads back as 0 for -1 input; reads back as 10 for 15 input; no ValidationError raised in either case",
+      "assertion_pseudocode": "cfg_low = NightShiftConfig(night_shift={max_pr_retries: -1}); assert cfg_low.night_shift.max_pr_retries == 0; cfg_high = NightShiftConfig(night_shift={max_pr_retries: 15}); assert cfg_high.night_shift.max_pr_retries == 10"
+    },
+    {
+      "id": "TS-07-E3",
+      "requirement_id": "07-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that _check_open_prs processes only the first 5 issues when list_issues_by_label returns more than 5, deferring the rest.",
+      "preconditions": [
+        "mock platform returns 8 af:pr issues in oldest-first order",
+        "process_pr_issue is mocked to return None"
+      ],
+      "input": {
+        "af:pr issues returned": 8
+      },
+      "expected": "process_pr_issue called exactly 5 times; the 5 calls correspond to the first 5 issues in oldest-first order; no error raised for the deferred issues",
+      "assertion_pseudocode": "mock_issues = [mock_issue(number=i) for i in range(1, 9)]; mock_platform.list_issues_by_label.return_value = mock_issues; await engine._check_open_prs(); assert mock_process_pr_issue.call_count == 5; processed_numbers = [c[0][0].number for c in mock_process_pr_issue.call_args_list]; assert processed_numbers == [1, 2, 3, 4, 5]"
+    },
+    {
+      "id": "TS-07-E4",
+      "requirement_id": "07-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that _check_open_prs does nothing and returns None when list_issues_by_label returns an empty list.",
+      "preconditions": [
+        "mock platform returns [] for list_issues_by_label",
+        "state.issue_checks_completed starts at 0"
+      ],
+      "input": {
+        "af:pr issues returned": 0
+      },
+      "expected": "process_pr_issue not called; issue_checks_completed remains 0; returns None",
+      "assertion_pseudocode": "mock_platform.list_issues_by_label.return_value = []; await engine._check_open_prs(); assert mock_process_pr_issue.call_count == 0; assert engine.state.issue_checks_completed == 0"
+    },
+    {
+      "id": "TS-07-E5",
+      "requirement_id": "07-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that when multiple comments match PR_TRACKING_PATTERN, the last one in list order is used as the most recent tracking comment.",
+      "preconditions": [
+        "mock platform returns 3 comments where the 1st and 3rd match PR_TRACKING_PATTERN with different attempt values",
+        "comments are in oldest-first order"
+      ],
+      "input": {
+        "comments": [
+          "<!-- af:pr-tracking pr_number=42 attempt=1 --> first",
+          "regular comment",
+          "<!-- af:pr-tracking pr_number=42 attempt=2 --> last"
+        ]
+      },
+      "expected": "parse_tracking_comment called with the body of the last matching comment (attempt=2); pr_number=42 and attempt=2 extracted",
+      "assertion_pseudocode": "await process_pr_issue(issue=mock_issue(number=10), ...); assert captured_attempt == 2; assert captured_pr_number == 42"
+    },
+    {
+      "id": "TS-07-E6",
+      "requirement_id": "07-REQ-4.E2",
+      "kind": "unit",
+      "description": "Verify that when list_issue_comments raises a platform API exception, process_pr_issue logs WARNING and skips, leaving labels intact and posting no comment.",
+      "preconditions": [
+        "mock platform raises an exception when list_issue_comments is called"
+      ],
+      "input": {
+        "list_issue_comments_raises": "HTTPError('500 Server Error')"
+      },
+      "expected": "WARNING log emitted with issue number and exception message; no label operations called; no add_issue_comment called; returns None",
+      "assertion_pseudocode": "mock_platform.list_issue_comments.side_effect = Exception('500 Server Error'); result = await process_pr_issue(issue=mock_issue(number=10), ...); assert result is None; assert any('10' in l.message for l in captured_warning_logs); assert mock_platform.assign_label.not_called(); assert mock_platform.add_issue_comment.not_called()"
+    },
+    {
+      "id": "TS-07-E7",
+      "requirement_id": "07-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verify that when get_pr_state raises a platform API exception, process_pr_issue logs WARNING, skips the issue, leaves all labels intact, and posts no comment.",
+      "preconditions": [
+        "tracking comment parsed successfully",
+        "mock platform raises when get_pr_state is called"
+      ],
+      "input": {
+        "get_pr_state_raises": "ConnectionError('timeout')"
+      },
+      "expected": "WARNING log emitted with issue number, PR number, and exception message; no label modifications; no comment posted; returns None",
+      "assertion_pseudocode": "mock_platform.get_pr_state.side_effect = ConnectionError('timeout'); result = await process_pr_issue(...); assert result is None; assert any('10' in l.message for l in captured_warning_logs); assert not mock_platform.assign_label.called; assert not mock_platform.add_issue_comment.called"
+    },
+    {
+      "id": "TS-07-E8",
+      "requirement_id": "07-REQ-5.E2",
+      "kind": "unit",
+      "description": "Verify that a mid-sequence platform API failure during merged PR label transition causes issue to be skipped at WARNING and retried next cycle with idempotent re-application.",
+      "preconditions": [
+        "get_pr_state returns merged=True",
+        "assign_label succeeds",
+        "remove_label succeeds",
+        "close_issue raises an exception",
+        "On the next mock cycle, close_issue succeeds"
+      ],
+      "input": {
+        "assign_label_result": "success",
+        "close_issue_raises": "Exception('transient error')"
+      },
+      "expected": "WARNING log emitted; issue skipped for this cycle; on next cycle all three operations re-applied; no data corruption; already-completed steps are no-ops",
+      "assertion_pseudocode": "mock_platform.close_issue.side_effect = Exception('transient error'); result = await process_pr_issue(...); assert result is None; assert any('10' in l.message for l in captured_warning_logs); mock_platform.close_issue.side_effect = None; result2 = await process_pr_issue(...); assert result2 is None; assert mock_platform.assign_label.call_count == 2; assert mock_platform.close_issue.call_count == 2"
+    },
+    {
+      "id": "TS-07-E9",
+      "requirement_id": "07-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that when the check list contains a mix of 'success' and 'failure' conclusions, _check_ci_status triggers re-entry.",
+      "preconditions": [
+        "mock platform returns [CheckResult(conclusion='success'), CheckResult(conclusion='failure')] for get_pr_checks"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": "success"
+          },
+          {
+            "conclusion": "failure"
+          }
+        ]
+      },
+      "expected": "Re-entry signal returned; INFO log contains 'Re-entry triggered'",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 're_entry'; assert any('Re-entry triggered' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-E10",
+      "requirement_id": "07-REQ-6.E2",
+      "kind": "unit",
+      "description": "Verify that when get_pr_checks raises a platform API exception, _check_ci_status logs WARNING and returns a skip signal leaving labels intact.",
+      "preconditions": [
+        "mock platform raises when get_pr_checks is called"
+      ],
+      "input": {
+        "get_pr_checks_raises": "Exception('rate limit exceeded')"
+      },
+      "expected": "WARNING log emitted with issue number, PR number, and exception message; skip signal returned; af:pr label not touched; no comment posted",
+      "assertion_pseudocode": "mock_platform.get_pr_checks.side_effect = Exception('rate limit exceeded'); result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'skip'; assert any('rate limit' in l.message or '42' in l.message for l in captured_warning_logs); assert not mock_platform.remove_label.called"
+    },
+    {
+      "id": "TS-07-E11",
+      "requirement_id": "07-REQ-6.E3",
+      "kind": "unit",
+      "description": "Verify that _check_ci_status treats a CheckResult with null/missing conclusion as an ambiguous state and does not trigger re-entry based on it.",
+      "preconditions": [
+        "mock platform returns [CheckResult(status='completed', conclusion=None)] for get_pr_checks"
+      ],
+      "input": {
+        "checks": [
+          {
+            "conclusion": null,
+            "status": "completed"
+          }
+        ]
+      },
+      "expected": "Re-entry NOT triggered; null conclusion treated as ambiguous; if all checks are null-conclusion, WARNING logged about ambiguous state",
+      "assertion_pseudocode": "result = await _check_ci_status(pr_number=42, issue_number=10, platform=mock_platform); assert result.action != 're_entry'; assert any('ambiguous' in l.message for l in captured_warning_logs)"
+    },
+    {
+      "id": "TS-07-E12",
+      "requirement_id": "07-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verify that when get_pr_reviews raises a platform API exception, _check_reviews logs WARNING and returns a skip signal with labels intact.",
+      "preconditions": [
+        "mock platform raises when get_pr_reviews is called"
+      ],
+      "input": {
+        "get_pr_reviews_raises": "Exception('auth error')"
+      },
+      "expected": "WARNING log emitted; skip signal returned; af:pr label not modified; no comment posted",
+      "assertion_pseudocode": "mock_platform.get_pr_reviews.side_effect = Exception('auth error'); result = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'skip'; assert any('10' in l.message or '42' in l.message for l in captured_warning_logs); assert not mock_platform.remove_label.called"
+    },
+    {
+      "id": "TS-07-E13",
+      "requirement_id": "07-REQ-7.E2",
+      "kind": "unit",
+      "description": "Verify that when all reviews have state='DISMISSED', _check_reviews treats the review list as empty and returns a skip signal.",
+      "preconditions": [
+        "mock platform returns [ReviewComment(state='DISMISSED'), ReviewComment(state='DISMISSED')] for get_pr_reviews"
+      ],
+      "input": {
+        "reviews": [
+          {
+            "state": "DISMISSED"
+          },
+          {
+            "state": "DISMISSED"
+          }
+        ]
+      },
+      "expected": "Skip signal returned; no re-entry triggered; no INFO log about re-entry",
+      "assertion_pseudocode": "result = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform); assert result.action == 'skip'; assert not any('Re-entry triggered' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-E14",
+      "requirement_id": "07-REQ-7.E3",
+      "kind": "unit",
+      "description": "Verify that _check_reviews does not count a ReviewComment with null state as CHANGES_REQUESTED and does not trigger re-entry.",
+      "preconditions": [
+        "mock platform returns [ReviewComment(user='alice', body='comment', state=None)] for get_pr_reviews"
+      ],
+      "input": {
+        "reviews": [
+          {
+            "body": "comment",
+            "state": null,
+            "user": "alice"
+          }
+        ]
+      },
+      "expected": "Re-entry NOT triggered; null state review is not treated as CHANGES_REQUESTED; skip signal returned",
+      "assertion_pseudocode": "result = await _check_reviews(pr_number=42, issue_number=10, platform=mock_platform_null_state); assert result.action == 'skip'; assert not any('Re-entry triggered' in l.message for l in captured_logs)"
+    },
+    {
+      "id": "TS-07-E15",
+      "requirement_id": "07-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verify that with max_pr_retries=0, a feedback trigger with attempt=1 evaluates 1>0 as True and stops immediately with no worktree created.",
+      "preconditions": [
+        "config.night_shift.max_pr_retries = 0",
+        "attempt=1 from tracking comment",
+        "_setup_feedback_worktree is mocked"
+      ],
+      "input": {
+        "attempt": 1,
+        "max_pr_retries": 0
+      },
+      "expected": "Retry limit message posted; INFO log contains 'Retry limit reached'; _setup_feedback_worktree NOT called; returns None",
+      "assertion_pseudocode": "result = await _run_feedback_iteration(attempt=1, config=mock_config_retries_0, ...); assert result is None; assert not mock_setup_worktree.called; assert mock_platform.add_issue_comment.called; comment = mock_platform.add_issue_comment.call_args[0][1]; assert 'Feedback retry limit reached' in comment; assert any('Retry limit reached' in l.message for l in captured_info_logs)"
+    },
+    {
+      "id": "TS-07-E16",
+      "requirement_id": "07-REQ-8.E2",
+      "kind": "unit",
+      "description": "Verify that with max_pr_retries=2, feedback runs for attempt=1 and attempt=2 but stops at attempt=3.",
+      "preconditions": [
+        "config.night_shift.max_pr_retries = 2",
+        "All iteration helpers mocked to succeed"
+      ],
+      "input": {
+        "attempts": [
+          1,
+          2,
+          3
+        ],
+        "max_pr_retries": 2
+      },
+      "expected": "attempt=1: full iteration runs; attempt=2: full iteration runs; attempt=3: stops with retry limit message, no worktree created",
+      "assertion_pseudocode": "for attempt in [1, 2]: result = await _run_feedback_iteration(attempt=attempt, ...); assert mock_setup_worktree.called; mock_setup_worktree.reset_mock(); result3 = await _run_feedback_iteration(attempt=3, ...); assert not mock_setup_worktree.called; assert mock_platform.add_issue_comment.called"
+    },
+    {
+      "id": "TS-07-E17",
+      "requirement_id": "07-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verify that when git fetch origin <branch> fails, _setup_feedback_worktree logs at ERROR, does not attempt git worktree add, and _cleanup_feedback_worktree silently no-ops in the finally block.",
+      "preconditions": [
+        "git fetch subprocess is mocked to raise CalledProcessError",
+        "_cleanup_feedback_worktree is mocked"
+      ],
+      "input": {
+        "git_fetch_raises": "CalledProcessError(1, 'git fetch')"
+      },
+      "expected": "ERROR log contains 'git fetch failed'; git worktree add NOT called; _cleanup_feedback_worktree called in finally block and silently no-ops; exception propagated from _setup_feedback_worktree",
+      "assertion_pseudocode": "mock_git.side_effect = [CalledProcessError(1, 'git fetch'), None]; with pytest.raises(Exception): await _setup_feedback_worktree(issue=mock_issue, config=mock_config); assert not any('worktree add' in c[0][0] for c in mock_subprocess.call_args_list[1:]); assert any('git fetch failed' in l.message for l in captured_error_logs)"
+    },
+    {
+      "id": "TS-07-E18",
+      "requirement_id": "07-REQ-9.E2",
+      "kind": "unit",
+      "description": "Verify that when git worktree add fails after a successful fetch, _setup_feedback_worktree logs at ERROR and _cleanup_feedback_worktree silently no-ops.",
+      "preconditions": [
+        "git fetch succeeds",
+        "git worktree add is mocked to raise CalledProcessError",
+        "_cleanup_feedback_worktree is mocked"
+      ],
+      "input": {
+        "git_fetch_result": "success",
+        "git_worktree_add_raises": "CalledProcessError(128, 'git worktree add')"
+      },
+      "expected": "ERROR log contains 'git worktree add failed'; exception raised from _setup_feedback_worktree; cleanup called in finally and silently no-ops",
+      "assertion_pseudocode": "mock_subprocess.side_effect = [None, CalledProcessError(128, 'git worktree add')]; with pytest.raises(Exception): await _setup_feedback_worktree(issue=mock_issue, config=mock_config); assert any('git worktree add failed' in l.message for l in captured_error_logs)"
+    },
+    {
+      "id": "TS-07-E19",
+      "requirement_id": "07-REQ-9.E3",
+      "kind": "unit",
+      "description": "Verify that a hanging git subprocess is terminated via timeout and the finally block calls _cleanup_feedback_worktree.",
+      "preconditions": [
+        "git subprocess is mocked to never return (simulated hang)",
+        "_cleanup_feedback_worktree is mocked",
+        "A reasonable timeout is configured"
+      ],
+      "input": {
+        "subprocess_timeout": true
+      },
+      "expected": "TimeoutError or similar exception raised; subprocess terminated; _cleanup_feedback_worktree called in finally block; ERROR logged",
+      "assertion_pseudocode": "mock_subprocess.side_effect = asyncio.TimeoutError(); with pytest.raises((asyncio.TimeoutError, subprocess.TimeoutExpired)): await _setup_feedback_worktree(issue=mock_issue, config=mock_config); assert mock_cleanup.called"
+    },
+    {
+      "id": "TS-07-E20",
+      "requirement_id": "07-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verify that when _run_coder_session raises an exception, _run_feedback_iteration logs ERROR, skips the issue, and calls _cleanup_feedback_worktree in the finally block.",
+      "preconditions": [
+        "attempt=1 <= max_pr_retries=2",
+        "_setup_feedback_worktree succeeds",
+        "_run_coder_session is mocked to raise RuntimeError"
+      ],
+      "input": {
+        "coder_session_raises": "RuntimeError('model unavailable')"
+      },
+      "expected": "ERROR log contains 'coder session raised' and 'RuntimeError'; _cleanup_feedback_worktree called once; af:pr label not removed; returns None",
+      "assertion_pseudocode": "mock_pipeline._run_coder_session.side_effect = RuntimeError('model unavailable'); result = await _run_feedback_iteration(attempt=1, ...); assert result is None; assert mock_cleanup.call_count == 1; assert any('coder session raised' in l.message for l in captured_error_logs); assert not mock_platform.remove_label.called"
+    },
+    {
+      "id": "TS-07-E21",
+      "requirement_id": "07-REQ-11.E2",
+      "kind": "unit",
+      "description": "Verify that when _run_coder_session does not return due to a timeout or cancellation, the CancelledError propagates and the finally block cleans up the worktree.",
+      "preconditions": [
+        "attempt=1 <= max_pr_retries=2",
+        "_setup_feedback_worktree succeeds",
+        "_run_coder_session is mocked to raise asyncio.CancelledError"
+      ],
+      "input": {
+        "coder_session_raises": "asyncio.CancelledError"
+      },
+      "expected": "CancelledError propagates; _cleanup_feedback_worktree called in finally block; ERROR logged",
+      "assertion_pseudocode": "mock_pipeline._run_coder_session.side_effect = asyncio.CancelledError(); with pytest.raises(asyncio.CancelledError): await _run_feedback_iteration(attempt=1, ...); assert mock_cleanup.call_count == 1"
+    },
+    {
+      "id": "TS-07-E22",
+      "requirement_id": "07-REQ-12.E1",
+      "kind": "unit",
+      "description": "Verify that when add_issue_comment raises during tracking comment posting, the force-push is skipped, ERROR is logged, worktree is cleaned up, and old attempt counter remains.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "coder session succeeds",
+        "add_issue_comment is mocked to raise Exception('API error')"
+      ],
+      "input": {
+        "add_issue_comment_raises": "Exception('API error')"
+      },
+      "expected": "ERROR log contains 'failed to post tracking comment'; git push --force NOT called; _cleanup_feedback_worktree called; returns None; old tracking comment (attempt=1) still on issue",
+      "assertion_pseudocode": "mock_platform.add_issue_comment.side_effect = Exception('API error'); result = await _run_feedback_iteration(attempt=1, ...); assert result is None; assert any('failed to post tracking comment' in l.message for l in captured_error_logs); assert not mock_git_push_force.called; assert mock_cleanup.called"
+    },
+    {
+      "id": "TS-07-E23",
+      "requirement_id": "07-REQ-12.E2",
+      "kind": "unit",
+      "description": "Verify that when git push --force fails after tracking comment has been posted, the incremented counter is already persisted and ERROR is logged.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "tracking comment posts successfully (attempt=2 persisted)",
+        "coder produces non-empty diff",
+        "_auto_commit_pending_changes succeeds",
+        "git push --force is mocked to raise CalledProcessError"
+      ],
+      "input": {
+        "git_push_raises": "CalledProcessError(1, 'git push --force')"
+      },
+      "expected": "ERROR log contains 'git push --force failed'; _cleanup_feedback_worktree called; tracking comment with attempt=2 is already on the issue; returns None",
+      "assertion_pseudocode": "mock_git_push.side_effect = CalledProcessError(1, 'git push --force'); result = await _run_feedback_iteration(attempt=1, ...); assert result is None; assert any('git push --force failed' in l.message for l in captured_error_logs); tracking_comment_calls = [c for c in mock_platform.add_issue_comment.call_args_list if 'attempt=2' in str(c)]; assert len(tracking_comment_calls) >= 1; assert mock_cleanup.called"
+    },
+    {
+      "id": "TS-07-E24",
+      "requirement_id": "07-REQ-12.E3",
+      "kind": "unit",
+      "description": "Verify that when _auto_commit_pending_changes raises, ERROR is logged, force-push is skipped, and worktree is cleaned up.",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "tracking comment posts successfully",
+        "coder produces non-empty diff",
+        "_auto_commit_pending_changes is mocked to raise Exception('disk full')"
+      ],
+      "input": {
+        "auto_commit_raises": "Exception('disk full')"
+      },
+      "expected": "ERROR log contains 'auto-commit failed'; git push --force NOT called; _cleanup_feedback_worktree called; returns None",
+      "assertion_pseudocode": "mock_pipeline._auto_commit_pending_changes.side_effect = Exception('disk full'); result = await _run_feedback_iteration(attempt=1, ...); assert result is None; assert any('auto-commit failed' in l.message for l in captured_error_logs); assert not mock_git_push_force.called; assert mock_cleanup.called"
+    },
+    {
+      "id": "TS-07-E25",
+      "requirement_id": "07-REQ-12.E4",
+      "kind": "unit",
+      "description": "Verify that the force-push command uses git push --force (not --force-with-lease).",
+      "preconditions": [
+        "attempt=1, max_pr_retries=2",
+        "Full happy path mocked to succeed",
+        "git subprocess calls are captured"
+      ],
+      "input": {
+        "attempt": 1,
+        "diff_non_empty": true
+      },
+      "expected": "Subprocess called with arguments containing '--force' but not '--force-with-lease'",
+      "assertion_pseudocode": "await _run_feedback_iteration(attempt=1, ...); push_calls = [c for c in mock_subprocess.call_args_list if 'push' in str(c)]; assert len(push_calls) >= 1; push_cmd = str(push_calls[-1]); assert '--force' in push_cmd; assert '--force-with-lease' not in push_cmd"
+    },
+    {
+      "id": "TS-07-E26",
+      "requirement_id": "07-REQ-13.E1",
+      "kind": "unit",
+      "description": "Verify that when _cleanup_feedback_worktree's removal command itself fails, the failure is logged at WARNING and does not re-raise, preventing the original exception from being masked.",
+      "preconditions": [
+        "worktrees/feedback-10 directory exists",
+        "git worktree remove or rmtree is mocked to raise PermissionError"
+      ],
+      "input": {
+        "worktree_removal_raises": "PermissionError('denied')"
+      },
+      "expected": "WARNING log emitted about cleanup failure; no exception raised from _cleanup_feedback_worktree; returns None; original exception from the try block propagates normally",
+      "assertion_pseudocode": "mock_worktree_remove.side_effect = PermissionError('denied'); result = _cleanup_feedback_worktree(issue_number=10); assert result is None; assert any('PermissionError' in l.message or 'denied' in l.message for l in captured_warning_logs)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-07-SMOKE-1",
+      "execution_path_id": "07-PATH-1",
+      "description": "End-to-end smoke test: merged PR detected and issue closed automatically with af:fixed label and no af:pr label.",
+      "trigger": "EngineWorkStream fires pr-feedback; mock platform returns one af:pr issue with tracking comment pr_number=42 attempt=1; get_pr_state returns merged=True",
+      "real_components": [
+        "NightShiftEngine._check_open_prs",
+        "process_pr_issue",
+        "_check_pr_state"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "EngineWorkStream scheduler"
+      ],
+      "expected_effects": [
+        "platform.list_issues_by_label called with LABEL_PR",
+        "platform.list_issue_comments called with issue number",
+        "platform.get_pr_state(42) called",
+        "platform.assign_label called with LABEL_FIXED",
+        "platform.remove_label called with LABEL_PR",
+        "platform.close_issue called with 'PR #42 merged.'",
+        "INFO log emitted containing 'merged' and 'af:fixed'",
+        "state.issue_checks_completed incremented to 1"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-2",
+      "execution_path_id": "07-PATH-2",
+      "description": "End-to-end smoke test: CI failure triggers feedback re-entry, coder runs, tracking comment posted, fix branch force-pushed, worktree cleaned up.",
+      "trigger": "EngineWorkStream fires pr-feedback; mock platform returns one af:pr issue with pr_number=42 attempt=1; get_pr_state returns open; get_pr_checks returns one failure check; max_pr_retries=2",
+      "real_components": [
+        "NightShiftEngine._check_open_prs",
+        "process_pr_issue",
+        "_check_pr_state",
+        "_check_ci_status",
+        "_collect_feedback",
+        "_run_feedback_iteration",
+        "_setup_feedback_worktree",
+        "_cleanup_feedback_worktree"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "FixPipeline._run_coder_session",
+        "FixPipeline._build_coder_prompt",
+        "FixPipeline._auto_commit_pending_changes",
+        "git subprocess calls",
+        "EngineWorkStream scheduler"
+      ],
+      "expected_effects": [
+        "git fetch origin fix/42-slug executed",
+        "git worktree add worktrees/feedback-42 executed",
+        "_build_coder_prompt called with prior_context='' and knowledge_context=''",
+        "_run_coder_session awaited",
+        "format_tracking_comment called with attempt=2 and pr_url=''",
+        "platform.add_issue_comment called with tracking comment",
+        "_auto_commit_pending_changes called with 'fix: <title> [nightshift feedback #2]'",
+        "git push --force executed",
+        "INFO log 'Feedback iteration 2 complete'",
+        "_cleanup_feedback_worktree called; worktree removed"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-3",
+      "execution_path_id": "07-PATH-3",
+      "description": "End-to-end smoke test: reviewer change request triggers feedback re-entry after all CI checks pass.",
+      "trigger": "EngineWorkStream fires; get_pr_state returns open; all CI checks have conclusion='success'; get_pr_reviews returns CHANGES_REQUESTED as the latest non-dismissed review",
+      "real_components": [
+        "process_pr_issue",
+        "_check_pr_state",
+        "_check_ci_status",
+        "_check_reviews",
+        "_collect_feedback",
+        "_run_feedback_iteration"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "FixPipeline methods",
+        "git subprocess calls"
+      ],
+      "expected_effects": [
+        "_check_ci_status returns pass-through signal (all success)",
+        "_check_reviews returns re-entry signal",
+        "_collect_feedback called with trigger='review'",
+        "Review Feedback section appears in collected feedback markdown",
+        "No CI Failures section in output",
+        "Full feedback iteration runs"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-4",
+      "execution_path_id": "07-PATH-4",
+      "description": "End-to-end smoke test: retry limit reached — PR flagged for manual attention with no worktree created.",
+      "trigger": "EngineWorkStream fires; tracking comment has attempt=3; get_pr_state returns open; get_pr_checks returns failure; max_pr_retries=2",
+      "real_components": [
+        "process_pr_issue",
+        "_check_pr_state",
+        "_check_ci_status",
+        "_run_feedback_iteration"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "FixPipeline methods",
+        "git subprocess calls"
+      ],
+      "expected_effects": [
+        "_run_feedback_iteration evaluates 3 > 2 as True",
+        "INFO log 'Retry limit reached ... attempt 3/3'",
+        "platform.add_issue_comment called with _RETRY_LIMIT_MESSAGE",
+        "_setup_feedback_worktree NOT called",
+        "af:pr label left in place",
+        "returns None"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-5",
+      "execution_path_id": "07-PATH-5",
+      "description": "End-to-end smoke test: PR closed without merge — issue left open without af:pr for manual triage.",
+      "trigger": "EngineWorkStream fires; tracking comment found; get_pr_state returns state='closed' merged=False",
+      "real_components": [
+        "process_pr_issue",
+        "_check_pr_state"
+      ],
+      "mockable": [
+        "PlatformProtocol"
+      ],
+      "expected_effects": [
+        "platform.add_issue_comment called with 'closed without merging' message",
+        "platform.remove_label called with LABEL_PR",
+        "platform.close_issue NOT called",
+        "platform.assign_label NOT called",
+        "INFO log emitted about closed without merge",
+        "returns None"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-6",
+      "execution_path_id": "07-PATH-6",
+      "description": "Full end-to-end integration smoke test: nightshift daemon creates PR then detects merge on next poll cycle and closes issue.",
+      "trigger": "DaemonRunner starts with merge_strategy='pr'; fix-pipeline creates a PR and transitions issue from af:fix to af:pr with tracking comment attempt=1; pr-feedback stream fires after pr_check_interval; human merges the PR; get_pr_state returns merged=True",
+      "real_components": [
+        "DaemonRunner",
+        "NightShiftEngine._check_open_prs",
+        "process_pr_issue",
+        "_check_pr_state",
+        "build_streams"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "EngineWorkStream scheduler timers",
+        "FixPipeline (for initial PR creation)"
+      ],
+      "expected_effects": [
+        "build_streams returns pr-feedback stream after fix-pipeline",
+        "DaemonRunner has pr-feedback after fix-pipeline in priority order",
+        "_check_open_prs lists af:pr issues on poll cycle",
+        "merged=True detected by get_pr_state",
+        "Issue closed with af:fixed label, af:pr removed",
+        "INFO log about merge",
+        "issue_checks_completed incremented"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-7",
+      "execution_path_id": "07-PATH-7",
+      "description": "End-to-end smoke test: coder produces no changes — force-push skipped, no-changes comment posted, attempt counter already incremented.",
+      "trigger": "EngineWorkStream fires; CI failure detected; attempt=1 <= max_pr_retries=2; coder session completes but produces empty diff",
+      "real_components": [
+        "process_pr_issue",
+        "_check_ci_status",
+        "_run_feedback_iteration",
+        "_cleanup_feedback_worktree"
+      ],
+      "mockable": [
+        "PlatformProtocol",
+        "FixPipeline methods",
+        "git subprocess calls (diff returns empty)"
+      ],
+      "expected_effects": [
+        "Tracking comment with attempt=2 posted before diff check",
+        "Post-coder diff computed as empty",
+        "git push --force NOT called",
+        "platform.add_issue_comment called with _NO_CHANGES_MESSAGE",
+        "WARNING log 'coder produced no changes'",
+        "_cleanup_feedback_worktree called and completes",
+        "returns None"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

@@ -1,0 +1,1011 @@
+{
+  "$schema": null,
+  "spec_id": "06",
+  "spec_name": "pr_lifecycle_labels",
+  "schema_version": 1,
+  "introduction": "This spec fixes the premature issue-closing bug in nightshift's PR mode and extends the `afissues` platform protocol with PR lifecycle types, query methods, and a structured tracking comment system for end-to-end PR state management.",
+  "glossary": {
+    "CheckResult": "Frozen dataclass representing a single CI check-run result, including name, status, conclusion, and output fields.",
+    "GitHubPlatform": "Concrete platform implementation in `afissues.github` that calls the GitHub REST API via the `_request()` helper.",
+    "IntegrationError": "Exception class in `afissues.errors` raised by platform methods on unrecoverable API failures.",
+    "LABEL_PR": "String constant `af:pr` defined in `afissues.labels`.",
+    "LabelSpec": "Dataclass or named structure in `afissues.labels` describing a label's name, color, and description for bootstrap creation.",
+    "NullPlatform": "No-op platform implementation in `afissues.protocol` used when platform type is `none`; raises `NotImplementedError` for PR-related methods.",
+    "PR_TRACKING_PATTERN": "Module-level compiled `re.Pattern` in `fix_pipeline.py` that matches the machine-readable tracking comment HTML tag.",
+    "PlatformProtocol": "Abstract protocol class in `afissues.protocol` defining the interface all platform implementations must satisfy.",
+    "PrResult": "Frozen dataclass returned by `create_pr()` containing `html_url` (str) and `number` (int) for the created pull request.",
+    "PrState": "Frozen dataclass representing the current state of a pull request: number, state string, merged flag, and head SHA.",
+    "REQUIRED_LABELS": "List of `LabelSpec` objects in `afissues.labels` that the bootstrap routine uses to ensure all labels exist in the repo.",
+    "ReviewComment": "Frozen dataclass representing a single pull request review, including user, state, body, and submitted_at timestamp.",
+    "_handle_result": "Async method on `FixPipeline` that applies labels, posts comments, and optionally closes the issue based on integration status.",
+    "_integrate_fix": "Async method on `FixPipeline` that executes the fix strategy and returns a status string plus list of changed files.",
+    "_request": "Internal async helper method on `GitHubPlatform` that handles auth headers, retries, and rate limiting for GitHub REST API calls.",
+    "af:fix": "GitHub issue label indicating the fix pipeline is actively working on the issue.",
+    "af:fixed": "GitHub issue label applied when a fix has been fully merged; triggers issue close.",
+    "af:pr": "GitHub issue label indicating an associated pull request has been created and is awaiting merge; part of the nightshift label lifecycle.",
+    "af:pr-tracking": "HTML comment tag prefix embedded in tracking comments to make them machine-readable by `PR_TRACKING_PATTERN`.",
+    "attempt": "Integer field in the tracking comment HTML tag indicating which fix attempt created the associated pull request; always 1 in this spec.",
+    "fix_pipeline.py": "Module `agentfox.nightshift.fix_pipeline` containing `FixPipeline`, tracking comment utilities, and the `PR_TRACKING_PATTERN` constant.",
+    "format_tracking_comment": "Module-level function in `fix_pipeline.py` that formats a machine-readable tracking comment body string.",
+    "get_pr_checks": "New async method on `PlatformProtocol` and `GitHubPlatform` returning a list of `CheckResult` for a given PR number.",
+    "get_pr_reviews": "New async method on `PlatformProtocol` and `GitHubPlatform` returning a list of `ReviewComment` for a given PR number.",
+    "get_pr_state": "New async method on `PlatformProtocol` and `GitHubPlatform` returning a `PrState` for a given PR number.",
+    "head_sha": "The Git commit SHA at the tip of the pull request's source branch, used to look up CI check runs.",
+    "idempotent 422 path": "Recovery branch in `GitHubPlatform.create_pr()` where a 422 response from GitHub (PR already exists) triggers a lookup of the existing open PR.",
+    "merge_strategy": "Configuration field on the workspace that determines how fixes are integrated; `\"pr\"` mode creates a pull request instead of merging directly.",
+    "output_summary": "Field on `CheckResult` holding the summary string from a GitHub check run's output object; empty string when GitHub returns null.",
+    "output_title": "Field on `CheckResult` holding the title string from a GitHub check run's output object; empty string when GitHub returns null.",
+    "parse_tracking_comment": "Module-level function in `fix_pipeline.py` that extracts `(pr_number, attempt)` from a tracking comment body, or returns `None`.",
+    "pr_created": "Integration status string returned by `_integrate_fix()` when a pull request has been successfully created but not yet merged.",
+    "self._pr_number": "Instance attribute on `FixPipeline` of type `int | None` that stores the PR number after successful `create_pr()` for use by `_handle_result()`.",
+    "session_lifecycle.py": "Module `agentfox.nightshift.session_lifecycle` that calls `create_pr()` and must be updated to use `result.html_url`.",
+    "submitted_at": "Field on `ReviewComment` holding the raw ISO 8601 timestamp string as returned by the GitHub API.",
+    "\"Pull request created \u2014 awaiting merge\"": "Description text for the af:pr label",
+    "\"af:pr\"": "String value of the LABEL_PR constant",
+    "\"pr\"": "The PR merge strategy mode value",
+    "\"pr_created\"": "New integration status returned by _integrate_fix for PR mode",
+    "#1d76db": "Hex color code for the af:pr label (blue)",
+    "(\"merged\", changed_files)": "Previous return value of _integrate_fix for PR mode",
+    "(\"pr_created\", ...)": "New return value of _integrate_fix for PR mode",
+    "(\"pr_created\", changed_files)": "Return tuple from _integrate_fix when PR is created",
+    "(pr_number, attempt)": "Tuple returned by parse_tracking_comment",
+    "<!-- af:pr-tracking pr_number=(\\d+) attempt=(\\d+) -->": "Regex pattern for tracking comment",
+    "<!-- af:pr-tracking pr_number={pr_number} attempt={attempt} -->": "Template for tracking comment HTML",
+    "AssertionError": "Python built-in exception for assertion failures",
+    "FrozenInstanceError": "Exception raised when mutating a frozen dataclass",
+    "GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs": "GitHub API endpoint for check runs",
+    "GET /repos/{owner}/{repo}/pulls/{pr_number}": "GitHub API endpoint for PR state",
+    "GET /repos/{owner}/{repo}/pulls/{pr_number}/reviews": "GitHub API endpoint for PR reviews",
+    "GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open": "GitHub API endpoint for finding existing PRs",
+    "KeyError": "Python built-in exception for missing dictionary keys",
+    "None": "Python None value",
+    "NotImplementedError": "Python built-in exception for unimplemented methods",
+    "NullPlatform.create_pr()": "create_pr method on NullPlatform stub",
+    "NullPlatform.get_pr_checks": "get_pr_checks method on NullPlatform stub",
+    "NullPlatform.get_pr_reviews": "get_pr_reviews method on NullPlatform stub",
+    "NullPlatform.get_pr_state": "get_pr_state method on NullPlatform stub",
+    "PR_TRACKING_PATTERN.search()": "Regex search using the tracking comment pattern",
+    "PrResult(html_url=..., number=...)": "Constructor call for PrResult dataclass",
+    "PrResult(html_url=data[\"html_url\"], number=data[\"number\"])": "PrResult construction from GitHub API response",
+    "RuntimeError": "Python built-in exception",
+    "_handle_result()": "FixPipeline method that handles post-integration outcomes",
+    "_integrate_fix()": "FixPipeline method that integrates a fix via merge/PR/branch",
+    "_pr_number": "Instance attribute storing the PR number on FixPipeline",
+    "_request()": "Internal HTTP request helper on GitHubPlatform",
+    "afissues": "Standalone platform/forge abstraction package",
+    "async def get_pr_checks(self, pr_number: int) -> list[CheckResult]": "Protocol method signature for get_pr_checks",
+    "async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]": "Protocol method signature for get_pr_reviews",
+    "async def get_pr_state(self, pr_number: int) -> PrState": "Protocol method signature for get_pr_state",
+    "body": "Body field on ReviewComment or issue",
+    "body: str": "Type annotation for body field",
+    "check_runs": "GitHub API response key containing check run data",
+    "conclusion: str | None": "Type annotation for CheckResult conclusion field",
+    "create_pr()": "Protocol method for creating a pull request",
+    "format_tracking_comment(pr_number: int, attempt: int, pr_url: str, message: str) -> str": "Full signature of format_tracking_comment utility",
+    "format_tracking_comment(pr_number=self._pr_number, attempt=1, pr_url=result.html_url, message=f\"Pull request created: {result.html_url}\")": "Example call to format_tracking_comment for initial PR creation",
+    "get_pr_checks(pr_number)": "Call to get_pr_checks with pr_number argument",
+    "get_pr_reviews(pr_number)": "Call to get_pr_reviews with pr_number argument",
+    "get_pr_state(pr_number)": "Call to get_pr_state with pr_number argument",
+    "head": "PR head branch reference",
+    "head_sha: str": "Type annotation for PrState head_sha field",
+    "html_url": "HTML URL field on PrResult",
+    "html_url: str": "Type annotation for PrResult html_url field",
+    "list[CheckResult]": "Return type for get_pr_checks",
+    "list[ReviewComment]": "Return type for get_pr_reviews",
+    "merged": "Boolean field on PrState indicating merge status",
+    "merged: bool": "Type annotation for PrState merged field",
+    "message": "Human-readable message parameter in format_tracking_comment",
+    "name: str": "Type annotation for CheckResult name field",
+    "null": "JSON null value (maps to None in Python)",
+    "number": "PR number field on PrResult",
+    "number: int": "Type annotation for PR number field",
+    "output": "GitHub check run output object (may be null)",
+    "output: null": "GitHub API response with null output object",
+    "output_summary == \"\"": "Empty string fallback for null output summary",
+    "output_summary: str": "Type annotation for CheckResult output_summary field",
+    "output_summary=\"\"": "Default empty string when output is null",
+    "output_title == \"\"": "Empty string fallback for null output title",
+    "output_title: str": "Type annotation for CheckResult output_title field",
+    "output_title=\"\"": "Default empty string when output is null",
+    "parse_tracking_comment(body: str) -> tuple[int, int] | None": "Full signature of parse_tracking_comment utility",
+    "parse_tracking_comment(format_tracking_comment(pr_number, attempt, pr_url, message))": "Round-trip property of tracking comment utilities",
+    "pr_feedback_loop": "Follow-on spec that consumes the protocol extensions",
+    "pr_number": "PR number extracted from tracking comment",
+    "pr_url": "PR URL parameter in format_tracking_comment",
+    "re.Pattern": "Python regex pattern type",
+    "result.html_url": "Accessing html_url field on PrResult",
+    "result.number": "Accessing number field on PrResult",
+    "self._pr_number = result.number": "Setting PR number on pipeline instance",
+    "self._pr_number: int | None = None": "Declaration of PR number instance attribute",
+    "state": "State field on PrState or ReviewComment",
+    "state: str": "Type annotation for state field",
+    "status: str": "Type annotation for CheckResult status field",
+    "str": "Python string type",
+    "submitted_at: str": "Type annotation for ReviewComment submitted_at field (ISO 8601)",
+    "total_count": "GitHub API pagination field for total results",
+    "tuple[int, int]": "Return type of parse_tracking_comment (pr_number, attempt)",
+    "tuple[str, list[str]]": "Return type of _integrate_fix",
+    "user": "User field on ReviewComment",
+    "user.login": "GitHub API user login field",
+    "user: str": "Type annotation for ReviewComment user field"
+  },
+  "requirements": [
+    {
+      "id": "06-REQ-1",
+      "title": "Add af:pr label constant and bootstrap entry",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "have the af:pr label automatically created in the repository at startup",
+        "benefit": "so that the label is always available before the fix pipeline runs and creates pull requests"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.labels module",
+          "action": "defines `LABEL_PR` as the string constant `\"af:pr\"` and includes a `LabelSpec` entry in `REQUIRED_LABELS` with color `#1d76db` and description `\"Pull request created \u2014 awaiting merge\"`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "nightshift bootstrap routine",
+          "action": "reads `REQUIRED_LABELS` and creates the `af:pr` label in the repository if it does not already exist, using color `#1d76db`",
+          "return_contract": null,
+          "trigger": "startup is triggered"
+        },
+        {
+          "id": "06-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.__init__ module",
+          "action": "re-exports `LABEL_PR` so callers can import it from the top-level `afissues` package",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "nightshift bootstrap routine",
+          "action": "propagates the error via `IntegrationError` and halts startup rather than silently continuing with a missing label",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "the GitHub API returns an error when creating the `af:pr` label"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-2",
+      "title": "Define PrResult, PrState, CheckResult, and ReviewComment dataclasses",
+      "user_story": {
+        "role": "platform protocol consumer",
+        "goal": "have typed, immutable dataclasses for all PR-related API responses",
+        "benefit": "so that downstream code can rely on structured data instead of raw dicts and avoid None-handling complexity"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.protocol module",
+          "action": "defines `PrResult` as a frozen dataclass with fields `html_url: str` and `number: int`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.protocol module",
+          "action": "defines `PrState` as a frozen dataclass with fields `number: int`, `state: str`, `merged: bool`, and `head_sha: str`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.protocol module",
+          "action": "defines `CheckResult` as a frozen dataclass with fields `name: str`, `status: str`, `conclusion: str | None`, `output_title: str`, and `output_summary: str`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.protocol module",
+          "action": "defines `ReviewComment` as a frozen dataclass with fields `user: str`, `state: str`, `body: str`, and `submitted_at: str` holding the raw ISO 8601 string as returned by the GitHub API",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "afissues.protocol module",
+          "action": "maps the null output to `output_title=\"\"` and `output_summary=\"\"` on the resulting `CheckResult`, keeping both fields as non-optional strings",
+          "return_contract": "returns a `CheckResult` with `output_title=\"\"` and `output_summary=\"\"`",
+          "trigger": "a GitHub check-run API response contains `output: null`"
+        },
+        {
+          "id": "06-REQ-2.6",
+          "ears_pattern": "ubiquitous",
+          "system": "afissues.__init__ module",
+          "action": "re-exports `PrResult`, `PrState`, `CheckResult`, and `ReviewComment` so all four are importable from the top-level `afissues` package",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "afissues.protocol module",
+          "action": "raises `FrozenInstanceError` from the dataclass machinery, preventing accidental mutation",
+          "return_contract": "raises `FrozenInstanceError`",
+          "error_condition": "code attempts to mutate a field on any of the four frozen dataclasses after construction"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-3",
+      "title": "Extend PlatformProtocol with get_pr_state, get_pr_checks, and get_pr_reviews",
+      "user_story": {
+        "role": "platform protocol consumer",
+        "goal": "have typed async methods to query PR state, CI check results, and review comments",
+        "benefit": "so that the follow-on pr_feedback_loop spec can build on a stable, typed interface without knowing platform implementation details"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "PlatformProtocol",
+          "action": "declares `async def get_pr_state(self, pr_number: int) -> PrState` as an abstract protocol method",
+          "return_contract": "returns `PrState`"
+        },
+        {
+          "id": "06-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "PlatformProtocol",
+          "action": "declares `async def get_pr_checks(self, pr_number: int) -> list[CheckResult]` as an abstract protocol method",
+          "return_contract": "returns `list[CheckResult]`"
+        },
+        {
+          "id": "06-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "PlatformProtocol",
+          "action": "declares `async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]` as an abstract protocol method",
+          "return_contract": "returns `list[ReviewComment]`"
+        },
+        {
+          "id": "06-REQ-3.4",
+          "ears_pattern": "ubiquitous",
+          "system": "NullPlatform",
+          "action": "implements `get_pr_state`, `get_pr_checks`, and `get_pr_reviews` each by raising `NotImplementedError`, consistent with `NullPlatform.create_pr()`",
+          "return_contract": "raises `NotImplementedError`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "06-REQ-4",
+      "title": "Implement get_pr_state on GitHubPlatform",
+      "user_story": {
+        "role": "nightshift pipeline",
+        "goal": "query the open/closed/merged status and head SHA of a pull request by number",
+        "benefit": "so that the system can determine whether a PR has been merged before closing its associated issue"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform",
+          "action": "sends `GET /repos/{owner}/{repo}/pulls/{pr_number}` using `_request()` and maps the response to a `PrState` with `number`, `state`, `merged`, and `head_sha` fields",
+          "return_contract": "returns `PrState`",
+          "trigger": "`get_pr_state(pr_number)` is called"
+        },
+        {
+          "id": "06-REQ-4.2",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform.get_pr_state",
+          "action": "delegates error handling to `_request()`, which raises `IntegrationError`",
+          "return_contract": "raises `IntegrationError`",
+          "trigger": "the GitHub API returns a non-2xx status"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_state",
+          "action": "raises `KeyError` or `IntegrationError` rather than silently returning a partially populated `PrState`",
+          "return_contract": "raises `KeyError` or `IntegrationError`",
+          "error_condition": "the GitHub API response body is missing the `state`, `merged`, or `head` fields"
+        },
+        {
+          "id": "06-REQ-4.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_state",
+          "action": "relies on `_request()` timeout and retry logic; if all retries are exhausted, raises `IntegrationError` without hanging the caller indefinitely",
+          "return_contract": "raises `IntegrationError` after timeout",
+          "error_condition": "the GitHub API call times out or hangs"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-5",
+      "title": "Implement get_pr_checks on GitHubPlatform with pagination",
+      "user_story": {
+        "role": "nightshift pipeline",
+        "goal": "retrieve all CI check-run results for a pull request",
+        "benefit": "so that the pr_feedback_loop spec can report CI failures back to the issue without knowing internal GitHub API details"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform",
+          "action": "first fetches the PR via `get_pr_state(pr_number)` to obtain `head_sha`, then sends `GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs` using `_request()`, and maps each check run in the response to a `CheckResult`",
+          "return_contract": "returns `list[CheckResult]`",
+          "trigger": "`get_pr_checks(pr_number)` is called"
+        },
+        {
+          "id": "06-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform.get_pr_checks",
+          "action": "paginates through subsequent pages using `_request()` until all check runs are collected, accumulating results across pages",
+          "return_contract": "returns `list[CheckResult]` containing all check runs across all pages",
+          "trigger": "the GitHub API response `total_count` exceeds the page size"
+        },
+        {
+          "id": "06-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform.get_pr_checks",
+          "action": "sets `output_title=\"\"` and `output_summary=\"\"` on the resulting `CheckResult`",
+          "return_contract": "returns `CheckResult` with `output_title=\"\"` and `output_summary=\"\"`",
+          "trigger": "a check-run entry in the API response has `output: null`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_checks",
+          "action": "raises `KeyError` or `IntegrationError` rather than returning a partial list",
+          "return_contract": "raises `KeyError` or `IntegrationError`",
+          "error_condition": "the check-runs API response is missing `check_runs` or `total_count` fields"
+        },
+        {
+          "id": "06-REQ-5.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_checks",
+          "action": "delegates to `_request()` error handling, raises `IntegrationError`, and does not return a partial list",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "the GitHub API returns an error on any page request during pagination"
+        },
+        {
+          "id": "06-REQ-5.E3",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_checks",
+          "action": "may stop at 10 pages at the implementer's discretion and return all check runs collected so far, without raising an error",
+          "return_contract": "returns `list[CheckResult]` of up to 300 entries",
+          "error_condition": "pagination produces more than 10 pages of results (more than 300 check runs)"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-6",
+      "title": "Implement get_pr_reviews on GitHubPlatform",
+      "user_story": {
+        "role": "nightshift pipeline",
+        "goal": "retrieve all review verdicts and comments for a pull request in submission order",
+        "benefit": "so that the pr_feedback_loop spec can surface review feedback to the issue author without platform-specific logic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform",
+          "action": "sends `GET /repos/{owner}/{repo}/pulls/{pr_number}/reviews` using `_request()` and maps each review to a `ReviewComment` with `user`, `state`, `body`, and `submitted_at` fields in submission order",
+          "return_contract": "returns `list[ReviewComment]` in submission order",
+          "trigger": "`get_pr_reviews(pr_number)` is called"
+        },
+        {
+          "id": "06-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GitHubPlatform.get_pr_reviews",
+          "action": "returns reviews in the order they appear in the GitHub API response without filtering by state; the caller is responsible for filtering dismissed or irrelevant reviews",
+          "return_contract": "returns `list[ReviewComment]` preserving API order"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_reviews",
+          "action": "raises `KeyError` or `IntegrationError` rather than silently omitting the review or using a default value",
+          "return_contract": "raises `KeyError` or `IntegrationError`",
+          "error_condition": "the GitHub API response is missing `user.login`, `state`, `body`, or `submitted_at` fields on a review object"
+        },
+        {
+          "id": "06-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.get_pr_reviews",
+          "action": "delegates to `_request()` error handling and raises `IntegrationError`",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "the GitHub API returns a non-2xx status"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-7",
+      "title": "Change create_pr() return type from str to PrResult",
+      "user_story": {
+        "role": "fix pipeline",
+        "goal": "receive a structured PrResult containing both the PR URL and PR number from create_pr()",
+        "benefit": "so that the PR number can be stored and used in tracking comments without fragile URL parsing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "PlatformProtocol",
+          "action": "declares `create_pr()` with return type `PrResult` instead of `str`",
+          "return_contract": "returns `PrResult`"
+        },
+        {
+          "id": "06-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform.create_pr",
+          "action": "extracts `html_url` and `number` from the response body and returns `PrResult(html_url=data[\"html_url\"], number=data[\"number\"])`",
+          "return_contract": "returns `PrResult` with both `html_url` and `number` populated",
+          "trigger": "the GitHub API returns a successful 201 response for PR creation"
+        },
+        {
+          "id": "06-REQ-7.3",
+          "ears_pattern": "event_driven",
+          "system": "GitHubPlatform.create_pr",
+          "action": "calls `GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open` using `_request()`, takes the first result, and returns `PrResult(html_url=..., number=...)` extracted from that matched PR",
+          "return_contract": "returns `PrResult` with `html_url` and `number` from the existing PR",
+          "trigger": "GitHub returns a 422 response indicating the PR already exists"
+        },
+        {
+          "id": "06-REQ-7.4",
+          "ears_pattern": "event_driven",
+          "system": "session_lifecycle.py",
+          "action": "accesses `result.html_url` where it previously used the bare string return value",
+          "return_contract": null,
+          "trigger": "`create_pr()` returns a `PrResult`"
+        },
+        {
+          "id": "06-REQ-7.5",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline.py",
+          "action": "accesses `result.html_url` for logging and `result.number` for the tracking comment",
+          "return_contract": null,
+          "trigger": "`create_pr()` returns a `PrResult`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.create_pr",
+          "action": "raises `IntegrationError` rather than returning a `PrResult` with missing fields",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "the GitHub 422 recovery lookup returns an empty list (no matching open PR found)"
+        },
+        {
+          "id": "06-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "GitHubPlatform.create_pr",
+          "action": "raises `KeyError` or `IntegrationError` rather than returning a partially populated `PrResult`",
+          "return_contract": "raises `KeyError` or `IntegrationError`",
+          "error_condition": "the successful 201 response body is missing `html_url` or `number` fields"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-8",
+      "title": "Fix premature-close bug: _integrate_fix returns pr_created for PR mode",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "have issues with open pull requests remain open until the PR actually merges",
+        "benefit": "so that issues are not incorrectly closed with af:fixed before CI passes and a human reviewer approves"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-8.1",
+          "ears_pattern": "state_driven",
+          "system": "FixPipeline._integrate_fix",
+          "action": "returns the tuple `(\"pr_created\", changed_files)` after calling `create_pr()` successfully, instead of the previous `(\"merged\", changed_files)`",
+          "return_contract": "returns `tuple[str, list[str]]` where first element is `\"pr_created\"`",
+          "state": "`merge_strategy` is `\"pr\"`"
+        },
+        {
+          "id": "06-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "FixPipeline.__init__",
+          "action": "initializes `self._pr_number: int | None = None` as an instance attribute",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-8.3",
+          "ears_pattern": "event_driven",
+          "system": "FixPipeline._integrate_fix",
+          "action": "sets `self._pr_number = result.number` before returning the `\"pr_created\"` status tuple",
+          "return_contract": null,
+          "trigger": "`create_pr()` returns a `PrResult` successfully"
+        },
+        {
+          "id": "06-REQ-8.4",
+          "ears_pattern": "unwanted",
+          "system": "FixPipeline._integrate_fix",
+          "action": "allows the exception to propagate without setting `self._pr_number`, so `_handle_result()` is never called with `\"pr_created\"` and no partial state is exposed",
+          "return_contract": "re-raises the exception from `create_pr()`",
+          "error_condition": "`create_pr()` raises an exception"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "FixPipeline._integrate_fix",
+          "action": "relies on `_request()` timeout handling; if the timeout fires, `create_pr()` raises `IntegrationError`, which propagates out of `_integrate_fix()` without setting `self._pr_number`",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "`create_pr()` call times out or hangs due to a network issue"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-9",
+      "title": "_handle_result applies af:pr label and leaves issue open for pr_created status",
+      "user_story": {
+        "role": "nightshift operator",
+        "goal": "have _handle_result apply the af:pr label, remove af:fix, post a tracking comment, and leave the issue open when the status is pr_created",
+        "benefit": "so that the issue lifecycle accurately reflects PR creation and does not incorrectly reach a closed state"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "FixPipeline._handle_result",
+          "action": "adds the `af:pr` label to the issue, removes the `af:fix` label, posts the structured tracking comment, and leaves the issue open without calling any close API",
+          "return_contract": "returns `None`; issue remains open",
+          "trigger": "called with status `\"pr_created\"`"
+        },
+        {
+          "id": "06-REQ-9.2",
+          "ears_pattern": "state_driven",
+          "system": "FixPipeline._handle_result",
+          "action": "skips label mutation calls as an optimization (since the GitHub API treats them as no-ops) and still posts a new tracking comment to ensure a complete audit trail",
+          "return_contract": "returns `None` without raising",
+          "state": "called with status `\"pr_created\"` and `af:pr` is already present on the issue"
+        },
+        {
+          "id": "06-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "FixPipeline._handle_result",
+          "action": "does not apply `af:fixed` and does not close the issue when status is `\"pr_created\"`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "FixPipeline._handle_result",
+          "action": "raises `IntegrationError` via `_request()` error handling without leaving the issue in a partially labeled state that could trigger premature close",
+          "return_contract": "raises `IntegrationError`",
+          "error_condition": "the GitHub API call to add `af:pr` label fails with a non-2xx response"
+        },
+        {
+          "id": "06-REQ-9.E2",
+          "ears_pattern": "unwanted",
+          "system": "FixPipeline._handle_result",
+          "action": "raises a descriptive `RuntimeError` or `AssertionError` because this state is a programmer error \u2014 `_pr_number` must be set before `\"pr_created\"` can be returned",
+          "return_contract": "raises `RuntimeError` or `AssertionError`",
+          "error_condition": "called with status `\"pr_created\"` but `self._pr_number` is `None`"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-10",
+      "title": "Tracking comment utilities: PR_TRACKING_PATTERN, format_tracking_comment, parse_tracking_comment",
+      "user_story": {
+        "role": "fix pipeline and follow-on pr_feedback_loop spec",
+        "goal": "have module-level utilities for formatting and parsing machine-readable PR tracking comments",
+        "benefit": "so that both the initial PR creation and subsequent feedback iterations can share a stable, testable comment format"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline.py module",
+          "action": "defines `PR_TRACKING_PATTERN` as a compiled `re.Pattern` matching `<!-- af:pr-tracking pr_number=(\\d+) attempt=(\\d+) -->` at module level",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline.py module",
+          "action": "defines `format_tracking_comment(pr_number: int, attempt: int, pr_url: str, message: str) -> str` that returns a string beginning with the HTML comment tag `<!-- af:pr-tracking pr_number={pr_number} attempt={attempt} -->` followed by the human-readable message line",
+          "return_contract": "returns a `str` with the HTML comment tag on the first line and the message on the second line"
+        },
+        {
+          "id": "06-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline.py module",
+          "action": "defines `parse_tracking_comment(body: str) -> tuple[int, int] | None` that uses `PR_TRACKING_PATTERN` to search the body string and returns `(pr_number, attempt)` as integers, or `None` if no match is found",
+          "return_contract": "returns `tuple[int, int]` if a match is found, or `None` if no tracking comment tag is present"
+        },
+        {
+          "id": "06-REQ-10.4",
+          "ears_pattern": "event_driven",
+          "system": "FixPipeline._handle_result",
+          "action": "calls `format_tracking_comment(pr_number=self._pr_number, attempt=1, pr_url=result.html_url, message=f\"Pull request created: {result.html_url}\")` and posts the result as a new comment on the issue",
+          "return_contract": null,
+          "trigger": "called with status `\"pr_created\"`"
+        },
+        {
+          "id": "06-REQ-10.5",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline.py module",
+          "action": "exposes `PR_TRACKING_PATTERN`, `format_tracking_comment`, and `parse_tracking_comment` as importable module-level symbols so the follow-on `pr_feedback_loop` spec can import them directly",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-10.E1",
+          "ears_pattern": "event_driven",
+          "system": "parse_tracking_comment",
+          "action": "returns the `(pr_number, attempt)` from the first match found by `PR_TRACKING_PATTERN.search()`",
+          "return_contract": "returns `tuple[int, int]` from the first match",
+          "trigger": "called with a body string containing multiple tracking comment tags"
+        },
+        {
+          "id": "06-REQ-10.E2",
+          "ears_pattern": "event_driven",
+          "system": "parse_tracking_comment",
+          "action": "returns `None` without raising",
+          "return_contract": "returns `None`",
+          "trigger": "called with an empty string or a string containing no tracking comment tag"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "06-PROP-1",
+      "title": "Premature close invariant: pr_created status never closes the issue",
+      "for_any": "call to `_handle_result()` with status `\"pr_created\"`",
+      "invariant": "the GitHub issue close API is never called and `af:fixed` is never applied to the issue",
+      "validates": [
+        "06-REQ-9.1",
+        "06-REQ-9.3"
+      ]
+    },
+    {
+      "id": "06-PROP-2",
+      "title": "Tracking comment round-trip: parse inverts format",
+      "for_any": "valid integers `pr_number` and `attempt`, and any strings `pr_url` and `message`",
+      "invariant": "`parse_tracking_comment(format_tracking_comment(pr_number, attempt, pr_url, message))` returns `(pr_number, attempt)`",
+      "validates": [
+        "06-REQ-10.2",
+        "06-REQ-10.3"
+      ]
+    },
+    {
+      "id": "06-PROP-3",
+      "title": "CheckResult null output: always non-optional strings",
+      "for_any": "GitHub check-run API response where the `output` field is `null`",
+      "invariant": "the resulting `CheckResult` has `output_title == \"\"` and `output_summary == \"\"` \u2014 neither field is `None`",
+      "validates": [
+        "06-REQ-2.5",
+        "06-REQ-5.3"
+      ]
+    },
+    {
+      "id": "06-PROP-4",
+      "title": "Dataclass immutability: all four new types are frozen",
+      "for_any": "any instance of `PrResult`, `PrState`, `CheckResult`, or `ReviewComment`",
+      "invariant": "attempting to assign to any field raises `FrozenInstanceError`; no method mutates the object after construction",
+      "validates": [
+        "06-REQ-2.1",
+        "06-REQ-2.2",
+        "06-REQ-2.3",
+        "06-REQ-2.4"
+      ]
+    },
+    {
+      "id": "06-PROP-5",
+      "title": "pr_number propagation: _pr_number is set before pr_created is returned",
+      "for_any": "execution path where `_integrate_fix()` returns `(\"pr_created\", ...)`",
+      "invariant": "`self._pr_number` is a non-None integer equal to `result.number` from the `PrResult` returned by `create_pr()`",
+      "validates": [
+        "06-REQ-8.1",
+        "06-REQ-8.3"
+      ]
+    },
+    {
+      "id": "06-PROP-6",
+      "title": "NullPlatform always raises for new PR query methods",
+      "for_any": "call to `NullPlatform.get_pr_state`, `NullPlatform.get_pr_checks`, or `NullPlatform.get_pr_reviews`",
+      "invariant": "the method raises `NotImplementedError` and does not return any value",
+      "validates": [
+        "06-REQ-3.4"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "06-PATH-1",
+      "title": "Happy path: fix pipeline creates PR, applies af:pr label, leaves issue open",
+      "steps": [
+        {
+          "actor": "nightshift operator",
+          "action": "triggers nightshift to process an issue with `merge_strategy` set to `\"pr\"`"
+        },
+        {
+          "actor": "FixPipeline._integrate_fix",
+          "action": "calls `GitHubPlatform.create_pr()` which returns `PrResult(html_url=..., number=42)`; sets `self._pr_number = 42`; returns `(\"pr_created\", changed_files)`"
+        },
+        {
+          "actor": "FixPipeline._handle_result",
+          "action": "receives status `\"pr_created\"`; adds `af:pr` label and removes `af:fix` label on the GitHub issue"
+        },
+        {
+          "actor": "FixPipeline._handle_result",
+          "action": "calls `format_tracking_comment(pr_number=42, attempt=1, pr_url=..., message=\"Pull request created: ...\")` and posts the formatted comment on the issue"
+        },
+        {
+          "actor": "FixPipeline._handle_result",
+          "action": "returns without calling any close API; the GitHub issue remains open with the `af:pr` label"
+        },
+        {
+          "actor": "nightshift operator",
+          "action": "observes the issue is still open, labeled `af:pr`, with a machine-readable tracking comment linking to the PR"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-2",
+      "title": "Idempotent retry: _handle_result called with af:pr already on issue",
+      "steps": [
+        {
+          "actor": "nightshift operator",
+          "action": "nightshift retries processing an issue after a partial failure that already applied `af:pr`"
+        },
+        {
+          "actor": "FixPipeline._integrate_fix",
+          "action": "calls `GitHubPlatform.create_pr()` which returns the existing `PrResult` via the idempotent 422 path; sets `self._pr_number`; returns `(\"pr_created\", changed_files)`"
+        },
+        {
+          "actor": "FixPipeline._handle_result",
+          "action": "detects `af:pr` already present on the issue; skips label mutation calls as an optimization"
+        },
+        {
+          "actor": "FixPipeline._handle_result",
+          "action": "posts a new tracking comment regardless, ensuring a visible retry record in the issue history"
+        },
+        {
+          "actor": "nightshift operator",
+          "action": "observes the issue still open and labeled `af:pr` with an additional tracking comment showing the retry"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-3",
+      "title": "Protocol consumer queries PR state, checks, and reviews via GitHubPlatform",
+      "steps": [
+        {
+          "actor": "pr_feedback_loop spec consumer",
+          "action": "calls `GitHubPlatform.get_pr_state(pr_number=42)` to determine if the PR is still open"
+        },
+        {
+          "actor": "GitHubPlatform.get_pr_state",
+          "action": "sends `GET /repos/{owner}/{repo}/pulls/42` via `_request()` and returns a `PrState` with `state`, `merged`, and `head_sha`"
+        },
+        {
+          "actor": "pr_feedback_loop spec consumer",
+          "action": "calls `GitHubPlatform.get_pr_checks(pr_number=42)` to retrieve CI results"
+        },
+        {
+          "actor": "GitHubPlatform.get_pr_checks",
+          "action": "fetches `head_sha` from `get_pr_state()`, then sends `GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs` via `_request()`, paginates if needed, and returns `list[CheckResult]`"
+        },
+        {
+          "actor": "pr_feedback_loop spec consumer",
+          "action": "calls `GitHubPlatform.get_pr_reviews(pr_number=42)` to retrieve review comments"
+        },
+        {
+          "actor": "GitHubPlatform.get_pr_reviews",
+          "action": "sends `GET /repos/{owner}/{repo}/pulls/42/reviews` via `_request()` and returns `list[ReviewComment]` in submission order"
+        },
+        {
+          "actor": "pr_feedback_loop spec consumer",
+          "action": "receives typed, immutable dataclasses for all three queries with no need to handle raw API dicts"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-4",
+      "title": "Bootstrap ensures af:pr label exists before pipeline runs",
+      "steps": [
+        {
+          "actor": "nightshift operator",
+          "action": "starts the nightshift service"
+        },
+        {
+          "actor": "nightshift bootstrap routine",
+          "action": "reads `REQUIRED_LABELS` from `afissues.labels`, finds the `af:pr` entry with color `#1d76db`"
+        },
+        {
+          "actor": "nightshift bootstrap routine",
+          "action": "calls the GitHub API to check for existing labels; creates `af:pr` if it does not exist in the repository"
+        },
+        {
+          "actor": "nightshift operator",
+          "action": "observes that `af:pr` label is present in the repository and the pipeline proceeds normally"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "06-ERR-1",
+      "condition": "GitHub API returns non-2xx on `get_pr_state` call",
+      "behavior": "delegates to `_request()` error handling; raises `IntegrationError` to the caller",
+      "requirement_id": "06-REQ-4.2"
+    },
+    {
+      "id": "06-ERR-2",
+      "condition": "GitHub API response for `get_pr_state` is missing required fields (`state`, `merged`, `head`)",
+      "behavior": "raises `KeyError` or `IntegrationError`; does not return a partial `PrState`",
+      "requirement_id": "06-REQ-4.E1"
+    },
+    {
+      "id": "06-ERR-3",
+      "condition": "`get_pr_checks` pagination receives a non-2xx response on any page",
+      "behavior": "raises `IntegrationError` via `_request()`; does not return a partial list",
+      "requirement_id": "06-REQ-5.E2"
+    },
+    {
+      "id": "06-ERR-4",
+      "condition": "`get_pr_checks` API response missing `check_runs` or `total_count`",
+      "behavior": "raises `KeyError` or `IntegrationError`; does not return a partial result",
+      "requirement_id": "06-REQ-5.E1"
+    },
+    {
+      "id": "06-ERR-5",
+      "condition": "`get_pr_reviews` API response missing `user.login`, `state`, `body`, or `submitted_at` on a review object",
+      "behavior": "raises `KeyError` or `IntegrationError`; does not silently omit the review",
+      "requirement_id": "06-REQ-6.E1"
+    },
+    {
+      "id": "06-ERR-6",
+      "condition": "`GitHubPlatform.create_pr()` 422 recovery lookup returns an empty list",
+      "behavior": "raises `IntegrationError`; does not return a `PrResult` with missing fields",
+      "requirement_id": "06-REQ-7.E1"
+    },
+    {
+      "id": "06-ERR-7",
+      "condition": "`GitHubPlatform.create_pr()` 201 response body missing `html_url` or `number`",
+      "behavior": "raises `KeyError` or `IntegrationError`; does not return a partially populated `PrResult`",
+      "requirement_id": "06-REQ-7.E2"
+    },
+    {
+      "id": "06-ERR-8",
+      "condition": "`create_pr()` raises an exception during `_integrate_fix()` PR mode",
+      "behavior": "exception propagates out of `_integrate_fix()`; `self._pr_number` remains `None`; `_handle_result()` is never called with `\"pr_created\"`",
+      "requirement_id": "06-REQ-8.4"
+    },
+    {
+      "id": "06-ERR-9",
+      "condition": "GitHub API call to add `af:pr` label fails with non-2xx during `_handle_result()`",
+      "behavior": "raises `IntegrationError`; issue is not left in a partially labeled state that could trigger premature close",
+      "requirement_id": "06-REQ-9.E1"
+    },
+    {
+      "id": "06-ERR-10",
+      "condition": "`_handle_result()` is called with status `\"pr_created\"` but `self._pr_number` is `None`",
+      "behavior": "raises `RuntimeError` or `AssertionError` immediately, as this is a programmer error",
+      "requirement_id": "06-REQ-9.E2"
+    },
+    {
+      "id": "06-ERR-11",
+      "condition": "nightshift bootstrap routine receives a non-2xx error from GitHub when creating the `af:pr` label",
+      "behavior": "raises `IntegrationError` and halts startup rather than silently continuing with a missing label",
+      "requirement_id": "06-REQ-1.E1"
+    },
+    {
+      "id": "06-ERR-12",
+      "condition": "`get_pr_checks` or `get_pr_state` call times out or hangs with no response",
+      "behavior": "relies on `_request()` timeout handling; raises `IntegrationError` after retries are exhausted; does not hang the caller indefinitely",
+      "requirement_id": "06-REQ-4.E2"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "afissues",
+      "version": "4.2.6",
+      "symbols": [
+        {
+          "name": "PlatformProtocol",
+          "import_path": "afissues.protocol",
+          "signature": "class PlatformProtocol(Protocol)",
+          "notes": "Adding 3 new async methods: get_pr_state, get_pr_checks, get_pr_reviews; create_pr return type changes to PrResult"
+        },
+        {
+          "name": "NullPlatform",
+          "import_path": "afissues.protocol",
+          "signature": "class NullPlatform",
+          "notes": "Adding 3 stubs that raise NotImplementedError"
+        },
+        {
+          "name": "IssueResult",
+          "import_path": "afissues.protocol",
+          "signature": "@dataclass(frozen=True)",
+          "notes": "Existing, unchanged"
+        },
+        {
+          "name": "IssueComment",
+          "import_path": "afissues.protocol",
+          "signature": "@dataclass(frozen=True)",
+          "notes": "Existing, unchanged"
+        },
+        {
+          "name": "GitHubPlatform",
+          "import_path": "afissues.github",
+          "signature": "class GitHubPlatform",
+          "notes": "Adding get_pr_state, get_pr_checks, get_pr_reviews; create_pr return type changes to PrResult"
+        },
+        {
+          "name": "create_pr",
+          "import_path": "afissues.protocol",
+          "signature": "async def create_pr(self, *, title: str, body: str, head: str, base: str) -> PrResult",
+          "notes": "Return type changed from str to PrResult; all callers updated atomically"
+        },
+        {
+          "name": "LABEL_FIX",
+          "import_path": "afissues.labels",
+          "signature": "str = \"af:fix\"",
+          "notes": "Existing, unchanged"
+        },
+        {
+          "name": "LABEL_FIXED",
+          "import_path": "afissues.labels",
+          "signature": "str = \"af:fixed\"",
+          "notes": "Existing, unchanged"
+        },
+        {
+          "name": "REQUIRED_LABELS",
+          "import_path": "afissues.labels",
+          "signature": "list[LabelSpec]",
+          "notes": "Adding af:pr LabelSpec entry with color #1d76db"
+        },
+        {
+          "name": "IntegrationError",
+          "import_path": "afissues.errors",
+          "signature": "class IntegrationError(AfIssuesError)",
+          "notes": "Existing; used by new GitHubPlatform methods via _request() delegation"
+        }
+      ]
+    },
+    {
+      "package": "agentfox",
+      "version": "4.2.6",
+      "symbols": [
+        {
+          "name": "FixPipeline._integrate_fix",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "async def _integrate_fix(self, issue, spec, workspace) -> tuple[str, list[str]]",
+          "notes": "Status return value changes from \"merged\" to \"pr_created\" for PR mode"
+        },
+        {
+          "name": "FixPipeline._handle_result",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "async def _handle_result(self, issue, spec, harvest_result) -> None",
+          "notes": "Adding handler for \"pr_created\" status"
+        },
+        {
+          "name": "build_pr_body",
+          "import_path": "agentfox.nightshift.fix_pipeline",
+          "signature": "def build_pr_body(...) -> str",
+          "notes": "Existing, unchanged"
+        }
+      ]
+    }
+  ]
+}

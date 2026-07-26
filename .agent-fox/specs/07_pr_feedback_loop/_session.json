@@ -1,0 +1,424 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The `pr_feedback_loop` PRD is well-written and unusually thorough \u2014 it has a clear intent, measurable goals, explicit non-goals, rich background, detailed solution design, module structure, design-decision rationale, and a fully populated Verified External API section. The primary concern is a direct scope overlap with the active spec `pr_lifecycle_labels` (spec `06`), which this spec both depends on and extends \u2014 the boundary between the two needs explicit clarification. Secondary concerns are a missing explicit failure/error-handling strategy for several critical operations (force-push failures, worktree creation failures, platform API errors during polling), an undocumented observable behaviour when `max_pr_retries` is 0, and the absence of any testing or observability strategy. These gaps are resolvable with targeted answers and do not indicate a fundamentally broken PRD.",
+      "gaps": [
+        "Overlap with active spec `pr_lifecycle_labels` (spec 06): this PRD builds directly on top of \u2014 and tightly couples to \u2014 that spec's types, protocol methods, and tracking-comment utilities. The relationship is declared in Dependencies, but the boundary is unclear: does `pr_lifecycle_labels` need to be merged/accepted before this spec can be generated? Is `pr_feedback_loop` intended to extend, supersede, or simply depend on it?",
+        "Error handling for critical feedback-iteration operations is not specified: what happens if `git worktree add` fails (e.g., branch name conflict, disk full)? What happens if `git push --force` fails (e.g., network error, protected-branch rule)? Should nightshift post a comment, remove labels, or retry on the next cycle?",
+        "Platform API error handling during polling is not addressed: if `get_pr_state`, `get_pr_checks`, or `get_pr_reviews` raises an exception (rate-limit, transient 5xx, auth error), should the issue be skipped silently, logged with a warning, or trigger a comment on the issue?",
+        "Behaviour when `max_pr_retries` is 0 is ambiguous: the retry-limit comment says 'attempt {attempt}/{max_pr_retries + 1}' but if the cap is 0 the coder should never re-run \u2014 it is unclear whether the very first feedback-triggered iteration counts as attempt 1 (blocked) or whether the original PR creation counts as attempt 1. The off-by-one semantics need explicit documentation.",
+        "No testing strategy is described: no unit test expectations, no integration-test scope, no mention of how to test polling behaviour (e.g., mocked platform responses, time-mocking for intervals).",
+        "No observability or metrics strategy: Goals #5 mentions logging and comments, but there is no structured logging schema, no metric emission, and no mention of how operators diagnose a stuck feedback loop beyond inspecting GitHub comments.",
+        "The `_MAX_PR_CHECKS = 5` cap processes issues sequentially but the selection order (FIFO, oldest-first, random) is not specified, which could lead to starvation of newer PRs or unfair resource allocation."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "The active spec `pr_lifecycle_labels` (spec 06) defines the protocol methods, types, and tracking-comment utilities that `pr_feedback_loop` depends on. Should `pr_feedback_loop` be treated as blocked until `pr_lifecycle_labels` is accepted/merged, or are these two specs intended to be generated and reviewed together as a coupled pair? Additionally, does `pr_feedback_loop` supersede any part of `pr_lifecycle_labels`, or is it purely additive?",
+          "context": "There is a direct scope dependency between the two active specs. Without clarity on the ordering and boundary, artifact generation for `pr_feedback_loop` may produce code that references symbols not yet defined by `pr_lifecycle_labels`.",
+          "options": [
+            "pr_feedback_loop is blocked on pr_lifecycle_labels being merged first",
+            "Both specs are generated together as a single coupled batch",
+            "pr_feedback_loop can be generated independently, treating spec-06 symbols as already present in the codebase",
+            "pr_feedback_loop supersedes parts of pr_lifecycle_labels (please specify which parts)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What should happen when a critical feedback-iteration operation fails \u2014 specifically `git worktree add` failing (e.g., branch conflict, disk space) or `git push --force` failing (e.g., network error, protected-branch policy)?",
+          "context": "The solution section describes the happy path in detail but does not specify error recovery. Without this, implementers will make inconsistent decisions about whether to retry, post a comment, remove labels, or silently skip \u2014 any of which could leave a PR in an inconsistent state.",
+          "options": [
+            "Log the error, skip the issue for this poll cycle, leave all labels intact (same as the missing-tracking-comment behaviour)",
+            "Log the error, post a comment on the issue describing the failure, leave labels intact",
+            "Log the error, remove af:pr label, post a comment so a human takes over",
+            "Raise the exception and let the stream's error handler deal with it"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "When `get_pr_state`, `get_pr_checks`, or `get_pr_reviews` raises a platform exception (transient 5xx, rate-limit 429, auth error), should the issue be silently skipped until the next poll cycle, or should the error be surfaced (logged at ERROR level, posted as a comment, or escalated)?",
+          "context": "GitHub's API can return transient errors or rate-limit responses, especially at the 60-second minimum poll interval. The current spec does not specify behaviour, which risks silent data loss or noisy comment spam.",
+          "options": [
+            "Silently skip the issue for this cycle, log at WARNING level only",
+            "Log at ERROR level and skip; no comment posted",
+            "Post a comment on the issue after N consecutive failures (specify N)",
+            "Propagate the exception to the stream error handler"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Can you clarify the exact semantics of `max_pr_retries` relative to attempt numbering? Specifically: does the tracking comment's `attempt` counter start at 1 for the original PR creation (making the first feedback iteration attempt=2), or does it start at 1 for the first feedback iteration? And when `max_pr_retries=0`, should the feedback loop never trigger re-entry at all?",
+          "context": "The retry-limit comment template uses `attempt/{max_pr_retries + 1}` which implies attempt is 1-indexed from the original PR creation, but this is not stated explicitly. Implementers need an unambiguous off-by-one specification.",
+          "options": [
+            "attempt=1 is the original PR creation; feedback iterations are attempt=2, 3, \u2026; max_pr_retries=0 means no feedback iterations ever run",
+            "attempt=1 is the first feedback iteration; max_pr_retries=0 means no feedback iterations ever run",
+            "attempt=1 is the original PR creation; max_pr_retries=0 still allows one feedback pass (the limit is on *additional* retries beyond the first)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When `_check_open_prs` hits the `_MAX_PR_CHECKS = 5` cap and defers remaining issues to the next cycle, in what order are issues selected \u2014 oldest-first, newest-first, or arbitrary (e.g., GitHub API return order)?",
+          "context": "Without a defined ordering, issues created first could be perpetually deferred if the label list always returns newer issues first, causing starvation. The ordering choice also affects fairness and predictability for operators.",
+          "options": [
+            "GitHub API return order (no explicit sorting)",
+            "Oldest issue first (ascending by issue number or created_at)",
+            "Newest issue first (descending by issue number or created_at)",
+            "Round-robin across cycles (track last-processed index in state)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Is there an expectation that unit or integration tests will be specified or scaffolded as part of this spec's artifacts? If so, what level of coverage is expected (e.g., happy path only, all CI-check interpretation branches, error paths)?",
+          "context": "The PRD contains no testing section. CI interpretation logic has at least 7 distinct branches (in-progress, queued, failure, timed_out, cancelled/action_required/stale, all-success, mixed). Specifying test expectations here helps the generation step produce verifiable code.",
+          "options": [
+            "No tests required in this spec \u2014 covered separately",
+            "Happy path only (merged PR, CI failure re-entry, review re-entry)",
+            "All CI-check interpretation branches",
+            "Full coverage including error paths and edge cases"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and detailed, covering configuration, flow logic, error handling, module structure, integration points, and testing strategy comprehensively. The intent, goals, non-goals, and design decisions are clearly articulated. However, several gaps remain: the observability/metrics story is missing, the async execution model for the polling loop needs clarification, the `_check_open_prs` concurrency model relative to other streams isn't fully specified, and the behavior when the coder session produces no changes is undefined. Additionally, the `format_tracking_comment` signature in the API table includes a `pr_url` parameter but its source during feedback re-entry is not documented in the flow.",
+      "gaps": [
+        "Async execution model not specified: it is unclear whether `_check_open_prs()` is `async` and awaited, or run in an executor. The PRD references `asyncio` in the tech stack but the polling loop structure (sequential `await` per issue, or gather, or thread-pool) is not described for the engine dispatcher.",
+        "Source of `pr_url` during tracking comment update (step 6 of feedback re-entry) is not documented. `format_tracking_comment` requires a `pr_url` parameter, but where this URL is retrieved from (PR state response, stored in tracking comment, derived from pr_number) is not stated.",
+        "Behavior when the coder session produces no diff/no changes is undefined. Should nightshift still force-push (empty commit), skip the push, or post a specific comment indicating no changes were made?",
+        "Observability/metrics story is absent. The PRD mentions `state.issue_checks_completed` but does not specify what other counters or log events operators would use to monitor the health of the PR feedback loop (e.g., retry limit hits, skipped-due-to-ambiguous-CI events).",
+        "The interaction between the `pr-feedback` stream and the `fix-pipeline` stream on the same issue is not addressed. If `fix-pipeline` picks up an issue that still has `af:pr` on it (e.g., after a closed-without-merge event where the label was just removed and timing is tight), is there a guard?",
+        "The `affected_files` computation (via `git diff --name-only`) is listed but the exact git command, base ref, and what happens if the worktree hasn't been created yet at that point is not specified.",
+        "No specification of what model_id is passed to `_run_coder_session()` during feedback re-entry \u2014 is it the same model as the original fix attempt, or configurable?",
+        "The `format_tracking_comment` message string for feedback iterations is shown as an example but not formally defined \u2014 will the message template be a constant in `pr_feedback.py` or configurable?"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the async execution model for `_check_open_prs()`? Is it a coroutine (`async def`) that sequentially `await`s each `process_pr_issue()` call, and is it invoked directly by the async event loop or via a thread executor?",
+          "context": "The PRD references asyncio and says issues are processed sequentially, but the engine dispatcher section doesn't clarify if this is an async coroutine or a synchronous method run in an executor. Implementers need to know how it fits into the event loop.",
+          "options": [
+            "async def, sequentially awaits each process_pr_issue() call, invoked directly by the event loop",
+            "sync def, runs in a thread executor managed by the DaemonRunner",
+            "async def, uses asyncio.gather for the capped issue list (up to 5 concurrent)",
+            "Same pattern as the existing fix-pipeline stream \u2014 follow that convention"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Where does the `pr_url` value come from when calling `format_tracking_comment()` during the feedback re-entry tracking comment update (step 6)?",
+          "context": "`format_tracking_comment` requires a `pr_url` parameter. During re-entry, the PR already exists \u2014 the URL must come from somewhere. Options include extracting it from the `PrState` response, reconstructing it from the platform's base URL + pr_number, or storing it in the original tracking comment.",
+          "options": [
+            "Extracted from the PrState object returned by get_pr_state() (e.g., PrState.html_url)",
+            "Reconstructed from the platform base URL and pr_number",
+            "Stored in the original tracking comment and re-parsed",
+            "Not needed \u2014 pass None or empty string for feedback iterations"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should happen if the coder session produces no changes (empty diff) after a feedback iteration?",
+          "context": "The coder may fail to produce any code changes in response to CI failures or review feedback. Without a defined behavior, implementers may force-push an empty commit, skip the push silently, or crash. Each has different operator-visibility implications.",
+          "options": [
+            "Skip the force-push and post a comment noting no changes were produced; leave af:pr and increment attempt counter anyway",
+            "Skip the force-push and post a comment; do NOT increment attempt counter (don't consume a retry)",
+            "Force-push anyway (even empty commit) to re-trigger CI",
+            "Log a warning, skip the issue for this cycle, do not increment attempt counter"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Which model ID is used when calling `_run_coder_session()` during feedback re-entry?",
+          "context": "The original fix pipeline presumably selects a model ID from config. Feedback iterations need the same information. If it's the same model, that should be stated explicitly. If it's configurable separately, a new config field is needed.",
+          "options": [
+            "Same model ID as used in the original fix pipeline (from config.night_shift.coder_model or equivalent)",
+            "A separate configurable field (e.g., pr_feedback_model) with the same default",
+            "Hardcoded to a specific model for feedback iterations"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What additional counters or structured log events should be emitted to help operators monitor the PR feedback loop health?",
+          "context": "The PRD only mentions `issue_checks_completed`. Operators running nightshift in production need visibility into retry limit hits, ambiguous-CI skips, and feedback iterations fired. Without this, diagnosing a stuck PR requires manual log scraping.",
+          "options": [
+            "Add counters to NightShiftState: pr_feedback_retries_fired, pr_retry_limit_hits, pr_merged_count, pr_closed_without_merge_count",
+            "Emit structured log lines at INFO level for each state transition (merged, closed, re-entry triggered, limit reached) \u2014 no new state counters",
+            "Both structured log lines and new NightShiftState counters",
+            "No additional observability needed beyond what's already specified"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should there be a guard in the fix-pipeline to avoid re-processing an issue that currently has the `af:pr` label (i.e., a PR is already open for it)?",
+          "context": "After a PR is closed without merge, `af:pr` is removed and the issue is left open \u2014 the fix-pipeline could pick it up on the next cycle. However, during the window between a closed-without-merge event and the next fix-pipeline cycle, or in edge cases with label race conditions, double-processing is theoretically possible. Clarifying this prevents implementer ambiguity.",
+          "options": [
+            "Yes \u2014 fix-pipeline should skip issues with af:pr label (add a guard in fix-pipeline issue selection)",
+            "No \u2014 the label lifecycle is designed so this cannot happen; no guard needed",
+            "Document the race condition as a known limitation; no code change needed",
+            "This is already handled by spec 06 \u2014 refer to that spec's issue-selection filter"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD that demonstrates strong engineering rigor. The document is comprehensive, internally consistent, and provides sufficient detail for implementation. It clearly defines scope, sequencing, data flows, error handling, observability, and test coverage. The dependency on spec 06 is clearly articulated, design decisions are well-justified with rationale, and edge cases are explicitly enumerated. Minor gaps exist around worktree path/naming conventions, the exact signature of `format_tracking_comment`, and partial-failure atomicity during label transitions \u2014 but none of these block implementation.",
+      "gaps": [
+        "Worktree path/naming convention is not specified. Section 5 step 3 says 'use git worktree add targeting the fix branch HEAD' but does not specify where the worktree directory is created (e.g., relative to the repo root, a temp dir, or the existing worktree base path used by the fix pipeline). This affects _setup_feedback_worktree() implementation.",
+        "The exact signature of format_tracking_comment is listed in the API table as (pr_number, attempt, pr_url, message) but the 'message' parameter is never documented in spec 06 context \u2014 it's unclear whether this is positional or keyword, or whether there are additional parameters. If spec 06 has not landed yet, the signature may drift.",
+        "Label transition atomicity is unspecified. For merged PR handling (add af:fixed, remove af:pr, close issue), there is no guidance on what happens if one of these three operations fails mid-sequence (e.g., af:fixed is added but close_issue raises). Should partial state be retried or left for operator cleanup?",
+        "The 'most recent tracking comment' selection logic is underspecified. Section 4 step 1 says 'find the most recent comment matching PR_TRACKING_PATTERN' \u2014 it is not stated whether 'most recent' means last in list order (by index), or sorted by a timestamp field on IssueComment. If list_issue_comments returns comments sorted oldest-first (typical), last-in-list is correct, but this should be explicit.",
+        "The feedback worktree cleanup path on partial worktree creation failure is mentioned ('if the worktree was partially created before the failure, the cleanup step is attempted in a finally block') but _cleanup_feedback_worktree is not specified to handle the case where the worktree directory does not exist \u2014 it is unclear whether it should silently no-op or propagate errors.",
+        "There is no specification for what happens if the fix branch no longer exists on origin when feedback re-entry is attempted (e.g., branch was deleted by a human). git worktree add would fail, but this specific scenario is not called out as a distinct error path in Section 7.",
+        "The 'prior_context' and 'knowledge_context' parameters to _build_coder_prompt() are visible in the API table signature but there is no guidance on what values are passed during feedback re-entry (empty, None, or retrieved from somewhere). This could affect coder output quality."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Where should the feedback worktree directory be created on disk? For example: (a) in the same parent directory as the main repo worktrees, using a path like worktrees/feedback-{issue_number}, (b) in a system temp directory via tempfile.mkdtemp(), or (c) in the same location as the fix pipeline's existing worktree base path?",
+          "context": "Section 5 step 3 specifies 'use git worktree add targeting the fix branch HEAD' but does not define the target path. The _setup_feedback_worktree() implementation needs a concrete directory path to pass to 'git worktree add <path> <branch>'. This also affects how _cleanup_feedback_worktree() locates the worktree to remove.",
+          "options": [
+            "Same parent as existing fix pipeline worktrees (e.g., worktrees/feedback-{issue_number})",
+            "System temp directory via tempfile.mkdtemp()",
+            "A dedicated subdirectory under the repo root (e.g., .nightshift/feedback-worktrees/{issue_number})",
+            "Same path pattern as fix pipeline worktrees but with a 'feedback-' prefix"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What values should be passed for 'prior_context' and 'knowledge_context' when calling _build_coder_prompt() during feedback re-entry?",
+          "context": "The API table shows _build_coder_prompt(spec, triage, review_feedback, prior_context, knowledge_context). The spec documents that review_feedback is populated with CI/review feedback and triage is synthetic, but says nothing about prior_context or knowledge_context. Passing incorrect values (e.g., None vs empty string vs retrieved context) may affect coder prompt quality.",
+          "options": [
+            "Pass None for both (treat as optional/absent)",
+            "Pass empty string for both",
+            "Retrieve prior_context from the issue body or comments the same way the fix pipeline does",
+            "Pass None for prior_context and empty string for knowledge_context"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is the intended behavior when a label transition operation fails mid-sequence during merged PR handling? For example, if add af:fixed succeeds but close_issue then raises a platform API exception \u2014 should nightshift (a) leave the partial state for operator cleanup, (b) attempt to roll back af:fixed, or (c) retry all three operations on the next poll cycle?",
+          "context": "Section 4 step 2 specifies three operations for merged PRs: add af:fixed, remove af:pr, close issue. If any intermediate step fails, the issue may end up in a state that confuses the next poll cycle (e.g., af:fixed present but issue still open and af:pr still present). The error handling section (Section 7) covers polling-phase API errors generically but does not address atomicity within the merged-PR transition.",
+          "options": [
+            "Leave partial state for operator cleanup (log at ERROR, skip)",
+            "Retry all three operations on the next poll cycle (idempotent re-application)",
+            "Attempt rollback of completed operations before skipping",
+            "Log at WARNING and skip \u2014 partial state is acceptable since af:fixed label signals human intent"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "When list_issue_comments returns multiple tracking comments, should 'most recent' be determined by (a) the last item in the returned list (assuming oldest-first ordering from the API), or (b) explicitly sorting by a timestamp field on IssueComment?",
+          "context": "Section 4 step 1 says 'find the most recent comment matching PR_TRACKING_PATTERN' but does not define how recency is determined. If list_issue_comments guarantees oldest-first ordering, taking the last matching item is correct and efficient. If ordering is not guaranteed, an explicit sort is needed. This matters for correctness when multiple feedback iterations have each posted a tracking comment.",
+          "options": [
+            "Use last item in list order (assumes list_issue_comments returns oldest-first)",
+            "Sort by IssueComment.created_at descending and take the first match",
+            "Sort by IssueComment.id descending and take the first match",
+            "The ordering is guaranteed by the existing API contract \u2014 specify which"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Should _cleanup_feedback_worktree() silently no-op if the worktree directory does not exist (e.g., because git worktree add failed before creating anything), or should it propagate the error?",
+          "context": "Section 7 states '_cleanup_feedback_worktree is attempted in a finally block to avoid leaving orphaned worktrees' for partial worktree creation failures. If git worktree add fails early, the directory may not exist. The cleanup function needs defined behavior for this case to avoid masking errors or causing a secondary exception in the finally block that obscures the original failure.",
+          "options": [
+            "Silently no-op if directory does not exist (safest for finally-block usage)",
+            "Log at DEBUG and no-op",
+            "Propagate the error (let the caller handle it)",
+            "Use git worktree list to check existence before attempting removal"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is an exceptionally well-written PRD. It is comprehensive, internally consistent, and implementation-ready. The spec covers configuration, module structure, async execution model, error handling (polling vs. re-entry phases), label lifecycle, observability, and a detailed testing strategy. Design decisions are numbered and clearly rationalized. Dependencies on spec 06 are explicitly called out with sequencing enforcement. The few minor gaps identified are clarifications rather than blockers \u2014 the spec could be handed to a developer today.",
+      "gaps": [
+        "No explicit definition of `_MAX_PR_CHECKS = 5` as a named constant in the module structure section (Section 9) \u2014 it is introduced in Section 3 but not listed in the module-level constants block alongside `_FEEDBACK_ITERATION_MESSAGE` etc.",
+        "The `process_pr_issue` signature in Section 4 lists `pipeline` as a parameter, but Section 9's module structure and Section 3 describe it as receiving a `FixPipeline` reference \u2014 the type annotation of `pipeline` is never explicitly stated in the signature.",
+        "The `_collect_feedback()` helper in Section 9 is described in the module structure but its signature is not specified (what it returns \u2014 a string? \u2014 and what parameters it accepts beyond CI failures and review comments).",
+        "The condition for entering feedback re-entry when both CI failures AND review change requests exist simultaneously is implied (both sections) but the priority/ordering between them is not explicitly stated \u2014 does re-entry happen once or is there a dual path?",
+        "Section 5 step 3 says the fix branch name is derived via `sanitise_branch_name(issue.title, issue.number)` but does not clarify whether the worktree is checked out from the remote tracking branch or a local ref, and whether a `git fetch` is performed first.",
+        "The `EngineWorkStream` wrapper interface is referenced but not defined in this spec \u2014 new readers must consult spec 06 or existing code to understand its contract.",
+        "Section 5 step 6 mentions `_auto_commit_pending_changes()` but does not specify the commit message format used during feedback iterations.",
+        "No mention of what happens if `format_tracking_comment()` or `add_issue_comment()` raises during the post-tracking-comment step (step 7 of feedback re-entry) \u2014 this failure path is not covered in Section 7."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "When both CI failures AND reviewer change requests exist simultaneously on a PR, should feedback re-entry be triggered once (with both sections merged into the feedback markdown) or are there two separate re-entry triggers? Is there a priority ordering between CI failures and review feedback when collecting the context?",
+          "context": "Section 4 steps 3 and 4 each independently trigger re-entry, but step 4 is only reached if CI passes (all success or empty). The spec implies they are mutually exclusive paths, but this is not stated explicitly. Clarifying ensures the `_collect_feedback()` implementation is unambiguous.",
+          "options": [
+            "CI failure takes priority \u2014 if any CI check fails, review feedback is also collected and both are included in the single re-entry payload; step 4 is skipped as a separate gate",
+            "The steps are strictly sequential and mutually exclusive: CI failure in step 3 triggers re-entry immediately without ever reaching step 4; only if CI fully passes does step 4 run",
+            "Both are evaluated independently and re-entry is triggered once with whichever signals are present"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Before running `git worktree add` for the feedback worktree, does nightshift perform a `git fetch` to ensure the fix branch ref is up to date on the local clone? If so, what happens if the fetch fails?",
+          "context": "The previous fix-pipeline worktree was destroyed. The local clone may have a stale or missing ref for the fix branch. Without a fetch, `git worktree add` targeting the fix branch HEAD could fail or check out an outdated commit silently.",
+          "options": [
+            "Yes \u2014 a `git fetch origin` (or `git fetch origin <branch>`) is performed before `git worktree add`; fetch failure is treated as a worktree creation error (ERROR logged, issue skipped)",
+            "No \u2014 the local ref is assumed to be current; branch-not-found errors are handled as standard worktree creation failures",
+            "A fetch is performed but only for the specific fix branch ref"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What commit message format should `_auto_commit_pending_changes()` use when committing coder changes during a feedback iteration?",
+          "context": "The fix pipeline likely uses a standard commit message for the original fix. Feedback iterations should have a distinguishable commit message (e.g., including the attempt number or a 'feedback' marker) to make the Git history readable.",
+          "options": [
+            "Reuse the same commit message format as the original fix pipeline (e.g., 'fix: <issue title> [nightshift]')",
+            "Use a distinct format such as 'fix: <issue title> [nightshift feedback attempt {attempt}]'",
+            "The commit message is implementation-defined and does not need to be specified in the PRD"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "If `add_issue_comment()` or `format_tracking_comment()` raises an exception during step 7 of feedback re-entry (posting the updated tracking comment), how should this be handled \u2014 treat it as a feedback iteration failure (ERROR, skip, cleanup) or a non-fatal warning (log at WARNING, still clean up worktree, consider the iteration complete)?",
+          "context": "The tracking comment is the mechanism for persisting the attempt counter. If it fails to post, the next poll cycle will re-read the old attempt number and may re-trigger re-entry incorrectly, effectively not consuming the retry. This is a meaningful correctness concern.",
+          "options": [
+            "Treat as a feedback iteration failure: ERROR logged, issue skipped, worktree cleaned up via finally \u2014 consistent with other critical step failures",
+            "Treat as non-fatal: WARNING logged, worktree cleaned up, iteration considered complete (accept the risk of re-triggering re-entry on the next cycle)",
+            "Post the tracking comment before the force-push so that if the comment fails the force-push is also skipped"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Should `_MAX_PR_CHECKS = 5` be listed as a named module-level constant in `pr_feedback.py` alongside the message template constants, or is it defined in `engine.py` where `_check_open_prs` lives?",
+          "context": "Section 3 introduces `_MAX_PR_CHECKS = 5` as a hardcoded constant, and Section 9's module structure lists message template constants in `pr_feedback.py`. Clarifying where this constant lives avoids implementation ambiguity.",
+          "options": [
+            "Defined in `pr_feedback.py` as a module-level constant alongside the message templates",
+            "Defined in `engine.py` near `_check_open_prs()` where it is applied",
+            "Defined in a shared constants module"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is an exceptionally well-structured and thorough PRD. It covers configuration, flow orchestration, error handling, observability, label lifecycle, module structure, integration points, design decisions (28 of them), and a comprehensive testing strategy. The document is internally consistent, cross-references its dependency (spec 06) clearly, and leaves very little ambiguity for implementers. It meets spec-format quality standards and is ready for artifact generation.",
+      "gaps": [
+        "Minor: The `_collect_feedback()` function signature in Section 9 lists `review_comments: list[ReviewComment]` as a parameter, but the function description in Section 5 step 2 says it formats 'reviewer user, body, and state' \u2014 it would be slightly clearer to note that `ReviewComment` carries these fields, though this is inferrable from spec 06.",
+        "Minor: The `process_pr_issue` signature in Section 4 is declared `async def` in the prose but the Section 9 module structure omits the `async` qualifier on the entry point signature \u2014 a small inconsistency that implementers should note.",
+        "Minor: The worktree base directory path (`worktrees/`) is described as 'read from the same config path used by the fix pipeline' but the exact config key is not named. Implementers must infer it from the existing fix pipeline code.",
+        "Minor: The `_run_feedback_iteration()` internal function is listed in Section 9 but its signature is not specified (unlike the other private helpers), leaving parameter types implicit."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact config field name (and its location in the config hierarchy) used by the fix pipeline to determine the worktree base directory path?",
+          "context": "Section 5 step 3b says the worktree base directory is 'read from the same config path used by the fix pipeline' but does not name the field. Implementers need the exact key (e.g., `config.workspace.worktree_base` or similar) to avoid having to reverse-engineer it from the existing code.",
+          "options": [
+            "config.workspace.worktree_base",
+            "config.workspace.worktrees_dir",
+            "config.night_shift.worktree_path",
+            "It is a hardcoded constant in the fix pipeline (not configurable)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Should the `process_pr_issue` entry point in Section 9 be explicitly marked `async def` in the module structure table, and should `_run_feedback_iteration()` have its parameter types specified for completeness?",
+          "context": "Section 4 declares `process_pr_issue` as `async def` but Section 9 omits `async`. `_run_feedback_iteration()` has no signature shown, unlike all other helpers. This is a minor inconsistency but could cause confusion during code review.",
+          "options": [
+            "Yes \u2014 add async qualifier and specify _run_feedback_iteration() signature",
+            "No \u2014 implementers can infer from context; keep the document as-is"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Is there any intended behaviour when `list_issues_by_label(LABEL_PR)` returns more than 5 issues and some issues have been waiting multiple cycles \u2014 should oldest-first ordering combined with the 5-issue cap guarantee eventual progress for all issues, or is there a secondary starvation concern for very long queues?",
+          "context": "Section 3 specifies oldest-first ordering and a cap of 5. With a large backlog, issues beyond position 5 are deferred each cycle. If new issues are continuously added, older issues beyond position 5 could theoretically be perpetually deferred \u2014 though in practice this is unlikely given the 15-minute interval.",
+          "options": [
+            "Oldest-first + cap is sufficient; starvation is not a practical concern at this scale",
+            "Add a note acknowledging theoretical starvation risk for backlogs > 5 without additional mitigation",
+            "Cap should be raised or made configurable to address larger deployments"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "pr_feedback_loop is blocked on pr_lifecycle_labels being merged first. The dependency is explicitly declared in the Dependencies table. The two specs are created together for planning purposes but are implemented sequentially \u2014 spec 06 lands first, then spec 07 builds on the types, protocol methods, and tracking comment utilities it introduces. pr_feedback_loop is purely additive and does not supersede any part of pr_lifecycle_labels.",
+        "q2": "Log the error, skip the issue for this poll cycle, leave all labels intact. This is consistent with the missing-tracking-comment behavior (skip and retry next cycle). Force-push failures and worktree creation failures are typically transient (network issues, temporary disk pressure). Leaving labels intact ensures the issue will be retried on the next poll cycle without manual intervention.",
+        "q3": "Log at WARNING level and skip the issue for this cycle. No comment posted. Comment spam from transient API errors would be worse than silent recovery. Rate-limit and transient 5xx errors are self-healing. If an auth error persists, the operator will notice the stale af:pr labels and investigate.",
+        "q4": "attempt=1 is the original PR creation (set by spec 06 when the tracking comment is first posted). Feedback iterations increment the attempt: first feedback iteration reads attempt=1 and posts attempt=2, second reads attempt=2 and posts attempt=3, etc. The re-entry check is: if attempt > max_pr_retries, stop. With max_pr_retries=2: feedback runs at attempt=1 and attempt=2, stops at attempt=3. That is 2 feedback iterations + 1 original = 3 total pushes, matching the ADR. With max_pr_retries=0: feedback trigger at attempt=1 \u2192 1 > 0 \u2192 stop immediately. No feedback iterations ever run.",
+        "q5": "Oldest issue first (ascending by created_at). The existing list_issues_by_label method already defaults to sort=created, direction=asc. This natural ordering prevents starvation of older issues.",
+        "q6": "Full coverage including all CI-check interpretation branches and error paths. spec generate will produce test_spec.json with detailed test contracts covering: merged PR closure, closed-without-merge handling, CI check interpretation (all 7 branches), review filtering (DISMISSED, CHANGES_REQUESTED, APPROVED), retry limit enforcement, tracking comment parsing edge cases, worktree lifecycle, and force-push behavior."
+      },
+      "timestamp": "2026-07-26T09:41:55.118848+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Same pattern as the existing fix-pipeline stream \u2014 async def, sequentially awaits each process_pr_issue() call, invoked directly by the event loop via the EngineWorkStream wrapper. The existing _drain_issues is an async method on the engine that sequentially processes issues; _check_open_prs follows the same convention.",
+        "q2": "Not needed for feedback iteration comments. format_tracking_comment accepts an empty string for pr_url in feedback iterations. The human-readable message for feedback iterations is self-descriptive ('CI feedback iteration N: re-ran coder with failure context.') and does not include the PR URL. The pr_url parameter is only meaningful in the initial tracking comment posted by spec 06.",
+        "q3": "Skip the force-push and post a comment noting no changes were produced; leave af:pr and increment attempt counter anyway. A no-change result counts as a consumed retry \u2014 the coder was unable to address the feedback, and continued spinning will not help. The comment should say: 'Feedback iteration {attempt}: coder produced no changes. This PR needs manual attention if the problem persists.'",
+        "q4": "Same model ID as used in the original fix pipeline (from the nightshift model configuration). The model is configured at the nightshift level, not per-iteration. No new config field needed. The pr_feedback module reads the model ID from the same config path that _run_coder_session uses.",
+        "q5": "Emit structured log lines at INFO level for each state transition \u2014 no new NightShiftState counters. INFO for: merged, closed-without-merge, re-entry triggered, retry limit reached. WARNING for: skipped due to missing tracking comment, skipped due to ambiguous CI, platform API error, no changes produced by coder.",
+        "q6": "No additional guard code needed \u2014 the label lifecycle itself prevents double-processing. The fix pipeline's issue selection uses list_issues_by_label(LABEL_FIX) which only picks up af:fix issues. After spec 06, the premature-close fix removes af:fix and adds af:pr when a PR is created. These labels are mutually exclusive: an issue cannot have both af:fix and af:pr simultaneously."
+      },
+      "timestamp": "2026-07-26T09:45:40.157882+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Same parent as existing fix pipeline worktrees. The fix pipeline uses _setup_workspace() which creates worktrees under the project's worktree base directory. The feedback worktree follows the same convention but with a 'feedback-' prefix in the directory name (e.g., worktrees/feedback-{issue_number}). This keeps all nightshift worktrees co-located and uses the same cleanup patterns.",
+        "q2": "Pass empty string for both. Feedback re-entry is a targeted fix iteration, not a fresh investigation. The review_feedback parameter carries the actionable context (CI failures, review comments). Prior attempt context and knowledge retrieval add complexity without clear value for a focused re-run. The coder's primary input is the original issue body (in the synthetic TriageResult) plus the feedback.",
+        "q3": "Retry all three operations on the next poll cycle (idempotent re-application). The label operations (assign_label, remove_label) and close_issue are all idempotent at the GitHub API level \u2014 re-applying them is safe. On the next poll, the issue will still match the af:pr query, and the merged-PR handling will re-run the same three steps. Steps that already succeeded are no-ops.",
+        "q4": "Use last item in list order. list_issue_comments in the existing GitHubPlatform returns comments in chronological order (oldest first) \u2014 this is the default GitHub API ordering (sort=created, direction=asc). Taking the last matching item from this ordered list gives the most recent tracking comment. This is efficient (single pass, no sorting) and correct given the API contract.",
+        "q5": "Silently no-op if directory does not exist (safest for finally-block usage). Log at DEBUG level that the worktree was not found. This prevents a secondary exception in the finally block from masking the original error."
+      },
+      "timestamp": "2026-07-26T09:49:32.401075+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "The steps are strictly sequential and mutually exclusive. CI failure in step 3 triggers re-entry immediately without reaching step 4. Only if all CI checks pass does step 4 (review check) run. This is already implied by the flow structure ('continue to step 4' only happens when all checks succeed). The _collect_feedback() function receives the trigger source (CI failures OR review feedback, never both) and formats accordingly.",
+        "q2": "Yes \u2014 a git fetch origin <branch> is performed before git worktree add to ensure the local ref is current. Fetch failure is treated as a worktree creation error: ERROR logged, issue skipped for this cycle, labels left intact. This is consistent with the general error handling for feedback iteration operations.",
+        "q3": "Use a distinct format: 'fix: <issue title> [nightshift feedback #{attempt}]'. The attempt number in the commit message makes the git log history readable and helps operators identify which push was a feedback iteration vs the original fix.",
+        "q4": "Post the tracking comment before the force-push. This reorders steps 5 and 6 in the feedback re-entry sequence: first post the updated tracking comment (incrementing the attempt counter), then commit and force-push. If the comment fails, the force-push is skipped, the old attempt counter persists, and the next cycle will re-trigger re-entry with the correct counter. If the force-push fails after the comment succeeds, the attempt counter is already incremented which is acceptable \u2014 the next cycle will see the new counter and either retry or hit the limit. This ordering ensures the attempt counter is always consistent with the number of actual feedback iterations attempted.",
+        "q5": "Defined in engine.py near _check_open_prs() where it is applied. The constant governs the dispatcher's behavior, not the feedback module's logic."
+      },
+      "timestamp": "2026-07-26T09:54:00.032036+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}
