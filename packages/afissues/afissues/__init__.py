@@ -9,6 +9,7 @@ Requirements: 03-REQ-6.1, 05-REQ-19.1
 from afissues.gitea import GiteaPlatform
 from afissues.gitea import parse_remote as parse_gitea_remote
 from afissues.github import GitHubPlatform, parse_github_remote
+from afissues.gitlab import GitLabPlatform
 from afissues.labels import (
     LABEL_FIX,
     LABEL_FIXED,
@@ -39,6 +40,8 @@ __all__ = [
     # afissues.github
     "GitHubPlatform",
     "parse_github_remote",
+    # afissues.gitlab
+    "GitLabPlatform",
     # afissues.labels
     "LabelSpec",
     "LABEL_FIX",

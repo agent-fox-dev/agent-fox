@@ -147,8 +147,8 @@ class TestPublicImport:
     """Verify GitLabPlatform is importable from the platform package."""
 
     def test_import_from_platform_package(self) -> None:
-        """TS-04-5: GitLabPlatform is importable from afissues.gitlab."""
-        from afissues.gitlab import GitLabPlatform
+        """TS-04-5: GitLabPlatform is importable from afissues top-level package."""
+        from afissues import GitLabPlatform
 
         assert GitLabPlatform is not None
         assert GitLabPlatform.__name__ == "GitLabPlatform"
