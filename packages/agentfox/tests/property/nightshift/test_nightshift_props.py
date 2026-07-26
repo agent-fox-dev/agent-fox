@@ -102,6 +102,9 @@ class TestPlatformProtocolSubstitutability:
         mock_platform.update_issue = AsyncMock()
         mock_platform.create_label = AsyncMock()
         mock_platform.create_pr = AsyncMock()
+        mock_platform.get_pr_state = AsyncMock()
+        mock_platform.get_pr_checks = AsyncMock()
+        mock_platform.get_pr_reviews = AsyncMock()
 
         assert isinstance(mock_platform, PlatformProtocol)
 

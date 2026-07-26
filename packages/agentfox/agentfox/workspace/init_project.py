@@ -483,9 +483,11 @@ async def _ensure_platform_labels_async(project_root: Path) -> int:
 
     Requirements: 358-REQ-3, 358-REQ-4, 358-REQ-5
     """
+    from afissues.errors import IntegrationError
+    from afissues.labels import REQUIRED_LABELS
+
     from agentfox.core.config import load_config
     from agentfox.nightshift.platform_factory import create_platform_safe
-    from afissues.labels import REQUIRED_LABELS
 
     config_path = project_root / ".agent-fox" / "config.toml"
     try:
@@ -504,6 +506,10 @@ async def _ensure_platform_labels_async(project_root: Path) -> int:
         try:
             await platform.create_label(spec.name, spec.color, spec.description)
             count += 1
+        except IntegrationError:
+            # 06-REQ-1.E1: IntegrationError propagates and halts — the
+            # label is required for pipeline correctness.
+            raise
         except Exception:
             logger.warning(
                 "Could not ensure label %r on platform; skipping",
