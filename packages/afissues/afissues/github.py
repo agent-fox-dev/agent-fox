@@ -31,7 +31,7 @@ from afissues._ssrf import (
     _validate_url,
 )
 from afissues.errors import ConfigError, IntegrationError  # noqa: F401 – ConfigError re-exported for SSRF callers
-from afissues.protocol import IssueComment, IssueResult, PrResult, PrState
+from afissues.protocol import CheckResult, IssueComment, IssueResult, PrResult, PrState, ReviewComment
 
 logger = logging.getLogger(__name__)
 
@@ -576,6 +576,122 @@ class GitHubPlatform:
             merged=data["merged"],
             head_sha=data["head"]["sha"],
         )
+
+    async def get_pr_checks(self, pr_number: int) -> list[CheckResult]:
+        """Fetch all CI check-run results for a pull request.
+
+        Obtains the ``head_sha`` via ``get_pr_state(pr_number)``, then
+        sends ``GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs``
+        via ``_request()``.  Paginates through all pages when
+        ``total_count`` exceeds the page size, up to a safety cap of 10
+        pages (300 check runs).
+
+        Each check run is mapped to a ``CheckResult``.  When the API
+        returns ``output: null``, ``output_title`` and ``output_summary``
+        are set to empty strings.
+
+        Raises ``IntegrationError`` on non-2xx responses and lets
+        ``KeyError`` propagate when the response is missing required
+        fields (``check_runs`` or ``total_count``).
+
+        Requirements: 06-REQ-5.1, 06-REQ-5.2, 06-REQ-5.3,
+                      06-REQ-5.E1, 06-REQ-5.E2, 06-REQ-5.E3
+        """
+        pr_state = await self.get_pr_state(pr_number)
+        head_sha = pr_state.head_sha
+
+        headers = self._auth_headers()
+        base_url = (
+            f"{self._api_base}/repos/{self._owner}/{self._repo}"
+            f"/commits/{head_sha}/check-runs"
+        )
+
+        all_results: list[CheckResult] = []
+        max_pages = 10
+        page = 1
+
+        while page <= max_pages:
+            params = {"page": str(page), "per_page": "30"}
+            resp = await self._request("get", base_url, params=params, headers=headers)
+            if resp.status_code != 200:
+                detail = _truncate_response(resp.text)
+                logger.debug("Check-runs response (%d): %s", resp.status_code, detail)
+                raise IntegrationError(
+                    f"GitHub check-runs failed ({resp.status_code})",
+                )
+
+            data = resp.json()
+            total_count = data["total_count"]
+            check_runs = data["check_runs"]
+
+            for run in check_runs:
+                output = run.get("output")
+                if output:
+                    output_title = output.get("title", "")
+                    output_summary = output.get("summary", "")
+                else:
+                    output_title = ""
+                    output_summary = ""
+                all_results.append(
+                    CheckResult(
+                        name=run["name"],
+                        status=run["status"],
+                        conclusion=run.get("conclusion"),
+                        output_title=output_title,
+                        output_summary=output_summary,
+                    )
+                )
+
+            if len(all_results) >= total_count:
+                break
+            page += 1
+
+        logger.debug(
+            "PR #%d has %d check run(s) (fetched %d page(s))",
+            pr_number,
+            len(all_results),
+            page,
+        )
+        return all_results
+
+    async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]:
+        """Fetch all review comments for a pull request in submission order.
+
+        Sends ``GET /repos/{owner}/{repo}/pulls/{pr_number}/reviews`` via
+        ``_request()`` and maps each review to a ``ReviewComment``.
+        Reviews are returned in API response order (submission order)
+        without any filtering by state — the caller is responsible for
+        filtering dismissed or irrelevant reviews.
+
+        Raises ``IntegrationError`` on non-2xx responses and lets
+        ``KeyError`` propagate when a review object is missing required
+        fields.
+
+        Requirements: 06-REQ-6.1, 06-REQ-6.2,
+                      06-REQ-6.E1, 06-REQ-6.E2
+        """
+        headers = self._auth_headers()
+        url = f"{self._api_base}/repos/{self._owner}/{self._repo}/pulls/{pr_number}/reviews"
+        resp = await self._request("get", url, headers=headers)
+        if resp.status_code != 200:
+            detail = _truncate_response(resp.text)
+            logger.debug("PR reviews response (%d): %s", resp.status_code, detail)
+            raise IntegrationError(
+                f"GitHub PR reviews failed ({resp.status_code})",
+            )
+
+        reviews = resp.json()
+        results = [
+            ReviewComment(
+                user=r["user"]["login"],
+                state=r["state"],
+                body=r["body"],
+                submitted_at=r["submitted_at"],
+            )
+            for r in reviews
+        ]
+        logger.debug("PR #%d has %d review(s)", pr_number, len(results))
+        return results
 
     async def check_credentials(self) -> None:
         """Verify that the stored token has access to the configured repository.
