@@ -1181,7 +1181,7 @@ class TestCreatePr:
 
         mock_resp = _json_response(
             201,
-            {"web_url": "https://gitlab.com/group/project/-/merge_requests/1"},
+            {"web_url": "https://gitlab.com/group/project/-/merge_requests/1", "iid": 1},
         )
 
         requests_made: list[tuple[str, dict]] = []
@@ -1200,7 +1200,8 @@ class TestCreatePr:
                 base="main",
             )
 
-        assert url == "https://gitlab.com/group/project/-/merge_requests/1"
+        assert url.html_url == "https://gitlab.com/group/project/-/merge_requests/1"
+        assert url.number == 1
 
         # Verify POST payload
         assert len(requests_made) == 1
@@ -1235,7 +1236,7 @@ class TestCreatePrFallback:
             call_log.append(("get", url, params or {}))
             return _json_response(
                 200,
-                [{"web_url": "https://gitlab.com/group/project/-/merge_requests/3"}],
+                [{"web_url": "https://gitlab.com/group/project/-/merge_requests/3", "iid": 3}],
             )
 
         client = _mock_client(post=mock_post, get=mock_get)
@@ -1243,7 +1244,8 @@ class TestCreatePrFallback:
         with patch(_TARGET, return_value=client):
             url = await platform.create_pr(title="My MR", body="body", head="feature", base="main")
 
-        assert url == "https://gitlab.com/group/project/-/merge_requests/3"
+        assert url.html_url == "https://gitlab.com/group/project/-/merge_requests/3"
+        assert url.number == 3
 
         # Verify fallback GET params
         assert len(call_log) == 2

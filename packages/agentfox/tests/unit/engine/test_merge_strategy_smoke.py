@@ -140,10 +140,14 @@ def _make_mock_platform(
     repo: str = "repo",
     create_pr_url: str = "https://github.com/owner/repo/pull/1",
 ) -> MagicMock:
+    from afissues.protocol import PrResult
+
     platform = MagicMock()
     platform._owner = owner
     platform._repo = repo
-    platform.create_pr = AsyncMock(return_value=create_pr_url)
+    platform.create_pr = AsyncMock(
+        return_value=PrResult(html_url=create_pr_url, number=1),
+    )
     platform.add_issue_comment = AsyncMock()
     platform.close_issue = AsyncMock()
     platform.assign_label = AsyncMock()
@@ -195,8 +199,10 @@ class TestSmokePrModeAfCodeSuccess:
             return ["config.py"]
 
         async def tracked_create_pr(**kw):
+            from afissues.protocol import PrResult
+
             call_order.append("create_pr")
-            return "https://github.com/owner/repo/pull/1"
+            return PrResult(html_url="https://github.com/owner/repo/pull/1", number=1)
 
         def tracked_cps(*a, **kw):
             call_order.append("create_platform_safe")
@@ -443,8 +449,8 @@ class TestSmokeNightshiftPrModeSuccess:
         assert len(pr_logs) == 1
         assert "https://github.com/owner/repo/pull/5" in pr_logs[0].message
 
-        # 7. Return value
-        assert result == ("merged", ["auth/login.py"])
+        # 7. Return value — 06-REQ-8.1: pr mode returns "pr_created"
+        assert result == ("pr_created", ["auth/login.py"])
 
 
 # ---------------------------------------------------------------------------
@@ -713,7 +719,7 @@ class TestSmokeDuplicatePrIdempotent:
         mock_get_resp = MagicMock()
         mock_get_resp.status_code = 200
         mock_get_resp.json.return_value = [
-            {"html_url": "https://github.com/owner/repo/pull/7"},
+            {"html_url": "https://github.com/owner/repo/pull/7", "number": 7},
         ]
 
         platform = GitHubPlatform.__new__(GitHubPlatform)
@@ -743,8 +749,8 @@ class TestSmokeDuplicatePrIdempotent:
         assert call_count["post"] == 1
         assert call_count["get"] == 1
 
-        # Returns the existing PR URL
-        assert result == "https://github.com/owner/repo/pull/7"
+        # Returns PrResult with the existing PR URL
+        assert result.html_url == "https://github.com/owner/repo/pull/7"
 
 
 # ---------------------------------------------------------------------------

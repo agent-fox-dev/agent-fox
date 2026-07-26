@@ -17,7 +17,7 @@ import httpx
 from afissues._http import _truncate_response, request_with_retry
 from afissues._ssrf import SSRFGuardTransport, _validate_url
 from afissues.errors import IntegrationError
-from afissues.protocol import IssueComment, IssueResult
+from afissues.protocol import IssueComment, IssueResult, PrResult
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ class GitLabPlatform:
         body: str,
         head: str,
         base: str,
-    ) -> str:
+    ) -> PrResult:
         """Create a merge request, with idempotent 409 handling."""
         payload = {
             "source_branch": head,
@@ -296,7 +296,8 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code == 201:
-            return resp.json()["web_url"]
+            data = resp.json()
+            return PrResult(html_url=data["web_url"], number=data["iid"])
         if resp.status_code == 409:
             params = {
                 "source_branch": head,
@@ -321,7 +322,7 @@ class GitLabPlatform:
                     f"existing open MR found for source={head!r} "
                     f"target={base!r}"
                 )
-            return mrs[0]["web_url"]
+            return PrResult(html_url=mrs[0]["web_url"], number=mrs[0]["iid"])
         raise IntegrationError(
             f"GitLab MR creation failed ({resp.status_code}): "
             f"{_truncate_response(resp.text)}"

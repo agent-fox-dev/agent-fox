@@ -134,10 +134,14 @@ def _make_mock_platform(
     create_pr_url: str = "https://github.com/owner/repo/pull/1",
 ) -> MagicMock:
     """Create a mock platform with create_pr, add_issue_comment, and close_issue."""
+    from afissues.protocol import PrResult
+
     platform = MagicMock()
     platform._owner = owner
     platform._repo = repo
-    platform.create_pr = AsyncMock(return_value=create_pr_url)
+    platform.create_pr = AsyncMock(
+        return_value=PrResult(html_url=create_pr_url, number=1),
+    )
     platform.add_issue_comment = AsyncMock()
     platform.close_issue = AsyncMock()
     platform.assign_label = AsyncMock()

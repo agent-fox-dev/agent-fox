@@ -140,10 +140,14 @@ def _make_mock_platform(
     create_pr_url: str = "https://github.com/owner/repo/pull/1",
 ) -> MagicMock:
     """Create a mock platform with create_pr, add_issue_comment, and close_issue."""
+    from afissues.protocol import PrResult
+
     platform = MagicMock()
     platform._owner = owner
     platform._repo = repo
-    platform.create_pr = AsyncMock(return_value=create_pr_url)
+    platform.create_pr = AsyncMock(
+        return_value=PrResult(html_url=create_pr_url, number=1),
+    )
     platform.add_issue_comment = AsyncMock()
     platform.close_issue = AsyncMock()
     platform.assign_label = AsyncMock()
@@ -1142,9 +1146,11 @@ class TestOperationSequenceIntegrity:
             call_order.append("get_changed_files")
             return ["config.py"]
 
-        async def track_create_pr(**kwargs: object) -> str:
+        async def track_create_pr(**kwargs: object) -> object:
+            from afissues.protocol import PrResult
+
             call_order.append("create_pr")
-            return "https://github.com/owner/repo/pull/1"
+            return PrResult(html_url="https://github.com/owner/repo/pull/1", number=1)
 
         mock_platform.create_pr = AsyncMock(side_effect=track_create_pr)
 
@@ -1244,9 +1250,11 @@ class TestOperationSequenceIntegrity:
             call_order.append("get_changed_files")
             return ["auth/login.py"]
 
-        async def track_create_pr(**kwargs: object) -> str:
+        async def track_create_pr(**kwargs: object) -> object:
+            from afissues.protocol import PrResult
+
             call_order.append("create_pr")
-            return "https://github.com/owner/repo/pull/5"
+            return PrResult(html_url="https://github.com/owner/repo/pull/5", number=5)
 
         mock_platform.create_pr = AsyncMock(side_effect=track_create_pr)
 

@@ -1939,7 +1939,8 @@ class TestCreatePrSuccess:
         assert body["body"] == "PR body"
         assert body["head"] == "fix-branch"
         assert body["base"] == "main"
-        assert result == "http://gitea.example.com/myorg/myrepo/pulls/3"
+        assert result.html_url == "http://gitea.example.com/myorg/myrepo/pulls/3"
+        assert result.number == 3
 
 
 # ===========================================================================
@@ -1957,7 +1958,7 @@ class TestCreatePr409WithMatch:
         platform = _make_platform()
 
         mock_post_resp = _json_response(409, {})
-        existing_pr = [{"html_url": "http://gitea.example.com/myorg/myrepo/pulls/2"}]
+        existing_pr = [{"html_url": "http://gitea.example.com/myorg/myrepo/pulls/2", "number": 2}]
         mock_get_resp = _json_response(200, existing_pr)
 
         call_log: list[str] = []
@@ -1980,7 +1981,8 @@ class TestCreatePr409WithMatch:
         with patch(_TARGET, return_value=client):
             result = await platform.create_pr(title="Fix bug", body="Body", head="fix-branch", base="main")
 
-        assert result == "http://gitea.example.com/myorg/myrepo/pulls/2"
+        assert result.html_url == "http://gitea.example.com/myorg/myrepo/pulls/2"
+        assert result.number == 2
         assert "post" in call_log
         assert "get" in call_log
 
@@ -3166,7 +3168,7 @@ class TestSmokeCreatePrDuplicate:
         platform = _make_platform()
 
         mock_post_resp = _json_response(409, {})
-        existing_pr = [{"html_url": "http://gitea.example.com/myorg/myrepo/pulls/7"}]
+        existing_pr = [{"html_url": "http://gitea.example.com/myorg/myrepo/pulls/7", "number": 7}]
         mock_get_resp = _json_response(200, existing_pr)
 
         call_log: list[str] = []
@@ -3189,7 +3191,8 @@ class TestSmokeCreatePrDuplicate:
 
         # POST attempted first, then GET to find existing
         assert call_log == ["POST", "GET"]
-        assert result == "http://gitea.example.com/myorg/myrepo/pulls/7"
+        assert result.html_url == "http://gitea.example.com/myorg/myrepo/pulls/7"
+        assert result.number == 7
 
 
 # ===========================================================================

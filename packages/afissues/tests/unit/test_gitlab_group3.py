@@ -1092,6 +1092,7 @@ class TestSmokeCreatePrFallback:
                     [
                         {
                             "web_url": ("https://gitlab.com/g/p/-/merge_requests/3"),
+                            "iid": 3,
                         },
                     ],
                 ),
@@ -1106,7 +1107,8 @@ class TestSmokeCreatePrFallback:
                 base="main",
             )
 
-        assert url == "https://gitlab.com/g/p/-/merge_requests/3"
+        assert url.html_url == "https://gitlab.com/g/p/-/merge_requests/3"
+        assert url.number == 3
 
 
 class TestSmokeCloseIssueWithComment:

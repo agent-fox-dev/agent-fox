@@ -176,7 +176,7 @@ class TestSmokeCreatePr409Fallback:
         post_resp = _json_response(409, text="Conflict")
         get_resp = _json_response(
             200,
-            [{"web_url": "https://gitlab.com/g/p/-/merge_requests/3"}],
+            [{"web_url": "https://gitlab.com/g/p/-/merge_requests/3", "iid": 3}],
         )
 
         call_log: list[str] = []
@@ -202,7 +202,8 @@ class TestSmokeCreatePr409Fallback:
                 base="main",
             )
 
-        assert url == "https://gitlab.com/g/p/-/merge_requests/3"
+        assert url.html_url == "https://gitlab.com/g/p/-/merge_requests/3"
+        assert url.number == 3
         # Exactly two HTTP calls: POST then GET
         assert call_log == ["POST", "GET"]
 
@@ -522,11 +523,11 @@ class TestReturnValuePropagation:
 
     @pytest.mark.asyncio
     async def test_create_pr_returns_web_url_string(self) -> None:
-        """create_pr returns the web_url string from the MR response."""
+        """create_pr returns a PrResult with web_url from the MR response."""
         platform = _make_platform()
         resp = _json_response(
             201,
-            {"web_url": "https://gitlab.com/g/p/-/merge_requests/7"},
+            {"web_url": "https://gitlab.com/g/p/-/merge_requests/7", "iid": 7},
         )
         client = _mock_client(post=AsyncMock(return_value=resp))
 
@@ -535,8 +536,9 @@ class TestReturnValuePropagation:
                 title="T", body="B", head="feat", base="main"
             )
 
-        assert isinstance(url, str)
-        assert url == "https://gitlab.com/g/p/-/merge_requests/7"
+        assert hasattr(url, "html_url")
+        assert url.html_url == "https://gitlab.com/g/p/-/merge_requests/7"
+        assert url.number == 7
 
     @pytest.mark.asyncio
     async def test_close_issue_returns_none(self) -> None:

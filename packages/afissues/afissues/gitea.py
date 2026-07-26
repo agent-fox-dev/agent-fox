@@ -25,7 +25,7 @@ import httpx
 from afissues._http import request_with_retry
 from afissues._ssrf import SSRFGuardTransport, _validate_url
 from afissues.errors import IntegrationError
-from afissues.protocol import IssueComment, IssueResult
+from afissues.protocol import IssueComment, IssueResult, PrResult
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +444,7 @@ class GiteaPlatform:
         body: str,
         head: str,
         base: str,
-    ) -> str:
+    ) -> PrResult:
         """Open a pull request on Gitea with duplicate detection.
 
         Requirements: 05-REQ-13.1, 05-REQ-13.2, 05-REQ-13.3
@@ -459,7 +459,8 @@ class GiteaPlatform:
             resp = await client.post(url, json=payload, headers=self._auth_headers)
 
         if 200 <= resp.status_code < 300:
-            return resp.json()["html_url"]
+            data = resp.json()
+            return PrResult(html_url=data["html_url"], number=data["number"])
 
         if resp.status_code == 409:
             # Duplicate PR — look up existing open PR (05-REQ-13.2).
@@ -480,7 +481,7 @@ class GiteaPlatform:
                 raise IntegrationError(
                     f"409 duplicate returned but no existing open PR found for head={head} base={base}",
                 )
-            return existing[0]["html_url"]
+            return PrResult(html_url=existing[0]["html_url"], number=existing[0]["number"])
 
         raise IntegrationError(
             f"Failed to create PR ({resp.status_code}): {_truncate_response(resp.text)}",

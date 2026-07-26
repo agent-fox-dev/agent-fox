@@ -31,7 +31,7 @@ from afissues._ssrf import (
     _validate_url,
 )
 from afissues.errors import ConfigError, IntegrationError  # noqa: F401 – ConfigError re-exported for SSRF callers
-from afissues.protocol import IssueComment, IssueResult
+from afissues.protocol import IssueComment, IssueResult, PrResult, PrState
 
 logger = logging.getLogger(__name__)
 
@@ -490,13 +490,14 @@ class GitHubPlatform:
         body: str,
         head: str,
         base: str,
-    ) -> str:
-        """Create a pull request and return its ``html_url``.
+    ) -> PrResult:
+        """Create a pull request and return a structured ``PrResult``.
 
-        Sends ``POST /repos/{owner}/{repo}/pulls``.  On HTTP 201 returns the
-        ``html_url`` from the response.  On HTTP 422 with a duplicate-PR
-        message, queries the existing PR and returns its ``html_url``
-        (idempotent).  All other errors raise ``IntegrationError``.
+        Sends ``POST /repos/{owner}/{repo}/pulls``.  On HTTP 201 returns a
+        ``PrResult`` with ``html_url`` and ``number`` from the response.
+        On HTTP 422 with a duplicate-PR message, queries the existing PR
+        and returns its ``PrResult`` (idempotent).  All other errors raise
+        ``IntegrationError``.
 
         Makes exactly one POST attempt -- no retry logic beyond what
         ``_request()`` provides for transport-level errors.  Transport
@@ -504,7 +505,8 @@ class GitHubPlatform:
         caller without being caught.
 
         Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3,
-                      02-REQ-7.E1, 02-REQ-7.E2, 02-REQ-7.E3
+                      02-REQ-7.E1, 02-REQ-7.E2, 02-REQ-7.E3,
+                      06-REQ-7.2, 06-REQ-7.3, 06-REQ-7.E1, 06-REQ-7.E2
         """
         headers = self._auth_headers()
         url = f"{self._api_base}/repos/{self._owner}/{self._repo}/pulls"
@@ -513,7 +515,7 @@ class GitHubPlatform:
 
         if resp.status_code == 201:
             data = resp.json()
-            return data["html_url"]
+            return PrResult(html_url=data["html_url"], number=data["number"])
 
         if resp.status_code == 422:
             # Check if this is a duplicate-PR error -- treat as idempotent
@@ -538,12 +540,41 @@ class GitHubPlatform:
                         f"GitHub PR creation returned 422 (duplicate) but "
                         f"no existing PR found for head={head!r} base={base!r}"
                     )
-                return prs[0]["html_url"]
+                return PrResult(html_url=prs[0]["html_url"], number=prs[0]["number"])
 
         detail = _truncate_response(resp.text)
         logger.debug("PR creation response (%d): %s", resp.status_code, detail)
         raise IntegrationError(
             f"GitHub PR creation failed ({resp.status_code})",
+        )
+
+    async def get_pr_state(self, pr_number: int) -> PrState:
+        """Fetch current state of a pull request by number.
+
+        Sends ``GET /repos/{owner}/{repo}/pulls/{pr_number}`` via
+        ``_request()`` and maps the response to a ``PrState``.
+
+        Raises ``IntegrationError`` on non-2xx responses (delegated to
+        ``_request()`` for transport errors; raised here for HTTP errors).
+        Raises ``KeyError`` if the response body is missing required fields.
+
+        Requirements: 06-REQ-4.1, 06-REQ-4.2, 06-REQ-4.E1, 06-REQ-4.E2
+        """
+        headers = self._auth_headers()
+        url = f"{self._api_base}/repos/{self._owner}/{self._repo}/pulls/{pr_number}"
+        resp = await self._request("get", url, headers=headers)
+        if resp.status_code != 200:
+            detail = _truncate_response(resp.text)
+            logger.debug("Get PR state response (%d): %s", resp.status_code, detail)
+            raise IntegrationError(
+                f"GitHub get PR state failed ({resp.status_code})",
+            )
+        data = resp.json()
+        return PrState(
+            number=data["number"],
+            state=data["state"],
+            merged=data["merged"],
+            head_sha=data["head"]["sha"],
         )
 
     async def check_credentials(self) -> None:

@@ -84,12 +84,12 @@ class TestCreatePrSuccess:
     """
 
     async def test_returns_html_url_from_201_response(self) -> None:
-        """create_pr returns the html_url string from a 201 JSON response."""
+        """create_pr returns PrResult with html_url from a 201 JSON response."""
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/owner/repo/pull/99"},
+            {"html_url": "https://github.com/owner/repo/pull/99", "number": 99},
         )
 
         requests_made: list[tuple[str, str, dict | None]] = []
@@ -103,7 +103,7 @@ class TestCreatePrSuccess:
         with patch(_TARGET, return_value=client):
             result = await platform.create_pr(title="My PR", body="body text", head="feat/x", base="main")
 
-        assert result == "https://github.com/owner/repo/pull/99"
+        assert result.html_url == "https://github.com/owner/repo/pull/99"
 
     async def test_exactly_one_post_request_sent(self) -> None:
         """Exactly one POST request is sent to /repos/{owner}/{repo}/pulls."""
@@ -111,7 +111,7 @@ class TestCreatePrSuccess:
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/owner/repo/pull/99"},
+            {"html_url": "https://github.com/owner/repo/pull/99", "number": 99},
         )
 
         post_count = 0
@@ -134,7 +134,7 @@ class TestCreatePrSuccess:
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/myorg/myrepo/pull/1"},
+            {"html_url": "https://github.com/myorg/myrepo/pull/1", "number": 1},
         )
 
         captured_urls: list[str] = []
@@ -157,7 +157,7 @@ class TestCreatePrSuccess:
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/owner/repo/pull/1"},
+            {"html_url": "https://github.com/owner/repo/pull/1", "number": 1},
         )
 
         captured_payloads: list[dict] = []
@@ -189,7 +189,7 @@ class TestCreatePrSuccess:
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/owner/repo/pull/1"},
+            {"html_url": "https://github.com/owner/repo/pull/1", "number": 1},
         )
 
         captured_headers: list[dict] = []
@@ -215,7 +215,7 @@ class TestCreatePrSuccess:
 
         mock_resp = _json_response(
             201,
-            {"html_url": "https://github.com/owner/repo/pull/1"},
+            {"html_url": "https://github.com/owner/repo/pull/1", "number": 1},
         )
 
         get_count = 0
@@ -262,7 +262,7 @@ class TestCreatePrDuplicateIdempotent:
 
         get_resp = _json_response(
             200,
-            [{"html_url": "https://github.com/owner/repo/pull/7"}],
+            [{"html_url": "https://github.com/owner/repo/pull/7", "number": 7}],
         )
 
         async def mock_post(url: str, **kw: Any) -> MagicMock:
@@ -276,7 +276,7 @@ class TestCreatePrDuplicateIdempotent:
         with patch(_TARGET, return_value=client):
             result = await platform.create_pr(title="My PR", body="body", head="feat/x", base="main")
 
-        assert result == "https://github.com/owner/repo/pull/7"
+        assert result.html_url == "https://github.com/owner/repo/pull/7"
 
     async def test_422_duplicate_no_integration_error_raised(self) -> None:
         """No IntegrationError is raised for a duplicate-PR 422 response."""
@@ -292,7 +292,7 @@ class TestCreatePrDuplicateIdempotent:
 
         get_resp = _json_response(
             200,
-            [{"html_url": "https://github.com/owner/repo/pull/7"}],
+            [{"html_url": "https://github.com/owner/repo/pull/7", "number": 7}],
         )
 
         client = _mock_client(
@@ -303,7 +303,7 @@ class TestCreatePrDuplicateIdempotent:
         with patch(_TARGET, return_value=client):
             # Must NOT raise IntegrationError
             result = await platform.create_pr(title="My PR", body="body", head="feat/x", base="main")
-            assert isinstance(result, str)
+            assert hasattr(result, "html_url")
 
     async def test_422_duplicate_sends_get_with_head_and_base(self) -> None:
         """On duplicate-PR 422, GET request is made with head and base params
@@ -320,7 +320,7 @@ class TestCreatePrDuplicateIdempotent:
 
         get_resp = _json_response(
             200,
-            [{"html_url": "https://github.com/owner/repo/pull/7"}],
+            [{"html_url": "https://github.com/owner/repo/pull/7", "number": 7}],
         )
 
         get_requests: list[tuple[str, dict | None]] = []
@@ -363,8 +363,8 @@ class TestCreatePrDuplicateIdempotent:
         get_resp = _json_response(
             200,
             [
-                {"html_url": "https://github.com/owner/repo/pull/3"},
-                {"html_url": "https://github.com/owner/repo/pull/5"},
+                {"html_url": "https://github.com/owner/repo/pull/3", "number": 3},
+                {"html_url": "https://github.com/owner/repo/pull/5", "number": 5},
             ],
         )
 
@@ -376,7 +376,7 @@ class TestCreatePrDuplicateIdempotent:
         with patch(_TARGET, return_value=client):
             result = await platform.create_pr(title="PR", body="body", head="feat/x", base="main")
 
-        assert result == "https://github.com/owner/repo/pull/3"
+        assert result.html_url == "https://github.com/owner/repo/pull/3"
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +736,7 @@ class TestCreatePrRequestCountProperty:
         get_count = 0
 
         if status_code == 201:
-            post_json = {"html_url": "https://github.com/owner/repo/pull/1"}
+            post_json = {"html_url": "https://github.com/owner/repo/pull/1", "number": 1}
         elif status_code == 422 and is_duplicate_422:
             post_json = {
                 "message": "Validation Failed",
@@ -764,7 +764,7 @@ class TestCreatePrRequestCountProperty:
             get_count += 1
             return _json_response(
                 200,
-                [{"html_url": "https://github.com/owner/repo/pull/7"}],
+                [{"html_url": "https://github.com/owner/repo/pull/7", "number": 7}],
             )
 
         client = _mock_client(post=mock_post, get=mock_get)
@@ -801,7 +801,7 @@ class TestCreatePrRequestCountProperty:
             post_count += 1
             return _json_response(
                 201,
-                {"html_url": "https://github.com/owner/repo/pull/1"},
+                {"html_url": "https://github.com/owner/repo/pull/1", "number": 1},
             )
 
         async def mock_get(url: str, **kw: Any) -> MagicMock:
@@ -840,7 +840,7 @@ class TestCreatePrRequestCountProperty:
             get_count += 1
             return _json_response(
                 200,
-                [{"html_url": "https://github.com/owner/repo/pull/7"}],
+                [{"html_url": "https://github.com/owner/repo/pull/7", "number": 7}],
             )
 
         client = _mock_client(post=mock_post, get=mock_get)

@@ -22,9 +22,11 @@ from typing import TYPE_CHECKING
 
 from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
+from afissues.errors import IntegrationError
+from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
+from afissues.protocol import IssueResult
 
 from agentfox.core.config import AgentFoxConfig
-from afissues.errors import IntegrationError
 from agentfox.knowledge.extraction import extract_session_summary
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agentfox.nightshift.spec_builder import (
@@ -32,8 +34,6 @@ from agentfox.nightshift.spec_builder import (
     build_afspec_from_triage,
     build_in_memory_spec,
 )
-from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
-from afissues.protocol import IssueResult
 from agentfox.session.context import render_inmemory_spec_sections
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
 from agentfox.workspace import WorkspaceInfo
@@ -215,6 +215,7 @@ class FixPipeline:
         self._conn = conn
         self._knowledge_provider = knowledge_provider
         self._run_id: str = ""
+        self._pr_number: int | None = None
 
     async def _post_comment(self, issue_number: int, message: str) -> None:
         """Post a comment on an issue, logging failures without raising."""
@@ -1202,7 +1203,7 @@ class FixPipeline:
                 changed_files=changed_files,
             )
             try:
-                pr_url = await platform.create_pr(
+                result = await platform.create_pr(
                     title=pr_title,
                     body=pr_body,
                     head=workspace.branch,
@@ -1231,10 +1232,11 @@ class FixPipeline:
                 )
                 return "merged", changed_files
 
-            # 02-REQ-9.2: Log PR URL.  Do NOT close the issue — the PR
-            # body contains 'Fixes #N' for GitHub auto-close on merge.
-            logger.info("Pull request created: %s", pr_url)
-            return "merged", changed_files
+            # 06-REQ-7.5 / 06-REQ-8.1: Store PR number for tracking;
+            # use result.html_url for logging.
+            self._pr_number = result.number
+            logger.info("Pull request created: %s", result.html_url)
+            return "pr_created", changed_files
 
         # 'direct' mode (default) — 02-REQ-2.2: unchanged behavior
         # Optionally push fix branch to upstream remote (93-REQ-3.1).

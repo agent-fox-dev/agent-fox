@@ -21,10 +21,10 @@ from pathlib import Path
 from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, AuditSeverity
 from afaudit.sink import SessionOutcome, SinkDispatcher
+from afissues.errors import IntegrationError as PlatformIntegrationError
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.errors import IntegrationError
-from afissues.errors import IntegrationError as PlatformIntegrationError
 from agentfox.core.models import resolve_model
 from agentfox.core.node_id import parse_node_id
 from agentfox.core.prompt_safety import sanitize_prompt_content
@@ -631,7 +631,7 @@ class NodeSessionRunner:
                 changed_files=touched_files,
             )
             try:
-                pr_url = await platform.create_pr(
+                result = await platform.create_pr(
                     title=pr_title,
                     body=pr_body,
                     head=workspace.branch,
@@ -651,9 +651,8 @@ class NodeSessionRunner:
                 )
                 return status, error_message, touched_files, is_non_retryable
 
-            # 02-REQ-9.2 / 02-REQ-9.6: Log PR URL (surfaces in session
-            # summary stdout output via the logging framework).
-            logger.info("Pull request created: %s", pr_url)
+            # 06-REQ-7.4: Access structured PrResult fields.
+            logger.info("Pull request created: %s", result.html_url)
             return status, error_message, touched_files, is_non_retryable
 
         # 'direct' mode (default) — 02-REQ-2.1: unchanged squash-merge
