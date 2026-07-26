@@ -5682,3 +5682,574 @@ class TestClosedWithoutMergeLabelTransition:
         platform.add_issue_comment.assert_awaited_once()
         comment_body = platform.add_issue_comment.call_args[0][1]
         assert "closed without merging" in comment_body.lower()
+
+
+# ===========================================================================
+# SMOKE TESTS — End-to-end execution paths (task group 5, subtask 5.2)
+#
+# TS-07-SMOKE-1 through TS-07-SMOKE-7
+# ===========================================================================
+
+
+class TestSmokePathMergedPrDetected:
+    """TS-07-SMOKE-1: Merged PR detected → issue closed with af:fixed, af:pr removed."""
+
+    async def test_merged_pr_full_flow(self, caplog: pytest.LogCaptureFixture) -> None:
+        """End-to-end: merged PR detected, issue closed automatically."""
+        from agentfox.nightshift.engine import NightShiftEngine
+
+        issue = _make_issue(number=10, title="Fix login bug")
+        tracking = _make_tracking_comment(pr_number=42, attempt=1)
+        platform = _make_mock_platform(
+            issues=[issue],
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=True, state="closed"),
+        )
+
+        config = _make_config()
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        with (
+            patch(
+                "agentfox.nightshift.engine.process_pr_issue",
+                wraps=None,
+            ) as mock_process,
+            caplog.at_level(logging.INFO),
+        ):
+            # Use real process_pr_issue for smoke test
+            from agentfox.nightshift.pr_feedback import process_pr_issue
+
+            mock_process.side_effect = lambda **kwargs: process_pr_issue(**kwargs)
+
+            await engine._check_open_prs()
+
+        # Verify list_issues_by_label was called with LABEL_PR
+        platform.list_issues_by_label.assert_awaited_once()
+        label_arg = platform.list_issues_by_label.call_args[0][0]
+        assert label_arg == "af:pr"
+
+        # Verify list_issue_comments called for the issue
+        platform.list_issue_comments.assert_awaited()
+
+        # Verify get_pr_state(42) called
+        platform.get_pr_state.assert_awaited_once_with(42)
+
+        # Verify label transitions
+        platform.assign_label.assert_awaited()
+        assign_calls = [c[0] for c in platform.assign_label.call_args_list]
+        assert any(args[1] == "af:fixed" for args in assign_calls)
+
+        platform.remove_label.assert_awaited()
+        remove_calls = [c[0] for c in platform.remove_label.call_args_list]
+        assert any(args[1] == "af:pr" for args in remove_calls)
+
+        # Verify issue closed
+        platform.close_issue.assert_awaited_once()
+        close_args = platform.close_issue.call_args[0]
+        assert close_args[0] == 10
+        assert "42" in str(close_args[1])
+        assert "merged" in str(close_args[1]).lower()
+
+        # Verify INFO log about merge and af:fixed
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("merged" in m.lower() for m in info_msgs)
+
+        # Verify state.issue_checks_completed incremented
+        assert engine.state.issue_checks_completed >= 1
+
+
+class TestSmokeCiFailureReEntry:
+    """TS-07-SMOKE-2: CI failure triggers full feedback re-entry cycle."""
+
+    async def test_ci_failure_full_feedback_iteration(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: CI failure → coder re-run → tracking comment → force-push."""
+        from agentfox.nightshift.engine import NightShiftEngine
+
+        issue = _make_issue(number=42, title="Fix signup form")
+        tracking = _make_tracking_comment(pr_number=42, attempt=1)
+        platform = _make_mock_platform(
+            issues=[issue],
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="open"),
+        )
+        platform.get_pr_checks = AsyncMock(
+            return_value=[
+                _make_check_result(
+                    name="build",
+                    status="completed",
+                    conclusion="failure",
+                    output_title="Build failed",
+                    output_summary="src/signup.py line 42: SyntaxError",
+                ),
+            ],
+        )
+
+        config = _make_config(max_pr_retries=2)
+        mock_pipeline = _make_mock_pipeline()
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        call_order: list[str] = []
+
+        async def _mock_add_comment(*args, **kwargs):
+            call_order.append("add_comment")
+
+        platform.add_issue_comment = AsyncMock(side_effect=_mock_add_comment)
+
+        async def _mock_subprocess(*args, **kwargs):
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "fetch" in cmd_str:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+                proc.wait = AsyncMock(return_value=0)
+            elif "worktree" in cmd_str:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+                proc.wait = AsyncMock(return_value=0)
+            elif "diff" in cmd_str:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(
+                    return_value=(b"src/signup.py\n", b""),
+                )
+                proc.wait = AsyncMock(return_value=0)
+            elif "push" in cmd_str:
+                call_order.append("push")
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+                proc.wait = AsyncMock(return_value=0)
+            else:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+                proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.engine.process_pr_issue",
+                wraps=None,
+            ) as mock_process,
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-42",
+            ),
+            patch(
+                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+            ) as mock_cleanup,
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+            caplog.at_level(logging.INFO),
+        ):
+            from agentfox.nightshift.pr_feedback import process_pr_issue
+
+            async def _process_with_pipeline(**kwargs):
+                kwargs["pipeline"] = mock_pipeline
+                return await process_pr_issue(**kwargs)
+
+            mock_process.side_effect = _process_with_pipeline
+
+            await engine._check_open_prs()
+
+        # _build_coder_prompt called with prior_context='' and knowledge_context=''
+        mock_pipeline._build_coder_prompt.assert_called_once()
+        build_kwargs = mock_pipeline._build_coder_prompt.call_args
+        if build_kwargs.kwargs:
+            assert build_kwargs.kwargs.get("prior_context") == ""
+            assert build_kwargs.kwargs.get("knowledge_context") == ""
+
+        # _run_coder_session awaited
+        mock_pipeline._run_coder_session.assert_awaited_once()
+
+        # Tracking comment posted with attempt=2
+        assert "add_comment" in call_order, "Tracking comment must be posted"
+
+        # _auto_commit_pending_changes called
+        mock_pipeline._auto_commit_pending_changes.assert_called_once()
+        commit_msg = mock_pipeline._auto_commit_pending_changes.call_args[0][0]
+        assert "feedback" in commit_msg.lower() or "#2" in commit_msg
+
+        # Force-push executed after comment
+        assert "push" in call_order
+
+        # Call ordering: comment before push
+        assert call_order.index("add_comment") < call_order.index("push")
+
+        # INFO log about feedback iteration complete
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "feedback iteration" in m.lower() and "complete" in m.lower()
+            for m in info_msgs
+        ), f"Expected 'Feedback iteration ... complete' INFO log, got: {info_msgs}"
+
+        # Cleanup called
+        mock_cleanup.assert_called_once()
+
+
+class TestSmokeReviewerChangesRequested:
+    """TS-07-SMOKE-3: Review CHANGES_REQUESTED → feedback re-entry after CI pass."""
+
+    async def test_review_changes_requested_triggers_reentry(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: all CI pass + CHANGES_REQUESTED → feedback iteration."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10, title="Fix auth flow")
+        tracking = _make_tracking_comment(pr_number=42, attempt=1)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="open"),
+        )
+        platform.get_pr_checks = AsyncMock(
+            return_value=[
+                _make_check_result(conclusion="success"),
+            ],
+        )
+        platform.get_pr_reviews = AsyncMock(
+            return_value=[
+                _make_review_comment(
+                    user="senior-dev",
+                    state="CHANGES_REQUESTED",
+                    body="Please add error handling for the edge case.",
+                ),
+            ],
+        )
+
+        mock_pipeline = _make_mock_pipeline()
+        feedback_trigger_captured: list[str] = []
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._run_feedback_iteration",
+                new_callable=AsyncMock,
+            ) as mock_iteration,
+            caplog.at_level(logging.INFO),
+        ):
+
+            async def _capture_trigger(**kwargs):
+                feedback_trigger_captured.append(kwargs.get("trigger", ""))
+
+            mock_iteration.side_effect = _capture_trigger
+
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=mock_pipeline,
+            )
+
+        # CI passed — no CI re-entry
+        # Review changes requested → re-entry triggered
+        assert len(feedback_trigger_captured) == 1
+        assert feedback_trigger_captured[0] == "review"
+
+        # INFO log about reviewer requested changes
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "reviewer" in m.lower() and "changes" in m.lower()
+            for m in info_msgs
+        ), f"Expected INFO about reviewer changes, got: {info_msgs}"
+
+        # Verify _run_feedback_iteration called with review trigger
+        mock_iteration.assert_awaited_once()
+        iteration_kwargs = mock_iteration.call_args.kwargs
+        assert iteration_kwargs.get("trigger") == "review"
+        assert len(iteration_kwargs.get("review_comments", [])) > 0
+
+
+class TestSmokeRetryLimitReached:
+    """TS-07-SMOKE-4: Retry limit reached → flagged for manual attention."""
+
+    async def test_retry_limit_no_worktree(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: attempt=3, max_retries=2 → limit message, no worktree."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10, title="Fix slow query")
+        tracking = _make_tracking_comment(pr_number=42, attempt=3)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="open"),
+        )
+        platform.get_pr_checks = AsyncMock(
+            return_value=[
+                _make_check_result(conclusion="failure"),
+            ],
+        )
+
+        config = _make_config(max_pr_retries=2)
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+            ) as mock_setup,
+            patch(
+                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+            ),
+            caplog.at_level(logging.INFO),
+        ):
+            await process_pr_issue(
+                issue=issue,
+                config=config,
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        # _run_feedback_iteration evaluates 3 > 2 as True
+        # INFO log: 'Retry limit reached ... attempt 3/3'
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "retry limit" in m.lower() for m in info_msgs
+        ), f"Expected INFO 'Retry limit' log, got: {info_msgs}"
+
+        # _RETRY_LIMIT_MESSAGE posted to issue
+        platform.add_issue_comment.assert_awaited()
+        comment_args = [c[0] for c in platform.add_issue_comment.call_args_list]
+        # At least one comment posted (the retry limit message)
+        assert any(args[0] == 10 for args in comment_args)
+
+        # _setup_feedback_worktree NOT called
+        mock_setup.assert_not_awaited()
+
+        # af:pr label left in place (no remove_label call for af:pr)
+        for call in platform.remove_label.call_args_list:
+            assert call[0][1] != "af:pr", "af:pr should not be removed at retry limit"
+
+
+class TestSmokePrClosedWithoutMerge:
+    """TS-07-SMOKE-5: PR closed without merge → issue left open without af:pr."""
+
+    async def test_closed_without_merge_full_flow(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: PR closed without merge → comment + remove af:pr."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10, title="Fix flaky test")
+        tracking = _make_tracking_comment(pr_number=42, attempt=1)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="closed"),
+        )
+
+        with caplog.at_level(logging.INFO):
+            await process_pr_issue(
+                issue=issue,
+                config=_make_config(),
+                platform=platform,
+                pipeline=MagicMock(),
+            )
+
+        # Comment about closed without merging posted
+        platform.add_issue_comment.assert_awaited_once()
+        comment = platform.add_issue_comment.call_args[0][1]
+        assert "closed without merging" in comment.lower()
+
+        # af:pr label removed
+        platform.remove_label.assert_awaited()
+        remove_calls = [c[0] for c in platform.remove_label.call_args_list]
+        assert any(args[1] == "af:pr" for args in remove_calls)
+
+        # Issue NOT closed (close_issue not called)
+        platform.close_issue.assert_not_awaited()
+
+        # af:fixed NOT assigned
+        platform.assign_label.assert_not_awaited()
+
+        # INFO log about closed without merge
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "closed" in m.lower() for m in info_msgs
+        ), f"Expected INFO about PR closed, got: {info_msgs}"
+
+
+class TestSmokeDaemonLifecycleMergeDetection:
+    """TS-07-SMOKE-6: Full daemon lifecycle: stream registration → merge detection."""
+
+    async def test_daemon_lifecycle_merge_flow(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: daemon streams include pr-feedback; merge detected and issue closed."""
+        config = _make_config(merge_strategy="pr")
+
+        # Step 1: Verify build_streams returns pr-feedback stream
+        from agentfox.nightshift.streams import build_streams
+
+        engine_mock = MagicMock()
+        streams = build_streams(config, engine=engine_mock, budget=MagicMock())
+
+        stream_names = [s.name for s in streams]
+        assert "pr-feedback" in stream_names, (
+            f"Expected 'pr-feedback' in stream names: {stream_names}"
+        )
+
+        # Verify pr-feedback comes after fix-pipeline in priority
+        if "fix-pipeline" in stream_names:
+            fix_idx = stream_names.index("fix-pipeline")
+            pr_idx = stream_names.index("pr-feedback")
+            assert pr_idx > fix_idx, (
+                f"pr-feedback ({pr_idx}) should come after fix-pipeline ({fix_idx})"
+            )
+
+        # Step 2: Verify _check_open_prs processes merged PR
+        from agentfox.nightshift.engine import NightShiftEngine
+
+        issue = _make_issue(number=99, title="Full lifecycle issue")
+        tracking = _make_tracking_comment(pr_number=55, attempt=1)
+        platform = _make_mock_platform(
+            issues=[issue],
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=True, state="closed"),
+        )
+
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        with (
+            patch(
+                "agentfox.nightshift.engine.process_pr_issue",
+                wraps=None,
+            ) as mock_process,
+            caplog.at_level(logging.INFO),
+        ):
+            from agentfox.nightshift.pr_feedback import process_pr_issue
+
+            mock_process.side_effect = lambda **kwargs: process_pr_issue(**kwargs)
+
+            await engine._check_open_prs()
+
+        # Issue closed with af:fixed, af:pr removed
+        platform.assign_label.assert_awaited()
+        platform.remove_label.assert_awaited()
+        platform.close_issue.assert_awaited_once()
+
+        # issue_checks_completed incremented
+        assert engine.state.issue_checks_completed >= 1
+
+        # INFO log about merge
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("merged" in m.lower() for m in info_msgs)
+
+
+class TestSmokeEmptyDiffAfterCoder:
+    """TS-07-SMOKE-7: Coder produces no changes → push skipped, no-changes message."""
+
+    async def test_empty_diff_skips_push(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """End-to-end: empty diff → tracking comment posted, push skipped, no-changes."""
+        from agentfox.nightshift.pr_feedback import process_pr_issue
+
+        issue = _make_issue(number=10, title="Fix memory leak")
+        tracking = _make_tracking_comment(pr_number=42, attempt=1)
+        platform = _make_mock_platform(
+            comments=[_make_issue_comment(tracking)],
+        )
+        platform.get_pr_state = AsyncMock(
+            return_value=MagicMock(merged=False, state="open"),
+        )
+        platform.get_pr_checks = AsyncMock(
+            return_value=[
+                _make_check_result(conclusion="failure"),
+            ],
+        )
+
+        config = _make_config(max_pr_retries=2)
+        mock_pipeline = _make_mock_pipeline()
+
+        comment_bodies: list[str] = []
+
+        async def _capture_comments(issue_number, body):
+            comment_bodies.append(body)
+
+        platform.add_issue_comment = AsyncMock(side_effect=_capture_comments)
+
+        push_called = False
+
+        async def _mock_subprocess(*args, **kwargs):
+            nonlocal push_called
+            cmd_str = " ".join(str(a) for a in args)
+            proc = MagicMock()
+            if "push" in cmd_str:
+                push_called = True
+            # Post-coder diff returns empty — no changes
+            if "diff" in cmd_str or "status" in cmd_str:
+                proc.stdout = ""
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+            else:
+                proc.stdout = ""
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.wait = AsyncMock(return_value=0)
+            return proc
+
+        with (
+            patch(
+                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                new_callable=AsyncMock,
+                return_value="worktrees/feedback-10",
+            ),
+            patch(
+                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+            ) as mock_cleanup,
+            patch(
+                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                side_effect=_mock_subprocess,
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            await process_pr_issue(
+                issue=issue,
+                config=config,
+                platform=platform,
+                pipeline=mock_pipeline,
+            )
+
+        # Tracking comment with attempt=2 was posted before diff check
+        assert len(comment_bodies) >= 1, "At least tracking comment should be posted"
+
+        # git push --force NOT called (empty diff)
+        assert not push_called, "Push should not be called when diff is empty"
+
+        # _NO_CHANGES_MESSAGE comment posted
+        from agentfox.nightshift.pr_feedback import _NO_CHANGES_MESSAGE
+
+        assert any(
+            _NO_CHANGES_MESSAGE in body or "no changes" in body.lower()
+            for body in comment_bodies
+        ), f"Expected no-changes comment, got: {comment_bodies}"
+
+        # WARNING log about no changes
+        warning_msgs = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any(
+            "no changes" in m.lower() for m in warning_msgs
+        ), f"Expected WARNING 'no changes', got: {warning_msgs}"
+
+        # Cleanup called
+        mock_cleanup.assert_called_once()
