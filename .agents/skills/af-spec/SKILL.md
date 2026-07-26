@@ -214,14 +214,8 @@ the complete set of spec documents once all are written.
 Analyze the contents of the current working directory. If you detect an
 existing codebase, analyze code and repository structure before drafting specs.
 
-**Automated landscape context:** When `spec refine` runs, it automatically
-injects a summary of all existing specifications (active and archived) into
-the LLM prompts. This gives the assessment model full cross-spec awareness —
-it will flag overlaps with active specs, note historical precedent from
-archived specs, and suggest dependencies. You do not need to manually scan
-`.agent-fox/specs/` for existing specs; the landscape is provided to the LLM
-automatically. Manual review of existing specs is only advisable when detailed
-interface understanding is needed for the `## Dependencies` section.
+Look for existing specifications in `.agent-fox/specs/`. Specification folders use a
+**numbered prefix** indicating creation sequence.
 
 Also check `.agent-fox/steering.md` for project-level directives so the
 generated tasks fit the required execution workflow.
