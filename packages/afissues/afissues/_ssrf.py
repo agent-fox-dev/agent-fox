@@ -17,9 +17,8 @@ from afissues.errors import ConfigError
 logger = logging.getLogger(__name__)
 
 
-def _check_address(
-    addr: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str
-) -> None:
+def _check_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str) -> None:
+    """Raise ConfigError if *addr* is in a restricted IP range."""
     if (
         addr.is_private
         or addr.is_loopback
@@ -28,12 +27,11 @@ def _check_address(
         or addr.is_multicast
         or addr.is_unspecified
     ):
-        raise ConfigError(
-            f"URL {url!r} resolves to a restricted IP address: {addr}"
-        )
+        raise ConfigError(f"URL {url!r} resolves to a restricted IP address: {addr}")
 
 
 def _validate_url(url: str) -> None:
+    """Validate *url* host for SSRF safety at construction time."""
     try:
         addr = ipaddress.ip_address(url)
         _check_address(addr, url)
@@ -57,6 +55,7 @@ def _validate_url(url: str) -> None:
 
 
 def _validate_transport_address(host: str) -> None:
+    """Validate a resolved host address for SSRF safety at request time."""
     try:
         addr = ipaddress.ip_address(host)
         _check_address(addr, host)
@@ -77,9 +76,9 @@ def _validate_transport_address(host: str) -> None:
 
 
 class SSRFGuardTransport(httpx.AsyncHTTPTransport):
-    async def handle_async_request(
-        self, request: httpx.Request
-    ) -> httpx.Response:
+    """Custom transport that rejects requests to private/loopback IPs."""
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         host = request.url.host
         if host:
             _validate_transport_address(host)

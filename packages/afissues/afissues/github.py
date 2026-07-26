@@ -13,13 +13,17 @@ Requirements: 03-REQ-3.1, 03-REQ-3.2, 03-REQ-3.3, 03-REQ-3.4,
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from urllib.parse import quote
 
 import httpx
 
+from afissues._http import (
+    _RETRYABLE_ERRORS,  # noqa: F401 – re-exported for backward compat
+    _truncate_response,
+    request_with_retry,
+)
 from afissues._ssrf import (
     SSRFGuardTransport,
     _check_address,  # noqa: F401 – re-exported for backward compat
@@ -37,13 +41,8 @@ _SSRFGuardTransport = SSRFGuardTransport
 
 
 # ---------------------------------------------------------------------------
-# HTTP retry infrastructure
+# HTTP retry infrastructure (delegated to afissues._http)
 # ---------------------------------------------------------------------------
-
-# Transport-level errors that are safe to retry (network blips, DNS timeouts).
-_RETRYABLE_ERRORS = (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout)
-
-_MAX_ERROR_TEXT = 500
 
 # Timeout for all GitHub API calls: 30s connect, 30s read/write.
 _GITHUB_TIMEOUT = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
@@ -53,65 +52,6 @@ _MAX_RETRIES = 3
 
 # Base backoff in seconds; doubles on each retry (0s, 1s, 2s, ...).
 _RETRY_BACKOFF = 1.0
-
-
-def _truncate_response(text: str) -> str:
-    """Truncate API response text to avoid leaking verbose error details."""
-    if len(text) <= _MAX_ERROR_TEXT:
-        return text
-    return text[:_MAX_ERROR_TEXT] + "..."
-
-
-async def _request_with_retry(
-    method: str,
-    url: str,
-    *,
-    timeout: httpx.Timeout,
-    transport: httpx.AsyncHTTPTransport | None = None,
-    max_retries: int = 3,
-    backoff_base: float = 1.0,
-    **kwargs: object,
-) -> httpx.Response:
-    """Execute an HTTP request with retry on transient network errors.
-
-    Creates a new ``httpx.AsyncClient`` per call via
-    ``async with httpx.AsyncClient(...)``.  Delegates to
-    ``getattr(client, method)(url, **kwargs)``.
-
-    Retries on ``ConnectTimeout``, ``ConnectError``, and ``ReadTimeout``
-    up to *max_retries* attempts with exponential backoff starting at
-    *backoff_base* seconds (sequence: 1 s, 2 s, 4 s for defaults).
-
-    HTTP-level responses (4xx, 5xx including 429) are returned as-is
-    without retrying -- the calling platform method decides whether to
-    raise ``IntegrationError``.
-
-    After all retries are exhausted the last exception is re-raised.
-
-    Requirements: 04-REQ-19.1, 04-REQ-19.2, 04-REQ-19.E1, 04-REQ-19.E2
-    """
-    last_exc: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout,
-                transport=transport,
-            ) as client:
-                resp: httpx.Response = await getattr(client, method)(url, **kwargs)
-                return resp
-        except _RETRYABLE_ERRORS as exc:
-            last_exc = exc
-            if attempt < max_retries - 1:
-                delay = backoff_base * (2**attempt)
-                logger.warning(
-                    "Transient error on attempt %d/%d, retrying in %.1fs: %s",
-                    attempt + 1,
-                    max_retries,
-                    delay,
-                    exc,
-                )
-                await asyncio.sleep(delay)
-    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -164,17 +104,17 @@ class GitHubPlatform:
     async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
         """Execute an HTTP request with explicit timeout and retry on transient errors.
 
-        Delegates to the shared ``_request_with_retry`` helper.  Creates a
-        new ``AsyncClient`` with ``_GITHUB_TIMEOUT`` and
-        ``_SSRFGuardTransport`` for each attempt.  Retries up to
-        ``_MAX_RETRIES`` times on transport-level network exceptions.
-        HTTP-level error responses (4xx, 5xx) are returned as-is -- callers
-        are responsible for raising on bad status codes.
+        Delegates to the shared ``request_with_retry`` helper from
+        ``afissues._http``.  Creates a new ``AsyncClient`` with
+        ``_GITHUB_TIMEOUT`` and ``_SSRFGuardTransport`` for each attempt.
+        Retries up to ``_MAX_RETRIES`` times on transport-level network
+        exceptions.  HTTP-level error responses (4xx, 5xx) are returned
+        as-is -- callers are responsible for raising on bad status codes.
 
         Requirements: 313-AC-1, 313-AC-2, 313-AC-3, 313-AC-4, 313-AC-5,
                       04-REQ-19.3
         """
-        return await _request_with_retry(
+        return await request_with_retry(
             method,
             url,
             timeout=_GITHUB_TIMEOUT,

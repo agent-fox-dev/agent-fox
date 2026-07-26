@@ -30,6 +30,7 @@ _ORDER_BY_MAP = {"created": "created_at", "updated": "updated_at"}
 
 
 def _map_issue(data: dict) -> IssueResult:
+    """Map a GitLab API issue response dict to an IssueResult."""
     return IssueResult(
         number=data["iid"],
         title=data["title"],
@@ -44,7 +45,12 @@ class GitLabPlatform:
 
     forge_type: str = "gitlab"
 
-    def __init__(self, project_id: str, token: str, url: str = "gitlab.com") -> None:
+    def __init__(
+        self,
+        project_id: str,
+        token: str,
+        url: str = "gitlab.com",
+    ) -> None:
         _validate_url(url)
         self._project_id = project_id
         self._encoded_project_id = quote(project_id, safe="")
@@ -52,9 +58,18 @@ class GitLabPlatform:
         self._headers = {"PRIVATE-TOKEN": token}
 
     def __repr__(self) -> str:
-        return f"GitLabPlatform(project_id={self._project_id!r}, base_url={self._base_url!r})"
+        return (
+            f"GitLabPlatform(project_id={self._project_id!r}, "
+            f"base_url={self._base_url!r})"
+        )
 
-    async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        **kwargs: object,
+    ) -> httpx.Response:
+        """Execute an HTTP request via the shared retry helper."""
         return await request_with_retry(
             method,
             url,
@@ -68,11 +83,17 @@ class GitLabPlatform:
     def _project_url(self, path: str = "") -> str:
         return f"{self._base_url}/projects/{self._encoded_project_id}{path}"
 
-    # -- Issue CRUD -----------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Issue operations
+    # ------------------------------------------------------------------
 
     async def create_issue(
-        self, title: str, body: str, labels: list[str] | None = None
+        self,
+        title: str,
+        body: str,
+        labels: list[str] | None = None,
     ) -> IssueResult:
+        """Create a new issue on the GitLab project."""
         payload: dict[str, object] = {"title": title, "description": body}
         if labels:
             payload["labels"] = ",".join(labels)
@@ -94,6 +115,7 @@ class GitLabPlatform:
         sort: str = "created",
         direction: str = "asc",
     ) -> list[IssueResult]:
+        """List issues filtered by label."""
         params = {
             "labels": label,
             "state": _STATE_MAP.get(state, state),
@@ -112,6 +134,7 @@ class GitLabPlatform:
         return [_map_issue(item) for item in resp.json()]
 
     async def add_issue_comment(self, issue_number: int, body: str) -> None:
+        """Add a comment (note) to an issue."""
         resp = await self._request(
             "post",
             self._project_url(f"/issues/{issue_number}/notes"),
@@ -125,6 +148,7 @@ class GitLabPlatform:
             )
 
     async def assign_label(self, issue_number: int, label: str) -> None:
+        """Add a label to an issue."""
         resp = await self._request(
             "put",
             self._project_url(f"/issues/{issue_number}"),
@@ -137,7 +161,12 @@ class GitLabPlatform:
                 f"{_truncate_response(resp.text)}"
             )
 
-    async def close_issue(self, issue_number: int, comment: str | None = None) -> None:
+    async def close_issue(
+        self,
+        issue_number: int,
+        comment: str | None = None,
+    ) -> None:
+        """Close an issue, optionally adding a closing comment first."""
         if comment:
             await self.add_issue_comment(issue_number, comment)
         resp = await self._request(
@@ -153,6 +182,7 @@ class GitLabPlatform:
             )
 
     async def remove_label(self, issue_number: int, label: str) -> None:
+        """Remove a label from an issue."""
         resp = await self._request(
             "put",
             self._project_url(f"/issues/{issue_number}"),
@@ -165,7 +195,11 @@ class GitLabPlatform:
                 f"{_truncate_response(resp.text)}"
             )
 
-    async def list_issue_comments(self, issue_number: int) -> list[IssueComment]:
+    async def list_issue_comments(
+        self,
+        issue_number: int,
+    ) -> list[IssueComment]:
+        """List user-authored comments on an issue, excluding system notes."""
         params = {"sort": "asc", "order_by": "created_at", "per_page": 100}
         resp = await self._request(
             "get",
@@ -190,6 +224,7 @@ class GitLabPlatform:
         ]
 
     async def get_issue(self, issue_number: int) -> IssueResult:
+        """Fetch a single issue by project-internal ID (iid)."""
         resp = await self._request(
             "get",
             self._project_url(f"/issues/{issue_number}"),
@@ -203,6 +238,7 @@ class GitLabPlatform:
         return _map_issue(resp.json())
 
     async def update_issue(self, issue_number: int, body: str) -> None:
+        """Update the description (body) of an issue."""
         resp = await self._request(
             "put",
             self._project_url(f"/issues/{issue_number}"),
@@ -215,12 +251,19 @@ class GitLabPlatform:
                 f"{_truncate_response(resp.text)}"
             )
 
-    # -- Labels ---------------------------------------------------------------
-
-    async def create_label(self, name: str, color: str, description: str = "") -> None:
+    async def create_label(
+        self,
+        name: str,
+        color: str,
+        description: str = "",
+    ) -> None:
+        """Create a label, treating 409 (already exists) as success."""
         payload = {"name": name, "color": f"#{color}", "description": description}
         resp = await self._request(
-            "post", self._project_url("/labels"), json=payload, headers=self._headers
+            "post",
+            self._project_url("/labels"),
+            json=payload,
+            headers=self._headers,
         )
         if resp.status_code == 201:
             return None
@@ -231,9 +274,15 @@ class GitLabPlatform:
             f"{_truncate_response(resp.text)}"
         )
 
-    # -- Merge Requests -------------------------------------------------------
-
-    async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str:
+    async def create_pr(
+        self,
+        *,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+    ) -> str:
+        """Create a merge request, with idempotent 409 handling."""
         payload = {
             "source_branch": head,
             "target_branch": base,
@@ -268,8 +317,9 @@ class GitLabPlatform:
             mrs = fallback.json()
             if not mrs:
                 raise IntegrationError(
-                    f"GitLab MR creation returned 409 (duplicate) but no existing "
-                    f"open MR found for source={head!r} target={base!r}"
+                    f"GitLab MR creation returned 409 (duplicate) but no "
+                    f"existing open MR found for source={head!r} "
+                    f"target={base!r}"
                 )
             return mrs[0]["web_url"]
         raise IntegrationError(
@@ -277,18 +327,22 @@ class GitLabPlatform:
             f"{_truncate_response(resp.text)}"
         )
 
-    # -- Non-protocol methods -------------------------------------------------
-
     async def search_issues(
-        self, query: str, state: str = "open"
+        self,
+        query: str,
+        state: str = "open",
     ) -> list[IssueResult]:
+        """Search issues by title prefix."""
         params = {
             "search": query,
             "state": _STATE_MAP.get(state, state),
             "per_page": 100,
         }
         resp = await self._request(
-            "get", self._project_url("/issues"), params=params, headers=self._headers
+            "get",
+            self._project_url("/issues"),
+            params=params,
+            headers=self._headers,
         )
         if resp.status_code != 200:
             raise IntegrationError(
@@ -298,6 +352,7 @@ class GitLabPlatform:
         return [_map_issue(item) for item in resp.json()]
 
     async def check_credentials(self) -> None:
+        """Verify token access to the configured project."""
         resp = await self._request(
             "get",
             f"{self._base_url}/projects/{self._encoded_project_id}",
@@ -310,13 +365,19 @@ class GitLabPlatform:
             )
 
     async def close(self) -> None:
-        pass
+        """No-op lifecycle method (no persistent connections to close)."""
 
 
-# -- Remote URL parsing -------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Remote URL parser
+# ---------------------------------------------------------------------------
 
-_GITLAB_HTTPS_RE = re.compile(r"^https://gitlab\.com/(.+?)/([^/]+?)(?:\.git)?$")
-_GITLAB_SSH_RE = re.compile(r"^git@gitlab\.com:(.+?)/([^/]+?)(?:\.git)?$")
+_GITLAB_HTTPS_RE = re.compile(
+    r"^https://gitlab\.com/(.+?)/([^/]+?)(?:\.git)?$"
+)
+_GITLAB_SSH_RE = re.compile(
+    r"^git@gitlab\.com:(.+?)/([^/]+?)(?:\.git)?$"
+)
 
 
 def parse_remote(remote_url: str) -> tuple[str, str] | None:

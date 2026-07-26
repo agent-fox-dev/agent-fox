@@ -29,7 +29,7 @@ from afissues.protocol import IssueComment, IssueResult, PlatformProtocol
 _TARGET = "afissues.gitea.httpx.AsyncClient"
 
 # Target for patching _validate_url in the gitea module.
-_VALIDATE_URL_TARGET = "afissues.gitea._validate_github_url"
+_VALIDATE_URL_TARGET = "afissues.gitea._validate_url"
 
 
 def _mock_client(**method_responses: MagicMock | AsyncMock) -> AsyncMock:

@@ -11,11 +11,14 @@ import logging
 import httpx
 
 logger = logging.getLogger(__name__)
+
 _RETRYABLE_ERRORS = (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout)
+
 _MAX_ERROR_TEXT = 500
 
 
 def _truncate_response(text: str) -> str:
+    """Truncate API response text to avoid leaking verbose error details."""
     if len(text) <= _MAX_ERROR_TEXT:
         return text
     return text[:_MAX_ERROR_TEXT] + "..."
@@ -31,10 +34,31 @@ async def request_with_retry(
     backoff_base: float = 1.0,
     **kwargs: object,
 ) -> httpx.Response:
+    """Execute an HTTP request with retry on transient network errors.
+
+    Creates a new ``httpx.AsyncClient`` per call via
+    ``async with httpx.AsyncClient(...)``.  Delegates to
+    ``getattr(client, method)(url, **kwargs)``.
+
+    Retries on ``ConnectTimeout``, ``ConnectError``, and ``ReadTimeout``
+    up to *max_retries* attempts with exponential backoff starting at
+    *backoff_base* seconds (sequence: 1 s, 2 s, 4 s for defaults).
+
+    HTTP-level responses (4xx, 5xx including 429) are returned as-is
+    without retrying -- the calling platform method decides whether to
+    raise ``IntegrationError``.
+
+    After all retries are exhausted the last exception is re-raised.
+
+    Requirements: 04-REQ-19.1, 04-REQ-19.2, 04-REQ-19.E1, 04-REQ-19.E2
+    """
     last_exc: Exception | None = None
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                transport=transport,
+            ) as client:
                 resp: httpx.Response = await getattr(client, method)(url, **kwargs)
                 return resp
         except _RETRYABLE_ERRORS as exc:

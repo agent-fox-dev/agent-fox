@@ -541,7 +541,7 @@ class TestFactoryGiteaAvailable:
                 "agentfox.nightshift.platform_factory._resolve_remote",
                 return_value=("owner", "repo"),
             ),
-            patch("afissues.gitea._validate_github_url"),
+            patch("afissues.gitea._validate_url"),
         ):
             result = create_platform(config, tmp_path)
 
@@ -1158,7 +1158,7 @@ class TestSmokeGiteaAvailable:
                 "agentfox.nightshift.platform_factory._resolve_remote",
                 return_value=("owner", "repo"),
             ),
-            patch("afissues.gitea._validate_github_url"),
+            patch("afissues.gitea._validate_url"),
         ):
             result = create_platform(config, tmp_path)
 

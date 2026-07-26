@@ -6,7 +6,7 @@ operations via the Gitea REST API v1.
 
 Follows the same HTTP integration pattern as GitHubPlatform: SSRF
 validation at construction, SSRFGuardTransport for request-time
-DNS re-checks, and retry-on-transient-error via _request_with_retry.
+DNS re-checks, and retry-on-transient-error via request_with_retry.
 
 This module is self-contained: it imports only from ``afissues.errors``,
 ``afissues.protocol``, ``afissues.github`` (shared SSRF/retry infra),
@@ -22,12 +22,9 @@ import re
 
 import httpx
 
+from afissues._http import request_with_retry
+from afissues._ssrf import SSRFGuardTransport, _validate_url
 from afissues.errors import IntegrationError
-from afissues.github import (
-    _request_with_retry,
-    _SSRFGuardTransport,
-    _validate_github_url,
-)
 from afissues.protocol import IssueComment, IssueResult
 
 logger = logging.getLogger(__name__)
@@ -84,7 +81,7 @@ class GiteaPlatform:
     def __init__(self, owner: str, repo: str, token: str, url: str) -> None:
         # SSRF guard — must run before any other initialization.
         # ConfigError propagates directly to the caller (05-REQ-1.E1).
-        _validate_github_url(url)
+        _validate_url(url)
 
         self._owner = owner
         self._repo = repo
@@ -99,17 +96,17 @@ class GiteaPlatform:
     async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
         """Execute an HTTP request with retry on transient network errors.
 
-        Delegates to the shared ``_request_with_retry`` helper from
+        Delegates to the shared ``request_with_retry`` helper from
         ``afissues.github``.  Creates a new ``AsyncClient`` with
-        ``_GITEA_TIMEOUT`` and ``_SSRFGuardTransport`` for each attempt.
+        ``_GITEA_TIMEOUT`` and ``SSRFGuardTransport`` for each attempt.
 
         Requirements: 05-REQ-1.5
         """
-        return await _request_with_retry(
+        return await request_with_retry(
             method,
             url,
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
             max_retries=_MAX_RETRIES,
             backoff_base=_RETRY_BACKOFF,
             **kwargs,
@@ -143,7 +140,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/labels"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, headers=self._auth_headers)
 
@@ -187,7 +184,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.post(url, json=payload, headers=self._auth_headers)
 
@@ -223,7 +220,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, params=params, headers=self._auth_headers)
 
@@ -246,7 +243,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.post(url, json={"body": body}, headers=self._auth_headers)
 
@@ -269,7 +266,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.post(url, json={"labels": [label_id]}, headers=self._auth_headers)
 
@@ -293,7 +290,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.patch(url, json={"state": "closed"}, headers=self._auth_headers)
 
@@ -319,7 +316,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels/{label_id}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.delete(url, headers=self._auth_headers)
 
@@ -341,7 +338,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/comments"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, headers=self._auth_headers)
 
@@ -371,7 +368,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, headers=self._auth_headers)
 
@@ -394,7 +391,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.patch(url, json={"body": body}, headers=self._auth_headers)
 
@@ -427,7 +424,7 @@ class GiteaPlatform:
         }
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.post(url, json=payload, headers=self._auth_headers)
 
@@ -457,7 +454,7 @@ class GiteaPlatform:
 
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.post(url, json=payload, headers=self._auth_headers)
 
@@ -469,7 +466,7 @@ class GiteaPlatform:
             params = {"head": head, "base": base, "state": "open"}
             async with httpx.AsyncClient(
                 timeout=_GITEA_TIMEOUT,
-                transport=_SSRFGuardTransport(),
+                transport=SSRFGuardTransport(),
             ) as client:
                 get_resp = await client.get(url, params=params, headers=self._auth_headers)
 
@@ -508,7 +505,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, params=params, headers=self._auth_headers)
 
@@ -527,7 +524,7 @@ class GiteaPlatform:
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}"
         async with httpx.AsyncClient(
             timeout=_GITEA_TIMEOUT,
-            transport=_SSRFGuardTransport(),
+            transport=SSRFGuardTransport(),
         ) as client:
             resp = await client.get(url, headers=self._auth_headers)
 

@@ -270,8 +270,8 @@ class TestRetryBehaviour:
         mock_client = _MockClient(httpx.ConnectTimeout, "timeout")
 
         with (
-            patch("afissues.github.httpx.AsyncClient", return_value=mock_client),
-            patch("afissues.github.asyncio.sleep", new_callable=AsyncMock),
+            patch("afissues._http.httpx.AsyncClient", return_value=mock_client),
+            patch("afissues._http.asyncio.sleep", new_callable=AsyncMock),
             patch("afissues.github._validate_github_url"),
         ):
             platform = GitHubPlatform(owner="o", repo="r", token="test")
@@ -286,8 +286,8 @@ class TestRetryBehaviour:
         mock_client = _MockClient(httpx.ConnectTimeout, "timeout")
 
         with (
-            patch("afissues.github.httpx.AsyncClient", return_value=mock_client),
-            patch("afissues.github.asyncio.sleep", new_callable=AsyncMock),
+            patch("afissues._http.httpx.AsyncClient", return_value=mock_client),
+            patch("afissues._http.asyncio.sleep", new_callable=AsyncMock),
             patch("afissues.github._validate_github_url"),
         ):
             platform = GitHubPlatform(owner="o", repo="r", token="test")
@@ -301,8 +301,8 @@ class TestRetryBehaviour:
         mock_client = _MockClient(httpx.ConnectError, "connection refused")
 
         with (
-            patch("afissues.github.httpx.AsyncClient", return_value=mock_client),
-            patch("afissues.github.asyncio.sleep", new_callable=AsyncMock),
+            patch("afissues._http.httpx.AsyncClient", return_value=mock_client),
+            patch("afissues._http.asyncio.sleep", new_callable=AsyncMock),
             patch("afissues.github._validate_github_url"),
         ):
             platform = GitHubPlatform(owner="o", repo="r", token="test")
@@ -316,8 +316,8 @@ class TestRetryBehaviour:
         mock_client = _MockClient(httpx.ReadTimeout, "read timeout")
 
         with (
-            patch("afissues.github.httpx.AsyncClient", return_value=mock_client),
-            patch("afissues.github.asyncio.sleep", new_callable=AsyncMock),
+            patch("afissues._http.httpx.AsyncClient", return_value=mock_client),
+            patch("afissues._http.asyncio.sleep", new_callable=AsyncMock),
             patch("afissues.github._validate_github_url"),
         ):
             platform = GitHubPlatform(owner="o", repo="r", token="test")
