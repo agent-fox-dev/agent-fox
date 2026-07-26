@@ -5,7 +5,8 @@ along with frozen dataclasses for issue results, comments, and PR-related
 types, and a no-op ``NullPlatform`` stub.
 
 Requirements: 03-REQ-2.1, 03-REQ-2.2, 03-REQ-2.3, 03-REQ-2.4,
-              06-REQ-2.1, 06-REQ-2.2, 06-REQ-2.3, 06-REQ-2.4, 06-REQ-2.5
+              06-REQ-2.1, 06-REQ-2.2, 06-REQ-2.3, 06-REQ-2.4, 06-REQ-2.5,
+              06-REQ-3.1, 06-REQ-3.2, 06-REQ-3.3, 06-REQ-3.4, 06-REQ-7.1
 """
 
 from dataclasses import dataclass
@@ -187,10 +188,36 @@ class PlatformProtocol(Protocol):
         body: str,
         head: str,
         base: str,
-    ) -> str:
-        """Create a pull request and return its ``html_url``.
+    ) -> PrResult:
+        """Create a pull request and return a structured ``PrResult``.
+
+        Returns:
+            PrResult with ``html_url`` and ``number`` populated.
 
         Raises ``IntegrationError`` on API failure.
+
+        Requirements: 06-REQ-7.1
+        """
+        ...
+
+    async def get_pr_state(self, pr_number: int) -> PrState:
+        """Fetch the current state of a pull request.
+
+        Requirements: 06-REQ-3.1
+        """
+        ...
+
+    async def get_pr_checks(self, pr_number: int) -> list[CheckResult]:
+        """Fetch CI check-run results for a pull request.
+
+        Requirements: 06-REQ-3.2
+        """
+        ...
+
+    async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]:
+        """Fetch review comments for a pull request.
+
+        Requirements: 06-REQ-3.3
         """
         ...
 
@@ -292,7 +319,7 @@ class NullPlatform:
         body: str,
         head: str,
         base: str,
-    ) -> str:
+    ) -> PrResult:
         """Always raises — PR creation requires a real platform.
 
         Raises:
@@ -305,6 +332,39 @@ class NullPlatform:
             "create_pr() called on NullPlatform — this should never be "
             "reached. Ensure platform availability is checked via "
             "create_platform_safe() before calling create_pr()"
+        )
+
+    async def get_pr_state(self, pr_number: int) -> PrState:
+        """Always raises — PR state queries require a real platform.
+
+        Requirements: 06-REQ-3.4
+        """
+        raise NotImplementedError(
+            "get_pr_state() called on NullPlatform — this should never be "
+            "reached. Ensure platform availability is checked via "
+            "create_platform_safe() before calling get_pr_state()"
+        )
+
+    async def get_pr_checks(self, pr_number: int) -> list[CheckResult]:
+        """Always raises — PR check queries require a real platform.
+
+        Requirements: 06-REQ-3.4
+        """
+        raise NotImplementedError(
+            "get_pr_checks() called on NullPlatform — this should never be "
+            "reached. Ensure platform availability is checked via "
+            "create_platform_safe() before calling get_pr_checks()"
+        )
+
+    async def get_pr_reviews(self, pr_number: int) -> list[ReviewComment]:
+        """Always raises — PR review queries require a real platform.
+
+        Requirements: 06-REQ-3.4
+        """
+        raise NotImplementedError(
+            "get_pr_reviews() called on NullPlatform — this should never be "
+            "reached. Ensure platform availability is checked via "
+            "create_platform_safe() before calling get_pr_reviews()"
         )
 
     async def close(self) -> None:

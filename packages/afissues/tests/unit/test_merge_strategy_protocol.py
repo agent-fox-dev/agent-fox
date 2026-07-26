@@ -82,12 +82,12 @@ class TestPlatformProtocolCreatePrSignature:
         assert param.kind == inspect.Parameter.KEYWORD_ONLY, "base must be a keyword-only parameter"
         assert param.annotation is str, "base must be annotated as str"
 
-    def test_create_pr_return_annotation_is_str(self) -> None:
-        """create_pr return annotation is str."""
-        from afissues.protocol import PlatformProtocol
+    def test_create_pr_return_annotation_is_pr_result(self) -> None:
+        """create_pr return annotation is PrResult (06-REQ-7.1)."""
+        from afissues.protocol import PlatformProtocol, PrResult
 
         sig = inspect.signature(PlatformProtocol.create_pr)
-        assert sig.return_annotation is str, "create_pr must declare return type -> str"
+        assert sig.return_annotation is PrResult, "create_pr must declare return type -> PrResult"
 
     def test_create_pr_has_exactly_four_keyword_params(self) -> None:
         """create_pr has exactly four keyword-only parameters (title, body, head, base)."""

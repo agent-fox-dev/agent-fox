@@ -33,15 +33,16 @@ class TestPlatformProtocol:
 
         assert getattr(PlatformProtocol, "_is_protocol", False), "PlatformProtocol must be a typing.Protocol subclass"
 
-    def test_has_12_async_methods(self) -> None:
+    def test_has_15_async_methods(self) -> None:
         from afissues.protocol import PlatformProtocol
 
         # Collect public methods defined directly on PlatformProtocol
+        # 12 original + 3 new PR query methods (06-REQ-3.1, 06-REQ-3.2, 06-REQ-3.3)
         protocol_methods = {
             name for name, obj in vars(PlatformProtocol).items() if callable(obj) and not name.startswith("_")
         }
         async_methods = {name for name in protocol_methods if inspect.iscoroutinefunction(vars(PlatformProtocol)[name])}
-        assert len(async_methods) == 12, f"Expected 12 async methods, got {len(async_methods)}: {sorted(async_methods)}"
+        assert len(async_methods) == 15, f"Expected 15 async methods, got {len(async_methods)}: {sorted(async_methods)}"
 
     def test_close_is_async(self) -> None:
         """Drift: close() is async in the actual codebase."""
