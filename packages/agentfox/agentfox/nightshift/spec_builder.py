@@ -212,7 +212,10 @@ def build_in_memory_spec(issue: IssueResult, issue_body: str) -> InMemorySpec:
     branch = sanitise_branch_name(issue.title, issue.number)
     safe_title = sanitize_prompt_content(issue.title, label="issue-title")
     safe_body = sanitize_prompt_content(issue_body, label="issue-body")
-    task_prompt = f"Fix the issue: {safe_title}\n\nIssue #{issue.number}\n\n{safe_body}"
+    task_prompt = (
+        f"Fix the issue: {safe_title} (#{issue.number})\n\n"
+        "Refer to the issue description and acceptance criteria in the context above."
+    )
     return InMemorySpec(
         issue_number=issue.number,
         title=issue.title,

@@ -44,8 +44,37 @@ class TestInMemorySpec:
         issue_body = "Remove unused imports in engine/ ..."
         spec = build_in_memory_spec(issue, issue_body)
         assert spec.issue_number == 42
+        # Title is in task_prompt, but body content is not
         assert "unused imports" in spec.task_prompt.lower()
+        assert issue_body not in spec.task_prompt
         assert spec.branch_name.startswith("fix/")
+
+    def test_task_prompt_does_not_contain_body(self) -> None:
+        """task_prompt must not duplicate the issue body (it lives in system_context)."""
+        from afissues.protocol import IssueResult
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        issue = IssueResult(
+            number=99,
+            title="Fix login",
+            html_url="https://github.com/test/repo/issues/99",
+        )
+        issue_body = (
+            "The login page crashes when the user enters special characters "
+            "in the password field. This affects all users on the production "
+            "environment. Steps to reproduce: 1) Navigate to /login. "
+            "2) Enter 'test@example.com' as email. 3) Enter 'p@ss!w0rd&<>' "
+            "as password. 4) Click submit. Expected: login succeeds. "
+            "Actual: 500 error page is displayed."
+        )
+        spec = build_in_memory_spec(issue, issue_body)
+        # Body should only be in system_context, not in task_prompt
+        assert "login page crashes" not in spec.task_prompt.lower()
+        assert "login page crashes" in spec.system_context.lower()
+        # task_prompt should have a concise directive
+        assert "Fix the issue:" in spec.task_prompt
+        assert "#99" in spec.task_prompt
+        assert "context above" in spec.task_prompt.lower()
 
     def test_spec_has_system_context(self) -> None:
         """InMemorySpec contains the issue body as system context."""

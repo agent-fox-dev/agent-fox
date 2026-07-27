@@ -26,7 +26,13 @@ def _make_config() -> MagicMock:
     return config
 
 
-def _make_spec(task_prompt: str = "Fix the issue: test\n\nIssue #42\n\nSome body") -> InMemorySpec:
+_DEFAULT_TASK_PROMPT = (
+    "Fix the issue: test (#42)\n\n"
+    "Refer to the issue description and acceptance criteria in the context above."
+)
+
+
+def _make_spec(task_prompt: str = _DEFAULT_TASK_PROMPT) -> InMemorySpec:
     """Return a minimal InMemorySpec-like object."""
     from agentfox.nightshift.spec_builder import InMemorySpec
 
@@ -133,7 +139,10 @@ class TestBuildCoderPromptNoCommitFormat:
         platform = MagicMock()
         pipeline = FixPipeline(config=config, platform=platform)
 
-        original_task = "Fix the issue: test\n\nIssue #42\n\nSome body"
+        original_task = (
+            "Fix the issue: test (#42)\n\n"
+            "Refer to the issue description and acceptance criteria in the context above."
+        )
         spec = _make_spec(task_prompt=original_task)
         triage = _make_triage()
 
