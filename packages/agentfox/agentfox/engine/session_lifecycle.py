@@ -358,6 +358,7 @@ class NodeSessionRunner:
             conn=self._context_knowledge_db.connection,
             project_root=Path.cwd(),
             archetype=self._archetype,
+            mode=self._mode,
         )
 
         system_prompt = build_system_prompt(

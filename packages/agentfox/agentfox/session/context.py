@@ -52,10 +52,47 @@ _SECTION_HEADERS: dict[str, str] = {
     "tasks": "## Tasks",
 }
 
+# Archetype-aware spec artifact selection.
+# Keys use "archetype:mode" when mode-specific, or plain "archetype" as
+# fallback.  Unlisted archetypes default to all artifacts (fail-open).
+_ALL_ARTIFACTS = list(_SECTION_HEADERS.keys())
+
+_ARCHETYPE_ARTIFACTS: dict[str, list[str]] = {
+    "coder": _ALL_ARTIFACTS,
+    "reviewer:pre-flight": ["requirements"],
+    "reviewer:audit-review": ["requirements", "test_spec"],
+    "reviewer:fix-review": ["requirements", "test_spec"],
+    "verifier": ["requirements", "tasks"],
+    "gate": ["requirements"],
+}
+
+
+def _resolve_artifacts(
+    archetype: str | None,
+    mode: str | None = None,
+) -> list[str]:
+    """Return the list of spec artifact keys for a given archetype+mode.
+
+    Lookup order:
+      1. ``"archetype:mode"`` (exact match)
+      2. ``"archetype"`` (bare archetype fallback)
+      3. All artifacts (fail-open default for unknown archetypes)
+    """
+    if archetype is not None:
+        if mode is not None:
+            key = f"{archetype}:{mode}"
+            if key in _ARCHETYPE_ARTIFACTS:
+                return _ARCHETYPE_ARTIFACTS[key]
+        if archetype in _ARCHETYPE_ARTIFACTS:
+            return _ARCHETYPE_ARTIFACTS[archetype]
+    return _ALL_ARTIFACTS
+
 
 def render_inmemory_spec_sections(
     spec: Any,
     task_group: int | None = None,
+    *,
+    artifacts: list[str] | None = None,
 ) -> list[str]:
     """Render an in-memory afspec Spec to per-artifact markdown sections.
 
@@ -67,6 +104,10 @@ def render_inmemory_spec_sections(
     subtasks, with other task groups shown as one-line summaries.
     Falls back to unscoped rendering when the target group has no
     ``requirement_refs`` or ``test_spec_refs``.
+
+    When *artifacts* is provided, only sections whose key appears in the
+    list are included.  Omitted sections get a one-line note so agents
+    know context was filtered, not missing.
 
     Performs no file system reads or writes.  Exceptions from
     ``render_individual`` propagate to the caller as-is.
@@ -80,8 +121,15 @@ def render_inmemory_spec_sections(
     else:
         rendered = afspec.render_individual(spec)
 
+    active_keys = set(artifacts) if artifacts is not None else set(_SECTION_HEADERS.keys())
+
     sections: list[str] = []
     for key, header in _SECTION_HEADERS.items():
+        if key not in active_keys:
+            # Emit a brief omission note so agents know the section was
+            # intentionally filtered, not missing from the spec.
+            sections.append(f"{header}\n\n_(Omitted — not required for this session.)_")
+            continue
         content = rendered.get(key, "")
         if content:
             sections.append(f"{header}\n\n{content}")
@@ -92,6 +140,8 @@ def render_inmemory_spec_sections(
 def _render_spec_sections(
     spec_dir: Path,
     task_group: int | None = None,
+    *,
+    artifacts: list[str] | None = None,
 ) -> list[str]:
     """Load a v1.2 spec and render per-artifact markdown sections.
 
@@ -100,6 +150,9 @@ def _render_spec_sections(
 
     When *task_group* is provided, renders scoped content filtered to
     the target group's referenced requirements and test cases.
+
+    When *artifacts* is provided, only the listed artifact sections are
+    rendered; omitted sections get a brief note.
 
     Delegates rendering to ``render_inmemory_spec_sections`` after loading
     the Spec from disk, eliminating duplicated rendering logic.
@@ -110,7 +163,7 @@ def _render_spec_sections(
     import afspec
 
     spec = afspec.load_spec(spec_dir)
-    sections = render_inmemory_spec_sections(spec, task_group=task_group)
+    sections = render_inmemory_spec_sections(spec, task_group=task_group, artifacts=artifacts)
 
     # architecture.md is a plain markdown file in v1.2
     arch_path = spec_dir / "architecture.md"
@@ -342,6 +395,7 @@ def assemble_context(
     conn: duckdb.DuckDBPyConnection,
     project_root: Path | None = None,
     archetype: str | None = None,
+    mode: str | None = None,
 ) -> str:
     """Assemble task-specific context for a coding session.
 
@@ -349,6 +403,11 @@ def assemble_context(
     directives, memory facts, prior group findings, and archetype-specific
     sections (retry history for reviewers, verification checklist for
     verifiers).
+
+    When *archetype* and/or *mode* are provided, spec artifact sections
+    are filtered to only those relevant for the archetype's role (e.g.
+    a ``reviewer:pre-flight`` receives only requirements).  Unlisted
+    archetypes default to receiving all artifacts.
 
     Review/drift findings are NOT rendered here — they arrive via
     FoxKnowledgeProvider memory facts to avoid duplication.
@@ -360,9 +419,12 @@ def assemble_context(
     # Derive spec_name from directory name
     spec_name = spec_dir.name
 
+    # Resolve which spec artifacts this archetype needs
+    artifacts = _resolve_artifacts(archetype, mode)
+
     # 03-REQ-4.1, 134-REQ-1.1: Read spec documents via afspec (v1.2 JSON)
     try:
-        raw_sections = _render_spec_sections(spec_dir, task_group=task_group)
+        raw_sections = _render_spec_sections(spec_dir, task_group=task_group, artifacts=artifacts)
         sections.extend(sanitize_prompt_content(s, label="spec") for s in raw_sections)
     except Exception:
         logger.warning(
