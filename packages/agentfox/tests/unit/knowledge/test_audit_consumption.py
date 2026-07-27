@@ -103,14 +103,22 @@ class TestAuditFindingsPersistedToDatabase:
 
 
 class TestAuditFindingsInjectedIntoCoder:
-    """TS-4.2: Audit findings appear in coder prompt context."""
+    """TS-4.2: Audit findings appear in coder prompt context.
+
+    Issue #733: On the first attempt, findings reach the coder via
+    FoxKnowledgeProvider.retrieve() as memory facts in the system prompt
+    (not via _build_retry_context in the task prompt).
+    """
 
     def test_audit_findings_in_first_attempt_prompt(
         self,
         knowledge_conn_with_schema: duckdb.DuckDBPyConnection,
         tmp_path: Path,
     ) -> None:
-        """TS-4.2: Coder's task prompt includes active audit findings (attempt 1).
+        """TS-4.2: Coder's prompt includes active audit findings (attempt 1).
+
+        On first attempt, findings are delivered via FoxKnowledgeProvider
+        as memory facts in the system prompt (issue #733 deduplication).
 
         Requirements: 113-REQ-4.2
         """
@@ -144,11 +152,12 @@ class TestAuditFindingsInjectedIntoCoder:
         insert_findings(knowledge_conn_with_schema, audit_findings)
 
         # Build prompts for coder — attempt 1 (fresh session)
-        task_prompt = _build_coder_prompt(knowledge_conn_with_schema, tmp_path, "05_foo", attempt=1)
+        system_prompt, task_prompt = _build_coder_prompts(knowledge_conn_with_schema, tmp_path, "05_foo", attempt=1)
+        combined = system_prompt + "\n" + task_prompt
 
-        # Audit finding descriptions should appear in the prompt
-        assert "missing null check" in task_prompt, "Audit finding 1 description missing from coder prompt"
-        assert "unhandled exception" in task_prompt, "Audit finding 2 description missing from coder prompt"
+        # Audit finding descriptions should appear in the prompt (via memory facts)
+        assert "missing null check" in combined, "Audit finding 1 description missing from coder prompt"
+        assert "unhandled exception" in combined, "Audit finding 2 description missing from coder prompt"
 
     def test_audit_findings_formatted_like_review_findings(
         self,
@@ -171,10 +180,11 @@ class TestAuditFindingsInjectedIntoCoder:
         )
         insert_findings(knowledge_conn_with_schema, [finding])
 
-        task_prompt = _build_coder_prompt(knowledge_conn_with_schema, tmp_path, "05_foo", attempt=1)
+        system_prompt, task_prompt = _build_coder_prompts(knowledge_conn_with_schema, tmp_path, "05_foo", attempt=1)
+        combined = system_prompt + "\n" + task_prompt
 
-        # The description must appear in the prompt
-        assert "Test audit finding description" in task_prompt
+        # The description must appear in the prompt (via memory facts)
+        assert "Test audit finding description" in combined
 
 
 class TestAuditReportsRetainedUntilEndOfRun:
@@ -334,16 +344,22 @@ class TestPassAuditEntriesNotPersisted:
 # ---------------------------------------------------------------------------
 
 
-def _build_coder_prompt(
+def _build_coder_prompts(
     conn: duckdb.DuckDBPyConnection,
     tmp_path: Path,
     spec_name: str,
     attempt: int,
-) -> str:
-    """Build a coder task prompt and return it as a string for assertion."""
-    from agentfox.core.config import AgentFoxConfig
+) -> tuple[str, str]:
+    """Build coder system + task prompts and return both for assertion.
+
+    Uses FoxKnowledgeProvider so findings flow through the memory-facts
+    path (system prompt) on the first attempt, matching production
+    behaviour after issue #733.
+    """
+    from agentfox.core.config import AgentFoxConfig, KnowledgeProviderConfig
     from agentfox.engine.session_lifecycle import NodeSessionRunner
     from agentfox.knowledge.db import KnowledgeDB
+    from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 
     db = KnowledgeDB.__new__(KnowledgeDB)
     db._conn = conn
@@ -357,9 +373,8 @@ def _build_coder_prompt(
     runner._knowledge_db = db
     runner._context_knowledge_db = db
     runner._sink_dispatcher = None
-    from agentfox.knowledge.fox_provider import NoOpKnowledgeProvider
 
-    runner._knowledge_provider = NoOpKnowledgeProvider()
+    runner._knowledge_provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
     runner._archetype = "coder"
     runner._mode = None
     runner._task_group = 2
@@ -375,8 +390,8 @@ def _build_coder_prompt(
     (spec_dir / "test_spec.md").write_text("# Test Spec\n\nNone.\n")
 
     try:
-        _sys, task = runner._build_prompts(tmp_path, attempt, None)
-        return task
+        sys_prompt, task = runner._build_prompts(tmp_path, attempt, None)
+        return sys_prompt, task
     except Exception:
         # If _build_prompts fails for unrelated reasons, return empty to trigger assertion
-        return ""
+        return "", ""

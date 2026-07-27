@@ -485,6 +485,114 @@ class TestBuildPromptsPassesTaskGroup:
 
 
 # ---------------------------------------------------------------------------
+# Issue #733: Deduplicate finding injection — _build_prompts should only
+# inject retry context on retries (attempt > 1 with previous_error), not on
+# the first attempt where FoxKnowledgeProvider already delivers findings.
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPromptsDeduplicatesFindings:
+    """Issue #733: _build_prompts must not prepend '## Prior Review Findings'
+    on a first-attempt coder session.  On retry (attempt > 1 + previous_error),
+    the retry-context block may appear.
+    """
+
+    def _make_runner(self, mock_kb: MagicMock, mock_provider: MagicMock) -> NodeSessionRunner:
+        return NodeSessionRunner(
+            "spec_01:1",
+            AgentFoxConfig(),
+            knowledge_db=mock_kb,
+            knowledge_provider=mock_provider,
+        )
+
+    def test_first_attempt_no_retry_context(self, tmp_path: Path) -> None:
+        """AC-1: On attempt=1, previous_error=None, '## Prior Review Findings'
+        must NOT appear in the task prompt even when findings exist."""
+        mock_provider = MagicMock()
+        mock_provider.retrieve.return_value = ["[REVIEW] critical finding"]
+
+        mock_kb = MagicMock(spec=KnowledgeDB)
+        mock_kb.connection = MagicMock()
+
+        runner = self._make_runner(mock_kb, mock_provider)
+
+        with (
+            patch("agentfox.core.config.resolve_spec_root") as mock_spec_root,
+            patch("agentfox.engine.session_lifecycle.assemble_context") as mock_assemble,
+            patch("agentfox.engine.session_lifecycle.build_system_prompt", return_value="sys"),
+            patch("agentfox.engine.session_lifecycle.build_task_prompt", return_value="task body"),
+            patch("agentfox.engine.session_lifecycle.extract_subtask_descriptions", return_value=["do X"]),
+        ):
+            mock_spec_root.return_value = tmp_path
+            mock_assemble.return_value = MagicMock()
+            _sys, task_prompt = runner._build_prompts(tmp_path, attempt=1, previous_error=None)
+
+        assert "## Prior Review Findings" not in task_prompt, (
+            "First-attempt coder session must not duplicate findings via retry context block"
+        )
+        mock_provider.retrieve.assert_called_once()
+
+    def test_retry_attempt_includes_retry_context(self, tmp_path: Path) -> None:
+        """AC-2: On attempt > 1 with previous_error, '## Prior Review Findings'
+        may appear in the task prompt."""
+        mock_provider = MagicMock()
+        mock_provider.retrieve.return_value = ["[REVIEW] critical finding"]
+
+        mock_kb = MagicMock(spec=KnowledgeDB)
+        mock_kb.connection = MagicMock()
+
+        runner = self._make_runner(mock_kb, mock_provider)
+
+        with (
+            patch("agentfox.core.config.resolve_spec_root") as mock_spec_root,
+            patch("agentfox.engine.session_lifecycle.assemble_context") as mock_assemble,
+            patch("agentfox.engine.session_lifecycle.build_system_prompt", return_value="sys"),
+            patch("agentfox.engine.session_lifecycle.build_task_prompt", return_value="task body"),
+            patch("agentfox.engine.session_lifecycle.extract_subtask_descriptions", return_value=["do X"]),
+            patch.object(
+                runner,
+                "_build_retry_context",
+                return_value="## Prior Review Findings for spec_01\n\n- **CRITICAL**: issue",
+            ),
+        ):
+            mock_spec_root.return_value = tmp_path
+            mock_assemble.return_value = MagicMock()
+            _sys, task_prompt = runner._build_prompts(tmp_path, attempt=2, previous_error="some error")
+
+        assert "## Prior Review Findings" in task_prompt, (
+            "Retry attempt must include retry context block"
+        )
+        assert "previous attempt failed" in task_prompt, (
+            "Retry attempt must include the previous error note"
+        )
+
+    def test_first_attempt_with_no_error_skips_retry_context(self, tmp_path: Path) -> None:
+        """First attempt (attempt=1, no previous_error) must never call
+        _build_retry_context."""
+        mock_provider = MagicMock()
+        mock_provider.retrieve.return_value = []
+
+        mock_kb = MagicMock(spec=KnowledgeDB)
+        mock_kb.connection = MagicMock()
+
+        runner = self._make_runner(mock_kb, mock_provider)
+
+        with (
+            patch("agentfox.core.config.resolve_spec_root") as mock_spec_root,
+            patch("agentfox.engine.session_lifecycle.assemble_context") as mock_assemble,
+            patch("agentfox.engine.session_lifecycle.build_system_prompt", return_value="sys"),
+            patch("agentfox.engine.session_lifecycle.build_task_prompt", return_value="task"),
+            patch("agentfox.engine.session_lifecycle.extract_subtask_descriptions", return_value=["do X"]),
+            patch.object(runner, "_build_retry_context") as mock_retry_ctx,
+        ):
+            mock_spec_root.return_value = tmp_path
+            mock_assemble.return_value = MagicMock()
+            runner._build_prompts(tmp_path, attempt=1, previous_error=None)
+
+        mock_retry_ctx.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Issue #599: Budget exhaustion detection no longer uses "Unknown error" sentinel
 # AC-4
 # ---------------------------------------------------------------------------
