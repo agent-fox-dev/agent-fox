@@ -16,7 +16,7 @@ provider = "claude"
 
 [orchestrator]
 ## Maximum parallel sessions (1-8, default: 2)
-parallel = 2
+parallel = 4
 ## Maximum USD spend per session, 0 = unlimited (default: 20.0)
 max_budget_usd = 20.0
 
@@ -37,6 +37,8 @@ verifier = 1
 # Override the coder archetype model tier:
 [archetypes.overrides.coder]
 model_tier = "ADVANCED"
+effort = "high"
+compaction = true
 
 [archetypes.overrides.reviewer]
 model_tier = "ADVANCED"
