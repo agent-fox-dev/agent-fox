@@ -328,6 +328,9 @@ class NodeSessionRunner:
         # 114-REQ-3.1: Use KnowledgeProvider for knowledge context retrieval
         memory_facts: list[str] | None = None
         try:
+            # Set spec_dir for per-group file impact lookups (relevance scoring).
+            if hasattr(self._knowledge_provider, "set_spec_dir"):
+                self._knowledge_provider.set_spec_dir(spec_dir)
             descriptions = extract_subtask_descriptions(spec_dir, self._task_group)
             task_description = "\n".join(descriptions) if descriptions else self._spec_name
             footprint = _extract_spec_file_footprint(spec_dir)
