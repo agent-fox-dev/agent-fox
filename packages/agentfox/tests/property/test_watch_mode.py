@@ -235,15 +235,11 @@ class TestStallOverridesWatch:
     """TS-70-P4: Stalled graph terminates STALLED regardless of watch mode."""
 
     @given(watch=st.booleans())
-<<<<<<< Updated upstream:packages/agentfox/tests/property/test_watch_mode.py
     @settings(
         max_examples=10,
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-=======
-    @settings(max_examples=10)
->>>>>>> Stashed changes:tests/property/test_watch_mode.py
     def test_stall_always_terminates_stalled(self, watch: bool, tmp_path: Path) -> None:
         """For any watch setting, stalled graph returns STALLED."""
         import asyncio

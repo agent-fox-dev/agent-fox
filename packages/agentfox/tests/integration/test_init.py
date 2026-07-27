@@ -260,7 +260,7 @@ class TestInitConfigGeneration:
 
         config = load_config(config_path)
         assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
         assert config.theme.playful is True
 
     def test_fresh_config_contains_core_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:

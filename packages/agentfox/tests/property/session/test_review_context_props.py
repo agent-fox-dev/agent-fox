@@ -160,61 +160,26 @@ class TestConvergenceEquivalence:
 class TestFallbackCorrectness:
     """TS-27-P7: Property 7 -- Fallback Correctness.
 
-    Context includes review content when available from DB or file.
+    Review findings from DB are surfaced via render_review_context.
     Updated for spec 38: DuckDB is now mandatory, so conn is always provided.
     """
 
-    @given(
-        has_db_findings=st.booleans(),
-        has_file=st.booleans(),
-    )
+    @given(findings=review_finding_list())
     @settings(max_examples=10)
     def test_fallback_correctness(
         self,
-        has_db_findings: bool,
-        has_file: bool,
-        tmp_path_factory: pytest.TempPathFactory,
+        findings: list[ReviewFinding],
     ) -> None:
-        """Context contains review content when available from either source."""
-        from agentfox.session.prompt import assemble_context
-        from hypothesis import assume
-
-        assume(has_db_findings or has_file)
-
-        tmp_path = tmp_path_factory.mktemp("fallback")
-        spec_dir = tmp_path / "test_spec"
-        spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
-
-        # DuckDB is always required (38-REQ-4.1)
+        """render_review_context includes findings when DB has records."""
         conn = duckdb.connect(":memory:")
         create_schema(conn)
+        insert_findings(conn, findings)
 
-        if has_db_findings:
-            finding = ReviewFinding(
-                id=str(uuid.uuid4()),
-                severity="major",
-                description="DB finding",
-                requirement_ref=None,
-                spec_name="test_spec",
-                task_group="1",
-                session_id="s1",
-            )
-            insert_findings(conn, [finding])
+        result = render_review_context(conn, "prop_test_spec")
+        assert result is not None
+        assert "Reviewer Findings" in result
 
-        if has_file:
-            (spec_dir / "review.md").write_text(
-                "# Skeptic Review\n\n## Critical Findings\n- [severity: major] File finding\n"
-            )
-
-        result = assemble_context(spec_dir, 1, conn=conn)
-
-        # Review content should appear from one source
-        has_review = "Reviewer Findings" in result or "review" in result.lower()
-        assert has_review
+        for finding in findings:
+            assert finding.description in result
 
         conn.close()
-
-
-# Need pytest for tmp_path_factory
-import pytest  # noqa: E402

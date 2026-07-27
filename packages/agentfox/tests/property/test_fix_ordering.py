@@ -142,13 +142,7 @@ class TestDependencyRespectProperty:
 
         nums, edge_tuples = data
         issues = [_make_issue(n) for n in nums]
-<<<<<<< Updated upstream:packages/agentfox/tests/property/test_fix_ordering.py
         edges = [DependencyEdge(a, b, "explicit", f"{a} before {b}") for a, b in edge_tuples]
-=======
-        edges = [
-            DependencyEdge(a, b, "explicit", f"{a} before {b}") for a, b in edge_tuples
-        ]
->>>>>>> Stashed changes:tests/property/test_fix_ordering.py
 
         order = build_graph(issues, edges)
 
@@ -182,13 +176,7 @@ class TestExplicitEdgePrecedenceProperty:
 
         merged = merge_edges(explicit, ai)
 
-<<<<<<< Updated upstream:packages/agentfox/tests/property/test_fix_ordering.py
         assert any(e.from_issue == a and e.to_issue == b for e in merged), f"Expected edge {a}->{b} in merged: {merged}"
-=======
-        assert any(e.from_issue == a and e.to_issue == b for e in merged), (
-            f"Expected edge {a}->{b} in merged: {merged}"
-        )
->>>>>>> Stashed changes:tests/property/test_fix_ordering.py
         assert not any(e.from_issue == b and e.to_issue == a for e in merged), (
             f"Unexpected edge {b}->{a} in merged: {merged}"
         )

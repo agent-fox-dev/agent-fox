@@ -454,13 +454,7 @@ class TestFindAffectedTasks:
                 result.returncode = 1
             return result
 
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_hard_reset.py
         with patch("agentfox.engine.reset.subprocess.run", side_effect=mock_run):
-=======
-        with patch(
-            "agent_fox.engine.reset_artifacts.subprocess.run", side_effect=mock_run
-        ):
->>>>>>> Stashed changes:tests/unit/engine/test_hard_reset.py
             affected = find_affected_tasks(history, new_head, tmp_path)
 
         assert "s:2" in affected

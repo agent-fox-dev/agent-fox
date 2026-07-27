@@ -204,7 +204,7 @@ class TestOldConfigSilentIgnore:
         """
         raw = tomllib.loads('[orchestrator]\nquality_gate = "make check"\nquality_gate_timeout = 120')
         config = AgentFoxConfig.model_validate(raw)
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
 
     def test_old_models_section_silently_ignored(self) -> None:
         """TS-130-E2: TOML with [models] section parses silently.
@@ -294,7 +294,7 @@ class TestSmoke:
         config = load_config(config_toml)
         assert not hasattr(config, "models") or "models" not in AgentFoxConfig.model_fields
         assert "quality_gate" not in OrchestratorConfig.model_fields
-        assert config.orchestrator.parallel == 2
+        assert config.orchestrator.parallel == 4
 
     def test_template_generation_after_removal(self) -> None:
         """TS-130-SMOKE-2: Generated template excludes all removed items.

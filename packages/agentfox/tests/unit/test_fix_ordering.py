@@ -455,13 +455,7 @@ class TestStaleness:
             )
 
             # Should have called platform to verify
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_fix_ordering.py
             assert mock_platform.list_issues_by_label.called or mock_platform.method_calls
-=======
-            assert (
-                mock_platform.list_issues_by_label.called or mock_platform.method_calls
-            )
->>>>>>> Stashed changes:tests/unit/test_fix_ordering.py
 
     @pytest.mark.asyncio
     async def test_ts_71_16_obsolete_issues_closed_with_comment(self) -> None:
@@ -615,11 +609,7 @@ class TestObservability:
                 "agentfox.nightshift.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_fix_ordering.py
             patch("agentfox.nightshift.engine._emit_audit_event") as mock_audit,
-=======
-            patch("agent_fox.nightshift.engine._emit_audit_event") as mock_audit,
->>>>>>> Stashed changes:tests/unit/test_fix_ordering.py
         ):
             from agentfox.nightshift.staleness import StalenessResult
 
@@ -646,14 +636,7 @@ class TestObservability:
                 c for c in mock_audit.call_args_list if len(c.args) >= 3 and c.args[2] == AuditEventType.ISSUE_OBSOLETE
             ]
             assert len(audit_calls) >= 1
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_fix_ordering.py
             payload = audit_calls[0].kwargs.get("payload", {})
-=======
-            if len(audit_calls[0].args) > 1:
-                payload = audit_calls[0].args[1]
-            else:
-                payload = audit_calls[0].kwargs.get("payload", {})
->>>>>>> Stashed changes:tests/unit/test_fix_ordering.py
             assert payload["closed_issue"] == 20
             assert payload["fixed_by"] == 10
 

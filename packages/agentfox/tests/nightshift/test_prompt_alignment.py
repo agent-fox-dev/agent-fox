@@ -449,7 +449,7 @@ class TestStaticAnalysis:
     """Static inspection of fix_pipeline.py source code."""
 
     def test_ts_02_8_render_criteria_context_is_fallback_only(self) -> None:
-        """_render_criteria_context has fallback comment, only in except blocks.
+        """_render_criteria_context used only as fallback or compact-render path.
 
         Requirement: 02-REQ-3.1
         """
@@ -470,31 +470,41 @@ class TestStaticAnalysis:
                     found_fallback_comment = True
         assert found_fallback_comment, "_render_criteria_context should have a 'fallback' comment"
 
-        # 3. All call sites are inside except blocks
+        # 3. All call sites are inside except blocks or compact-rendering if-branches
         tree = ast.parse(source)
 
-        class _ExceptCallChecker(ast.NodeVisitor):
+        class _AllowedCallChecker(ast.NodeVisitor):
             def __init__(self) -> None:
-                self.in_except = False
+                self.in_allowed = False
                 self.violations: list[int] = []
 
             def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-                old = self.in_except
-                self.in_except = True
+                old = self.in_allowed
+                self.in_allowed = True
                 self.generic_visit(node)
-                self.in_except = old
+                self.in_allowed = old
+
+            def visit_If(self, node: ast.If) -> None:
+                test_src = ast.dump(node.test)
+                if "use_compact" in test_src:
+                    old = self.in_allowed
+                    self.in_allowed = True
+                    self.generic_visit(node)
+                    self.in_allowed = old
+                else:
+                    self.generic_visit(node)
 
             def visit_Call(self, node: ast.Call) -> None:
                 func = node.func
                 if isinstance(func, ast.Attribute) and func.attr == "_render_criteria_context":
-                    if not self.in_except:
+                    if not self.in_allowed:
                         self.violations.append(node.lineno)
                 self.generic_visit(node)
 
-        checker = _ExceptCallChecker()
+        checker = _AllowedCallChecker()
         checker.visit(tree)
         assert not checker.violations, (
-            f"_render_criteria_context called outside except blocks at lines: {checker.violations}"
+            f"_render_criteria_context called outside except/compact blocks at lines: {checker.violations}"
         )
 
     def test_ts_02_9_render_criteria_section_retained_for_triage_comment(

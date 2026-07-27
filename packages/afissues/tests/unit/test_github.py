@@ -49,8 +49,8 @@ class TestGitHubPlatformStructure:
             for name, fn in inspect.getmembers(GitHubPlatform, predicate=inspect.isfunction)
             if inspect.iscoroutinefunction(fn) and not name.startswith("_")
         ]
-        assert len(async_methods) == 14, (
-            f"Expected 14 public async methods, got {len(async_methods)}: {sorted(async_methods)}"
+        assert len(async_methods) == 17, (
+            f"Expected 17 public async methods, got {len(async_methods)}: {sorted(async_methods)}"
         )
 
     def test_uses_httpx_async_client(self) -> None:

@@ -142,12 +142,8 @@ class TestNoopWhenHashMatches:
             emitted_events.append({"args": args, "kwargs": kwargs})
 
         with patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
             "agentfox.engine.config_reload.emit_audit_event",
             side_effect=_capture,
-=======
-            "agent_fox.engine.config_reload.emit_audit_event", side_effect=_capture
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -218,12 +214,8 @@ class TestOrchFieldsUpdated:
         )
         new_agent_cfg = AgentFoxConfig(orchestrator=new_orch_cfg)
         with patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
-=======
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -255,18 +247,10 @@ class TestCircuitBreakerRebuilt:
         orch._full_config = AgentFoxConfig()  # type: ignore[attr-defined]
         orch._run_id = "test_run"
 
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
         new_agent_cfg = AgentFoxConfig(orchestrator=OrchestratorConfig(max_cost=999.0, parallel=1))
         with patch(
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
-=======
-        new_agent_cfg = AgentFoxConfig(
-            orchestrator=OrchestratorConfig(max_cost=999.0, parallel=1)
-        )
-        with patch(
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -305,16 +289,10 @@ class TestParallelChangeNotApplied:
         new_agent_cfg = AgentFoxConfig(orchestrator=OrchestratorConfig(parallel=4, inter_session_delay=0))
         with (
             patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
                 "agentfox.engine.config_reload.load_config",
                 return_value=new_agent_cfg,
             ),
             caplog.at_level(logging.WARNING, logger="agentfox.engine.config_reload"),
-=======
-                "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
-            ),
-            caplog.at_level(logging.WARNING, logger="agent_fox.engine.engine"),
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -324,44 +302,6 @@ class TestParallelChangeNotApplied:
 
 
 # ---------------------------------------------------------------------------
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
-=======
-# TS-66-7: HookConfig updated
-# ---------------------------------------------------------------------------
-
-
-class TestHookConfigUpdated:
-    """TS-66-7: Stored HookConfig is replaced on reload.
-
-    Requirement: 66-REQ-4.1
-    """
-
-    def test_hook_config_updated(self, tmp_path: Path) -> None:
-        """self._hook_config references the new HookConfig after reload."""
-        config_file = tmp_path / "config.toml"
-        config_file.write_text("[hooks]\npost_code = ['make lint']\n")
-
-        orch = _make_orch(tmp_path)
-        orch._config_path = config_file  # type: ignore[attr-defined]
-        orch._config_hash = "stale"  # type: ignore[attr-defined]
-        orch._full_config = AgentFoxConfig()  # type: ignore[attr-defined]
-        orch._run_id = "test_run"
-
-        new_hooks = HookConfig(post_code=["make lint"])
-        new_agent_cfg = AgentFoxConfig(
-            orchestrator=OrchestratorConfig(parallel=1),
-            hooks=new_hooks,
-        )
-        with patch(
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
-        ):
-            orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
-
-        assert orch._hook_config == new_hooks
-
-
-# ---------------------------------------------------------------------------
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
 # TS-66-8: ArchetypesConfig updated
 # ---------------------------------------------------------------------------
 
@@ -389,12 +329,8 @@ class TestArchetypesConfigUpdated:
             archetypes=new_arch,
         )
         with patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
-=======
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -429,12 +365,8 @@ class TestPlanningConfigUpdated:
             planning=new_plan,
         )
         with patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
-=======
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -472,19 +404,12 @@ class TestAuditEventEmitted:
 
         with (
             patch(
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
                 "agentfox.engine.config_reload.load_config",
                 return_value=new_agent_cfg,
             ),
             patch(
                 "agentfox.engine.config_reload.emit_audit_event",
                 side_effect=_capture,
-=======
-                "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
-            ),
-            patch(
-                "agent_fox.engine.config_reload.emit_audit_event", side_effect=_capture
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
             ),
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
@@ -668,18 +593,10 @@ class TestSyncIntervalZeroStopsBarriers:
         orch._full_config = AgentFoxConfig(orchestrator=start_cfg)  # type: ignore[attr-defined]
         orch._run_id = "test_run"
 
-<<<<<<< Updated upstream:packages/agentfox/tests/unit/engine/test_config_reload.py
         new_agent_cfg = AgentFoxConfig(orchestrator=OrchestratorConfig(sync_interval=0, parallel=1))
         with patch(
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
-=======
-        new_agent_cfg = AgentFoxConfig(
-            orchestrator=OrchestratorConfig(sync_interval=0, parallel=1)
-        )
-        with patch(
-            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
->>>>>>> Stashed changes:tests/unit/engine/test_config_reload.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
