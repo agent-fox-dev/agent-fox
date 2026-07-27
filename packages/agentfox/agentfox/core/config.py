@@ -780,6 +780,13 @@ class AgentFoxConfig(BaseModel):
     # Requirements: 13-REQ-6.3
     _spec_tool_explicit: bool = PrivateAttr(default=False)
 
+    # Private attribute to track whether [caching] was explicitly present
+    # in the raw merged config dict before Pydantic validation.  Set by
+    # _load_config_global_local().  Used by the orchestrator to decide
+    # whether to auto-upgrade cache policy to EXTENDED for multi-session
+    # runs (issue #743).
+    _caching_explicit: bool = PrivateAttr(default=False)
+
 
 def _check_symlink(path: Path) -> None:
     """Reject a config file path that is a symlink (CWE-59).
@@ -893,7 +900,10 @@ def _load_config_single_file(path: Path) -> AgentFoxConfig:
         if key not in known_sections:
             logger.warning("Ignoring unknown config section: '%s'", key)
 
-    return _validate_config_dict(data, source=str(path))
+    config = _validate_config_dict(data, source=str(path))
+    if "caching" in data:
+        config._caching_explicit = True
+    return config
 
 
 def _load_config_global_local() -> AgentFoxConfig:
@@ -921,6 +931,8 @@ def _load_config_global_local() -> AgentFoxConfig:
 
         if "spec_tool" in local_dict:
             config._spec_tool_explicit = True
+        if "caching" in local_dict:
+            config._caching_explicit = True
 
         return config
 
@@ -968,6 +980,8 @@ def _load_config_global_local() -> AgentFoxConfig:
 
     if "spec_tool" in global_dict:
         config._spec_tool_explicit = True
+    if "caching" in global_dict:
+        config._caching_explicit = True
 
     return config
 

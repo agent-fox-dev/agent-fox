@@ -42,6 +42,7 @@ from afaudit.sink import SinkDispatcher
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
+    CachePolicy,
     OrchestratorConfig,
     PlanningConfig,
     RoutingConfig,
@@ -307,6 +308,35 @@ class Orchestrator:
                 pass
         return ""
 
+    # -- Cache policy auto-upgrade -----------------------------------------
+
+    def _maybe_upgrade_cache_policy(self, graph: TaskGraph) -> None:
+        """Auto-select EXTENDED cache policy for multi-session runs.
+
+        When the orchestrator detects a multi-session run (>3 graph nodes
+        or parallel > 1) and no explicit cache policy was configured by
+        the user, upgrade from DEFAULT to EXTENDED to benefit from 1-hour
+        TTL cache hits on shared system prompt prefixes.
+
+        Requirements: issue #743
+        """
+        if self._full_config is None:
+            return
+        if self._full_config._caching_explicit:
+            return
+        is_multi_session = len(graph.nodes) > 3 or self._config.parallel > 1
+        if not is_multi_session:
+            return
+        if self._full_config.caching.cache_policy != CachePolicy.DEFAULT:
+            return
+        self._full_config.caching.cache_policy = CachePolicy.EXTENDED
+        logger.info(
+            "Auto-selecting EXTENDED cache policy for multi-session run "
+            "(%d nodes, parallel=%d)",
+            len(graph.nodes),
+            self._config.parallel,
+        )
+
     # -- Init / Run / Watch / Shutdown --------------------------------------
 
     def _init_run(
@@ -366,6 +396,11 @@ class Orchestrator:
 
         self._graph = graph
         self._dispatch_mgr.set_graph(graph)
+
+        # Auto-upgrade cache policy to EXTENDED for multi-session runs
+        # when no explicit user configuration is set (issue #743).
+        # Criteria: >3 graph nodes OR parallel > 1.
+        self._maybe_upgrade_cache_policy(graph)
 
         plan_hash = self._compute_plan_hash()
         state = load_or_init_state(self._knowledge_db_conn, plan_hash, graph)
