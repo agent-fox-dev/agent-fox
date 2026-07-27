@@ -431,8 +431,9 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
 
     Includes a Spec Overview listing all requirement IDs and titles for
     orientation, followed by full content only for matching requirements.
-    Non-requirement sections (correctness properties, execution paths,
-    error handling, external APIs) are included in full.
+    Correctness properties and error handling entries are filtered to
+    those linked to the in-scope requirements.  Execution paths and
+    external APIs are included in full (no requirement linkage field).
     """
     lines: list[str] = []
 
@@ -440,7 +441,13 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
     lines.append("")
 
     filtered = [r for r in req.requirements if _requirement_matches_refs(r, requirement_refs)]
-    filtered_ids = {r.id for r in filtered}
+    filtered_ids: set[str] = set()
+    for r in filtered:
+        filtered_ids.add(r.id)
+        for c in r.acceptance_criteria:
+            filtered_ids.add(c.id)
+        for c in r.edge_cases:
+            filtered_ids.add(c.id)
 
     lines.append("## Spec Overview")
     lines.append("")
@@ -488,10 +495,13 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
                 lines.append(f"{i}. [{c.id}] {sentence}")
             lines.append("")
 
-    # Include full design context sections
+    # Include design context sections — filter to scope where linkage exists
     lines.append("## Correctness Properties")
     lines.append("")
-    for prop in req.correctness_properties:
+    filtered_props = [
+        prop for prop in req.correctness_properties if not prop.validates or set(prop.validates) & filtered_ids
+    ]
+    for prop in filtered_props:
         lines.append(f"### {prop.id}: {prop.title}")
         lines.append("")
         lines.append(f"*For any* {prop.for_any}")
@@ -500,6 +510,10 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
         if prop.validates:
             lines.append(f"**Validates:** {', '.join(prop.validates)}")
             lines.append("")
+    omitted_props = len(req.correctness_properties) - len(filtered_props)
+    if omitted_props > 0:
+        lines.append(f"({omitted_props} additional correctness properties omitted — see full spec for details)")
+        lines.append("")
 
     lines.append("## Execution Paths")
     lines.append("")
@@ -515,9 +529,16 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
     lines.append("")
     lines.append("| ID | Condition | Behavior | Requirement |")
     lines.append("|----|-----------|----------|-------------|")
-    for entry in req.error_handling:
+    filtered_errors = [
+        entry for entry in req.error_handling if not entry.requirement_id or entry.requirement_id in filtered_ids
+    ]
+    for entry in filtered_errors:
         lines.append(f"| {entry.id} | {entry.condition} | {entry.behavior} | {entry.requirement_id} |")
     lines.append("")
+    omitted_errors = len(req.error_handling) - len(filtered_errors)
+    if omitted_errors > 0:
+        lines.append(f"({omitted_errors} additional error handling entries omitted — see full spec for details)")
+        lines.append("")
 
     if req.external_apis:
         lines.append("## External APIs")
@@ -786,7 +807,6 @@ def render_individual_scoped(spec: Spec, target_group: int) -> dict[str, str]:
         result["test_spec"] = render_test_spec_scoped(spec.test_spec, test_spec_ids)
     else:
         result["test_spec"] = render_test_spec(spec.test_spec)
-
 
     result["tasks"] = render_tasks_scoped(spec.tasks, target_group)
 

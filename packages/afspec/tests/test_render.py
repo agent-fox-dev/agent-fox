@@ -15,6 +15,17 @@ from afspec import (
     render_tasks,
     render_test_spec,
 )
+from afspec.models import (
+    CorrectnessProperty,
+    ErrorHandlingEntry,
+    ExecutionPath,
+    ExternalAPI,
+    ExternalAPISymbol,
+    PathStep,
+    Requirement,
+    Requirements,
+    UserStory,
+)
 from afspec.render import (
     render_requirements_scoped,
     render_tasks_scoped,
@@ -239,6 +250,7 @@ def test_smoke_render(valid_spec_dir: Path) -> None:
 # Scoped rendering (issue #717)
 # ---------------------------------------------------------------------------
 
+
 class TestRenderRequirementsScoped:
     """Scoped requirements rendering filters to matching refs."""
 
@@ -272,6 +284,241 @@ class TestRenderRequirementsScoped:
         # Should still have the overview but no full requirement detail
         assert "## Spec Overview" in md
         assert "(other group)" in md
+
+
+# ---------------------------------------------------------------------------
+# Scoped rendering — correctness/error filtering (issue #736)
+# ---------------------------------------------------------------------------
+
+
+def _make_multi_req_fixture() -> Requirements:
+    """Build a Requirements with two requirements and cross-linked design context.
+
+    REQ-1 has AC 01-REQ-1.1 and edge case 01-REQ-1.E1.
+    REQ-2 has AC 01-REQ-2.1.
+    Correctness property PROP-1 validates REQ-1; PROP-2 validates REQ-2.
+    Error handling ERR-1 is for REQ-1.E1; ERR-2 is for REQ-2.
+    One execution path and one external API are present.
+    """
+    req1 = Requirement(
+        id="01-REQ-1",
+        title="First requirement",
+        user_story=UserStory(role="user", goal="do thing 1", benefit="benefit 1"),
+        acceptance_criteria=[
+            Criterion(
+                id="01-REQ-1.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="the system",
+                action="do thing 1",
+            ),
+        ],
+        edge_cases=[
+            Criterion(
+                id="01-REQ-1.E1",
+                ears_pattern=EARSPattern.UNWANTED,
+                error_condition="bad input",
+                system="the system",
+                action="reject",
+            ),
+        ],
+    )
+    req2 = Requirement(
+        id="01-REQ-2",
+        title="Second requirement",
+        user_story=UserStory(role="admin", goal="do thing 2", benefit="benefit 2"),
+        acceptance_criteria=[
+            Criterion(
+                id="01-REQ-2.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="the system",
+                action="do thing 2",
+            ),
+        ],
+    )
+    return Requirements(
+        spec_id="01",
+        spec_name="Test Spec",
+        introduction="Intro",
+        glossary={"term": "definition"},
+        requirements=[req1, req2],
+        correctness_properties=[
+            CorrectnessProperty(
+                id="01-PROP-1",
+                title="Prop for REQ-1",
+                for_any="valid input",
+                invariant="thing 1 holds",
+                validates=["01-REQ-1.1"],
+            ),
+            CorrectnessProperty(
+                id="01-PROP-2",
+                title="Prop for REQ-2",
+                for_any="valid input",
+                invariant="thing 2 holds",
+                validates=["01-REQ-2.1"],
+            ),
+        ],
+        execution_paths=[
+            ExecutionPath(
+                id="01-PATH-1",
+                title="Happy path",
+                steps=[PathStep(actor="user", action="clicks button")],
+            ),
+        ],
+        error_handling=[
+            ErrorHandlingEntry(
+                id="01-ERR-1",
+                condition="Bad input",
+                behavior="Reject",
+                requirement_id="01-REQ-1.E1",
+            ),
+            ErrorHandlingEntry(
+                id="01-ERR-2",
+                condition="Missing field",
+                behavior="Return error",
+                requirement_id="01-REQ-2.1",
+            ),
+        ],
+        external_apis=[
+            ExternalAPI(
+                package="some-lib",
+                version="1.0",
+                symbols=[
+                    ExternalAPISymbol(
+                        name="func",
+                        import_path="some_lib",
+                        signature="func() -> None",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+class TestScopedCorrectnessPropertyFiltering:
+    """TS-NS-1 / NS-REQ-1: Correctness properties scoped to filtered_ids."""
+
+    def test_includes_in_scope_property(self) -> None:
+        """Property whose validates intersects in-scope IDs is included."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-PROP-1" in md
+        assert "Prop for REQ-1" in md
+
+    def test_excludes_out_of_scope_property(self) -> None:
+        """Property whose validates only references out-of-scope IDs is excluded."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-PROP-2" not in md
+        assert "Prop for REQ-2" not in md
+
+    def test_property_without_validates_is_kept(self) -> None:
+        """A correctness property with no validates field is always included."""
+        req = _make_multi_req_fixture()
+        req.correctness_properties.append(
+            CorrectnessProperty(
+                id="01-PROP-3",
+                title="Universal prop",
+                for_any="anything",
+                invariant="always true",
+                validates=[],
+            ),
+        )
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-PROP-3" in md
+
+
+class TestScopedErrorHandlingFiltering:
+    """TS-NS-2 / NS-REQ-2: Error handling entries scoped to filtered_ids."""
+
+    def test_includes_in_scope_error(self) -> None:
+        """Error entry whose requirement_id is in scope is included."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-ERR-1" in md
+        assert "Bad input" in md
+
+    def test_excludes_out_of_scope_error(self) -> None:
+        """Error entry whose requirement_id is out of scope is excluded."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-ERR-2" not in md
+        assert "Missing field" not in md
+
+    def test_error_without_requirement_id_is_kept(self) -> None:
+        """An error handling entry with no requirement_id is always included."""
+        req = _make_multi_req_fixture()
+        req.error_handling.append(
+            ErrorHandlingEntry(
+                id="01-ERR-3",
+                condition="Unknown",
+                behavior="Log and continue",
+                requirement_id="",
+            ),
+        )
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "01-ERR-3" in md
+
+
+class TestScopedOmissionNotes:
+    """TS-NS-3 / NS-REQ-3: Omitted items counted and noted."""
+
+    def test_correctness_omission_note(self) -> None:
+        """When correctness properties are filtered out, an omission note appears."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "1 additional correctness properties omitted" in md
+
+    def test_error_omission_note(self) -> None:
+        """When error handling entries are filtered out, an omission note appears."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "1 additional error handling entries omitted" in md
+
+    def test_no_omission_note_when_all_included(self) -> None:
+        """When all items match, no omission note appears."""
+        req = _make_multi_req_fixture()
+        # Both REQ-1 and REQ-2 in scope
+        md = render_requirements_scoped(req, {"01-REQ-1.1", "01-REQ-2.1"})
+        assert "omitted" not in md
+
+
+class TestScopedExternalAPIsUnfiltered:
+    """TS-NS-4 / NS-REQ-4: External APIs remain unfiltered."""
+
+    def test_external_apis_always_present(self) -> None:
+        """External APIs section appears regardless of filtered_ids."""
+        req = _make_multi_req_fixture()
+        # Filter to only REQ-1 — external APIs should still appear
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "## External APIs" in md
+        assert "some-lib" in md
+        assert "func" in md
+
+    def test_external_apis_present_with_no_matching_reqs(self) -> None:
+        """External APIs appear even when no requirements match."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"NONEXISTENT"})
+        assert "## External APIs" in md
+        assert "some-lib" in md
+
+
+class TestScopedExecutionPathsUnfiltered:
+    """TS-NS-5 / NS-REQ-5: Execution paths retained in full."""
+
+    def test_execution_paths_always_present(self) -> None:
+        """All execution paths appear regardless of scope."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "## Execution Paths" in md
+        assert "01-PATH-1" in md
+        assert "Happy path" in md
+
+    def test_execution_paths_present_with_no_matching_reqs(self) -> None:
+        """Execution paths appear even when no requirements match."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"NONEXISTENT"})
+        assert "## Execution Paths" in md
+        assert "01-PATH-1" in md
 
 
 class TestRenderTestSpecScoped:
