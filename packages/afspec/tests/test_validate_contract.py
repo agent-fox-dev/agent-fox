@@ -158,7 +158,7 @@ def _build_valid_spec_with_oversized_refs(total_refs: int = 16) -> Spec:
             spec_name="test_validation_contract",
             introduction="Test spec for validation contract.",
             requirements=[req],
-            execution_paths=[ExecutionPath(id="08-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[ExecutionPath(id="08-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="08",

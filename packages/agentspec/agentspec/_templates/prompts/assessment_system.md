@@ -7,6 +7,7 @@ Evaluate the PRD against the following spec-format expectations:
 3. **Non-Goals** — Explicit boundaries stating what is deliberately excluded from scope.
 4. **Background** — Context, motivation, and any prior art that informs the requirements.
 5. **External API Surface** — If the PRD references external services, libraries, or APIs, check whether it documents: (a) which endpoints or functions are used, (b) expected response shapes, and (c) failure modes (errors, rate limits, missing data). Flag missing API surface documentation as a gap. If the PRD depends on external APIs but has no "Verified External API" section, generate a question asking the user to document the API surface or confirm the assumptions are acceptable. Skip this dimension when the PRD has no external dependencies.
+6. **Tech Stack** — If the PRD specifies technical implementation, verify it names the language, framework, and test tooling. Missing tech stack causes wrong-language artifacts.
 
 For each section, assess whether it is present, complete, and of sufficient quality. Identify gaps, ambiguities, and missing information.
 

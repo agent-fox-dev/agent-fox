@@ -42,7 +42,7 @@
       }
     }
   },
-  "required": ["spec_id", "spec_name", "schema_version"],
+  "required": ["spec_id", "spec_name", "schema_version", "test_commands", "task_groups", "traceability", "dependencies"],
   "additionalProperties": false,
   "$defs": {
     "test_commands": {
@@ -52,6 +52,7 @@
         "all_tests": { "type": "string" },
         "linter": { "type": "string" }
       },
+      "required": ["spec_tests", "all_tests", "linter"],
       "additionalProperties": false
     },
     "task_dependency": {
@@ -89,7 +90,7 @@
         },
         "optional": { "type": "boolean" }
       },
-      "required": ["id", "title"],
+      "required": ["id", "title", "details", "test_spec_refs", "requirement_refs", "state", "optional"],
       "additionalProperties": false
     },
     "verification_subtask": {
@@ -98,9 +99,11 @@
         "id": { "type": "string" },
         "checks": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "minItems": 1
         }
       },
+      "required": ["id", "checks"],
       "additionalProperties": false
     },
     "task_group": {
@@ -118,7 +121,7 @@
         },
         "verification": { "$ref": "#/$defs/verification_subtask" }
       },
-      "required": ["id", "kind", "title"],
+      "required": ["id", "kind", "title", "subtasks", "verification"],
       "additionalProperties": false
     },
     "traceability_entry": {

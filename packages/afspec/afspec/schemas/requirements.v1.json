@@ -60,7 +60,7 @@
       }
     }
   },
-  "required": ["spec_id", "spec_name", "schema_version", "introduction"],
+  "required": ["spec_id", "spec_name", "schema_version", "introduction", "glossary", "requirements", "correctness_properties", "execution_paths", "error_handling"],
   "additionalProperties": false,
   "$defs": {
     "user_story": {
@@ -90,7 +90,7 @@
         "state": { "type": "string" },
         "feature": { "type": "string" }
       },
-      "required": ["id", "ears_pattern", "system", "action"],
+      "required": ["id", "ears_pattern", "system", "action", "return_contract"],
       "additionalProperties": false,
       "allOf": [
         {
@@ -211,14 +211,15 @@
         "user_story": { "$ref": "#/$defs/user_story" },
         "acceptance_criteria": {
           "type": "array",
-          "items": { "$ref": "#/$defs/criterion" }
+          "items": { "$ref": "#/$defs/criterion" },
+          "minItems": 1
         },
         "edge_cases": {
           "type": "array",
           "items": { "$ref": "#/$defs/criterion" }
         }
       },
-      "required": ["id", "title", "user_story"],
+      "required": ["id", "title", "user_story", "acceptance_criteria", "edge_cases"],
       "additionalProperties": false
     },
     "correctness_property": {
@@ -230,10 +231,11 @@
         "invariant": { "type": "string" },
         "validates": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "minItems": 1
         }
       },
-      "required": ["id", "title", "for_any", "invariant"],
+      "required": ["id", "title", "for_any", "invariant", "validates"],
       "additionalProperties": false
     },
     "path_step": {
@@ -252,10 +254,11 @@
         "title": { "type": "string", "minLength": 1 },
         "steps": {
           "type": "array",
-          "items": { "$ref": "#/$defs/path_step" }
+          "items": { "$ref": "#/$defs/path_step" },
+          "minItems": 2
         }
       },
-      "required": ["id", "title"],
+      "required": ["id", "title", "steps"],
       "additionalProperties": false
     },
     "error_handling_entry": {

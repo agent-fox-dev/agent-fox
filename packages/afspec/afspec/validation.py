@@ -280,6 +280,179 @@ def validate_schema(spec: Spec) -> list[ValidationError]:
 _SMOKE_TEST_RE = re.compile(r"^TS-\w+-SMOKE-")
 _STUB_AUDIT_RE = re.compile(r"stub|dead[\s_-]?code", re.IGNORECASE)
 
+# ---------------------------------------------------------------------------
+# ID format validation
+# ---------------------------------------------------------------------------
+
+_ID_PATTERNS = {
+    "requirement": re.compile(r"^\w+-REQ-\d+$"),
+    "criterion": re.compile(r"^\w+-REQ-\d+\.\d+$"),
+    "edge_case": re.compile(r"^\w+-REQ-\d+\.E\d+$"),
+    "property": re.compile(r"^\w+-PROP-\d+$"),
+    "path": re.compile(r"^\w+-PATH-\d+$"),
+    "error": re.compile(r"^\w+-ERR-\d+$"),
+    "test_case": re.compile(r"^TS-\w+-\d+$"),
+    "property_test": re.compile(r"^TS-\w+-P\d+$"),
+    "edge_case_test": re.compile(r"^TS-\w+-E\d+$"),
+    "smoke_test": re.compile(r"^TS-\w+-SMOKE-\d+$"),
+    "subtask": re.compile(r"^\d+\.\d+$"),
+    "verification": re.compile(r"^\d+\.V$"),
+}
+
+
+def _validate_id_formats(spec: Spec) -> list[ValidationError]:
+    """Validate that all entity IDs match their expected format and spec_id prefix.
+
+    Checks three rules:
+    (a) Each ID matches its expected regex pattern.
+    (b) The spec_id prefix embedded in each ID matches the artifact's ``spec_id``.
+    (c) No duplicate IDs within the same entity type.
+    """
+    errors: list[ValidationError] = []
+    spec_id = spec.requirements.spec_id
+
+    def _check_id(
+        entity_id: str,
+        entity_type: str,
+        file: str,
+        seen: set[str],
+    ) -> None:
+        pattern = _ID_PATTERNS.get(entity_type)
+        if pattern and not pattern.match(entity_id):
+            errors.append(
+                ValidationError(
+                    file=file,
+                    path=entity_id,
+                    message=(
+                        f"{entity_type} ID '{entity_id}' does not match "
+                        f"expected pattern {pattern.pattern}"
+                    ),
+                    rule="id-format",
+                )
+            )
+        # Check spec_id prefix where applicable
+        if pattern and entity_type in (
+            "requirement", "criterion", "edge_case", "property", "path", "error",
+        ):
+            for marker in ("-REQ-", "-PROP-", "-PATH-", "-ERR-"):
+                idx = entity_id.find(marker)
+                if idx > 0:
+                    prefix = entity_id[:idx]
+                    break
+            else:
+                prefix = ""
+            if prefix and prefix != spec_id:
+                errors.append(
+                    ValidationError(
+                        file=file,
+                        path=entity_id,
+                        message=(
+                            f"{entity_type} ID '{entity_id}' has spec_id prefix "
+                            f"'{prefix}' but artifact spec_id is '{spec_id}'"
+                        ),
+                        rule="id-format",
+                    )
+                )
+        elif pattern and entity_type in (
+            "test_case", "property_test", "edge_case_test", "smoke_test",
+        ):
+            # These IDs have format TS-{spec_id}-{N} or TS-{spec_id}-SMOKE-{N}
+            remainder = entity_id[3:] if entity_id.startswith("TS-") else ""
+            ts_prefix = ""
+            for marker in ("-SMOKE-", "-P", "-E"):
+                idx = remainder.find(marker)
+                if idx > 0:
+                    ts_prefix = remainder[:idx]
+                    break
+            if not ts_prefix and remainder:
+                last_dash = remainder.rfind("-")
+                if last_dash > 0:
+                    ts_prefix = remainder[:last_dash]
+            if ts_prefix and ts_prefix != spec_id:
+                    errors.append(
+                        ValidationError(
+                            file=file,
+                            path=entity_id,
+                            message=(
+                                f"{entity_type} ID '{entity_id}' has spec_id prefix "
+                                f"'{ts_prefix}' but artifact spec_id is '{spec_id}'"
+                            ),
+                            rule="id-format",
+                        )
+                    )
+        # Duplicate check
+        if entity_id in seen:
+            errors.append(
+                ValidationError(
+                    file=file,
+                    path=entity_id,
+                    message=(
+                        f"Duplicate {entity_type} ID '{entity_id}'"
+                    ),
+                    rule="id-format",
+                )
+            )
+        seen.add(entity_id)
+
+    # Requirements
+    seen_reqs: set[str] = set()
+    for req in spec.requirements.requirements:
+        _check_id(req.id, "requirement", "requirements.json", seen_reqs)
+
+        seen_criteria: set[str] = set()
+        for criterion in req.acceptance_criteria:
+            _check_id(criterion.id, "criterion", "requirements.json", seen_criteria)
+
+        seen_edge_cases: set[str] = set()
+        for edge_case in req.edge_cases:
+            _check_id(edge_case.id, "edge_case", "requirements.json", seen_edge_cases)
+
+    # Correctness properties
+    seen_props: set[str] = set()
+    for prop in spec.requirements.correctness_properties:
+        _check_id(prop.id, "property", "requirements.json", seen_props)
+
+    # Execution paths
+    seen_paths: set[str] = set()
+    for path in spec.requirements.execution_paths:
+        _check_id(path.id, "path", "requirements.json", seen_paths)
+
+    # Error handling
+    seen_errors: set[str] = set()
+    for eh in spec.requirements.error_handling:
+        _check_id(eh.id, "error", "requirements.json", seen_errors)
+
+    # Test cases
+    seen_tcs: set[str] = set()
+    for tc in spec.test_spec.test_cases:
+        _check_id(tc.id, "test_case", "test_spec.json", seen_tcs)
+
+    # Property tests
+    seen_pts: set[str] = set()
+    for pt in spec.test_spec.property_tests:
+        _check_id(pt.id, "property_test", "test_spec.json", seen_pts)
+
+    # Edge case tests
+    seen_ets: set[str] = set()
+    for et in spec.test_spec.edge_case_tests:
+        _check_id(et.id, "edge_case_test", "test_spec.json", seen_ets)
+
+    # Smoke tests
+    seen_sts: set[str] = set()
+    for st in spec.test_spec.smoke_tests:
+        _check_id(st.id, "smoke_test", "test_spec.json", seen_sts)
+
+    # Subtasks and verification
+    seen_subtasks: set[str] = set()
+    seen_verifications: set[str] = set()
+    for group in spec.tasks.task_groups:
+        for subtask in group.subtasks:
+            _check_id(subtask.id, "subtask", "tasks.json", seen_subtasks)
+        if group.verification and group.verification.id:
+            _check_id(group.verification.id, "verification", "tasks.json", seen_verifications)
+
+    return errors
+
 
 def _validate_wiring_semantics(spec: Spec) -> list[ValidationError]:
     """Validate semantic content of the wiring_verification group.
@@ -773,6 +946,11 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
                     )
                 )
 
+    # -----------------------------------------------------------------------
+    # ID format validation
+    # -----------------------------------------------------------------------
+    errors.extend(_validate_id_formats(spec))
+
     return errors
 
 
@@ -1103,6 +1281,85 @@ def _check_error_path_return_contract(spec: Spec) -> list[ValidationWarning]:
 
 
 # ---------------------------------------------------------------------------
+# Vague language detector
+# ---------------------------------------------------------------------------
+
+_VAGUE_WORDS_RE = re.compile(
+    r"\b(?:appropriate|properly|correctly|reasonable|relevant|"
+    r"adequate|suitable|as needed|if necessary|etc)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_vague_language(spec: Spec) -> list[ValidationWarning]:
+    """Warn when criterion fields or error_handling behaviors contain vague language.
+
+    Scans ``action``, ``trigger``, ``condition``, and ``error_condition``
+    on all acceptance criteria and edge cases, plus ``behavior`` on all
+    error_handling entries.
+    """
+    warnings: list[ValidationWarning] = []
+    _CHECKED_FIELDS = ["action", "trigger", "condition", "error_condition"]
+
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria + req.edge_cases:
+            for field_name in _CHECKED_FIELDS:
+                val = getattr(criterion, field_name, None)
+                if val is None:
+                    continue
+                match = _VAGUE_WORDS_RE.search(val)
+                if match:
+                    warnings.append(
+                        ValidationWarning(
+                            message=(
+                                f"Criterion {criterion.id} field '{field_name}' "
+                                f"contains vague language: '{match.group()}'"
+                            ),
+                            entity_id=criterion.id,
+                        )
+                    )
+
+    for eh in spec.requirements.error_handling:
+        match = _VAGUE_WORDS_RE.search(eh.behavior)
+        if match:
+            warnings.append(
+                ValidationWarning(
+                    message=(
+                        f"Error handling {eh.id} field 'behavior' "
+                        f"contains vague language: '{match.group()}'"
+                    ),
+                    entity_id=eh.id,
+                )
+            )
+
+    return warnings
+
+
+# ---------------------------------------------------------------------------
+# Scope limit warning
+# ---------------------------------------------------------------------------
+
+
+def _check_scope_limit(spec: Spec) -> list[ValidationWarning]:
+    """Warn when the spec has more than 10 requirements.
+
+    Large specs are harder to implement and review in a single session.
+    """
+    count = len(spec.requirements.requirements)
+    if count > 10:
+        return [
+            ValidationWarning(
+                message=(
+                    f"Spec has {count} requirements (recommended maximum "
+                    f"is 10) — consider splitting"
+                ),
+                entity_id=spec.requirements.spec_id,
+            )
+        ]
+    return []
+
+
+# ---------------------------------------------------------------------------
 # Combined validation
 # ---------------------------------------------------------------------------
 
@@ -1125,6 +1382,8 @@ def validate(spec: Spec) -> ValidationResult:
         warnings.extend(_check_group_subtask_count(group))
         warnings.extend(_check_subtask_overload(group))
     warnings.extend(_check_error_path_return_contract(spec))
+    warnings.extend(_check_vague_language(spec))
+    warnings.extend(_check_scope_limit(spec))
 
     return ValidationResult(
         valid=len(errors) == 0,

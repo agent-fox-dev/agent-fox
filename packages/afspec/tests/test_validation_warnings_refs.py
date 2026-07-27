@@ -270,7 +270,7 @@ def _build_spec_with_refs(
             spec_name="refs_test",
             introduction="Test spec for test_spec_refs warning.",
             requirements=[req],
-            execution_paths=[ExecutionPath(id="R-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[ExecutionPath(id="R-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="R",
@@ -362,7 +362,7 @@ def _build_spec_with_only_verification_subtask() -> Spec:
             spec_name="edge_validation",
             introduction="Edge case spec.",
             requirements=[req],
-            execution_paths=[ExecutionPath(id="EV-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[ExecutionPath(id="EV-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="EV",

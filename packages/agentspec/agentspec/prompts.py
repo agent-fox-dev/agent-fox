@@ -92,6 +92,10 @@ def _format_spec_landscape(landscape: list[dict[str, Any]] | None) -> str:
             title = entry.get("title", "")
             status = entry.get("status", "")
             intent = entry.get("intent", "")
+            glossary_terms = entry.get("glossary_terms", [])
+            if glossary_terms:
+                terms_str = ", ".join(glossary_terms[:10])
+                intent = f"{intent} (Terms: {terms_str})" if intent else f"Terms: {terms_str}"
             parts.append(f"| {spec} | {title} | {status} | {intent} |")
         parts.append("")
 
@@ -292,6 +296,7 @@ def generation_user_prompt(
     spec_id: str = "",
     project_dir: Path | None = None,
     dependent_interfaces: list[dict[str, Any]] | None = None,
+    spec_landscape: list[dict[str, Any]] | None = None,
 ) -> str:
     """Return the user message for generating one artifact.
 
@@ -300,6 +305,8 @@ def generation_user_prompt(
     *spec_id* is the spec identifier used as prefix in all IDs.
     *dependent_interfaces* is a list of interface summaries from
     upstream dependency specs.
+    *spec_landscape* is an optional list of existing spec metadata
+    for cross-spec awareness during generation.
 
     Raises ``ValueError`` if *prd_text* is empty.
     """
@@ -316,6 +323,7 @@ def generation_user_prompt(
     prior_artifacts_block = _format_prior_artifacts(prior_artifacts)
     project_context_block = _format_project_context(project_dir)
     dependent_interfaces_block = _format_dependent_interfaces(dependent_interfaces)
+    spec_landscape_block = _format_spec_landscape(spec_landscape)
 
     additional_instructions = ""
     try:
@@ -334,6 +342,7 @@ def generation_user_prompt(
         project_context_block=project_context_block,
         prd_text=prd_text,
         dependent_interfaces_block=dependent_interfaces_block,
+        spec_landscape_block=spec_landscape_block,
         prior_artifacts_block=prior_artifacts_block,
         additional_instructions=additional_instructions,
     )

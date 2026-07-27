@@ -148,7 +148,7 @@ def _build_spec_with_n_subtasks(n_subtasks: int) -> Spec:
             spec_name="subtask_count_test",
             introduction="Test spec for subtask count warning.",
             requirements=[req],
-            execution_paths=[ExecutionPath(id="SC-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[ExecutionPath(id="SC-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="SC",

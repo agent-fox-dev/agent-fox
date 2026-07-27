@@ -196,7 +196,7 @@ def _build_spec_with_subtask_refs(
             spec_name="subtask_overload_test",
             introduction="Test spec for single subtask overload warning.",
             requirements=[req],
-            execution_paths=[ExecutionPath(id="SO-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])],
+            execution_paths=[ExecutionPath(id="SO-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])],
         ),
         test_spec=TestSpec(
             spec_id="SO",

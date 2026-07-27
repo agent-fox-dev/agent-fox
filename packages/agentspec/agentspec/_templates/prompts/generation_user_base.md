@@ -6,6 +6,7 @@ $project_context_block
 
 $prd_text
 
+$spec_landscape_block
 $dependent_interfaces_block
 $prior_artifacts_block
 $additional_instructions

@@ -420,6 +420,12 @@ class SpecSession:
         except Exception:
             pass
 
+        landscape: list[dict[str, Any]] | None = None
+        try:
+            landscape = load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)
+        except Exception:
+            landscape = None
+
         agent = _create_agent()
 
         # Detect existing artifacts for resume (03-REQ-6.E2)
@@ -447,6 +453,7 @@ class SpecSession:
                 existing_artifacts=existing if existing else None,
                 on_artifact=_write_artifact,
                 dependent_interfaces=dependent_interfaces,
+                spec_landscape=landscape,
             )
         except AgentError as exc:
             self._last_error = _error_to_dict(exc)

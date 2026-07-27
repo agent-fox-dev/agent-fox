@@ -23,7 +23,7 @@ from click.testing import CliRunner
 
 PRD_MD = """\
 ---
-spec_id: "test-05"
+spec_id: "test05"
 spec_name: "test_fixture"
 title: "Test Fixture Spec"
 status: "draft"
@@ -40,22 +40,23 @@ Test PRD content.
 
 REQUIREMENTS_JSON = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "introduction": "Test requirements",
         "glossary": {},
         "requirements": [
             {
-                "id": "TEST-REQ-1",
+                "id": "test05-REQ-1",
                 "title": "Test requirement",
                 "user_story": {"role": "tester", "goal": "test", "benefit": "verify"},
                 "acceptance_criteria": [
                     {
-                        "id": "TEST-REQ-1.1",
+                        "id": "test05-REQ-1.1",
                         "ears_pattern": "ubiquitous",
                         "system": "the system",
                         "action": "SHALL do something",
+                        "return_contract": None,
                     }
                 ],
                 "edge_cases": [],
@@ -70,14 +71,14 @@ REQUIREMENTS_JSON = json.dumps(
 
 TEST_SPEC_JSON = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "test_cases": [
             {
-                "id": "TS-TEST-1",
+                "id": "TS-test05-1",
                 "description": "Test case",
-                "requirement_id": "TEST-REQ-1.1",
+                "requirement_id": "test05-REQ-1.1",
                 "kind": "unit",
                 "preconditions": ["test"],
                 "input": "test input",
@@ -89,7 +90,7 @@ TEST_SPEC_JSON = json.dumps(
         "edge_case_tests": [],
         "smoke_tests": [],
         "coverage": {
-            "requirements_covered": ["TEST-REQ-1.1"],
+            "requirements_covered": ["test05-REQ-1.1"],
             "properties_covered": [],
             "paths_covered": [],
             "gaps": [],
@@ -100,7 +101,7 @@ TEST_SPEC_JSON = json.dumps(
 
 TASKS_JSON = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
@@ -114,7 +115,7 @@ TASKS_JSON = json.dumps(
 # Schema-invalid requirements (empty requirement ID triggers validation error)
 REQUIREMENTS_JSON_SCHEMA_ERROR = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "introduction": "Test requirements",
@@ -147,15 +148,16 @@ REQUIREMENTS_JSON_TOP_LEVEL_ERROR = json.dumps(
         "glossary": {},
         "requirements": [
             {
-                "id": "TEST-REQ-1",
+                "id": "test05-REQ-1",
                 "title": "Test requirement",
                 "user_story": {"role": "tester", "goal": "test", "benefit": "verify"},
                 "acceptance_criteria": [
                     {
-                        "id": "TEST-REQ-1.1",
+                        "id": "test05-REQ-1.1",
                         "ears_pattern": "ubiquitous",
                         "system": "the system",
                         "action": "SHALL do something",
+                        "return_contract": None,
                     }
                 ],
                 "edge_cases": [],
@@ -171,22 +173,23 @@ REQUIREMENTS_JSON_TOP_LEVEL_ERROR = json.dumps(
 # Integrity error: requirement with no test case coverage
 REQUIREMENTS_JSON_INTEGRITY_ERROR = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "introduction": "Test requirements",
         "glossary": {},
         "requirements": [
             {
-                "id": "TEST-REQ-1",
+                "id": "test05-REQ-1",
                 "title": "Covered requirement",
                 "user_story": {"role": "tester", "goal": "test", "benefit": "verify"},
                 "acceptance_criteria": [
                     {
-                        "id": "TEST-REQ-1.1",
+                        "id": "test05-REQ-1.1",
                         "ears_pattern": "ubiquitous",
                         "system": "the system",
                         "action": "SHALL do something",
+                        "return_contract": None,
                     }
                 ],
                 "edge_cases": [],
@@ -201,6 +204,7 @@ REQUIREMENTS_JSON_INTEGRITY_ERROR = json.dumps(
                         "ears_pattern": "ubiquitous",
                         "system": "the system",
                         "action": "SHALL do another thing",
+                        "return_contract": None,
                     }
                 ],
                 "edge_cases": [],
@@ -216,14 +220,14 @@ REQUIREMENTS_JSON_INTEGRITY_ERROR = json.dumps(
 # Test spec that only covers REQ-1 (not REQ-2)
 TEST_SPEC_JSON_PARTIAL_COVERAGE = json.dumps(
     {
-        "spec_id": "test-05",
+        "spec_id": "test05",
         "spec_name": "test_fixture",
         "schema_version": 1,
         "test_cases": [
             {
-                "id": "TS-TEST-1",
+                "id": "TS-test05-1",
                 "description": "Test for REQ-1 only",
-                "requirement_id": "TEST-REQ-1.1",
+                "requirement_id": "test05-REQ-1.1",
                 "kind": "unit",
                 "preconditions": ["test"],
                 "input": "test input",
@@ -235,7 +239,7 @@ TEST_SPEC_JSON_PARTIAL_COVERAGE = json.dumps(
         "edge_case_tests": [],
         "smoke_tests": [],
         "coverage": {
-            "requirements_covered": ["TEST-REQ-1.1"],
+            "requirements_covered": ["test05-REQ-1.1"],
             "properties_covered": [],
             "paths_covered": [],
             "gaps": ["TEST-REQ-2.1"],

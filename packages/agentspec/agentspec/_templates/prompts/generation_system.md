@@ -66,3 +66,8 @@ types, and field names from the upstream specs. Do not rename, re-type, or
 re-parameterize symbols defined by upstream specs. If this spec needs a function
 that does not appear in the upstream spec's interface, note the gap explicitly
 in the requirement's `action` field rather than assuming it exists.
+
+## Cross-spec awareness
+
+When an Existing Spec Landscape is provided, avoid defining glossary terms that conflict
+with existing specs. Do not duplicate requirements already covered by an active spec.

@@ -781,7 +781,7 @@ def _build_spec_first_group_standard() -> Spec:
                 )
             ],
             execution_paths=[
-                ExecutionPath(id="BC-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])
+                ExecutionPath(id="BC-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])
             ],
         ),
         test_spec=TestSpec(
@@ -948,7 +948,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                 ),
             ],
             execution_paths=[
-                ExecutionPath(id="MT-PATH-1", title="Main path", steps=[PathStep(actor="System", action="Run")])
+                ExecutionPath(id="MT-PATH-1", title="Main path", steps=[PathStep(actor="User", action="Invoke"), PathStep(actor="System", action="Run")])
             ],
         ),
         test_spec=TestSpec(

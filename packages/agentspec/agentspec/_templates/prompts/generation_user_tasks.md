@@ -67,3 +67,8 @@ The final wiring_verification group must include subtasks that cover:
 - At least one subtask in the wiring_verification group MUST have non-empty `test_spec_refs`.
 - At least one `test_spec_ref` MUST reference a smoke test (pattern `TS-{spec_id}-SMOKE-*`).
 - At least one subtask title, detail, or verification check MUST reference a stub/dead-code audit.
+
+### Example: good vs bad subtask
+**Good:** `title: "Implement org creation endpoint"`, `details: ["Add POST /orgs route handler", "Validate name uniqueness against DB", "Return 201 with created org JSON"]`, `test_spec_refs: ["TS-05-1", "TS-05-E1"]`, `requirement_refs: ["05-REQ-1.1", "05-REQ-1.E1"]`
+
+**Bad:** `title: "Implement feature"`, `details: ["Write the code"]`, `test_spec_refs: []`, `requirement_refs: []`

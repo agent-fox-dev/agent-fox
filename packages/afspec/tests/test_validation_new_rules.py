@@ -271,10 +271,10 @@ def _build_wiring_spec(
     smoke_tests_list=None,
     execution_paths_list=None,
 ):
-    crit = Criterion(id="W-REQ-1.1", ears_pattern=EARSPattern.UBIQUITOUS, system="system", action="do something")
-    tc = TestCase(id="TS-W-1", requirement_id="W-REQ-1.1", kind="unit", description="t")
+    crit = Criterion(id="99-REQ-1.1", ears_pattern=EARSPattern.UBIQUITOUS, system="system", action="do something")
+    tc = TestCase(id="TS-99-1", requirement_id="99-REQ-1.1", kind="unit", description="t")
     req = Requirement(
-        id="W-REQ-1",
+        id="99-REQ-1",
         title="Test",
         user_story=UserStory(role="dev", goal="test", benefit="value"),
         acceptance_criteria=[crit],
@@ -284,7 +284,7 @@ def _build_wiring_spec(
             id=1,
             kind=TaskGroupKind.TESTS,
             title="Tests",
-            subtasks=[Subtask(id="1.1", title="t", test_spec_refs=["TS-W-1"], requirement_refs=["W-REQ-1"])],
+            subtasks=[Subtask(id="1.1", title="t", test_spec_refs=["TS-99-1"], requirement_refs=["99-REQ-1"])],
             verification=VerificationSubtask(id="1.V", checks=["pass"]),
         ),
         TaskGroup(
@@ -296,7 +296,7 @@ def _build_wiring_spec(
                     id="2.1",
                     title=wiring_title,
                     test_spec_refs=wiring_test_spec_refs or [],
-                    requirement_refs=["W-REQ-1"],
+                    requirement_refs=["99-REQ-1"],
                     details=wiring_details or [],
                 )
             ],
@@ -306,8 +306,8 @@ def _build_wiring_spec(
     return Spec(
         prd=PRDDocument(
             frontmatter=PRDFrontmatter(
-                spec_id="W",
-                spec_name="wiring_test",
+                spec_id="99",
+                spec_name="99",
                 title="Wiring Test Spec",
                 created_at="2024-01-01",
                 updated_at="2024-01-01",
@@ -317,20 +317,20 @@ def _build_wiring_spec(
             body="Wiring test spec.",
         ),
         requirements=Requirements(
-            spec_id="W",
-            spec_name="wiring_test",
+            spec_id="99",
+            spec_name="99",
             introduction="Wiring test.",
             requirements=[req],
             execution_paths=list(execution_paths_list or []),
         ),
         test_spec=TestSpec(
-            spec_id="W", spec_name="wiring_test", test_cases=[tc], smoke_tests=list(smoke_tests_list or [])
+            spec_id="99", spec_name="99", test_cases=[tc], smoke_tests=list(smoke_tests_list or [])
         ),
         tasks=Tasks(
-            spec_id="W",
-            spec_name="wiring_test",
+            spec_id="99",
+            spec_name="99",
             task_groups=groups,
-            traceability=[TraceabilityEntry(requirement_id="W-REQ-1.1", test_spec_id="TS-W-1", task_id="1.1")],
+            traceability=[TraceabilityEntry(requirement_id="99-REQ-1.1", test_spec_id="TS-99-1", task_id="1.1")],
         ),
     )
 
@@ -347,17 +347,17 @@ class TestWiring1NoTestSpecRefs:
 
 class TestWiring1NoSmokeRef:
     def test_no_smoke_ref_produces_error(self) -> None:
-        result = validate(_build_wiring_spec(wiring_test_spec_refs=["TS-W-1"], wiring_title="Stub/dead-code audit"))
+        result = validate(_build_wiring_spec(wiring_test_spec_refs=["TS-99-1"], wiring_title="Stub/dead-code audit"))
         assert any("smoke" in e.message.lower() for e in result.errors if e.rule == "wiring-1")
 
 
 class TestWiring1NoStubAudit:
     def test_no_stub_audit_produces_error(self) -> None:
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
-        path = ExecutionPath(id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")])
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
+        path = ExecutionPath(id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")])
         result = validate(
             _build_wiring_spec(
-                wiring_test_spec_refs=["TS-W-SMOKE-1"],
+                wiring_test_spec_refs=["TS-99-SMOKE-1"],
                 wiring_title="Trace execution paths",
                 smoke_tests_list=[smoke],
                 execution_paths_list=[path],
@@ -368,11 +368,11 @@ class TestWiring1NoStubAudit:
 
 class TestWiring1FullyValid:
     def test_valid_wiring_no_errors(self) -> None:
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
-        path = ExecutionPath(id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")])
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
+        path = ExecutionPath(id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")])
         result = validate(
             _build_wiring_spec(
-                wiring_test_spec_refs=["TS-W-SMOKE-1"],
+                wiring_test_spec_refs=["TS-99-SMOKE-1"],
                 wiring_title="Trace paths and stub/dead-code audit",
                 smoke_tests_list=[smoke],
                 execution_paths_list=[path],
@@ -382,11 +382,11 @@ class TestWiring1FullyValid:
         assert result.valid is True
 
     def test_stub_in_verification_checks_passes(self) -> None:
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
-        path = ExecutionPath(id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")])
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
+        path = ExecutionPath(id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")])
         result = validate(
             _build_wiring_spec(
-                wiring_test_spec_refs=["TS-W-SMOKE-1"],
+                wiring_test_spec_refs=["TS-99-SMOKE-1"],
                 wiring_title="Trace paths",
                 verification_checks=["No unjustified stubs remain"],
                 smoke_tests_list=[smoke],
@@ -396,11 +396,11 @@ class TestWiring1FullyValid:
         assert [e for e in result.errors if e.rule == "wiring-1"] == []
 
     def test_stub_in_details_passes(self) -> None:
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
-        path = ExecutionPath(id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")])
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
+        path = ExecutionPath(id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")])
         result = validate(
             _build_wiring_spec(
-                wiring_test_spec_refs=["TS-W-SMOKE-1"],
+                wiring_test_spec_refs=["TS-99-SMOKE-1"],
                 wiring_title="Trace paths",
                 wiring_details=["Run stub/dead-code audit"],
                 smoke_tests_list=[smoke],
@@ -412,11 +412,11 @@ class TestWiring1FullyValid:
 
 class TestWiring1DeadCodeVariant:
     def test_dead_code_keyword_passes(self) -> None:
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
-        path = ExecutionPath(id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")])
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
+        path = ExecutionPath(id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")])
         result = validate(
             _build_wiring_spec(
-                wiring_test_spec_refs=["TS-W-SMOKE-1"],
+                wiring_test_spec_refs=["TS-99-SMOKE-1"],
                 wiring_title="dead-code audit and path tracing",
                 smoke_tests_list=[smoke],
                 execution_paths_list=[path],
@@ -478,7 +478,7 @@ class TestErrorPathReturnContractWarning:
 
     def test_error_action_null_contract_produces_warning(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="return an error when the input is invalid",
@@ -489,11 +489,11 @@ class TestErrorPathReturnContractWarning:
         result = validate(spec)
         rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
         assert len(rc_warnings) >= 1
-        assert "W-REQ-1.1" in rc_warnings[0].entity_id
+        assert "99-REQ-1.1" in rc_warnings[0].entity_id
 
     def test_error_action_with_contract_no_warning(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="return an error when the input is invalid",
@@ -507,7 +507,7 @@ class TestErrorPathReturnContractWarning:
 
     def test_non_error_action_null_contract_no_warning(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="log the event to the audit trail",
@@ -521,7 +521,7 @@ class TestErrorPathReturnContractWarning:
 
     def test_edge_case_error_null_contract_produces_warning(self) -> None:
         edge = Criterion(
-            id="W-REQ-1.E1",
+            id="99-REQ-1.E1",
             ears_pattern=EARSPattern.UNWANTED,
             error_condition="request is unauthorized",
             system="system",
@@ -536,18 +536,18 @@ class TestErrorPathReturnContractWarning:
 
     def test_warning_does_not_block_validity(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="fail with a timeout error",
             return_contract=None,
         )
-        smoke = SmokeTest(id="TS-W-SMOKE-1", execution_path_id="W-PATH-1", description="s")
+        smoke = SmokeTest(id="TS-99-SMOKE-1", execution_path_id="99-PATH-1", description="s")
         path = ExecutionPath(
-            id="W-PATH-1", title="p", steps=[PathStep(actor="S", action="a")]
+            id="99-PATH-1", title="p", steps=[PathStep(actor="User", action="invoke"), PathStep(actor="S", action="a")]
         )
         spec = _build_wiring_spec(
-            wiring_test_spec_refs=["TS-W-SMOKE-1"],
+            wiring_test_spec_refs=["TS-99-SMOKE-1"],
             wiring_title="Stub audit",
             smoke_tests_list=[smoke],
             execution_paths_list=[path],
@@ -621,7 +621,7 @@ class TestUnwantedReturnContractError:
 
     def test_unwanted_null_contract_produces_error(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.E1",
+            id="99-REQ-1.E1",
             ears_pattern=EARSPattern.UNWANTED,
             error_condition="request is unauthorized",
             system="system",
@@ -633,11 +633,11 @@ class TestUnwantedReturnContractError:
         errors = validate_cross_file(spec)
         cf10 = [e for e in errors if e.rule == "cross-file-10"]
         assert len(cf10) >= 1
-        assert "W-REQ-1.E1" in cf10[0].message
+        assert "99-REQ-1.E1" in cf10[0].message
 
     def test_unwanted_with_contract_no_error(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.E1",
+            id="99-REQ-1.E1",
             ears_pattern=EARSPattern.UNWANTED,
             error_condition="request is unauthorized",
             system="system",
@@ -652,7 +652,7 @@ class TestUnwantedReturnContractError:
 
     def test_non_unwanted_null_contract_no_error(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="logs the event to the audit trail",
@@ -675,7 +675,7 @@ class TestErrorConditionReturnContractWarning:
 
     def test_error_condition_no_error_keywords_still_warns(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.E1",
+            id="99-REQ-1.E1",
             ears_pattern=EARSPattern.UNWANTED,
             error_condition="slug contains uppercase characters",
             system="system",
@@ -687,11 +687,11 @@ class TestErrorConditionReturnContractWarning:
         result = validate(spec)
         rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
         assert len(rc_warnings) >= 1
-        assert "W-REQ-1.E1" in rc_warnings[0].entity_id
+        assert "99-REQ-1.E1" in rc_warnings[0].entity_id
 
     def test_empty_error_condition_no_extra_warning(self) -> None:
         crit = Criterion(
-            id="W-REQ-1.1",
+            id="99-REQ-1.1",
             ears_pattern=EARSPattern.UBIQUITOUS,
             system="system",
             action="logs the event to the audit trail",
@@ -716,3 +716,188 @@ class TestGoldenSpecNoFalsePositives:
 
         result = validate(load_spec(valid_spec_dir))
         assert result.valid is True, f"Golden spec should be valid, got errors: {result.errors}"
+
+
+# ===========================================================================
+# ID format validation
+# ===========================================================================
+
+
+class TestIdFormatValidation:
+    """Validate ID format, spec_id prefix, and duplicate detection."""
+
+    def test_valid_ids_no_errors(self) -> None:
+        """A spec with correctly formatted IDs should produce no id-format errors."""
+        crit = Criterion(
+            id="01-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="do something",
+        )
+        spec = _make_spec("01", criteria=[crit])
+        result = validate(spec)
+        id_errors = [e for e in result.errors if e.rule == "id-format"]
+        assert id_errors == [], f"Expected no id-format errors, got: {id_errors}"
+
+    def test_malformed_requirement_id(self) -> None:
+        """A requirement ID without spec_id prefix should be flagged."""
+        crit = Criterion(
+            id="01-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="do something",
+        )
+        spec = _make_spec("01", criteria=[crit])
+        # Mutate the requirement ID to a malformed value
+        spec.requirements.requirements[0].id = "REQ-1"
+        result = validate(spec)
+        id_errors = [e for e in result.errors if e.rule == "id-format"]
+        assert len(id_errors) >= 1
+        assert any("REQ-1" in e.message for e in id_errors)
+
+    def test_wrong_spec_id_prefix(self) -> None:
+        """A criterion ID with wrong spec_id prefix should be flagged."""
+        crit = Criterion(
+            id="99-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="do something",
+        )
+        spec = _make_spec("01", criteria=[crit])
+        result = validate(spec)
+        id_errors = [e for e in result.errors if e.rule == "id-format"]
+        prefix_errors = [e for e in id_errors if "spec_id prefix" in e.message]
+        assert len(prefix_errors) >= 1
+        assert any("99" in e.message and "'01'" in e.message for e in prefix_errors)
+
+    def test_duplicate_requirement_ids(self) -> None:
+        """Two requirements with the same ID should produce a duplicate error."""
+        crit1 = Criterion(
+            id="01-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="do something",
+        )
+        crit2 = Criterion(
+            id="01-REQ-2.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="do another thing",
+        )
+        spec = _make_spec("01", criteria=[crit1])
+        # Add a second requirement with the same ID as the first
+        req2 = Requirement(
+            id="01-REQ-1",
+            title="Duplicate requirement",
+            acceptance_criteria=[crit2],
+        )
+        spec.requirements.requirements.append(req2)
+        # Also need corresponding test infrastructure
+        tc2 = TestCase(id="TS-01-3", requirement_id="01-REQ-2.1", kind="unit", description="test2")
+        spec.test_spec.test_cases.append(tc2)
+        spec.tasks.traceability.append(
+            TraceabilityEntry(requirement_id="01-REQ-2.1", test_spec_id="TS-01-3", task_id="1.1")
+        )
+        result = validate(spec)
+        id_errors = [e for e in result.errors if e.rule == "id-format"]
+        dup_errors = [e for e in id_errors if "Duplicate" in e.message]
+        assert len(dup_errors) >= 1
+        assert any("01-REQ-1" in e.message for e in dup_errors)
+
+
+# ===========================================================================
+# Vague language warning
+# ===========================================================================
+
+
+class TestVagueLanguageWarning:
+    """Warning for vague language in criterion fields."""
+
+    def test_vague_action_produces_warning(self) -> None:
+        crit = Criterion(
+            id="99-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="handle the request properly",
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        vague_warnings = [w for w in result.warnings if "vague language" in w.message]
+        assert len(vague_warnings) >= 1
+        assert any("properly" in w.message for w in vague_warnings)
+
+    def test_concrete_action_no_warning(self) -> None:
+        crit = Criterion(
+            id="99-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="return HTTP 200 with the resource",
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        vague_warnings = [w for w in result.warnings if "vague language" in w.message]
+        assert vague_warnings == []
+
+
+# ===========================================================================
+# Scope limit warning
+# ===========================================================================
+
+
+class TestScopeLimitWarning:
+    """Warning when spec has too many requirements."""
+
+    def test_11_requirements_produces_warning(self) -> None:
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        # Build 11 requirements
+        reqs = []
+        for i in range(1, 12):
+            crit = Criterion(
+                id=f"99-REQ-{i}.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="system",
+                action=f"do thing {i}",
+            )
+            reqs.append(Requirement(id=f"99-REQ-{i}", title=f"Req {i}", acceptance_criteria=[crit]))
+        spec.requirements.requirements = reqs
+        # Add matching test cases and traceability
+        spec.test_spec.test_cases = [
+            TestCase(id=f"TS-99-{i}", requirement_id=f"99-REQ-{i}.1", kind="unit", description="t")
+            for i in range(1, 12)
+        ]
+        spec.tasks.traceability = [
+            TraceabilityEntry(requirement_id=f"99-REQ-{i}.1", test_spec_id=f"TS-99-{i}", task_id="1.1")
+            for i in range(1, 12)
+        ]
+        result = validate(spec)
+        scope_warnings = [w for w in result.warnings if "requirements" in w.message and "maximum" in w.message]
+        assert len(scope_warnings) == 1
+        assert "11" in scope_warnings[0].message
+
+    def test_10_requirements_no_warning(self) -> None:
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        # Build exactly 10 requirements
+        reqs = []
+        for i in range(1, 11):
+            crit = Criterion(
+                id=f"99-REQ-{i}.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="system",
+                action=f"do thing {i}",
+            )
+            reqs.append(Requirement(id=f"99-REQ-{i}", title=f"Req {i}", acceptance_criteria=[crit]))
+        spec.requirements.requirements = reqs
+        # Add matching test cases and traceability
+        spec.test_spec.test_cases = [
+            TestCase(id=f"TS-99-{i}", requirement_id=f"99-REQ-{i}.1", kind="unit", description="t")
+            for i in range(1, 11)
+        ]
+        spec.tasks.traceability = [
+            TraceabilityEntry(requirement_id=f"99-REQ-{i}.1", test_spec_id=f"TS-99-{i}", task_id="1.1")
+            for i in range(1, 11)
+        ]
+        result = validate(spec)
+        scope_warnings = [w for w in result.warnings if "requirements" in w.message and "maximum" in w.message]
+        assert scope_warnings == []

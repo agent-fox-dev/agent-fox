@@ -217,6 +217,7 @@ class SpecAgent:
         existing_artifacts: dict[str, Any] | None = None,
         on_artifact: Any = None,
         dependent_interfaces: list[dict[str, Any]] | None = None,
+        spec_landscape: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate requirements, test_spec, and tasks content.
 
@@ -239,6 +240,8 @@ class SpecAgent:
                 writes.
             dependent_interfaces: Optional list of interface summaries
                 from upstream dependency specs.
+            spec_landscape: Optional list of existing spec metadata for
+                cross-spec awareness during generation.
 
         Returns:
             A dict mapping artifact name (``"requirements"``,
@@ -262,20 +265,26 @@ class SpecAgent:
             if artifact_name in results:
                 continue
 
-            prior = self._prior_artifacts_context(results) if results else None
+            if artifact_name == "tasks" and results:
+                prior = self._slim_prior_artifacts_context(results)
+            elif results:
+                prior = self._prior_artifacts_context(results)
+            else:
+                prior = None
             user_msg = generation_user_prompt(
                 prd_text,
                 artifact_name,
                 prior_artifacts=prior,
                 spec_id=spec_id,
                 dependent_interfaces=dependent_interfaces,
+                spec_landscape=spec_landscape,
             )
             messages: list[dict[str, str]] = [
                 {"role": "user", "content": user_msg},
             ]
             tools = artifact_tool(artifact_name)
 
-            response = await self._call_api(messages, tools, system=system)
+            response = await self._call_api(messages, tools, system=system, temperature=0.2)
 
             tool_name = f"submit_{artifact_name}"
             tool_input = self._extract_tool_call(response, tool_name)
@@ -353,7 +362,7 @@ class SpecAgent:
                 {"role": "user", "content": user_msg},
             ]
 
-            response = await self._call_api(messages, tools, system=system)
+            response = await self._call_api(messages, tools, system=system, temperature=0.2)
             tool_input = self._extract_tool_call(response, tool_name)
             content: dict[str, Any] = tool_input["content"]
 
@@ -380,6 +389,72 @@ class SpecAgent:
                 context[name] = value.model_dump(by_alias=True, exclude_none=True)
             else:
                 context[name] = value
+        return context
+
+    @staticmethod
+    def _slim_prior_artifacts_context(
+        results: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Convert model instances to slimmed dicts for tasks-generation context.
+
+        Produces a lighter-weight representation to keep the prompt within
+        token budgets when generating tasks:
+
+        - **requirements**: keeps requirement IDs, titles, criterion IDs
+          with EARS patterns, property IDs, path IDs, and glossary.
+          Strips verbose action text and full step content.
+        - **test_spec**: keeps only test-case ID to requirement-ID mappings.
+        """
+        context: dict[str, Any] = {}
+        for name, value in results.items():
+            full = value.model_dump(by_alias=True, exclude_none=True) if hasattr(value, "model_dump") else dict(value)
+
+            if name == "requirements":
+                slim: dict[str, Any] = {}
+                if "glossary" in full:
+                    slim["glossary"] = full["glossary"]
+                if "requirements" in full:
+                    slim_reqs = []
+                    for req in full["requirements"]:
+                        slim_req: dict[str, Any] = {"id": req.get("id", "")}
+                        if "title" in req:
+                            slim_req["title"] = req["title"]
+                        if "criteria" in req:
+                            slim_req["criteria"] = [
+                                {
+                                    k: v
+                                    for k, v in c.items()
+                                    if k in ("id", "ears_pattern")
+                                }
+                                for c in req["criteria"]
+                            ]
+                        slim_reqs.append(slim_req)
+                    slim["requirements"] = slim_reqs
+                if "properties" in full:
+                    slim["properties"] = [
+                        {"id": p.get("id", "")} for p in full["properties"]
+                    ]
+                if "paths" in full:
+                    slim["paths"] = [
+                        {"id": p.get("id", "")} for p in full["paths"]
+                    ]
+                context[name] = slim
+
+            elif name == "test_spec":
+                test_cases = full.get("test_cases", [])
+                context[name] = {
+                    "test_cases": [
+                        {
+                            "id": tc.get("id", ""),
+                            "requirement_id": tc.get("requirement_id", ""),
+                        }
+                        for tc in test_cases
+                    ],
+                }
+
+            else:
+                context[name] = full
+
         return context
 
     async def _request_assessment(
@@ -414,6 +489,7 @@ class SpecAgent:
         system: str | None = None,
         *,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        temperature: float | None = None,
     ) -> Any:
         """Send messages to the Anthropic API via the shared ``ai_call()`` helper.
 
@@ -426,6 +502,8 @@ class SpecAgent:
             tools: Tool definitions for structured output.
             system: Optional system prompt.
             max_tokens: Maximum tokens in the response.
+            temperature: Optional sampling temperature override.
+                When ``None`` (the default), the API default is used.
 
         Returns:
             The raw API response message (``anthropic.types.Message``).
@@ -440,6 +518,8 @@ class SpecAgent:
         if tools:
             extra_kwargs["tools"] = tools
             extra_kwargs["tool_choice"] = {"type": "any"}
+        if temperature is not None:
+            extra_kwargs["temperature"] = temperature
 
         try:
             _text, response = await ai_call(
@@ -529,6 +609,10 @@ class SpecAgent:
             if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
                 return block.input  # type: ignore[no-any-return]
 
+        logger.debug(
+            "Response content blocks: %s",
+            [(b.type, getattr(b, "name", None)) for b in response.content],
+        )
         raise AgentError(
             f"Model did not produce structured output: tool '{tool_name}' was not called",
             category="validation",

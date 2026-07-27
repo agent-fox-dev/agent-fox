@@ -52,6 +52,6 @@
       "const": 1
     }
   },
-  "required": ["spec_id", "spec_name", "title", "status", "created_at", "updated_at", "schema_version"],
+  "required": ["spec_id", "spec_name", "title", "status", "created_at", "updated_at", "schema_version", "owner", "source"],
   "additionalProperties": false
 }

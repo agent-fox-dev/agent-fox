@@ -1,5 +1,19 @@
 ## Additional Instructions
 
+### EARS pattern selection
+Choose the EARS pattern that matches the situation:
+
+| Situation | Pattern |
+|-----------|---------|
+| Invariant that must always hold | `ubiquitous` |
+| Discrete event triggers behavior | `event_driven` |
+| Event + guard condition | `complex_event` |
+| Behavior depends on ongoing system state | `state_driven` |
+| Error/failure path | `unwanted` |
+| Feature-flagged behavior | `optional` |
+
+Do NOT default to `ubiquitous` — most requirements are `event_driven` or `unwanted`.
+
 ### Introduction
 The `introduction` field is required — write a brief (1-2 sentence) description of the system being specified.
 
@@ -32,13 +46,21 @@ The `error_handling` array maps error conditions to system behavior. Each entry 
 - `requirement_id`: the requirement or edge case ID that specifies this behavior (e.g. `05-REQ-2.E1`)
 
 ### Execution paths
-Each execution path traces a user-visible feature from entry point to observable side effect using logical actors (not module names). Every path must start at a user action and end at a concrete side effect. Steps need `actor` and `action` fields. At least two steps per path.
+Each execution path traces a user-visible feature from entry point to observable side effect using logical actors (not module names). Steps need `actor` and `action` fields. At least two steps per path.
+
+Must start at: a user action, CLI command, API call, or scheduled trigger.
+Must end at: a file written, API call made, value returned to caller, or state change persisted.
 
 ### Return contracts
 Set `return_contract` to a non-null string on every criterion whose action produces an observable response — HTTP status codes, return values, response bodies, error messages. **This includes error paths**: if a criterion or edge case describes a failure condition, the return_contract must specify what the caller observes (e.g., "returns HTTP 401 with JSON body {error: string}", "returns (nil, ErrUnauthorized)"). Only use null when the action has no caller-visible output (e.g. a background side effect with no response). Concrete return contracts make implementation and testing significantly easier.
 
+Every criterion with `ears_pattern: "unwanted"` MUST have a non-null `return_contract`. This is enforced by validation — error paths always have a caller-observable result.
+
 ### Correctness properties
-Each property's `validates` array must reference acceptance criterion IDs that exist in `requirements`.
+The `validates` array must reference acceptance criterion IDs that exist in `requirements`. Coverage rules:
+1. Every requirement's primary acceptance criterion should have at least one validating property
+2. Generate at least one property for the happy path, one for failure handling, and one for boundary conditions
+3. Properties must be testable — each maps to a property-based test
 
 ### Defensive design edge cases
 For any requirement that involves subprocesses, external commands, loops,
@@ -67,6 +89,21 @@ retries, or calls to external services, you MUST generate edge cases covering:
 
 These are the most common source of "works on happy path, breaks in
 production" defects. Do not skip them.
+
+### Systematic edge cases (mandatory)
+Every requirement MUST have edge cases covering these categories where applicable:
+1. **Empty/null input** — what happens when required input is missing or empty
+2. **Boundary values** — minimum, maximum, just-over-limit values
+3. **Operation failure** — what happens when the core operation fails
+4. **Authorization failure** — what happens when the caller lacks permission
+5. **Concurrent operations** — what happens under simultaneous access
+
+A requirement with an empty `edge_cases` array is almost always wrong.
+
+### Example: good vs bad requirement
+**Good:** `ears_pattern: "event_driven"`, `trigger: "a user calls POST /orgs"`, `action: "create an Organization row with a generated ULID and return it"`, `return_contract: "returns HTTP 201 with JSON body {id: string, name: string}"`
+
+**Bad:** `ears_pattern: "ubiquitous"`, `action: "handle organization creation properly"`, `return_contract: null`
 
 ### External library references
 If the PRD contains a `## Verified External API` section, use **only** the

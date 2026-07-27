@@ -38,5 +38,19 @@ executes at most N iterations" or "the retry count never exceeds the
 configured maximum." These properties catch unbounded loops that only manifest
 when the happy path fails, which unit tests for the happy path will not cover.
 
+### Smoke test quality
+- `real_components` must include ALL actors named in the execution path — do not mock them
+- `mockable` must contain ONLY external I/O (filesystem, network, third-party services)
+- `expected_effects` must be concrete observable outcomes, not vague assertions
+
+### Property test quality
+- `for_any_strategy` must specify the concrete sampling approach (not just "random valid inputs")
+- `invariant_check` must be a concrete assertion, not a restatement of the property description
+
+### Example: good vs bad test case
+**Good:** `description: "Creating an org with a duplicate name returns HTTP 409"`, `expected: {"status": 409, "body": {"error": "organization name already exists"}}`, `assertion_pseudocode: "result = client.post('/orgs', {name: existing_name}); assert result.status == 409; assert result.body.error contains 'already exists'"`
+
+**Bad:** `description: "Test duplicate org"`, `expected: {"error": true}`, `assertion_pseudocode: "create org and check it fails"`
+
 ### Coverage object
 The `coverage` object is computed by the validation library. Submit it with empty arrays: `{"requirements_covered": [], "properties_covered": [], "paths_covered": [], "gaps": []}`

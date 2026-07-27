@@ -455,6 +455,15 @@ def load_spec_landscape(
 
             intent = _extract_intent(prd_path)
 
+            glossary_terms: list[str] = []
+            try:
+                req_path = Path(meta.dir) / "requirements.json"
+                if req_path.exists():
+                    req_data = json.loads(req_path.read_text(encoding="utf-8"))
+                    glossary_terms = list(req_data.get("glossary", {}).keys())
+            except Exception:
+                pass
+
             results.append(
                 {
                     "spec_id": meta.spec_id,
@@ -462,6 +471,7 @@ def load_spec_landscape(
                     "title": title,
                     "status": meta.status.value if hasattr(meta.status, "value") else str(meta.status),
                     "intent": intent,
+                    "glossary_terms": glossary_terms,
                     "archived": False,
                 }
             )
