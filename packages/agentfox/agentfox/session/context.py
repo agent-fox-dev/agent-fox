@@ -504,16 +504,26 @@ def assemble_context(
 # ---------------------------------------------------------------------------
 
 
+_SEVERITY_RANK: dict[str, int] = {
+    "critical": 0,
+    "major": 1,
+    "minor": 2,
+}
+_SEVERITY_DEFAULT_RANK = 3  # unknown severities sort after minor
+
+
 def get_prior_group_findings(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,
     *,
     task_group: int,
+    max_items: int = 10,
 ) -> list[PriorFinding]:
     """Query active findings from all three tables for prior task groups.
 
     Returns PriorFinding objects from groups 1 through task_group-1 for the
-    given spec, excluding superseded findings, sorted by created_at ascending.
+    given spec, excluding superseded findings.  Results are sorted by severity
+    (critical first) then recency (newest first) and capped at *max_items*.
 
     Queries review_findings, drift_findings, and verification_results tables.
     If any table does not exist (pre-migration database), that table's results
@@ -567,7 +577,19 @@ def get_prior_group_findings(
     _query_findings_table("review_findings", "review")
     _query_findings_table("drift_findings", "drift")
 
-    return findings
+    # Sort by severity rank (critical first) then recency (newest first),
+    # and cap at max_items to bound context size.
+    findings.sort(
+        key=lambda f: (
+            _SEVERITY_RANK.get(f.severity.lower(), _SEVERITY_DEFAULT_RANK),
+            # Negate created_at for descending order within same severity:
+            # invert each character's ordinal so lexicographic ascending
+            # on the tuple gives descending on the original timestamp.
+            tuple(-ord(c) for c in f.created_at) if f.created_at else (),
+        ),
+    )
+
+    return findings[:max_items]
 
 
 def render_prior_group_findings(findings: list[PriorFinding]) -> str:

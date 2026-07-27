@@ -327,6 +327,133 @@ class TestPriorGroupFindings:
         later_pos = rendered.index("Later finding")
         assert earlier_pos < middle_pos < later_pos
 
+    # -------------------------------------------------------------------
+    # max_items cap (issue #739)
+    # -------------------------------------------------------------------
+
+    def test_caps_at_default_max_items(
+        self,
+        schema_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """TS-NS-1: 30 findings across 14 prior groups returns at most 10."""
+        for i in range(30):
+            group = str((i % 14) + 1)
+            day = (i // 24) + 1
+            hour = i % 24
+            _insert_review_finding(
+                schema_conn,
+                _new_id(),
+                "test_spec_cap",
+                task_group=group,
+                severity="major",
+                description=f"Finding {i}",
+                created_at=f"2026-01-{day:02d}T{hour:02d}:00:00",
+            )
+
+        result = get_prior_group_findings(
+            schema_conn,
+            "test_spec_cap",
+            task_group=15,
+        )
+
+        assert len(result) == 10
+
+    def test_sorted_by_severity_then_recency(
+        self,
+        schema_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """TS-NS-2: critical before major before minor, newest first."""
+        # Insert findings with varying severities and timestamps
+        entries = [
+            ("minor", "2026-01-05T00:00:00"),
+            ("critical", "2026-01-01T00:00:00"),
+            ("major", "2026-01-03T00:00:00"),
+            ("critical", "2026-01-04T00:00:00"),
+            ("major", "2026-01-02T00:00:00"),
+            ("minor", "2026-01-06T00:00:00"),
+        ]
+        for sev, ts in entries:
+            _insert_review_finding(
+                schema_conn,
+                _new_id(),
+                "test_spec_sort",
+                task_group="1",
+                severity=sev,
+                description=f"{sev}-{ts}",
+                created_at=ts,
+            )
+
+        result = get_prior_group_findings(
+            schema_conn,
+            "test_spec_sort",
+            task_group=2,
+            max_items=6,
+        )
+
+        assert len(result) == 6
+        # All critical findings should come before major, major before minor
+        severities = [f.severity for f in result]
+        assert severities == ["critical", "critical", "major", "major", "minor", "minor"]
+        # Within critical: newest first
+        critical_findings = [f for f in result if f.severity == "critical"]
+        assert critical_findings[0].created_at > critical_findings[1].created_at
+        # Within major: newest first
+        major_findings = [f for f in result if f.severity == "major"]
+        assert major_findings[0].created_at > major_findings[1].created_at
+
+    def test_max_items_configurable(
+        self,
+        schema_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """TS-NS-3: max_items=3 returns 3; max_items=50 with 6 returns 6."""
+        for i in range(6):
+            _insert_review_finding(
+                schema_conn,
+                _new_id(),
+                "test_spec_cfg",
+                task_group=str((i % 4) + 1),
+                severity="minor",
+                description=f"Finding {i}",
+            )
+
+        result_3 = get_prior_group_findings(
+            schema_conn,
+            "test_spec_cfg",
+            task_group=5,
+            max_items=3,
+        )
+        assert len(result_3) == 3
+
+        result_50 = get_prior_group_findings(
+            schema_conn,
+            "test_spec_cfg",
+            task_group=5,
+            max_items=50,
+        )
+        assert len(result_50) == 6
+
+    def test_fewer_than_max_items_returns_all(
+        self,
+        schema_conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """TS-NS-4: 3 findings with default max_items=10 returns all 3."""
+        for i in range(3):
+            _insert_drift_finding(
+                schema_conn,
+                _new_id(),
+                "test_spec_few",
+                task_group="1",
+                description=f"Drift {i}",
+            )
+
+        result = get_prior_group_findings(
+            schema_conn,
+            "test_spec_few",
+            task_group=2,
+        )
+
+        assert len(result) == 3
+
     def test_task_group_1_returns_no_prior_findings(
         self,
         schema_conn: duckdb.DuckDBPyConnection,

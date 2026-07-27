@@ -423,8 +423,13 @@ class TestConfigReload:
         async def fake_discovery(state: Any) -> bool:
             nonlocal poll_count
             poll_count += 1
+<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_watch_mode.py
             if poll_count == 2:  # noqa: PLR2004
                 # First watch poll — simulate config hot-reload
+=======
+            if poll_count == 1:
+                # Simulate config hot-reload updating watch_interval
+>>>>>>> Stashed changes:tests/unit/test_watch_mode.py
                 orch._config = orch._config.model_copy(update={"watch_interval": 20})
             return False
 
@@ -678,12 +683,16 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_watch_interval_updated_via_hot_reload(self, tmp_path: Path) -> None:
+<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_watch_mode.py
         """TS-70-E4: Config hot-reload updates interval used on next sleep.
 
         Config change must happen on mock call 2 (first watch poll), not
         call 1 (main loop), to ensure the first watch sleep uses the
         original interval.
         """
+=======
+        """TS-70-E4: Config hot-reload updates interval used on next sleep."""
+>>>>>>> Stashed changes:tests/unit/test_watch_mode.py
         config = OrchestratorConfig(
             parallel=1,
             inter_session_delay=0,
@@ -704,8 +713,12 @@ class TestEdgeCases:
         async def fake_discovery(state: Any) -> bool:
             nonlocal poll_count
             poll_count += 1
+<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_watch_mode.py
             if poll_count == 2:  # noqa: PLR2004
                 # First watch poll — simulate config hot-reload
+=======
+            if poll_count == 1:
+>>>>>>> Stashed changes:tests/unit/test_watch_mode.py
                 orch._config = orch._config.model_copy(update={"watch_interval": 20})
             return False
 
@@ -725,8 +738,14 @@ class TestEdgeCases:
             hot_load=True,
             max_cost=0.01,
         )
+<<<<<<< Updated upstream:packages/agentfox/tests/unit/test_watch_mode.py
         single_db = _write_single_node_plan_db()
         orch, sink = _make_orchestrator(tmp_path, config=config, db_conn=single_db)
+=======
+        plan_dir = tmp_path / ".agent-fox"
+        plan_path = _write_single_node_plan(plan_dir)
+        orch, sink = _make_orchestrator(tmp_path, config=config, plan_path=plan_path)
+>>>>>>> Stashed changes:tests/unit/test_watch_mode.py
         orch._watch = True  # type: ignore[attr-defined]
 
         # Mock _load_or_init_state to return state with cost at the limit

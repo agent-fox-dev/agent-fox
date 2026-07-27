@@ -117,8 +117,12 @@ class TestNoopUnchangedProperty:
             emitted.append(args)
 
         with patch(
+<<<<<<< Updated upstream:packages/agentfox/tests/property/engine/test_config_reload_props.py
             "agentfox.engine.config_reload.emit_audit_event",
             side_effect=_capture,
+=======
+            "agent_fox.engine.config_reload.emit_audit_event", side_effect=_capture
+>>>>>>> Stashed changes:tests/property/engine/test_config_reload_props.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -171,8 +175,12 @@ class TestMutableFieldsUpdatedProperty:
 
         new_agent_cfg = AgentFoxConfig(orchestrator=new_cfg)
         with patch(
+<<<<<<< Updated upstream:packages/agentfox/tests/property/engine/test_config_reload_props.py
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
+=======
+            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
+>>>>>>> Stashed changes:tests/property/engine/test_config_reload_props.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -213,10 +221,18 @@ class TestCircuitBreakerRebuiltProperty:
         orch._full_config = AgentFoxConfig()  # type: ignore[attr-defined]
         orch._run_id = "prop_test"
 
+<<<<<<< Updated upstream:packages/agentfox/tests/property/engine/test_config_reload_props.py
         new_agent_cfg = AgentFoxConfig(orchestrator=OrchestratorConfig(max_cost=max_cost, parallel=1))
         with patch(
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
+=======
+        new_agent_cfg = AgentFoxConfig(
+            orchestrator=OrchestratorConfig(max_cost=max_cost, parallel=1)
+        )
+        with patch(
+            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
+>>>>>>> Stashed changes:tests/property/engine/test_config_reload_props.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -259,8 +275,12 @@ class TestParallelImmutableProperty:
         new_orch_cfg = OrchestratorConfig(parallel=new_parallel, inter_session_delay=0)
         new_agent_cfg = AgentFoxConfig(orchestrator=new_orch_cfg)
         with patch(
+<<<<<<< Updated upstream:packages/agentfox/tests/property/engine/test_config_reload_props.py
             "agentfox.engine.config_reload.load_config",
             return_value=new_agent_cfg,
+=======
+            "agent_fox.engine.config_reload.load_config", return_value=new_agent_cfg
+>>>>>>> Stashed changes:tests/property/engine/test_config_reload_props.py
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
@@ -362,10 +382,16 @@ class TestAuditExactDiffProperty:
             emitted.append({"event_type": event_type, "payload": payload or {}})
 
         with (
+<<<<<<< Updated upstream:packages/agentfox/tests/property/engine/test_config_reload_props.py
             patch("agentfox.engine.config_reload.load_config", return_value=new_cfg),
             patch(
                 "agentfox.engine.config_reload.emit_audit_event",
                 side_effect=_capture,
+=======
+            patch("agent_fox.engine.config_reload.load_config", return_value=new_cfg),
+            patch(
+                "agent_fox.engine.config_reload.emit_audit_event", side_effect=_capture
+>>>>>>> Stashed changes:tests/property/engine/test_config_reload_props.py
             ),
         ):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
