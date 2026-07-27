@@ -34,7 +34,7 @@
           "error_condition": "the `spec` directory is missing a required file",
           "system": "the `system`",
           "action": "raise a LoadError identifying the missing file",
-          "return_contract": null
+          "return_contract": "raises LoadError with message listing the missing file path"
         }
       ]
     }

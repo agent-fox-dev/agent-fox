@@ -13,6 +13,12 @@ The `glossary` defines project-specific terms that a developer unfamiliar with t
 
 **Exclude** (use plain prose, no backticks): standard HTTP status codes (200, 404, 500), well-known protocols and formats (JSON, HTTP, UUID), standard ports, generic error response shapes, language keywords, file path conventions, log levels, and any term a working developer would already know. Write these in plain text without backticks.
 
+**Common mistakes** (do NOT backtick these):
+- Numeric values or suffixes: write "appends -1, -2" not "appends `-1`, `-2`"
+- Error message strings: write 'returns "not found"' not 'returns `"not found"`'
+- Standard library functions or types: write "calls os.Exit" not "calls `os.Exit`"
+- Single-character values or operators: write "returns 0" not "returns `0`"
+
 **Pre-submission check**: Before submitting, scan every `action`, `trigger`,
 `error_condition`, `state`, `for_any`, and `invariant` field for backtick-delimited
 terms. Verify each one has a glossary entry. This is the #1 cause of validation

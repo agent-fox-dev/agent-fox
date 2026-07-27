@@ -396,9 +396,22 @@ def _collect_all_test_spec_ids(spec: Spec) -> set[str]:
     return ids
 
 
+_NON_TERM_RE = re.compile(
+    r"^-?\d+(\.\d+)?$"
+    r"|^[\"'].*[\"']$"
+    r"|^.$"
+)
+
+
 def _extract_backtick_terms(text: str) -> set[str]:
-    """Extract all backtick-wrapped terms from a text string."""
-    return set(re.findall(r"`([^`]+)`", text))
+    """Extract backtick-wrapped terms, excluding non-domain-term patterns.
+
+    Filters out pure numerics (-1, 42, 3.14), quoted strings, single
+    characters, and strings longer than 80 characters — these are code
+    literals, not domain terms that belong in the glossary.
+    """
+    raw = set(re.findall(r"`([^`]+)`", text))
+    return {t for t in raw if not _NON_TERM_RE.match(t) and len(t) <= 80}
 
 
 def validate_cross_file(spec: Spec) -> list[ValidationError]:
@@ -739,6 +752,27 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
                         )
                     )
 
+    # -----------------------------------------------------------------------
+    # Rule 10: unwanted-pattern criteria must have return_contract
+    # -----------------------------------------------------------------------
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria + req.edge_cases:
+            if criterion.return_contract is not None:
+                continue
+            if criterion.ears_pattern == EARSPattern.UNWANTED:
+                errors.append(
+                    ValidationError(
+                        file="requirements.json",
+                        path=f"requirements.{req.id}.{criterion.id}",
+                        message=(
+                            f"Criterion {criterion.id} has ears_pattern 'unwanted' "
+                            f"but null return_contract — error-path criteria must "
+                            f"specify the caller-observable response"
+                        ),
+                        rule="cross-file-10",
+                    )
+                )
+
     return errors
 
 
@@ -1041,16 +1075,20 @@ def _check_error_path_return_contract(spec: Spec) -> list[ValidationWarning]:
     """Warn when error-path criteria have a null ``return_contract``.
 
     Scans acceptance criteria and edge cases for action text containing
-    error-indicating keywords.  If such a criterion has
-    ``return_contract is None``, a warning is emitted because the error
-    response format is likely unspecified.
+    error-indicating keywords or a non-empty ``error_condition`` field.
+    If such a criterion has ``return_contract is None``, a warning is
+    emitted because the error response format is likely unspecified.
     """
     warnings: list[ValidationWarning] = []
     for req in spec.requirements.requirements:
         for criterion in req.acceptance_criteria + req.edge_cases:
             if criterion.return_contract is not None:
                 continue
-            if _ERROR_PATH_RE.search(criterion.action):
+            has_error_keywords = _ERROR_PATH_RE.search(criterion.action)
+            has_error_condition = bool(
+                criterion.error_condition and criterion.error_condition.strip()
+            )
+            if has_error_keywords or has_error_condition:
                 warnings.append(
                     ValidationWarning(
                         message=(

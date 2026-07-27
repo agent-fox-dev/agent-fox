@@ -51,6 +51,9 @@ The `traceability` array links requirements to test specs and tasks. One entry p
 
 Reference both requirement IDs and test IDs from the previously generated artifacts in subtask `requirement_refs` and `test_spec_refs` fields.
 
+### Smoke test authoring
+Every smoke test in test_spec.json (TS-{spec_id}-SMOKE-*) must have a corresponding authoring subtask in an earlier test-writing group. Do not defer smoke test creation to the wiring_verification group — that group only *runs* smoke tests, it does not write them.
+
 ### Wiring verification (last group)
 The final wiring_verification group must include subtasks that cover:
 1. Trace execution paths — verify each path's entry point calls the next function in the chain, no stubs remain.

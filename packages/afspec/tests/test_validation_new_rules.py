@@ -37,7 +37,12 @@ from afspec.models import (
     UserStory,
     VerificationSubtask,
 )
-from afspec.validation import validate, validate_cross_file, validate_cross_spec
+from afspec.validation import (
+    _extract_backtick_terms,
+    validate,
+    validate_cross_file,
+    validate_cross_spec,
+)
 
 
 def _make_spec(
@@ -551,6 +556,153 @@ class TestErrorPathReturnContractWarning:
         result = validate(spec)
         assert result.valid is True
         assert len(result.warnings) >= 1
+
+
+# ===========================================================================
+# Backtick term extraction: non-domain-term filtering
+# ===========================================================================
+
+
+class TestExtractBacktickTerms:
+    """_extract_backtick_terms filters out non-domain patterns."""
+
+    def test_domain_terms_pass_through(self) -> None:
+        text = "return a populated `SpaceManager` from `get_org`"
+        terms = _extract_backtick_terms(text)
+        assert terms == {"SpaceManager", "get_org"}
+
+    def test_pure_numerics_excluded(self) -> None:
+        text = "appends `-1`, `-2`, `42`, `3.14` to the list"
+        terms = _extract_backtick_terms(text)
+        assert terms == set()
+
+    def test_quoted_strings_excluded(self) -> None:
+        text = """returns `"user has no personal organization; contact an administrator"`"""
+        terms = _extract_backtick_terms(text)
+        assert terms == set()
+
+    def test_single_quoted_strings_excluded(self) -> None:
+        text = "sets status to `'active'`"
+        terms = _extract_backtick_terms(text)
+        assert terms == set()
+
+    def test_single_characters_excluded(self) -> None:
+        text = "separates fields with `|` and `:`"
+        terms = _extract_backtick_terms(text)
+        assert terms == set()
+
+    def test_long_strings_excluded(self) -> None:
+        long_term = "a" * 81
+        text = f"calls `{long_term}` to process"
+        terms = _extract_backtick_terms(text)
+        assert terms == set()
+
+    def test_80_char_term_included(self) -> None:
+        term_80 = "a" * 80
+        text = f"calls `{term_80}` to process"
+        terms = _extract_backtick_terms(text)
+        assert terms == {term_80}
+
+    def test_mixed_domain_and_non_domain(self) -> None:
+        text = "return `OrgConfig` with priority `-1` and status `active`"
+        terms = _extract_backtick_terms(text)
+        assert "OrgConfig" in terms
+        assert "active" in terms
+        assert "-1" not in terms
+
+
+# ===========================================================================
+# cross-file-10: unwanted-pattern criteria must have return_contract
+# ===========================================================================
+
+
+class TestUnwantedReturnContractError:
+    """Unwanted criteria with null return_contract produce a cross-file error."""
+
+    def test_unwanted_null_contract_produces_error(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.E1",
+            ears_pattern=EARSPattern.UNWANTED,
+            error_condition="request is unauthorized",
+            system="system",
+            action="does not process the request",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].edge_cases = [crit]
+        errors = validate_cross_file(spec)
+        cf10 = [e for e in errors if e.rule == "cross-file-10"]
+        assert len(cf10) >= 1
+        assert "W-REQ-1.E1" in cf10[0].message
+
+    def test_unwanted_with_contract_no_error(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.E1",
+            ears_pattern=EARSPattern.UNWANTED,
+            error_condition="request is unauthorized",
+            system="system",
+            action="does not process the request",
+            return_contract="returns HTTP 401 with JSON body {error: string}",
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].edge_cases = [crit]
+        errors = validate_cross_file(spec)
+        cf10 = [e for e in errors if e.rule == "cross-file-10"]
+        assert cf10 == []
+
+    def test_non_unwanted_null_contract_no_error(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="logs the event to the audit trail",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        errors = validate_cross_file(spec)
+        cf10 = [e for e in errors if e.rule == "cross-file-10"]
+        assert cf10 == []
+
+
+# ===========================================================================
+# Error-condition field triggers return_contract warning
+# ===========================================================================
+
+
+class TestErrorConditionReturnContractWarning:
+    """Non-empty error_condition with null return_contract triggers warning."""
+
+    def test_error_condition_no_error_keywords_still_warns(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.E1",
+            ears_pattern=EARSPattern.UNWANTED,
+            error_condition="slug contains uppercase characters",
+            system="system",
+            action="does not split the group",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].edge_cases = [crit]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert len(rc_warnings) >= 1
+        assert "W-REQ-1.E1" in rc_warnings[0].entity_id
+
+    def test_empty_error_condition_no_extra_warning(self) -> None:
+        crit = Criterion(
+            id="W-REQ-1.1",
+            ears_pattern=EARSPattern.UBIQUITOUS,
+            system="system",
+            action="logs the event to the audit trail",
+            error_condition="",
+            return_contract=None,
+        )
+        spec = _build_wiring_spec(wiring_title="Stub audit")
+        spec.requirements.requirements[0].acceptance_criteria = [crit]
+        result = validate(spec)
+        rc_warnings = [w for w in result.warnings if "return_contract" in w.message]
+        assert rc_warnings == []
 
 
 # ===========================================================================

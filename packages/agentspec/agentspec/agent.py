@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from afspec import Requirements, Spec, Tasks, TestSpec  # type: ignore[import-untyped]
+from afspec import validate_cross_file as afspec_validate_cross_file  # type: ignore[import-untyped]
 from afspec import validate_schema as afspec_validate_schema  # type: ignore[import-untyped]
 from anthropic import (
     APIConnectionError,
@@ -331,6 +332,8 @@ class SpecAgent:
             mini_spec = Spec(**spec_kwargs)
 
             schema_errors = afspec_validate_schema(mini_spec)
+            if artifact_name == "requirements":
+                schema_errors.extend(afspec_validate_cross_file(mini_spec))
             relevant = [e for e in schema_errors if artifact_name in e.file or artifact_name.replace("_", "") in e.file]
             if not relevant:
                 return artifact_model
