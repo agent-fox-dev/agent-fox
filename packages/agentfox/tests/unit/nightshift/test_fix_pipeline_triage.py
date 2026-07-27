@@ -181,6 +181,169 @@ class TestCoderPromptIncludesCriteria:
 
 
 # ---------------------------------------------------------------------------
+# TS-NS-1 through TS-NS-5: Compact rendering for SIMPLE-complexity issues
+# Requirements: NS-REQ-1 through NS-REQ-5
+# ---------------------------------------------------------------------------
+
+
+def _make_triage_with_complexity(
+    criteria_count: int,
+    tier: str,
+) -> object:
+    """Build a TriageResult with assessed_complexity and N criteria."""
+    from agentfox.nightshift.fix_pipeline import (
+        AcceptanceCriterion,
+        AssessedComplexity,
+        TriageResult,
+    )
+
+    criteria = [
+        AcceptanceCriterion(
+            id=f"AC-{i + 1}",
+            description=f"Criterion {i + 1} description",
+            preconditions=f"Precondition {i + 1}",
+            expected=f"Expected {i + 1}",
+            assertion=f"Assertion {i + 1}",
+        )
+        for i in range(criteria_count)
+    ]
+    return TriageResult(
+        summary="Root cause analysis",
+        affected_files=["agentfox/engine.py"],
+        criteria=criteria,
+        issue_body="Fix the bug",
+        assessed_complexity=AssessedComplexity(
+            tier=tier,
+            variant=None,
+            confidence=0.9,
+            rationale="Test rationale",
+        ),
+    )
+
+
+class TestCompactRenderingForSimpleIssues:
+    """TS-NS-1: SIMPLE issues with ≤2 criteria use compact checklist."""
+
+    def test_simple_2_criteria_uses_compact(self) -> None:
+        """NS-REQ-1: compact format, no NS-REQ-N IDs."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(2, "SIMPLE")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        # Compact format: checklist header present, afspec IDs absent
+        assert "Acceptance Criteria from Triage" in system_prompt
+        assert "NS-REQ-1" not in system_prompt
+        # Each criterion description is present
+        assert triage.criteria[0].description in system_prompt
+        assert triage.criteria[1].description in system_prompt
+
+    def test_simple_1_criterion_uses_compact(self) -> None:
+        """NS-REQ-1: single-criterion SIMPLE issue uses compact."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(1, "SIMPLE")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        assert "Acceptance Criteria from Triage" in system_prompt
+        assert "NS-REQ-1" not in system_prompt
+        assert triage.criteria[0].description in system_prompt
+
+
+class TestSimple3CriteriaUsesFullAfspec:
+    """TS-NS-2: SIMPLE issues with ≥3 criteria use full afspec."""
+
+    def test_simple_3_criteria_uses_afspec(self) -> None:
+        """NS-REQ-2: 3+ criteria falls through to full rendering."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(3, "SIMPLE")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        assert "NS-REQ-1" in system_prompt
+        assert "NS-REQ-3" in system_prompt
+
+
+class TestNonSimpleUsesFullAfspec:
+    """TS-NS-3: Non-SIMPLE issues always use full afspec."""
+
+    def test_standard_2_criteria_uses_afspec(self) -> None:
+        """NS-REQ-3: STANDARD with 2 criteria uses full rendering."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(2, "STANDARD")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        assert "NS-REQ-1" in system_prompt
+
+    def test_advanced_2_criteria_uses_afspec(self) -> None:
+        """NS-REQ-3: ADVANCED with 2 criteria uses full rendering."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(2, "ADVANCED")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        assert "NS-REQ-1" in system_prompt
+
+
+class TestNoneComplexityUsesFullAfspec:
+    """TS-NS-4: None assessed_complexity is backward-compatible (full afspec)."""
+
+    def test_none_complexity_uses_afspec(self) -> None:
+        """NS-REQ-4: covered by existing TestCoderPromptIncludesCriteria."""
+        # Duplicate here for explicitness — triage without assessed_complexity
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.session.review_parser import parse_triage_output
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage_result = parse_triage_output(_triage_json(2), "fix-issue-42", "s1")
+
+        # parse_triage_output without assessed_complexity → None
+        assert triage_result.assessed_complexity is None
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage_result)
+
+        assert "NS-REQ-1" in system_prompt
+        assert "NS-REQ-2" in system_prompt
+
+
+class TestCompactRenderingIncludesAllFields:
+    """TS-NS-5: Compact rendering includes all four criterion fields."""
+
+    def test_all_fields_present(self) -> None:
+        """NS-REQ-5: description, preconditions, expected, assertion all present."""
+        pipeline, _, _ = _make_pipeline()
+        from agentfox.nightshift.spec_builder import build_in_memory_spec
+
+        spec = build_in_memory_spec(_make_issue(), "fix the bug")
+        triage = _make_triage_with_complexity(1, "SIMPLE")
+
+        system_prompt, _ = pipeline._build_coder_prompt(spec, triage)
+
+        c = triage.criteria[0]
+        assert c.description in system_prompt
+        assert c.preconditions in system_prompt
+        assert c.expected in system_prompt
+        assert c.assertion in system_prompt
+
+
+# ---------------------------------------------------------------------------
 # TS-82-12: Reviewer prompt includes triage criteria
 # Requirements: 82-REQ-7.3, 82-REQ-5.3
 # ---------------------------------------------------------------------------

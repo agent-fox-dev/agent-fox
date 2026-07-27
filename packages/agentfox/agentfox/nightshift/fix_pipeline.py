@@ -53,9 +53,7 @@ logger = logging.getLogger(__name__)
 # PR tracking comment utilities (06-REQ-10.1, 06-REQ-10.2, 06-REQ-10.3)
 # ---------------------------------------------------------------------------
 
-PR_TRACKING_PATTERN: re.Pattern[str] = re.compile(
-    r"<!-- af:pr-tracking pr_number=(\d+) attempt=(\d+) -->"
-)
+PR_TRACKING_PATTERN: re.Pattern[str] = re.compile(r"<!-- af:pr-tracking pr_number=(\d+) attempt=(\d+) -->")
 
 
 def format_tracking_comment(
@@ -409,8 +407,7 @@ class FixPipeline:
             # 05-REQ-2.5: structured log with touched_files count and
             # summary_extracted flag
             logger.info(
-                "Post-harvest knowledge ingestion completed: "
-                "touched_files=%d, summary_extracted=%s",
+                "Post-harvest knowledge ingestion completed: touched_files=%d, summary_extracted=%s",
                 len(changed_files),
                 summary_extracted,
             )
@@ -844,23 +841,37 @@ class FixPipeline:
         """
         from agentfox.session.prompt import build_system_prompt
 
-        # Assemble criteria context via afspec rendering (happy path)
-        try:
-            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
-            rendered = render_inmemory_spec_sections(afspec_spec)
-            if isinstance(rendered, list):
-                rendered = "\n\n".join(rendered)
-            context = f"{spec.system_context}\n\n{rendered}"
-        except Exception:
-            logger.warning(
-                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
-                spec.issue_number,
-                exc_info=True,
-            )
+        # For SIMPLE-complexity issues with 1–2 criteria, use compact
+        # checklist rendering to save tokens (no triple-expansion).
+        use_compact = (
+            triage.assessed_complexity is not None
+            and triage.assessed_complexity.tier == "SIMPLE"
+            and len(triage.criteria) <= 2
+        )
+
+        if use_compact:
             criteria_context = self._render_criteria_context(triage)
             context = spec.system_context
             if criteria_context:
                 context = f"{context}\n\n{criteria_context}"
+        else:
+            # Assemble criteria context via afspec rendering (happy path)
+            try:
+                afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+                rendered = render_inmemory_spec_sections(afspec_spec)
+                if isinstance(rendered, list):
+                    rendered = "\n\n".join(rendered)
+                context = f"{spec.system_context}\n\n{rendered}"
+            except Exception:
+                logger.warning(
+                    "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
+                    spec.issue_number,
+                    exc_info=True,
+                )
+                criteria_context = self._render_criteria_context(triage)
+                context = spec.system_context
+                if criteria_context:
+                    context = f"{context}\n\n{criteria_context}"
 
         if knowledge_context:
             context = f"{context}\n\n{knowledge_context}"
@@ -962,10 +973,9 @@ class FixPipeline:
     def _render_criteria_context(self, triage: TriageResult) -> str:
         """Render triage criteria as structured context text.
 
-        .. note:: Fallback only — this function is retained for resilience
-           when ``build_afspec_from_triage`` raises.  It must NOT be called
-           on the happy path; all happy-path context rendering goes through
-           ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``.
+        Used on the happy path for SIMPLE-complexity issues with 1–2 criteria
+        (compact rendering to save tokens), and as a fallback when
+        ``build_afspec_from_triage`` raises for any issue.
         """
         if not triage.criteria:
             return ""
@@ -1209,8 +1219,7 @@ class FixPipeline:
             if platform is None:
                 # Fall back to branch mode (02-REQ-4.3)
                 logger.warning(
-                    "Merge strategy is 'pr' but platform is not configured "
-                    "— falling back to 'branch' mode.",
+                    "Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.",
                 )
                 changed_files = await _workspace_git.get_changed_files(
                     workspace.path,
@@ -1228,7 +1237,8 @@ class FixPipeline:
             # 02-REQ-4.2 / 02-REQ-10.1: PR mode — push branch and create PR
             # Sequence: push → get_changed_files → build_pr_body → create_pr
             await _workspace_git.push_to_remote(
-                workspace.path, workspace.branch,
+                workspace.path,
+                workspace.branch,
             )
             changed_files = await _workspace_git.get_changed_files(
                 workspace.path,
@@ -1339,9 +1349,7 @@ class FixPipeline:
 
         if harvest_result == "pr_created":
             # 06-REQ-9.E2: _pr_number must be set before pr_created status.
-            assert self._pr_number is not None, (
-                "_pr_number must be set before pr_created status"
-            )
+            assert self._pr_number is not None, "_pr_number must be set before pr_created status"
 
             # 06-REQ-9.1: Add af:pr label. Let IntegrationError propagate
             # (06-REQ-9.E1) — do NOT wrap in try/except to avoid leaving
