@@ -45,6 +45,41 @@ class TestParseStatenessResponse:
 
 
 # ---------------------------------------------------------------------------
+# Issue #740: model tier used by _run_ai_staleness
+# ---------------------------------------------------------------------------
+
+
+class TestRunAiStalenessModelTier:
+    """_run_ai_staleness uses the STANDARD model tier."""
+
+    @pytest.mark.asyncio
+    async def test_uses_standard_model_tier(self) -> None:
+        """nightshift_ai_call is invoked with model_tier='STANDARD'."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import _run_ai_staleness
+
+        fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
+        remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
+        config = MagicMock()
+
+        mock_ai_call = AsyncMock(
+            return_value=('{"obsolete": []}', MagicMock()),
+        )
+
+        with patch(
+            "agentfox.nightshift.cost_helpers.nightshift_ai_call",
+            mock_ai_call,
+        ):
+            await _run_ai_staleness(fixed, remaining, "diff content", config)
+
+        mock_ai_call.assert_called_once()
+        _, kwargs = mock_ai_call.call_args
+        assert kwargs["model_tier"] == "STANDARD"
+
+
+# ---------------------------------------------------------------------------
 # Issue #228: corrected gate logic in check_staleness
 # ---------------------------------------------------------------------------
 

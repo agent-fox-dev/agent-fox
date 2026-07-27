@@ -99,7 +99,7 @@ async def _run_ai_staleness(
     sink: SinkDispatcher | None = None,
     run_id: str = "",
 ) -> StalenessResult:
-    """Internal: run the actual AI staleness evaluation using ADVANCED tier.
+    """Internal: run the actual AI staleness evaluation using STANDARD tier.
 
     Requirements: 71-REQ-5.1
     """
@@ -108,7 +108,7 @@ async def _run_ai_staleness(
     prompt = _build_staleness_prompt(fixed_issue, remaining_issues, fix_diff)
 
     response_text, _response = await nightshift_ai_call(
-        model_tier="ADVANCED",
+        model_tier="STANDARD",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
         context="staleness check",
