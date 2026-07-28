@@ -192,28 +192,35 @@ class TestBackwardCompatDeserialization:
 
 
 class TestHardFlagAccepted:
-    """TS-35-4: CLI accepts --hard as a valid flag."""
+    """TS-35-4: CLI accepts --reset-hard as a valid flag (migrated from af reset --hard)."""
 
-    def test_hard_flag_accepted(self, tmp_path: Path) -> None:
-        """reset --hard --yes invokes without Click errors."""
-        from af.reset import reset_cmd
+    def test_hard_flag_accepted(self) -> None:
+        """plan --reset-hard --yes invokes without Click errors."""
+        from af.app import main
+        from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
+        from agentfox.nightshift.pid import PidStatus
         from click.testing import CliRunner
 
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
-            iso_agent_dir = Path(td) / ".agent-fox"
-            iso_agent_dir.mkdir(parents=True, exist_ok=True)
-            nodes = {"s:1": {"title": "T1"}}
-            (iso_agent_dir / "plan.json").write_text(_make_plan_json(nodes=nodes))
-            (iso_agent_dir / "worktrees").mkdir(exist_ok=True)
-            (iso_agent_dir / "memory.jsonl").write_text("")
+        graph = TaskGraph(
+            nodes={
+                "s:1": Node(
+                    id="s:1", spec_name="s", group_number=1,
+                    title="T1", optional=False, status=NodeStatus.PENDING,
+                ),
+            },
+            edges=[], order=["s:1"],
+            metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
+        )
+        mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
+        mock_result = _make_hard_reset_result()
 
-            mock_result = _make_hard_reset_result()
-            with patch(
-                "af.reset.hard_reset_all",
-                return_value=mock_result,
-            ):
-                result = runner.invoke(reset_cmd, ["--hard", "--yes"], obj={"json": False})
+        with (
+            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = CliRunner().invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 0
 
@@ -515,23 +522,33 @@ class TestPartialHardResetCleansAffected:
 
 
 class TestConfirmationRequired:
-    """TS-35-15: reset --hard prompts for confirmation."""
+    """TS-35-15: plan --reset-hard prompts for confirmation (migrated from af reset --hard)."""
 
-    def test_user_prompted_without_yes(self, tmp_path: Path) -> None:
-        """reset --hard without --yes prompts, 'n' cancels."""
-        from af.reset import reset_cmd
+    def test_user_prompted_without_yes(self) -> None:
+        """plan --reset-hard without --yes prompts, 'n' cancels."""
+        from af.app import main
+        from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
+        from agentfox.nightshift.pid import PidStatus
         from click.testing import CliRunner
 
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
-            iso_agent_dir = Path(td) / ".agent-fox"
-            iso_agent_dir.mkdir(parents=True, exist_ok=True)
-            nodes = {"s:1": {"title": "T1"}}
-            (iso_agent_dir / "plan.json").write_text(_make_plan_json(nodes=nodes))
-            (iso_agent_dir / "worktrees").mkdir(exist_ok=True)
-            (iso_agent_dir / "memory.jsonl").write_text("")
+        graph = TaskGraph(
+            nodes={
+                "s:1": Node(
+                    id="s:1", spec_name="s", group_number=1,
+                    title="T1", optional=False, status=NodeStatus.PENDING,
+                ),
+            },
+            edges=[], order=["s:1"],
+            metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
+        )
+        mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
 
-            result = runner.invoke(reset_cmd, ["--hard"], input="n\n", obj={"json": False})
+        with (
+            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+        ):
+            result = CliRunner().invoke(main, ["plan", "--reset-hard"], input="n\n")
 
         assert "cancelled" in result.output.lower() or "cancel" in result.output.lower()
 
@@ -871,23 +888,33 @@ class TestPartialNoCommitSha:
 
 
 class TestUserDeclines:
-    """TS-35-E6: Operation aborted when user says no."""
+    """TS-35-E6: Operation aborted when user says no (migrated from af reset --hard)."""
 
-    def test_cancellation_on_decline(self, tmp_path: Path) -> None:
+    def test_cancellation_on_decline(self) -> None:
         """No tasks reset, cancellation message printed."""
-        from af.reset import reset_cmd
+        from af.app import main
+        from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
+        from agentfox.nightshift.pid import PidStatus
         from click.testing import CliRunner
 
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
-            iso_agent_dir = Path(td) / ".agent-fox"
-            iso_agent_dir.mkdir(parents=True, exist_ok=True)
-            nodes = {"s:1": {"title": "T1"}}
-            (iso_agent_dir / "plan.json").write_text(_make_plan_json(nodes=nodes))
-            (iso_agent_dir / "worktrees").mkdir(exist_ok=True)
-            (iso_agent_dir / "memory.jsonl").write_text("")
+        graph = TaskGraph(
+            nodes={
+                "s:1": Node(
+                    id="s:1", spec_name="s", group_number=1,
+                    title="T1", optional=False, status=NodeStatus.PENDING,
+                ),
+            },
+            edges=[], order=["s:1"],
+            metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
+        )
+        mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
 
-            result = runner.invoke(reset_cmd, ["--hard"], input="n\n", obj={"json": False})
+        with (
+            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+        ):
+            result = CliRunner().invoke(main, ["plan", "--reset-hard"], input="n\n")
 
         assert result.exit_code == 0
         assert "cancelled" in result.output.lower() or "cancel" in result.output.lower()

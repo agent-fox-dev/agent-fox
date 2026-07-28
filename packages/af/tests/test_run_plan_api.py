@@ -530,3 +530,67 @@ class TestRunPlanUnknownTarget:
             mock_db = MagicMock()
             mock_ks.return_value = mock_db
             run_plan(config, reset_hard=True, target="nonexistent:99")
+
+
+# ===========================================================================
+# Additional branch coverage for run_plan() new parameters
+# Coverage gate: 01-REQ-9.2
+# ===========================================================================
+
+
+class TestRunPlanClearFilterSpec:
+    """run_plan(clear=True, filter_spec=...) scopes clear to named spec."""
+
+    def test_clear_with_filter_spec_returns_scoped_count(self) -> None:
+        """WHEN run_plan(clear=True, filter_spec='alpha') on a plan with
+        nodes from 'alpha' and 'beta',
+        THEN only alpha nodes are cleared and the count reflects that.
+        """
+        config = _mock_config()
+        graph = _make_graph(
+            {
+                "alpha:1": NodeStatus.PENDING,
+                "alpha:2": NodeStatus.FAILED,
+                "beta:1": NodeStatus.IN_PROGRESS,
+            }
+        )
+
+        with (
+            patch("agentfox.graph.planner.open_knowledge_store") as mock_ks,
+            patch("agentfox.graph.planner.load_plan", return_value=graph),
+            patch(
+                "agentfox.graph.planner.persist_node_status",
+            ) as mock_persist,
+        ):
+            mock_db = MagicMock()
+            mock_ks.return_value = mock_db
+            result = run_plan(config, clear=True, filter_spec="alpha")
+
+        assert result == 2
+        # Only alpha nodes should have been persisted
+        persisted_ids = {c.args[1] for c in mock_persist.call_args_list}
+        assert persisted_ids == {"alpha:1", "alpha:2"}
+
+
+class TestRunPlanResetUnknownTarget:
+    """run_plan(reset=True, target=unknown) raises for soft reset too.
+
+    Edge case: 01-REQ-7.E3 (reset=True variant)
+    """
+
+    def test_unknown_target_soft_reset_raises(self) -> None:
+        """WHEN run_plan(reset=True, target='nonexistent:99') and the
+        task does not exist in the plan,
+        THEN an exception is raised.
+        """
+        config = _mock_config()
+        graph = _make_graph({"spec:1": NodeStatus.FAILED})
+
+        with (
+            patch("agentfox.graph.planner.open_knowledge_store") as mock_ks,
+            patch("agentfox.graph.planner.load_plan", return_value=graph),
+            pytest.raises((ValueError, KeyError)),
+        ):
+            mock_db = MagicMock()
+            mock_ks.return_value = mock_db
+            run_plan(config, reset=True, target="nonexistent:99")

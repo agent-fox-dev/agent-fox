@@ -1074,3 +1074,122 @@ class TestHardResetFlagRegistered:
         """WHEN invoked with --help, THEN --reset-hard is listed."""
         result = cli_runner.invoke(main, ["plan", "--help"])
         assert "--reset-hard" in result.output
+
+
+# ===========================================================================
+# Display branch coverage tests (10.4 — coverage gate)
+# ===========================================================================
+
+
+class TestResetDisplayBranches:
+    """Exercise display helper branches for coverage.
+
+    Covers the _display_reset_result and _display_hard_reset_result
+    code paths that render worktrees, branches, skipped_completed, and
+    no-rollback-sha scenarios.
+    """
+
+    def test_soft_reset_skipped_completed_warning(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN run_reset returns empty reset_tasks but skipped_completed,
+        THEN the warning about completed tasks is shown.
+        """
+        graph = _make_graph({"spec:1": NodeStatus.COMPLETED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_reset_result(
+            reset_tasks=[],
+            skipped_completed=["spec:1"],
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        assert "completed tasks cannot be reset" in result.output.lower()
+
+    def test_soft_reset_with_worktrees_and_branches(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN run_reset returns cleaned_worktrees and cleaned_branches,
+        THEN the display includes worktree and branch cleanup counts.
+        """
+        graph = _make_graph({"spec:1": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_reset_result(
+            reset_tasks=["spec:1"],
+            cleaned_worktrees=["/tmp/wt1", "/tmp/wt2"],
+            cleaned_branches=["feature/spec-1"],
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        assert "2 worktree(s)" in result.output
+        assert "1 branch(es)" in result.output
+
+    def test_hard_reset_with_worktrees_and_branches(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN hard reset returns cleaned_worktrees and cleaned_branches,
+        THEN the display includes worktree and branch cleanup counts.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:0"],
+            cleaned_worktrees=["/tmp/wt1"],
+            cleaned_branches=["feature/spec-0", "feature/spec-1"],
+            rollback_sha="abc123",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        assert "1 worktree(s)" in result.output
+        assert "2 branch(es)" in result.output
+
+    def test_hard_reset_no_rollback_sha(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN hard reset returns rollback_sha=None,
+        THEN the display shows 'Code rollback skipped'.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:0"],
+            rollback_sha=None,
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        assert "rollback skipped" in result.output.lower()
