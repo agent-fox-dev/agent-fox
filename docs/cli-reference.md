@@ -10,7 +10,6 @@ Complete reference for all `agent-fox` commands, options, and configuration.
 | `agent-fox plan` | Build execution plan from `.agent-fox/specs/` |
 | `agent-fox code` | Execute the task plan via orchestrator |
 | `agent-fox standup` | Generate daily activity report |
-| `agent-fox reset` | Reset failed/blocked tasks for retry |
 | `agent-fox insights` | Query review findings from the knowledge database |
 
 ## Global Options
@@ -148,16 +147,24 @@ platform is not configured, this step is silently skipped.
 Build an execution plan from specifications.
 
 ```
-agent-fox plan [OPTIONS]
+agent-fox plan [OPTIONS] [TASK_ID]
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--dry-run` | flag | off | Show plan analysis without persisting to database |
 | `--fast` | flag | off | Exclude optional tasks |
-| `--spec NAME` | string | all | Plan a single spec |
+| `--spec NAME` | string | all | Plan or reset a single spec |
 | `--specs-dir PATH` | path | from config | Path to specs directory (default: from config, or `.agent-fox/specs`) |
+| `--clear` | flag | off | Mark all plan nodes as completed and truncate session tables |
+| `--reset` | flag | off | Soft-reset failed/blocked/in-progress tasks to pending |
+| `--reset-hard` | flag | off | Hard reset all tasks with code rollback |
+| `--yes` / `-y` | flag | off | Skip confirmation prompts (for `--reset` and `--reset-hard`) |
 | `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `TASK_ID` | no | Target a single task for `--reset` or `--reset-hard` |
 
 Scans `.agent-fox/specs/` for specification folders, parses task groups, builds a
 dependency graph, resolves topological ordering, and persists the plan to the
@@ -191,6 +198,75 @@ sections.
 The `run_plan()` API also accepts a `dry_run` parameter. When `dry_run=True`,
 it returns the `TaskGraph` without opening a database connection or calling
 `save_plan()`.
+
+#### Clear Mode (`--clear`)
+
+When `--clear` is set, all plan nodes are marked as completed and the four
+session-scoped tables (`runs`, `session_outcomes`, `review_findings`,
+`drift_findings`) are truncated. This is useful when you want to mark
+everything as done and start fresh session tracking.
+
+- `--clear --spec NAME` — clears only nodes belonging to the named spec.
+- `--clear --json` — outputs a JSON object with `cleared` (node count) and
+  optionally `spec` (the scoped spec name).
+
+No confirmation prompt is required for `--clear`.
+
+**Exit codes:** `0` success, `1` no plan found.
+
+#### Reset Mode (`--reset`)
+
+When `--reset` is set, all tasks with failed, blocked, or in-progress status
+are soft-reset to pending. Worktree directories and feature branches
+associated with reset tasks are cleaned up.
+
+- `--reset TASK_ID` — resets a single task and cascade-unblocks downstream
+  dependents. No confirmation prompt when a task ID is provided.
+- `--reset --spec NAME` — resets all tasks belonging to the named spec.
+- `--reset --yes` — skips the confirmation prompt.
+- `--reset --json` — outputs a JSON object with reset summary fields.
+
+Without `TASK_ID` or `--yes`, a confirmation prompt is shown before
+proceeding.
+
+**Exit codes:** `0` success, `1` no plan found or error.
+
+#### Hard Reset Mode (`--reset-hard`)
+
+When `--reset-hard` is set, performs a comprehensive state wipe:
+
+- Resets **all** tasks to pending (including completed tasks).
+- Cleans up all worktree directories and local feature branches.
+- Compacts the knowledge base (deduplication and supersession).
+- Rolls back the integration branch to its pre-task state (if commit
+  tracking data is available).
+- Preserves session history, token counters, and cost totals.
+
+With `--reset-hard TASK_ID`, performs a partial rollback:
+
+- Rolls back the integration branch to the commit immediately before the
+  target task.
+- Resets the target task and any tasks whose code is no longer on the
+  integration branch (cascaded reset).
+- Earlier tasks remain completed.
+
+`--reset-hard` requires confirmation unless `--yes` is provided.
+
+`--reset-hard` is **not** compatible with `--spec` — the combination exits
+with an error.
+
+- `--reset-hard --yes` — skips the confirmation prompt.
+- `--reset-hard --json` — outputs a JSON object with hard reset summary
+  fields including `rollback_sha`.
+
+**Exit codes:** `0` success, `1` no plan found or error.
+
+#### Mutual Exclusivity of Mode Flags
+
+The mode flags `--dry-run`, `--clear`, `--reset`, `--reset-hard`, and
+`--verify` are mutually exclusive. Passing more than one exits with an error
+before any work is performed. The `--fast` flag is silently ignored when
+combined with `--clear`, `--reset`, or `--reset-hard`.
 
 **Exit codes:** `0` success, `1` plan error.
 
@@ -366,57 +442,6 @@ between agent and human work, and queue status (ready/pending/blocked tasks).
 Use `agent-fox standup --json` for structured JSON output.
 
 **Exit codes:** `0` success.
-
----
-
-### reset
-
-Reset failed or blocked tasks for retry.
-
-```
-agent-fox reset [OPTIONS] [TASK_ID]
-```
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--hard` | | Full state wipe including completed tasks and code rollback |
-| `--spec NAME` | | Reset all tasks for a single spec |
-| `--yes` | `-y` | Skip confirmation prompt |
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `TASK_ID` | no | Reset only this specific task |
-
-Without `TASK_ID`, resets all failed, blocked, and in-progress tasks (with
-confirmation). Cleans up worktree directories and feature branches.
-
-With `TASK_ID`, resets a single task and unblocks downstream dependents. No
-confirmation prompt.
-
-With `--spec`, resets all tasks belonging to a single spec. Mutually exclusive
-with `--hard` and `TASK_ID`.
-
-#### Hard Reset (`--hard`)
-
-With `--hard`, performs a comprehensive state wipe:
-
-- Resets **all** tasks to pending (including completed tasks).
-- Cleans up all worktree directories and local feature branches.
-- Compacts the knowledge base (deduplication and supersession).
-- Rolls back the integration branch to its pre-task state (if commit
-  tracking data is available).
-- Preserves session history, token counters, and cost totals.
-
-With `--hard <TASK_ID>`, performs a partial rollback:
-
-- Rolls back the integration branch to the commit immediately before the target task.
-- Resets the target task and any tasks whose code is no longer on the integration branch
-  (cascaded reset).
-- Earlier tasks remain completed.
-
-Hard reset requires confirmation unless `--yes` is provided.
-
-**Exit codes:** `0` success, `1` error.
 
 ---
 

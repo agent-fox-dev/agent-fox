@@ -508,7 +508,7 @@ synthesis into user-facing documents.
 ### 3.9 💡 Incremental Execution ("Only Re-Run What Changed")
 
 **The insight:** `af plan` always rebuilds the full graph. If you edit one spec
-out of ten, all ten get re-planned. After a failure, `af reset` + `af code`
+out of ten, all ten get re-planned. After a failure, `af plan --reset` + `af code`
 re-evaluates everything.
 
 **The game-changer:**

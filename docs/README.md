@@ -121,10 +121,11 @@ blocked. Filter by spec with `--spec NAME` or by severity with
 `--severity critical` to narrow down the cause. Once you understand and
 address the blocking finding (e.g., fix a spec issue flagged by pre-review,
 resolve a drift detected against the codebase), dismiss it with
-`--dismiss ID REASON`, then run `agent-fox reset` to restart the affected
-task. For targeted recovery, pass a specific task ID. For a full restart,
-use `--hard` to reset all tasks, clean up worktrees and branches, compact
-the knowledge store, and roll back the integration branch.
+`--dismiss ID REASON`, then run `agent-fox plan --reset` to restart the
+affected task. For targeted recovery, pass a specific task ID:
+`agent-fox plan --reset TASK_ID`. For a full restart, use
+`agent-fox plan --reset-hard` to reset all tasks, clean up worktrees and
+branches, compact the knowledge store, and roll back the integration branch.
 
 ## Architecture
 

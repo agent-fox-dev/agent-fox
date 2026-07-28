@@ -91,9 +91,9 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 4.6 Recovery and Retry
 
-1. When tasks fail or become blocked, the user runs `agent-fox reset` to clear failed and blocked tasks and retry them.
-2. For targeted recovery, the user passes a specific task identifier; agent-fox resets that task and unblocks its dependents.
-3. For a full restart, the user runs `agent-fox reset --hard`, which resets all tasks (including completed ones), cleans up branches and isolated working directories, compacts the knowledge store, and rolls back the integration branch to its pre-task state.
+1. When tasks fail or become blocked, the user runs `agent-fox plan --reset` to clear failed and blocked tasks and retry them.
+2. For targeted recovery, the user passes a specific task identifier: `agent-fox plan --reset TASK_ID`; agent-fox resets that task and unblocks its dependents.
+3. For a full restart, the user runs `agent-fox plan --reset-hard`, which resets all tasks (including completed ones), cleans up branches and isolated working directories, compacts the knowledge store, and rolls back the integration branch to its pre-task state.
 
 ---
 
@@ -154,9 +154,9 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.7 Reset and Recovery
 
-- WHEN a user runs `agent-fox reset` without arguments, the system SHALL prompt for confirmation and then reset all failed, blocked, and in-progress tasks, cleaning up their working directories and branches.
-- WHEN a task identifier is provided, the system SHALL reset only that task and unblock its dependents, without prompting.
-- WHEN `--hard` is provided, the system SHALL reset all tasks including completed ones, clean up all working directories and branches, compact the knowledge store, and roll back the integration branch.
+- WHEN a user runs `agent-fox plan --reset` without a task ID, the system SHALL prompt for confirmation and then reset all failed, blocked, and in-progress tasks, cleaning up their working directories and branches.
+- WHEN a task identifier is provided (`agent-fox plan --reset TASK_ID`), the system SHALL reset only that task and unblock its dependents, without prompting.
+- WHEN `--reset-hard` is provided, the system SHALL reset all tasks including completed ones, clean up all working directories and branches, compact the knowledge store, and roll back the integration branch.
 
 ### 5.8 Knowledge Export
 
@@ -229,7 +229,7 @@ All commands accept `--verbose` for debug logging and `--quiet` to suppress info
 - **`agent-fox status`:** Dashboard showing task counts, token usage, cost totals, cost breakdowns, and problem task details.
 - **`agent-fox standup`:** A human-readable daily activity report covering agent sessions, human commits, file overlaps, and queue status.
 - **`agent-fox fix`:** Per-iteration pass/fail results and a final summary.
-- **`agent-fox reset`:** Confirmation of which tasks were reset and which working directories were cleaned up.
+- **`agent-fox plan --reset`:** Confirmation of which tasks were reset and which working directories were cleaned up.
 - **`agent-fox export`:** The destination path of the written file.
 - **`nightshift`:** Live log of fix session activity.
 
