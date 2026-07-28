@@ -60,10 +60,15 @@ def create_backend(name: str) -> Backend:
         return _DeepAgents()
 
     if name in ("google", "google-adk"):
-        from agentfox.session.backends.google_adk import (
-            GoogleADKBackend as _GoogleADK,
-        )
-
+        try:
+            from agentfox.session.backends.google_adk import (
+                GoogleADKBackend as _GoogleADK,
+            )
+        except ImportError:
+            raise ConfigError(
+                'Backend "google-adk" requires google-adk and google-api-core. '
+                "Install them with: pip install google-adk google-api-core"
+            )
         return _GoogleADK()
 
     raise ConfigError(f"Unknown backend: '{name}'. Valid backends are: {_VALID_BACKENDS}")

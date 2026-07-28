@@ -132,13 +132,7 @@ class TestProp4JsonModeValidOutput:
                     reason="'code' requires plan DB and orchestrator backend",
                 ),
             ),
-            pytest.param(
-                "plan",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="'plan' requires specs in .agent-fox/specs/",
-                ),
-            ),
+            "plan",
             "standup",
             "insights",
         ],
