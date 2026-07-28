@@ -28,6 +28,20 @@ class PlanError(AgentFoxError): ...
 class WorkspaceError(AgentFoxError): ...
 
 
+class RefConflictError(WorkspaceError):
+    """Git ref directory/file conflict (non-retryable).
+
+    Raised when ``git branch`` fails because an existing ref is a
+    filesystem path-prefix of the target ref (or vice versa).  For
+    example, ref ``feature/spec/0`` (a file) prevents creation of
+    ``feature/spec/0/reviewer/pre-flight`` (which requires ``0`` to be a
+    directory).  Retrying is futile — the conflicting ref must be
+    deleted first.
+
+    Requirements: #745
+    """
+
+
 class IntegrationError(AgentFoxError):
     """Error during workspace integration (harvest/merge).
 

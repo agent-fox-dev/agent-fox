@@ -24,7 +24,7 @@ from afaudit.sink import SessionOutcome, SinkDispatcher
 from afissues.errors import IntegrationError as PlatformIntegrationError
 
 from agentfox.core.config import AgentFoxConfig
-from agentfox.core.errors import IntegrationError
+from agentfox.core.errors import IntegrationError, RefConflictError
 from agentfox.core.models import resolve_model
 from agentfox.core.node_id import parse_node_id
 from agentfox.core.prompt_safety import sanitize_prompt_content
@@ -1396,6 +1396,29 @@ class NodeSessionRunner:
 
         try:
             workspace = await self._setup_workspace(repo_root, node_id)
+        except RefConflictError as exc:
+            # D/F ref conflicts are non-retryable — retrying the same
+            # git branch command against unchanged ref state produces
+            # the identical failure every time.  (#745)
+            logger.error(
+                "Non-retryable ref conflict for %s (attempt %d): %s",
+                node_id,
+                attempt,
+                exc,
+            )
+            return SessionRecord(
+                node_id=node_id,
+                attempt=attempt,
+                status="failed",
+                input_tokens=0,
+                output_tokens=0,
+                cost=0.0,
+                duration_ms=0,
+                error_message=str(exc),
+                timestamp=datetime.now(UTC).isoformat(),
+                archetype=self._archetype,
+                is_non_retryable=True,
+            )
         except Exception as exc:
             logger.error(
                 "Workspace setup failed for %s (attempt %d): %s",

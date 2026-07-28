@@ -14,7 +14,7 @@ import os
 import re
 from pathlib import Path
 
-from agentfox.core.errors import IntegrationError, WorkspaceError
+from agentfox.core.errors import IntegrationError, RefConflictError, WorkspaceError
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,17 @@ async def create_branch(
         msg = f"git branch failed (exit code {returncode})"
         if stderr_snippet:
             msg = f"{msg}: {stderr_snippet}"
+
+        # Detect git D/F ref conflict: the error occurs when an existing
+        # ref is a filesystem path-prefix of the target (or vice versa).
+        # These are non-retryable — the conflicting ref must be deleted.
+        if "cannot lock ref" in stderr and "exists; cannot create" in stderr:
+            raise RefConflictError(
+                msg,
+                details=stderr,
+                returncode=returncode,
+            )
+
         raise WorkspaceError(
             msg,
             details=stderr,

@@ -119,7 +119,7 @@ class TestPathWithRoleAndMode:
             / "pre-flight"
         )
         assert result.path == expected_path
-        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/pre-flight"
+        assert result.branch == "feature/08_spec_generation_improvement/0--reviewer--pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +426,7 @@ class TestBothRoleAndMode4LevelPath:
             / "pre-flight"
         )
         assert result.path == expected
-        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/pre-flight"
+        assert result.branch == "feature/08_spec_generation_improvement/0--reviewer--pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +484,7 @@ class TestModeSetRoleNoneWarning:
             repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "pre-flight"
         )
         assert result.path == expected
-        assert result.branch == "feature/08_spec_generation_improvement/0/unknown/pre-flight"
+        assert result.branch == "feature/08_spec_generation_improvement/0--unknown--pre-flight"
         assert result.role == "unknown"
         warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) >= 1
@@ -706,7 +706,7 @@ class TestNoAdditionalSanitization:
             role="reviewer",
             mode="pre-flight",
         )
-        assert result.branch == "feature/valid-spec_name/0/reviewer/pre-flight"
+        assert result.branch == "feature/valid-spec_name/0--reviewer--pre-flight"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
@@ -740,7 +740,7 @@ class TestDestroyWorktreeUsesFullPath:
 
         workspace = WorkspaceInfo(
             path=four_level_path,
-            branch="feature/spec/0/reviewer/pre-flight",
+            branch="feature/spec/0--reviewer--pre-flight",
             spec_name="spec",
             task_group=0,
             role="reviewer",
@@ -1348,3 +1348,312 @@ class TestSmokeStaleWorktreeCleanup4Level:
         assert len(add_calls) >= 1
         assert git_commands.index(remove_calls[0]) < git_commands.index(add_calls[0])
         assert result.path == stale_path
+
+
+# ===========================================================================
+# D/F ref conflict tests (#745)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-1: Cross-archetype re-run branch name avoids D/F collision
+# Requirement: NS-REQ-1, NS-REQ-5
+# ---------------------------------------------------------------------------
+
+
+class TestBranchNameNoDFConflict:
+    """NS-REQ-1, NS-REQ-5: branch names for different (spec, group, role, mode) never D/F collide."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_stub_git")
+    async def test_no_mode_and_with_mode_branches_are_siblings(self, repo_root: Path) -> None:
+        """2-level and mode-bearing branch names are siblings (no path-prefix collision)."""
+        r_coder = await create_worktree(
+            repo_root,
+            "04_personal_org",
+            0,
+            base_branch="main",
+            role="coder",
+            mode=None,
+        )
+        r_reviewer = await create_worktree(
+            repo_root,
+            "04_personal_org",
+            0,
+            base_branch="main",
+            role="reviewer",
+            mode="pre-flight",
+        )
+        # Neither branch is a path-prefix of the other
+        assert not (r_coder.branch + "/").startswith(r_reviewer.branch + "/")
+        assert not (r_reviewer.branch + "/").startswith(r_coder.branch + "/")
+        # New format uses -- delimiter, not /
+        assert r_coder.branch == "feature/04_personal_org/0"
+        assert r_reviewer.branch == "feature/04_personal_org/0--reviewer--pre-flight"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_stub_git")
+    @pytest.mark.parametrize(
+        "role1,mode1,role2,mode2",
+        [
+            (None, None, "reviewer", "pre-flight"),
+            ("coder", None, "reviewer", "pre-flight"),
+            ("coder", None, "reviewer", "audit-review"),
+            (None, None, "unknown", "pre-flight"),
+            ("reviewer", "pre-flight", "reviewer", "audit-review"),
+        ],
+    )
+    async def test_no_branch_is_prefix_of_another(
+        self,
+        repo_root: Path,
+        role1: str | None,
+        mode1: str | None,
+        role2: str | None,
+        mode2: str | None,
+    ) -> None:
+        """Property: for any two distinct (role,mode) tuples, neither branch is a path-prefix."""
+        r1 = await create_worktree(
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role1,
+            mode=mode1,
+        )
+        r2 = await create_worktree(
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role2,
+            mode=mode2,
+        )
+        assert r1.branch != r2.branch
+        assert not (r1.branch + "/").startswith(r2.branch + "/")
+        assert not (r2.branch + "/").startswith(r1.branch + "/")
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-2: Pre-creation cleanup deletes conflicting prefix refs
+# Requirement: NS-REQ-2
+# ---------------------------------------------------------------------------
+
+
+class TestPrefixRefCleanup:
+    """NS-REQ-2: conflicting 2-level prefix ref is deleted before branch creation."""
+
+    @pytest.mark.asyncio
+    async def test_prefix_ref_deleted_before_create_branch(self, repo_root: Path) -> None:
+        """delete_branch is called on the prefix ref before create_branch."""
+        delete_calls: list[tuple[str, bool]] = []
+        create_calls: list[str] = []
+        call_order: list[str] = []
+
+        async def mock_delete_branch(repo: Path, branch: str, force: bool = False) -> None:
+            delete_calls.append((branch, force))
+            call_order.append(f"delete:{branch}")
+
+        async def mock_create_branch(repo: Path, branch: str, start: str) -> None:
+            create_calls.append(branch)
+            call_order.append(f"create:{branch}")
+
+        async def mock_local_branch_exists(repo: Path, branch: str) -> bool:
+            # Simulate that the 2-level prefix ref exists
+            return branch == "feature/04_personal_org/0"
+
+        with (
+            patch("agentfox.workspace.worktree.run_git", AsyncMock(return_value=(0, "", ""))),
+            patch("agentfox.workspace.worktree.create_branch", side_effect=mock_create_branch),
+            patch("agentfox.workspace.worktree.delete_branch", side_effect=mock_delete_branch),
+            patch("agentfox.workspace.worktree.branch_used_by_worktree", AsyncMock(return_value=False)),
+            patch("agentfox.workspace.worktree.local_branch_exists", side_effect=mock_local_branch_exists),
+        ):
+            await create_worktree(
+                repo_root,
+                "04_personal_org",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="pre-flight",
+            )
+
+        # The prefix ref should be deleted with force=True
+        prefix_deletes = [(b, f) for b, f in delete_calls if b == "feature/04_personal_org/0"]
+        assert len(prefix_deletes) >= 1, f"Expected prefix ref deletion, got: {delete_calls}"
+        assert prefix_deletes[0][1] is True, "Prefix ref deletion should use force=True"
+
+        # delete of prefix must happen before create of the new branch
+        prefix_delete_idx = call_order.index("delete:feature/04_personal_org/0")
+        create_idx = call_order.index("create:feature/04_personal_org/0--reviewer--pre-flight")
+        assert prefix_delete_idx < create_idx
+
+    @pytest.mark.asyncio
+    async def test_prefix_ref_not_deleted_when_in_use(self, repo_root: Path) -> None:
+        """Prefix ref is NOT deleted if it's used by a live worktree."""
+        delete_calls: list[str] = []
+
+        async def mock_delete_branch(repo: Path, branch: str, force: bool = False) -> None:
+            delete_calls.append(branch)
+
+        async def mock_create_branch(repo: Path, branch: str, start: str) -> None:
+            pass
+
+        async def mock_branch_used(repo: Path, branch: str) -> bool:
+            # The prefix ref is used by a live worktree
+            return branch == "feature/04_personal_org/0"
+
+        with (
+            patch("agentfox.workspace.worktree.run_git", AsyncMock(return_value=(0, "", ""))),
+            patch("agentfox.workspace.worktree.create_branch", side_effect=mock_create_branch),
+            patch("agentfox.workspace.worktree.delete_branch", side_effect=mock_delete_branch),
+            patch("agentfox.workspace.worktree.branch_used_by_worktree", side_effect=mock_branch_used),
+            patch("agentfox.workspace.worktree.local_branch_exists", AsyncMock(return_value=True)),
+        ):
+            await create_worktree(
+                repo_root,
+                "04_personal_org",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="pre-flight",
+            )
+
+        # Prefix ref should NOT be deleted since it's in use
+        assert "feature/04_personal_org/0" not in delete_calls
+
+    @pytest.mark.asyncio
+    async def test_no_prefix_cleanup_when_same_branch(self, repo_root: Path) -> None:
+        """No prefix cleanup when creating the exact 2-level branch (mode=None)."""
+        delete_calls: list[str] = []
+
+        async def mock_delete_branch(repo: Path, branch: str, force: bool = False) -> None:
+            delete_calls.append(branch)
+
+        with (
+            patch("agentfox.workspace.worktree.run_git", AsyncMock(return_value=(0, "", ""))),
+            patch("agentfox.workspace.worktree.create_branch", AsyncMock()),
+            patch("agentfox.workspace.worktree.delete_branch", side_effect=mock_delete_branch),
+            patch("agentfox.workspace.worktree.branch_used_by_worktree", AsyncMock(return_value=False)),
+            patch("agentfox.workspace.worktree.local_branch_exists", AsyncMock(return_value=True)),
+        ):
+            await create_worktree(
+                repo_root,
+                "04_personal_org",
+                0,
+                base_branch="main",
+                mode=None,
+            )
+
+        # When branch_name == prefix_branch, no extra prefix deletion
+        # (only the regular stale branch cleanup call)
+        prefix_delete_count = sum(1 for b in delete_calls if b == "feature/04_personal_org/0")
+        # The regular cleanup deletes branch_name (which IS the prefix), that's the only one
+        assert prefix_delete_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-3: RefConflictError is classified as non-retryable
+# Requirement: NS-REQ-3
+# ---------------------------------------------------------------------------
+
+
+class TestRefConflictNonRetryable:
+    """NS-REQ-3: D/F ref conflict raises RefConflictError, classified as non-retryable."""
+
+    @pytest.mark.asyncio
+    async def test_create_branch_raises_ref_conflict_error(self) -> None:
+        """create_branch raises RefConflictError on D/F conflict."""
+        from agentfox.core.errors import RefConflictError
+        from agentfox.workspace.git import create_branch
+
+        stderr = (
+            "fatal: cannot lock ref 'refs/heads/feature/spec/0/reviewer/pre-flight': "
+            "'refs/heads/feature/spec/0' exists; cannot create "
+            "'refs/heads/feature/spec/0/reviewer/pre-flight'"
+        )
+
+        with patch(
+            "agentfox.workspace.git.run_git",
+            AsyncMock(return_value=(128, "", stderr)),
+        ):
+            with pytest.raises(RefConflictError, match="cannot lock ref"):
+                await create_branch(Path("/tmp/repo"), "feature/spec/0/reviewer/pre-flight", "main")
+
+    @pytest.mark.asyncio
+    async def test_create_branch_raises_workspace_error_on_other_failures(self) -> None:
+        """create_branch raises WorkspaceError (not RefConflictError) for other errors."""
+        from agentfox.core.errors import RefConflictError, WorkspaceError
+        from agentfox.workspace.git import create_branch
+
+        stderr = "fatal: some other git error"
+
+        with patch(
+            "agentfox.workspace.git.run_git",
+            AsyncMock(return_value=(128, "", stderr)),
+        ):
+            with pytest.raises(WorkspaceError) as exc_info:
+                await create_branch(Path("/tmp/repo"), "feature/spec/0", "main")
+            assert not isinstance(exc_info.value, RefConflictError)
+
+    @pytest.mark.asyncio
+    async def test_session_lifecycle_sets_non_retryable_on_ref_conflict(self) -> None:
+        """execute() sets is_non_retryable=True for RefConflictError."""
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.errors import RefConflictError
+        from agentfox.engine.session_lifecycle import NodeSessionRunner
+        from agentfox.knowledge.db import KnowledgeDB
+
+        mock_kb = MagicMock(spec=KnowledgeDB)
+        config = AgentFoxConfig()
+        runner = NodeSessionRunner(
+            "test_spec:0",
+            config,
+            archetype="reviewer",
+            mode="pre-flight",
+            knowledge_db=mock_kb,
+        )
+
+        async def failing_setup(*args, **kwargs):
+            raise RefConflictError(
+                "cannot lock ref 'refs/heads/feature/spec/0/reviewer/pre-flight'",
+            )
+
+        with (
+            patch.object(runner, "_setup_workspace", side_effect=failing_setup),
+        ):
+            record = await runner.execute("test_spec:0", attempt=1)
+
+        assert record.status == "failed"
+        assert record.is_non_retryable is True
+        assert record.is_workspace_setup_failure is False
+        assert "cannot lock ref" in record.error_message
+
+    @pytest.mark.asyncio
+    async def test_session_lifecycle_sets_workspace_failure_on_workspace_error(self) -> None:
+        """execute() sets is_workspace_setup_failure=True for generic WorkspaceError."""
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.errors import WorkspaceError
+        from agentfox.engine.session_lifecycle import NodeSessionRunner
+        from agentfox.knowledge.db import KnowledgeDB
+
+        mock_kb = MagicMock(spec=KnowledgeDB)
+        config = AgentFoxConfig()
+        runner = NodeSessionRunner(
+            "test_spec:0",
+            config,
+            archetype="reviewer",
+            mode="pre-flight",
+            knowledge_db=mock_kb,
+        )
+
+        async def failing_setup(*args, **kwargs):
+            raise WorkspaceError("git worktree add failed")
+
+        with (
+            patch.object(runner, "_setup_workspace", side_effect=failing_setup),
+        ):
+            record = await runner.execute("test_spec:0", attempt=1)
+
+        assert record.status == "failed"
+        assert record.is_workspace_setup_failure is True
+        assert record.is_non_retryable is False

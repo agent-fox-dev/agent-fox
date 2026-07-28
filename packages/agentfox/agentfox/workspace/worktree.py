@@ -13,6 +13,7 @@ from agentfox.workspace.git import (
     branch_used_by_worktree,
     create_branch,
     delete_branch,
+    local_branch_exists,
     run_git,
 )
 
@@ -210,7 +211,7 @@ async def create_worktree(
             )
             effective_role = "unknown"
         worktree_path = worktrees_root / spec_name / str(task_group) / effective_role / effective_mode
-        branch_name = branch_name or (f"feature/{spec_name}/{task_group}/{effective_role}/{effective_mode}")
+        branch_name = branch_name or (f"feature/{spec_name}/{task_group}--{effective_role}--{effective_mode}")
 
     # Clean up orphaned empty sibling directories under the spec directory.
     # These are left over from prior crashed or partial cleanup runs.
@@ -272,6 +273,24 @@ async def create_worktree(
             cwd=repo_root,
             check=False,
         )
+
+    # Defence-in-depth: delete any prefix ref that would cause a git D/F
+    # conflict.  The 2-level ref ``feature/{spec}/{group}`` left by a prior
+    # coder pass is a file under ``.git/refs/heads/``; creating the new
+    # ``feature/{spec}/{group}--...`` branch is safe (sibling), but the old
+    # slash-separated 4-level scheme ``feature/{spec}/{group}/...`` required
+    # ``{group}`` to be a *directory*.  Clean up the prefix ref so stale
+    # branches from either naming scheme cannot block branch creation.  (#745)
+    prefix_branch = f"feature/{spec_name}/{task_group}"
+    if branch_name != prefix_branch:
+        prefix_in_use = await branch_used_by_worktree(repo_root, prefix_branch)
+        if not prefix_in_use and await local_branch_exists(repo_root, prefix_branch):
+            logger.info(
+                "Deleting conflicting prefix ref '%s' before creating '%s'",
+                prefix_branch,
+                branch_name,
+            )
+            await delete_branch(repo_root, prefix_branch, force=True)
 
     # Create the feature branch from the base branch tip
     await create_branch(repo_root, branch_name, base_branch)
