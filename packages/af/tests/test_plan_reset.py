@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from af.app import main
-from agentfox.engine.reset import ResetResult
+from agentfox.engine.reset import HardResetResult, ResetResult
 from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
 from click.testing import CliRunner
 
@@ -91,6 +91,19 @@ def _sample_reset_result(**overrides: object) -> ResetResult:
     }
     defaults.update(overrides)
     return ResetResult(**defaults)  # type: ignore[arg-type]
+
+
+def _sample_hard_reset_result(**overrides: object) -> HardResetResult:
+    """Build a HardResetResult with sensible defaults, merging *overrides*."""
+    defaults: dict[str, object] = {
+        "reset_tasks": ["spec:0"],
+        "cleaned_worktrees": [],
+        "cleaned_branches": [],
+        "compaction": (0, 0),
+        "rollback_sha": "abc123",
+    }
+    defaults.update(overrides)
+    return HardResetResult(**defaults)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -552,3 +565,512 @@ class TestResetFlagRegistered:
         """WHEN invoked with --help, THEN --reset is listed."""
         result = cli_runner.invoke(main, ["plan", "--help"])
         assert "--reset" in result.output
+
+
+# ===========================================================================
+# HARD RESET TESTS  (--reset-hard)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-01-9: --reset-hard performs full hard reset with confirmation
+# REQ: 01-REQ-3.1, 01-PROP-5, 01-PATH-3
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetAll:
+    """af plan --reset-hard prompts for confirmation and calls run_reset with hard=True."""
+
+    def test_hard_reset_all_confirmed_calls_run_reset_and_exits_zero(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard and user confirms,
+        THEN run_reset is called with hard=True, soft=False, target=None,
+        and exit code is 0.
+        """
+        graph = _make_graph(
+            {
+                "spec:0": NodeStatus.FAILED,
+                "spec:1": NodeStatus.IN_PROGRESS,
+            }
+        )
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:0", "spec:1"],
+            rollback_sha="abc123",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result) as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard"], input="y\n"
+            )
+
+        assert result.exit_code == 0, (
+            f"Expected exit 0, got {result.exit_code}: {result.output}"
+        )
+        mock_run.assert_called_once()
+
+        # Verify dispatch args: hard reset, no target
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("hard") is True
+        assert kwargs.get("soft") is False
+
+        # First positional arg is target=None
+        args = mock_run.call_args.args
+        if args:
+            assert args[0] is None  # target
+
+    def test_hard_reset_all_output_contains_rollback_sha(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN --reset-hard succeeds, THEN stdout contains the rollback_sha
+        from the HardResetResult.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(rollback_sha="abc123")
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard"], input="y\n"
+            )
+
+        assert result.exit_code == 0
+        assert "abc123" in result.output
+
+    def test_hard_reset_all_with_yes_flag_skips_prompt(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard --yes, THEN no confirmation prompt
+        is shown and run_reset is called.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result) as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        assert "confirm" not in result.output.lower()
+        assert "[y/N]" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# TS-01-10: --reset-hard TASK_ID performs partial hard reset with confirmation
+# REQ: 01-REQ-3.2, 01-PROP-5
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetTaskId:
+    """af plan --reset-hard TASK_ID resets a single task with confirmation."""
+
+    def test_hard_reset_task_id_calls_run_reset_with_target(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard spec:2 --yes,
+        THEN run_reset is called with hard=True, target='spec:2',
+        and exit code is 0.
+        """
+        graph = _make_graph(
+            {
+                "spec:1": NodeStatus.COMPLETED,
+                "spec:2": NodeStatus.FAILED,
+            }
+        )
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:2"],
+            rollback_sha="def456",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result) as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "spec:2", "--yes"]
+            )
+
+        assert result.exit_code == 0, (
+            f"Expected exit 0, got {result.exit_code}: {result.output}"
+        )
+        mock_run.assert_called_once()
+
+        # Verify target was passed
+        args, kwargs = mock_run.call_args
+        target = args[0] if args else kwargs.get("target")
+        assert target == "spec:2"
+
+        # Verify hard reset
+        assert kwargs.get("hard") is True
+        assert kwargs.get("soft") is False
+
+    def test_hard_reset_task_id_prints_summary_with_rollback_sha(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN --reset-hard TASK_ID succeeds,
+        THEN stdout contains the reset summary including rollback_sha.
+        """
+        graph = _make_graph({"spec:2": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:2"],
+            rollback_sha="def456",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "spec:2", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        assert "def456" in result.output
+
+
+# ---------------------------------------------------------------------------
+# TS-01-12: --reset-hard TASK_ID confirmation always required
+# REQ: 01-REQ-3.4
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetConfirmation:
+    """af plan --reset-hard always requires confirmation (even with TASK_ID)."""
+
+    def test_hard_reset_task_id_without_yes_prompts_for_confirmation(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard spec:3 (no --yes),
+        THEN a confirmation prompt appears before hard_reset is executed.
+        """
+        graph = _make_graph({"spec:3": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:3"],
+            rollback_sha="ghi789",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result) as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "spec:3"], input="y\n"
+            )
+
+        assert result.exit_code == 0
+        assert mock_run.called
+        # Verify prompt appeared
+        assert any(
+            kw in result.output.lower()
+            for kw in ["confirm", "proceed", "y/n", "[y/n]"]
+        )
+
+    def test_hard_reset_all_without_yes_prompts_for_confirmation(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard (no TASK_ID, no --yes),
+        THEN a confirmation prompt appears before hard_reset is executed.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result) as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard"], input="y\n"
+            )
+
+        assert result.exit_code == 0
+        assert mock_run.called
+        assert any(
+            kw in result.output.lower()
+            for kw in ["confirm", "proceed", "y/n", "[y/n]"]
+        )
+
+
+# ---------------------------------------------------------------------------
+# 01-REQ-3.E6: Declining confirmation aborts without modification
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetDeclined:
+    """af plan --reset-hard with declined confirmation aborts without modifying state."""
+
+    def test_hard_reset_declined_confirmation_does_not_call_run_reset(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN user declines confirmation prompt for --reset-hard,
+        THEN run_reset is not called and exit code is 0.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset") as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard"], input="n\n"
+            )
+
+        assert result.exit_code == 0
+        mock_run.assert_not_called()
+
+    def test_hard_reset_task_declined_does_not_call_run_reset(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN user declines confirmation for --reset-hard TASK_ID,
+        THEN run_reset is not called and exit code is 0.
+        """
+        graph = _make_graph({"spec:1": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset") as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "spec:1"], input="n\n"
+            )
+
+        assert result.exit_code == 0
+        mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TS-01-11: --reset-hard --json emits JSON matching HardResetResult
+# REQ: 01-REQ-3.3
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetJsonOutput:
+    """af plan --reset-hard --json --yes emits a JSON object matching HardResetResult."""
+
+    def test_hard_reset_json_contains_hard_reset_result_keys(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard --json --yes,
+        THEN stdout is valid JSON with keys: reset_tasks, cleaned_worktrees,
+        cleaned_branches, compaction, rollback_sha.
+        """
+        graph = _make_graph(
+            {
+                "spec:0": NodeStatus.FAILED,
+                "spec:1": NodeStatus.IN_PROGRESS,
+            }
+        )
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:0", "spec:1"],
+            cleaned_worktrees=[],
+            cleaned_branches=[],
+            compaction=(0, 0),
+            rollback_sha="abc123",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--json", "--yes"]
+            )
+
+        assert result.exit_code == 0, (
+            f"Expected exit 0, got {result.exit_code}: {result.output}"
+        )
+        data = json.loads(result.output)
+        assert set(data.keys()) >= {
+            "reset_tasks",
+            "cleaned_worktrees",
+            "cleaned_branches",
+            "compaction",
+            "rollback_sha",
+        }
+        assert data["rollback_sha"] == "abc123"
+
+    def test_hard_reset_json_values_match_result(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN run_reset returns specific worktrees, branches, and compaction,
+        THEN JSON output faithfully reports them.
+        """
+        graph = _make_graph({"spec:0": NodeStatus.FAILED})
+        mock_db = _mock_knowledge_store()
+        mock_result = _sample_hard_reset_result(
+            reset_tasks=["spec:0"],
+            cleaned_worktrees=["/tmp/wt1"],
+            cleaned_branches=["feature/spec-0"],
+            compaction=(5, 2),
+            rollback_sha="deadbeef",
+        )
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=graph),
+            patch("af.plan.run_reset", return_value=mock_result),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--json", "--yes"]
+            )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["reset_tasks"] == ["spec:0"]
+        assert data["cleaned_worktrees"] == ["/tmp/wt1"]
+        assert data["cleaned_branches"] == ["feature/spec-0"]
+        assert data["rollback_sha"] == "deadbeef"
+
+
+# ---------------------------------------------------------------------------
+# Edge case: 01-REQ-3.E1 — No plan found
+# 01-PROP-4: Missing plan always exits with code 1
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetNoPlan:
+    """af plan --reset-hard with no plan in DB exits code 1.
+
+    Edge case: 01-REQ-3.E1, 01-PROP-4
+    """
+
+    def test_hard_reset_no_plan_exits_one(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN load_plan returns None (no plan exists),
+        THEN exit code is 1 and error message references missing plan.
+        """
+        mock_db = _mock_knowledge_store()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=None),
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--yes"]
+            )
+
+        assert result.exit_code == 1
+        combined = result.output + getattr(result, "stderr", "")
+        assert "no plan found" in combined.lower()
+
+    def test_hard_reset_no_plan_does_not_call_run_reset(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN load_plan returns None,
+        THEN run_reset is not called.
+        """
+        mock_db = _mock_knowledge_store()
+
+        with (
+            patch("af.plan.open_knowledge_store", return_value=mock_db),
+            patch("af.plan.load_plan", return_value=None),
+            patch("af.plan.run_reset") as mock_run,
+        ):
+            result = cli_runner.invoke(
+                main, ["plan", "--reset-hard", "--yes"]
+            )
+
+        assert result.exit_code == 1
+        mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Edge case: 01-REQ-3.E2 — --reset-hard and --spec are mutually exclusive
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetSpecExclusion:
+    """af plan --reset-hard --spec NAME is rejected as mutually exclusive."""
+
+    def test_hard_reset_with_spec_exits_one(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """WHEN invoked with --reset-hard --spec NAME,
+        THEN exit code is 1 and error message states the combination
+        is not supported.
+        """
+        result = cli_runner.invoke(
+            main, ["plan", "--reset-hard", "--spec", "some_spec", "--yes"]
+        )
+
+        # Should fail regardless of plan state — flags are mutually exclusive
+        assert result.exit_code != 0
+        combined = result.output + getattr(result, "stderr", "")
+        lower = combined.lower()
+        assert "reset-hard" in lower or "spec" in lower
+
+
+# ---------------------------------------------------------------------------
+# Edge case: 01-REQ-3.E3 — Daemon guard active
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetDaemonGuard:
+    """af plan --reset-hard refuses to run when daemon is active.
+
+    Edge case: 01-REQ-3.E3
+    """
+
+    def test_hard_reset_with_active_daemon_exits_one(
+        self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """WHEN the nightshift daemon PID guard is active,
+        THEN exit code is 1 and an error message is shown.
+        """
+        from agentfox.nightshift.pid import PidStatus
+
+        # Override the autouse _no_daemon fixture
+        monkeypatch.setattr(
+            "agentfox.nightshift.pid.check_pid_file",
+            lambda _path: (PidStatus.ALIVE, 12345),
+        )
+
+        result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
+
+        assert result.exit_code == 1
+        combined = result.output + getattr(result, "stderr", "")
+        assert "daemon" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# Flag registration
+# ---------------------------------------------------------------------------
+
+
+class TestHardResetFlagRegistered:
+    """af plan --reset-hard flag appears in help output."""
+
+    def test_reset_hard_in_help(self, cli_runner: CliRunner) -> None:
+        """WHEN invoked with --help, THEN --reset-hard is listed."""
+        result = cli_runner.invoke(main, ["plan", "--help"])
+        assert "--reset-hard" in result.output
