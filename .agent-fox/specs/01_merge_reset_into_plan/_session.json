@@ -1,0 +1,192 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and detailed overall. It clearly defines intent, functional requirements, design decisions, tech stack, and documents internal API surfaces thoroughly. However, several gaps remain: (1) there are no measurable Goals or success criteria, (2) there is no explicit Goals section, (3) test strategy/tooling is not mentioned despite a tech stack section, (4) there is an overlap with the archived `merge_strategy` spec that should be acknowledged, (5) the `--clear` flag's interaction with the `plan_nodes` table lacks detail on what happens when `load_plan` returns `None`, and (6) there is no mention of migration guidance or how existing users of `af reset` will be notified of the breaking change given no deprecation period is planned.",
+      "gaps": [
+        "No Goals section \u2014 there are no measurable success criteria or outcomes defined (e.g., reduction in top-level CLI commands, user adoption targets, test coverage targets).",
+        "No test strategy or test tooling specified. The Tech Stack lists the language and framework but omits the testing framework (e.g., pytest, unittest), which is required for generating correct test artifacts.",
+        "FR-1 (--clear) does not specify behavior when load_plan() returns None (i.e., no persisted plan exists). Should the command error out, no-op with a message, or succeed with 0 nodes cleared?",
+        "No migration or communication plan for the breaking removal of `af reset`. The PRD states no deprecation period, but does not specify how existing users, scripts, or CI pipelines referencing `af reset` will be informed (e.g., release notes, error message redirecting to `af plan --reset`).",
+        "The `--clear` flag clears session-scoped tables (runs, session_outcomes, review_findings, drift_findings), but the PRD does not document the schema or confirm these table names are stable \u2014 this is an implicit dependency on internal DB schema that should be verified.",
+        "Overlap with archived spec `merge_strategy` (Configurable Merge Strategy) \u2014 unclear whether this PRD interacts with or supersedes any merge-strategy logic referenced there.",
+        "No explicit Non-Goals section \u2014 while some exclusions are embedded in individual FRs (e.g., no worktree removal for --clear), a consolidated Non-Goals section is absent, making scope boundaries harder to audit at a glance.",
+        "Owner field is empty \u2014 no accountable owner is assigned to this spec."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the measurable goals or success criteria for this change? For example: 'Reduce top-level CLI commands by 1', 'Zero regressions in existing plan/reset test suite', 'All plan-state mutations accessible via a single entry point'.",
+          "context": "A Goals section with measurable outcomes is required by the spec format and is currently absent. Without it, there is no way to verify the feature was successfully delivered.",
+          "options": [
+            "Reduce the number of top-level `af` commands by 1 (remove `af reset`)",
+            "Maintain 100% behavioral parity between `af plan --reset` and the removed `af reset`",
+            "Achieve \u226590% test coverage on all new flag handlers",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What test framework and tooling should be used for this feature? (e.g., pytest, pytest-click, unittest.mock)",
+          "context": "The Tech Stack section lists Python 3.12+, Click, DuckDB, and the agentfox core library, but does not specify the testing framework. This is needed to generate correct test artifacts.",
+          "options": [
+            "pytest with pytest-click",
+            "pytest with unittest.mock",
+            "pytest only",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should `af plan --clear` do when no plan exists in the database (i.e., `load_plan()` returns None)?",
+          "context": "FR-1 specifies loading the persisted plan from DuckDB and setting all nodes to completed, but does not define the behavior when there is no plan to load. This edge case needs to be handled explicitly to avoid ambiguous implementation.",
+          "options": [
+            "Exit with code 0 and report 0 nodes cleared with a 'no plan found' message",
+            "Exit with code 1 and an error message ('No plan found in database')",
+            "Silently no-op (exit 0, no output)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "How should users currently relying on `af reset` (in scripts, CI pipelines, or documentation) be informed of the breaking change? Should the removed command emit a helpful error message redirecting to `af plan --reset`?",
+          "context": "The PRD states there is no deprecation period for `af reset`. Without a migration signal, existing automation will silently break. A redirect error message or release note entry would reduce user impact.",
+          "options": [
+            "Emit a clear 'command removed \u2014 use af plan --reset instead' error on `af reset` invocation before final removal",
+            "Document in CHANGELOG/release notes only, no runtime message",
+            "No action needed \u2014 breaking change is intentional and documented in the PRD",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "The archived spec `merge_strategy` (Configurable Merge Strategy) is in the spec landscape. Does this PRD interact with, depend on, or supersede any logic from that spec?",
+          "context": "Cross-spec awareness check: the `merge_strategy` archived spec may define logic related to plan-state or merge operations that overlaps with the reset/clear behavior introduced here. Clarifying the relationship prevents duplicate or conflicting implementations.",
+          "options": [
+            "No overlap \u2014 merge_strategy is unrelated to plan-state reset/clear operations",
+            "There is partial overlap \u2014 this PRD should declare a dependency on merge_strategy",
+            "This PRD supersedes or replaces merge_strategy logic",
+            "Unsure \u2014 needs further investigation"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Can you confirm that the session-scoped table names cleared by `--clear` (runs, session_outcomes, review_findings, drift_findings) are stable and accurately reflect the current DuckDB schema?",
+          "context": "FR-1 specifies clearing these four tables as part of the --clear operation, but the PRD does not cross-reference a schema definition or the `duckdb_reader_writer_split` archived spec. If table names have drifted or are managed by another spec, the implementation may break.",
+          "options": [
+            "Yes, these table names are stable and correct",
+            "One or more table names may have changed \u2014 I will update the PRD",
+            "These are managed by another spec (please specify which)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Who is the owner of this spec? The `owner` field is currently empty.",
+          "context": "An accountable owner is needed for review, escalation, and sign-off purposes.",
+          "options": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a well-structured, highly detailed PRD. It has clear goals with measurable success criteria, explicit non-goals, thorough functional requirements with edge-case handling, verified external API surface, a defined tech stack, and explicit design decisions. The document is largely self-consistent and implementable as-is. A few minor gaps remain: the `--clear` flag's behavior regarding session table clearing vs. `_SESSION_TABLES_ALL` usage could use a precise code-level callout, and the exact mutual exclusivity enforcement mechanism (Click-level vs. handler-level) is unspecified. There is also no explicit definition of what constitutes a \"no plan\" state for `--clear` vs. soft reset, and the `run_plan()` return type for the new modes is not documented.",
+      "gaps": [
+        "The return type/shape of `run_plan()` for the three new modes (`clear`, `reset`, `reset_hard`) is not specified \u2014 callers outside the CLI won't know what to expect from the extended API.",
+        "The mutual exclusivity enforcement mechanism is unspecified: it is unclear whether Click's built-in `cls=MutuallyExclusiveOption` pattern, a custom group, or a handler-level guard is expected.",
+        "FR-1 states `--clear` clears session-scoped tables using `_SESSION_TABLES_ALL`, but it does not specify whether `_SESSION_TABLES_ALL` is accessed directly (importing the private constant) or whether a public helper function exists/should be created for this purpose.",
+        "No explicit statement about how `--clear` interacts with `--json` when zero nodes are cleared (e.g., empty plan with 0 nodes) \u2014 should it still exit 0 or exit 1?",
+        "The error message for mutual exclusivity violations is described generically ('listing the conflicting flags') but no canonical format is provided, which could cause inconsistency between flag pairs.",
+        "The `run_plan()` API extension in FR-7 does not document the return type union for the new modes, nor does it address backward compatibility for existing callers that pattern-match on the return value."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should `run_plan()` return for each of the three new modes (`clear=True`, `reset=True`, `reset_hard=True`)? Should it return the same `ResetResult`/`HardResetResult` dataclasses from `agentfox.engine.reset`, a new dataclass, or a plain dict?",
+          "context": "FR-7 extends `run_plan()` but omits the return type for the new modes. Existing callers may pattern-match on the return value, so this needs to be explicit to avoid breaking non-CLI consumers.",
+          "options": [
+            "Return existing `ResetResult` / `HardResetResult` dataclasses from `agentfox.engine.reset`",
+            "Return a new `ClearResult` dataclass for `--clear`; reuse `ResetResult`/`HardResetResult` for reset modes",
+            "Return a plain dict mirroring the JSON output shapes already defined in the FRs",
+            "Return `None` \u2014 `run_plan()` is CLI-only in practice and no non-CLI callers exist"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should mutual exclusivity between `--dry-run`, `--verify`, `--clear`, `--reset`, and `--reset-hard` be enforced at the implementation level?",
+          "context": "FR-6 requires mutual exclusivity but does not prescribe the mechanism. Click supports a `MutuallyExclusiveOption` pattern, a custom `OptionGroup`, or a plain handler-level guard. The choice affects how the error message is generated and how the flags appear in `--help`.",
+          "options": [
+            "Click-level custom `MutuallyExclusiveOption` class (error raised before handler runs)",
+            "Click `OptionGroup` with `mutually_exclusive` constraint (requires `click-option-group` dependency)",
+            "Handler-level guard in `run_plan()` or the Click command callback (plain `if` checks, manual error message)",
+            "No preference \u2014 leave to implementer"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should `--clear` accessing `_SESSION_TABLES_ALL` import the private constant directly from `agentfox.engine.reset`, or should a new public helper (e.g., `clear_session_tables(conn)`) be added to `agentfox.engine.reset` for this purpose?",
+          "context": "FR-1 says `--clear` clears the four session tables listed in `_SESSION_TABLES_ALL`. Using a private constant from another module is fragile. A public helper would be cleaner but requires a small change to `agentfox.engine.reset`, which FR states should not be modified.",
+          "options": [
+            "Import `_SESSION_TABLES_ALL` directly (acceptable for internal project)",
+            "Add a public `clear_session_tables(conn)` helper to `agentfox.engine.reset` (small exception to the no-library-changes non-goal)",
+            "Hardcode the four table names in the CLI layer as a local constant, keeping the library untouched"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What should happen when `--clear` is invoked on a valid plan that happens to have zero nodes (empty plan)? Should it exit 0 with `{\"cleared\": 0, \"spec\": null}` or exit 1 with an error?",
+          "context": "FR-1 only specifies the `load_plan() returns None` exit-1 case. A plan with zero nodes is a distinct edge case that could occur during development and should have a defined, consistent behavior.",
+          "options": [
+            "Exit 0, emit `{\"cleared\": 0, \"spec\": null}` (treat as a no-op success)",
+            "Exit 1 with an error message such as 'No nodes found to clear'",
+            "No preference \u2014 leave to implementer"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What is the canonical error message format for mutual exclusivity violations in FR-6? For example: `'Error: --reset and --verify are mutually exclusive'` or `'Error: conflicting flags: --reset, --verify \u2014 only one mode flag may be used at a time'`?",
+          "context": "FR-6 says 'exit with code 1 and an error message listing the conflicting flags' but provides no template. A consistent format matters for test assertions and user experience.",
+          "options": [
+            "'Error: --{flag_a} and --{flag_b} are mutually exclusive'",
+            "'Error: conflicting flags: --{flag_a}, --{flag_b} \u2014 only one mode flag may be used at a time'",
+            "'Usage: af plan [OPTIONS]\\nError: only one of --dry-run, --verify, --clear, --reset, --reset-hard may be specified'",
+            "No preference \u2014 leave to implementer"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "All three: reduce top-level commands by 1 (remove af reset), maintain 100% behavioral parity between af plan --reset and the removed af reset, and achieve >=90% test coverage on all new flag handlers.",
+        "q2": "pytest with click.testing.CliRunner and unittest.mock \u2014 this matches the existing test patterns used throughout the af package (see test_plan_verify.py for the canonical example).",
+        "q3": "Exit with code 1 and an error message 'No plan found in database. Run `agent-fox plan` first.' \u2014 consistent with how --verify and --reset handle missing plans.",
+        "q4": "No action needed \u2014 this is a personal/internal project. The breaking change is documented in the PRD and CLI reference update. No deprecation period or runtime redirect message is needed.",
+        "q5": "No overlap \u2014 merge_strategy is about configurable merge strategies for worktree merging during af code execution. It is unrelated to plan-state reset/clear operations.",
+        "q6": "Yes, these table names are stable and correct. I verified them in agentfox/engine/reset.py lines 37-42: _SESSION_TABLES_ALL = ('runs', 'session_outcomes', 'review_findings', 'drift_findings').",
+        "q7": "Leave empty \u2014 this is a personal project without formal ownership tracking."
+      },
+      "timestamp": "2026-07-28T07:27:16.325563+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

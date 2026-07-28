@@ -1,0 +1,1115 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "merge_reset_into_plan",
+  "schema_version": 1,
+  "introduction": "This spec defines the requirements for consolidating the `af reset` command into `af plan` by adding `--clear`, `--reset`, `--reset-hard`, and `--yes` flags, then removing the standalone `af reset` command to simplify the CLI surface.",
+  "glossary": {
+    "CliRunner": "The `click.testing.CliRunner` test utility used to invoke CLI commands in tests.",
+    "ExecutionState": "The execution state object returned by `_load_state_or_raise` representing current task statuses.",
+    "HardResetResult": "Frozen dataclass returned by hard reset operations; fields: reset_tasks, cleaned_worktrees, cleaned_branches, compaction, rollback_sha.",
+    "KnowledgeStore": "The DuckDB-backed storage object returned by `open_knowledge_store`.",
+    "PID guard": "A file-based or process-based lock that prevents plan-mutating CLI operations from running while the nightshift daemon is active.",
+    "ResetResult": "Frozen dataclass returned by soft reset operations; fields: reset_tasks, unblocked_tasks, cleaned_worktrees, cleaned_branches, skipped_completed.",
+    "TASK_ID": "A string identifier for a single task node within the plan graph, used to scope reset operations.",
+    "TaskGraph": "The in-memory representation of the plan's task dependency graph.",
+    "_RESETTABLE_STATUSES": "Frozenset in `agentfox.engine.reset` containing statuses eligible for reset: failed, blocked, in_progress.",
+    "_SESSION_TABLES_ALL": "Tuple constant in `agentfox.engine.reset` listing the four session-scoped tables: `runs`, `session_outcomes`, `review_findings`, `drift_findings`.",
+    "_load_state_or_raise": "Function in `agentfox.engine.reset` that loads execution state from a DB connection or raises if unavailable.",
+    "af plan": "The primary CLI command for all plan-related operations in the agentfox tool, invoked as `af plan`.",
+    "af reset": "The standalone CLI command being removed; its functionality is merged into `af plan`.",
+    "agentfox.engine.reset": "The internal library module containing reset logic reused by the updated `af plan` handler.",
+    "agentfox.engine.state": "The internal library module providing `persist_node_status()`.",
+    "agentfox.graph.persistence": "The internal library module providing `load_plan()` and `save_plan()`.",
+    "agentfox.graph.planner": "The internal library module containing `run_plan()`, the programmatic entry point for plan operations.",
+    "agentfox.knowledge.db": "The internal library module providing `open_knowledge_store()`.",
+    "app.py": "The CLI entry-point module that registers all Click commands including `af plan` and the to-be-removed `af reset`.",
+    "compaction": "A knowledge store compaction step performed during hard reset, represented as a tuple in `HardResetResult`.",
+    "docs/cli-reference.md": "The CLI reference documentation file that must be updated to reflect the removal of `af reset` and the new `af plan` flags.",
+    "drift_findings": "Session-scoped DuckDB table cleared by `--clear`.",
+    "hard_reset_all": "Function in `agentfox.engine.reset` that performs a hard reset of all tasks including code rollback.",
+    "hard_reset_task": "Function in `agentfox.engine.reset` that performs a hard reset of a single task including code rollback.",
+    "integration_branch": "The git branch name used as the base for hard reset rollback operations, defaulting to 'main'.",
+    "load_plan": "Function in `agentfox.graph.persistence` that loads the persisted task graph from DuckDB; returns None when no plan exists.",
+    "nightshift daemon": "A background daemon process managed by agentfox; plan-mutating operations must refuse to run while it is active.",
+    "open_knowledge_store": "Function in `agentfox.knowledge.db` that opens a connection to the DuckDB knowledge store.",
+    "persist_node_status": "Function in `agentfox.engine.state` that updates a node's status in the `plan_nodes` table.",
+    "plan_nodes": "The DuckDB table storing node/task status records for the current plan.",
+    "reset.py": "The CLI module at `packages/af/af/reset.py` implementing the `af reset` command, to be deleted.",
+    "reset_all": "Function in `agentfox.engine.reset` that performs a soft reset of all tasks.",
+    "reset_cmd": "The Click command object for `af reset` registered in `app.py`, to be removed.",
+    "reset_spec": "Function in `agentfox.engine.reset` that performs a soft reset of all tasks belonging to a named spec.",
+    "reset_task": "Function in `agentfox.engine.reset` that performs a soft reset of a single task and cascades to downstream dependents.",
+    "review_findings": "Session-scoped DuckDB table cleared by `--clear`.",
+    "rollback_sha": "The git commit SHA to which code is rolled back during a hard reset, stored in `HardResetResult`.",
+    "run_plan": "The programmatic entry point function in `agentfox.graph.planner` for all plan-related operations.",
+    "run_reset": "Convenience wrapper function in `agentfox.engine.reset` that dispatches to the appropriate reset function.",
+    "runs": "Session-scoped DuckDB table cleared by `--clear`.",
+    "save_plan": "Function in `agentfox.graph.persistence` that persists a task graph to DuckDB.",
+    "session_outcomes": "Session-scoped DuckDB table cleared by `--clear`.",
+    "test_plan_verify.py": "The canonical test file in the `af` package whose patterns are followed for new tests.",
+    "worktree": "A git worktree directory associated with a task, cleaned up during reset operations.",
+    "--clear": "CLI flag for `af plan` that sets all plan nodes to completed status.",
+    "--reset": "CLI flag for `af plan` that performs a soft reset of failed/blocked/in-progress tasks.",
+    "--reset-hard": "CLI flag for `af plan` that performs a hard reset including code rollback.",
+    "--yes": "CLI flag for `af plan` that skips confirmation prompts during reset operations.",
+    "--spec": "CLI flag for `af plan` that scopes operations to a single named spec.",
+    "--dry-run": "CLI flag for `af plan` that shows analysis without persisting to the database.",
+    "--verify": "CLI flag for `af plan` that cross-checks spec files against database plan states.",
+    "--fast": "CLI flag for `af plan` that excludes optional tasks during plan building.",
+    "--json": "CLI flag for structured JSON output mode.",
+    "af plan --clear": "Invocation of `af plan` with `--clear` to mark all nodes as completed.",
+    "af plan --clear --spec NAME": "Invocation of `af plan` with `--clear` scoped to a specific spec.",
+    "af plan --reset": "Invocation of `af plan` with `--reset` to perform a soft reset.",
+    "af plan --reset-hard": "Invocation of `af plan` with `--reset-hard` to perform a hard reset.",
+    "af plan --reset --yes": "Invocation of `af plan --reset` with confirmation skipped.",
+    "af plan --reset-hard --yes": "Invocation of `af plan --reset-hard` with confirmation skipped.",
+    "af reset --hard": "The standalone hard reset command being removed; replaced by `af plan --reset-hard`.",
+    "af plan --reset TASK_ID": "Invocation of `af plan --reset` targeting a single task.",
+    "af plan --reset-hard TASK_ID": "Invocation of `af plan --reset-hard` targeting a single task.",
+    "pytest --cov": "pytest invocation with the coverage plugin to measure line coverage.",
+    "clear=False": "Default value of the `clear` parameter in `run_plan()`.",
+    "reset=False": "Default value of the `reset` parameter in `run_plan()`.",
+    "reset_hard=False": "Default value of the `reset_hard` parameter in `run_plan()`.",
+    "target=None": "Default value of the `target` parameter in `run_plan()`, representing no task ID.",
+    "click.testing.CliRunner": "Click's test utility for invoking CLI commands programmatically in tests.",
+    "unittest.mock": "Python standard library module for mock objects used in test isolation.",
+    "af plan --clear --json": "Invocation of `af plan` with `--clear` and structured JSON output.",
+    "af plan --reset --spec NAME": "Invocation of `af plan --reset` scoped to a named spec.",
+    "af plan --reset --json": "Invocation of `af plan --reset` with structured JSON output.",
+    "af plan --reset-hard --json": "Invocation of `af plan --reset-hard` with structured JSON output.",
+    "af plan --reset-hard --spec NAME": "Invalid combination: `--reset-hard` and `--spec` are mutually exclusive.",
+    "af plan --reset -y": "Shorthand for `af plan --reset --yes` to skip confirmation.",
+    "af plan --reset-hard -y": "Shorthand for `af plan --reset-hard --yes` to skip confirmation.",
+    "--spec NAME": "CLI flag pattern for scoping operations to a single named spec.",
+    "packages/af/af/reset.py": "The CLI module implementing the `af reset` command, to be deleted during this spec.",
+    "target: str | None = None": "Keyword parameter signature for the optional task ID in `run_plan()`.",
+    "clear: bool = False": "Keyword parameter signature for the clear mode in `run_plan()`.",
+    "reset_hard: bool = False": "Keyword parameter signature for the hard reset mode in `run_plan()`.",
+    "reset: bool = False": "Keyword parameter signature for the soft reset mode in `run_plan()`.",
+    "clear=True": "Invocation of `run_plan()` in clear mode.",
+    "reset=True": "Invocation of `run_plan()` in soft reset mode.",
+    "reset_hard=True": "Invocation of `run_plan()` in hard reset mode.",
+    "target": "The optional task ID parameter in `run_plan()` for single-task operations.",
+    "filter_spec": "The optional spec name parameter in `run_plan()` for spec-scoped operations.",
+    "reset": "The soft reset mode parameter in `run_plan()`.",
+    "reset_hard": "The hard reset mode parameter in `run_plan()`.",
+    "clear": "The clear mode parameter in `run_plan()`."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Add --clear flag to af plan",
+      "user_story": {
+        "role": "developer",
+        "goal": "run `af plan --clear` to mark all plan nodes as completed without performing destructive cleanup",
+        "benefit": "I can create a clean slate for subsequent coding sessions without rolling back code or removing worktrees"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "open the `KnowledgeStore` in read-write mode via `open_knowledge_store`, load the plan via `load_plan`, set every node's status to completed via `persist_node_status` in the `plan_nodes` table, truncate the four session-scoped tables (`runs`, `session_outcomes`, `review_findings`, `drift_findings`), and report the number of nodes cleared",
+          "return_contract": "exits with code 0 and prints the count of nodes cleared to stdout",
+          "trigger": "a user invokes `af plan --clear`"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "open the `KnowledgeStore` in read-write mode, load the plan via `load_plan`, set only nodes belonging to the named spec to completed via `persist_node_status`, truncate the four session-scoped tables, and report the number of nodes cleared",
+          "return_contract": "exits with code 0 and prints the count of spec-scoped nodes cleared to stdout",
+          "trigger": "a user invokes `af plan --clear --spec NAME`"
+        },
+        {
+          "id": "01-REQ-1.3",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "perform the clear operation and emit a JSON object with keys 'cleared' (integer count) and 'spec' (null or spec name string)",
+          "return_contract": "exits with code 0 and prints JSON: {\"cleared\": <int>, \"spec\": null} or {\"cleared\": <int>, \"spec\": \"<name>\"}",
+          "trigger": "a user invokes `af plan --clear --json`"
+        },
+        {
+          "id": "01-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "af plan --clear",
+          "action": "never prompt the user for confirmation before clearing nodes, because --clear is a non-destructive forward operation",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "abort the clear operation immediately without modifying any tables",
+          "return_contract": "exits with code 1 and prints error message: \"No plan found in database. Run 'agent-fox plan' first.\"",
+          "error_condition": "`load_plan` returns None (no plan exists in the database)"
+        },
+        {
+          "id": "01-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "refuse to run the clear operation",
+          "return_contract": "exits with code 1 and prints an error message indicating the daemon is active",
+          "error_condition": "the `nightshift daemon` PID guard is active when `af plan --clear` is invoked"
+        },
+        {
+          "id": "01-REQ-1.E3",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "complete successfully with a cleared count of zero",
+          "return_contract": "exits with code 0 and reports 0 nodes cleared",
+          "error_condition": "the `plan_nodes` table contains zero rows when `af plan --clear` is invoked"
+        },
+        {
+          "id": "01-REQ-1.E4",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "propagate the exception and abort without leaving partial state committed if possible; the `KnowledgeStore` connection is closed in a finally block",
+          "return_contract": "exits with code 1 and prints an error message describing the failure",
+          "error_condition": "a database write error occurs while updating the `plan_nodes` table or truncating session-scoped tables during `af plan --clear`"
+        },
+        {
+          "id": "01-REQ-1.E5",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "complete successfully with a cleared count of zero",
+          "return_contract": "exits with code 0 and reports 0 nodes cleared for the given spec",
+          "error_condition": "`af plan --clear --spec NAME` is invoked but no nodes in the plan belong to the named spec"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Add --reset flag to af plan (soft reset)",
+      "user_story": {
+        "role": "developer",
+        "goal": "run `af plan --reset` to reset failed, blocked, and in-progress tasks back to pending and clean up associated worktrees and branches",
+        "benefit": "I can recover from a broken plan state without needing a separate `af reset` command"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "prompt for confirmation (unless `--yes` is provided), then call `reset_all` from `agentfox.engine.reset` with the configured worktrees_dir and repo_path, and report the result",
+          "return_contract": "exits with code 0 and prints reset summary; if user declines confirmation, exits with code 0 and prints nothing or an abort message",
+          "trigger": "a user invokes `af plan --reset` without a `TASK_ID`"
+        },
+        {
+          "id": "01-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "call `reset_task` from `agentfox.engine.reset` with the given `TASK_ID`, worktrees_dir, and repo_path without prompting for confirmation, and report the result",
+          "return_contract": "exits with code 0 and prints reset summary for the single task and its cascaded dependents",
+          "trigger": "a user invokes `af plan --reset TASK_ID`"
+        },
+        {
+          "id": "01-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "prompt for confirmation (unless `--yes` is provided), then call `reset_spec` from `agentfox.engine.reset` with the spec name, worktrees_dir, and repo_path, and report the result",
+          "return_contract": "exits with code 0 and prints reset summary for the named spec's tasks",
+          "trigger": "a user invokes `af plan --reset --spec NAME`"
+        },
+        {
+          "id": "01-REQ-2.4",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "perform the reset operation and emit a JSON object matching the `ResetResult` structure",
+          "return_contract": "exits with code 0 and prints JSON: {\"reset_tasks\": [...], \"unblocked_tasks\": [...], \"cleaned_worktrees\": [...], \"cleaned_branches\": [...]}",
+          "trigger": "a user invokes `af plan --reset --json`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "abort without calling any reset function",
+          "return_contract": "exits with code 1 and prints: \"No plan found in database. Run 'agent-fox plan' first.\"",
+          "error_condition": "`load_plan` returns None when `af plan --reset` is invoked"
+        },
+        {
+          "id": "01-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "refuse to run the reset operation",
+          "return_contract": "exits with code 1 and prints an error message indicating the daemon is active",
+          "error_condition": "the `nightshift daemon` PID guard is active when `af plan --reset` is invoked"
+        },
+        {
+          "id": "01-REQ-2.E3",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "abort the reset operation without modifying any state",
+          "return_contract": "exits with code 0 and prints an abort message or no output",
+          "error_condition": "the user declines the confirmation prompt for `af plan --reset`"
+        },
+        {
+          "id": "01-REQ-2.E4",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "report the unknown task ID and abort without modifying state",
+          "return_contract": "exits with code 1 and prints an error message identifying the unknown task ID",
+          "error_condition": "`af plan --reset TASK_ID` is invoked with a `TASK_ID` that does not exist in the plan"
+        },
+        {
+          "id": "01-REQ-2.E5",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "catch the exception, close the `KnowledgeStore` connection in a finally block, and surface the error to the user",
+          "return_contract": "exits with code 1 and prints an error message describing the failure",
+          "error_condition": "`reset_all`, `reset_task`, or `reset_spec` raises an exception during `af plan --reset`"
+        },
+        {
+          "id": "01-REQ-2.E6",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "complete successfully with empty result lists",
+          "return_contract": "exits with code 0 and reports zero reset_tasks, unblocked_tasks, cleaned_worktrees, and cleaned_branches",
+          "error_condition": "no tasks have a status in `_RESETTABLE_STATUSES` when `af plan --reset` is invoked"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "Add --reset-hard flag to af plan (hard reset)",
+      "user_story": {
+        "role": "developer",
+        "goal": "run `af plan --reset-hard` to perform a full hard reset including code rollback",
+        "benefit": "I can completely undo all coding progress and return the repository to a clean state without a separate command"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "prompt for confirmation (unless `--yes` is provided), then call `hard_reset_all` from `agentfox.engine.reset` with worktrees_dir, repo_path, and memory_path, and report the result",
+          "return_contract": "exits with code 0 and prints hard reset summary including rollback_sha; if user declines, exits with code 0 and prints an abort message",
+          "trigger": "a user invokes `af plan --reset-hard` without a `TASK_ID`"
+        },
+        {
+          "id": "01-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "prompt for confirmation (unless `--yes` is provided), then call `hard_reset_task` from `agentfox.engine.reset` with the given `TASK_ID`, worktrees_dir, repo_path, and memory_path, and report the result",
+          "return_contract": "exits with code 0 and prints hard reset summary for the target task and cascaded tasks including rollback_sha",
+          "trigger": "a user invokes `af plan --reset-hard TASK_ID`"
+        },
+        {
+          "id": "01-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "perform the hard reset and emit a JSON object matching the `HardResetResult` structure",
+          "return_contract": "exits with code 0 and prints JSON: {\"reset_tasks\": [...], \"cleaned_worktrees\": [...], \"cleaned_branches\": [...], \"compaction\": [...], \"rollback_sha\": \"<sha>\"}",
+          "trigger": "a user invokes `af plan --reset-hard --json`"
+        },
+        {
+          "id": "01-REQ-3.4",
+          "ears_pattern": "ubiquitous",
+          "system": "af plan --reset-hard",
+          "action": "always require confirmation before executing, regardless of whether a `TASK_ID` is provided; the only way to skip confirmation is the `--yes` flag",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "abort without calling any hard reset function",
+          "return_contract": "exits with code 1 and prints: \"No plan found in database. Run 'agent-fox plan' first.\"",
+          "error_condition": "`load_plan` returns None when `af plan --reset-hard` is invoked"
+        },
+        {
+          "id": "01-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "reject the combination as mutually exclusive flags",
+          "return_contract": "exits with code 1 and prints an error message stating that --reset-hard and --spec cannot be combined",
+          "error_condition": "`af plan --reset-hard --spec NAME` is invoked"
+        },
+        {
+          "id": "01-REQ-3.E3",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "refuse to run the hard reset operation",
+          "return_contract": "exits with code 1 and prints an error message indicating the daemon is active",
+          "error_condition": "the `nightshift daemon` PID guard is active when `af plan --reset-hard` is invoked"
+        },
+        {
+          "id": "01-REQ-3.E4",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "catch the exception, close the `KnowledgeStore` connection in a finally block, and surface the error",
+          "return_contract": "exits with code 1 and prints an error message describing the failure",
+          "error_condition": "`hard_reset_all` or `hard_reset_task` raises an exception during `af plan --reset-hard`"
+        },
+        {
+          "id": "01-REQ-3.E5",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "report the unknown task ID and abort without modifying state",
+          "return_contract": "exits with code 1 and prints an error message identifying the unknown task ID",
+          "error_condition": "`af plan --reset-hard TASK_ID` is invoked with a `TASK_ID` that does not exist in the plan"
+        },
+        {
+          "id": "01-REQ-3.E6",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "abort the hard reset operation without modifying any state",
+          "return_contract": "exits with code 0 and prints an abort message or no output",
+          "error_condition": "the user declines the confirmation prompt for `af plan --reset-hard`"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "Remove af reset command",
+      "user_story": {
+        "role": "developer",
+        "goal": "have a single `af plan` entry point for all plan-state operations",
+        "benefit": "the CLI surface is reduced and all plan-state mutations are discoverable under one command"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "af CLI",
+          "action": "not register `reset_cmd` in `app.py`; the `af reset` subcommand must not appear in the Click command group",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "af CLI",
+          "action": "delete the file `packages/af/af/reset.py`; the `agentfox.engine.reset` library module is preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.3",
+          "ears_pattern": "event_driven",
+          "system": "af CLI",
+          "action": "emit the standard Click 'No such command' error without any custom redirect message",
+          "return_contract": "exits with non-zero code and prints Click's standard 'No such command \"reset\".' error",
+          "trigger": "a user invokes `af reset` after the removal"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "af CLI",
+          "action": "the CI test suite catches the broken import via the existing test run",
+          "return_contract": "pytest run fails with an ImportError, surfacing the broken reference",
+          "error_condition": "any import in `app.py` or another module still references `packages/af/af/reset.py` after deletion"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "Add --yes / -y flag to af plan",
+      "user_story": {
+        "role": "developer",
+        "goal": "pass `--yes` to `af plan --reset` or `af plan --reset-hard` to skip confirmation prompts",
+        "benefit": "I can automate plan reset operations in scripts without interactive prompts"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "skip the confirmation prompt and proceed directly with the reset operation",
+          "return_contract": "exits with code 0 and prints reset summary without any confirmation prompt",
+          "trigger": "a user invokes `af plan --reset --yes` or `af plan --reset -y`"
+        },
+        {
+          "id": "01-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "skip the confirmation prompt and proceed directly with the hard reset operation",
+          "return_contract": "exits with code 0 and prints hard reset summary without any confirmation prompt",
+          "trigger": "a user invokes `af plan --reset-hard --yes` or `af plan --reset-hard -y`"
+        },
+        {
+          "id": "01-REQ-5.3",
+          "ears_pattern": "state_driven",
+          "system": "af plan",
+          "action": "silently ignore the `--yes` flag and proceed with normal plan build or other active mode",
+          "return_contract": "exits with the same code and output as if `--yes` were not provided",
+          "state": "`--yes` is provided without `--reset` or `--reset-hard`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "silently ignore `--yes` and proceed with the clear operation normally",
+          "return_contract": "exits with code 0 and the same output as `af plan --clear` without `--yes`",
+          "error_condition": "`--yes` is provided alongside `--clear` (which never prompts)"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "Mutual exclusivity of mode flags",
+      "user_story": {
+        "role": "developer",
+        "goal": "receive a clear error when I accidentally combine mutually exclusive mode flags",
+        "benefit": "I can quickly identify and correct invalid flag combinations without unexpected behavior"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "detect the conflicting flags before opening the `KnowledgeStore` and abort",
+          "return_contract": "exits with code 1 and prints an error message listing the conflicting flags",
+          "trigger": "a user provides more than one of `--dry-run`, `--verify`, `--clear`, `--reset`, `--reset-hard` in a single invocation"
+        },
+        {
+          "id": "01-REQ-6.2",
+          "ears_pattern": "event_driven",
+          "system": "af plan",
+          "action": "detect the invalid combination and abort",
+          "return_contract": "exits with code 1 and prints an error message stating that --reset-hard and --spec cannot be combined",
+          "trigger": "a user provides `--reset-hard` together with `--spec NAME`"
+        },
+        {
+          "id": "01-REQ-6.3",
+          "ears_pattern": "state_driven",
+          "system": "af plan",
+          "action": "silently ignore `--fast` and proceed with the active reset or clear mode",
+          "return_contract": "exits with the same code and output as if `--fast` were not provided",
+          "state": "`--fast` is provided alongside `--clear`, `--reset`, or `--reset-hard`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "af plan",
+          "action": "detect the conflict and abort with a single consolidated error message",
+          "return_contract": "exits with code 1 and lists all conflicting flags in the error message",
+          "error_condition": "all five mode flags (`--dry-run`, `--verify`, `--clear`, `--reset`, `--reset-hard`) are provided simultaneously"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "Extend run_plan() API with new mode parameters",
+      "user_story": {
+        "role": "library consumer",
+        "goal": "call `run_plan(clear=True)`, `run_plan(reset=True)`, or `run_plan(reset_hard=True, target=TASK_ID)` programmatically",
+        "benefit": "I can use the same entry point for all plan operations without calling reset functions directly"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "accept four new keyword parameters: `clear: bool = False`, `reset: bool = False`, `reset_hard: bool = False`, and `target: str | None = None`; existing callers passing no new parameters must be unaffected",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "execute the clear logic (set all nodes to completed, truncate session-scoped tables) and return the cleared node count",
+          "return_contract": "returns an integer count of cleared nodes",
+          "trigger": "`run_plan` is called with `clear=True`"
+        },
+        {
+          "id": "01-REQ-7.3",
+          "ears_pattern": "event_driven",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "dispatch to `reset_all` when `target` is None and `filter_spec` is None, to `reset_task` when `target` is not None, or to `reset_spec` when `filter_spec` is not None, from `agentfox.engine.reset` and return the result",
+          "return_contract": "returns a `ResetResult` dataclass instance",
+          "trigger": "`run_plan` is called with `reset=True`"
+        },
+        {
+          "id": "01-REQ-7.4",
+          "ears_pattern": "event_driven",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "dispatch to `hard_reset_all` or `hard_reset_task` from `agentfox.engine.reset` based on the `target` parameter and return the result",
+          "return_contract": "returns a `HardResetResult` dataclass instance",
+          "trigger": "`run_plan` is called with `reset_hard=True`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "raise a ValueError describing the conflicting parameters without modifying any state",
+          "return_contract": "raises ValueError with a message listing the conflicting parameters",
+          "error_condition": "`run_plan` is called with more than one of `clear`, `reset`, `reset_hard` set to True"
+        },
+        {
+          "id": "01-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "raise a RuntimeError or return a sentinel value indicating no plan exists; must not call sys.exit (library boundary rule)",
+          "return_contract": "raises RuntimeError with message indicating no plan exists in the database",
+          "error_condition": "`load_plan` returns None when `run_plan` is called with `clear=True`, `reset=True`, or `reset_hard=True`"
+        },
+        {
+          "id": "01-REQ-7.E3",
+          "ears_pattern": "unwanted",
+          "system": "agentfox.graph.planner.run_plan",
+          "action": "raise a ValueError or KeyError identifying the unknown task ID without modifying state",
+          "return_contract": "raises an exception identifying the unknown task ID",
+          "error_condition": "`run_plan` is called with `reset_hard=True` and a non-None `target` that does not exist in the plan"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-8",
+      "title": "Update CLI and README documentation",
+      "user_story": {
+        "role": "developer",
+        "goal": "find accurate documentation for `af plan` flags and no reference to the removed `af reset` command",
+        "benefit": "I can quickly learn the new CLI surface without being misled by outdated documentation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "docs/cli-reference.md",
+          "action": "document `--clear`, `--reset`, `--reset-hard`, and `--yes` flags under the `af plan` command section, and remove the `af reset` command section and its entry from the quick reference table",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "README.md",
+          "action": "replace any reference to `af reset` in the quick start section with the equivalent `af plan --reset` invocation",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "docs/cli-reference.md",
+          "action": "the documentation review step catches the stale reference before merge",
+          "return_contract": "the PR review or CI documentation lint step fails, blocking the merge",
+          "error_condition": "the `af reset` command section or quick reference table entry is not removed during the update"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-9",
+      "title": "Test coverage \u226590% on new flag handlers",
+      "user_story": {
+        "role": "developer",
+        "goal": "have at least 90% line coverage on all new flag handler code paths",
+        "benefit": "I can be confident that the new flags behave correctly and regressions are caught early"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "use `click.testing.CliRunner` and `unittest.mock` following the pattern in `test_plan_verify.py` for all tests covering `--clear`, `--reset`, `--reset-hard`, and `--yes` handlers",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "achieve at least 90% line coverage on all new flag handler code as measured by `pytest --cov`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "pass the existing reset test suite without modification, verifying behavioral parity between `af plan --reset` / `af plan --reset-hard` and the removed `af reset` / `af reset --hard` commands",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "test suite",
+          "action": "the `pytest --cov` run fails the coverage threshold check",
+          "return_contract": "pytest exits with a non-zero code and reports which lines are uncovered",
+          "error_condition": "coverage drops below 90% on any new flag handler after a code change"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Clear sets every node to completed",
+      "for_any": "plan with N nodes (N \u2265 0) in any combination of statuses",
+      "invariant": "after `af plan --clear` exits with code 0, every row in `plan_nodes` has status = 'completed' and the cleared count reported equals N",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-1.3"
+      ]
+    },
+    {
+      "id": "01-PROP-2",
+      "title": "Clear with --spec scopes to named spec only",
+      "for_any": "plan with nodes belonging to multiple specs",
+      "invariant": "after `af plan --clear --spec NAME` exits with code 0, only nodes belonging to NAME have status = 'completed'; nodes belonging to other specs are unchanged",
+      "validates": [
+        "01-REQ-1.2"
+      ]
+    },
+    {
+      "id": "01-PROP-3",
+      "title": "Session tables are empty after clear",
+      "for_any": "any non-empty state of the four session-scoped tables",
+      "invariant": "after `af plan --clear` exits with code 0, the tables `runs`, `session_outcomes`, `review_findings`, and `drift_findings` contain zero rows",
+      "validates": [
+        "01-REQ-1.1"
+      ]
+    },
+    {
+      "id": "01-PROP-4",
+      "title": "Missing plan always exits with code 1",
+      "for_any": "invocation of `af plan --clear`, `af plan --reset`, or `af plan --reset-hard` when `load_plan` returns None",
+      "invariant": "the command exits with code 1 and the error message contains 'No plan found in database'",
+      "validates": [
+        "01-REQ-1.E1",
+        "01-REQ-2.E1",
+        "01-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "01-PROP-5",
+      "title": "Soft reset only affects resettable statuses",
+      "for_any": "plan with nodes in any combination of statuses",
+      "invariant": "after `af plan --reset` exits with code 0, only nodes whose pre-reset status was in `_RESETTABLE_STATUSES` have been changed; nodes with other statuses are unchanged",
+      "validates": [
+        "01-REQ-2.1"
+      ]
+    },
+    {
+      "id": "01-PROP-6",
+      "title": "Mutual exclusivity is enforced for all mode flag pairs",
+      "for_any": "any pair of flags from {--dry-run, --verify, --clear, --reset, --reset-hard} provided simultaneously",
+      "invariant": "the command exits with code 1 before opening the `KnowledgeStore` and no state is modified",
+      "validates": [
+        "01-REQ-6.1"
+      ]
+    },
+    {
+      "id": "01-PROP-7",
+      "title": "run_plan new parameters are backward compatible",
+      "for_any": "any existing caller of `run_plan` that does not pass the new parameters",
+      "invariant": "`run_plan` behaves identically to its pre-change behavior when `clear=False`, `reset=False`, `reset_hard=False`, and `target=None`",
+      "validates": [
+        "01-REQ-7.1"
+      ]
+    },
+    {
+      "id": "01-PROP-8",
+      "title": "--yes skips confirmation for reset operations",
+      "for_any": "any invocation of `af plan --reset --yes` or `af plan --reset-hard --yes`",
+      "invariant": "no confirmation prompt is shown to the user and the operation proceeds to completion",
+      "validates": [
+        "01-REQ-5.1",
+        "01-REQ-5.2"
+      ]
+    },
+    {
+      "id": "01-PROP-9",
+      "title": "af reset command is absent from CLI",
+      "for_any": "any invocation of `af reset` after the removal",
+      "invariant": "Click returns a non-zero exit code with 'No such command' and no custom redirect message is printed",
+      "validates": [
+        "01-REQ-4.3"
+      ]
+    },
+    {
+      "id": "01-PROP-10",
+      "title": "Library functions never call sys.exit",
+      "for_any": "any error condition encountered inside `run_plan` with a mode flag set",
+      "invariant": "`run_plan` signals errors via exceptions (ValueError, RuntimeError) and never calls sys.exit, preserving the library/application boundary",
+      "validates": [
+        "01-REQ-7.E1",
+        "01-REQ-7.E2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "af plan --clear marks all nodes completed",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `af plan --clear` in the terminal"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "checks the `nightshift daemon` PID guard; aborts if daemon is active"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `open_knowledge_store` to open the `KnowledgeStore` in read-write mode"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `load_plan` on the `KnowledgeStore` connection; aborts with exit code 1 if None is returned"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `persist_node_status` for every node in `plan_nodes` to set status to completed"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "truncates the four session-scoped tables (`runs`, `session_outcomes`, `review_findings`, `drift_findings`) using `_SESSION_TABLES_ALL`"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "prints the count of cleared nodes to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "af plan --reset performs soft reset of all tasks",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `af plan --reset` in the terminal"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "checks the `nightshift daemon` PID guard; aborts if daemon is active"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `open_knowledge_store` to open the `KnowledgeStore` in read-write mode"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `load_plan`; aborts with exit code 1 if None is returned"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "prompts the user for confirmation; aborts if user declines"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `reset_all` from `agentfox.engine.reset` with worktrees_dir and repo_path"
+        },
+        {
+          "actor": "agentfox.engine.reset",
+          "action": "resets tasks with statuses in `_RESETTABLE_STATUSES` to pending, cleans `worktree` directories and branches, and returns a `ResetResult`"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "prints the reset summary to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "af plan --reset-hard performs full hard reset with code rollback",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `af plan --reset-hard --yes` in the terminal"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "checks the `nightshift daemon` PID guard; aborts if daemon is active"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `open_knowledge_store` to open the `KnowledgeStore` in read-write mode"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `load_plan`; aborts with exit code 1 if None is returned"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "skips confirmation prompt because `--yes` is set"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `hard_reset_all` from `agentfox.engine.reset` with worktrees_dir, repo_path, and memory_path"
+        },
+        {
+          "actor": "agentfox.engine.reset",
+          "action": "resets all tasks to pending, cleans worktrees and branches, performs `compaction`, rolls back code to `rollback_sha`, and returns a `HardResetResult`"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "prints the hard reset summary including `rollback_sha` to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-4",
+      "title": "af plan --reset TASK_ID resets a single task without confirmation",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `af plan --reset TASK_ID` in the terminal"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "checks the `nightshift daemon` PID guard; aborts if daemon is active"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `open_knowledge_store` to open the `KnowledgeStore` in read-write mode"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `load_plan`; aborts with exit code 1 if None is returned"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "skips confirmation prompt because a `TASK_ID` is provided"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "calls `reset_task` from `agentfox.engine.reset` with the `TASK_ID`, worktrees_dir, and repo_path"
+        },
+        {
+          "actor": "agentfox.engine.reset",
+          "action": "resets the target task and cascade-unblocks downstream dependents, returns a `ResetResult`"
+        },
+        {
+          "actor": "af plan CLI handler",
+          "action": "prints the reset summary to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-5",
+      "title": "af reset invoked after removal returns Click error",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `af reset` in the terminal after the command has been removed"
+        },
+        {
+          "actor": "Click CLI framework",
+          "action": "looks up 'reset' in the registered command group and finds no match"
+        },
+        {
+          "actor": "Click CLI framework",
+          "action": "prints 'No such command \"reset\".' to stderr and exits with a non-zero code"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-6",
+      "title": "run_plan() called programmatically with reset=True",
+      "steps": [
+        {
+          "actor": "External caller",
+          "action": "calls `run_plan(reset=True)` on `agentfox.graph.planner`"
+        },
+        {
+          "actor": "agentfox.graph.planner.run_plan",
+          "action": "validates that only one mode flag is set; raises ValueError if multiple are set"
+        },
+        {
+          "actor": "agentfox.graph.planner.run_plan",
+          "action": "calls `load_plan` on the active `KnowledgeStore` connection; raises RuntimeError if None is returned"
+        },
+        {
+          "actor": "agentfox.graph.planner.run_plan",
+          "action": "dispatches to `reset_all` from `agentfox.engine.reset`"
+        },
+        {
+          "actor": "agentfox.engine.reset",
+          "action": "performs the soft reset and returns a `ResetResult`"
+        },
+        {
+          "actor": "agentfox.graph.planner.run_plan",
+          "action": "returns the `ResetResult` to the caller"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "`load_plan` returns None for `--clear`, `--reset`, or `--reset-hard`",
+      "behavior": "abort immediately without modifying any database state; print \"No plan found in database. Run 'agent-fox plan' first.\" to stderr and exit with code 1",
+      "requirement_id": "01-REQ-1.E1"
+    },
+    {
+      "id": "01-ERR-2",
+      "condition": "The `nightshift daemon` PID guard is active when any plan-mutating flag is invoked",
+      "behavior": "refuse to run; print an error message indicating the daemon is active and exit with code 1",
+      "requirement_id": "01-REQ-1.E2"
+    },
+    {
+      "id": "01-ERR-3",
+      "condition": "More than one mutually exclusive mode flag is provided (`--dry-run`, `--verify`, `--clear`, `--reset`, `--reset-hard`)",
+      "behavior": "detect the conflict before opening the `KnowledgeStore`; print an error listing the conflicting flags and exit with code 1",
+      "requirement_id": "01-REQ-6.1"
+    },
+    {
+      "id": "01-ERR-4",
+      "condition": "`--reset-hard` is combined with `--spec NAME`",
+      "behavior": "print an error stating the combination is not supported and exit with code 1",
+      "requirement_id": "01-REQ-3.E2"
+    },
+    {
+      "id": "01-ERR-5",
+      "condition": "A database write error occurs during `--clear` node status updates or session table truncation",
+      "behavior": "catch the exception, close the `KnowledgeStore` connection in a finally block, print an error message, and exit with code 1",
+      "requirement_id": "01-REQ-1.E4"
+    },
+    {
+      "id": "01-ERR-6",
+      "condition": "`reset_all`, `reset_task`, `reset_spec`, `hard_reset_all`, or `hard_reset_task` raises an exception",
+      "behavior": "catch the exception, close the `KnowledgeStore` connection in a finally block, print an error message describing the failure, and exit with code 1",
+      "requirement_id": "01-REQ-2.E5"
+    },
+    {
+      "id": "01-ERR-7",
+      "condition": "`af plan --reset TASK_ID` or `af plan --reset-hard TASK_ID` is invoked with a `TASK_ID` that does not exist in the plan",
+      "behavior": "print an error message identifying the unknown task ID and exit with code 1 without modifying any state",
+      "requirement_id": "01-REQ-2.E4"
+    },
+    {
+      "id": "01-ERR-8",
+      "condition": "`run_plan` is called with more than one of `clear`, `reset`, `reset_hard` set to True",
+      "behavior": "raise a ValueError with a message listing the conflicting parameters; must not call sys.exit (library boundary)",
+      "requirement_id": "01-REQ-7.E1"
+    },
+    {
+      "id": "01-ERR-9",
+      "condition": "`load_plan` returns None when `run_plan` is called with a mode flag set",
+      "behavior": "raise a RuntimeError with a message indicating no plan exists; must not call sys.exit (library boundary)",
+      "requirement_id": "01-REQ-7.E2"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "agentfox.engine.reset",
+      "version": "internal",
+      "symbols": [
+        {
+          "name": "reset_all",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(worktrees_dir: Path, repo_path: Path, db_conn=None) -> ResetResult",
+          "notes": "Soft reset of all tasks"
+        },
+        {
+          "name": "reset_task",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(task_id: str, worktrees_dir: Path, repo_path: Path, db_conn=None) -> ResetResult",
+          "notes": "Soft reset of a single task with cascade"
+        },
+        {
+          "name": "reset_spec",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(spec_name: str, worktrees_dir: Path, repo_path: Path, db_conn=None, specs_dir=None) -> ResetResult",
+          "notes": "Soft reset of all tasks for a named spec"
+        },
+        {
+          "name": "hard_reset_all",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(worktrees_dir: Path, repo_path: Path, memory_path: Path, db_conn=None, integration_branch='main') -> HardResetResult",
+          "notes": "Hard reset of all tasks with code rollback"
+        },
+        {
+          "name": "hard_reset_task",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(task_id: str, worktrees_dir: Path, repo_path: Path, memory_path: Path, db_conn=None, integration_branch='main') -> HardResetResult",
+          "notes": "Hard reset of a single task with code rollback"
+        },
+        {
+          "name": "run_reset",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(target=None, config=None, *, soft=True, hard=False, spec=None, ...) -> ResetResult | HardResetResult",
+          "notes": "Convenience wrapper dispatching to the appropriate reset function"
+        },
+        {
+          "name": "ResetResult",
+          "import_path": "agentfox.engine.reset",
+          "signature": "@dataclass(frozen=True)",
+          "notes": "Fields: reset_tasks, unblocked_tasks, cleaned_worktrees, cleaned_branches, skipped_completed"
+        },
+        {
+          "name": "HardResetResult",
+          "import_path": "agentfox.engine.reset",
+          "signature": "@dataclass(frozen=True)",
+          "notes": "Fields: reset_tasks, cleaned_worktrees, cleaned_branches, compaction, rollback_sha"
+        },
+        {
+          "name": "_RESETTABLE_STATUSES",
+          "import_path": "agentfox.engine.reset",
+          "signature": "frozenset({\"failed\", \"blocked\", \"in_progress\"})",
+          "notes": "Statuses eligible for soft reset"
+        },
+        {
+          "name": "_SESSION_TABLES_ALL",
+          "import_path": "agentfox.engine.reset",
+          "signature": "('runs', 'session_outcomes', 'review_findings', 'drift_findings')",
+          "notes": "Lines 37-42; used by --clear to truncate session state"
+        },
+        {
+          "name": "_load_state_or_raise",
+          "import_path": "agentfox.engine.reset",
+          "signature": "(db_conn) -> ExecutionState",
+          "notes": "Loads execution state or raises if unavailable"
+        }
+      ]
+    },
+    {
+      "package": "agentfox.engine.state",
+      "version": "internal",
+      "symbols": [
+        {
+          "name": "persist_node_status",
+          "import_path": "agentfox.engine.state",
+          "signature": "(conn, node_id, status, blocked_reason=None)",
+          "notes": "Updates a node's status in the plan_nodes table"
+        }
+      ]
+    },
+    {
+      "package": "agentfox.graph.persistence",
+      "version": "internal",
+      "symbols": [
+        {
+          "name": "load_plan",
+          "import_path": "agentfox.graph.persistence",
+          "signature": "(conn) -> TaskGraph | None",
+          "notes": "Returns None when no plan exists in the database"
+        },
+        {
+          "name": "save_plan",
+          "import_path": "agentfox.graph.persistence",
+          "signature": "(graph, conn) -> None",
+          "notes": "Persists a TaskGraph to DuckDB"
+        }
+      ]
+    },
+    {
+      "package": "agentfox.knowledge.db",
+      "version": "internal",
+      "symbols": [
+        {
+          "name": "open_knowledge_store",
+          "import_path": "agentfox.knowledge.db",
+          "signature": "(config, read_only=False) -> KnowledgeStore",
+          "notes": "Opens a connection to the DuckDB knowledge store"
+        }
+      ]
+    }
+  ]
+}

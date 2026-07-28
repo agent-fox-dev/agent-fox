@@ -1,0 +1,1037 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "merge_reset_into_plan",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-01-1",
+      "requirement_id": "01-REQ-1.1",
+      "kind": "unit",
+      "description": "Invoking `af plan --clear` opens the KnowledgeStore, sets every node in plan_nodes to completed via persist_node_status, truncates all four session-scoped tables, and exits with code 0 reporting the node count.",
+      "preconditions": [
+        "DuckDB knowledge store is initialised with a valid plan containing 3 nodes in mixed statuses (pending, in_progress, failed)",
+        "Session-scoped tables (runs, session_outcomes, review_findings, drift_findings) contain at least one row each",
+        "Nightshift daemon PID guard is not active",
+        "Config points to the test DuckDB file"
+      ],
+      "input": "CLI invocation: af plan --clear",
+      "expected": "Exit code 0; stdout contains '3 nodes cleared'; all rows in plan_nodes have status='completed'; all four session-scoped tables contain zero rows",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 0\nassert '3' in result.output\nconn = open_test_db()\nassert all(row.status == 'completed' for row in conn.execute('SELECT status FROM plan_nodes').fetchall())\nfor tbl in ['runs', 'session_outcomes', 'review_findings', 'drift_findings']:\n    assert conn.execute(f'SELECT COUNT(*) FROM {tbl}').fetchone()[0] == 0"
+    },
+    {
+      "id": "TS-01-2",
+      "requirement_id": "01-REQ-1.2",
+      "kind": "unit",
+      "description": "Invoking `af plan --clear --spec NAME` sets only nodes belonging to the named spec to completed and truncates session-scoped tables, leaving other spec nodes unchanged.",
+      "preconditions": [
+        "DuckDB knowledge store contains a plan with 2 nodes for spec 'spec_a' (statuses: pending, failed) and 2 nodes for spec 'spec_b' (statuses: in_progress, blocked)",
+        "Session-scoped tables contain at least one row each",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear --spec spec_a",
+      "expected": "Exit code 0; stdout contains '2 nodes cleared'; plan_nodes rows for spec_a have status='completed'; plan_nodes rows for spec_b are unchanged (in_progress, blocked); all four session-scoped tables contain zero rows",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear', '--spec', 'spec_a'])\nassert result.exit_code == 0\nassert '2' in result.output\nconn = open_test_db()\nspec_a_rows = conn.execute(\"SELECT status FROM plan_nodes WHERE spec='spec_a'\").fetchall()\nassert all(r.status == 'completed' for r in spec_a_rows)\nspec_b_rows = conn.execute(\"SELECT status FROM plan_nodes WHERE spec='spec_b'\").fetchall()\nassert {r.status for r in spec_b_rows} == {'in_progress', 'blocked'}"
+    },
+    {
+      "id": "TS-01-3",
+      "requirement_id": "01-REQ-1.3",
+      "kind": "unit",
+      "description": "Invoking `af plan --clear --json` emits a JSON object with keys 'cleared' (integer) and 'spec' (null) and exits with code 0.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with 5 nodes",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear --json",
+      "expected": "Exit code 0; stdout is valid JSON matching {\"cleared\": 5, \"spec\": null}",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear', '--json'])\nassert result.exit_code == 0\ndata = json.loads(result.output)\nassert data == {'cleared': 5, 'spec': None}"
+    },
+    {
+      "id": "TS-01-4",
+      "requirement_id": "01-REQ-1.4",
+      "kind": "unit",
+      "description": "Invoking `af plan --clear` never displays a confirmation prompt to the user before clearing nodes.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with at least 1 node",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear (no stdin input provided)",
+      "expected": "Exit code 0; no confirmation prompt text appears in stdout or stderr; nodes are cleared without user interaction",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear'], input=None)\nassert result.exit_code == 0\nassert 'confirm' not in result.output.lower()\nassert 'y/n' not in result.output.lower()\nassert '[y/N]' not in result.output"
+    },
+    {
+      "id": "TS-01-5",
+      "requirement_id": "01-REQ-2.1",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset` without a TASK_ID prompts for confirmation, then calls reset_all and prints the reset summary on confirmation.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with tasks in failed and in_progress statuses",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset; user inputs 'y' at confirmation prompt",
+      "expected": "Exit code 0; reset_all called once with correct worktrees_dir and repo_path; stdout contains reset summary (reset_tasks list)",
+      "assertion_pseudocode": "mock_reset_all = Mock(return_value=ResetResult(reset_tasks=['t1'], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[]))\nwith patch('agentfox.engine.reset.reset_all', mock_reset_all):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset'], input='y\\n')\nassert result.exit_code == 0\nmock_reset_all.assert_called_once()\nassert 't1' in result.output or 'reset' in result.output.lower()"
+    },
+    {
+      "id": "TS-01-6",
+      "requirement_id": "01-REQ-2.2",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset TASK_ID` calls reset_task with the given TASK_ID without prompting for confirmation and prints the reset summary.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with task 'spec:1' in failed status",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_task is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset spec:1",
+      "expected": "Exit code 0; reset_task called once with task_id='spec:1'; no confirmation prompt shown; stdout contains reset summary",
+      "assertion_pseudocode": "mock_reset_task = Mock(return_value=ResetResult(reset_tasks=['spec:1'], unblocked_tasks=['spec:2'], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[]))\nwith patch('agentfox.engine.reset.reset_task', mock_reset_task):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', 'spec:1'])\nassert result.exit_code == 0\nmock_reset_task.assert_called_once_with('spec:1', worktrees_dir=ANY, repo_path=ANY, db_conn=ANY)\nassert 'confirm' not in result.output.lower()"
+    },
+    {
+      "id": "TS-01-7",
+      "requirement_id": "01-REQ-2.3",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset --spec NAME` prompts for confirmation, then calls reset_spec with the spec name and prints the reset summary.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with tasks for spec 'spec_a'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_spec is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset --spec spec_a; user inputs 'y' at confirmation prompt",
+      "expected": "Exit code 0; reset_spec called once with spec_name='spec_a'; stdout contains reset summary for spec_a tasks",
+      "assertion_pseudocode": "mock_reset_spec = Mock(return_value=ResetResult(reset_tasks=['spec_a:0'], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[]))\nwith patch('agentfox.engine.reset.reset_spec', mock_reset_spec):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', '--spec', 'spec_a'], input='y\\n')\nassert result.exit_code == 0\nmock_reset_spec.assert_called_once_with('spec_a', worktrees_dir=ANY, repo_path=ANY, db_conn=ANY)"
+    },
+    {
+      "id": "TS-01-8",
+      "requirement_id": "01-REQ-2.4",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset --json` emits a JSON object matching the ResetResult structure and exits with code 0.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mocked to return a known ResetResult"
+      ],
+      "input": "CLI invocation: af plan --reset --json --yes",
+      "expected": "Exit code 0; stdout is valid JSON with keys reset_tasks, unblocked_tasks, cleaned_worktrees, cleaned_branches",
+      "assertion_pseudocode": "mock_result = ResetResult(reset_tasks=['spec:0', 'spec:1'], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[])\nwith patch('agentfox.engine.reset.reset_all', return_value=mock_result):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', '--json', '--yes'])\nassert result.exit_code == 0\ndata = json.loads(result.output)\nassert set(data.keys()) >= {'reset_tasks', 'unblocked_tasks', 'cleaned_worktrees', 'cleaned_branches'}\nassert data['reset_tasks'] == ['spec:0', 'spec:1']"
+    },
+    {
+      "id": "TS-01-9",
+      "requirement_id": "01-REQ-3.1",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard` without TASK_ID prompts for confirmation, then calls hard_reset_all and prints the hard reset summary including rollback_sha.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard; user inputs 'y' at confirmation prompt",
+      "expected": "Exit code 0; hard_reset_all called once with worktrees_dir, repo_path, memory_path; stdout contains rollback_sha",
+      "assertion_pseudocode": "mock_hard_reset = Mock(return_value=HardResetResult(reset_tasks=['spec:0'], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='abc123'))\nwith patch('agentfox.engine.reset.hard_reset_all', mock_hard_reset):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard'], input='y\\n')\nassert result.exit_code == 0\nmock_hard_reset.assert_called_once()\nassert 'abc123' in result.output"
+    },
+    {
+      "id": "TS-01-10",
+      "requirement_id": "01-REQ-3.2",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard TASK_ID` prompts for confirmation, then calls hard_reset_task with the given TASK_ID and prints the hard reset summary.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with task 'spec:2'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_task is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard spec:2; user inputs 'y' at confirmation prompt",
+      "expected": "Exit code 0; hard_reset_task called once with task_id='spec:2'; stdout contains rollback_sha",
+      "assertion_pseudocode": "mock_hard_task = Mock(return_value=HardResetResult(reset_tasks=['spec:2'], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='def456'))\nwith patch('agentfox.engine.reset.hard_reset_task', mock_hard_task):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', 'spec:2'], input='y\\n')\nassert result.exit_code == 0\nmock_hard_task.assert_called_once_with('spec:2', worktrees_dir=ANY, repo_path=ANY, memory_path=ANY, db_conn=ANY)\nassert 'def456' in result.output"
+    },
+    {
+      "id": "TS-01-11",
+      "requirement_id": "01-REQ-3.3",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard --json --yes` emits a JSON object matching the HardResetResult structure with all required keys.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mocked to return a known HardResetResult"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --json --yes",
+      "expected": "Exit code 0; stdout is valid JSON with keys reset_tasks, cleaned_worktrees, cleaned_branches, compaction, rollback_sha",
+      "assertion_pseudocode": "mock_result = HardResetResult(reset_tasks=['spec:0', 'spec:1'], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='abc123')\nwith patch('agentfox.engine.reset.hard_reset_all', return_value=mock_result):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--json', '--yes'])\nassert result.exit_code == 0\ndata = json.loads(result.output)\nassert set(data.keys()) >= {'reset_tasks', 'cleaned_worktrees', 'cleaned_branches', 'compaction', 'rollback_sha'}\nassert data['rollback_sha'] == 'abc123'"
+    },
+    {
+      "id": "TS-01-12",
+      "requirement_id": "01-REQ-3.4",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard TASK_ID` without --yes still prompts for confirmation before executing the hard reset.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with task 'spec:3'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_task is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard spec:3; user inputs 'y' at confirmation prompt",
+      "expected": "Exit code 0; a confirmation prompt appears in output before hard_reset_task is called",
+      "assertion_pseudocode": "mock_hard_task = Mock(return_value=HardResetResult(reset_tasks=['spec:3'], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='ghi789'))\nwith patch('agentfox.engine.reset.hard_reset_task', mock_hard_task):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', 'spec:3'], input='y\\n')\nassert result.exit_code == 0\nassert mock_hard_task.called\n# Verify prompt appeared\nassert any(kw in result.output.lower() for kw in ['confirm', 'proceed', 'y/n', '[y/N]'])"
+    },
+    {
+      "id": "TS-01-13",
+      "requirement_id": "01-REQ-4.1",
+      "kind": "unit",
+      "description": "The `af reset` subcommand is not registered in the Click command group after removal of reset_cmd from app.py.",
+      "preconditions": [
+        "app.py has been updated to remove reset_cmd registration",
+        "packages/af/af/reset.py has been deleted"
+      ],
+      "input": "Inspect the Click command group's registered commands",
+      "expected": "'reset' does not appear in the list of registered commands on the af CLI group",
+      "assertion_pseudocode": "from af.app import cli\nassert 'reset' not in cli.commands"
+    },
+    {
+      "id": "TS-01-14",
+      "requirement_id": "01-REQ-4.2",
+      "kind": "unit",
+      "description": "The file packages/af/af/reset.py does not exist after deletion, while agentfox/engine/reset.py is preserved.",
+      "preconditions": [
+        "The implementation has been applied"
+      ],
+      "input": "Filesystem check for both file paths",
+      "expected": "packages/af/af/reset.py does not exist; agentfox/engine/reset.py exists and is importable",
+      "assertion_pseudocode": "import os, importlib\nassert not os.path.exists('packages/af/af/reset.py')\nmod = importlib.import_module('agentfox.engine.reset')\nassert mod is not None"
+    },
+    {
+      "id": "TS-01-15",
+      "requirement_id": "01-REQ-4.3",
+      "kind": "unit",
+      "description": "Invoking `af reset` after removal emits Click's standard 'No such command' error with a non-zero exit code and no custom redirect message.",
+      "preconditions": [
+        "reset_cmd has been removed from app.py",
+        "packages/af/af/reset.py has been deleted"
+      ],
+      "input": "CLI invocation: af reset",
+      "expected": "Non-zero exit code; stderr or output contains 'No such command' and 'reset'; no custom redirect message present",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_cli_group, ['reset'])\nassert result.exit_code != 0\nassert 'no such command' in result.output.lower() or 'no such command' in (result.stderr or '').lower()\nassert 'use af plan' not in result.output.lower()"
+    },
+    {
+      "id": "TS-01-16",
+      "requirement_id": "01-REQ-5.1",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset --yes` skips the confirmation prompt and proceeds directly with the reset operation.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with resettable tasks",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset --yes (no stdin provided)",
+      "expected": "Exit code 0; reset_all is called; no confirmation prompt appears in output",
+      "assertion_pseudocode": "mock_reset_all = Mock(return_value=ResetResult(reset_tasks=['t1'], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[]))\nwith patch('agentfox.engine.reset.reset_all', mock_reset_all):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', '--yes'], input=None)\nassert result.exit_code == 0\nmock_reset_all.assert_called_once()\nassert '[y/N]' not in result.output\nassert 'confirm' not in result.output.lower()"
+    },
+    {
+      "id": "TS-01-17",
+      "requirement_id": "01-REQ-5.2",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard --yes` skips the confirmation prompt and proceeds directly with the hard reset operation.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --yes (no stdin provided)",
+      "expected": "Exit code 0; hard_reset_all is called; no confirmation prompt appears in output",
+      "assertion_pseudocode": "mock_hard = Mock(return_value=HardResetResult(reset_tasks=[], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='sha1'))\nwith patch('agentfox.engine.reset.hard_reset_all', mock_hard):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--yes'], input=None)\nassert result.exit_code == 0\nmock_hard.assert_called_once()\nassert '[y/N]' not in result.output"
+    },
+    {
+      "id": "TS-01-18",
+      "requirement_id": "01-REQ-5.3",
+      "kind": "unit",
+      "description": "Providing `--yes` without `--reset` or `--reset-hard` is silently ignored and the normal plan build proceeds unchanged.",
+      "preconditions": [
+        "DuckDB knowledge store is accessible",
+        "Nightshift daemon PID guard is not active",
+        "Normal plan build is mockable"
+      ],
+      "input": "CLI invocation: af plan --yes",
+      "expected": "Exit code same as `af plan` without --yes; output identical to normal plan build; no error about --yes flag",
+      "assertion_pseudocode": "result_with_yes = CliRunner().invoke(af_plan_cmd, ['--yes'])\nresult_without_yes = CliRunner().invoke(af_plan_cmd, [])\nassert result_with_yes.exit_code == result_without_yes.exit_code\nassert 'error' not in result_with_yes.output.lower() or result_with_yes.exit_code == 0"
+    },
+    {
+      "id": "TS-01-19",
+      "requirement_id": "01-REQ-6.1",
+      "kind": "unit",
+      "description": "Providing two mutually exclusive mode flags (e.g. --clear and --reset) exits with code 1 and an error listing the conflicting flags before opening the KnowledgeStore.",
+      "preconditions": [
+        "open_knowledge_store is mockable to detect if it is called"
+      ],
+      "input": "CLI invocation: af plan --clear --reset",
+      "expected": "Exit code 1; stderr or output contains both '--clear' and '--reset' in the error message; open_knowledge_store is NOT called",
+      "assertion_pseudocode": "mock_ks = Mock()\nwith patch('agentfox.knowledge.db.open_knowledge_store', mock_ks):\n    result = CliRunner().invoke(af_plan_cmd, ['--clear', '--reset'])\nassert result.exit_code == 1\nassert '--clear' in result.output or '--clear' in (result.stderr or '')\nassert '--reset' in result.output or '--reset' in (result.stderr or '')\nmock_ks.assert_not_called()"
+    },
+    {
+      "id": "TS-01-20",
+      "requirement_id": "01-REQ-6.2",
+      "kind": "unit",
+      "description": "Providing `--reset-hard` together with `--spec NAME` exits with code 1 and an error stating the combination is not supported.",
+      "preconditions": [
+        "No special preconditions; flag validation occurs before any I/O"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --spec my_spec",
+      "expected": "Exit code 1; output or stderr contains a message indicating --reset-hard and --spec cannot be combined",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--spec', 'my_spec'])\nassert result.exit_code == 1\nerr_text = result.output + (result.stderr or '')\nassert '--reset-hard' in err_text or 'reset-hard' in err_text.lower()\nassert '--spec' in err_text or 'spec' in err_text.lower()"
+    },
+    {
+      "id": "TS-01-21",
+      "requirement_id": "01-REQ-6.3",
+      "kind": "unit",
+      "description": "Providing `--fast` alongside `--clear` is silently ignored and the clear operation proceeds normally.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with 2 nodes",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear --fast",
+      "expected": "Exit code 0; output is identical to `af plan --clear` without --fast; no error about --fast flag",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear', '--fast'])\nassert result.exit_code == 0\nassert 'error' not in result.output.lower()\nassert 'invalid' not in result.output.lower()"
+    },
+    {
+      "id": "TS-01-22",
+      "requirement_id": "01-REQ-7.1",
+      "kind": "unit",
+      "description": "run_plan() accepts the four new keyword parameters (clear, reset, reset_hard, target) with defaults, and existing callers passing no new parameters are unaffected.",
+      "preconditions": [
+        "agentfox.graph.planner module is importable",
+        "run_plan is callable with no new parameters"
+      ],
+      "input": "Call run_plan() with no arguments (existing caller pattern)",
+      "expected": "run_plan executes without TypeError; function signature includes clear=False, reset=False, reset_hard=False, target=None parameters",
+      "assertion_pseudocode": "import inspect\nfrom agentfox.graph.planner import run_plan\nsig = inspect.signature(run_plan)\nparams = sig.parameters\nassert 'clear' in params and params['clear'].default == False\nassert 'reset' in params and params['reset'].default == False\nassert 'reset_hard' in params and params['reset_hard'].default == False\nassert 'target' in params and params['target'].default is None"
+    },
+    {
+      "id": "TS-01-23",
+      "requirement_id": "01-REQ-7.2",
+      "kind": "unit",
+      "description": "Calling run_plan(clear=True) executes the clear logic and returns the integer count of cleared nodes.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with 4 nodes",
+        "persist_node_status and load_plan are mockable"
+      ],
+      "input": "run_plan(clear=True, conn=mock_conn)",
+      "expected": "Returns integer 4; persist_node_status called 4 times with status='completed'; session tables truncated",
+      "assertion_pseudocode": "mock_plan = Mock(nodes=[Mock(id='n1'), Mock(id='n2'), Mock(id='n3'), Mock(id='n4')])\nwith patch('agentfox.graph.persistence.load_plan', return_value=mock_plan):\n    with patch('agentfox.engine.state.persist_node_status') as mock_persist:\n        result = run_plan(clear=True, conn=mock_conn)\nassert result == 4\nassert mock_persist.call_count == 4\nassert all(call.args[2] == 'completed' for call in mock_persist.call_args_list)"
+    },
+    {
+      "id": "TS-01-24",
+      "requirement_id": "01-REQ-7.3",
+      "kind": "unit",
+      "description": "Calling run_plan(reset=True) dispatches to reset_all and returns a ResetResult instance.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "agentfox.engine.reset.reset_all is mockable"
+      ],
+      "input": "run_plan(reset=True, conn=mock_conn)",
+      "expected": "Returns a ResetResult instance; reset_all called once",
+      "assertion_pseudocode": "expected_result = ResetResult(reset_tasks=['t1'], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=[])\nwith patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n    with patch('agentfox.engine.reset.reset_all', return_value=expected_result) as mock_ra:\n        result = run_plan(reset=True, conn=mock_conn)\nassert isinstance(result, ResetResult)\nmock_ra.assert_called_once()"
+    },
+    {
+      "id": "TS-01-25",
+      "requirement_id": "01-REQ-7.4",
+      "kind": "unit",
+      "description": "Calling run_plan(reset_hard=True) dispatches to hard_reset_all and returns a HardResetResult instance.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "agentfox.engine.reset.hard_reset_all is mockable"
+      ],
+      "input": "run_plan(reset_hard=True, conn=mock_conn)",
+      "expected": "Returns a HardResetResult instance; hard_reset_all called once",
+      "assertion_pseudocode": "expected_result = HardResetResult(reset_tasks=[], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='sha1')\nwith patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n    with patch('agentfox.engine.reset.hard_reset_all', return_value=expected_result) as mock_hra:\n        result = run_plan(reset_hard=True, conn=mock_conn)\nassert isinstance(result, HardResetResult)\nmock_hra.assert_called_once()"
+    },
+    {
+      "id": "TS-01-26",
+      "requirement_id": "01-REQ-8.1",
+      "kind": "unit",
+      "description": "docs/cli-reference.md documents --clear, --reset, --reset-hard, and --yes under af plan, and the af reset command section and quick reference table entry are removed.",
+      "preconditions": [
+        "docs/cli-reference.md has been updated as part of the implementation"
+      ],
+      "input": "Read docs/cli-reference.md file contents",
+      "expected": "File contains '--clear', '--reset', '--reset-hard', '--yes' under the af plan section; file does NOT contain a top-level 'af reset' command section or quick reference table entry for 'af reset'",
+      "assertion_pseudocode": "content = open('docs/cli-reference.md').read()\nassert '--clear' in content\nassert '--reset' in content\nassert '--reset-hard' in content\nassert '--yes' in content\n# No standalone af reset section\nimport re\nassert not re.search(r'^#+\\s+af reset\\b', content, re.MULTILINE)\nassert 'af reset' not in content or 'af plan --reset' in content"
+    },
+    {
+      "id": "TS-01-27",
+      "requirement_id": "01-REQ-8.2",
+      "kind": "unit",
+      "description": "README.md quick start section references `af plan --reset` instead of `af reset`.",
+      "preconditions": [
+        "README.md has been updated as part of the implementation"
+      ],
+      "input": "Read README.md file contents",
+      "expected": "README.md does not contain bare `af reset` invocations; any former `af reset` references are replaced with `af plan --reset`",
+      "assertion_pseudocode": "content = open('README.md').read()\nimport re\n# Should not have standalone 'af reset' without --reset flag\nbare_reset_refs = re.findall(r'\\baf reset\\b(?!\\s+--)', content)\nassert len(bare_reset_refs) == 0"
+    },
+    {
+      "id": "TS-01-28",
+      "requirement_id": "01-REQ-9.1",
+      "kind": "unit",
+      "description": "All tests for --clear, --reset, --reset-hard, and --yes handlers use CliRunner and unittest.mock following the test_plan_verify.py pattern.",
+      "preconditions": [
+        "Test files for new flag handlers exist in the test suite"
+      ],
+      "input": "Inspect test source files for new flag handlers",
+      "expected": "Test files import CliRunner from click.testing and Mock/patch from unittest.mock; test functions invoke CLI via CliRunner().invoke()",
+      "assertion_pseudocode": "import ast, glob\nfor test_file in glob.glob('packages/af/tests/test_plan_*.py'):\n    source = open(test_file).read()\n    assert 'CliRunner' in source\n    assert 'unittest.mock' in source or 'from unittest.mock' in source"
+    },
+    {
+      "id": "TS-01-29",
+      "requirement_id": "01-REQ-9.2",
+      "kind": "integration",
+      "description": "Running pytest --cov on the new flag handler modules reports at least 90% line coverage.",
+      "preconditions": [
+        "pytest and pytest-cov are installed",
+        "New flag handler code is implemented in packages/af/af/plan.py or equivalent"
+      ],
+      "input": "Run: pytest --cov=af.plan --cov-report=term-missing packages/af/tests/",
+      "expected": "pytest exits with code 0; coverage report shows >= 90% line coverage for the new flag handler module",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(['pytest', '--cov=af.plan', '--cov-fail-under=90', 'packages/af/tests/'], capture_output=True)\nassert result.returncode == 0, f'Coverage below 90%: {result.stdout.decode()}'"
+    },
+    {
+      "id": "TS-01-30",
+      "requirement_id": "01-REQ-9.3",
+      "kind": "integration",
+      "description": "The existing reset test suite passes without modification, verifying behavioral parity between af plan --reset/--reset-hard and the removed af reset/af reset --hard.",
+      "preconditions": [
+        "Existing reset test suite files are present and unmodified",
+        "af plan --reset and --reset-hard are implemented"
+      ],
+      "input": "Run: pytest packages/af/tests/test_reset*.py (or equivalent existing reset tests)",
+      "expected": "All existing reset tests pass with exit code 0; no test modifications required",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(['pytest', 'packages/af/tests/test_reset.py', '-v'], capture_output=True)\nassert result.returncode == 0, f'Existing reset tests failed: {result.stdout.decode()}'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-01-P1",
+      "property_id": "01-PROP-1",
+      "validates": [
+        "01-REQ-1.1"
+      ],
+      "description": "For any plan with N nodes (N >= 0) in any combination of statuses, after af plan --clear exits with code 0, every node in plan_nodes has status='completed' and the reported cleared count equals N.",
+      "for_any_strategy": "Generate plans with N nodes (N drawn from 0..50) where each node's status is sampled uniformly from ['pending', 'in_progress', 'failed', 'blocked', 'completed']; use hypothesis.strategies.lists and hypothesis.strategies.sampled_from",
+      "invariant_check": "result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 0\nrows = conn.execute('SELECT status FROM plan_nodes').fetchall()\nassert all(r[0] == 'completed' for r in rows)\nassert str(len(rows)) in result.output"
+    },
+    {
+      "id": "TS-01-P2",
+      "property_id": "01-PROP-2",
+      "validates": [
+        "01-REQ-1.2"
+      ],
+      "description": "For any plan with nodes belonging to multiple specs, after af plan --clear --spec NAME, only nodes for NAME have status='completed' and all other nodes are unchanged.",
+      "for_any_strategy": "Generate plans with 2-5 distinct spec names and 1-10 nodes per spec; randomly assign statuses; pick one spec name as the target; use hypothesis.strategies.text for spec names and hypothesis.strategies.lists for nodes",
+      "invariant_check": "result = CliRunner().invoke(af_plan_cmd, ['--clear', '--spec', target_spec])\nassert result.exit_code == 0\ntarget_rows = conn.execute(f\"SELECT status FROM plan_nodes WHERE spec='{target_spec}'\").fetchall()\nassert all(r[0] == 'completed' for r in target_rows)\nother_rows = conn.execute(f\"SELECT status, original_status FROM plan_nodes WHERE spec!='{target_spec}'\").fetchall()\nassert all(r[0] == r[1] for r in other_rows)"
+    },
+    {
+      "id": "TS-01-P3",
+      "property_id": "01-PROP-3",
+      "validates": [
+        "01-REQ-1.1"
+      ],
+      "description": "For any non-empty state of the four session-scoped tables, after af plan --clear exits with code 0, all four tables contain zero rows.",
+      "for_any_strategy": "Generate 1-20 rows for each of the four session tables (runs, session_outcomes, review_findings, drift_findings) with random valid data; use hypothesis.strategies.integers and hypothesis.strategies.text for field values",
+      "invariant_check": "result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 0\nfor tbl in ['runs', 'session_outcomes', 'review_findings', 'drift_findings']:\n    count = conn.execute(f'SELECT COUNT(*) FROM {tbl}').fetchone()[0]\n    assert count == 0, f'Table {tbl} still has {count} rows after --clear'"
+    },
+    {
+      "id": "TS-01-P4",
+      "property_id": "01-PROP-4",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-2.1",
+        "01-REQ-3.1"
+      ],
+      "description": "For any invocation of af plan --clear, --reset, or --reset-hard when load_plan returns None, the command always exits with code 1 and the error message contains 'No plan found in database'.",
+      "for_any_strategy": "Enumerate all three flag combinations (['--clear'], ['--reset'], ['--reset-hard', '--yes']); for each, mock load_plan to return None; use pytest.mark.parametrize or hypothesis.strategies.sampled_from",
+      "invariant_check": "for flags in [['--clear'], ['--reset'], ['--reset-hard', '--yes']]:\n    with patch('agentfox.graph.persistence.load_plan', return_value=None):\n        result = CliRunner().invoke(af_plan_cmd, flags)\n    assert result.exit_code == 1, f'Expected exit 1 for {flags}, got {result.exit_code}'\n    assert 'No plan found in database' in result.output, f'Missing error message for {flags}'"
+    },
+    {
+      "id": "TS-01-P5",
+      "property_id": "01-PROP-5",
+      "validates": [
+        "01-REQ-2.1"
+      ],
+      "description": "For any plan with nodes in any combination of statuses, after af plan --reset exits with code 0, only nodes whose pre-reset status was in _RESETTABLE_STATUSES have been changed; nodes with other statuses are unchanged.",
+      "for_any_strategy": "Generate plans with 1-20 nodes where each node's status is sampled from all possible statuses including 'pending', 'completed', 'failed', 'blocked', 'in_progress'; record pre-reset statuses; use hypothesis.strategies.lists and hypothesis.strategies.sampled_from",
+      "invariant_check": "pre_reset_statuses = {node.id: node.status for node in plan.nodes}\nresult = CliRunner().invoke(af_plan_cmd, ['--reset', '--yes'])\nassert result.exit_code == 0\npost_reset_rows = conn.execute('SELECT node_id, status FROM plan_nodes').fetchall()\nfor node_id, post_status in post_reset_rows:\n    pre_status = pre_reset_statuses[node_id]\n    if pre_status not in {'failed', 'blocked', 'in_progress'}:\n        assert post_status == pre_status, f'Node {node_id} with pre-status {pre_status} was unexpectedly changed to {post_status}'"
+    },
+    {
+      "id": "TS-01-P6",
+      "property_id": "01-PROP-6",
+      "validates": [
+        "01-REQ-6.1"
+      ],
+      "description": "For any pair of flags from {--dry-run, --verify, --clear, --reset, --reset-hard} provided simultaneously, the command exits with code 1 before opening the KnowledgeStore and no state is modified.",
+      "for_any_strategy": "Enumerate all C(5,2)=10 pairs of mode flags; for each pair, invoke the CLI with both flags; mock open_knowledge_store to detect if called; use itertools.combinations(['--dry-run','--verify','--clear','--reset','--reset-hard'], 2)",
+      "invariant_check": "import itertools\nmode_flags = ['--dry-run', '--verify', '--clear', '--reset', '--reset-hard']\nfor flag_a, flag_b in itertools.combinations(mode_flags, 2):\n    mock_ks = Mock()\n    with patch('agentfox.knowledge.db.open_knowledge_store', mock_ks):\n        result = CliRunner().invoke(af_plan_cmd, [flag_a, flag_b])\n    assert result.exit_code == 1, f'Expected exit 1 for {flag_a} + {flag_b}'\n    mock_ks.assert_not_called(), f'KnowledgeStore opened for {flag_a} + {flag_b}'"
+    },
+    {
+      "id": "TS-01-P7",
+      "property_id": "01-PROP-7",
+      "validates": [
+        "01-REQ-7.1"
+      ],
+      "description": "For any existing caller of run_plan that does not pass the new parameters, run_plan behaves identically to its pre-change behavior.",
+      "for_any_strategy": "Generate diverse sets of existing run_plan keyword arguments (excluding clear, reset, reset_hard, target) using hypothesis.strategies.fixed_dictionaries with optional existing parameters; call run_plan with and without the new parameters defaulted",
+      "invariant_check": "from agentfox.graph.planner import run_plan\nwith patch('agentfox.graph.persistence.load_plan', return_value=mock_plan):\n    result_old_style = run_plan(**existing_kwargs)\n    result_new_style = run_plan(clear=False, reset=False, reset_hard=False, target=None, **existing_kwargs)\nassert result_old_style == result_new_style"
+    },
+    {
+      "id": "TS-01-P8",
+      "property_id": "01-PROP-8",
+      "validates": [
+        "01-REQ-5.1",
+        "01-REQ-5.2"
+      ],
+      "description": "For any invocation of af plan --reset --yes or af plan --reset-hard --yes, no confirmation prompt is shown and the operation proceeds to completion.",
+      "for_any_strategy": "Enumerate both flag combinations (['--reset', '--yes'] and ['--reset-hard', '--yes']); mock the respective reset functions to return valid results; use pytest.mark.parametrize",
+      "invariant_check": "for flags, mock_fn, mock_result in [\n    (['--reset', '--yes'], 'agentfox.engine.reset.reset_all', ResetResult(...)),\n    (['--reset-hard', '--yes'], 'agentfox.engine.reset.hard_reset_all', HardResetResult(...))\n]:\n    with patch(mock_fn, return_value=mock_result) as mock:\n        result = CliRunner().invoke(af_plan_cmd, flags, input=None)\n    assert result.exit_code == 0\n    assert mock.called\n    assert '[y/N]' not in result.output\n    assert 'confirm' not in result.output.lower()"
+    },
+    {
+      "id": "TS-01-P9",
+      "property_id": "01-PROP-9",
+      "validates": [
+        "01-REQ-4.3"
+      ],
+      "description": "For any invocation of `af reset` after the removal, Click returns a non-zero exit code with 'No such command' and no custom redirect message is printed.",
+      "for_any_strategy": "Invoke `af reset` with various argument combinations (no args, with --hard, with arbitrary args) using hypothesis.strategies.lists(hypothesis.strategies.text()) for extra args",
+      "invariant_check": "for extra_args in [[], ['--hard'], ['some_task'], ['--hard', 'some_task']]:\n    result = CliRunner().invoke(af_cli_group, ['reset'] + extra_args)\n    assert result.exit_code != 0\n    output = result.output + (result.stderr or '')\n    assert 'no such command' in output.lower()\n    assert 'use af plan' not in output.lower()\n    assert 'instead' not in output.lower()"
+    },
+    {
+      "id": "TS-01-P10",
+      "property_id": "01-PROP-10",
+      "validates": [
+        "01-REQ-7.2",
+        "01-REQ-7.3",
+        "01-REQ-7.4"
+      ],
+      "description": "For any error condition encountered inside run_plan with a mode flag set, run_plan signals errors via exceptions and never calls sys.exit.",
+      "for_any_strategy": "Enumerate error conditions: (1) multiple mode flags set, (2) load_plan returns None, (3) reset function raises RuntimeError; for each, call run_plan and assert exception type; use unittest.mock to patch sys.exit and assert it is never called",
+      "invariant_check": "import sys\nwith patch.object(sys, 'exit', side_effect=AssertionError('sys.exit called')) as mock_exit:\n    # Case 1: multiple mode flags\n    try:\n        run_plan(clear=True, reset=True)\n    except ValueError:\n        pass\n    # Case 2: no plan\n    with patch('agentfox.graph.persistence.load_plan', return_value=None):\n        try:\n            run_plan(clear=True)\n        except RuntimeError:\n            pass\n    # Case 3: reset raises\n    with patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n        with patch('agentfox.engine.reset.reset_all', side_effect=RuntimeError('fail')):\n            try:\n                run_plan(reset=True)\n            except RuntimeError:\n                pass\nmock_exit.assert_not_called()"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-01-E1",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "unit",
+      "description": "When load_plan returns None, `af plan --clear` exits with code 1 and prints the standard missing-plan error message without modifying any tables.",
+      "preconditions": [
+        "DuckDB knowledge store is accessible but contains no plan (load_plan returns None)",
+        "Nightshift daemon PID guard is not active",
+        "persist_node_status is mockable to detect if called"
+      ],
+      "input": "CLI invocation: af plan --clear",
+      "expected": "Exit code 1; output or stderr contains \"No plan found in database. Run 'agent-fox plan' first.\"; persist_node_status is NOT called",
+      "assertion_pseudocode": "mock_persist = Mock()\nwith patch('agentfox.graph.persistence.load_plan', return_value=None):\n    with patch('agentfox.engine.state.persist_node_status', mock_persist):\n        result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 1\nassert \"No plan found in database\" in result.output\nassert \"Run 'agent-fox plan' first\" in result.output\nmock_persist.assert_not_called()"
+    },
+    {
+      "id": "TS-01-E2",
+      "requirement_id": "01-REQ-1.E2",
+      "kind": "unit",
+      "description": "When the nightshift daemon PID guard is active, `af plan --clear` exits with code 1 and prints a daemon-active error message.",
+      "preconditions": [
+        "Nightshift daemon PID guard is active (mocked)",
+        "DuckDB knowledge store contains a valid plan"
+      ],
+      "input": "CLI invocation: af plan --clear",
+      "expected": "Exit code 1; output or stderr contains a message indicating the daemon is active; no database modifications occur",
+      "assertion_pseudocode": "with patch('af.plan.check_daemon_guard', side_effect=DaemonActiveError('daemon is active')):\n    result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 1\nassert 'daemon' in result.output.lower() or 'daemon' in (result.stderr or '').lower()"
+    },
+    {
+      "id": "TS-01-E3",
+      "requirement_id": "01-REQ-1.E3",
+      "kind": "unit",
+      "description": "When plan_nodes contains zero rows, `af plan --clear` exits with code 0 and reports 0 nodes cleared.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with zero nodes in plan_nodes",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear",
+      "expected": "Exit code 0; output contains '0 nodes cleared' or equivalent; no error raised",
+      "assertion_pseudocode": "mock_plan = Mock(nodes=[])\nwith patch('agentfox.graph.persistence.load_plan', return_value=mock_plan):\n    result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 0\nassert '0' in result.output"
+    },
+    {
+      "id": "TS-01-E4",
+      "requirement_id": "01-REQ-1.E4",
+      "kind": "unit",
+      "description": "When a database write error occurs during --clear, the command exits with code 1, prints an error message, and closes the KnowledgeStore connection in a finally block.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "persist_node_status is mocked to raise an exception on the first call",
+        "KnowledgeStore close method is mockable"
+      ],
+      "input": "CLI invocation: af plan --clear",
+      "expected": "Exit code 1; output or stderr contains an error message describing the failure; KnowledgeStore.close() is called exactly once",
+      "assertion_pseudocode": "mock_ks = Mock()\nmock_ks.__enter__ = Mock(return_value=mock_ks)\nmock_ks.__exit__ = Mock(return_value=False)\nwith patch('agentfox.knowledge.db.open_knowledge_store', return_value=mock_ks):\n    with patch('agentfox.graph.persistence.load_plan', return_value=Mock(nodes=[Mock(id='n1')])):\n        with patch('agentfox.engine.state.persist_node_status', side_effect=Exception('DB write error')):\n            result = CliRunner().invoke(af_plan_cmd, ['--clear'])\nassert result.exit_code == 1\nassert 'error' in result.output.lower() or 'DB write error' in result.output\nmock_ks.close.assert_called()"
+    },
+    {
+      "id": "TS-01-E5",
+      "requirement_id": "01-REQ-1.E5",
+      "kind": "unit",
+      "description": "When --clear --spec NAME is invoked but no nodes belong to the named spec, the command exits with code 0 and reports 0 nodes cleared.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with nodes only for spec 'spec_b', not 'spec_a'",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear --spec spec_a",
+      "expected": "Exit code 0; output contains '0 nodes cleared' or equivalent; no error raised",
+      "assertion_pseudocode": "mock_plan = Mock(nodes=[Mock(id='spec_b:0', spec='spec_b')])\nwith patch('agentfox.graph.persistence.load_plan', return_value=mock_plan):\n    result = CliRunner().invoke(af_plan_cmd, ['--clear', '--spec', 'spec_a'])\nassert result.exit_code == 0\nassert '0' in result.output"
+    },
+    {
+      "id": "TS-01-E6",
+      "requirement_id": "01-REQ-2.E1",
+      "kind": "unit",
+      "description": "When load_plan returns None, `af plan --reset` exits with code 1 and prints the standard missing-plan error without calling any reset function.",
+      "preconditions": [
+        "DuckDB knowledge store contains no plan (load_plan returns None)",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset",
+      "expected": "Exit code 1; output contains \"No plan found in database. Run 'agent-fox plan' first.\"; reset_all is NOT called",
+      "assertion_pseudocode": "mock_reset_all = Mock()\nwith patch('agentfox.graph.persistence.load_plan', return_value=None):\n    with patch('agentfox.engine.reset.reset_all', mock_reset_all):\n        result = CliRunner().invoke(af_plan_cmd, ['--reset'])\nassert result.exit_code == 1\nassert \"No plan found in database\" in result.output\nmock_reset_all.assert_not_called()"
+    },
+    {
+      "id": "TS-01-E7",
+      "requirement_id": "01-REQ-2.E2",
+      "kind": "unit",
+      "description": "When the nightshift daemon PID guard is active, `af plan --reset` exits with code 1 and prints a daemon-active error.",
+      "preconditions": [
+        "Nightshift daemon PID guard is active (mocked)",
+        "DuckDB knowledge store contains a valid plan"
+      ],
+      "input": "CLI invocation: af plan --reset",
+      "expected": "Exit code 1; output or stderr contains a message indicating the daemon is active",
+      "assertion_pseudocode": "with patch('af.plan.check_daemon_guard', side_effect=DaemonActiveError('daemon is active')):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset'])\nassert result.exit_code == 1\nassert 'daemon' in result.output.lower() or 'daemon' in (result.stderr or '').lower()"
+    },
+    {
+      "id": "TS-01-E8",
+      "requirement_id": "01-REQ-2.E3",
+      "kind": "unit",
+      "description": "When the user declines the confirmation prompt for `af plan --reset`, the command aborts without modifying state and exits with code 0.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset; user inputs 'n' at confirmation prompt",
+      "expected": "Exit code 0; reset_all is NOT called; output contains abort message or is empty",
+      "assertion_pseudocode": "mock_reset_all = Mock()\nwith patch('agentfox.engine.reset.reset_all', mock_reset_all):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset'], input='n\\n')\nassert result.exit_code == 0\nmock_reset_all.assert_not_called()"
+    },
+    {
+      "id": "TS-01-E9",
+      "requirement_id": "01-REQ-2.E4",
+      "kind": "unit",
+      "description": "When `af plan --reset TASK_ID` is invoked with a TASK_ID that does not exist in the plan, the command exits with code 1 and prints an error identifying the unknown task ID.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan without task 'nonexistent:99'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_task is mocked to raise an appropriate error for unknown task"
+      ],
+      "input": "CLI invocation: af plan --reset nonexistent:99",
+      "expected": "Exit code 1; output or stderr contains 'nonexistent:99' and an error message identifying the unknown task ID",
+      "assertion_pseudocode": "with patch('agentfox.engine.reset.reset_task', side_effect=KeyError('nonexistent:99')):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', 'nonexistent:99'])\nassert result.exit_code == 1\nassert 'nonexistent:99' in result.output or 'nonexistent:99' in (result.stderr or '')"
+    },
+    {
+      "id": "TS-01-E10",
+      "requirement_id": "01-REQ-2.E5",
+      "kind": "unit",
+      "description": "When reset_all raises an exception during `af plan --reset`, the command exits with code 1, prints an error message, and closes the KnowledgeStore connection.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mocked to raise an exception",
+        "KnowledgeStore close method is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset --yes",
+      "expected": "Exit code 1; output or stderr contains an error message describing the failure; KnowledgeStore.close() is called",
+      "assertion_pseudocode": "mock_ks = Mock()\nwith patch('agentfox.knowledge.db.open_knowledge_store', return_value=mock_ks):\n    with patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n        with patch('agentfox.engine.reset.reset_all', side_effect=RuntimeError('reset failed')):\n            result = CliRunner().invoke(af_plan_cmd, ['--reset', '--yes'])\nassert result.exit_code == 1\nassert 'error' in result.output.lower() or 'reset failed' in result.output\nmock_ks.close.assert_called()"
+    },
+    {
+      "id": "TS-01-E11",
+      "requirement_id": "01-REQ-2.E6",
+      "kind": "unit",
+      "description": "When no tasks have a resettable status, `af plan --reset` exits with code 0 and reports empty result lists.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan where all tasks have status 'completed'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.reset_all is mocked to return an empty ResetResult"
+      ],
+      "input": "CLI invocation: af plan --reset --yes",
+      "expected": "Exit code 0; output indicates zero reset_tasks, unblocked_tasks, cleaned_worktrees, cleaned_branches",
+      "assertion_pseudocode": "empty_result = ResetResult(reset_tasks=[], unblocked_tasks=[], cleaned_worktrees=[], cleaned_branches=[], skipped_completed=['t1', 't2'])\nwith patch('agentfox.engine.reset.reset_all', return_value=empty_result):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset', '--yes'])\nassert result.exit_code == 0\nassert '0' in result.output or 'no tasks' in result.output.lower() or result.output.strip() != ''"
+    },
+    {
+      "id": "TS-01-E12",
+      "requirement_id": "01-REQ-3.E1",
+      "kind": "unit",
+      "description": "When load_plan returns None, `af plan --reset-hard` exits with code 1 and prints the standard missing-plan error without calling any hard reset function.",
+      "preconditions": [
+        "DuckDB knowledge store contains no plan (load_plan returns None)",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --yes",
+      "expected": "Exit code 1; output contains \"No plan found in database. Run 'agent-fox plan' first.\"; hard_reset_all is NOT called",
+      "assertion_pseudocode": "mock_hard = Mock()\nwith patch('agentfox.graph.persistence.load_plan', return_value=None):\n    with patch('agentfox.engine.reset.hard_reset_all', mock_hard):\n        result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--yes'])\nassert result.exit_code == 1\nassert \"No plan found in database\" in result.output\nmock_hard.assert_not_called()"
+    },
+    {
+      "id": "TS-01-E13",
+      "requirement_id": "01-REQ-3.E2",
+      "kind": "unit",
+      "description": "Invoking `af plan --reset-hard --spec NAME` exits with code 1 and prints an error stating the combination is not supported.",
+      "preconditions": [
+        "No special preconditions; flag validation occurs before any I/O"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --spec my_spec",
+      "expected": "Exit code 1; output or stderr contains a message indicating --reset-hard and --spec cannot be combined",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--spec', 'my_spec'])\nassert result.exit_code == 1\nerr_text = result.output + (result.stderr or '')\nassert 'reset-hard' in err_text.lower() and 'spec' in err_text.lower()"
+    },
+    {
+      "id": "TS-01-E14",
+      "requirement_id": "01-REQ-3.E3",
+      "kind": "unit",
+      "description": "When the nightshift daemon PID guard is active, `af plan --reset-hard` exits with code 1 and prints a daemon-active error.",
+      "preconditions": [
+        "Nightshift daemon PID guard is active (mocked)",
+        "DuckDB knowledge store contains a valid plan"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --yes",
+      "expected": "Exit code 1; output or stderr contains a message indicating the daemon is active",
+      "assertion_pseudocode": "with patch('af.plan.check_daemon_guard', side_effect=DaemonActiveError('daemon is active')):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--yes'])\nassert result.exit_code == 1\nassert 'daemon' in result.output.lower() or 'daemon' in (result.stderr or '').lower()"
+    },
+    {
+      "id": "TS-01-E15",
+      "requirement_id": "01-REQ-3.E4",
+      "kind": "unit",
+      "description": "When hard_reset_all raises an exception during `af plan --reset-hard`, the command exits with code 1, prints an error message, and closes the KnowledgeStore connection.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mocked to raise an exception",
+        "KnowledgeStore close method is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard --yes",
+      "expected": "Exit code 1; output or stderr contains an error message describing the failure; KnowledgeStore.close() is called",
+      "assertion_pseudocode": "mock_ks = Mock()\nwith patch('agentfox.knowledge.db.open_knowledge_store', return_value=mock_ks):\n    with patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n        with patch('agentfox.engine.reset.hard_reset_all', side_effect=RuntimeError('hard reset failed')):\n            result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', '--yes'])\nassert result.exit_code == 1\nassert 'error' in result.output.lower() or 'hard reset failed' in result.output\nmock_ks.close.assert_called()"
+    },
+    {
+      "id": "TS-01-E16",
+      "requirement_id": "01-REQ-3.E5",
+      "kind": "unit",
+      "description": "When `af plan --reset-hard TASK_ID` is invoked with a TASK_ID that does not exist in the plan, the command exits with code 1 and prints an error identifying the unknown task ID.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan without task 'ghost:99'",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_task is mocked to raise an error for unknown task"
+      ],
+      "input": "CLI invocation: af plan --reset-hard ghost:99 --yes",
+      "expected": "Exit code 1; output or stderr contains 'ghost:99' and an error message identifying the unknown task ID",
+      "assertion_pseudocode": "with patch('agentfox.engine.reset.hard_reset_task', side_effect=KeyError('ghost:99')):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard', 'ghost:99', '--yes'])\nassert result.exit_code == 1\nassert 'ghost:99' in result.output or 'ghost:99' in (result.stderr or '')"
+    },
+    {
+      "id": "TS-01-E17",
+      "requirement_id": "01-REQ-3.E6",
+      "kind": "unit",
+      "description": "When the user declines the confirmation prompt for `af plan --reset-hard`, the command aborts without modifying state and exits with code 0.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan",
+        "Nightshift daemon PID guard is not active",
+        "agentfox.engine.reset.hard_reset_all is mockable"
+      ],
+      "input": "CLI invocation: af plan --reset-hard; user inputs 'n' at confirmation prompt",
+      "expected": "Exit code 0; hard_reset_all is NOT called; output contains abort message or is empty",
+      "assertion_pseudocode": "mock_hard = Mock()\nwith patch('agentfox.engine.reset.hard_reset_all', mock_hard):\n    result = CliRunner().invoke(af_plan_cmd, ['--reset-hard'], input='n\\n')\nassert result.exit_code == 0\nmock_hard.assert_not_called()"
+    },
+    {
+      "id": "TS-01-E18",
+      "requirement_id": "01-REQ-4.E1",
+      "kind": "unit",
+      "description": "If any module still imports from packages/af/af/reset.py after deletion, the pytest run fails with an ImportError surfacing the broken reference.",
+      "preconditions": [
+        "packages/af/af/reset.py has been deleted",
+        "pytest is installed"
+      ],
+      "input": "Run: pytest packages/af/ (with a stale import of af.reset in app.py)",
+      "expected": "pytest exits with non-zero code; output contains ImportError or ModuleNotFoundError referencing af.reset",
+      "assertion_pseudocode": "# This test verifies the negative: after deletion, no stale imports remain\nimport subprocess\nresult = subprocess.run(['python', '-c', 'import af.app'], capture_output=True)\nassert result.returncode == 0, f'Stale import detected: {result.stderr.decode()}'"
+    },
+    {
+      "id": "TS-01-E19",
+      "requirement_id": "01-REQ-5.E1",
+      "kind": "unit",
+      "description": "Providing `--yes` alongside `--clear` is silently ignored; the clear operation proceeds normally without error.",
+      "preconditions": [
+        "DuckDB knowledge store contains a valid plan with 2 nodes",
+        "Nightshift daemon PID guard is not active"
+      ],
+      "input": "CLI invocation: af plan --clear --yes",
+      "expected": "Exit code 0; output is identical to `af plan --clear` without --yes; no error about --yes flag",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--clear', '--yes'])\nassert result.exit_code == 0\nassert 'error' not in result.output.lower()\nassert 'invalid' not in result.output.lower()\nassert '2' in result.output or 'cleared' in result.output.lower()"
+    },
+    {
+      "id": "TS-01-E20",
+      "requirement_id": "01-REQ-6.E1",
+      "kind": "unit",
+      "description": "When all five mode flags are provided simultaneously, the command exits with code 1 and lists all conflicting flags in a single consolidated error message.",
+      "preconditions": [
+        "No special preconditions; flag validation occurs before any I/O"
+      ],
+      "input": "CLI invocation: af plan --dry-run --verify --clear --reset --reset-hard",
+      "expected": "Exit code 1; output or stderr contains a single error message listing all five conflicting flags",
+      "assertion_pseudocode": "result = CliRunner().invoke(af_plan_cmd, ['--dry-run', '--verify', '--clear', '--reset', '--reset-hard'])\nassert result.exit_code == 1\nerr_text = result.output + (result.stderr or '')\nfor flag in ['--dry-run', '--verify', '--clear', '--reset', '--reset-hard']:\n    assert flag in err_text or flag.lstrip('-') in err_text.lower()"
+    },
+    {
+      "id": "TS-01-E21",
+      "requirement_id": "01-REQ-7.E1",
+      "kind": "unit",
+      "description": "Calling run_plan with more than one of clear, reset, reset_hard set to True raises a ValueError listing the conflicting parameters without calling sys.exit.",
+      "preconditions": [
+        "agentfox.graph.planner.run_plan is importable"
+      ],
+      "input": "run_plan(clear=True, reset=True)",
+      "expected": "ValueError is raised with a message listing the conflicting parameters; sys.exit is NOT called",
+      "assertion_pseudocode": "from agentfox.graph.planner import run_plan\ntry:\n    run_plan(clear=True, reset=True)\n    assert False, 'Expected ValueError'\nexcept ValueError as e:\n    assert 'clear' in str(e).lower() or 'reset' in str(e).lower()\nexcept SystemExit:\n    assert False, 'run_plan must not call sys.exit'"
+    },
+    {
+      "id": "TS-01-E22",
+      "requirement_id": "01-REQ-7.E2",
+      "kind": "unit",
+      "description": "Calling run_plan(clear=True) when load_plan returns None raises a RuntimeError indicating no plan exists, without calling sys.exit.",
+      "preconditions": [
+        "agentfox.graph.planner.run_plan is importable",
+        "load_plan is mocked to return None"
+      ],
+      "input": "run_plan(clear=True) with load_plan returning None",
+      "expected": "RuntimeError is raised with a message indicating no plan exists; sys.exit is NOT called",
+      "assertion_pseudocode": "from agentfox.graph.planner import run_plan\nwith patch('agentfox.graph.persistence.load_plan', return_value=None):\n    try:\n        run_plan(clear=True)\n        assert False, 'Expected RuntimeError'\n    except RuntimeError as e:\n        assert 'no plan' in str(e).lower() or 'plan' in str(e).lower()\n    except SystemExit:\n        assert False, 'run_plan must not call sys.exit'"
+    },
+    {
+      "id": "TS-01-E23",
+      "requirement_id": "01-REQ-7.E3",
+      "kind": "unit",
+      "description": "Calling run_plan(reset_hard=True, target='nonexistent:99') with a non-existent task ID raises a ValueError or KeyError identifying the unknown task ID.",
+      "preconditions": [
+        "agentfox.graph.planner.run_plan is importable",
+        "load_plan returns a valid plan without task 'nonexistent:99'",
+        "hard_reset_task is mocked to raise KeyError for unknown task"
+      ],
+      "input": "run_plan(reset_hard=True, target='nonexistent:99')",
+      "expected": "ValueError or KeyError is raised identifying 'nonexistent:99'; no state is modified",
+      "assertion_pseudocode": "from agentfox.graph.planner import run_plan\nwith patch('agentfox.graph.persistence.load_plan', return_value=Mock()):\n    with patch('agentfox.engine.reset.hard_reset_task', side_effect=KeyError('nonexistent:99')):\n        try:\n            run_plan(reset_hard=True, target='nonexistent:99')\n            assert False, 'Expected exception'\n        except (ValueError, KeyError) as e:\n            assert 'nonexistent:99' in str(e)"
+    },
+    {
+      "id": "TS-01-E24",
+      "requirement_id": "01-REQ-8.E1",
+      "kind": "unit",
+      "description": "If the af reset command section or quick reference table entry is not removed from docs/cli-reference.md, the documentation review step catches the stale reference.",
+      "preconditions": [
+        "docs/cli-reference.md still contains a top-level 'af reset' section (simulating a missed update)"
+      ],
+      "input": "Read docs/cli-reference.md and check for stale af reset section",
+      "expected": "A documentation lint check or grep detects the stale 'af reset' section and fails; the PR is blocked",
+      "assertion_pseudocode": "import re\ncontent = open('docs/cli-reference.md').read()\nstale_section = re.search(r'^#+\\s+af reset\\b', content, re.MULTILINE)\nassert stale_section is None, f'Stale af reset section found at position {stale_section.start()}'"
+    },
+    {
+      "id": "TS-01-E25",
+      "requirement_id": "01-REQ-9.E1",
+      "kind": "integration",
+      "description": "When coverage drops below 90% on any new flag handler, pytest --cov exits with a non-zero code and reports which lines are uncovered.",
+      "preconditions": [
+        "pytest and pytest-cov are installed",
+        "A new flag handler has an uncovered branch (simulated by removing a test)"
+      ],
+      "input": "Run: pytest --cov=af.plan --cov-fail-under=90 packages/af/tests/ (with reduced test set)",
+      "expected": "pytest exits with non-zero code; coverage report identifies uncovered lines in the flag handler module",
+      "assertion_pseudocode": "import subprocess\n# Run with a deliberately incomplete test set\nresult = subprocess.run(\n    ['pytest', '--cov=af.plan', '--cov-fail-under=90', '--cov-report=term-missing', 'packages/af/tests/test_plan_clear.py'],\n    capture_output=True\n)\n# If coverage is below 90%, exit code should be non-zero\nif result.returncode != 0:\n    assert 'FAIL Required test coverage' in result.stdout.decode() or 'coverage' in result.stdout.decode().lower()"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-01-SMOKE-1",
+      "execution_path_id": "01-PATH-1",
+      "description": "End-to-end smoke test: af plan --clear marks all nodes completed in a real DuckDB knowledge store.",
+      "trigger": "Developer invokes `af plan --clear` via CliRunner against a real DuckDB test database with 3 nodes in mixed statuses",
+      "real_components": [
+        "af plan CLI handler",
+        "agentfox.knowledge.db.open_knowledge_store",
+        "agentfox.graph.persistence.load_plan",
+        "agentfox.engine.state.persist_node_status",
+        "DuckDB knowledge store (test instance)"
+      ],
+      "mockable": [
+        "Nightshift daemon PID guard (mocked to inactive)"
+      ],
+      "expected_effects": [
+        "Exit code 0",
+        "stdout contains '3 nodes cleared' or equivalent count",
+        "All rows in plan_nodes table have status='completed'",
+        "Tables runs, session_outcomes, review_findings, drift_findings contain zero rows"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-2",
+      "execution_path_id": "01-PATH-2",
+      "description": "End-to-end smoke test: af plan --reset performs a soft reset of all tasks using the real reset_all function.",
+      "trigger": "Developer invokes `af plan --reset` via CliRunner against a real DuckDB test database; user confirms with 'y'",
+      "real_components": [
+        "af plan CLI handler",
+        "agentfox.knowledge.db.open_knowledge_store",
+        "agentfox.graph.persistence.load_plan",
+        "agentfox.engine.reset.reset_all",
+        "DuckDB knowledge store (test instance)"
+      ],
+      "mockable": [
+        "Nightshift daemon PID guard (mocked to inactive)",
+        "Git worktree filesystem operations (mocked to no-op)"
+      ],
+      "expected_effects": [
+        "Exit code 0",
+        "reset_all called with correct worktrees_dir and repo_path",
+        "stdout contains reset summary with reset_tasks list",
+        "Tasks previously in _RESETTABLE_STATUSES are now 'pending' in plan_nodes"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-3",
+      "execution_path_id": "01-PATH-3",
+      "description": "End-to-end smoke test: af plan --reset-hard --yes performs a full hard reset with code rollback using the real hard_reset_all function.",
+      "trigger": "Developer invokes `af plan --reset-hard --yes` via CliRunner against a real DuckDB test database",
+      "real_components": [
+        "af plan CLI handler",
+        "agentfox.knowledge.db.open_knowledge_store",
+        "agentfox.graph.persistence.load_plan",
+        "agentfox.engine.reset.hard_reset_all",
+        "DuckDB knowledge store (test instance)"
+      ],
+      "mockable": [
+        "Nightshift daemon PID guard (mocked to inactive)",
+        "Git repository operations (mocked to return fake rollback_sha)",
+        "Filesystem worktree cleanup (mocked to no-op)"
+      ],
+      "expected_effects": [
+        "Exit code 0",
+        "hard_reset_all called with worktrees_dir, repo_path, memory_path",
+        "stdout contains hard reset summary including rollback_sha",
+        "No confirmation prompt shown (--yes flag active)"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-4",
+      "execution_path_id": "01-PATH-4",
+      "description": "End-to-end smoke test: af plan --reset TASK_ID resets a single task without confirmation using the real reset_task function.",
+      "trigger": "Developer invokes `af plan --reset spec:1` via CliRunner against a real DuckDB test database containing task 'spec:1'",
+      "real_components": [
+        "af plan CLI handler",
+        "agentfox.knowledge.db.open_knowledge_store",
+        "agentfox.graph.persistence.load_plan",
+        "agentfox.engine.reset.reset_task",
+        "DuckDB knowledge store (test instance)"
+      ],
+      "mockable": [
+        "Nightshift daemon PID guard (mocked to inactive)",
+        "Git worktree filesystem operations (mocked to no-op)"
+      ],
+      "expected_effects": [
+        "Exit code 0",
+        "reset_task called with task_id='spec:1'",
+        "No confirmation prompt shown",
+        "stdout contains reset summary for spec:1 and any cascaded dependents"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-5",
+      "execution_path_id": "01-PATH-5",
+      "description": "End-to-end smoke test: invoking `af reset` after removal returns Click's standard 'No such command' error with non-zero exit code.",
+      "trigger": "Developer invokes `af reset` via CliRunner after reset_cmd has been removed from app.py and packages/af/af/reset.py has been deleted",
+      "real_components": [
+        "Click CLI framework",
+        "af CLI group (app.py)"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Non-zero exit code",
+        "Output contains 'No such command' and 'reset'",
+        "No custom redirect message printed",
+        "agentfox.engine.reset module is not imported or invoked"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-6",
+      "execution_path_id": "01-PATH-6",
+      "description": "End-to-end smoke test: run_plan(reset=True) called programmatically dispatches to reset_all and returns a ResetResult.",
+      "trigger": "External caller invokes run_plan(reset=True) on agentfox.graph.planner with a real DuckDB connection containing a valid plan",
+      "real_components": [
+        "agentfox.graph.planner.run_plan",
+        "agentfox.graph.persistence.load_plan",
+        "agentfox.engine.reset.reset_all",
+        "DuckDB knowledge store (test instance)"
+      ],
+      "mockable": [
+        "Git worktree filesystem operations (mocked to no-op)"
+      ],
+      "expected_effects": [
+        "Returns a ResetResult instance (not None, not an exception)",
+        "reset_all called exactly once",
+        "No sys.exit called",
+        "ResetResult.reset_tasks contains the expected task IDs"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [
+      "01-REQ-1.1",
+      "01-REQ-1.2",
+      "01-REQ-1.3",
+      "01-REQ-1.4",
+      "01-REQ-2.1",
+      "01-REQ-2.2",
+      "01-REQ-2.3",
+      "01-REQ-2.4",
+      "01-REQ-3.1",
+      "01-REQ-3.2",
+      "01-REQ-3.3",
+      "01-REQ-3.4",
+      "01-REQ-4.1",
+      "01-REQ-4.2",
+      "01-REQ-4.3",
+      "01-REQ-5.1",
+      "01-REQ-5.2",
+      "01-REQ-5.3",
+      "01-REQ-6.1",
+      "01-REQ-6.2",
+      "01-REQ-6.3",
+      "01-REQ-7.1",
+      "01-REQ-7.2",
+      "01-REQ-7.3",
+      "01-REQ-7.4",
+      "01-REQ-8.1",
+      "01-REQ-8.2",
+      "01-REQ-9.1",
+      "01-REQ-9.2",
+      "01-REQ-9.3"
+    ],
+    "properties_covered": [
+      "01-PROP-1",
+      "01-PROP-2",
+      "01-PROP-3",
+      "01-PROP-4",
+      "01-PROP-5",
+      "01-PROP-6",
+      "01-PROP-7",
+      "01-PROP-8",
+      "01-PROP-9",
+      "01-PROP-10"
+    ],
+    "paths_covered": [
+      "01-PATH-1",
+      "01-PATH-2",
+      "01-PATH-3",
+      "01-PATH-4",
+      "01-PATH-5",
+      "01-PATH-6"
+    ],
+    "gaps": []
+  }
+}

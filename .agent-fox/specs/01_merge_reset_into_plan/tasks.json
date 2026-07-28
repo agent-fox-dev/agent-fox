@@ -1,0 +1,1116 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "merge_reset_into_plan",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q packages/af/tests/test_plan_reset.py packages/af/tests/test_plan_clear.py packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/af/af/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for --clear flag (FR-1, REQ-1)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write test: --clear sets all nodes to completed and clears session tables",
+          "details": [
+            "Create `packages/af/tests/test_plan_clear.py` following `test_plan_verify.py` patterns",
+            "Use `click.testing.CliRunner` and `unittest.mock` to mock `load_plan`, `open_knowledge_store`, `persist_node_status`",
+            "Assert all plan_nodes rows are updated to `completed` status via `persist_node_status`",
+            "Assert session tables (`runs`, `session_outcomes`, `review_findings`, `drift_findings`) are truncated",
+            "Assert exit code 0 and output reports number of nodes cleared"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write test: --clear with no plan exits code 1",
+          "details": [
+            "Mock `load_plan` to return `None`",
+            "Invoke `af plan --clear` via CliRunner",
+            "Assert exit code 1 and error message `No plan found in database. Run 'agent-fox plan' first.`"
+          ],
+          "test_spec_refs": [
+            "TS-01-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write test: --clear --spec scopes cleared nodes to named spec",
+          "details": [
+            "Mock `load_plan` to return a TaskGraph with nodes from multiple specs",
+            "Invoke `af plan --clear --spec my_spec` via CliRunner",
+            "Assert only nodes belonging to `my_spec` are set to `completed`",
+            "Assert JSON output `{\"cleared\": N, \"spec\": \"my_spec\"}` when `--json` is active"
+          ],
+          "test_spec_refs": [
+            "TS-01-4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write test: --clear JSON output format",
+          "details": [
+            "Invoke `af plan --clear --json` via CliRunner with a mocked plan containing 5 nodes",
+            "Assert stdout is valid JSON matching `{\"cleared\": 5, \"spec\": null}`",
+            "Invoke `af plan --clear --spec foo --json` and assert `{\"cleared\": N, \"spec\": \"foo\"}`"
+          ],
+          "test_spec_refs": [
+            "TS-01-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All tests in `packages/af/tests/test_plan_clear.py` are collected by pytest: `pytest --collect-only packages/af/tests/test_plan_clear.py`",
+          "Tests fail (red) because implementation does not yet exist \u2014 confirms tests are not trivially passing",
+          "No linter warnings in test file: `ruff check packages/af/tests/test_plan_clear.py`",
+          "Requirements 01-REQ-1.1 through 01-REQ-1.4 acceptance criteria are covered by at least one test each"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests for --reset flag (FR-2, REQ-2)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write test: --reset performs soft reset of all tasks with confirmation",
+          "details": [
+            "Create `packages/af/tests/test_plan_reset.py` following `test_plan_verify.py` patterns",
+            "Mock `load_plan`, `open_knowledge_store`, `run_reset` from `agentfox.engine.reset`",
+            "Invoke `af plan --reset` and simulate confirmation prompt input `y`",
+            "Assert `run_reset` called with `soft=True, hard=False, target=None, spec=None`",
+            "Assert exit code 0 and output contains reset summary"
+          ],
+          "test_spec_refs": [
+            "TS-01-5"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write test: --reset with TASK_ID resets single task without confirmation",
+          "details": [
+            "Invoke `af plan --reset TASK_ID` via CliRunner (no confirmation input needed)",
+            "Assert `run_reset` called with `target='TASK_ID', soft=True, hard=False`",
+            "Assert exit code 0",
+            "Assert no confirmation prompt is shown"
+          ],
+          "test_spec_refs": [
+            "TS-01-6"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write test: --reset --spec resets tasks for named spec with confirmation",
+          "details": [
+            "Invoke `af plan --reset --spec my_spec` with confirmation input `y`",
+            "Assert `run_reset` called with `spec='my_spec', soft=True, hard=False`",
+            "Assert exit code 0",
+            "Write negative test: declining confirmation exits with code 1 or 0 with no-op"
+          ],
+          "test_spec_refs": [
+            "TS-01-7"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write test: --reset with no plan exits code 1; --reset JSON output",
+          "details": [
+            "Mock `load_plan` to return `None`; assert exit code 1 and correct error message",
+            "Mock `run_reset` to return a `ResetResult` with sample data",
+            "Invoke `af plan --reset --yes --json` and assert JSON output matches `{\"reset_tasks\": [...], \"unblocked_tasks\": [], \"cleaned_worktrees\": [], \"cleaned_branches\": []}`"
+          ],
+          "test_spec_refs": [
+            "TS-01-8"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All tests in `packages/af/tests/test_plan_reset.py` are collected: `pytest --collect-only packages/af/tests/test_plan_reset.py`",
+          "Tests fail (red) because implementation does not yet exist",
+          "No linter warnings: `ruff check packages/af/tests/test_plan_reset.py`",
+          "Requirements 01-REQ-2.1 through 01-REQ-2.4 acceptance criteria are each covered by at least one test"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests for --reset-hard flag (FR-3, REQ-3)",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write test: --reset-hard performs full hard reset with confirmation",
+          "details": [
+            "Add hard-reset tests to `packages/af/tests/test_plan_reset.py`",
+            "Mock `run_reset` to return a `HardResetResult` with sample data",
+            "Invoke `af plan --reset-hard` with confirmation input `y`",
+            "Assert `run_reset` called with `hard=True, soft=False, target=None`",
+            "Assert exit code 0"
+          ],
+          "test_spec_refs": [
+            "TS-01-9"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write test: --reset-hard TASK_ID performs partial hard reset with confirmation",
+          "details": [
+            "Invoke `af plan --reset-hard TASK_ID --yes` via CliRunner",
+            "Assert `run_reset` called with `hard=True, target='TASK_ID'`",
+            "Assert exit code 0",
+            "Assert confirmation is always required (even with TASK_ID) \u2014 test that omitting `--yes` triggers prompt"
+          ],
+          "test_spec_refs": [
+            "TS-01-10"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write test: --reset-hard with no plan exits code 1",
+          "details": [
+            "Mock `load_plan` to return `None`",
+            "Invoke `af plan --reset-hard --yes` via CliRunner",
+            "Assert exit code 1 and error message `No plan found in database. Run 'agent-fox plan' first.`"
+          ],
+          "test_spec_refs": [
+            "TS-01-11"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write test: --reset-hard JSON output format",
+          "details": [
+            "Mock `run_reset` to return `HardResetResult(reset_tasks=['spec:0'], cleaned_worktrees=[], cleaned_branches=[], compaction=(0,0), rollback_sha='abc123')`",
+            "Invoke `af plan --reset-hard --yes --json` and assert JSON matches expected structure with `rollback_sha` field",
+            "Assert `--reset-hard --spec` exits with code 1 (mutually exclusive)"
+          ],
+          "test_spec_refs": [
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All hard-reset tests are collected: `pytest --collect-only packages/af/tests/test_plan_reset.py -k hard`",
+          "Tests fail (red) because implementation does not yet exist",
+          "No linter warnings: `ruff check packages/af/tests/test_plan_reset.py`",
+          "Requirements 01-REQ-3.1 through 01-REQ-3.4 acceptance criteria are each covered by at least one test"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests for flag removal, --yes, mutual exclusivity, and run_plan() API (FR-4 to FR-7, REQ-4 to REQ-7)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write test: af reset command is removed from CLI",
+          "details": [
+            "Create `packages/af/tests/test_plan_flags.py`",
+            "Invoke `af reset` via CliRunner and assert exit code 2 with Click 'No such command' error",
+            "Assert `reset_cmd` is not registered in the Click group returned by `app.py`",
+            "Assert `packages/af/af/reset.py` does not exist (use `os.path.exists` or `importlib`)"
+          ],
+          "test_spec_refs": [
+            "TS-01-13",
+            "TS-01-14",
+            "TS-01-15"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write test: --yes skips confirmation for --reset and --reset-hard",
+          "details": [
+            "Invoke `af plan --reset --yes` without providing stdin input; assert exit code 0 (no prompt shown)",
+            "Invoke `af plan --reset-hard --yes` without providing stdin input; assert exit code 0",
+            "Invoke `af plan --clear --yes` and assert `--yes` is silently ignored (exit code 0, no error)"
+          ],
+          "test_spec_refs": [
+            "TS-01-16",
+            "TS-01-17",
+            "TS-01-18"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write test: mutual exclusivity of mode flags",
+          "details": [
+            "Invoke `af plan --clear --reset` and assert exit code 1 with error listing conflicting flags",
+            "Invoke `af plan --dry-run --verify` and assert exit code 1",
+            "Invoke `af plan --reset --reset-hard` and assert exit code 1",
+            "Invoke `af plan --reset-hard --spec foo` and assert exit code 1 (mutually exclusive)"
+          ],
+          "test_spec_refs": [
+            "TS-01-19",
+            "TS-01-20",
+            "TS-01-21"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write tests for run_plan() API new parameters",
+          "details": [
+            "Create `packages/af/tests/test_run_plan_api.py`",
+            "Call `run_plan(clear=True)` with mocked dependencies; assert `persist_node_status` is called for all nodes",
+            "Call `run_plan(reset=True, target='task:1')` and assert `run_reset` is dispatched with correct args",
+            "Call `run_plan(reset_hard=True)` and assert `hard_reset_all` is dispatched",
+            "Call `run_plan(reset_hard=True, target='task:1')` and assert `hard_reset_task` is dispatched"
+          ],
+          "test_spec_refs": [
+            "TS-01-22",
+            "TS-01-23",
+            "TS-01-24",
+            "TS-01-25"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-7.3",
+            "01-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "All tests in `packages/af/tests/test_plan_flags.py` and `test_run_plan_api.py` are collected: `pytest --collect-only packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py`",
+          "Tests fail (red) because implementation does not yet exist",
+          "No linter warnings: `ruff check packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py`",
+          "Requirements 01-REQ-4.1 through 01-REQ-7.4 acceptance criteria are each covered by at least one test"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement --clear flag handler in af plan",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Add --clear Click option to af plan command in plan.py",
+          "details": [
+            "In `packages/af/af/plan.py`, add `@click.option('--clear', is_flag=True, default=False, help='Mark all nodes completed.')`",
+            "Add `--spec` composition: when `--clear` and `--spec` are both provided, scope to named spec",
+            "Add mutual exclusivity guard: if `--clear` is combined with `--dry-run`, `--verify`, `--reset`, or `--reset-hard`, print error and `sys.exit(1)`",
+            "Ensure `--clear` does NOT require confirmation (no prompt)"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-19"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Implement _handle_clear() function in plan.py",
+          "details": [
+            "Call `open_knowledge_store(config, read_only=False)` to get `db_conn`",
+            "Call `load_plan(db_conn)`; if `None`, print error message and `sys.exit(1)`",
+            "Iterate over all nodes (or spec-scoped nodes) and call `persist_node_status(conn, node_id, 'completed')` for each",
+            "Truncate session tables by executing `DELETE FROM {table}` for each table in `_SESSION_TABLES_ALL`",
+            "Return count of cleared nodes; print `Cleared {n} nodes.` to stdout"
+          ],
+          "test_spec_refs": [
+            "TS-01-2",
+            "TS-01-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2",
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Implement JSON output for --clear in plan.py",
+          "details": [
+            "When `--json` flag is active, emit `json.dumps({\"cleared\": n, \"spec\": spec_name_or_none})` to stdout instead of human-readable text",
+            "Ensure `--spec` value is passed through to JSON output as the `\"spec\"` field",
+            "Ensure non-JSON output reports `Cleared {n} nodes.` with optional spec context"
+          ],
+          "test_spec_refs": [
+            "TS-01-4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Extend run_plan() in agentfox.graph.planner with clear parameter",
+          "details": [
+            "Add `clear: bool = False` parameter to `run_plan()` signature in `agentfox/graph/planner.py`",
+            "When `clear=True`, dispatch to the clear logic (call `persist_node_status` for all nodes, truncate session tables)",
+            "Return a result dict or named structure with `cleared` count for programmatic callers",
+            "Ensure existing callers of `run_plan()` are unaffected (default `clear=False`)"
+          ],
+          "test_spec_refs": [
+            "TS-01-22"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Spec tests for --clear pass: `pytest -q packages/af/tests/test_plan_clear.py`",
+          "No linter warnings: `ruff check packages/af/af/plan.py agentfox/graph/planner.py`",
+          "Requirements 01-REQ-1.1 through 01-REQ-1.4 acceptance criteria met",
+          "01-REQ-7.1 acceptance criterion met: `run_plan(clear=True)` dispatches correctly"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement --reset and --reset-hard flag handlers in af plan",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Add --reset Click option and optional TASK_ID argument to af plan",
+          "details": [
+            "Add `@click.option('--reset', is_flag=True, default=False)` to `af plan` in `plan.py`",
+            "Add optional `@click.argument('task_id', required=False, default=None)` that is only meaningful when `--reset` or `--reset-hard` is active",
+            "Add mutual exclusivity guard for `--reset` vs other mode flags",
+            "Add `--spec` composition: `--reset --spec NAME` calls `run_reset` with `spec=NAME`",
+            "Implement confirmation prompt: skip if `--yes` or if `task_id` is provided"
+          ],
+          "test_spec_refs": [
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Implement _handle_reset() function dispatching to agentfox.engine.reset",
+          "details": [
+            "Call `load_plan(db_conn)`; if `None`, print error and `sys.exit(1)`",
+            "Dispatch to `run_reset(target=task_id, soft=True, hard=False, spec=spec_name, ...)` from `agentfox.engine.reset`",
+            "On success, print human-readable summary or emit JSON matching `{\"reset_tasks\": [...], \"unblocked_tasks\": [...], \"cleaned_worktrees\": [...], \"cleaned_branches\": [...]}`",
+            "Respect daemon PID guard before executing (same as existing plan command behavior)"
+          ],
+          "test_spec_refs": [
+            "TS-01-8",
+            "TS-01-23"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.4",
+            "01-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Add --reset-hard Click option to af plan and implement _handle_reset_hard()",
+          "details": [
+            "Add `@click.option('--reset-hard', is_flag=True, default=False)` to `af plan`",
+            "Add mutual exclusivity guard: `--reset-hard --spec` exits code 1",
+            "Always require confirmation for `--reset-hard` (even with TASK_ID); skip with `--yes`",
+            "Dispatch to `run_reset(target=task_id, hard=True, soft=False, ...)` from `agentfox.engine.reset`",
+            "Emit JSON with `rollback_sha` field when `--json` is active"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Extend run_plan() with reset, reset_hard, and target parameters",
+          "details": [
+            "Add `reset: bool = False`, `reset_hard: bool = False`, `target: str | None = None` to `run_plan()` signature",
+            "When `reset=True`, dispatch to `run_reset(target=target, soft=True, hard=False, ...)`",
+            "When `reset_hard=True`, dispatch to `run_reset(target=target, hard=True, soft=False, ...)`",
+            "Ensure existing callers of `run_plan()` are unaffected (all new params default to False/None)"
+          ],
+          "test_spec_refs": [
+            "TS-01-23",
+            "TS-01-24",
+            "TS-01-25"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.2",
+            "01-REQ-7.3",
+            "01-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Spec tests for --reset and --reset-hard pass: `pytest -q packages/af/tests/test_plan_reset.py`",
+          "No linter warnings: `ruff check packages/af/af/plan.py agentfox/graph/planner.py`",
+          "Requirements 01-REQ-2.1 through 01-REQ-3.4 and 01-REQ-7.2 through 01-REQ-7.4 acceptance criteria met",
+          "Daemon PID guard is invoked before reset operations (verified by mock assertion in tests)"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Remove af reset command and add --yes flag (FR-4, FR-5, FR-6)",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Remove reset_cmd registration from app.py",
+          "details": [
+            "In `packages/af/af/app.py`, remove the `from af.reset import reset_cmd` import",
+            "Remove the `cli.add_command(reset_cmd)` (or equivalent) registration line",
+            "Verify no other references to `reset_cmd` remain in `app.py`"
+          ],
+          "test_spec_refs": [
+            "TS-01-13"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Delete packages/af/af/reset.py CLI module",
+          "details": [
+            "Delete the file `packages/af/af/reset.py`",
+            "Remove any `__init__.py` exports referencing `reset_cmd` or `reset.py`",
+            "Confirm `agentfox/engine/reset.py` (library code) is NOT deleted \u2014 only the CLI module is removed"
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-15"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Add --yes / -y flag to af plan and implement mutual exclusivity checks",
+          "details": [
+            "Add `@click.option('--yes', '-y', is_flag=True, default=False, help='Skip confirmation prompts.')` to `af plan`",
+            "Implement mutual exclusivity guard function that checks all mode flags and exits code 1 with descriptive error if more than one is set",
+            "Ensure `--yes` is silently ignored when used without `--reset` or `--reset-hard`",
+            "Ensure `--fast` is silently ignored by `--clear`, `--reset`, and `--reset-hard` modes"
+          ],
+          "test_spec_refs": [
+            "TS-01-16",
+            "TS-01-17",
+            "TS-01-18",
+            "TS-01-19",
+            "TS-01-20",
+            "TS-01-21"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-5.3",
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Flag removal and --yes tests pass: `pytest -q packages/af/tests/test_plan_flags.py`",
+          "No linter warnings: `ruff check packages/af/af/app.py packages/af/af/plan.py`",
+          "`packages/af/af/reset.py` does not exist: `python -c \"import af.reset\" 2>&1 | grep ModuleNotFoundError`",
+          "Requirements 01-REQ-4.1 through 01-REQ-6.3 acceptance criteria met",
+          "`af reset` invoked via CliRunner returns exit code 2 with 'No such command' error"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Update CLI and README documentation (FR-8, REQ-8)",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Update docs/cli-reference.md to reflect new af plan flags",
+          "details": [
+            "Add `--clear`, `--reset`, `--reset-hard`, `--yes` to the `af plan` command section with descriptions and examples",
+            "Remove the `af reset` command section entirely",
+            "Update the quick reference table to remove `af reset` row and add new `af plan` flag rows",
+            "Document that `--reset-hard --spec` is not supported"
+          ],
+          "test_spec_refs": [
+            "TS-01-26"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Update README.md quick start section",
+          "details": [
+            "Search README.md for any references to `af reset` and replace with `af plan --reset` equivalents",
+            "Add a note in the breaking changes or migration section documenting the removal of `af reset`",
+            "Verify no other documentation files reference `af reset` as a standalone command"
+          ],
+          "test_spec_refs": [
+            "TS-01-27"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Verify no stale references to af reset in docs/",
+          "details": [
+            "Run `grep -r 'af reset' docs/` and `grep -r 'agent-fox reset' docs/` to find any remaining references",
+            "Replace or remove all stale references to the removed command",
+            "Check docs/architecture/ and docs/skills.md for any mention of `af reset`"
+          ],
+          "test_spec_refs": [
+            "TS-01-27"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Documentation tests pass: `pytest -q packages/af/tests/test_plan_flags.py -k doc` (if doc tests exist)",
+          "`grep -r 'af reset' docs/ README.md` returns no standalone command references (only historical/migration notes)",
+          "`docs/cli-reference.md` contains sections for `--clear`, `--reset`, `--reset-hard`, `--yes`",
+          "Requirements 01-REQ-8.1 and 01-REQ-8.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "checkpoint",
+      "title": "Coverage gate: \u226590% line coverage on new flag handlers (REQ-9)",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Run pytest --cov on new flag handler modules and verify \u226590% line coverage",
+          "details": [
+            "Run `pytest --cov=af.plan --cov=agentfox.graph.planner --cov-report=term-missing packages/af/tests/test_plan_clear.py packages/af/tests/test_plan_reset.py packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py`",
+            "Confirm line coverage for `--clear`, `--reset`, `--reset-hard`, and `--yes` handler code paths is \u226590%",
+            "Identify any uncovered lines and add targeted tests if coverage is below threshold"
+          ],
+          "test_spec_refs": [
+            "TS-01-28"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Verify existing test suite passes without modification (behavioral parity)",
+          "details": [
+            "Run the full existing test suite: `pytest -q packages/af/tests/`",
+            "Confirm all pre-existing tests pass (no regressions introduced by the new flags or run_plan() API changes)",
+            "Specifically verify that any existing reset-related tests still pass against the new `af plan --reset` interface"
+          ],
+          "test_spec_refs": [
+            "TS-01-29"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Verify run_plan() API coverage and no regressions in planner module",
+          "details": [
+            "Run `pytest --cov=agentfox.graph.planner --cov-report=term-missing packages/af/tests/test_run_plan_api.py`",
+            "Confirm new parameters (`clear`, `reset`, `reset_hard`, `target`) are exercised by tests",
+            "Confirm existing `run_plan()` call paths (normal build, verify, dry-run) are not broken"
+          ],
+          "test_spec_refs": [
+            "TS-01-30"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Coverage report shows \u226590% line coverage on new handler code: `pytest --cov=af.plan --cov-report=term-missing -q`",
+          "All existing tests pass: `pytest -q packages/af/tests/`",
+          "No linter warnings across the entire af package: `ruff check packages/af/af/`",
+          "Requirements 01-REQ-9.1 through 01-REQ-9.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and integration audit",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Trace execution paths: verify af plan entry point calls new handlers",
+          "details": [
+            "Confirm `app.py` registers the updated `af plan` command with `--clear`, `--reset`, `--reset-hard`, `--yes` options",
+            "Trace `af plan --clear` \u2192 `_handle_clear()` \u2192 `load_plan()` \u2192 `persist_node_status()` chain \u2014 no stubs remain",
+            "Trace `af plan --reset` \u2192 `_handle_reset()` \u2192 `run_reset()` chain \u2014 no stubs remain",
+            "Trace `af plan --reset-hard` \u2192 `_handle_reset_hard()` \u2192 `run_reset(hard=True)` chain \u2014 no stubs remain",
+            "Confirm `run_plan()` in `agentfox.graph.planner` dispatches correctly for all new parameters"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-5",
+            "TS-01-9"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-2.1",
+            "01-REQ-3.1",
+            "01-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Verify return value propagation from engine.reset to CLI output",
+          "details": [
+            "Confirm `ResetResult` fields (`reset_tasks`, `unblocked_tasks`, `cleaned_worktrees`, `cleaned_branches`) are consumed and rendered by `_handle_reset()`",
+            "Confirm `HardResetResult` fields (`reset_tasks`, `cleaned_worktrees`, `cleaned_branches`, `compaction`, `rollback_sha`) are consumed and rendered by `_handle_reset_hard()`",
+            "Confirm `--clear` cleared-node count is propagated from `_handle_clear()` to CLI output and JSON"
+          ],
+          "test_spec_refs": [
+            "TS-01-8",
+            "TS-01-12",
+            "TS-01-4"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.4",
+            "01-REQ-3.4",
+            "01-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Stub and dead-code audit across modified modules",
+          "details": [
+            "Search for `raise NotImplementedError`, bare `pass` in non-abstract methods, and `return None` in non-trivial paths across `packages/af/af/plan.py` and `agentfox/graph/planner.py`",
+            "Confirm no placeholder stubs remain in `_handle_clear()`, `_handle_reset()`, `_handle_reset_hard()`",
+            "Confirm `run_plan()` new parameters are fully implemented (not just declared with `pass`)",
+            "Confirm `packages/af/af/reset.py` is deleted and no import of it remains anywhere in the codebase"
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-22",
+            "TS-01-23"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.2",
+            "01-REQ-7.1",
+            "01-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.4",
+          "title": "Run all spec smoke tests and full test suite",
+          "details": [
+            "Run full spec test suite: `pytest -q packages/af/tests/test_plan_clear.py packages/af/tests/test_plan_reset.py packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py -v`",
+            "Run full existing test suite to confirm no regressions: `pytest -q packages/af/tests/`",
+            "Confirm coverage gate: `pytest --cov=af.plan --cov=agentfox.graph.planner --cov-report=term-missing -q` shows \u226590% on new handlers"
+          ],
+          "test_spec_refs": [
+            "TS-01-28",
+            "TS-01-29",
+            "TS-01-30",
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-SMOKE-4",
+            "TS-01-SMOKE-5",
+            "TS-01-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.1",
+            "01-REQ-9.2",
+            "01-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.5",
+          "title": "Cross-spec entry point and call-site verification",
+          "details": [
+            "Confirm `open_knowledge_store` from `agentfox.knowledge.db` is called from production code in `_handle_clear()` and reset handlers (not just in tests)",
+            "Confirm `load_plan` from `agentfox.graph.persistence` is called from production code in all three new handlers",
+            "Confirm `persist_node_status` from `agentfox.engine.state` is called from production code in `_handle_clear()`",
+            "Confirm `run_reset` from `agentfox.engine.reset` is called from production code in `_handle_reset()` and `_handle_reset_hard()`",
+            "Confirm daemon PID guard is invoked in production code path (not mocked away in production)"
+          ],
+          "test_spec_refs": [
+            "TS-01-2",
+            "TS-01-5",
+            "TS-01-9"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2",
+            "01-REQ-2.1",
+            "01-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "All spec tests pass: `pytest -q packages/af/tests/test_plan_clear.py packages/af/tests/test_plan_reset.py packages/af/tests/test_plan_flags.py packages/af/tests/test_run_plan_api.py`",
+          "Full test suite passes with no regressions: `pytest -q packages/af/tests/`",
+          "No linter warnings: `ruff check packages/af/af/ agentfox/graph/planner.py`",
+          "No stub markers found: `grep -rn 'raise NotImplementedError\\|# TODO\\|pass$' packages/af/af/plan.py agentfox/graph/planner.py` returns no hits in new handler functions",
+          "`packages/af/af/reset.py` does not exist and `af reset` returns Click 'No such command' error",
+          "Coverage \u226590% on new handlers confirmed by `pytest --cov=af.plan --cov-report=term-missing`",
+          "All requirements 01-REQ-1 through 01-REQ-9 acceptance criteria verified"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "01-REQ-1.1",
+      "test_spec_id": "TS-01-1",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.2",
+      "test_spec_id": "TS-01-2",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.3",
+      "test_spec_id": "TS-01-3",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.4",
+      "test_spec_id": "TS-01-4",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.1",
+      "test_spec_id": "TS-01-5",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.2",
+      "test_spec_id": "TS-01-6",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.3",
+      "test_spec_id": "TS-01-7",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.4",
+      "test_spec_id": "TS-01-8",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.1",
+      "test_spec_id": "TS-01-9",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.2",
+      "test_spec_id": "TS-01-10",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.3",
+      "test_spec_id": "TS-01-11",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.4",
+      "test_spec_id": "TS-01-12",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.1",
+      "test_spec_id": "TS-01-13",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.2",
+      "test_spec_id": "TS-01-14",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.3",
+      "test_spec_id": "TS-01-15",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.1",
+      "test_spec_id": "TS-01-16",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.2",
+      "test_spec_id": "TS-01-17",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.3",
+      "test_spec_id": "TS-01-18",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.1",
+      "test_spec_id": "TS-01-19",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.2",
+      "test_spec_id": "TS-01-20",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.3",
+      "test_spec_id": "TS-01-21",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.1",
+      "test_spec_id": "TS-01-22",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.2",
+      "test_spec_id": "TS-01-23",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.3",
+      "test_spec_id": "TS-01-24",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.4",
+      "test_spec_id": "TS-01-25",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.1",
+      "test_spec_id": "TS-01-26",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.2",
+      "test_spec_id": "TS-01-27",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.1",
+      "test_spec_id": "TS-01-28",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.2",
+      "test_spec_id": "TS-01-29",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.3",
+      "test_spec_id": "TS-01-30",
+      "task_id": "9.3",
+      "test_path": null
+    }
+  ]
+}
