@@ -2,20 +2,30 @@
 
 Thin CLI wrapper that delegates to ``graph.planner.build_plan()``
 for the planning pipeline, then handles persistence and display.
+Also provides ``--clear``, ``--reset``, and ``--reset-hard`` flags
+that subsume the old ``af reset`` command.
 
 Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.4, 02-REQ-7.5,
-              04-REQ-2.1
+              04-REQ-2.1, 01-REQ-1, 01-REQ-2, 01-REQ-3, 01-REQ-5, 01-REQ-6
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import click
 from agentfox.core.config import load_config
 from agentfox.core.errors import PlanError
+from agentfox.engine.reset import (
+    _SESSION_TABLES_ALL,
+    HardResetResult,
+    ResetResult,
+    run_reset,
+)
+from agentfox.engine.state import persist_node_status
 from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.planner import build_plan, format_plan_summary
 from agentfox.io import emit_error, exit_codes
@@ -23,6 +33,150 @@ from agentfox.knowledge.db import open_knowledge_store
 from agentfox.spec.discovery import discover_specs
 
 from af import get_output_manager
+
+
+def _handle_clear(
+    config: object,
+    filter_spec: str | None,
+    json_mode: bool,
+    om: object,
+) -> None:
+    """Handle --clear: set nodes to completed and truncate session tables.
+
+    Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-1.4
+    """
+    db = open_knowledge_store(config.knowledge, read_only=False)
+    try:
+        graph = load_plan(db.connection)
+        if graph is None:
+            click.echo(
+                "Error: No plan found in database. Run 'agent-fox plan' first.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Determine which nodes to clear
+        if filter_spec is not None:
+            target_nodes = {
+                nid: node
+                for nid, node in graph.nodes.items()
+                if node.spec_name == filter_spec
+            }
+        else:
+            target_nodes = graph.nodes
+
+        # Set each target node to completed
+        for nid in target_nodes:
+            persist_node_status(db.connection, nid, "completed")
+
+        # Truncate session-scoped tables
+        for table in _SESSION_TABLES_ALL:
+            db.connection.execute(f"DELETE FROM {table}")  # noqa: S608
+
+        count = len(target_nodes)
+
+        if json_mode:
+            om.emit({"cleared": count, "spec": filter_spec})
+        else:
+            click.echo(f"Cleared {count} nodes.")
+    finally:
+        db.close()
+
+
+def _handle_reset(
+    config: object,
+    filter_spec: str | None,
+    task_id: str | None,
+    yes: bool,
+    json_mode: bool,
+    om: object,
+) -> None:
+    """Handle --reset: soft-reset failed/blocked/in-progress tasks.
+
+    Requirements: 01-REQ-2.1, 01-REQ-2.2, 01-REQ-2.3, 01-REQ-2.4
+    """
+    db = open_knowledge_store(config.knowledge, read_only=False)
+    try:
+        graph = load_plan(db.connection)
+        if graph is None:
+            click.echo(
+                "Error: No plan found in database. Run 'agent-fox plan' first.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Single-task reset skips confirmation
+        # --yes flag skips confirmation
+        needs_confirm = task_id is None and not yes
+
+        if needs_confirm:
+            label = f"spec '{filter_spec}'" if filter_spec else "all tasks"
+            if not click.confirm(f"Reset {label}? Proceed with reset?"):
+                click.echo("Reset cancelled.")
+                return
+
+        result = run_reset(
+            target=task_id,
+            config=config,
+            soft=True,
+            hard=False,
+            spec=filter_spec,
+            db_conn=db.connection,
+        )
+
+        if json_mode:
+            om.emit(asdict(result))
+        else:
+            _display_reset_result(result)
+    finally:
+        db.close()
+
+
+def _handle_reset_hard(
+    config: object,
+    task_id: str | None,
+    yes: bool,
+    json_mode: bool,
+    om: object,
+) -> None:
+    """Handle --reset-hard: hard-reset with code rollback.
+
+    Requirements: 01-REQ-3.1, 01-REQ-3.2, 01-REQ-3.3, 01-REQ-3.4
+    """
+    db = open_knowledge_store(config.knowledge, read_only=False)
+    try:
+        graph = load_plan(db.connection)
+        if graph is None:
+            click.echo(
+                "Error: No plan found in database. Run 'agent-fox plan' first.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # --reset-hard always requires confirmation unless --yes
+        if not yes:
+            if task_id:
+                msg = f"Hard reset task {task_id} (rolls back code, resets affected tasks)?"
+            else:
+                msg = "Hard reset ALL tasks (rolls back code, wipes all state)?"
+            if not click.confirm(msg):
+                click.echo("Hard reset cancelled.")
+                return
+
+        result = run_reset(
+            target=task_id,
+            config=config,
+            soft=False,
+            hard=True,
+            db_conn=db.connection,
+        )
+
+        if json_mode:
+            om.emit(asdict(result))
+        else:
+            _display_hard_reset_result(result)
+    finally:
+        db.close()
 
 
 def _verify_plan(
@@ -153,6 +307,83 @@ def _metadata_to_dict(meta: object) -> dict:
     }
 
 
+def _check_mode_exclusivity(
+    dry_run: bool,
+    verify: bool,
+    clear: bool,
+    reset: bool,
+    reset_hard: bool,
+) -> list[str]:
+    """Return list of active mutually-exclusive mode flags.
+
+    If two or more flags are active the caller must abort before
+    opening the KnowledgeStore.
+
+    Requirements: 01-REQ-6.1, 01-PROP-6
+    """
+    active: list[str] = []
+    if dry_run:
+        active.append("--dry-run")
+    if verify:
+        active.append("--verify")
+    if clear:
+        active.append("--clear")
+    if reset:
+        active.append("--reset")
+    if reset_hard:
+        active.append("--reset-hard")
+    return active
+
+
+def _display_reset_result(result: ResetResult) -> None:
+    """Display a human-readable summary of a soft-reset result."""
+    if not result.reset_tasks:
+        if result.skipped_completed:
+            click.echo("Warning: Completed tasks cannot be reset.", err=True)
+        else:
+            click.echo("Nothing to reset. All tasks are in a valid state.")
+        return
+
+    click.echo(f"Reset {len(result.reset_tasks)} task(s) to pending:")
+    for task_id in result.reset_tasks:
+        click.echo(f"  - {task_id}")
+
+    if result.unblocked_tasks:
+        click.echo(f"\nUnblocked {len(result.unblocked_tasks)} downstream task(s):")
+        for task_id in result.unblocked_tasks:
+            click.echo(f"  - {task_id}")
+
+    if result.cleaned_worktrees:
+        click.echo(f"\nCleaned up {len(result.cleaned_worktrees)} worktree(s).")
+
+    if result.cleaned_branches:
+        click.echo(f"Deleted {len(result.cleaned_branches)} branch(es).")
+
+
+def _display_hard_reset_result(result: HardResetResult) -> None:
+    """Display a human-readable summary of a hard-reset result."""
+    count = len(result.reset_tasks)
+    click.echo(f"Hard reset complete: {count} task(s) reset to pending.")
+
+    if result.reset_tasks:
+        for task_id in result.reset_tasks:
+            click.echo(f"  - {task_id}")
+
+    if result.cleaned_worktrees:
+        click.echo(f"\nCleaned up {len(result.cleaned_worktrees)} worktree(s).")
+
+    if result.cleaned_branches:
+        click.echo(f"Deleted {len(result.cleaned_branches)} branch(es).")
+
+    orig, surviving = result.compaction
+    click.echo(f"\nKnowledge compaction: {orig} -> {surviving} facts.")
+
+    if result.rollback_sha:
+        click.echo(f"Code rolled back to {result.rollback_sha}.")
+    else:
+        click.echo("Code rollback skipped (no tracked commits).")
+
+
 @exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("plan")
 @click.option("--dry-run", is_flag=True, help="Show plan analysis without persisting to database")
@@ -170,6 +401,32 @@ def _metadata_to_dict(meta: object) -> dict:
     default=False,
     help="Cross-check spec files against database plan states",
 )
+@click.option(
+    "--clear",
+    is_flag=True,
+    default=False,
+    help="Mark all nodes completed (non-destructive)",
+)
+@click.option(
+    "--reset",
+    is_flag=True,
+    default=False,
+    help="Soft-reset failed/blocked/in-progress tasks to pending",
+)
+@click.option(
+    "--reset-hard",
+    is_flag=True,
+    default=False,
+    help="Hard-reset all tasks including code rollback",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompts for reset operations",
+)
+@click.argument("task_id", required=False, default=None)
 @click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
 def plan_cmd(
@@ -179,15 +436,41 @@ def plan_cmd(
     filter_spec: str | None,
     specs_dir: str | None,
     verify: bool,
+    clear: bool,
+    reset: bool,
+    reset_hard: bool,
+    yes: bool,
+    task_id: str | None,
     json: bool | None,
 ) -> None:
-    """Build an execution plan from specifications."""
+    """Build an execution plan from specifications.
+
+    When invoked with --clear, --reset, or --reset-hard the command
+    operates on existing plan state instead of building a new plan.
+    """
     om = get_output_manager(ctx)
     if json is not None:
         om.json_mode = json
     elif os.environ.get("AF_AGENT") == "1":
         om.json_mode = True
     json_mode = om.json_mode
+
+    # 01-REQ-6.1: Mutual exclusivity — check BEFORE opening DB
+    active_modes = _check_mode_exclusivity(dry_run, verify, clear, reset, reset_hard)
+    if len(active_modes) > 1:
+        click.echo(
+            f"Error: mutually exclusive flags provided: {', '.join(active_modes)}",
+            err=True,
+        )
+        sys.exit(1)
+
+    # 01-REQ-6.2: --reset-hard and --spec are mutually exclusive
+    if reset_hard and filter_spec is not None:
+        click.echo(
+            "Error: --reset-hard and --spec cannot be combined.",
+            err=True,
+        )
+        sys.exit(1)
 
     # 85-REQ-3.2: Refuse to run when daemon is active.
     from agentfox.nightshift.pid import PidStatus, check_pid_file
@@ -212,6 +495,21 @@ def plan_cmd(
     from agentfox.core.config import resolve_spec_root
 
     specs_path: Path = Path(specs_dir) if specs_dir else resolve_spec_root(config, project_root)
+
+    # --- Handle --clear mode (01-REQ-1) ---
+    if clear:
+        _handle_clear(config, filter_spec, json_mode, om)
+        return
+
+    # --- Handle --reset mode (01-REQ-2) ---
+    if reset:
+        _handle_reset(config, filter_spec, task_id, yes, json_mode, om)
+        return
+
+    # --- Handle --reset-hard mode (01-REQ-3) ---
+    if reset_hard:
+        _handle_reset_hard(config, task_id, yes, json_mode, om)
+        return
 
     if verify:
         try:

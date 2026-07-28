@@ -21,7 +21,6 @@ _SUBCOMMANDS = [
     "plan",
     "standup",
     "init",
-    "reset",
     "insights",
 ]
 

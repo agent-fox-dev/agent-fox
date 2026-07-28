@@ -14,15 +14,26 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentfox import __version__
+from agentfox.engine.reset import (
+    hard_reset_all,
+    hard_reset_task,
+    reset_all,
+    reset_spec,
+    reset_task,
+)
+from agentfox.engine.state import persist_node_status
 from agentfox.graph.builder import build_graph
+from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.resolver import apply_fast_mode, resolve_order
 from agentfox.graph.types import NodeStatus, PlanMetadata, TaskGraph
+from agentfox.knowledge.db import open_knowledge_store
 from agentfox.spec.discovery import SpecInfo, discover_specs
 from agentfox.spec.parser import parse_cross_deps, parse_tasks
 from agentfox.spec.types import CrossSpecDep
 
 if TYPE_CHECKING:
     from agentfox.core.config import AgentFoxConfig
+    from agentfox.engine.reset import HardResetResult, ResetResult
     from agentfox.graph.analyzer import GroupedEdges, Phase
 
 logger = logging.getLogger(__name__)
@@ -251,8 +262,12 @@ def run_plan(
     fast: bool = False,
     filter_spec: str | None = None,
     dry_run: bool = False,
-) -> TaskGraph:
-    """Build or rebuild the task graph.
+    clear: bool = False,
+    reset: bool = False,
+    reset_hard: bool = False,
+    target: str | None = None,
+) -> TaskGraph | int | ResetResult | HardResetResult:
+    """Build or rebuild the task graph, or perform plan-state operations.
 
     This function can be called without the Click framework.
 
@@ -264,12 +279,117 @@ def run_plan(
         filter_spec: Plan a single spec only.
         dry_run: If True, skip persistence to DuckDB and return
             the TaskGraph without database side effects.
+        clear: If True, mark all plan nodes as completed and return
+            the count of cleared nodes.
+        reset: If True, soft-reset failed/blocked/in-progress tasks.
+        reset_hard: If True, hard-reset all tasks with code rollback.
+        target: Optional task ID for single-task reset operations.
 
     Returns:
-        A fully resolved TaskGraph.
+        A TaskGraph (default), int (clear count), ResetResult, or
+        HardResetResult depending on the active mode.
 
-    Requirements: 59-REQ-5.1, 59-REQ-5.2, 59-REQ-5.3, 122-REQ-6.1, 122-REQ-6.2
+    Raises:
+        ValueError: If more than one of clear/reset/reset_hard is True,
+            or if target does not exist in the plan (01-REQ-7.E1, 01-REQ-7.E3).
+        RuntimeError: If no plan exists when a mode flag is set (01-REQ-7.E2).
+
+    Requirements: 59-REQ-5.1, 59-REQ-5.2, 59-REQ-5.3, 122-REQ-6.1,
+                  122-REQ-6.2, 01-REQ-7.1 .. 01-REQ-7.4
     """
+    # 01-REQ-7.E1: Conflicting mode flags
+    mode_count = sum([clear, reset, reset_hard])
+    if mode_count > 1:
+        active = []
+        if clear:
+            active.append("clear")
+        if reset:
+            active.append("reset")
+        if reset_hard:
+            active.append("reset_hard")
+        msg = f"Conflicting mode parameters: {', '.join(active)}"
+        raise ValueError(msg)
+
+    # --- clear / reset / reset_hard modes ---
+    if clear or reset or reset_hard:
+        knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
+        try:
+            graph = load_plan(knowledge_db.connection)
+            # 01-REQ-7.E2: No plan exists
+            if graph is None:
+                msg = "No plan found in database."
+                raise RuntimeError(msg)
+
+            if clear:
+                # 01-REQ-7.2: Clear all nodes to completed
+                nodes = graph.nodes
+                if filter_spec is not None:
+                    nodes = {
+                        nid: n
+                        for nid, n in nodes.items()
+                        if n.spec_name == filter_spec
+                    }
+                for nid in nodes:
+                    persist_node_status(
+                        knowledge_db.connection, nid, "completed",
+                    )
+                return len(nodes)
+
+            if reset:
+                project_root = Path.cwd()
+                worktrees_dir = project_root / ".agent-fox" / "worktrees"
+
+                if target is not None:
+                    # 01-REQ-7.E3: Validate target exists
+                    if target not in graph.nodes:
+                        msg = f"Unknown task ID: {target}"
+                        raise ValueError(msg)
+                    return reset_task(
+                        task_id=target,
+                        worktrees_dir=worktrees_dir,
+                        repo_path=project_root,
+                        db_conn=knowledge_db.connection,
+                    )
+                if filter_spec is not None:
+                    return reset_spec(
+                        spec_name=filter_spec,
+                        worktrees_dir=worktrees_dir,
+                        repo_path=project_root,
+                        db_conn=knowledge_db.connection,
+                    )
+                return reset_all(
+                    worktrees_dir=worktrees_dir,
+                    repo_path=project_root,
+                    db_conn=knowledge_db.connection,
+                )
+
+            if reset_hard:
+                project_root = Path.cwd()
+                worktrees_dir = project_root / ".agent-fox" / "worktrees"
+                memory_path = project_root / ".agent-fox" / "memory.jsonl"
+
+                if target is not None:
+                    # 01-REQ-7.E3: Validate target exists
+                    if target not in graph.nodes:
+                        msg = f"Unknown task ID: {target}"
+                        raise ValueError(msg)
+                    return hard_reset_task(
+                        task_id=target,
+                        worktrees_dir=worktrees_dir,
+                        repo_path=project_root,
+                        memory_path=memory_path,
+                        db_conn=knowledge_db.connection,
+                    )
+                return hard_reset_all(
+                    worktrees_dir=worktrees_dir,
+                    repo_path=project_root,
+                    memory_path=memory_path,
+                    db_conn=knowledge_db.connection,
+                )
+        finally:
+            knowledge_db.close()
+
+    # --- Default: build plan ---
     if specs_dir is not None:
         resolved_specs_dir = specs_dir
     else:
@@ -281,9 +401,6 @@ def run_plan(
     graph = build_plan(resolved_specs_dir, filter_spec, fast, config)
 
     if not dry_run:
-        from agentfox.graph.persistence import save_plan
-        from agentfox.knowledge.db import open_knowledge_store
-
         knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
         try:
             save_plan(graph, knowledge_db.connection)

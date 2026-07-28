@@ -377,8 +377,8 @@ class TestRunPlanDryRunFalse:
         mock_kb.connection = MagicMock()
 
         with (
-            patch("agentfox.graph.persistence.save_plan") as mock_save,
-            patch("agentfox.knowledge.db.open_knowledge_store", return_value=mock_kb),
+            patch("agentfox.graph.planner.save_plan") as mock_save,
+            patch("agentfox.graph.planner.open_knowledge_store", return_value=mock_kb),
         ):
             graph = run_plan(config, dry_run=False, specs_dir=specs_dir)
             assert isinstance(graph, TaskGraph)
