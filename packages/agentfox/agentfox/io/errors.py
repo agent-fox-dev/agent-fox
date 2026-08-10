@@ -7,9 +7,6 @@ to the unified schema, and provides routing helpers for CLI commands.
 routes it to stdout (JSON mode) or stderr (human mode);
 ``handle_cli_errors`` is a no-arg decorator for command functions.
 
-``agentspec`` types are lazily imported so the module loads without
-error when the ``agentspec`` package is not installed.
-
 Requirements: 03-REQ-6, 03-REQ-7
 """
 
@@ -26,27 +23,6 @@ import click
 from agentfox.core.errors import AgentFoxError
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Lazy imports for agentspec exception types
-# ---------------------------------------------------------------------------
-
-_AgentError: type | None = None
-_AgentSpecError: type | None = None
-_SessionError: type | None = None
-_AGENTSPEC_AVAILABLE: bool = False
-
-try:
-    from agentspec.errors import AgentError as _AE
-    from agentspec.errors import AgentSpecError as _ASE
-    from agentspec.errors import SessionError as _SE
-
-    _AgentError = _AE
-    _AgentSpecError = _ASE
-    _SessionError = _SE
-    _AGENTSPEC_AVAILABLE = True
-except ImportError:
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -92,31 +68,6 @@ def error_envelope(exc: Exception, *, state: str | None = None) -> dict[str, Any
     if isinstance(exc, AgentFoxError):
         # 03-REQ-6.2: snake_case of the class name
         error_type = _to_snake_case(type(exc).__name__)
-        retryable = getattr(exc, "retryable", False)
-
-    elif _AGENTSPEC_AVAILABLE and _SessionError is not None and isinstance(exc, _SessionError):
-        # 03-REQ-6.4: SessionError always -> session_error, retryable=False
-        # Must check SessionError BEFORE AgentError since SessionError
-        # is a subclass of AgentSpecError (which is a superclass of AgentError).
-        error_type = "session_error"
-        retryable = False
-
-    elif _AGENTSPEC_AVAILABLE and _AgentError is not None and isinstance(exc, _AgentError):
-        # 03-REQ-6.3: AgentError uses .category if present, else 'agent_error'
-        category = getattr(exc, "category", None)
-        if category and category != "internal":
-            error_type = category
-        else:
-            error_type = "agent_error"
-        retryable = getattr(exc, "retryable", False)
-
-    elif _AGENTSPEC_AVAILABLE and _AgentSpecError is not None and isinstance(exc, _AgentSpecError):
-        # AgentSpecError with .category
-        category = getattr(exc, "category", None)
-        if category and category != "internal":
-            error_type = category
-        else:
-            error_type = _to_snake_case(type(exc).__name__)
         retryable = getattr(exc, "retryable", False)
 
     elif isinstance(exc, click.ClickException):

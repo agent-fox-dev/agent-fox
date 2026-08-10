@@ -65,8 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/refs/heads/
 
 ## Development
 
-The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/)
-with five packages:
+The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/):
 
 | Package | Description |
 |---------|-------------|
@@ -74,18 +73,17 @@ with five packages:
 | `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`nightshift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
 | `packages/afissues/` | Standalone platform/forge abstraction layer — protocol, GitHub integration, label definitions |
-| `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
 | `packages/afaudit/` | Standalone audit infrastructure — structured events, sinks, postmortem, traces (zero dependencies) |
-| `packages/agentspec/` | AI-powered spec creation library |
-| `packages/spec/` | CLI for AI-powered spec creation (`spec` command) |
+
+The specification format library (`afspec`) and AI-powered spec creation tools
+(`agentspec`, `spec` CLI) live in the separate
+[agent-fox-dev/spec-format](https://github.com/agent-fox-dev/spec-format) repository.
 
 ```
-af  ──▶  agentfox  ──▶  afspec
-              │              ▲
-              ├──▶  afissues │
-              └──▶  afaudit  │
-                             │
-spec ──▶ agentspec ──────────┘
+af  ──▶  agentfox  ──▶  afspec (external: spec-format)
+              │
+              ├──▶  afissues
+              └──▶  afaudit
 
 nightshift ──▶ agentfox
 ```
@@ -113,14 +111,20 @@ uv run af <command>
 
 ## Using packages as standalone libraries
 
-`agentfox`, `afissues`, `afspec`, and `afaudit` are designed for reuse outside the CLI tools.
+`agentfox`, `afissues`, and `afaudit` are designed for reuse outside the CLI tools.
 Install any package directly from git:
 
 ```bash
 pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/agentfox"
 pip install "afissues @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afissues"
-pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afspec"
 pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afaudit"
+```
+
+For `afspec` (spec format library), install from the
+[spec-format](https://github.com/agent-fox-dev/spec-format) repository:
+
+```bash
+pip install "afspec @ git+https://github.com/agent-fox-dev/spec-format.git#subdirectory=packages/afspec"
 ```
 
 - **agentfox** — core orchestrator library: execution engine, session runtime,
@@ -130,9 +134,6 @@ pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0
 - **afissues** — lightweight platform/forge abstraction layer: `PlatformProtocol`,
   `GitHubPlatform`, label constants, SSRF guards. Only depends on `httpx`. See
   [`packages/afissues/`](packages/afissues/) for the package.
-- **afspec** — load, validate, mutate, and render spec packs. See
-  [`packages/afspec/README.md`](packages/afspec/README.md) for the full API
-  reference.
 - **afaudit** — structured audit events, sink protocol, postmortem generation,
   trace reconstruction. Zero dependencies. See
   [`packages/afaudit/README.md`](packages/afaudit/README.md) for the full API

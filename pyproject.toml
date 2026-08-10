@@ -5,9 +5,7 @@ description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
     "af>=4.3.4",
-    "agentspec>=4.3.4",
     "nightshift>=4.3.4",
-    "spec>=4.3.4",
 ]
 
 [dependency-groups]
@@ -24,7 +22,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afaudit/tests", "packages/afissues/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
+testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afaudit/tests", "packages/afissues/tests", "packages/nightshift/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
 addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke' --import-mode=importlib"
@@ -43,10 +41,7 @@ af = { workspace = true }
 afaudit = { workspace = true }
 afissues = { workspace = true }
 agentfox = { workspace = true }
-afspec = { workspace = true }
-agentspec = { workspace = true }
 nightshift = { workspace = true }
-spec = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
