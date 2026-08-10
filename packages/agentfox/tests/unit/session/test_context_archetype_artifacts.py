@@ -28,7 +28,7 @@ class TestResolveArtifacts:
 
     def test_coder_gets_all(self) -> None:
         result = _resolve_artifacts("coder")
-        assert result == ["requirements", "test_spec", "tasks"]
+        assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
     def test_reviewer_pre_flight_gets_requirements_only(self) -> None:
         result = _resolve_artifacts("reviewer", mode="pre-flight")
@@ -53,23 +53,23 @@ class TestResolveArtifacts:
     def test_unknown_archetype_gets_all(self) -> None:
         """NS-REQ-5: Unknown archetypes default to all artifacts."""
         result = _resolve_artifacts("maintainer")
-        assert result == ["requirements", "test_spec", "tasks"]
+        assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
     def test_none_archetype_gets_all(self) -> None:
         """NS-REQ-5: archetype=None defaults to all artifacts."""
         result = _resolve_artifacts(None)
-        assert result == ["requirements", "test_spec", "tasks"]
+        assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
     def test_reviewer_without_mode_gets_all(self) -> None:
         """Bare 'reviewer' without mode falls through to all artifacts."""
         result = _resolve_artifacts("reviewer")
-        assert result == ["requirements", "test_spec", "tasks"]
+        assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
     def test_mode_ignored_for_non_modal_archetype(self) -> None:
         """Providing a mode for a non-modal archetype falls back to bare."""
         result = _resolve_artifacts("coder", mode="fix")
         # "coder:fix" is not in the mapping, falls back to "coder"
-        assert result == ["requirements", "test_spec", "tasks"]
+        assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +212,6 @@ class TestAssembleContextArchetypeFiltering:
             archetype="reviewer",
             mode="pre-flight",
         )
-        # Both test_spec and tasks should have omission notes
-        # Count omission notes — should be exactly 2 (test_spec + tasks)
-        assert ctx.count("_(Omitted") == 2
+        # test_spec, tasks, and architecture should have omission notes
+        # Count omission notes — should be exactly 3
+        assert ctx.count("_(Omitted") == 3

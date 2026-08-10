@@ -55,7 +55,7 @@ _SECTION_HEADERS: dict[str, str] = {
 # Archetype-aware spec artifact selection.
 # Keys use "archetype:mode" when mode-specific, or plain "archetype" as
 # fallback.  Unlisted archetypes default to all artifacts (fail-open).
-_ALL_ARTIFACTS = list(_SECTION_HEADERS.keys())
+_ALL_ARTIFACTS = list(_SECTION_HEADERS.keys()) + ["architecture"]
 
 _ARCHETYPE_ARTIFACTS: dict[str, list[str]] = {
     "coder": _ALL_ARTIFACTS,
@@ -165,12 +165,18 @@ def _render_spec_sections(
     spec = afspec.load_spec(spec_dir)
     sections = render_inmemory_spec_sections(spec, task_group=task_group, artifacts=artifacts)
 
-    # architecture.md is a plain markdown file in v1.2
-    arch_path = spec_dir / "architecture.md"
-    if arch_path.is_file():
-        arch_content = arch_path.read_text(encoding="utf-8")
-        safe = sanitize_prompt_content(arch_content, label="spec")
-        sections.append(f"## Architecture\n\n{safe}")
+    # architecture.md is a plain markdown file in v1.2 — gated by artifact filter
+    active_keys = set(artifacts) if artifacts is not None else set(_ALL_ARTIFACTS)
+    if "architecture" in active_keys:
+        arch_path = spec_dir / "architecture.md"
+        if arch_path.is_file():
+            arch_content = arch_path.read_text(encoding="utf-8")
+            safe = sanitize_prompt_content(arch_content, label="spec")
+            sections.append(f"## Architecture\n\n{safe}")
+    else:
+        sections.append(
+            "## Architecture\n\n_(Omitted — not required for this session.)_"
+        )
 
     return sections
 
