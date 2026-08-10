@@ -50,20 +50,12 @@ wrong scenario).
 **Overall verdict:** `FAIL` if any MISSING, any MISALIGNED, or 2+ WEAK
 entries. Otherwise `PASS`.
 
-### Anti-pattern: grading execution results
-
-Do NOT mark a test `WEAK` because it fails. A well-designed test that fails
-due to unimplemented dependencies is `PASS`. Only mark `WEAK` for actual
-design flaws (vacuous assertions, wrong scenario, missing checks).
-
-
 ## Constraints
 
-Read-only for source code. May run the `spec_tests` command from `tasks.json`
-(rendered in your context under `## Test Commands`) with `--collect-only` or
-narrowed to a specific test file (e.g., `<spec_tests_command> --collect-only`
-or `<test_runner> <test_file> -q --tb=short`) for the task group only.
-Do NOT run the full suite, formatters, or linters.
+Read-only session. Do not create, modify, or delete any files.
+May run `spec_tests` from `## Test Commands` with `--collect-only` or narrowed
+to a specific test file for the task group only.
+Do not run the full suite, formatters, or linters.
 
 ## Output Format
 
@@ -84,15 +76,7 @@ Your output is a JSON object with the exact field names below:
 }
 ```
 
-- `audit` (required): array of per-entry results, each with:
-  - `ts_entry` (required): the TS entry ID (e.g. `TS-05-1`)
-  - `test_functions` (required): list of test function paths
-  - `verdict` (required): one of `PASS`, `WEAK`, `MISSING`, `MISALIGNED`
-  - `notes` (optional): additional context, or `null`
-- `overall_verdict` (required): `PASS` or `FAIL`
-- `summary` (required): brief summary of findings
+`verdict`: one of `PASS`, `WEAK`, `MISSING`, `MISALIGNED`.
+`overall_verdict`: `FAIL` if any MISSING, any MISALIGNED, or 2+ WEAK. Otherwise `PASS`.
 
-## CRITICAL OUTPUT RULES
-
-Your final message MUST be bare JSON — first character `{`, last `}`.
-No markdown fences, no prose before or after.
+Output bare JSON only (first char `{`, last `}`). No fences or prose.

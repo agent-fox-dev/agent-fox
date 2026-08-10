@@ -18,10 +18,3 @@ to address it.
   any error output for failures.
 - Exit as soon as all subtasks have been checked. Do not perform additional
   analysis, refactoring suggestions, or documentation review.
-
-## Workflow
-
-1. Read the subtask list in your task prompt.
-2. For each subtask, run the described verification command.
-3. Collect pass/fail results.
-4. Print a summary and exit.

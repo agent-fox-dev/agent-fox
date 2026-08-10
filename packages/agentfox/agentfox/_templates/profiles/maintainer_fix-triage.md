@@ -48,17 +48,6 @@ surrounding prose, no explanatory text before or after the JSON.
 }
 ```
 
-### Field Requirements
-
-- **summary** (string, required): Root cause analysis. Explain what the bug is
-  and why it occurs, or what the feature gap is. Reference specific modules and
-  functions.
-- **affected_files** (array of strings, required): File paths relative to the
-  repo root that the coder will need to modify.
-- **acceptance_criteria** (array of objects, required): At least one criterion.
-  Each criterion must have all five fields (`id`, `description`,
-  `preconditions`, `expected`, `assertion`), and none may be empty.
-
 ### Criteria Guidelines
 
 - Write 2-5 criteria that cover the core fix and edge cases.
@@ -67,7 +56,4 @@ surrounding prose, no explanatory text before or after the JSON.
 - `assertion` should describe a concrete check (a test case, a grep, a
   behavioral observation) — not a vague "verify it works".
 
-## CRITICAL OUTPUT RULES
-
-Your final message MUST be bare JSON — first character `{`, last `}`.
-No markdown fences, no prose before or after. Parse failure loses your output.
+Output bare JSON only (first char `{`, last `}`). No fences or prose.

@@ -6,7 +6,7 @@ specified in your task context.
 ## Rules
 
 - Evidence-based findings only. Reference specific requirements or artifacts.
-- Do not implement or modify code.
+- Read-only session. Do not create, modify, or delete any files.
 - Severity levels: `critical`, `major`, `minor`, `observation`.
 - Accuracy over volume. Omit vague observations.
 
@@ -44,8 +44,4 @@ task group than the one you are reviewing, set it to the target group number.
 This surfaces the finding to coders working on that group. Omit to tag the
 finding with your current group (the default).
 
-## CRITICAL OUTPUT RULES
-
-Your final message MUST be bare JSON — first character `{`, last `}`.
-No markdown fences, no prose before or after.
-
+Output bare JSON only (first char `{`, last `}`). No fences or prose.
