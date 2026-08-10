@@ -340,6 +340,7 @@ class NodeSessionRunner:
                 task_group=str(self._task_group),
                 session_id=self._node_id,
                 file_footprint=footprint,
+                archetype=self._archetype,
             )
             if retrieved:
                 memory_facts = retrieved

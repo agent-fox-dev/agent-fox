@@ -99,6 +99,7 @@ class KnowledgeProvider(Protocol):
         task_group: str | None = None,
         session_id: str | None = None,
         file_footprint: list[str] | None = None,
+        archetype: str | None = None,
     ) -> list[str]:
         """Retrieve knowledge context for an upcoming session."""
         ...
@@ -127,6 +128,7 @@ class NoOpKnowledgeProvider:
         task_group: str | None = None,
         session_id: str | None = None,
         file_footprint: list[str] | None = None,
+        archetype: str | None = None,
     ) -> list[str]:
         """Return an empty list --- no knowledge is available."""
         return []
@@ -180,6 +182,7 @@ class FoxKnowledgeProvider:
         task_group: str | None = None,
         session_id: str | None = None,
         file_footprint: list[str] | None = None,
+        archetype: str | None = None,
     ) -> list[str]:
         """Retrieve knowledge context for an upcoming session.
 
@@ -206,6 +209,18 @@ class FoxKnowledgeProvider:
             file_footprint: Optional list of file paths the current spec
                 modifies.  Used to find cross-spec drift findings from
                 other specs that reference overlapping files.
+            archetype: Optional session archetype (e.g. ``'coder'``,
+                ``'reviewer'``, ``'verifier'``, ``'gate'``).  Controls
+                which knowledge categories are queried:
+
+                - ``'gate'``: skip all queries, return ``[]``.
+                - ``'reviewer'`` / ``'verifier'``: skip ``[CONTEXT]``
+                  (same-spec summaries).
+                - ``'verifier'`` / ``'gate'``: skip ``[CROSS-SPEC]``
+                  (cross-spec drift).
+
+                When ``None``, all categories are queried (backward-
+                compatible default).
 
         Returns:
             List of formatted text blocks ready for prompt injection.
@@ -214,8 +229,13 @@ class FoxKnowledgeProvider:
             KnowledgeStoreError: If the database connection is closed or
                 a query fails unexpectedly.
 
-        Requirements: 117-REQ-6.1, 117-REQ-6.3, 558-AC-1, 558-AC-4
+        Requirements: 117-REQ-6.1, 117-REQ-6.3, 558-AC-1, 558-AC-4,
+                      NS-REQ-1, NS-REQ-2, NS-REQ-3, NS-REQ-4
         """
+        # NS-REQ-2: Gate sessions need no knowledge context at all.
+        if archetype == "gate":
+            return []
+
         try:
             conn = self._knowledge_db.connection
         except KnowledgeStoreError:
@@ -242,8 +262,9 @@ class FoxKnowledgeProvider:
 
         # Cross-spec drift items: drift findings from other specs that
         # reference the same files.  Informational only, not tracked.
+        # NS-REQ-4: Skip for verifier (gate already returned above).
         cross_spec_items: list[str] = []
-        if task_group is not None and file_footprint:
+        if task_group is not None and file_footprint and archetype != "verifier":
             cross_spec = self._query_cross_spec_drift(conn, spec_name, file_footprint, task_description)
             cross_spec_items = cross_spec[: self._config.max_cross_spec_items]
 
@@ -251,19 +272,25 @@ class FoxKnowledgeProvider:
         result = [text for text, _ in capped] + cross_group_items + cross_spec_items
 
         # Session summary injection (119-REQ-2.1)
-        same_spec_summaries = self._query_same_spec_summaries(
-            conn, spec_name, task_group, file_footprint=file_footprint
-        )
-        result.extend(same_spec_summaries)
+        # NS-REQ-3: Skip [CONTEXT] summaries for reviewer/verifier archetypes.
+        if archetype not in ("reviewer", "verifier"):
+            same_spec_summaries = self._query_same_spec_summaries(
+                conn, spec_name, task_group, file_footprint=file_footprint
+            )
+            result.extend(same_spec_summaries)
+            summary_count = len(same_spec_summaries)
+        else:
+            summary_count = 0
 
         logger.debug(
-            "Retrieved %d review + %d drift + %d cross-group + %d cross-spec + %d context items for %s",
+            "Retrieved %d review + %d drift + %d cross-group + %d cross-spec + %d context items for %s (archetype=%s)",
             len(reviews),
             len(drift),
             len(cross_group_items),
             len(cross_spec_items),
-            len(same_spec_summaries),
+            summary_count,
             spec_name,
+            archetype,
         )
 
         # Record which finding IDs were injected into this session so

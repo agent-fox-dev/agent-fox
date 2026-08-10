@@ -52,6 +52,7 @@ class TestProtocolDefinition:
             "task_group",
             "session_id",
             "file_footprint",
+            "archetype",
         ]
 
     def test_retrieve_return_annotation(self) -> None:

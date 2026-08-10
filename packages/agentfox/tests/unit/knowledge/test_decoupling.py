@@ -40,6 +40,7 @@ class MockKnowledgeProvider:
     def __init__(self, retrieve_returns: list[str] | None = None) -> None:
         self.retrieve_called = False
         self.retrieve_args: tuple[str, str] | None = None
+        self.retrieve_kwargs: dict[str, Any] = {}
         self.retrieve_returns = retrieve_returns or []
         self.ingest_call_count = 0
         self.ingest_last_context: dict[str, Any] | None = None
@@ -59,9 +60,16 @@ class MockKnowledgeProvider:
         task_group: str | None = None,
         session_id: str | None = None,
         file_footprint: list[str] | None = None,
+        archetype: str | None = None,
     ) -> list[str]:
         self.retrieve_called = True
         self.retrieve_args = (spec_name, task_description)
+        self.retrieve_kwargs = {
+            "task_group": task_group,
+            "session_id": session_id,
+            "file_footprint": file_footprint,
+            "archetype": archetype,
+        }
         return self.retrieve_returns
 
 
