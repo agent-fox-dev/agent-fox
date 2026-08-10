@@ -90,9 +90,11 @@ class TestInstallationBijection:
 
         # _install_skills() substitutes {{SPEC_ROOT}} with the configured
         # spec root, so apply the same transformation before comparison.
-        from agentfox.core.config import PathsConfig
+        # Resolve spec_root the same way _install_skills does.
+        from agentfox.core.config import load_config
 
-        spec_root = PathsConfig().spec_root
+        config_path = project_root / ".agent-fox" / "config.toml"
+        spec_root = load_config(config_path if config_path.exists() else None).paths.spec_root
 
         for name in templates:
             installed_content = (skills_dir / name / "SKILL.md").read_text(encoding="utf-8")

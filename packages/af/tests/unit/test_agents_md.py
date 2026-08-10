@@ -87,10 +87,15 @@ class TestCreatesAgentsMd:
         agents_md = tmp_path / "AGENTS.md"
         assert agents_md.exists()
         template_content = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
-        # 371-REQ-3.1: Template variables are substituted at creation time
-        from agentfox.core.config import AgentFoxConfig
+        # 371-REQ-3.1: Template variables are substituted at creation time.
+        # Resolve spec_root the same way _ensure_agents_md does.
+        from agentfox.core.config import load_config
 
-        expected = template_content.replace("{{SPEC_ROOT}}", AgentFoxConfig().paths.spec_root)
+        config_path = tmp_path / ".agent-fox" / "config.toml"
+        expected = template_content.replace(
+            "{{SPEC_ROOT}}",
+            load_config(config_path if config_path.exists() else None).paths.spec_root,
+        )
         assert agents_md.read_text(encoding="utf-8") == expected
 
     def test_creates_returns_created(self, tmp_path: Path) -> None:

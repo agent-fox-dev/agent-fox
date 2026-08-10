@@ -65,9 +65,14 @@ def test_content_fidelity(tmp_path_factory, _):
 
     # _ensure_agents_md() substitutes {{SPEC_ROOT}} with the configured
     # spec root, so apply the same transformation before comparison.
-    from agentfox.core.config import PathsConfig
+    # Resolve spec_root the same way _ensure_agents_md does.
+    from agentfox.core.config import load_config
 
-    expected = template.replace("{{SPEC_ROOT}}", PathsConfig().spec_root)
+    config_path = tmp_path / ".agent-fox" / "config.toml"
+    expected = template.replace(
+        "{{SPEC_ROOT}}",
+        load_config(config_path if config_path.exists() else None).paths.spec_root,
+    )
     assert written == expected
 
 
