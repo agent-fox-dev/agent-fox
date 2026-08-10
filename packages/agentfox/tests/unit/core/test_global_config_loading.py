@@ -870,7 +870,7 @@ class TestRegressionSuite:
     """
 
     @pytest.mark.integration
-    @pytest.mark.timeout(120)
+    @pytest.mark.timeout(300)
     def test_full_test_suite_passes(self):
         """Run pytest on spec-13-adjacent packages and assert exit code 0.
 

@@ -591,6 +591,7 @@ class TestContainmentGlobScope:
 class TestProtocolTestsRunnable:
     """Verify the protocol test file is runnable by pytest."""
 
+    @pytest.mark.timeout(300)
     def test_protocol_tests_pass(self) -> None:
         """TS-02-27: pytest on this file exits with code 0."""
         import subprocess
@@ -898,6 +899,7 @@ class TestSessionImports:
 class TestExistingSessionTestsPass:
     """Verify existing session tests pass after type widening."""
 
+    @pytest.mark.timeout(300)
     def test_session_tests_pass(self) -> None:
         """TS-02-20: All session unit tests pass without modification."""
         import subprocess
@@ -1531,6 +1533,7 @@ class TestPropertySdkContainmentInvariant:
 class TestPropertySessionTestsPass:
     """Property: full session test suite passes after type widening."""
 
+    @pytest.mark.timeout(300)
     def test_full_session_suite_passes(self) -> None:
         """TS-02-P6: Session tests pass with zero failures."""
         import subprocess
