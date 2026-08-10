@@ -70,19 +70,16 @@ def clean_af_env(monkeypatch):
 # TS-13-1: Unified load_config across all CLIs
 # ===================================================================
 class TestUnifiedLoadConfig:
-    """TS-13-1: All three CLIs share the same load_config function."""
+    """TS-13-1: All CLIs share the same load_config function."""
 
     def test_all_clis_share_load_config_function(self):
-        """Verify af, nightshift, and spec import the same load_config."""
+        """Verify af and nightshift import the same load_config."""
         import af.app
         import nightshift.app
-        import spec.cli
         from agentfox.core.config import load_config as agentfox_load_config
 
-        # All three should reference the same function object
         assert af.app.load_config is agentfox_load_config
         assert nightshift.app.load_config is agentfox_load_config
-        assert spec.cli.load_config is agentfox_load_config
 
 
 # ===================================================================
@@ -499,128 +496,6 @@ class TestSpecToolDefaults:
 
 
 # ===================================================================
-# TS-13-16: agentspec accepts AgentFoxConfig
-# ===================================================================
-class TestAgentspecAcceptsConfig:
-    """TS-13-16: agentspec.load_config() accepts AgentFoxConfig."""
-
-    def test_agentspec_accepts_agent_fox_config(self):
-        """agentspec.load_config(agent_fox_config=...) uses spec_tool."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        # Build an AgentFoxConfig with a custom model
-        # This requires SpecToolConfig to exist on AgentFoxConfig
-        agent_fox_config = AgentFoxConfig()
-        # Set model to a non-default value via the spec_tool sub-config
-        agent_fox_config.spec_tool.model = "claude-opus-4"
-
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-        assert spec_config.model == "claude-opus-4"
-
-
-# ===================================================================
-# TS-13-17: Model resolution precedence
-# ===================================================================
-class TestModelResolutionPrecedence:
-    """TS-13-17: AF_SPEC_MODEL > merged config > fallback > default."""
-
-    def test_af_spec_model_wins(self, fake_home, monkeypatch):
-        """AF_SPEC_MODEL overrides all other model sources."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        # TS-13-17: set up ALL three competing sources
-        # 1. AF_SPEC_MODEL env var (should win)
-        monkeypatch.setenv("AF_SPEC_MODEL", "claude-custom-model")
-
-        # 2. Merged config with [spec_tool] model set
-        agent_fox_config = AgentFoxConfig()
-        agent_fox_config.spec_tool.model = "claude-opus-4"
-
-        # 3. ~/.af/settings.yaml migration fallback
-        af_dir = fake_home / ".af"
-        af_dir.mkdir(exist_ok=True)
-        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku\n")
-
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-        assert spec_config.model == "claude-custom-model"
-
-
-# ===================================================================
-# TS-13-18: Migration fallback from settings.yaml
-# ===================================================================
-class TestMigrationFallback:
-    """TS-13-18: settings.yaml fallback with deprecation warning."""
-
-    def test_migration_fallback(self, fake_home, tmp_path, monkeypatch, capsys, clean_af_env):
-        """When no [spec_tool] in config and settings.yaml exists, use fallback."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        # Create ~/.af/settings.yaml with a model
-        af_dir = fake_home / ".af"
-        af_dir.mkdir()
-        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku-4\n")
-
-        # Create global config without [spec_tool] section
-        global_dir = fake_home / ".agent-fox"
-        global_dir.mkdir(exist_ok=True)
-        (global_dir / "config.toml").write_text("[orchestrator]\nparallel = 2\n")
-
-        repo = tmp_path / "repo"
-        repo.mkdir(exist_ok=True)
-        monkeypatch.chdir(repo)
-
-        # Pass a config without explicit spec_tool
-        agent_fox_config = AgentFoxConfig()
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-
-        assert spec_config.model == "claude-haiku-4"
-        captured = capsys.readouterr()
-        assert "deprecat" in captured.err.lower() or "[spec_tool]" in captured.err
-
-
-# ===================================================================
-# TS-13-19: AF_SPEC_MODEL override
-# ===================================================================
-class TestAfSpecModelOverride:
-    """TS-13-19: AF_SPEC_MODEL is used as resolved model."""
-
-    def test_af_spec_model_override(self, monkeypatch):
-        """AF_SPEC_MODEL overrides config-based model."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        monkeypatch.setenv("AF_SPEC_MODEL", "my-custom-model")
-
-        agent_fox_config = AgentFoxConfig()
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-        assert spec_config.model == "my-custom-model"
-
-
-# ===================================================================
-# TS-13-E6: Hardcoded default model
-# ===================================================================
-class TestHardcodedDefaultModel:
-    """TS-13-E6: Default model with no config, no settings.yaml, no env var."""
-
-    def test_hardcoded_default_model(self, fake_home, monkeypatch, capsys, clean_af_env):
-        """Default model is 'STANDARD' with no deprecation warning."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        # Ensure no settings.yaml exists
-        af_dir = fake_home / ".af"
-        if af_dir.exists():
-            import shutil
-
-            shutil.rmtree(af_dir)
-
-        agent_fox_config = AgentFoxConfig()
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-
-        assert spec_config.model == "STANDARD"
-        captured = capsys.readouterr()
-        assert captured.err == ""  # no deprecation warning
-
-
-# ===================================================================
 # TS-13-20: DEBUG log — global config loaded
 # ===================================================================
 class TestDebugLogGlobalLoaded:
@@ -857,13 +732,9 @@ class TestAfInitConfigOverwritesLocal:
 class TestRegressionSuite:
     """TS-13-29: Full existing test suite passes without modification.
 
-    The full test suite has pre-existing failures from specs 10, 11, and 12
-    (mostly ImportError from removed functions and broken meta-tests)
-    that predate spec 13.  To properly validate that spec 13 did NOT
-    introduce regressions, this test runs all tests in the packages that
-    spec 13 touches — af, nightshift, spec, agentspec, and core config —
-    excluding recursive meta-tests that would trigger cascading failures
-    and the two pre-existing broken tests unrelated to spec 13.
+    Runs all tests in the packages that spec 13 touches — af, nightshift,
+    and core config — excluding recursive meta-tests that would trigger
+    cascading failures and pre-existing broken tests unrelated to spec 13.
 
     See docs/errata/13_regression_suite_pre_existing_failures.md for the
     full list of pre-existing failures.
@@ -872,12 +743,7 @@ class TestRegressionSuite:
     @pytest.mark.integration
     @pytest.mark.timeout(300)
     def test_full_test_suite_passes(self):
-        """Run pytest on spec-13-adjacent packages and assert exit code 0.
-
-        Excludes recursive meta-tests (tests that run pytest as a
-        subprocess, which cascade-fail from pre-existing issues) and
-        two pre-existing failures unrelated to spec 13.
-        """
+        """Run pytest on spec-13-adjacent packages and assert exit code 0."""
         result = subprocess.run(
             [
                 sys.executable,
@@ -885,17 +751,11 @@ class TestRegressionSuite:
                 "pytest",
                 "-q",
                 "--tb=short",
-                # Override addopts to avoid inheriting -n auto and
-                # --timeout=10 from pyproject.toml, which cause
-                # conflicts when running as a subprocess under xdist.
                 "-o",
                 "addopts=",
                 "packages/af/",
                 "packages/nightshift/",
-                "packages/spec/",
-                "packages/agentspec/",
                 "packages/agentfox/tests/unit/core/",
-                # Exclude recursive meta-tests and pre-existing failures
                 "-k",
                 "not test_full_test_suite_passes"
                 " and not test_af_tests_pass"
@@ -1014,36 +874,6 @@ class TestGlobalConfigNotOverwrittenProperty:
             for _ in range(n_calls - 1):
                 load_config()
                 assert global_config_path.read_text() == content_after_first
-
-        check()
-
-
-# ===================================================================
-# TS-13-P3: AF_SPEC_MODEL always wins
-# ===================================================================
-class TestAfSpecModelAlwaysWinsProperty:
-    """TS-13-P3: AF_SPEC_MODEL always overrides all other model sources."""
-
-    @pytest.mark.property
-    def test_af_spec_model_always_wins(self, monkeypatch):
-        """Property: AF_SPEC_MODEL always equals the resolved model."""
-        from agentspec.config import load_config as agentspec_load_config
-        from hypothesis import given, settings
-        from hypothesis import strategies as st
-
-        model_strings = st.text(
-            alphabet=st.characters(categories=("L", "N", "P")),
-            min_size=1,
-            max_size=50,
-        )
-
-        @given(model_name=model_strings)
-        @settings(max_examples=20)
-        def check(model_name):
-            monkeypatch.setenv("AF_SPEC_MODEL", model_name)
-            config = AgentFoxConfig()
-            spec_config = agentspec_load_config(agent_fox_config=config)
-            assert spec_config.model == model_name
 
         check()
 
@@ -1333,38 +1163,6 @@ class TestSmoke3MalformedGlobalFailFast:
 
         config = load_config()
         assert config.orchestrator.parallel == 1
-
-
-class TestSmoke5AgentspecMigrationFallback:
-    """TS-13-SMOKE-5: agentspec migration fallback from settings.yaml."""
-
-    @pytest.mark.smoke
-    def test_agentspec_migration_fallback_e2e(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, capsys, clean_af_env
-    ):
-        """PATH-5: No [spec_tool] in config, settings.yaml exists -> fallback."""
-        from agentspec.config import load_config as agentspec_load_config
-
-        # Global config without [spec_tool]
-        (global_config_dir / "config.toml").write_text("[orchestrator]\nparallel = 2\n")
-        # Legacy settings.yaml
-        af_dir = fake_home / ".af"
-        af_dir.mkdir()
-        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku-4\n")
-
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        monkeypatch.chdir(repo)
-
-        agent_fox_config = AgentFoxConfig()
-        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
-
-        # Model resolved from settings.yaml
-        assert spec_config.model == "claude-haiku-4"
-        # Deprecation warning emitted
-        captured = capsys.readouterr()
-        assert "[spec_tool]" in captured.err
-        assert "deprecat" in captured.err.lower()
 
 
 class TestSmoke6AfInitCleanEnvironment:

@@ -51,38 +51,13 @@ def _arbitrary_exception_strategy() -> st.SearchStrategy:
     return _non_empty_text.map(lambda msg: ValueError(msg))
 
 
-def _agentspec_exception_strategies() -> list[st.SearchStrategy]:
-    """Generate agentspec exception strategies if agentspec is available.
-
-    Returns an empty list when agentspec is not installed so callers
-    can safely extend st.one_of() without ImportError.
-    """
-    try:
-        from agentspec.errors import AgentError, AgentSpecError, SessionError
-
-        return [
-            _non_empty_text.map(lambda msg: AgentError(msg)),
-            _non_empty_text.map(lambda msg: AgentSpecError(msg)),
-            _non_empty_text.map(lambda msg: SessionError(msg)),
-        ]
-    except ImportError:
-        return []
-
-
 def _any_exception_strategy() -> st.SearchStrategy:
-    """Generate exceptions from any of the well-known families.
-
-    Includes AgentFoxError, click.ClickException, ValueError, AND
-    agentspec types (AgentError, AgentSpecError, SessionError) when
-    agentspec is installed.
-    """
-    strategies = [
+    """Generate exceptions from any of the well-known families."""
+    return st.one_of(
         _agentfox_error_strategy(),
         _click_exception_strategy(),
         _arbitrary_exception_strategy(),
-        *_agentspec_exception_strategies(),
-    ]
-    return st.one_of(*strategies)
+    )
 
 
 # Strategy for generating CamelCase class names suitable for dynamic subclasses
