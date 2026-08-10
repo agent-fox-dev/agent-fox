@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "afaudit>=4.3.4",
     "afissues>=4.3.4",
-    "afspec>=4.3.4",
+    "afspec>=1.3.6",
     "click>=8.1",
     "pydantic>=2.13",
     "rich>=15.0",
@@ -50,7 +50,7 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 afaudit = { workspace = true }
 afissues = { workspace = true }
-afspec = { workspace = true }
+afspec = { git = "https://github.com/agent-fox-dev/spec-format", subdirectory = "packages/afspec" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
