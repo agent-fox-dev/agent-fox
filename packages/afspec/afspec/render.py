@@ -449,13 +449,14 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
         for c in r.edge_cases:
             filtered_ids.add(c.id)
 
+    included_ids = [r.id for r in req.requirements if r.id in filtered_ids]
+    total_count = len(req.requirements)
     lines.append("## Spec Overview")
     lines.append("")
-    lines.append("All requirements in this specification (full detail shown only for the active task group):")
-    lines.append("")
-    for r in req.requirements:
-        marker = "(included below)" if r.id in filtered_ids else "(other group)"
-        lines.append(f"- **{r.id}:** {r.title} {marker}")
+    lines.append(
+        f"This group covers {len(included_ids)} of {total_count} requirements: "
+        f"{', '.join(included_ids)}."
+    )
     lines.append("")
 
     lines.append("## Introduction")
@@ -670,18 +671,8 @@ def render_test_spec_scoped(ts: TestSpec, test_spec_ids: set[str]) -> str:
 
     lines.append("## Coverage")
     lines.append("")
-    if ts.coverage.requirements_covered:
-        lines.append(f"**Requirements covered:** {', '.join(ts.coverage.requirements_covered)}")
-        lines.append("")
-    if ts.coverage.properties_covered:
-        lines.append(f"**Properties covered:** {', '.join(ts.coverage.properties_covered)}")
-        lines.append("")
-    if ts.coverage.paths_covered:
-        lines.append(f"**Paths covered:** {', '.join(ts.coverage.paths_covered)}")
-        lines.append("")
-    if ts.coverage.gaps:
-        lines.append(f"**Gaps:** {', '.join(ts.coverage.gaps)}")
-        lines.append("")
+    lines.append("_(Full coverage summary omitted in scoped view — see traceability table.)_")
+    lines.append("")
 
     return "\n".join(lines)
 
@@ -753,13 +744,19 @@ def render_tasks_scoped(t: Tasks, target_group: int) -> str:
 
         lines.append("")
 
+    target_prefix = f"{target_group}."
+    group_entries = [e for e in t.traceability if e.task_id.startswith(target_prefix)]
+    omitted = len(t.traceability) - len(group_entries)
+
     lines.append("## Traceability")
     lines.append("")
     lines.append("| Requirement | Test Spec Entry | Task | Test Path |")
     lines.append("|-------------|-----------------|------|-----------|")
-    for entry in t.traceability:
+    for entry in group_entries:
         test_path = entry.test_path if entry.test_path is not None else "null"
         lines.append(f"| {entry.requirement_id} | {entry.test_spec_id} | {entry.task_id} | {test_path} |")
+    if omitted:
+        lines.append(f"\n_({omitted} traceability rows for other groups omitted.)_")
     lines.append("")
 
     return "\n".join(lines)

@@ -532,9 +532,10 @@ class TestBuildPromptsDeduplicatesFindings:
         )
         mock_provider.retrieve.assert_called_once()
 
-    def test_retry_attempt_includes_retry_context(self, tmp_path: Path) -> None:
-        """AC-2: On attempt > 1 with previous_error, '## Prior Review Findings'
-        may appear in the task prompt."""
+    def test_retry_attempt_skips_retry_context_to_avoid_duplication(self, tmp_path: Path) -> None:
+        """AC-2 (revised): On attempt > 1, _build_retry_context is NOT called
+        because FoxKnowledgeProvider.retrieve() already injects findings as
+        memory facts (issue #733)."""
         mock_provider = MagicMock()
         mock_provider.retrieve.return_value = ["[REVIEW] critical finding"]
 
@@ -549,19 +550,13 @@ class TestBuildPromptsDeduplicatesFindings:
             patch("agentfox.engine.session_lifecycle.build_system_prompt", return_value="sys"),
             patch("agentfox.engine.session_lifecycle.build_task_prompt", return_value="task body"),
             patch("agentfox.engine.session_lifecycle.extract_subtask_descriptions", return_value=["do X"]),
-            patch.object(
-                runner,
-                "_build_retry_context",
-                return_value="## Prior Review Findings for spec_01\n\n- **CRITICAL**: issue",
-            ),
+            patch.object(runner, "_build_retry_context") as mock_retry_ctx,
         ):
             mock_spec_root.return_value = tmp_path
             mock_assemble.return_value = MagicMock()
             _sys, task_prompt = runner._build_prompts(tmp_path, attempt=2, previous_error="some error")
 
-        assert "## Prior Review Findings" in task_prompt, (
-            "Retry attempt must include retry context block"
-        )
+        mock_retry_ctx.assert_not_called()
         assert "previous attempt failed" in task_prompt, (
             "Retry attempt must include the previous error note"
         )

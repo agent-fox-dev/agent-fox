@@ -285,7 +285,7 @@ for the context injected into session prompts.
 | `max_cross_group_items` | int | `3` | Max cross-group retrieval items (findings from other groups in the same spec) |
 | `max_cross_spec_items` | int | `3` | Max cross-spec drift items |
 | `max_drift_age_days` | int\|null | `30` | Max age in days for active drift findings; `null` disables age-based pruning |
-| `max_summary_items` | int | `20` | Max session summaries from prior task groups injected as context |
+| `max_summary_items` | int | `5` | Max session summaries from prior task groups injected as context |
 
 **Example:**
 

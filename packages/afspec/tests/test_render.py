@@ -261,8 +261,8 @@ class TestRenderRequirementsScoped:
         assert "### 01-REQ-1:" in md
         assert "## Requirements" in md
 
-    def test_spec_overview_lists_all_requirements(self, valid_spec_dir: Path) -> None:
-        """Spec Overview lists all requirement IDs regardless of filter."""
+    def test_spec_overview_lists_included_requirements(self, valid_spec_dir: Path) -> None:
+        """Spec Overview lists included requirement IDs and total count."""
         spec = load_spec(valid_spec_dir)
         md = render_requirements_scoped(spec.requirements, {"01-REQ-1.1"})
         assert "## Spec Overview" in md
@@ -281,9 +281,9 @@ class TestRenderRequirementsScoped:
         spec = load_spec(valid_spec_dir)
         # Filter with a non-existent ref
         md = render_requirements_scoped(spec.requirements, {"NONEXISTENT-REQ"})
-        # Should still have the overview but no full requirement detail
+        # Should still have the overview with 0-of-N count
         assert "## Spec Overview" in md
-        assert "(other group)" in md
+        assert "0 of" in md
 
 
 # ---------------------------------------------------------------------------

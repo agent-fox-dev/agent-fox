@@ -445,23 +445,9 @@ def assemble_context(
         facts_text = "\n".join(f"- {sanitize_prompt_content(fact, label='memory-fact')}" for fact in memory_facts)
         sections.append(f"## Memory Facts\n\n{facts_text}")
 
-    # 39-REQ-6.1, 39-REQ-6.2: Include prior group findings
-    if task_group > 1:
-        try:
-            prior_findings = get_prior_group_findings(
-                conn,
-                spec_name,
-                task_group=task_group,
-            )
-            if prior_findings:
-                prior_section = render_prior_group_findings(prior_findings)
-                sections.append(prior_section)
-        except Exception:
-            logger.debug(
-                "Failed to fetch prior group findings for %s group %d",
-                spec_name,
-                task_group,
-            )
+    # Prior group findings now arrive exclusively via
+    # FoxKnowledgeProvider memory facts ([REVIEW], [DRIFT],
+    # [CROSS-GROUP]) to avoid duplication.
 
     # Retry history for the reviewer archetype
     if archetype == "reviewer":

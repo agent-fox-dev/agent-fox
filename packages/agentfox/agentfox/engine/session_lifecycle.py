@@ -391,15 +391,9 @@ class NodeSessionRunner:
                 f"Please address this error.\n"
             )
 
-        # 53-REQ-5.1, 113-REQ-4.2: Inject active critical/major review
-        # findings for retry attempts only.  On the first attempt,
-        # FoxKnowledgeProvider.retrieve() already injects findings as
-        # memory facts — calling _build_retry_context here would
-        # duplicate them (issue #733).
-        if self._archetype == "coder" and attempt > 1 and previous_error:
-            retry_context = self._build_retry_context(self._spec_name)
-            if retry_context:
-                task_prompt = f"{retry_context}\n\n{task_prompt}"
+        # FoxKnowledgeProvider.retrieve() injects [REVIEW] and [DRIFT]
+        # findings as memory facts on every attempt.  Calling
+        # _build_retry_context here would duplicate them (issue #733).
 
         return system_prompt, task_prompt
 

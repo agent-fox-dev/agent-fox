@@ -268,7 +268,7 @@ class KnowledgeProviderConfig(BaseModel):
         description="Max age in days for active drift findings; None disables age-based pruning",
     )
     max_summary_items: int = Field(
-        default=20,
+        default=5,
         description="Max session summaries from prior task groups injected as context",
     )
 

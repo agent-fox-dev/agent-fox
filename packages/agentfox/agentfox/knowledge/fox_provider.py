@@ -604,7 +604,8 @@ class FoxKnowledgeProvider:
         # ascending task-group ordering (fallback behaviour).
         if not use_relevance:
             return [
-                f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) {r.summary}"
+                f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) "
+                f"{r.summary[:500] + '...' if len(r.summary) > 500 else r.summary}"
                 for r in records
             ]
 
@@ -667,7 +668,8 @@ class FoxKnowledgeProvider:
         ranked_records.extend(non_preceding[:remaining_slots])
 
         return [
-            f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) {r.summary}"
+            f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) "
+            f"{r.summary[:500] + '...' if len(r.summary) > 500 else r.summary}"
             for r in ranked_records
         ]
 
