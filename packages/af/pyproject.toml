@@ -1,11 +1,11 @@
 [project]
 name = "af"
-version = "4.3.0"
+version = "4.3.1"
 description = "CLI for the agent-fox autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "afaudit>=4.3.0",
-    "agentfox>=4.3.0",
+    "afaudit>=4.3.1",
+    "agentfox>=4.3.1",
     "click>=8.1",
     "rich>=15.0",
     "duckdb>=1.5.4",
