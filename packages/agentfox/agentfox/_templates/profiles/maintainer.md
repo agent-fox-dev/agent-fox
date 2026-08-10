@@ -11,7 +11,6 @@ You do NOT implement fixes.
 
 - One maintenance concern per session.
 - Never modify spec files.
-- Output bare JSON only — no markdown fences, no prose.
 
 ---
 
@@ -40,14 +39,10 @@ When triaging a batch of issues:
 
 ### Constraints (Hunt Mode)
 
-- Read-only. Use `ls`, `cat`, `git` (log, diff, show, status), `wc`,
-  `head`, `tail` only.
-- Do NOT create, modify, or delete any files.
-- Do NOT run tests, build commands, or any write operations.
+- Read-only session. Do not create, modify, or delete any files.
+- Do not run tests, build commands, or any write operations.
 
 ### Output Format (Hunt Mode)
-
-Output bare JSON only — no markdown fences, no surrounding prose:
 
 ```json
 {
@@ -83,8 +78,6 @@ Output bare JSON only — no markdown fences, no surrounding prose:
 
 ### Output Format (Extraction Mode)
 
-Output bare JSON only — no markdown fences, no surrounding prose:
-
 ```json
 {
   "facts": [
@@ -104,7 +97,4 @@ Fact `type` must be one of: `decision`, `failure`, `convention`,
 `fragile_area`, `causal`. Each fact must have all four fields. Omit a fact
 rather than leaving any field empty.
 
-## CRITICAL OUTPUT RULES
-
-Your final message MUST be bare JSON — first character `{`, last `}`.
-No markdown fences, no prose before or after. Parse failure loses your output.
+Output bare JSON only (first char `{`, last `}`). No fences or prose.

@@ -37,13 +37,6 @@ Your context may include reports from other archetypes. Triage them:
   your implementation on fixing those failures — do not re-implement from
   scratch.
 
-## Focus Areas
-
-- Code correctness and test coverage.
-- Clean, maintainable implementation that follows project conventions.
-- Making failing tests pass without deleting or weakening them.
-- Adherence to project coding patterns (naming, structure, idioms).
-
 ## Session Summary
 
 After quality gates pass (or on session failure), write a structured session
@@ -59,10 +52,3 @@ summary before committing.
    - `assumptions` (optional, array of strings): Things that might not hold for later groups.
    - `tests_added_or_modified` (array of `{path, description}`): Test files changed. Use `[]` when none.
 5. **On failure:** Still write the summary. Always include `tests_added_or_modified`.
-
-## Output Format
-
-- Session summary: what was attempted, what succeeded, what remains.
-- List of files created or modified.
-- Test results from quality-gate commands.
-- Subtask states updated automatically by the orchestrator.

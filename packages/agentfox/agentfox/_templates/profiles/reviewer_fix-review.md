@@ -21,11 +21,9 @@ alone and produce a single overall verdict.
 
 ## Constraints
 
-May run the test and lint commands defined in `tasks.json` (rendered in your
-context under `## Test Commands`): use `spec_tests` or `all_tests` for tests
-and `linter` for linting. May also run `make check`. May use `ls`, `cat`,
-`git`, `grep`, `find`, `head`, `tail`, `wc`, `make` for exploration.
-Do NOT create, modify, or delete source files.
+Read-only session. Do not create, modify, or delete any files.
+Run tests via `spec_tests`, `all_tests`, `linter` from `## Test Commands`,
+or `make check`.
 
 ## Output Format
 
@@ -39,7 +37,4 @@ Your output is a JSON object with:
   individual verdict is `FAIL`.
 - `summary` (required): brief summary of findings
 
-## CRITICAL OUTPUT RULES
-
-Your final message MUST be bare JSON — first character `{`, last `}`.
-No markdown fences, no prose before or after.
+Output bare JSON only (first char `{`, last `}`). No fences or prose.
