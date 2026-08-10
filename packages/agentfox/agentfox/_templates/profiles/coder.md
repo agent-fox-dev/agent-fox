@@ -52,42 +52,12 @@ summary before committing.
 1. **File path:** `.agent-fox/session-summary.json` in the worktree.
 2. **Do NOT commit this file.** It is a transient artifact read by the
    orchestrator and deleted after processing.
-3. **Schema:**
-
-```json
-{
-  "summary": "What was surprising or non-obvious about the implementation. Include task group number and spec name, but focus on learnings rather than completion status. Target ~500-1000 characters of genuinely useful context.",
-  "rejected_approaches": [
-    {
-      "approach": "Used library Y for parsing",
-      "reason": "Too slow for large datasets — 10x slower than hand-rolled parser"
-    }
-  ],
-  "gotchas": [
-    "DuckDB closes connection on fork — must re-open after subprocess calls",
-    "Empty arrays serialize as null in some JSON paths"
-  ],
-  "assumptions": [
-    "Spec 10 will not remove the session_summaries table",
-    "DuckDB version >= 0.9 is available in CI"
-  ],
-  "tests_added_or_modified": [
-    {
-      "path": "tests/unit/test_example.py",
-      "description": "validates input parsing edge cases"
-    }
-  ]
-}
-```
-
-4. **Field rules:**
-   - `summary` (~500-1000 chars): What was surprising or non-obvious — edge
-     cases, API quirks, design decisions. Include task group and spec name.
-     Write what you wish the previous coder had told you.
-   - `rejected_approaches` (optional): Dead ends, so future coders skip them.
-   - `gotchas` (optional): Fragile patterns, race conditions, serialization quirks.
-   - `assumptions` (optional): Things that might not hold for later groups.
-   - `tests_added_or_modified`: Test files changed. Use `[]` when none.
+3. **Schema** (JSON object with these fields):
+   - `summary` (string, ~500-1000 chars): What was surprising or non-obvious — edge cases, API quirks, design decisions. Include task group and spec name.
+   - `rejected_approaches` (optional, array of `{approach, reason}`): Dead ends so future coders skip them.
+   - `gotchas` (optional, array of strings): Fragile patterns, race conditions, serialization quirks.
+   - `assumptions` (optional, array of strings): Things that might not hold for later groups.
+   - `tests_added_or_modified` (array of `{path, description}`): Test files changed. Use `[]` when none.
 5. **On failure:** Still write the summary. Always include `tests_added_or_modified`.
 
 ## Output Format
