@@ -202,6 +202,7 @@ class TestResolvedSessionParamsCompaction:
             max_budget_usd=20.0,
             effort="high",
             compaction=True,
+            cache_policy="DEFAULT",
         )
         assert params.compaction is True
 

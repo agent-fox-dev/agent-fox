@@ -555,7 +555,11 @@ class PlanningConfig(BaseModel):
 
 
 class CachePolicy(StrEnum):
-    """Prompt caching strategy for auxiliary API calls.
+    """Prompt caching strategy for API calls.
+
+    Applied to both auxiliary API calls (knowledge extraction, complexity
+    assessment) via ``cached_messages_create()`` and main coding sessions
+    via the Backend Protocol's ``cache_policy`` parameter.
 
     Requirements: 77-REQ-1.1, 77-REQ-1.3, 77-REQ-1.4, 77-REQ-1.5
     """

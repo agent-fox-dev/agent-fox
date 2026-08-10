@@ -520,13 +520,15 @@ class NodeSessionRunner:
         )
 
         logger.info(
-            "Session %s: max_turns=%s, max_budget_usd=%s, thinking=%s, effort=%s, compaction=%s, timeout_override=%s",
+            "Session %s: max_turns=%s, max_budget_usd=%s, thinking=%s, effort=%s, compaction=%s, "
+            "cache_policy=%s, timeout_override=%s",
             node_id,
             params.max_turns,
             params.max_budget_usd,
             params.thinking,
             params.effort,
             params.compaction,
+            params.cache_policy,
             self._timeout_override,
         )
 
@@ -548,6 +550,7 @@ class NodeSessionRunner:
             compaction=params.compaction,
             session_timeout=self._timeout_override,
             archetype=self._archetype,
+            cache_policy=params.cache_policy,
         )
 
     async def _harvest_and_integrate(

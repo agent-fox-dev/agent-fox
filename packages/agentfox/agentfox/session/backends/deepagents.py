@@ -327,6 +327,7 @@ class DeepAgentsBackend:
         thinking: dict[str, Any] | None = None,
         effort: str | None = None,
         compaction: bool = False,
+        cache_policy: str = "NONE",
         **kwargs: Any,
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session via Deep Agents and yield canonical messages.

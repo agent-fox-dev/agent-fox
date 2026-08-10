@@ -343,6 +343,7 @@ class ResolvedSessionParams:
     max_budget_usd: float | None
     effort: str
     compaction: bool
+    cache_policy: str
 
 
 def resolve_session_params(
@@ -355,7 +356,8 @@ def resolve_session_params(
     """Resolve all SDK session parameters in one call.
 
     Consolidates the repeated pattern of calling resolve_max_turns,
-    resolve_thinking, resolve_max_budget, and resolve_effort.
+    resolve_thinking, resolve_max_budget, resolve_effort, and
+    cache_policy resolution.
     """
     max_turns = (
         max_turns_override if max_turns_override is not None else resolve_max_turns(config, archetype, mode=mode)
@@ -364,6 +366,7 @@ def resolve_session_params(
     budget = resolve_max_budget(config, archetype)
     effort = resolve_effort(config, archetype, mode=mode)
     compaction = resolve_compaction(config, archetype, mode=mode)
+    cache_policy = config.caching.cache_policy.value
 
     return ResolvedSessionParams(
         max_turns=max_turns,
@@ -371,4 +374,5 @@ def resolve_session_params(
         max_budget_usd=budget,
         effort=effort,
         compaction=compaction,
+        cache_policy=cache_policy,
     )
