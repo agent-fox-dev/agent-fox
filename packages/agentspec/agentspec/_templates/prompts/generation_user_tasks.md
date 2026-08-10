@@ -51,6 +51,9 @@ The `traceability` array links requirements to test specs and tasks. One entry p
 
 Reference both requirement IDs and test IDs from the previously generated artifacts in subtask `requirement_refs` and `test_spec_refs` fields.
 
+### Subtask refs (MANDATORY)
+Every subtask MUST have non-empty `requirement_refs` and `test_spec_refs`. These fields control scoped rendering — when they are empty, the entire requirements and test spec are dumped into the coding session (~15,000+ extra tokens). Populate both fields for every subtask by cross-referencing the requirement IDs and test spec IDs from the previously generated artifacts.
+
 ### Smoke test authoring
 Every smoke test in test_spec.json (TS-{spec_id}-SMOKE-*) must have a corresponding authoring subtask in an earlier test-writing group. Do not defer smoke test creation to the wiring_verification group — that group only *runs* smoke tests, it does not write them.
 

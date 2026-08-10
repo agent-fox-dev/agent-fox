@@ -572,7 +572,7 @@ class TestSubtaskOverloadAlwaysWarned:
         )
         result = validate(spec)
 
-        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w) and "references" in str(w)]
         assert len(overload_warnings) == 0, (
             f"Subtask 1.1 has {num_refs} refs (<=8) but got a warning: {overload_warnings}"
         )
