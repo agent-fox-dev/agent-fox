@@ -51,11 +51,19 @@ class Backend(Protocol):
         thinking: dict[str, Any] | None = None,
         effort: str | None = None,
         compaction: bool = False,
+        cache_policy: str = "NONE",
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session and yield canonical messages.
 
         Parameters match ``ClaudeBackend.execute()`` exactly so that all
         concrete backends satisfy this Protocol structurally.
+
+        The ``cache_policy`` parameter conveys the orchestrator's caching
+        preference (``"NONE"``, ``"DEFAULT"``, ``"EXTENDED"``).  Backends
+        that manage their own API calls can use this to apply
+        ``cache_control`` markers.  Backends wrapping an external SDK
+        (e.g. Claude CLI subprocess) log the policy for observability
+        but rely on the SDK's internal caching.
         """
         ...
 

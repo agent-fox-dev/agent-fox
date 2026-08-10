@@ -83,6 +83,7 @@ class ClaudeBackend:
         thinking: dict[str, Any] | None = None,
         effort: str | None = None,
         compaction: bool = False,
+        cache_policy: str = "NONE",
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session via the Claude SDK and yield canonical messages.
 
@@ -92,9 +93,19 @@ class ClaudeBackend:
         On SDK streaming errors, yields a ``ResultMessage`` with
         ``is_error=True`` instead of propagating the exception.
 
+        The ``cache_policy`` is logged for observability.  The Claude CLI
+        subprocess manages its own prompt caching via the Anthropic API;
+        this parameter records the orchestrator's caching intent so cache
+        hit metrics can be correlated with policy.
+
         Requirements: 26-REQ-2.3, 26-REQ-2.E1, 56-REQ-1.2, 56-REQ-2.2,
                       56-REQ-4.2, 56-REQ-5.E1
         """
+        if cache_policy != "NONE":
+            logger.debug(
+                "ClaudeBackend: cache_policy=%s (CLI manages caching internally)",
+                cache_policy,
+            )
         # Build the can_use_tool callback if a permission_callback is provided
         can_use_tool = None
         if permission_callback is not None:

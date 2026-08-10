@@ -65,6 +65,43 @@ async def with_timeout[T](
     return await asyncio.wait_for(coro, timeout=timeout_minutes * 60)
 
 
+def _log_cache_metrics(outcome: SessionOutcome, cache_policy: str) -> None:
+    """Log prompt cache performance metrics after a session completes."""
+    total_input = (
+        outcome.input_tokens
+        + outcome.cache_read_input_tokens
+        + outcome.cache_creation_input_tokens
+    )
+    if total_input == 0:
+        return
+
+    cache_read = outcome.cache_read_input_tokens
+    cache_creation = outcome.cache_creation_input_tokens
+    cache_total = cache_read + cache_creation
+
+    if cache_total > 0:
+        hit_pct = (cache_read / total_input) * 100 if total_input > 0 else 0
+        logger.info(
+            "Session %s cache metrics: policy=%s, total_input=%d, "
+            "cache_read=%d (%.1f%%), cache_creation=%d, uncached=%d",
+            outcome.node_id,
+            cache_policy,
+            total_input,
+            cache_read,
+            hit_pct,
+            cache_creation,
+            outcome.input_tokens,
+        )
+    else:
+        logger.info(
+            "Session %s cache metrics: policy=%s, total_input=%d, "
+            "no cache activity (cache_read=0, cache_creation=0)",
+            outcome.node_id,
+            cache_policy,
+            total_input,
+        )
+
+
 async def run_session(
     workspace: WorkspaceInfo,
     node_id: str,
@@ -85,6 +122,7 @@ async def run_session(
     compaction: bool = False,
     session_timeout: int | None = None,
     archetype: str | None = None,
+    cache_policy: str = "NONE",
 ) -> SessionOutcome:
     """Execute a coding session in the given workspace.
 
@@ -119,6 +157,9 @@ async def run_session(
         session_timeout: Optional session timeout in minutes. When set, overrides
             config.orchestrator.session_timeout for this session.
             Requirements: 75-REQ-3.2, 75-REQ-3.5
+        cache_policy: Caching policy string (``"NONE"``, ``"DEFAULT"``,
+            ``"EXTENDED"``).  Passed through to the backend for
+            observability and backend-specific caching behaviour.
 
     Requirements: 26-REQ-1.E1, 26-REQ-2.4, 26-REQ-3.4, 26-REQ-4.4
     """
@@ -165,6 +206,7 @@ async def run_session(
                     effort=effort,
                     compaction=compaction,
                     archetype=archetype,
+                    cache_policy=cache_policy,
                 ),
                 timeout_minutes=effective_timeout,
             )
@@ -188,7 +230,7 @@ async def run_session(
         # timeout, error, or asyncio cancellation.
         await backend.close()
 
-    return SessionOutcome(
+    outcome = SessionOutcome(
         spec_name=workspace.spec_name,
         task_group=str(workspace.task_group),
         node_id=node_id,
@@ -202,6 +244,10 @@ async def run_session(
         response=state.last_response,
         is_transport_error=state.is_transport_error,
     )
+
+    _log_cache_metrics(outcome, cache_policy)
+
+    return outcome
 
 
 async def _execute_query(
@@ -224,6 +270,7 @@ async def _execute_query(
     effort: str | None = None,
     compaction: bool = False,
     archetype: str | None = None,
+    cache_policy: str = "NONE",
 ) -> None:
     """Execute the query via the Backend adapter and collect results.
 
@@ -281,6 +328,7 @@ async def _execute_query(
         thinking=thinking,
         effort=effort,
         compaction=compaction,
+        cache_policy=cache_policy,
     ):
         is_result = isinstance(message, ResultMessage)
 
