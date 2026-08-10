@@ -19,7 +19,7 @@ members = [
 
 [[package]]
 name = "af"
-version = "4.3.4"
+version = "4.3.5"
 source = { editable = "packages/af" }
 dependencies = [
     { name = "afaudit" },
@@ -40,12 +40,12 @@ requires-dist = [
 
 [[package]]
 name = "afaudit"
-version = "4.3.4"
+version = "4.3.5"
 source = { editable = "packages/afaudit" }
 
 [[package]]
 name = "afissues"
-version = "4.3.4"
+version = "4.3.5"
 source = { editable = "packages/afissues" }
 dependencies = [
     { name = "httpx" },
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "agent-fox"
-version = "4.3.4"
+version = "4.3.5"
 source = { virtual = "." }
 dependencies = [
     { name = "af" },
@@ -107,7 +107,7 @@ dev = [
 
 [[package]]
 name = "agentfox"
-version = "4.3.4"
+version = "4.3.5"
 source = { editable = "packages/agentfox" }
 dependencies = [
     { name = "afaudit" },
@@ -1681,7 +1681,7 @@ wheels = [
 
 [[package]]
 name = "nightshift"
-version = "4.3.4"
+version = "4.3.5"
 source = { editable = "packages/nightshift" }
 dependencies = [
     { name = "afaudit" },

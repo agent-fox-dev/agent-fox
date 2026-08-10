@@ -52,7 +52,7 @@ class TestAgentfoxDependency:
     """
 
     def test_afaudit_in_agentfox_dependencies(self) -> None:
-        """agentfox must list afaudit>=4.3.4 in [project.dependencies]."""
+        """agentfox must list afaudit>=4.3.5 in [project.dependencies]."""
         with open(AGENTFOX_PKG / "pyproject.toml", "rb") as f:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
@@ -60,7 +60,7 @@ class TestAgentfoxDependency:
         assert len(matching) > 0, f"afaudit not found in agentfox [project.dependencies]; current deps: {deps}"
         # Verify version constraint
         dep_str = matching[0]
-        assert "4.3.4" in dep_str, f"Expected version constraint with 4.3.4, got: {dep_str}"
+        assert "4.3.5" in dep_str, f"Expected version constraint with 4.3.5, got: {dep_str}"
 
 
 class TestNoOldImportPaths:
