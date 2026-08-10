@@ -1,4 +1,4 @@
-"""Archetype profile loading for 3-layer prompt assembly.
+"""Archetype profile loading for prompt assembly.
 
 Profiles are markdown files that define archetype behavioral guidance
 (identity, rules, focus areas, output format). They are loaded from:

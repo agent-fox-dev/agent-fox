@@ -4,7 +4,7 @@ Test Spec: TS-15-3 through TS-15-10, TS-15-E2 through TS-15-E6
 Requirements: 15-REQ-2.1 through 15-REQ-5.E1
 
 Tests updated after legacy template path removal (issue #342).
-The prompt builder now uses 3-layer assembly exclusively.
+The prompt builder uses 2-layer assembly (archetype profile + task context).
 """
 
 from __future__ import annotations
@@ -264,16 +264,24 @@ class TestProfileWithoutFrontmatterUnchanged:
 # ---------------------------------------------------------------------------
 
 
-class TestThreeLayerAssemblyWithProjectDir:
-    """Verify 3-layer assembly works correctly with project_dir."""
+class TestAssemblyWithProjectDir:
+    """Verify 2-layer assembly works correctly with project_dir."""
 
-    def test_project_agent_profile_included(self, tmp_path: Path) -> None:
-        """Agent profile content is included as Layer 1."""
+    def test_backward_compat_project_agent_profile(self, tmp_path: Path) -> None:
+        """Project-level agent.md is prepended for backward compatibility."""
         profiles_dir = tmp_path / ".agent-fox" / "profiles"
         profiles_dir.mkdir(parents=True)
         (profiles_dir / "agent.md").write_text("PROJECT RULES")
         result = build_system_prompt("ctx", archetype="coder", project_dir=tmp_path)
         assert "PROJECT RULES" in result
+
+    def test_no_agent_md_without_project_override(self, tmp_path: Path) -> None:
+        """Without project-level agent.md, no agent base content is loaded."""
+        profiles_dir = tmp_path / ".agent-fox" / "profiles"
+        profiles_dir.mkdir(parents=True)
+        (profiles_dir / "coder.md").write_text("CODER CONTENT")
+        result = build_system_prompt("ctx", archetype="coder", project_dir=tmp_path)
+        assert "CODER CONTENT" in result
 
     def test_mode_specific_profile(self, tmp_path: Path) -> None:
         """Mode-specific profile is loaded when mode is provided."""

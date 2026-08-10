@@ -18,10 +18,42 @@ BUILTIN_ARCHETYPES = ["coder", "reviewer", "verifier", "maintainer"]
 @given(st.sampled_from(BUILTIN_ARCHETYPES))
 @settings(max_examples=4)
 def test_layer_order(archetype: str) -> None:
-    """TS-99-P1: Agent base always precedes profile precedes task context.
+    """TS-99-P1: Archetype profile always precedes task context.
 
-    Property: For any archetype, the three prompt layers appear in order.
+    Property: For any archetype, the two prompt layers appear in order.
     Requirement: 99-REQ-1.1
+    """
+    from agentfox.session.prompt import build_system_prompt
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        profiles_dir = tmp_dir / ".agent-fox" / "profiles"
+        profiles_dir.mkdir(parents=True)
+        marker = f"PROFILE_{archetype.upper()}_CONTENT"
+        (profiles_dir / f"{archetype}.md").write_text(marker)
+
+        prompt = build_system_prompt(
+            "TASK_CONTEXT_MARKER",
+            archetype=archetype,
+            project_dir=tmp_dir,
+        )
+
+        assert marker in prompt
+        assert "TASK_CONTEXT_MARKER" in prompt
+
+        idx_profile = prompt.index(marker)
+        idx_task = prompt.index("TASK_CONTEXT_MARKER")
+        assert idx_profile < idx_task
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@given(st.sampled_from(BUILTIN_ARCHETYPES))
+@settings(max_examples=4)
+def test_backward_compat_agent_md_order(archetype: str) -> None:
+    """Backward compat: project agent.md precedes archetype profile.
+
+    Property: When project-level agent.md exists, it is prepended.
     """
     from agentfox.session.prompt import build_system_prompt
 

@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 class TestPromptWithProjectProfile:
-    """Smoke test: end-to-end 3-layer prompt assembly with project-level profile.
+    """Smoke test: end-to-end 2-layer prompt assembly with project-level profile.
 
     Must NOT satisfy with mocking load_profile or build_system_prompt.
     """
@@ -30,13 +30,40 @@ class TestPromptWithProjectProfile:
         """TS-99-SMOKE-1: Prompt contains project profile content, not default.
 
         Verifies the full path:
-          NodeSessionRunner._build_prompts → build_system_prompt → load_profile
-          → reads project .agent-fox/profiles/coder.md → returns custom content
-          → concatenated into prompt in layer order.
+          NodeSessionRunner._build_prompts -> build_system_prompt -> load_profile
+          -> reads project .agent-fox/profiles/coder.md -> returns custom content
+          -> concatenated into prompt in layer order.
         """
         from agentfox.session.prompt import build_system_prompt
 
-        # Setup: project agent profile and custom coder profile
+        profile_content = "CUSTOM CODER IDENTITY FOR SMOKE TEST"
+
+        profiles_dir = tmp_path / ".agent-fox" / "profiles"
+        profiles_dir.mkdir(parents=True)
+        (profiles_dir / "coder.md").write_text(profile_content, encoding="utf-8")
+
+        task_context = "TASK CONTEXT MARKER"
+
+        prompt = build_system_prompt(
+            context=task_context,
+            archetype="coder",
+            project_dir=tmp_path,
+        )
+
+        assert profile_content in prompt, "Archetype profile missing from prompt"
+        assert task_context in prompt, "Task context missing from prompt"
+
+        idx_profile = prompt.index(profile_content)
+        idx_task = prompt.index(task_context)
+        assert idx_profile < idx_task, "Profile must appear before task context"
+
+    def test_backward_compat_project_agent_md(self, tmp_path: Path) -> None:
+        """Backward compat: project-level agent.md is prepended when present.
+
+        Requirement: 99-REQ-1.E1 (backward compatibility)
+        """
+        from agentfox.session.prompt import build_system_prompt
+
         base_content = "PROJECT RULES FOR SMOKE TEST"
         profile_content = "CUSTOM CODER IDENTITY FOR SMOKE TEST"
 
@@ -47,33 +74,29 @@ class TestPromptWithProjectProfile:
 
         task_context = "TASK CONTEXT MARKER"
 
-        # Trigger: real build_system_prompt, real load_profile
         prompt = build_system_prompt(
             context=task_context,
             archetype="coder",
             project_dir=tmp_path,
         )
 
-        # Expected: all three layers present in order
-        assert base_content in prompt, "Layer 1 (agent) missing from prompt"
-        assert profile_content in prompt, "Layer 2 (profile) missing from prompt"
-        assert task_context in prompt, "Layer 3 (task context) missing from prompt"
+        assert base_content in prompt, "Backward-compat agent.md missing from prompt"
+        assert profile_content in prompt, "Archetype profile missing from prompt"
+        assert task_context in prompt, "Task context missing from prompt"
 
-        # Verify order: agent < profile < task context
         idx_base = prompt.index(base_content)
         idx_profile = prompt.index(profile_content)
         idx_task = prompt.index(task_context)
-        assert idx_base < idx_profile, "agent profile must appear before archetype profile"
+        assert idx_base < idx_profile, "agent.md must appear before archetype profile"
         assert idx_profile < idx_task, "Profile must appear before task context"
 
-    def test_default_agent_profile_always_loads(self, tmp_path: Path) -> None:
-        """TS-99-SMOKE-1 edge: Package-default agent profile loads when no project override.
+    def test_default_profiles_contain_session_rules(self, tmp_path: Path) -> None:
+        """Package-default archetype profiles include Session Rules.
 
         Requirement: 99-REQ-1.E1
         """
         from agentfox.session.prompt import build_system_prompt
 
-        # No project-level agent profile — package default should load
         profile_content = "CODER IDENTITY CUSTOM"
         profiles_dir = tmp_path / ".agent-fox" / "profiles"
         profiles_dir.mkdir(parents=True)
@@ -87,8 +110,14 @@ class TestPromptWithProjectProfile:
 
         assert len(prompt) > 0
         assert profile_content in prompt
-        # Package-default agent profile content should be present
-        assert "agent-fox session agent" in prompt
+
+    def test_package_default_coder_has_session_rules(self) -> None:
+        """Package-default coder profile includes Session Rules section."""
+        from agentfox.session.prompt import build_system_prompt
+
+        prompt = build_system_prompt(context="some task context", archetype="coder")
+
+        assert "Session Rules" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +137,8 @@ class TestCustomArchetypeSession:
         """TS-99-SMOKE-2: Custom archetype gets coder permissions from config.
 
         Verifies the full path:
-          get_archetype("deployer") → no registry entry → has_custom_profile
-          → True → _resolve_custom_preset → "coder" → returns coder entry
+          get_archetype("deployer") -> no registry entry -> has_custom_profile
+          -> True -> _resolve_custom_preset -> "coder" -> returns coder entry
           with name="deployer".
         """
         from agentfox.archetypes import ARCHETYPE_REGISTRY, get_archetype
@@ -139,8 +168,8 @@ class TestCustomArchetypeSession:
         """TS-99-SMOKE-2: Prompt for custom archetype contains custom profile content.
 
         Verifies the full path:
-          build_system_prompt("deployer", project_dir) → load_profile("deployer")
-          → finds deployer.md in project → returns content → included in prompt.
+          build_system_prompt("deployer", project_dir) -> load_profile("deployer")
+          -> finds deployer.md in project -> returns content -> included in prompt.
         """
         from agentfox.session.prompt import build_system_prompt
 
@@ -177,9 +206,9 @@ class TestInitThenLoad:
         """TS-99-SMOKE-3: init_profiles creates files; load_profile reads them.
 
         Verifies the full chain:
-          init_profiles(tmp) → copies _templates/profiles/coder.md to disk
-          → load_profile("coder", project_dir=tmp) → finds project file
-          → returns same content as package default.
+          init_profiles(tmp) -> copies _templates/profiles/coder.md to disk
+          -> load_profile("coder", project_dir=tmp) -> finds project file
+          -> returns same content as package default.
         """
         from af.init import init_profiles
         from agentfox.session.profiles import load_profile

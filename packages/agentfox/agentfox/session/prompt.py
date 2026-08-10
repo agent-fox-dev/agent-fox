@@ -1,7 +1,8 @@
 """Prompt building: system prompt assembly and task prompt construction.
 
-Assembles a 3-layer system prompt from agent base profile,
-archetype profile, and task context.
+Assembles a 2-layer system prompt from archetype profile and task context.
+Backward-compatible: project-level agent.md overrides are still loaded
+and prepended when present.
 
 Requirements: 15-REQ-2.2, 15-REQ-5.1 through 15-REQ-5.E1,
               99-REQ-1.1, 99-REQ-1.E1, 99-REQ-1.E2
@@ -9,6 +10,7 @@ Requirements: 15-REQ-2.2, 15-REQ-5.1 through 15-REQ-5.E1,
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 # Re-export symbols that external code imports from this module.
@@ -23,11 +25,13 @@ from agentfox.session.context import (  # noqa: F401
     render_review_context,
     render_verification_context,
 )
-from agentfox.session.profiles import load_profile
+from agentfox.session.profiles import has_custom_profile, load_profile
 from agentfox.session.steering import (  # noqa: F401
     STEERING_PLACEHOLDER_SENTINEL,
     load_steering,
 )
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # build_system_prompt
@@ -43,14 +47,17 @@ def build_system_prompt(
     mode: str | None = None,
     project_dir: Path | None = None,
 ) -> str:
-    """Build the system prompt using 3-layer assembly.
+    """Build the system prompt using 2-layer assembly.
 
     Assembles a prompt from:
-      - Layer 1: Agent base profile from ``agent.md`` (loaded via
-        :func:`load_profile`; omits if not found).
-      - Layer 2: Archetype profile loaded via :func:`load_profile`, with
-        mode-aware resolution.
-      - Layer 3: Task context (the *context* argument).
+      - Layer 1: Archetype profile loaded via :func:`load_profile`, with
+        mode-aware resolution.  Session rules (formerly in ``agent.md``)
+        are now embedded directly in each archetype profile.
+      - Layer 2: Task context (the *context* argument).
+
+    **Backward compatibility:** If a project-level ``agent.md`` override
+    exists in ``.agent-fox/profiles/``, its content is prepended to the
+    archetype profile with a deprecation warning logged.
 
     Args:
         context: Assembled spec documents and memory facts (task context).
@@ -61,7 +68,7 @@ def build_system_prompt(
         mode: Optional archetype mode variant for mode-specific profile
             resolution (e.g. ``"fix"`` loads ``coder_fix.md``).
         project_dir: Root of the project directory.  When provided, enables
-            project-level profile overrides for both Layer 1 and Layer 2.
+            project-level profile overrides.
 
     Returns:
         Complete system prompt string.
@@ -72,17 +79,23 @@ def build_system_prompt(
 
     layers: list[str] = []
 
-    # Layer 1: agent base profile (replaces CLAUDE.md)
-    base_profile = load_profile("agent", project_dir=project_dir)
-    if base_profile:
-        layers.append(base_profile)
+    # Backward compat: load project-level agent.md if it exists
+    if project_dir is not None and has_custom_profile("agent", project_dir):
+        base_profile = load_profile("agent", project_dir=project_dir)
+        if base_profile:
+            _logger.warning(
+                "Project-level agent.md is deprecated; merge its content "
+                "into archetype profiles and remove "
+                ".agent-fox/profiles/agent.md"
+            )
+            layers.append(base_profile)
 
-    # Layer 2: archetype profile — empty string if not found (99-REQ-1.E2)
+    # Archetype profile — empty string if not found (99-REQ-1.E2)
     profile = load_profile(resolved, project_dir=project_dir, mode=mode)
     if profile:
         layers.append(profile)
 
-    # Layer 3: task context
+    # Task context
     layers.append(f"## Context\n\n{context}\n")
 
     return "\n\n".join(layers)
