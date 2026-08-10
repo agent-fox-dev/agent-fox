@@ -9,6 +9,8 @@ for cross-implementation compatibility.
 from __future__ import annotations
 
 import json
+import logging
+import re
 from typing import Any
 
 from afspec.ears import render_ears_sentence
@@ -16,9 +18,12 @@ from afspec.models import (
     Requirements,
     Spec,
     SubtaskState,
+    TaskGroup,
     Tasks,
     TestSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helper: format JSON value for display in markdown
@@ -762,13 +767,83 @@ def render_tasks_scoped(t: Tasks, target_group: int) -> str:
     return "\n".join(lines)
 
 
+_REQ_ID_RE = re.compile(r"\b(\w+-REQ-\d+(?:\.\d+|\.E\d+)?)\b")
+_TS_ID_RE = re.compile(r"\b(TS-\w+-(?:\d+|P\d+|E\d+|SMOKE-\d+))\b")
+
+
+def _infer_refs_from_traceability(
+    spec: Spec,
+    target_group: int,
+) -> tuple[set[str], set[str]]:
+    """Infer requirement and test spec refs from the traceability table.
+
+    Looks up traceability entries whose ``task_id`` belongs to the target
+    group (prefix ``"{target_group}."``) and collects the associated
+    ``requirement_id`` and ``test_spec_id`` values.
+    """
+    prefix = f"{target_group}."
+    requirement_ids: set[str] = set()
+    test_spec_ids: set[str] = set()
+    for entry in spec.tasks.traceability:
+        if entry.task_id.startswith(prefix):
+            if entry.requirement_id:
+                requirement_ids.add(entry.requirement_id)
+            if entry.test_spec_id:
+                test_spec_ids.add(entry.test_spec_id)
+    return requirement_ids, test_spec_ids
+
+
+def _infer_refs_from_subtask_text(
+    spec: Spec,
+    group: TaskGroup,
+) -> tuple[set[str], set[str]]:
+    """Infer refs by scanning subtask title and details for ID patterns.
+
+    Matches found IDs against the actual requirement and test spec IDs
+    present in the spec to avoid false positives.
+    """
+    all_req_ids: set[str] = {r.id for r in spec.requirements.requirements}
+    for r in spec.requirements.requirements:
+        for c in r.acceptance_criteria:
+            all_req_ids.add(c.id)
+        for c in r.edge_cases:
+            all_req_ids.add(c.id)
+
+    all_ts_ids: set[str] = set()
+    for tc in spec.test_spec.test_cases:
+        all_ts_ids.add(tc.id)
+    for pt in spec.test_spec.property_tests:
+        all_ts_ids.add(pt.id)
+    for et in spec.test_spec.edge_case_tests:
+        all_ts_ids.add(et.id)
+    for st in spec.test_spec.smoke_tests:
+        all_ts_ids.add(st.id)
+
+    requirement_ids: set[str] = set()
+    test_spec_ids: set[str] = set()
+
+    for subtask in group.subtasks:
+        text_parts = [subtask.title] + subtask.details
+        for text in text_parts:
+            for match in _REQ_ID_RE.finditer(text):
+                candidate = match.group(1)
+                if candidate in all_req_ids:
+                    requirement_ids.add(candidate)
+            for match in _TS_ID_RE.finditer(text):
+                candidate = match.group(1)
+                if candidate in all_ts_ids:
+                    test_spec_ids.add(candidate)
+
+    return requirement_ids, test_spec_ids
+
+
 def render_individual_scoped(spec: Spec, target_group: int) -> dict[str, str]:
     """Render each spec artifact scoped to a target task group.
 
     Collects ``requirement_refs`` and ``test_spec_refs`` from the target
     group's subtasks and filters requirements/test specs accordingly.
-    Falls back to unscoped rendering when the target group has no refs
-    (backward compatibility with older specs).
+    When subtask refs are empty, attempts inference from the traceability
+    table and subtask text before falling back to unscoped rendering.
     """
     group = None
     for tg in spec.tasks.task_groups:
@@ -786,9 +861,21 @@ def render_individual_scoped(spec: Spec, target_group: int) -> dict[str, str]:
         test_spec_ids.update(subtask.test_spec_refs)
 
     if not requirement_ids and not test_spec_ids:
-        result = render_individual(spec)
-        result["tasks"] = render_tasks_scoped(spec.tasks, target_group)
-        return result
+        inferred_req, inferred_ts = _infer_refs_from_traceability(spec, target_group)
+        if not inferred_req and not inferred_ts:
+            inferred_req, inferred_ts = _infer_refs_from_subtask_text(spec, group)
+        if inferred_req or inferred_ts:
+            logger.info(
+                "Inferred %d requirement_refs and %d test_spec_refs for group %d "
+                "(subtasks had no refs)",
+                len(inferred_req), len(inferred_ts), target_group,
+            )
+            requirement_ids = inferred_req
+            test_spec_ids = inferred_ts
+        else:
+            result = render_individual(spec)
+            result["tasks"] = render_tasks_scoped(spec.tasks, target_group)
+            return result
 
     result: dict[str, str] = {}
     result["prd"] = spec.prd.body

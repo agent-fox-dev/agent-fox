@@ -295,26 +295,29 @@ class TestEmptyRefsNoOverloadWarning:
     """TS-08-E7: missing or empty test_spec_refs treated as zero, no warning."""
 
     def test_no_test_spec_refs_field(self) -> None:
-        """Subtask with no test_spec_refs set (defaults to []): no warning."""
+        """Subtask with no test_spec_refs set (defaults to []): no overload warning."""
         spec = _build_spec_with_subtask_refs([-1])  # -1 = no field set
         result = validate(spec)
-        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w) and "references" in str(w)]
         assert len(overload_warnings) == 0, (
             f"Expected no overload warning for subtask with no test_spec_refs, got: {overload_warnings}"
         )
 
     def test_empty_test_spec_refs_list(self) -> None:
-        """Subtask with explicitly empty test_spec_refs=[]: no warning."""
+        """Subtask with explicitly empty test_spec_refs=[]: no overload warning."""
         spec = _build_spec_with_subtask_refs([0])
         result = validate(spec)
-        overload_warnings = [w for w in result.warnings if "1.2" in str(w)]
+        overload_warnings = [w for w in result.warnings if "1.2" in str(w) and "references" in str(w)]
         assert len(overload_warnings) == 0
 
     def test_mixed_no_field_and_empty_list(self) -> None:
-        """Two subtasks: one with no field, one with empty list: no warnings."""
+        """Two subtasks: one with no field, one with empty list: no overload warnings."""
         spec = _build_spec_with_subtask_refs([-1, 0])
         result = validate(spec)
-        overload_warnings = [w for w in result.warnings if "1.1" in str(w) or "1.2" in str(w)]
+        overload_warnings = [
+            w for w in result.warnings
+            if ("1.1" in str(w) or "1.2" in str(w)) and "references" in str(w)
+        ]
         assert len(overload_warnings) == 0, (
             f"Expected no overload warnings for subtasks with no/empty refs, got: {overload_warnings}"
         )

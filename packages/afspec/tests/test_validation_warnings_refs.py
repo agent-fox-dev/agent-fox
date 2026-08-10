@@ -494,8 +494,11 @@ class TestEmptyGroupNoWarning:
         )
 
     def test_group_with_zero_refs_subtasks(self) -> None:
-        """Group with subtasks that have zero test_spec_refs: no warning."""
+        """Group with subtasks that have zero test_spec_refs: no oversized warning."""
         spec = _build_spec_with_refs(total_refs=0)
         result = validate(spec)
-        refs_warnings = [w for w in result.warnings if "test_spec_refs" in str(w).lower()]
+        refs_warnings = [
+            w for w in result.warnings
+            if "test_spec_refs" in str(w).lower() and "limit" in str(w).lower()
+        ]
         assert len(refs_warnings) == 0

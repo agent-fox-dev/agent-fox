@@ -1336,6 +1336,41 @@ def _check_vague_language(spec: Spec) -> list[ValidationWarning]:
 
 
 # ---------------------------------------------------------------------------
+# Missing refs warning — subtasks without requirement_refs / test_spec_refs
+# ---------------------------------------------------------------------------
+
+
+def _check_missing_subtask_refs(group: TaskGroup) -> list[ValidationWarning]:
+    """Warn when subtasks have empty ``requirement_refs`` or ``test_spec_refs``.
+
+    Subtasks without refs prevent scoped rendering from activating,
+    causing full unscoped rendering with ~15,000+ extra tokens.
+    Wiring_verification groups are excluded (different conventions).
+    """
+    if group.kind.value == "wiring_verification":
+        return []
+
+    warnings: list[ValidationWarning] = []
+    for subtask in group.subtasks:
+        missing: list[str] = []
+        if not subtask.requirement_refs:
+            missing.append("requirement_refs")
+        if not subtask.test_spec_refs:
+            missing.append("test_spec_refs")
+        if missing:
+            warnings.append(
+                ValidationWarning(
+                    message=(
+                        f"Subtask {subtask.id} has empty {' and '.join(missing)} "
+                        f"— scoped rendering will fall back to full spec dump"
+                    ),
+                    entity_id=subtask.id,
+                )
+            )
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Scope limit warning
 # ---------------------------------------------------------------------------
 
@@ -1381,6 +1416,7 @@ def validate(spec: Spec) -> ValidationResult:
         warnings.extend(_check_group_test_spec_refs(group))
         warnings.extend(_check_group_subtask_count(group))
         warnings.extend(_check_subtask_overload(group))
+        warnings.extend(_check_missing_subtask_refs(group))
     warnings.extend(_check_error_path_return_contract(spec))
     warnings.extend(_check_vague_language(spec))
     warnings.extend(_check_scope_limit(spec))
