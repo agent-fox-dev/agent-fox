@@ -22,9 +22,18 @@ from afspec.models import (
     ExternalAPI,
     ExternalAPISymbol,
     PathStep,
+    PRDDocument,
     Requirement,
     Requirements,
+    SmokeTest,
+    Spec,
+    Subtask,
+    TaskGroup,
+    Tasks,
+    TestSpec,
+    TraceabilityEntry,
     UserStory,
+    VerificationSubtask,
 )
 from afspec.render import (
     render_requirements_scoped,
@@ -309,7 +318,7 @@ def _make_multi_req_fixture() -> Requirements:
                 id="01-REQ-1.1",
                 ears_pattern=EARSPattern.UBIQUITOUS,
                 system="the system",
-                action="do thing 1",
+                action="do thing 1 using some-lib",
             ),
         ],
         edge_cases=[
@@ -482,43 +491,102 @@ class TestScopedOmissionNotes:
         assert "omitted" not in md
 
 
-class TestScopedExternalAPIsUnfiltered:
-    """TS-NS-4 / NS-REQ-4: External APIs remain unfiltered."""
+class TestScopedExternalAPIsFiltered:
+    """TS-NS-3 / NS-REQ-3: External APIs filtered by package name in AC text."""
 
-    def test_external_apis_always_present(self) -> None:
-        """External APIs section appears regardless of filtered_ids."""
+    def test_in_scope_api_included(self) -> None:
+        """API whose package name appears in in-scope AC text is included."""
         req = _make_multi_req_fixture()
-        # Filter to only REQ-1 — external APIs should still appear
+        # REQ-1 action includes "some-lib" → API included
         md = render_requirements_scoped(req, {"01-REQ-1.1"})
         assert "## External APIs" in md
         assert "some-lib" in md
         assert "func" in md
 
-    def test_external_apis_present_with_no_matching_reqs(self) -> None:
-        """External APIs appear even when no requirements match."""
+    def test_out_of_scope_api_omitted(self) -> None:
+        """API whose package name does not appear in AC text is omitted."""
+        req = _make_multi_req_fixture()
+        req.external_apis.append(
+            ExternalAPI(
+                package="other-lib",
+                version="2.0",
+                symbols=[
+                    ExternalAPISymbol(
+                        name="other_func",
+                        import_path="other_lib",
+                        signature="other_func() -> None",
+                    ),
+                ],
+            ),
+        )
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "some-lib" in md
+        assert "other-lib" not in md
+
+    def test_no_matching_reqs_omits_all_apis(self) -> None:
+        """When no requirements match, all APIs are omitted with a note."""
         req = _make_multi_req_fixture()
         md = render_requirements_scoped(req, {"NONEXISTENT"})
         assert "## External APIs" in md
-        assert "some-lib" in md
+        assert "some-lib" not in md
+        assert "external API packages omitted" in md
+
+    def test_omission_note_shown(self) -> None:
+        """Omission note appears when APIs are filtered out."""
+        req = _make_multi_req_fixture()
+        req.external_apis.append(
+            ExternalAPI(
+                package="unrelated-lib",
+                version="3.0",
+                symbols=[],
+            ),
+        )
+        md = render_requirements_scoped(req, {"01-REQ-1.1"})
+        assert "1 external API packages omitted" in md
 
 
-class TestScopedExecutionPathsUnfiltered:
-    """TS-NS-5 / NS-REQ-5: Execution paths retained in full."""
+class TestScopedExecutionPathsFiltered:
+    """TS-NS-1 / NS-REQ-1, TS-NS-2 / NS-REQ-2: Execution paths filtered by ID set."""
 
-    def test_execution_paths_always_present(self) -> None:
-        """All execution paths appear regardless of scope."""
+    def test_in_scope_path_rendered(self) -> None:
+        """Execution path whose ID is in execution_path_ids is rendered in full."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"}, execution_path_ids={"01-PATH-1"})
+        assert "## Execution Paths" in md
+        assert "01-PATH-1" in md
+        assert "Happy path" in md
+        assert "clicks button" in md
+
+    def test_out_of_scope_path_omitted(self) -> None:
+        """TS-NS-1: Out-of-scope path omitted with summary note."""
+        req = _make_multi_req_fixture()
+        req.execution_paths.append(
+            ExecutionPath(
+                id="01-PATH-2",
+                title="Error path",
+                steps=[PathStep(actor="system", action="returns error")],
+            ),
+        )
+        md = render_requirements_scoped(req, {"01-REQ-1.1"}, execution_path_ids={"01-PATH-1"})
+        assert "01-PATH-1" in md
+        assert "01-PATH-2" not in md
+        assert "execution paths defined" in md
+
+    def test_no_linkage_shows_summary(self) -> None:
+        """TS-NS-2: Empty execution_path_ids → summary only, no step content."""
+        req = _make_multi_req_fixture()
+        md = render_requirements_scoped(req, {"01-REQ-1.1"}, execution_path_ids=set())
+        assert "## Execution Paths" in md
+        assert "clicks button" not in md
+        assert "1 execution paths defined (see full spec for details)" in md
+
+    def test_none_renders_all_paths(self) -> None:
+        """When execution_path_ids is None (backward compat), all paths rendered."""
         req = _make_multi_req_fixture()
         md = render_requirements_scoped(req, {"01-REQ-1.1"})
         assert "## Execution Paths" in md
         assert "01-PATH-1" in md
         assert "Happy path" in md
-
-    def test_execution_paths_present_with_no_matching_reqs(self) -> None:
-        """Execution paths appear even when no requirements match."""
-        req = _make_multi_req_fixture()
-        md = render_requirements_scoped(req, {"NONEXISTENT"})
-        assert "## Execution Paths" in md
-        assert "01-PATH-1" in md
 
 
 class TestRenderTestSpecScoped:
@@ -615,3 +683,228 @@ class TestRenderIndividualScoped:
         unscoped = render_individual(spec)
         assert scoped["requirements"] == unscoped["requirements"]
         assert scoped["test_spec"] == unscoped["test_spec"]
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-4: Unscoped render_requirements unaffected (NS-REQ-4)
+# ---------------------------------------------------------------------------
+
+
+class TestUnscopedRenderUnaffected:
+    """TS-NS-4 / NS-REQ-4: render_requirements renders all paths and APIs."""
+
+    def test_all_execution_paths_rendered(self) -> None:
+        """Unscoped rendering includes all execution paths."""
+        req = _make_multi_req_fixture()
+        req.execution_paths.append(
+            ExecutionPath(
+                id="01-PATH-2",
+                title="Error path",
+                steps=[PathStep(actor="system", action="returns error")],
+            ),
+        )
+        md = render_requirements(req)
+        assert "01-PATH-1" in md
+        assert "01-PATH-2" in md
+        assert "execution paths defined" not in md
+
+    def test_all_external_apis_rendered(self) -> None:
+        """Unscoped rendering includes all external APIs."""
+        req = _make_multi_req_fixture()
+        req.external_apis.append(
+            ExternalAPI(
+                package="other-lib",
+                version="2.0",
+                symbols=[
+                    ExternalAPISymbol(
+                        name="other_func",
+                        import_path="other_lib",
+                        signature="other_func() -> None",
+                    ),
+                ],
+            ),
+        )
+        md = render_requirements(req)
+        assert "some-lib" in md
+        assert "other-lib" in md
+        assert "omitted" not in md
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-5: render_individual_scoped passes execution_path_ids (NS-REQ-5)
+# ---------------------------------------------------------------------------
+
+
+def _make_spec_with_smoke_tests() -> Spec:
+    """Build a Spec with two execution paths and smoke tests referencing them.
+
+    Execution paths: 01-PATH-1 (referenced by SMOKE-1, in scope)
+                     01-PATH-2 (referenced by SMOKE-2, out of scope)
+    Smoke tests: TS-01-SMOKE-1 → 01-PATH-1 (in scope via subtask refs)
+                 TS-01-SMOKE-2 → 01-PATH-2 (out of scope)
+    External APIs: lib-a (referenced in REQ-1 AC text), lib-b (not referenced)
+    """
+    req1 = Requirement(
+        id="01-REQ-1",
+        title="First requirement",
+        user_story=UserStory(role="user", goal="do thing 1", benefit="benefit 1"),
+        acceptance_criteria=[
+            Criterion(
+                id="01-REQ-1.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="the system",
+                action="do thing 1 using lib-a",
+            ),
+        ],
+    )
+    req2 = Requirement(
+        id="01-REQ-2",
+        title="Second requirement",
+        user_story=UserStory(role="admin", goal="do thing 2", benefit="benefit 2"),
+        acceptance_criteria=[
+            Criterion(
+                id="01-REQ-2.1",
+                ears_pattern=EARSPattern.UBIQUITOUS,
+                system="the system",
+                action="do thing 2 using lib-b",
+            ),
+        ],
+    )
+    requirements = Requirements(
+        spec_id="01",
+        spec_name="Test Spec",
+        introduction="Intro",
+        glossary={"term": "definition"},
+        requirements=[req1, req2],
+        execution_paths=[
+            ExecutionPath(
+                id="01-PATH-1",
+                title="Happy path",
+                steps=[PathStep(actor="user", action="clicks button")],
+            ),
+            ExecutionPath(
+                id="01-PATH-2",
+                title="Error path",
+                steps=[PathStep(actor="system", action="returns error")],
+            ),
+        ],
+        external_apis=[
+            ExternalAPI(
+                package="lib-a",
+                version="1.0",
+                symbols=[
+                    ExternalAPISymbol(
+                        name="func_a",
+                        import_path="lib_a",
+                        signature="func_a() -> None",
+                    ),
+                ],
+            ),
+            ExternalAPI(
+                package="lib-b",
+                version="2.0",
+                symbols=[
+                    ExternalAPISymbol(
+                        name="func_b",
+                        import_path="lib_b",
+                        signature="func_b() -> None",
+                    ),
+                ],
+            ),
+        ],
+    )
+    test_spec = TestSpec(
+        spec_id="01",
+        spec_name="Test Spec",
+        smoke_tests=[
+            SmokeTest(
+                id="TS-01-SMOKE-1",
+                execution_path_id="01-PATH-1",
+                description="Happy path smoke test",
+            ),
+            SmokeTest(
+                id="TS-01-SMOKE-2",
+                execution_path_id="01-PATH-2",
+                description="Error path smoke test",
+            ),
+        ],
+    )
+    tasks = Tasks(
+        spec_id="01",
+        spec_name="Test Spec",
+        task_groups=[
+            TaskGroup(
+                id=1,
+                title="Group 1",
+                subtasks=[
+                    Subtask(
+                        id="1.1",
+                        title="Subtask 1.1",
+                        requirement_refs=["01-REQ-1.1"],
+                        test_spec_refs=["TS-01-SMOKE-1"],
+                    ),
+                ],
+                verification=VerificationSubtask(id="1.V", checks=["verify"]),
+            ),
+            TaskGroup(
+                id=2,
+                title="Group 2",
+                subtasks=[
+                    Subtask(
+                        id="2.1",
+                        title="Subtask 2.1",
+                        requirement_refs=["01-REQ-2.1"],
+                        test_spec_refs=["TS-01-SMOKE-2"],
+                    ),
+                ],
+                verification=VerificationSubtask(id="2.V", checks=["verify"]),
+            ),
+        ],
+        traceability=[
+            TraceabilityEntry(
+                requirement_id="01-REQ-1.1",
+                test_spec_id="TS-01-SMOKE-1",
+                task_id="1.1",
+            ),
+            TraceabilityEntry(
+                requirement_id="01-REQ-2.1",
+                test_spec_id="TS-01-SMOKE-2",
+                task_id="2.1",
+            ),
+        ],
+    )
+    return Spec(
+        prd=PRDDocument(body="# PRD\n\n## Intent\n\nTest PRD."),
+        requirements=requirements,
+        test_spec=test_spec,
+        tasks=tasks,
+    )
+
+
+class TestRenderIndividualScopedExecutionPaths:
+    """TS-NS-5 / NS-REQ-5: render_individual_scoped computes execution_path_ids."""
+
+    def test_in_scope_smoke_test_path_rendered(self) -> None:
+        """Execution path referenced by in-scope smoke test is rendered."""
+        spec = _make_spec_with_smoke_tests()
+        result = render_individual_scoped(spec, target_group=1)
+        md = result["requirements"]
+        assert "01-PATH-1" in md
+        assert "clicks button" in md
+
+    def test_out_of_scope_smoke_test_path_omitted(self) -> None:
+        """Execution path referenced only by out-of-scope smoke test is omitted."""
+        spec = _make_spec_with_smoke_tests()
+        result = render_individual_scoped(spec, target_group=1)
+        md = result["requirements"]
+        assert "01-PATH-2" not in md
+        assert "returns error" not in md
+        assert "execution paths defined" in md
+
+    def test_in_scope_api_rendered_out_of_scope_omitted(self) -> None:
+        """External API referenced in in-scope AC text is rendered; others omitted."""
+        spec = _make_spec_with_smoke_tests()
+        result = render_individual_scoped(spec, target_group=1)
+        md = result["requirements"]
+        assert "lib-a" in md
+        assert "lib-b" not in md

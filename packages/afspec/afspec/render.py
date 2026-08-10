@@ -427,7 +427,11 @@ def _requirement_matches_refs(r: Any, ref_ids: set[str]) -> bool:
     return False
 
 
-def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) -> str:
+def render_requirements_scoped(
+    req: Requirements,
+    requirement_refs: set[str],
+    execution_path_ids: set[str] | None = None,
+) -> str:
     """Render requirements filtered to a subset of requirement refs.
 
     *requirement_refs* may contain requirement IDs (``01-REQ-1``) or
@@ -437,8 +441,15 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
     Includes a Spec Overview listing all requirement IDs and titles for
     orientation, followed by full content only for matching requirements.
     Correctness properties and error handling entries are filtered to
-    those linked to the in-scope requirements.  Execution paths and
-    external APIs are included in full (no requirement linkage field).
+    those linked to the in-scope requirements.
+
+    When *execution_path_ids* is provided (not ``None``), execution paths
+    are filtered to those whose IDs are in the set; omitted paths are
+    replaced with a one-line summary.  When ``None``, all paths are
+    rendered (backward compatibility).
+
+    External APIs are filtered to those whose package name appears in the
+    acceptance criteria text of in-scope requirements.
     """
     lines: list[str] = []
 
@@ -523,13 +534,29 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
 
     lines.append("## Execution Paths")
     lines.append("")
-    for path in req.execution_paths:
-        lines.append(f"### {path.id}: {path.title}")
-        lines.append("")
-        if path.steps:
-            for i, step in enumerate(path.steps, 1):
-                lines.append(f"{i}. **{step.actor}** {step.action}")
+    if execution_path_ids is not None:
+        in_scope_paths = [p for p in req.execution_paths if p.id in execution_path_ids]
+        omitted_path_count = len(req.execution_paths) - len(in_scope_paths)
+        for path in in_scope_paths:
+            lines.append(f"### {path.id}: {path.title}")
             lines.append("")
+            if path.steps:
+                for i, step in enumerate(path.steps, 1):
+                    lines.append(f"{i}. **{step.actor}** {step.action}")
+                lines.append("")
+        if omitted_path_count > 0:
+            lines.append(
+                f"({omitted_path_count} execution paths defined (see full spec for details))"
+            )
+            lines.append("")
+    else:
+        for path in req.execution_paths:
+            lines.append(f"### {path.id}: {path.title}")
+            lines.append("")
+            if path.steps:
+                for i, step in enumerate(path.steps, 1):
+                    lines.append(f"{i}. **{step.actor}** {step.action}")
+                lines.append("")
 
     lines.append("## Error Handling")
     lines.append("")
@@ -547,9 +574,22 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
         lines.append("")
 
     if req.external_apis:
+        # Filter external APIs to those whose package name appears in
+        # the acceptance criteria text of in-scope requirements.
+        _ac_text_parts: list[str] = []
+        for r in filtered:
+            for c in r.acceptance_criteria:
+                _ac_text_parts.append(render_ears_sentence(c))
+            for c in r.edge_cases:
+                _ac_text_parts.append(render_ears_sentence(c))
+        _combined_ac_text = " ".join(_ac_text_parts)
+
+        matched_apis = [api for api in req.external_apis if api.package in _combined_ac_text]
+        omitted_api_count = len(req.external_apis) - len(matched_apis)
+
         lines.append("## External APIs")
         lines.append("")
-        for api in req.external_apis:
+        for api in matched_apis:
             lines.append(f"### `{api.package}` (v{api.version})")
             lines.append("")
             lines.append("| Symbol | Import Path | Signature | Notes |")
@@ -557,6 +597,11 @@ def render_requirements_scoped(req: Requirements, requirement_refs: set[str]) ->
             for sym in api.symbols:
                 notes = sym.notes or ""
                 lines.append(f"| `{sym.name}` | `{sym.import_path}` | `{sym.signature}` | {notes} |")
+            lines.append("")
+        if omitted_api_count > 0:
+            lines.append(
+                f"({omitted_api_count} external API packages omitted — see full spec for details)"
+            )
             lines.append("")
 
     return "\n".join(lines)
@@ -877,13 +922,21 @@ def render_individual_scoped(spec: Spec, target_group: int) -> dict[str, str]:
             result["tasks"] = render_tasks_scoped(spec.tasks, target_group)
             return result
 
+    # Compute execution_path_ids from in-scope smoke tests
+    execution_path_ids: set[str] = set()
+    for st in spec.test_spec.smoke_tests:
+        if st.id in test_spec_ids and st.execution_path_id:
+            execution_path_ids.add(st.execution_path_id)
+
     result: dict[str, str] = {}
     result["prd"] = spec.prd.body
     if spec.architecture is not None:
         result["architecture"] = spec.architecture
 
     if requirement_ids:
-        result["requirements"] = render_requirements_scoped(spec.requirements, requirement_ids)
+        result["requirements"] = render_requirements_scoped(
+            spec.requirements, requirement_ids, execution_path_ids=execution_path_ids
+        )
     else:
         result["requirements"] = render_requirements(spec.requirements)
 
