@@ -93,6 +93,7 @@ def render_inmemory_spec_sections(
     task_group: int | None = None,
     *,
     artifacts: list[str] | None = None,
+    max_tokens: int | None = None,
 ) -> list[str]:
     """Render an in-memory afspec Spec to per-artifact markdown sections.
 
@@ -109,6 +110,10 @@ def render_inmemory_spec_sections(
     list are included.  Omitted sections get a one-line note so agents
     know context was filtered, not missing.
 
+    When *max_tokens* is a positive integer, it is passed through to
+    afspec's render functions to enable progressive truncation (Level 1:
+    drop architecture, Level 2: slim test spec assertions).
+
     Performs no file system reads or writes.  Exceptions from
     ``render_individual`` propagate to the caller as-is.
 
@@ -117,9 +122,9 @@ def render_inmemory_spec_sections(
     import afspec
 
     if task_group is not None:
-        rendered = afspec.render_individual_scoped(spec, task_group)
+        rendered = afspec.render_individual_scoped(spec, task_group, max_tokens=max_tokens)
     else:
-        rendered = afspec.render_individual(spec)
+        rendered = afspec.render_individual(spec, max_tokens=max_tokens)
 
     active_keys = set(artifacts) if artifacts is not None else set(_SECTION_HEADERS.keys())
 
@@ -142,6 +147,7 @@ def _render_spec_sections(
     task_group: int | None = None,
     *,
     artifacts: list[str] | None = None,
+    max_tokens: int | None = None,
 ) -> list[str]:
     """Load a v1.2 spec and render per-artifact markdown sections.
 
@@ -154,6 +160,10 @@ def _render_spec_sections(
     When *artifacts* is provided, only the listed artifact sections are
     rendered; omitted sections get a brief note.
 
+    When *max_tokens* is a positive integer, it is passed through to
+    afspec's render functions for progressive truncation.  Architecture
+    is dropped when including it would exceed the token budget.
+
     Delegates rendering to ``render_inmemory_spec_sections`` after loading
     the Spec from disk, eliminating duplicated rendering logic.
 
@@ -163,7 +173,7 @@ def _render_spec_sections(
     import afspec
 
     spec = afspec.load_spec(spec_dir)
-    sections = render_inmemory_spec_sections(spec, task_group=task_group, artifacts=artifacts)
+    sections = render_inmemory_spec_sections(spec, task_group=task_group, artifacts=artifacts, max_tokens=max_tokens)
 
     # architecture.md is a plain markdown file in v1.2 — gated by artifact filter
     active_keys = set(artifacts) if artifacts is not None else set(_ALL_ARTIFACTS)
@@ -172,7 +182,23 @@ def _render_spec_sections(
         if arch_path.is_file():
             arch_content = arch_path.read_text(encoding="utf-8")
             safe = sanitize_prompt_content(arch_content, label="spec")
-            sections.append(f"## Architecture\n\n{safe}")
+            arch_section = f"## Architecture\n\n{safe}"
+            if max_tokens is not None and max_tokens > 0:
+                current_tokens = afspec.estimate_tokens("\n\n".join(sections))
+                arch_tokens = afspec.estimate_tokens(arch_section)
+                if current_tokens + arch_tokens > max_tokens:
+                    logger.info(
+                        "Dropping architecture.md to stay within %d-token budget "
+                        "(spec: %d, arch: %d)",
+                        max_tokens,
+                        current_tokens,
+                        arch_tokens,
+                    )
+                    sections.append(
+                        "## Architecture\n\n_(Omitted — excluded by token budget.)_"
+                    )
+                    return sections
+            sections.append(arch_section)
     else:
         sections.append(
             "## Architecture\n\n_(Omitted — not required for this session.)_"
@@ -402,6 +428,7 @@ def assemble_context(
     project_root: Path | None = None,
     archetype: str | None = None,
     mode: str | None = None,
+    max_context_tokens: int | None = 30_000,
 ) -> str:
     """Assemble task-specific context for a coding session.
 
@@ -414,6 +441,10 @@ def assemble_context(
     are filtered to only those relevant for the archetype's role (e.g.
     a ``reviewer:pre-flight`` receives only requirements).  Unlisted
     archetypes default to receiving all artifacts.
+
+    When *max_context_tokens* is a positive integer (default 30,000),
+    spec rendering is budget-capped: architecture is dropped first,
+    then test spec assertions are slimmed.  Pass ``None`` to disable.
 
     Review/drift findings are NOT rendered here — they arrive via
     FoxKnowledgeProvider memory facts to avoid duplication.
@@ -430,7 +461,9 @@ def assemble_context(
 
     # 03-REQ-4.1, 134-REQ-1.1: Read spec documents via afspec (v1.2 JSON)
     try:
-        raw_sections = _render_spec_sections(spec_dir, task_group=task_group, artifacts=artifacts)
+        raw_sections = _render_spec_sections(
+            spec_dir, task_group=task_group, artifacts=artifacts, max_tokens=max_context_tokens,
+        )
         sections.extend(sanitize_prompt_content(s, label="spec") for s in raw_sections)
     except Exception:
         logger.warning(

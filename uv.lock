@@ -57,7 +57,7 @@ requires-dist = [{ name = "httpx", specifier = ">=0.27" }]
 [[package]]
 name = "afspec"
 version = "1.3.6"
-source = { git = "https://github.com/agent-fox-dev/spec-format?subdirectory=packages%2Fafspec#1a34ed5f1451356f3b68fb447fb1cfe7c0f2a299" }
+source = { git = "https://github.com/agent-fox-dev/spec-format?subdirectory=packages%2Fafspec#ed87819441b23b0f74f5dfae9bc16911c6495363" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
