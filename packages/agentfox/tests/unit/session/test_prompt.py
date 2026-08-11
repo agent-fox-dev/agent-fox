@@ -267,16 +267,8 @@ class TestProfileWithoutFrontmatterUnchanged:
 class TestAssemblyWithProjectDir:
     """Verify 2-layer assembly works correctly with project_dir."""
 
-    def test_backward_compat_project_agent_profile(self, tmp_path: Path) -> None:
-        """Project-level agent.md is prepended for backward compatibility."""
-        profiles_dir = tmp_path / ".agent-fox" / "profiles"
-        profiles_dir.mkdir(parents=True)
-        (profiles_dir / "agent.md").write_text("PROJECT RULES")
-        result = build_system_prompt("ctx", archetype="coder", project_dir=tmp_path)
-        assert "PROJECT RULES" in result
-
-    def test_no_agent_md_without_project_override(self, tmp_path: Path) -> None:
-        """Without project-level agent.md, no agent base content is loaded."""
+    def test_project_profile_override(self, tmp_path: Path) -> None:
+        """Project-level archetype profile is used when present."""
         profiles_dir = tmp_path / ".agent-fox" / "profiles"
         profiles_dir.mkdir(parents=True)
         (profiles_dir / "coder.md").write_text("CODER CONTENT")

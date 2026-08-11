@@ -1,11 +1,9 @@
 """Prompt building: system prompt assembly and task prompt construction.
 
 Assembles a 2-layer system prompt from archetype profile and task context.
-Backward-compatible: project-level agent.md overrides are still loaded
-and prepended when present.
 
 Requirements: 15-REQ-2.2, 15-REQ-5.1 through 15-REQ-5.E1,
-              99-REQ-1.1, 99-REQ-1.E1, 99-REQ-1.E2
+              99-REQ-1.1, 99-REQ-1.E2
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ from agentfox.session.context import (  # noqa: F401
     render_review_context,
     render_verification_context,
 )
-from agentfox.session.profiles import has_custom_profile, load_profile
+from agentfox.session.profiles import load_profile
 from agentfox.session.steering import (  # noqa: F401
     STEERING_PLACEHOLDER_SENTINEL,
     load_steering,
@@ -51,13 +49,9 @@ def build_system_prompt(
 
     Assembles a prompt from:
       - Layer 1: Archetype profile loaded via :func:`load_profile`, with
-        mode-aware resolution.  Session rules (formerly in ``agent.md``)
-        are now embedded directly in each archetype profile.
+        mode-aware resolution.  Session rules are embedded directly in
+        each archetype profile.
       - Layer 2: Task context (the *context* argument).
-
-    **Backward compatibility:** If a project-level ``agent.md`` override
-    exists in ``.agent-fox/profiles/``, its content is prepended to the
-    archetype profile with a deprecation warning logged.
 
     Args:
         context: Assembled spec documents and memory facts (task context).
@@ -73,22 +67,11 @@ def build_system_prompt(
     Returns:
         Complete system prompt string.
 
-    Requirement: 15-REQ-2.2, 99-REQ-1.1, 99-REQ-1.E1, 99-REQ-1.E2
+    Requirement: 15-REQ-2.2, 99-REQ-1.1, 99-REQ-1.E2
     """
     resolved = archetype if archetype is not None else "coder"
 
     layers: list[str] = []
-
-    # Backward compat: load project-level agent.md if it exists
-    if project_dir is not None and has_custom_profile("agent", project_dir):
-        base_profile = load_profile("agent", project_dir=project_dir)
-        if base_profile:
-            _logger.warning(
-                "Project-level agent.md is deprecated; merge its content "
-                "into archetype profiles and remove "
-                ".agent-fox/profiles/agent.md"
-            )
-            layers.append(base_profile)
 
     # Archetype profile — empty string if not found (99-REQ-1.E2)
     profile = load_profile(resolved, project_dir=project_dir, mode=mode)

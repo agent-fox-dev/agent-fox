@@ -57,39 +57,6 @@ class TestPromptWithProjectProfile:
         idx_task = prompt.index(task_context)
         assert idx_profile < idx_task, "Profile must appear before task context"
 
-    def test_backward_compat_project_agent_md(self, tmp_path: Path) -> None:
-        """Backward compat: project-level agent.md is prepended when present.
-
-        Requirement: 99-REQ-1.E1 (backward compatibility)
-        """
-        from agentfox.session.prompt import build_system_prompt
-
-        base_content = "PROJECT RULES FOR SMOKE TEST"
-        profile_content = "CUSTOM CODER IDENTITY FOR SMOKE TEST"
-
-        profiles_dir = tmp_path / ".agent-fox" / "profiles"
-        profiles_dir.mkdir(parents=True)
-        (profiles_dir / "agent.md").write_text(base_content, encoding="utf-8")
-        (profiles_dir / "coder.md").write_text(profile_content, encoding="utf-8")
-
-        task_context = "TASK CONTEXT MARKER"
-
-        prompt = build_system_prompt(
-            context=task_context,
-            archetype="coder",
-            project_dir=tmp_path,
-        )
-
-        assert base_content in prompt, "Backward-compat agent.md missing from prompt"
-        assert profile_content in prompt, "Archetype profile missing from prompt"
-        assert task_context in prompt, "Task context missing from prompt"
-
-        idx_base = prompt.index(base_content)
-        idx_profile = prompt.index(profile_content)
-        idx_task = prompt.index(task_context)
-        assert idx_base < idx_profile, "agent.md must appear before archetype profile"
-        assert idx_profile < idx_task, "Profile must appear before task context"
-
     def test_default_profiles_contain_session_rules(self, tmp_path: Path) -> None:
         """Package-default archetype profiles include Session Rules.
 
