@@ -1,11 +1,11 @@
 [project]
 name = "agent-fox"
-version = "4.3.5"
+version = "4.3.6"
 description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "af>=4.3.5",
-    "nightshift>=4.3.5",
+    "af>=4.3.6",
+    "nightshift>=4.3.6",
 ]
 
 [dependency-groups]
