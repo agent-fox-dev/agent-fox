@@ -60,12 +60,12 @@ class TestHuntSourceModulesDeleted:
     """TS-125-1: Verify all hunt-related source files are deleted."""
 
     _DELETED_FILES = [
-        "agentfox/nightshift/hunt.py",
-        "agentfox/nightshift/critic.py",
-        "agentfox/nightshift/dedup.py",
-        "agentfox/nightshift/finding.py",
-        "agentfox/nightshift/ignore_filter.py",
-        "agentfox/nightshift/ignore.py",
+        "agentfox/maintenance/hunt.py",
+        "agentfox/maintenance/critic.py",
+        "agentfox/maintenance/dedup.py",
+        "agentfox/maintenance/finding.py",
+        "agentfox/maintenance/ignore_filter.py",
+        "agentfox/maintenance/ignore.py",
     ]
 
     @pytest.mark.parametrize("path", _DELETED_FILES)
@@ -83,7 +83,7 @@ class TestCategoriesDirectoryDeleted:
 
     def test_categories_directory_deleted(self) -> None:
         cat_dir = _REPO_ROOT / "agentfox" / "nightshift" / "categories"
-        assert not cat_dir.exists(), "agentfox/nightshift/categories/ should be deleted"
+        assert not cat_dir.exists(), "agentfox/maintenance/categories/ should be deleted"
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ class TestNoDanglingImportsNightshift:
         for py_file in sorted(nightshift_dir.rglob("*.py")):
             content = py_file.read_text(encoding="utf-8")
             for mod in self._DELETED_MODULES:
-                pattern = f"from agentfox.nightshift.{mod}"
+                pattern = f"from agentfox.maintenance.{mod}"
                 if pattern in content:
                     violations.append(f"{py_file.name}: {pattern}")
         assert not violations, f"Dangling imports found: {violations}"
@@ -125,7 +125,7 @@ class TestEngineNoHuntMethods:
     """TS-125-4: NightShiftEngine does not have hunt-scan methods."""
 
     def test_engine_no_hunt_methods(self) -> None:
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         assert not hasattr(NightShiftEngine, "_run_hunt_scan"), "NightShiftEngine should not have _run_hunt_scan"
         assert not hasattr(NightShiftEngine, "_run_hunt_scan_inner"), (
@@ -142,7 +142,7 @@ class TestEngineRejectsRemovedParams:
     """TS-125-5: Removed constructor parameters raise TypeError."""
 
     def test_engine_rejects_auto_fix(self) -> None:
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         platform = MagicMock()
@@ -150,7 +150,7 @@ class TestEngineRejectsRemovedParams:
             NightShiftEngine(config, platform, auto_fix=True)
 
     def test_engine_rejects_embedder(self) -> None:
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         platform = MagicMock()
@@ -167,7 +167,7 @@ class TestEngineRetainsFixMethods:
     """TS-125-6: Fix-pipeline methods are present on the engine."""
 
     def test_engine_retains_fix_methods(self) -> None:
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         assert callable(getattr(NightShiftEngine, "_drain_issues", None)), "_drain_issues must be a callable"
         assert callable(getattr(NightShiftEngine, "_run_issue_check", None)), "_run_issue_check must be a callable"
@@ -183,7 +183,7 @@ class TestSpecExecutorStreamDeleted:
     """TS-125-7: SpecExecutorStream is not importable from streams."""
 
     def test_spec_executor_stream_deleted(self) -> None:
-        from agentfox.nightshift import streams
+        from agentfox.maintenance import streams
 
         assert not hasattr(streams, "SpecExecutorStream"), "SpecExecutorStream should be deleted from streams module"
 
@@ -197,8 +197,8 @@ class TestBuildStreamsSingleFix:
     """TS-125-8: build_streams() returns exactly one fix-pipeline stream."""
 
     def test_build_streams_single_fix(self) -> None:
-        from agentfox.nightshift.daemon import SharedBudget
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.daemon import SharedBudget
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config()
         engine = _make_engine_mock()
@@ -303,8 +303,8 @@ class TestNoDanglingImportsAnywhere:
                 continue
             content = full_path.read_text(encoding="utf-8")
             for mod in self._DELETED_MODULES:
-                needle_from = f"from agentfox.nightshift.{mod}"
-                needle_import = f"import agentfox.nightshift.{mod}"
+                needle_from = f"from agentfox.maintenance.{mod}"
+                needle_import = f"import agentfox.maintenance.{mod}"
                 if needle_from in content or needle_import in content:
                     violations.append(f"{rel_path}: references {mod}")
 
@@ -379,8 +379,8 @@ def test_config_ignores_removed_fields(
 
 def test_build_streams_always_one_stream() -> None:
     """TS-125-P3: build_streams always returns exactly one fix-pipeline stream."""
-    from agentfox.nightshift.daemon import SharedBudget
-    from agentfox.nightshift.streams import build_streams
+    from agentfox.maintenance.daemon import SharedBudget
+    from agentfox.maintenance.streams import build_streams
 
     config = _make_config()
     engine = _make_engine_mock()

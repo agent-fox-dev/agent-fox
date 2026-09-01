@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from afissues.protocol import PlatformProtocol
 
-    from agentfox.nightshift.streams import WorkStream
+    from agentfox.maintenance.streams import WorkStream
 
 from afaudit.emit import emit_audit_event as _emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
@@ -362,7 +362,7 @@ class DaemonRunner:
         Requirements: 85-REQ-2.1, 85-REQ-2.4, 85-REQ-2.5,
                       85-REQ-4.1, 85-REQ-4.2
         """
-        from agentfox.nightshift.pid import remove_pid_file, write_pid_file
+        from agentfox.maintenance.pid import remove_pid_file, write_pid_file
 
         start = time.monotonic()
         state = DaemonState()

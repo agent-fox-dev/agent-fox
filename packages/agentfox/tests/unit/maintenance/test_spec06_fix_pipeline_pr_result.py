@@ -26,7 +26,7 @@ def _make_fix_pipeline(
 ) -> object:
     """Create a FixPipeline with the specified merge_strategy config."""
     from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
-    from agentfox.nightshift.fix_pipeline import FixPipeline
+    from agentfox.maintenance.fix_pipeline import FixPipeline
 
     config = AgentFoxConfig(
         workspace=WorkspaceConfig(
@@ -83,7 +83,7 @@ def _make_spec(
     branch_name: str = "fix/test-branch",
 ) -> object:
     """Create a minimal InMemorySpec for testing."""
-    from agentfox.nightshift.spec_builder import InMemorySpec
+    from agentfox.maintenance.spec_builder import InMemorySpec
 
     return InMemorySpec(
         issue_number=issue_number,
@@ -133,7 +133,7 @@ class TestFixPipelineCreatePrReturnsResult:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -147,12 +147,12 @@ class TestFixPipelineCreatePrReturnsResult:
                 return_value=["file.py"],
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -177,7 +177,7 @@ class TestFixPipelineCreatePrReturnsResult:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -191,12 +191,12 @@ class TestFixPipelineCreatePrReturnsResult:
                 return_value=["file.py"],
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -220,7 +220,7 @@ class TestFixPipelineCreatePrReturnsResult:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -234,12 +234,12 @@ class TestFixPipelineCreatePrReturnsResult:
                 return_value=["file.py"],
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),

@@ -34,8 +34,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------
@@ -847,7 +847,7 @@ class TestPostHarvestIngestSummaryFields:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=("session summary", ["approach A"], ["gotcha B"], ["assumption C"]),
             ),
         ):
@@ -906,7 +906,7 @@ class TestPostHarvestIngestSummaryFields:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=("summary", ["r"], ["g"], ["a"]),
             ),
         ):
@@ -978,7 +978,7 @@ class TestPostHarvestIngestSummaryAbsent:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1093,7 +1093,7 @@ class TestPostHarvestIngestEmptyResponse:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1172,7 +1172,7 @@ class TestPostHarvestIngestErrorHandling:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1223,7 +1223,7 @@ class TestPostHarvestIngestErrorHandling:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1277,7 +1277,7 @@ class TestPostHarvestIngestObservability:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=("summary text", [], [], []),
             ),
         ):
@@ -1333,7 +1333,7 @@ class TestPreHarvestIngestionPreserved:
         with (
             patch.object(pipeline, "_record_session_to_db"),
             patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
-            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+            patch("agentfox.maintenance.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
                 outcome,
@@ -1370,7 +1370,7 @@ class TestPreHarvestIngestionPreserved:
         with (
             patch.object(pipeline, "_record_session_to_db"),
             patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
-            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+            patch("agentfox.maintenance.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
                 outcome,
@@ -1424,7 +1424,7 @@ class TestPreAndPostHarvestCallIndependence:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1494,7 +1494,7 @@ class TestPreAndPostHarvestCallIndependence:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1557,7 +1557,7 @@ class TestSpecNameConventionRetrieveAndIngest:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1704,7 +1704,7 @@ class TestFixPipelineCallsExtractSessionSummary:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ) as mock_extract,
         ):
@@ -1752,7 +1752,7 @@ class TestFixPipelineCallsExtractSessionSummary:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=("some summary", ["r1"], ["g1"], ["a1"]),
             ) as mock_extract,
         ):

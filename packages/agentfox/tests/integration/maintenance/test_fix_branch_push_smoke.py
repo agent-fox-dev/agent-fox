@@ -119,7 +119,7 @@ class TestPushBeforeHarvestIntegration:
     @pytest.mark.asyncio
     async def test_push_called_before_harvest(self) -> None:
         """push_to_remote is called before _harvest_and_push when push enabled."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -173,7 +173,7 @@ class TestFullPipelinePushEnabled:
     @pytest.mark.asyncio
     async def test_full_pipeline_push_enabled(self) -> None:
         """Full pipeline: push_to_remote called with force=True before harvest."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -250,7 +250,7 @@ class TestFullPipelinePushDisabled:
     @pytest.mark.asyncio
     async def test_full_pipeline_push_disabled(self) -> None:
         """Full pipeline: push_to_remote NOT called for fix branch when disabled."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
+from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
 from agentfox.workspace import WorkspaceInfo
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -138,7 +138,7 @@ class TestTouchedFilesEqualsHarvestReturn:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -218,7 +218,7 @@ class TestCommitShaNeverInPostHarvestContext:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -291,7 +291,7 @@ class TestPostHarvestIngestFailureNeverFailsSession:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -455,7 +455,7 @@ class TestPreHarvestIngestArgsUnchanged:
         with (
             patch.object(pipeline, "_record_session_to_db"),
             patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
-            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+            patch("agentfox.maintenance.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
                 outcome,

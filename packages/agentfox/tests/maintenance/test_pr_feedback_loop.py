@@ -132,7 +132,7 @@ def _make_tracking_comment(
     Falls back to a hand-crafted pattern if the utility is not yet available.
     """
     try:
-        from agentfox.nightshift.fix_pipeline import format_tracking_comment
+        from agentfox.maintenance.fix_pipeline import format_tracking_comment
 
         return format_tracking_comment(
             pr_number=pr_number,
@@ -374,7 +374,7 @@ class TestBuildStreamsPrFeedback:
 
     def test_pr_feedback_stream_present_with_pr_strategy(self) -> None:
         """TS-07-3: pr-feedback included when merge_strategy='pr' and platform is not 'none'."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="pr", platform_type="github")
         streams = build_streams(config)
@@ -383,7 +383,7 @@ class TestBuildStreamsPrFeedback:
 
     def test_pr_feedback_stream_after_fix_pipeline(self) -> None:
         """TS-07-3: pr-feedback positioned after fix-pipeline in stream list."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="pr", platform_type="github")
         streams = build_streams(config)
@@ -394,7 +394,7 @@ class TestBuildStreamsPrFeedback:
 
     def test_pr_feedback_stream_interval_matches_config(self) -> None:
         """TS-07-3: pr-feedback interval equals pr_check_interval from config."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="pr", pr_check_interval=600)
         streams = build_streams(config)
@@ -413,7 +413,7 @@ class TestBuildStreamsOmitsPrFeedback:
 
     def test_no_pr_feedback_with_direct_strategy(self) -> None:
         """TS-07-4: No pr-feedback when merge_strategy='direct'."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="direct", platform_type="github")
         streams = build_streams(config)
@@ -422,7 +422,7 @@ class TestBuildStreamsOmitsPrFeedback:
 
     def test_no_pr_feedback_with_branch_strategy(self) -> None:
         """TS-07-4: No pr-feedback when merge_strategy='branch'."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="branch", platform_type="github")
         streams = build_streams(config)
@@ -431,7 +431,7 @@ class TestBuildStreamsOmitsPrFeedback:
 
     def test_no_pr_feedback_with_none_platform(self) -> None:
         """TS-07-4: No pr-feedback when platform type is 'none'."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(merge_strategy="pr", platform_type="none")
         streams = build_streams(config)
@@ -450,13 +450,13 @@ class TestDaemonRunnerPriority:
 
     def test_pr_feedback_in_priority_order(self) -> None:
         """TS-07-5: pr-feedback is present in _PRIORITY_ORDER."""
-        from agentfox.nightshift.daemon import DaemonRunner
+        from agentfox.maintenance.daemon import DaemonRunner
 
         assert "pr-feedback" in DaemonRunner._PRIORITY_ORDER
 
     def test_pr_feedback_after_fix_pipeline_in_priority(self) -> None:
         """TS-07-5: pr-feedback index > fix-pipeline index in priority list."""
-        from agentfox.nightshift.daemon import DaemonRunner
+        from agentfox.maintenance.daemon import DaemonRunner
 
         priority = DaemonRunner._PRIORITY_ORDER
         assert priority.index("pr-feedback") > priority.index("fix-pipeline")
@@ -474,7 +474,7 @@ class TestCheckOpenPrsDispatcher:
     async def test_check_open_prs_calls_list_with_label_pr(self) -> None:
         """TS-07-6: list_issues_by_label called with LABEL_PR."""
         from afissues.labels import LABEL_PR
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         issues = [_make_issue(number=i) for i in range(1, 4)]
         mock_platform = _make_mock_platform(issues=issues)
@@ -483,7 +483,7 @@ class TestCheckOpenPrsDispatcher:
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ):
             await engine._check_open_prs()
@@ -498,12 +498,12 @@ class TestCheckOpenPrsDispatcher:
         mock_platform = _make_mock_platform(issues=issues)
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ) as mock_process:
             await engine._check_open_prs()
@@ -515,13 +515,13 @@ class TestCheckOpenPrsDispatcher:
         mock_platform = _make_mock_platform(issues=issues)
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
         assert engine.state.issue_checks_completed == 0
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ):
             await engine._check_open_prs()
@@ -540,7 +540,7 @@ class TestCheckOpenPrsSequential:
 
     async def test_check_open_prs_is_async(self) -> None:
         """TS-07-7: _check_open_prs is declared as async def."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         assert inspect.iscoroutinefunction(NightShiftEngine._check_open_prs)
 
@@ -552,7 +552,7 @@ class TestCheckOpenPrsSequential:
         mock_platform = _make_mock_platform(issues=issues)
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
@@ -565,7 +565,7 @@ class TestCheckOpenPrsSequential:
             call_log.append({"start": start, "end": end})
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             side_effect=_record_call,
         ):
             await engine._check_open_prs()
@@ -586,13 +586,13 @@ class TestMaxPrChecksConstant:
 
     def test_max_pr_checks_in_engine(self) -> None:
         """TS-07-8: _MAX_PR_CHECKS == 5 in engine module."""
-        import agentfox.nightshift.engine as eng
+        import agentfox.maintenance.engine as eng
 
         assert eng._MAX_PR_CHECKS == 5
 
     def test_max_pr_checks_not_in_pr_feedback(self) -> None:
         """TS-07-8: _MAX_PR_CHECKS not defined in pr_feedback module."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert not hasattr(prf, "_MAX_PR_CHECKS")
 
@@ -612,12 +612,12 @@ class TestCheckOpenPrsCap:
         mock_platform = _make_mock_platform(issues=issues)
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ) as mock_process:
             await engine._check_open_prs()
@@ -629,12 +629,12 @@ class TestCheckOpenPrsCap:
         mock_platform = _make_mock_platform(issues=issues)
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ) as mock_process:
             await engine._check_open_prs()
@@ -658,12 +658,12 @@ class TestCheckOpenPrsEmpty:
         mock_platform = _make_mock_platform(issues=[])
         config = _make_config()
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ) as mock_process:
             result = await engine._check_open_prs()
@@ -683,7 +683,7 @@ class TestProcessPrIssueTrackingComment:
 
     async def test_process_pr_issue_calls_list_issue_comments(self) -> None:
         """TS-07-9: list_issue_comments called with issue.number."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         tracking_body = _make_tracking_comment(pr_number=42, attempt=1)
@@ -710,7 +710,7 @@ class TestProcessPrIssueTrackingComment:
 
     async def test_process_pr_issue_extracts_pr_number_and_attempt(self) -> None:
         """TS-07-9: pr_number and attempt extracted from tracking comment."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         tracking_body = _make_tracking_comment(pr_number=42, attempt=1)
@@ -745,7 +745,7 @@ class TestProcessPrIssueNoTrackingComment:
 
     async def test_no_tracking_comment_returns_none(self) -> None:
         """TS-07-10: Returns None when no matching tracking comment."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         comments = [_make_issue_comment("just a regular comment")]
@@ -766,7 +766,7 @@ class TestProcessPrIssueNoTrackingComment:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """TS-07-10: WARNING logged with issue number when no tracking comment."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         comments = [_make_issue_comment("just a regular comment")]
@@ -791,7 +791,7 @@ class TestProcessPrIssueNoTrackingComment:
 
     async def test_no_tracking_comment_no_labels_touched(self) -> None:
         """TS-07-10: No label operations when no tracking comment."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         comments = [_make_issue_comment("just a regular comment")]
@@ -811,7 +811,7 @@ class TestProcessPrIssueNoTrackingComment:
 
     async def test_no_tracking_comment_no_comment_posted(self) -> None:
         """TS-07-10: No comment posted when no tracking comment."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         comments = [_make_issue_comment("just a regular comment")]
@@ -840,7 +840,7 @@ class TestProcessPrIssueMultipleTrackingComments:
 
     async def test_last_matching_comment_used(self) -> None:
         """TS-07-E5: When multiple comments match, last in list order is used."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         first_tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -880,7 +880,7 @@ class TestProcessPrIssueApiError:
 
     async def test_api_error_returns_none(self) -> None:
         """TS-07-E6: Returns None when list_issue_comments raises."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -903,7 +903,7 @@ class TestProcessPrIssueApiError:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """TS-07-E6: WARNING logged with issue number and exception on API error."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -930,7 +930,7 @@ class TestProcessPrIssueApiError:
 
     async def test_api_error_no_labels_modified(self) -> None:
         """TS-07-E6: No label operations when list_issue_comments raises."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -952,7 +952,7 @@ class TestProcessPrIssueApiError:
 
     async def test_api_error_no_comment_posted(self) -> None:
         """TS-07-E6: No comment posted when list_issue_comments raises."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -992,7 +992,7 @@ class TestMergedPrTransitions:
     ) -> None:
         """TS-07-11: assign_label, remove_label, close_issue in order; INFO logged."""
         from afissues.labels import LABEL_FIXED, LABEL_PR
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1048,7 +1048,7 @@ class TestClosedPrWithoutMerge:
     ) -> None:
         """TS-07-12: comment posted, remove af:pr, close NOT called, INFO log."""
         from afissues.labels import LABEL_PR
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1099,7 +1099,7 @@ class TestOpenPrProceedsToCiCheck:
 
     async def test_open_pr_no_label_ops_ci_check_called(self) -> None:
         """TS-07-13: no labels modified at state step; CI check proceeds."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1112,7 +1112,7 @@ class TestOpenPrProceedsToCiCheck:
         )
 
         with patch(
-            "agentfox.nightshift.pr_feedback._check_ci_status",
+            "agentfox.maintenance.pr_feedback._check_ci_status",
             new_callable=AsyncMock,
             return_value=MagicMock(action="skip"),
         ) as mock_ci_status:
@@ -1144,7 +1144,7 @@ class TestGetPrStateApiError:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E7: WARNING logged, no labels modified, no comment, returns None."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1188,7 +1188,7 @@ class TestMergedPrMidSequenceFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E8: close_issue raises → WARNING; next cycle re-applies all."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1249,7 +1249,7 @@ class TestCiStatusInProgressQueued:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-14: in_progress → skip, no WARNING or ERROR."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1271,7 +1271,7 @@ class TestCiStatusInProgressQueued:
 
     async def test_queued_returns_skip(self) -> None:
         """TS-07-14: queued → skip."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1301,7 +1301,7 @@ class TestCiStatusFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-15: conclusion=failure → re-entry with failed check in list."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1336,7 +1336,7 @@ class TestCiStatusFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """07-REQ-6.2: conclusion=timed_out → re-entry signal."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1374,7 +1374,7 @@ class TestCiStatusAmbiguous:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-16: all ambiguous → skip, WARNING about ambiguous state."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1413,7 +1413,7 @@ class TestCiStatusAllSuccess:
 
     async def test_all_success_pass_through(self) -> None:
         """TS-07-17: all success → pass_through signal."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1445,7 +1445,7 @@ class TestCiStatusEmptyChecks:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-18: empty checks → pass_through, no warning."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(return_value=[])
@@ -1476,7 +1476,7 @@ class TestCiStatusMixedConclusions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E9: at least one failure → re-entry regardless of successes."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1512,7 +1512,7 @@ class TestCiStatusGetPrChecksError:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E10: API error → WARNING logged, skip returned."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1548,7 +1548,7 @@ class TestCiStatusNullConclusion:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E11: null conclusion → ambiguous state, no re-entry."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -1586,7 +1586,7 @@ class TestReviewChangesRequested:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-19: CHANGES_REQUESTED → re-entry signal, INFO logged."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1624,7 +1624,7 @@ class TestReviewApprovedOrCommented:
 
     async def test_approved_returns_skip(self) -> None:
         """TS-07-20: APPROVED → skip."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1639,7 +1639,7 @@ class TestReviewApprovedOrCommented:
 
     async def test_commented_returns_skip(self) -> None:
         """TS-07-20: COMMENTED → skip."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1654,7 +1654,7 @@ class TestReviewApprovedOrCommented:
 
     async def test_no_reviews_returns_skip(self) -> None:
         """TS-07-20: empty review list → skip."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(return_value=[])
@@ -1677,7 +1677,7 @@ class TestReviewDismissedFiltering:
 
     async def test_dismissed_filtered_changes_requested_detected(self) -> None:
         """TS-07-21: CHANGES_REQUESTED between DISMISSED → re-entry."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1713,7 +1713,7 @@ class TestReviewGetPrReviewsError:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E12: API error → WARNING logged, skip returned."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1749,7 +1749,7 @@ class TestReviewAllDismissed:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E13: all DISMISSED → skip, no re-entry INFO."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1785,7 +1785,7 @@ class TestReviewNullState:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E14: null state → skip, no re-entry."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -1818,14 +1818,14 @@ class TestCollectFeedbackMutualExclusion:
 
     def test_signature_has_trigger_parameter(self) -> None:
         """TS-07-28: 'trigger' is a parameter of _collect_feedback."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         sig = inspect.signature(_collect_feedback)
         assert "trigger" in sig.parameters
 
     def test_ci_trigger_produces_only_ci_section(self) -> None:
         """TS-07-28: trigger='ci' → ## CI Failures only, no ## Review Feedback."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         ci_failures = [
             _make_check_result(
@@ -1854,7 +1854,7 @@ class TestCollectFeedbackMutualExclusion:
 
     def test_review_trigger_produces_only_review_section(self) -> None:
         """TS-07-28: trigger='review' → ## Review Feedback only."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         ci_failures = [
             _make_check_result(name="test", conclusion="failure"),
@@ -1888,7 +1888,7 @@ class TestMutuallyExclusiveCiReviewPaths:
 
     async def test_ci_failure_prevents_review_check(self) -> None:
         """CI failure → platform.get_pr_reviews never called."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1906,7 +1906,7 @@ class TestMutuallyExclusiveCiReviewPaths:
         )
 
         with patch(
-            "agentfox.nightshift.pr_feedback._run_feedback_iteration",
+            "agentfox.maintenance.pr_feedback._run_feedback_iteration",
             new_callable=AsyncMock,
         ):
             await process_pr_issue(
@@ -1920,7 +1920,7 @@ class TestMutuallyExclusiveCiReviewPaths:
 
     async def test_ci_pass_enables_review_check(self) -> None:
         """All CI pass → platform.get_pr_reviews is called."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -1967,7 +1967,7 @@ class TestRetryLimitExceeded:
 
     async def test_retry_limit_exceeded_returns_none(self) -> None:
         """TS-07-22: Returns None when attempt > max_pr_retries."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -1992,7 +1992,7 @@ class TestRetryLimitExceeded:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-22: INFO log with 'Retry limit reached' when attempt=3 > max=2."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2020,7 +2020,7 @@ class TestRetryLimitExceeded:
 
     async def test_retry_limit_exceeded_posts_retry_limit_message(self) -> None:
         """TS-07-22: _RETRY_LIMIT_MESSAGE posted as comment when limit exceeded."""
-        from agentfox.nightshift.pr_feedback import (
+        from agentfox.maintenance.pr_feedback import (
             _RETRY_LIMIT_MESSAGE,
             _run_feedback_iteration,
         )
@@ -2047,14 +2047,14 @@ class TestRetryLimitExceeded:
 
     async def test_retry_limit_exceeded_no_worktree_created(self) -> None:
         """TS-07-22: _setup_feedback_worktree NOT called when limit exceeded."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
         config = _make_config(max_pr_retries=2)
 
         with patch(
-            "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+            "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
             new_callable=AsyncMock,
         ) as mock_setup:
             await _run_feedback_iteration(
@@ -2073,7 +2073,7 @@ class TestRetryLimitExceeded:
 
     async def test_retry_limit_exceeded_af_pr_label_remains(self) -> None:
         """TS-07-22: af:pr label left in place when retry limit reached."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2106,7 +2106,7 @@ class TestRetryLimitNotExceeded:
 
     async def test_within_limit_runs_full_iteration(self) -> None:
         """TS-07-23: attempt=2 <= max=2 → worktree, coder, push all called."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2120,15 +2120,15 @@ class TestRetryLimitNotExceeded:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.subprocess",
+                "agentfox.maintenance.pr_feedback.subprocess",
                 create=True,
             ),
         ):
@@ -2140,7 +2140,7 @@ class TestRetryLimitNotExceeded:
             )
             mock_push = AsyncMock(return_value=MagicMock(returncode=0))
             with patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=[mock_diff, mock_push],
             ):
                 await _run_feedback_iteration(
@@ -2171,14 +2171,14 @@ class TestRetryLimitZero:
 
     async def test_zero_retries_attempt_one_stops(self) -> None:
         """TS-07-E15: max_pr_retries=0, attempt=1 → 1>0 stops immediately."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
         config = _make_config(max_pr_retries=0)
 
         with patch(
-            "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+            "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
             new_callable=AsyncMock,
         ) as mock_setup:
             result = await _run_feedback_iteration(
@@ -2198,7 +2198,7 @@ class TestRetryLimitZero:
 
     async def test_zero_retries_posts_retry_limit_message(self) -> None:
         """TS-07-E15: Retry limit message posted when max_pr_retries=0."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2225,7 +2225,7 @@ class TestRetryLimitZero:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E15: INFO log contains 'Retry limit reached' at max=0."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2261,7 +2261,7 @@ class TestRetryLimitBoundary:
 
     async def test_attempt_1_and_2_run_attempt_3_stops(self) -> None:
         """TS-07-E16: attempts 1,2 → worktree created; attempt 3 → no worktree."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -2277,15 +2277,15 @@ class TestRetryLimitBoundary:
 
             with (
                 patch(
-                    "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                    "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                     new_callable=AsyncMock,
                     return_value="worktrees/feedback-10",
                 ) as mock_setup,
                 patch(
-                    "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                    "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
                 ),
                 patch(
-                    "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                    "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                     new_callable=AsyncMock,
                     return_value=MagicMock(
                         stdout="file.py\n", returncode=0,
@@ -2309,7 +2309,7 @@ class TestRetryLimitBoundary:
         # attempt=3 should stop
         mock_platform_3 = _make_mock_platform()
         with patch(
-            "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+            "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
             new_callable=AsyncMock,
         ) as mock_setup_3:
             await _run_feedback_iteration(
@@ -2341,7 +2341,7 @@ class TestSetupFeedbackWorktree:
 
     async def test_fetch_then_worktree_add(self) -> None:
         """TS-07-24: git fetch origin <branch> first, then git worktree add."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -2356,7 +2356,7 @@ class TestSetupFeedbackWorktree:
             return proc
 
         with patch(
-            "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+            "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
             side_effect=_mock_subprocess,
         ):
             worktree_path = await _setup_feedback_worktree(
@@ -2385,7 +2385,7 @@ class TestSetupFeedbackWorktree:
 
     async def test_returns_worktree_path_string(self) -> None:
         """TS-07-24: Returns worktree path as a string."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -2398,7 +2398,7 @@ class TestSetupFeedbackWorktree:
             return proc
 
         with patch(
-            "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+            "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
             side_effect=_mock_subprocess,
         ):
             worktree_path = await _setup_feedback_worktree(
@@ -2420,7 +2420,7 @@ class TestCleanupFeedbackWorktreeNoOp:
 
     def test_nonexistent_dir_returns_none(self, tmp_path: Path) -> None:
         """TS-07-25: Returns None for nonexistent directory."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         # Use tmp_path as base so we know feedback-10 doesn't exist
         result = _cleanup_feedback_worktree(
@@ -2431,7 +2431,7 @@ class TestCleanupFeedbackWorktreeNoOp:
 
     def test_nonexistent_dir_no_exception(self, tmp_path: Path) -> None:
         """TS-07-25: No exception raised for nonexistent directory."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         # Should not raise
         _cleanup_feedback_worktree(
@@ -2444,7 +2444,7 @@ class TestCleanupFeedbackWorktreeNoOp:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-25: DEBUG log says 'Feedback worktree not found for issue #10'."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         with caplog.at_level(logging.DEBUG):
             _cleanup_feedback_worktree(
@@ -2471,7 +2471,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_contains_ci_failures_heading(self) -> None:
         """TS-07-26: Output contains '## CI Failures' heading."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2489,7 +2489,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_includes_check_name(self) -> None:
         """TS-07-26: CI section includes CheckResult.name field."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2507,7 +2507,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_includes_output_title(self) -> None:
         """TS-07-26: CI section includes CheckResult.output_title."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2525,7 +2525,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_includes_output_summary(self) -> None:
         """TS-07-26: CI section includes CheckResult.output_summary."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2543,7 +2543,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_no_review_section(self) -> None:
         """TS-07-26: CI trigger produces no '## Review Feedback' section."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2561,7 +2561,7 @@ class TestCollectFeedbackCi:
 
     def test_ci_trigger_returns_nonempty_string(self) -> None:
         """TS-07-26: Output is a non-empty string."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="ci",
@@ -2584,7 +2584,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_contains_review_heading(self) -> None:
         """TS-07-27: Output contains '## Review Feedback' heading."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2602,7 +2602,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_includes_user(self) -> None:
         """TS-07-27: Review section includes ReviewComment.user."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2620,7 +2620,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_includes_body(self) -> None:
         """TS-07-27: Review section includes ReviewComment.body."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2638,7 +2638,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_includes_state(self) -> None:
         """TS-07-27: Review section includes ReviewComment.state."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2656,7 +2656,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_no_ci_section(self) -> None:
         """TS-07-27: Review trigger produces no '## CI Failures' section."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2674,7 +2674,7 @@ class TestCollectFeedbackReview:
 
     def test_review_trigger_returns_nonempty_string(self) -> None:
         """TS-07-27: Output is a non-empty string."""
-        from agentfox.nightshift.pr_feedback import _collect_feedback
+        from agentfox.maintenance.pr_feedback import _collect_feedback
 
         output = _collect_feedback(
             trigger="review",
@@ -2699,7 +2699,7 @@ class TestFeedbackIterationCleanupGuarantee:
 
     async def test_cleanup_called_when_coder_raises(self) -> None:
         """TS-07-35: _cleanup_feedback_worktree called despite coder exception."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2714,15 +2714,15 @@ class TestFeedbackIterationCleanupGuarantee:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=MagicMock(
                     stdout="file.py\n", returncode=0,
@@ -2751,7 +2751,7 @@ class TestFeedbackIterationCleanupGuarantee:
 
     async def test_cleanup_called_exactly_once(self) -> None:
         """TS-07-35: _cleanup_feedback_worktree called exactly once."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2766,15 +2766,15 @@ class TestFeedbackIterationCleanupGuarantee:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=MagicMock(
                     stdout="file.py\n", returncode=0,
@@ -2800,7 +2800,7 @@ class TestFeedbackIterationCleanupGuarantee:
 
     async def test_cleanup_called_on_setup_worktree_failure(self) -> None:
         """TS-07-35: _cleanup called even when _setup_feedback_worktree raises."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -2808,12 +2808,12 @@ class TestFeedbackIterationCleanupGuarantee:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 side_effect=OSError("disk full"),
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
         ):
             try:
@@ -2845,7 +2845,7 @@ class TestCleanupFeedbackWorktreeNeverRaises:
 
     def test_returns_none_for_missing_dir(self, tmp_path: Path) -> None:
         """TS-07-36: Returns None when dir doesn't exist."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         result = _cleanup_feedback_worktree(
             issue_number=10, worktree_base=str(tmp_path / "worktrees"),
@@ -2854,7 +2854,7 @@ class TestCleanupFeedbackWorktreeNeverRaises:
 
     def test_no_exception_for_missing_dir(self, tmp_path: Path) -> None:
         """TS-07-36: No exception raised when dir doesn't exist."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         # Should not raise — asserting no exception
         _cleanup_feedback_worktree(
@@ -2867,7 +2867,7 @@ class TestCleanupFeedbackWorktreeNeverRaises:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-36: DEBUG log emitted about 'skipping cleanup'."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         with caplog.at_level(logging.DEBUG):
             _cleanup_feedback_worktree(
@@ -2893,7 +2893,7 @@ class TestSetupWorktreeFetchFailure:
 
     async def test_fetch_failure_raises_exception(self) -> None:
         """TS-07-E17: git fetch failure → exception propagated."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -2915,7 +2915,7 @@ class TestSetupWorktreeFetchFailure:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
             pytest.raises(Exception),
@@ -2924,7 +2924,7 @@ class TestSetupWorktreeFetchFailure:
 
     async def test_fetch_failure_no_worktree_add(self) -> None:
         """TS-07-E17: git worktree add NOT called when fetch fails."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -2948,7 +2948,7 @@ class TestSetupWorktreeFetchFailure:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -2968,7 +2968,7 @@ class TestSetupWorktreeFetchFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E17: ERROR logged when git fetch fails."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -2985,7 +2985,7 @@ class TestSetupWorktreeFetchFailure:
         with caplog.at_level(logging.ERROR):
             try:
                 with patch(
-                    "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                    "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                     side_effect=_mock_subprocess,
                 ):
                     await _setup_feedback_worktree(issue=issue, config=config)
@@ -3012,7 +3012,7 @@ class TestSetupWorktreeAddFailure:
 
     async def test_worktree_add_failure_raises_exception(self) -> None:
         """TS-07-E18: worktree add failure → exception propagated."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -3038,7 +3038,7 @@ class TestSetupWorktreeAddFailure:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
             pytest.raises(Exception),
@@ -3050,7 +3050,7 @@ class TestSetupWorktreeAddFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E18: ERROR logged when git worktree add fails."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
@@ -3075,7 +3075,7 @@ class TestSetupWorktreeAddFailure:
         with caplog.at_level(logging.ERROR):
             try:
                 with patch(
-                    "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                    "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                     side_effect=_mock_subprocess,
                 ):
                     await _setup_feedback_worktree(issue=issue, config=config)
@@ -3100,14 +3100,14 @@ class TestSetupWorktreeTimeout:
 
     async def test_subprocess_timeout_raises(self) -> None:
         """TS-07-E19: TimeoutError raised when subprocess hangs."""
-        from agentfox.nightshift.pr_feedback import _setup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _setup_feedback_worktree
 
         issue = _make_issue(number=10, title="My Issue")
         config = _make_config()
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 side_effect=TimeoutError(),
             ),
@@ -3117,7 +3117,7 @@ class TestSetupWorktreeTimeout:
 
     async def test_timeout_triggers_cleanup_in_finally(self) -> None:
         """TS-07-E19: _cleanup_feedback_worktree called in finally after timeout."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         mock_platform = _make_mock_platform()
@@ -3125,12 +3125,12 @@ class TestSetupWorktreeTimeout:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 side_effect=TimeoutError(),
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
         ):
             try:
@@ -3162,14 +3162,14 @@ class TestCleanupWorktreeRemovalFailure:
 
     def test_removal_failure_returns_none(self, tmp_path: Path) -> None:
         """TS-07-E26: Returns None even when removal command fails."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         # Create the directory so removal is attempted
         worktree_dir = tmp_path / "worktrees" / "feedback-10"
         worktree_dir.mkdir(parents=True)
 
         with patch(
-            "agentfox.nightshift.pr_feedback.shutil.rmtree",
+            "agentfox.maintenance.pr_feedback.shutil.rmtree",
             side_effect=PermissionError("denied"),
         ):
             result = _cleanup_feedback_worktree(
@@ -3180,13 +3180,13 @@ class TestCleanupWorktreeRemovalFailure:
 
     def test_removal_failure_does_not_raise(self, tmp_path: Path) -> None:
         """TS-07-E26: No exception raised from _cleanup_feedback_worktree."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         worktree_dir = tmp_path / "worktrees" / "feedback-10"
         worktree_dir.mkdir(parents=True)
 
         with patch(
-            "agentfox.nightshift.pr_feedback.shutil.rmtree",
+            "agentfox.maintenance.pr_feedback.shutil.rmtree",
             side_effect=PermissionError("denied"),
         ):
             # Should NOT raise
@@ -3200,7 +3200,7 @@ class TestCleanupWorktreeRemovalFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E26: WARNING logged about cleanup failure."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         worktree_dir = tmp_path / "worktrees" / "feedback-10"
         worktree_dir.mkdir(parents=True)
@@ -3208,7 +3208,7 @@ class TestCleanupWorktreeRemovalFailure:
         with (
             caplog.at_level(logging.WARNING),
             patch(
-                "agentfox.nightshift.pr_feedback.shutil.rmtree",
+                "agentfox.maintenance.pr_feedback.shutil.rmtree",
                 side_effect=PermissionError("denied"),
             ),
         ):
@@ -3229,7 +3229,7 @@ class TestCleanupWorktreeRemovalFailure:
         tmp_path: Path,
     ) -> None:
         """TS-07-E26: Original try-block exception propagates past cleanup."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         worktree_dir = tmp_path / "worktrees" / "feedback-10"
         worktree_dir.mkdir(parents=True)
@@ -3237,7 +3237,7 @@ class TestCleanupWorktreeRemovalFailure:
         original_error = RuntimeError("original error")
 
         with patch(
-            "agentfox.nightshift.pr_feedback.shutil.rmtree",
+            "agentfox.maintenance.pr_feedback.shutil.rmtree",
             side_effect=PermissionError("denied"),
         ):
             # Cleanup should not mask the original exception
@@ -3333,15 +3333,15 @@ def _make_feedback_patches(
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value=worktree_path,
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ) as mock_subprocess,
         ):
@@ -3366,7 +3366,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_triage_result_has_correct_summary(self) -> None:
         """TS-07-29: triage.summary == issue.title ('Fix bug')."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3397,7 +3397,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_triage_result_has_affected_files_from_diff(self) -> None:
         """TS-07-29: triage.affected_files == ['src/foo.py'] from git diff."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3423,7 +3423,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_triage_result_criteria_empty(self) -> None:
         """TS-07-29: triage.criteria == []."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3449,7 +3449,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_triage_result_assessed_complexity_none(self) -> None:
         """TS-07-29: triage.assessed_complexity is None."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3475,7 +3475,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_triage_result_issue_body_from_issue(self) -> None:
         """TS-07-29: triage.issue_body == issue.body."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3501,7 +3501,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_build_coder_prompt_prior_context_empty(self) -> None:
         """TS-07-29: prior_context='' in _build_coder_prompt call."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3526,7 +3526,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_build_coder_prompt_knowledge_context_empty(self) -> None:
         """TS-07-29: knowledge_context='' in _build_coder_prompt call."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3551,7 +3551,7 @@ class TestCoderSessionSyntheticTriageResult:
 
     async def test_build_coder_prompt_review_feedback_nonempty(self) -> None:
         """TS-07-29: review_feedback is a non-empty string in _build_coder_prompt."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug", body="Detailed description")
         config = _make_config(max_pr_retries=2)
@@ -3594,7 +3594,7 @@ class TestCoderSessionInvocation:
 
     async def test_run_coder_session_called_with_worktree(self) -> None:
         """TS-07-30: _run_coder_session workspace contains feedback worktree path."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3622,7 +3622,7 @@ class TestCoderSessionInvocation:
 
     async def test_run_coder_session_uses_model_from_config(self) -> None:
         """TS-07-30: model_id from nightshift config used in coder session."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3661,7 +3661,7 @@ class TestGitDiffFailure:
 
     async def test_diff_failure_defaults_affected_files_empty(self) -> None:
         """TS-07-31: affected_files=[] when git diff raises."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3690,7 +3690,7 @@ class TestGitDiffFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-31: WARNING contains 'git diff --name-only failed' and 'defaulting'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3721,7 +3721,7 @@ class TestGitDiffFailure:
 
     async def test_empty_diff_output_defaults_affected_files_empty(self) -> None:
         """TS-07-31: affected_files=[] when git diff returns empty output."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3757,7 +3757,7 @@ class TestCoderSessionRaisesError:
 
     async def test_coder_raises_returns_none(self) -> None:
         """TS-07-E20: Returns None when _run_coder_session raises RuntimeError."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3786,7 +3786,7 @@ class TestCoderSessionRaisesError:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E20: ERROR log contains 'coder session raised'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3818,7 +3818,7 @@ class TestCoderSessionRaisesError:
 
     async def test_coder_raises_cleanup_called(self) -> None:
         """TS-07-E20: _cleanup_feedback_worktree called once."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3844,7 +3844,7 @@ class TestCoderSessionRaisesError:
 
     async def test_coder_raises_labels_untouched(self) -> None:
         """TS-07-E20: af:pr label not removed when coder raises."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3880,7 +3880,7 @@ class TestCoderSessionCancelledError:
 
     async def test_cancelled_error_propagates(self) -> None:
         """TS-07-E21: CancelledError is re-raised from _run_feedback_iteration."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3905,7 +3905,7 @@ class TestCoderSessionCancelledError:
 
     async def test_cancelled_error_cleanup_called(self) -> None:
         """TS-07-E21: _cleanup_feedback_worktree called despite CancelledError."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3944,7 +3944,7 @@ class TestTrackingCommentBeforePush:
 
     async def test_comment_posted_before_push(self) -> None:
         """TS-07-32: add_issue_comment index < git push index in call order."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -3974,15 +3974,15 @@ class TestTrackingCommentBeforePush:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -4006,7 +4006,7 @@ class TestTrackingCommentBeforePush:
 
     async def test_tracking_comment_has_incremented_attempt(self) -> None:
         """TS-07-32: Tracking comment references attempt+1 (attempt=2 for input=1)."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4047,7 +4047,7 @@ class TestNonEmptyDiffForcePush:
 
     async def test_auto_commit_called_with_feedback_message(self) -> None:
         """TS-07-33: _auto_commit_pending_changes with 'fix: Fix bug [nightshift feedback #2]'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug")
         config = _make_config(max_pr_retries=2)
@@ -4074,7 +4074,7 @@ class TestNonEmptyDiffForcePush:
 
     async def test_force_push_executed(self) -> None:
         """TS-07-33: git push --force is executed when diff is non-empty."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug")
         config = _make_config(max_pr_retries=2)
@@ -4096,13 +4096,13 @@ class TestNonEmptyDiffForcePush:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
-            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch("agentfox.maintenance.pr_feedback._cleanup_feedback_worktree"),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -4125,7 +4125,7 @@ class TestNonEmptyDiffForcePush:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-33: INFO log contains 'Feedback iteration 2 complete'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10, title="Fix bug")
         config = _make_config(max_pr_retries=2)
@@ -4166,7 +4166,7 @@ class TestEmptyDiffSkipsPush:
 
     async def test_empty_diff_no_push(self) -> None:
         """TS-07-34: git push --force NOT called when coder produces no changes."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4194,13 +4194,13 @@ class TestEmptyDiffSkipsPush:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
-            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch("agentfox.maintenance.pr_feedback._cleanup_feedback_worktree"),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -4221,7 +4221,7 @@ class TestEmptyDiffSkipsPush:
 
     async def test_empty_diff_posts_no_changes_message(self) -> None:
         """TS-07-34: _NO_CHANGES_MESSAGE comment posted on empty diff."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4252,7 +4252,7 @@ class TestEmptyDiffSkipsPush:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-34: WARNING log contains 'coder produced no changes'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4293,7 +4293,7 @@ class TestTrackingCommentPostFailure:
 
     async def test_comment_post_failure_returns_none(self) -> None:
         """TS-07-E22: Returns None when tracking comment post fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4323,7 +4323,7 @@ class TestTrackingCommentPostFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E22: ERROR log contains 'failed to post tracking comment'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4356,7 +4356,7 @@ class TestTrackingCommentPostFailure:
 
     async def test_comment_post_failure_cleanup_called(self) -> None:
         """TS-07-E22: _cleanup_feedback_worktree called on comment post failure."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4393,7 +4393,7 @@ class TestPushFailureAfterComment:
 
     async def test_push_failure_returns_none(self) -> None:
         """TS-07-E23: Returns None when git push --force fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4422,7 +4422,7 @@ class TestPushFailureAfterComment:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E23: ERROR log contains 'git push --force failed'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4454,7 +4454,7 @@ class TestPushFailureAfterComment:
 
     async def test_push_failure_tracking_comment_already_posted(self) -> None:
         """TS-07-E23: Tracking comment with attempt=2 is already persisted."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4481,7 +4481,7 @@ class TestPushFailureAfterComment:
 
     async def test_push_failure_cleanup_called(self) -> None:
         """TS-07-E23: _cleanup_feedback_worktree called after push failure."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4517,7 +4517,7 @@ class TestAutoCommitFailure:
 
     async def test_auto_commit_failure_returns_none(self) -> None:
         """TS-07-E24: Returns None when _auto_commit_pending_changes raises."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4547,7 +4547,7 @@ class TestAutoCommitFailure:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-E24: ERROR log contains 'auto-commit failed'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4580,7 +4580,7 @@ class TestAutoCommitFailure:
 
     async def test_auto_commit_failure_cleanup_called(self) -> None:
         """TS-07-E24: _cleanup_feedback_worktree called on auto-commit failure."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4617,7 +4617,7 @@ class TestPushUsesForceNotLease:
 
     async def test_push_uses_force_flag(self) -> None:
         """TS-07-E25: git push command contains '--force' not '--force-with-lease'."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4638,13 +4638,13 @@ class TestPushUsesForceNotLease:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
-            patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"),
+            patch("agentfox.maintenance.pr_feedback._cleanup_feedback_worktree"),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -4681,7 +4681,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log emitted when PR is merged."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -4709,7 +4709,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log emitted when PR is closed without merge."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -4739,7 +4739,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log for CI re-entry triggered."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -4759,7 +4759,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log for review re-entry triggered."""
-        from agentfox.nightshift.pr_feedback import _check_reviews
+        from agentfox.maintenance.pr_feedback import _check_reviews
 
         platform = _make_mock_platform()
         platform.get_pr_reviews = AsyncMock(
@@ -4781,7 +4781,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log for retry limit reached."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4809,7 +4809,7 @@ class TestInfoLogsForTransitions:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-37: INFO log for feedback iteration complete."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4850,7 +4850,7 @@ class TestWarningLogsForAnomalies:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-38: WARNING when no valid tracking comment found."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -4876,7 +4876,7 @@ class TestWarningLogsForAnomalies:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-38: WARNING when all CI checks are in ambiguous state."""
-        from agentfox.nightshift.pr_feedback import _check_ci_status
+        from agentfox.maintenance.pr_feedback import _check_ci_status
 
         platform = _make_mock_platform()
         platform.get_pr_checks = AsyncMock(
@@ -4896,7 +4896,7 @@ class TestWarningLogsForAnomalies:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-38: WARNING when platform API error during polling."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -4920,7 +4920,7 @@ class TestWarningLogsForAnomalies:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-38: WARNING when coder produced no changes."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4951,7 +4951,7 @@ class TestWarningLogsForAnomalies:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-38: WARNING when git diff --name-only fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -4992,17 +4992,17 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when git fetch fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
 
         with caplog.at_level(logging.ERROR):
             with patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 side_effect=Exception("git fetch failed"),
-            ), patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"):
+            ), patch("agentfox.maintenance.pr_feedback._cleanup_feedback_worktree"):
                 try:
                     await _run_feedback_iteration(
                         issue=issue,
@@ -5029,17 +5029,17 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when git worktree add fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
 
         with caplog.at_level(logging.ERROR):
             with patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 side_effect=Exception("git worktree add failed"),
-            ), patch("agentfox.nightshift.pr_feedback._cleanup_feedback_worktree"):
+            ), patch("agentfox.maintenance.pr_feedback._cleanup_feedback_worktree"):
                 try:
                     await _run_feedback_iteration(
                         issue=issue,
@@ -5066,7 +5066,7 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when git push --force fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -5099,7 +5099,7 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when coder session raises."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -5132,7 +5132,7 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when auto-commit fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -5166,7 +5166,7 @@ class TestErrorLogsForFailures:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-39: ERROR log when tracking comment post fails."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=2)
@@ -5211,7 +5211,7 @@ class TestCleanupDebugLog:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """TS-07-40: DEBUG log contains 'Feedback worktree not found for issue #10'."""
-        from agentfox.nightshift.pr_feedback import _cleanup_feedback_worktree
+        from agentfox.maintenance.pr_feedback import _cleanup_feedback_worktree
 
         with caplog.at_level(logging.DEBUG):
             _cleanup_feedback_worktree(
@@ -5236,14 +5236,14 @@ class TestNightShiftStateNoNewFields:
 
     def test_issue_checks_completed_field_exists(self) -> None:
         """TS-07-41: issue_checks_completed is in NightShiftState fields."""
-        from agentfox.nightshift.engine import NightShiftState
+        from agentfox.maintenance.engine import NightShiftState
 
         field_names = {f.name for f in dataclasses.fields(NightShiftState)}
         assert "issue_checks_completed" in field_names
 
     def test_no_new_pr_feedback_specific_fields(self) -> None:
         """TS-07-41: No pr-feedback-specific fields like pr_feedback_errors."""
-        from agentfox.nightshift.engine import NightShiftState
+        from agentfox.maintenance.engine import NightShiftState
 
         field_names = {f.name for f in dataclasses.fields(NightShiftState)}
         # These are fields that should NOT exist per spec
@@ -5267,7 +5267,7 @@ class TestPrFeedbackModuleFunctions:
 
     def test_all_eight_functions_exist(self) -> None:
         """TS-07-42: All eight functions are module-level callables."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         required = [
             "process_pr_issue",
@@ -5286,8 +5286,8 @@ class TestPrFeedbackModuleFunctions:
 
     def test_no_fixpipeline_subclass(self) -> None:
         """TS-07-42: No class in pr_feedback inherits from FixPipeline."""
-        import agentfox.nightshift.pr_feedback as prf
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        import agentfox.maintenance.pr_feedback as prf
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         for name, obj in inspect.getmembers(prf, inspect.isclass):
             if obj is FixPipeline:
@@ -5308,59 +5308,59 @@ class TestPrFeedbackConstants:
 
     def test_feedback_iteration_message_exists(self) -> None:
         """TS-07-43: _FEEDBACK_ITERATION_MESSAGE is a non-empty string."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert isinstance(prf._FEEDBACK_ITERATION_MESSAGE, str)
         assert len(prf._FEEDBACK_ITERATION_MESSAGE) > 0
 
     def test_no_changes_message_exists(self) -> None:
         """TS-07-43: _NO_CHANGES_MESSAGE is a non-empty string."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert isinstance(prf._NO_CHANGES_MESSAGE, str)
         assert len(prf._NO_CHANGES_MESSAGE) > 0
 
     def test_retry_limit_message_exists(self) -> None:
         """TS-07-43: _RETRY_LIMIT_MESSAGE is a non-empty string."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert isinstance(prf._RETRY_LIMIT_MESSAGE, str)
         assert len(prf._RETRY_LIMIT_MESSAGE) > 0
 
     def test_feedback_commit_message_exists(self) -> None:
         """TS-07-43: _FEEDBACK_COMMIT_MESSAGE is a non-empty string."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert isinstance(prf._FEEDBACK_COMMIT_MESSAGE, str)
         assert len(prf._FEEDBACK_COMMIT_MESSAGE) > 0
 
     def test_parse_tracking_comment_importable(self) -> None:
         """TS-07-43: parse_tracking_comment accessible in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "parse_tracking_comment")
 
     def test_format_tracking_comment_importable(self) -> None:
         """TS-07-43: format_tracking_comment accessible in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "format_tracking_comment")
 
     def test_pr_tracking_pattern_importable(self) -> None:
         """TS-07-43: PR_TRACKING_PATTERN accessible in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "PR_TRACKING_PATTERN")
 
     def test_triage_result_importable(self) -> None:
         """TS-07-43: TriageResult accessible in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "TriageResult")
 
     def test_fix_pipeline_importable(self) -> None:
         """TS-07-43: FixPipeline accessible in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "FixPipeline")
 
@@ -5376,45 +5376,45 @@ class TestPrFeedbackImports:
 
     def test_platform_protocol_importable(self) -> None:
         """TS-07-44: PlatformProtocol in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "PlatformProtocol")
 
     def test_issue_result_importable(self) -> None:
         """TS-07-44: IssueResult in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "IssueResult")
 
     def test_check_result_importable(self) -> None:
         """TS-07-44: CheckResult in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "CheckResult")
 
     def test_review_comment_importable(self) -> None:
         """TS-07-44: ReviewComment in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "ReviewComment")
 
     def test_label_pr_correct_value(self) -> None:
         """TS-07-44: LABEL_PR == 'af:pr'."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "LABEL_PR")
         assert prf.LABEL_PR == "af:pr"
 
     def test_label_fixed_correct_value(self) -> None:
         """TS-07-44: LABEL_FIXED == 'af:fixed'."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "LABEL_FIXED")
         assert prf.LABEL_FIXED == "af:fixed"
 
     def test_sanitise_branch_name_importable(self) -> None:
         """TS-07-44: sanitise_branch_name in pr_feedback namespace."""
-        import agentfox.nightshift.pr_feedback as prf
+        import agentfox.maintenance.pr_feedback as prf
 
         assert hasattr(prf, "sanitise_branch_name")
 
@@ -5430,13 +5430,13 @@ class TestProcessPrIssueSignature:
 
     def test_is_coroutine_function(self) -> None:
         """TS-07-45: process_pr_issue is an async function."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         assert inspect.iscoroutinefunction(process_pr_issue)
 
     def test_has_correct_parameters(self) -> None:
         """TS-07-45: Parameters are (issue, config, platform, pipeline)."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         sig = inspect.signature(process_pr_issue)
         params = list(sig.parameters.keys())
@@ -5444,7 +5444,7 @@ class TestProcessPrIssueSignature:
 
     async def test_returns_none_on_success(self) -> None:
         """TS-07-45: Returns None on successful merged PR path."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5465,7 +5465,7 @@ class TestProcessPrIssueSignature:
 
     async def test_returns_none_on_skip(self) -> None:
         """TS-07-45: Returns None when issue is skipped."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5494,7 +5494,7 @@ class TestLabelExclusivity:
     async def test_merged_pr_removes_af_pr_adds_af_fixed(self) -> None:
         """TS-07-46: After PR merge: af:pr removed, af:fixed assigned, no af:fix."""
         from afissues.labels import LABEL_FIXED, LABEL_PR
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5523,7 +5523,7 @@ class TestLabelExclusivity:
     async def test_closed_without_merge_removes_af_pr_only(self) -> None:
         """TS-07-46: After PR closed without merge: af:pr removed, no af:fix added."""
         from afissues.labels import LABEL_PR
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5595,7 +5595,7 @@ class TestClosedWithoutMergeLabelTransition:
     async def test_closed_no_merge_removes_af_pr(self) -> None:
         """TS-07-48: remove_label called with af:pr."""
         from afissues.labels import LABEL_PR
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5616,7 +5616,7 @@ class TestClosedWithoutMergeLabelTransition:
 
     async def test_closed_no_merge_does_not_add_af_fix(self) -> None:
         """TS-07-48: assign_label with af:fix NOT called."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5641,7 +5641,7 @@ class TestClosedWithoutMergeLabelTransition:
 
     async def test_closed_no_merge_issue_not_closed(self) -> None:
         """TS-07-48: close_issue NOT called — issue left open."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5662,7 +5662,7 @@ class TestClosedWithoutMergeLabelTransition:
 
     async def test_closed_no_merge_comment_posted(self) -> None:
         """TS-07-48: Comment about closed-without-merging is posted."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -5696,7 +5696,7 @@ class TestSmokePathMergedPrDetected:
 
     async def test_merged_pr_full_flow(self, caplog: pytest.LogCaptureFixture) -> None:
         """End-to-end: merged PR detected, issue closed automatically."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         issue = _make_issue(number=10, title="Fix login bug")
         tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -5713,13 +5713,13 @@ class TestSmokePathMergedPrDetected:
 
         with (
             patch(
-                "agentfox.nightshift.engine.process_pr_issue",
+                "agentfox.maintenance.engine.process_pr_issue",
                 new_callable=AsyncMock,
             ) as mock_process,
             caplog.at_level(logging.INFO),
         ):
             # Use real process_pr_issue for smoke test
-            from agentfox.nightshift.pr_feedback import process_pr_issue
+            from agentfox.maintenance.pr_feedback import process_pr_issue
 
             mock_process.side_effect = process_pr_issue
 
@@ -5768,7 +5768,7 @@ class TestSmokeCiFailureReEntry:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """End-to-end: CI failure → coder re-run → tracking comment → force-push."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         issue = _make_issue(number=42, title="Fix signup form")
         tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -5838,24 +5838,24 @@ class TestSmokeCiFailureReEntry:
 
         with (
             patch(
-                "agentfox.nightshift.engine.process_pr_issue",
+                "agentfox.maintenance.engine.process_pr_issue",
                 new_callable=AsyncMock,
             ) as mock_process,
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-42",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
             caplog.at_level(logging.INFO),
         ):
-            from agentfox.nightshift.pr_feedback import process_pr_issue
+            from agentfox.maintenance.pr_feedback import process_pr_issue
 
             async def _process_with_pipeline(issue, **kwargs):
                 kwargs["pipeline"] = mock_pipeline
@@ -5908,7 +5908,7 @@ class TestSmokeReviewerChangesRequested:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """End-to-end: all CI pass + CHANGES_REQUESTED → feedback iteration."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10, title="Fix auth flow")
         tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -5938,7 +5938,7 @@ class TestSmokeReviewerChangesRequested:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._run_feedback_iteration",
+                "agentfox.maintenance.pr_feedback._run_feedback_iteration",
                 new_callable=AsyncMock,
             ) as mock_iteration,
             caplog.at_level(logging.INFO),
@@ -5983,7 +5983,7 @@ class TestSmokeRetryLimitReached:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """End-to-end: attempt=3, max_retries=2 → limit message, no worktree."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10, title="Fix slow query")
         tracking = _make_tracking_comment(pr_number=42, attempt=3)
@@ -6003,11 +6003,11 @@ class TestSmokeRetryLimitReached:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ),
             caplog.at_level(logging.INFO),
         ):
@@ -6047,7 +6047,7 @@ class TestSmokePrClosedWithoutMerge:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """End-to-end: PR closed without merge → comment + remove af:pr."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10, title="Fix flaky test")
         tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -6100,7 +6100,7 @@ class TestSmokeDaemonLifecycleMergeDetection:
         config = _make_config(merge_strategy="pr")
 
         # Step 1: Verify build_streams returns pr-feedback stream
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         engine_mock = MagicMock()
         streams = build_streams(config, engine=engine_mock, budget=MagicMock())
@@ -6119,7 +6119,7 @@ class TestSmokeDaemonLifecycleMergeDetection:
             )
 
         # Step 2: Verify _check_open_prs processes merged PR
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         issue = _make_issue(number=99, title="Full lifecycle issue")
         tracking = _make_tracking_comment(pr_number=55, attempt=1)
@@ -6135,12 +6135,12 @@ class TestSmokeDaemonLifecycleMergeDetection:
 
         with (
             patch(
-                "agentfox.nightshift.engine.process_pr_issue",
+                "agentfox.maintenance.engine.process_pr_issue",
                 new_callable=AsyncMock,
             ) as mock_process,
             caplog.at_level(logging.INFO),
         ):
-            from agentfox.nightshift.pr_feedback import process_pr_issue
+            from agentfox.maintenance.pr_feedback import process_pr_issue
 
             mock_process.side_effect = process_pr_issue
 
@@ -6167,7 +6167,7 @@ class TestSmokeEmptyDiffAfterCoder:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """End-to-end: empty diff → tracking comment posted, push skipped, no-changes."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10, title="Fix memory leak")
         tracking = _make_tracking_comment(pr_number=42, attempt=1)
@@ -6215,15 +6215,15 @@ class TestSmokeEmptyDiffAfterCoder:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
             caplog.at_level(logging.WARNING),
@@ -6242,7 +6242,7 @@ class TestSmokeEmptyDiffAfterCoder:
         assert not push_called, "Push should not be called when diff is empty"
 
         # _NO_CHANGES_MESSAGE comment posted
-        from agentfox.nightshift.pr_feedback import _NO_CHANGES_MESSAGE
+        from agentfox.maintenance.pr_feedback import _NO_CHANGES_MESSAGE
 
         assert any(
             _NO_CHANGES_MESSAGE in body or "no changes" in body.lower()

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from afissues.protocol import IssueResult
-from agentfox.nightshift.dep_graph import DependencyEdge
+from agentfox.maintenance.dep_graph import DependencyEdge
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,7 +41,7 @@ class TestTriageUsesMaintainerHunt:
     async def test_resolve_model_tier_called_with_maintainer_hunt(self) -> None:
         """TS-100-6: run_batch_triage must call resolve_model_tier('maintainer', mode='hunt')."""
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.triage import run_batch_triage
+        from agentfox.maintenance.triage import run_batch_triage
 
         config = AgentFoxConfig()
         issues = [_make_issue(1), _make_issue(2)]
@@ -51,8 +51,8 @@ class TestTriageUsesMaintainerHunt:
         triage_response = '{"processing_order": [1, 2], "dependencies": [], "supersession": []}'
 
         with (
-            patch("agentfox.nightshift.triage.resolve_model_tier") as mock_tier,
-            patch("agentfox.nightshift.cost_helpers.nightshift_ai_call") as mock_ai,
+            patch("agentfox.maintenance.triage.resolve_model_tier") as mock_tier,
+            patch("agentfox.maintenance.cost_helpers.nightshift_ai_call") as mock_ai,
         ):
             mock_tier.return_value = "STANDARD"
             mock_ai.return_value = (triage_response, MagicMock())
@@ -82,7 +82,7 @@ class TestTriageUsesMaintainerHunt:
         Requirement: 100-REQ-5.2
         """
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.triage import run_batch_triage
+        from agentfox.maintenance.triage import run_batch_triage
 
         config = AgentFoxConfig()
         issues = [_make_issue(1)]
@@ -91,9 +91,9 @@ class TestTriageUsesMaintainerHunt:
         triage_response = '{"processing_order": [1], "dependencies": [], "supersession": []}'
 
         with (
-            patch("agentfox.nightshift.triage.resolve_security_config") as mock_sec,
-            patch("agentfox.nightshift.triage.resolve_model_tier", return_value="STANDARD"),
-            patch("agentfox.nightshift.cost_helpers.nightshift_ai_call") as mock_ai,
+            patch("agentfox.maintenance.triage.resolve_security_config") as mock_sec,
+            patch("agentfox.maintenance.triage.resolve_model_tier", return_value="STANDARD"),
+            patch("agentfox.maintenance.cost_helpers.nightshift_ai_call") as mock_ai,
         ):
             mock_sec.return_value = MagicMock()
             mock_ai.return_value = (triage_response, MagicMock())

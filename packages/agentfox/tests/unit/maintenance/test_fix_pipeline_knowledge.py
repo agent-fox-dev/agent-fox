@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+from agentfox.maintenance.spec_builder import InMemorySpec
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,7 +192,7 @@ class TestBuildCoderPromptKnowledge:
 class TestBuildReviewerPromptKnowledge:
     @patch("agentfox.session.prompt.build_system_prompt", return_value="system")
     def test_knowledge_context_included(self, mock_bsp: MagicMock) -> None:
-        from agentfox.nightshift.fix_pipeline import AcceptanceCriterion
+        from agentfox.maintenance.fix_pipeline import AcceptanceCriterion
 
         pipeline = _make_pipeline()
         spec = _make_spec()
@@ -256,7 +256,7 @@ class TestEmitSessionEventIngestion:
         with (
             patch.object(pipeline, "_record_session_to_db"),
             patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
-            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+            patch("agentfox.maintenance.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
                 outcome,
@@ -286,7 +286,7 @@ class TestEmitSessionEventIngestion:
 
         with (
             patch.object(pipeline, "_record_session_to_db"),
-            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+            patch("agentfox.maintenance.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
                 outcome,

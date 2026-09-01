@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from afissues.protocol import IssueResult
-from agentfox.nightshift.engine import NightShiftEngine
+from agentfox.maintenance.engine import NightShiftEngine
 from agentfox.ui.progress import ProgressDisplay
 
 
@@ -119,7 +119,7 @@ class TestPhaseLineFixComplete:
             cache_creation_input_tokens=0,
         )
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_instance = AsyncMock()
             mock_instance.process_issue = AsyncMock(return_value=mock_metrics)
             MockPipeline.return_value = mock_instance
@@ -154,7 +154,7 @@ class TestPhaseLineFixFailed:
 
         issue = _make_issue(number=42)
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_instance = AsyncMock()
             mock_instance.process_issue = AsyncMock(side_effect=RuntimeError("boom"))
             MockPipeline.return_value = mock_instance
@@ -251,7 +251,7 @@ class TestPropPhaseLineEmission:
             cache_creation_input_tokens=0,
         )
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_instance = AsyncMock()
             mock_instance.process_issue = AsyncMock(return_value=mock_metrics)
             MockPipeline.return_value = mock_instance

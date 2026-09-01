@@ -36,7 +36,7 @@ class TestPlatformDegradation:
 
     def test_fix_pipeline_disabled_when_no_platform(self) -> None:
         """Fix pipeline disabled when platform is none."""
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.streams import build_streams
 
         config = _make_config(platform_type="none")
         streams = build_streams(config)
@@ -55,8 +55,8 @@ class TestEngineWorkStreamDelegation:
 
     async def test_engine_work_stream_calls_drain_issues(self) -> None:
         """EngineWorkStream.run_once calls engine method."""
-        from agentfox.nightshift.daemon import SharedBudget
-        from agentfox.nightshift.streams import EngineWorkStream
+        from agentfox.maintenance.daemon import SharedBudget
+        from agentfox.maintenance.streams import EngineWorkStream
 
         mock_engine = MagicMock()
         mock_engine._drain_issues = AsyncMock(return_value=False)

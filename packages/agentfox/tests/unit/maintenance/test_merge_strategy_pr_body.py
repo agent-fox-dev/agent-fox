@@ -15,7 +15,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from agentfox.nightshift.fix_pipeline import build_pr_body
+from agentfox.maintenance.fix_pipeline import build_pr_body
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

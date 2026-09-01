@@ -17,8 +17,8 @@ from typing import Any
 from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType
 
-from agentfox.nightshift.fix_pipeline import FixReviewResult, TriageResult
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixReviewResult, TriageResult
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.ui.progress import TaskEvent
 from agentfox.workspace import WorkspaceInfo
 

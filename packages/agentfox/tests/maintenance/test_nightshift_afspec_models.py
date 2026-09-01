@@ -20,8 +20,8 @@ from afspec.models import (
     Spec,
     SubtaskState,
 )
-from agentfox.nightshift.fix_pipeline import AcceptanceCriterion, TriageResult
-from agentfox.nightshift.spec_builder import build_afspec_from_triage
+from agentfox.maintenance.fix_pipeline import AcceptanceCriterion, TriageResult
+from agentfox.maintenance.spec_builder import build_afspec_from_triage
 
 # ---------------------------------------------------------------------------
 # Helpers

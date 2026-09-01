@@ -17,8 +17,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.nightshift.coder_reviewer import CoderReviewerResult
-from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
+from agentfox.maintenance.coder_reviewer import CoderReviewerResult
+from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------

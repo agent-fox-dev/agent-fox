@@ -23,7 +23,7 @@ class TestPidFileWrite:
 
     def test_write_pid_file_creates_file(self, tmp_path: Path) -> None:
         """PID file exists and contains current process PID."""
-        from agentfox.nightshift.pid import write_pid_file
+        from agentfox.maintenance.pid import write_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)
@@ -42,7 +42,7 @@ class TestCodeCommandBlocked:
 
     def test_check_pid_file_returns_alive_for_current_pid(self, tmp_path: Path) -> None:
         """check_pid_file returns ALIVE when PID is current process."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file, write_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file, write_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)
@@ -62,7 +62,7 @@ class TestPlanCommandBlocked:
 
     def test_check_pid_file_returns_alive(self, tmp_path: Path) -> None:
         """check_pid_file returns ALIVE for a live process."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file, write_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file, write_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)
@@ -81,7 +81,7 @@ class TestLivePidBlocksStartup:
 
     def test_check_pid_file_alive(self, tmp_path: Path) -> None:
         """PID file with current PID returns ALIVE status."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         pid_path.write_text(str(os.getpid()))
@@ -101,7 +101,7 @@ class TestStalePidDetection:
 
     def test_check_pid_file_stale(self, tmp_path: Path) -> None:
         """PID file with dead process PID returns STALE status."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         pid_path.write_text("99999999")
@@ -121,7 +121,7 @@ class TestPidFileWriteFailure:
 
     def test_write_pid_file_readonly_dir(self, tmp_path: Path) -> None:
         """write_pid_file raises OSError for read-only directory."""
-        from agentfox.nightshift.pid import write_pid_file
+        from agentfox.maintenance.pid import write_pid_file
 
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir(mode=0o444)
@@ -140,7 +140,7 @@ class TestNoPidFile:
 
     def test_check_pid_file_absent(self, tmp_path: Path) -> None:
         """check_pid_file returns ABSENT when file does not exist."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file
 
         status, pid = check_pid_file(tmp_path / "daemon.pid")
         assert status == PidStatus.ABSENT
@@ -158,7 +158,7 @@ class TestStalePidNoBlock:
 
     def test_stale_pid_returns_stale_status(self, tmp_path: Path) -> None:
         """STALE status means code/plan should proceed."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         pid_path.write_text("99999999")
@@ -177,7 +177,7 @@ class TestPidFileRemove:
 
     def test_remove_existing_pid_file(self, tmp_path: Path) -> None:
         """remove_pid_file deletes an existing PID file."""
-        from agentfox.nightshift.pid import remove_pid_file, write_pid_file
+        from agentfox.maintenance.pid import remove_pid_file, write_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)
@@ -187,7 +187,7 @@ class TestPidFileRemove:
 
     def test_remove_nonexistent_pid_file_no_error(self, tmp_path: Path) -> None:
         """remove_pid_file does not raise for missing file."""
-        from agentfox.nightshift.pid import remove_pid_file
+        from agentfox.maintenance.pid import remove_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         remove_pid_file(pid_path)  # should not raise

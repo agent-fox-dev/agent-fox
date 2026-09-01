@@ -20,13 +20,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from agentfox.nightshift.fix_pipeline import (
+from agentfox.maintenance.fix_pipeline import (
     AcceptanceCriterion,
     FixPipeline,
     FixReviewResult,
     TriageResult,
 )
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.spec_builder import InMemorySpec
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -122,12 +122,12 @@ class TestBuildCoderPromptAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=fake_afspec,
                 create=True,
             ) as mock_build,
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ) as mock_render,
@@ -169,12 +169,12 @@ class TestBuildCoderPromptAfspec:
         """
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=MagicMock(),
                 create=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -206,12 +206,12 @@ class TestBuildCoderPromptAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=MagicMock(),
                 create=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -250,12 +250,12 @@ class TestBuildCoderPromptAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=MagicMock(),
                 create=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -300,12 +300,12 @@ class TestBuildReviewerPromptAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=fake_afspec,
                 create=True,
             ) as mock_build,
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ) as mock_render,
@@ -379,7 +379,7 @@ class TestFallbackOnAfspecFailure:
         """
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 side_effect=ValueError("malformed triage"),
                 create=True,
             ),
@@ -417,7 +417,7 @@ class TestFallbackOnAfspecFailure:
         """
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 side_effect=ValueError("malformed triage"),
                 create=True,
             ),
@@ -453,7 +453,7 @@ class TestStaticAnalysis:
 
         Requirement: 02-REQ-3.1
         """
-        import agentfox.nightshift.fix_pipeline as fp_module
+        import agentfox.maintenance.fix_pipeline as fp_module
 
         source = Path(fp_module.__file__).read_text()
 
@@ -514,7 +514,7 @@ class TestStaticAnalysis:
 
         Requirement: 02-REQ-3.2
         """
-        import agentfox.nightshift.fix_pipeline as fp_module
+        import agentfox.maintenance.fix_pipeline as fp_module
 
         source = Path(fp_module.__file__).read_text()
 
@@ -557,7 +557,7 @@ class TestTriageCommentFormat:
                 wraps=FixPipeline._render_criteria_section,
             ) as mock_render_section,
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 create=True,
             ) as mock_afspec_render,
         ):
@@ -638,12 +638,12 @@ class TestPropertyAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 return_value=MagicMock(),
                 create=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -721,12 +721,12 @@ class TestPropertyAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 create=True,
                 **afspec_kwargs,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -788,12 +788,12 @@ class TestPropertyAfspec:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 create=True,
                 **afspec_kwargs,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 return_value=RENDERED_SECTIONS,
                 create=True,
             ),
@@ -846,7 +846,7 @@ class TestPropertyTriageComment:
                 wraps=FixPipeline._render_criteria_section,
             ) as mock_section,
             patch(
-                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
                 create=True,
             ) as mock_afspec,
         ):
@@ -931,7 +931,7 @@ class TestSmokeTests:
         Execution Path: 02-PATH-1
         """
         # Import real spec 01 functions (fails if spec 01 not landed)
-        from agentfox.nightshift.spec_builder import (  # noqa: F401
+        from agentfox.maintenance.spec_builder import (  # noqa: F401
             build_afspec_from_triage,  # type: ignore[attr-defined]
             render_inmemory_spec_sections,  # type: ignore[attr-defined]
         )
@@ -963,7 +963,7 @@ class TestSmokeTests:
         """
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                "agentfox.maintenance.fix_pipeline.build_afspec_from_triage",
                 side_effect=ValueError("malformed"),
                 create=True,
             ),
@@ -1035,7 +1035,7 @@ class TestSmokeTests:
         Execution Path: 02-PATH-5
         """
         with patch(
-            "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+            "agentfox.maintenance.fix_pipeline.render_inmemory_spec_sections",
             create=True,
         ) as mock_afspec:
             comment = pipeline._format_triage_comment(valid_triage)

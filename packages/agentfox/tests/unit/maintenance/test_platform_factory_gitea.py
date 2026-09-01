@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Patch target for _resolve_remote in the factory module.
-_RESOLVE_REMOTE = "agentfox.nightshift.platform_factory._resolve_remote"
+_RESOLVE_REMOTE = "agentfox.maintenance.platform_factory._resolve_remote"
 # Patch target for the SSRF guard called inside the GiteaPlatform constructor.
 _VALIDATE_URL = "afissues.gitea._validate_url"
 
@@ -26,7 +26,7 @@ class TestPlatformFactoryGitea:
         Requirements: 05-REQ-18.1, 05-REQ-20.7
         """
         from afissues.gitea import GiteaPlatform
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -48,7 +48,7 @@ class TestPlatformFactoryGitea:
         Requirements: 05-REQ-18.1
         """
         from afissues.gitea import GiteaPlatform
-        from agentfox.nightshift.platform_factory import create_platform_safe
+        from agentfox.maintenance.platform_factory import create_platform_safe
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -72,7 +72,7 @@ class TestPlatformFactoryGitea:
 
         Requirements: 05-REQ-18.1
         """
-        from agentfox.nightshift.platform_factory import create_platform_safe
+        from agentfox.maintenance.platform_factory import create_platform_safe
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -91,7 +91,7 @@ class TestPlatformFactoryGitea:
 
         Requirements: 05-REQ-18.1
         """
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -113,7 +113,7 @@ class TestPlatformFactoryGitea:
 
         Gitea is self-hosted and has no default URL, so url must be provided.
         """
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitea"

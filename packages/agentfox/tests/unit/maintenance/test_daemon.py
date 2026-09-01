@@ -61,7 +61,7 @@ class TestSharedBudget:
 
     def test_cost_accumulation(self) -> None:
         """Budget accumulates cost from multiple add_cost calls."""
-        from agentfox.nightshift.daemon import SharedBudget
+        from agentfox.maintenance.daemon import SharedBudget
 
         budget = SharedBudget(max_cost=10.0)
         budget.add_cost(3.0)
@@ -73,7 +73,7 @@ class TestSharedBudget:
     # Requirement: 85-REQ-5.2
     def test_cost_exceeded(self) -> None:
         """Budget.exceeded is True when total_cost >= max_cost."""
-        from agentfox.nightshift.daemon import SharedBudget
+        from agentfox.maintenance.daemon import SharedBudget
 
         budget = SharedBudget(max_cost=5.0)
         budget.add_cost(6.0)
@@ -83,7 +83,7 @@ class TestSharedBudget:
     # Requirement: 85-REQ-5.E1
     def test_no_cost_limit(self) -> None:
         """Budget never exceeds when max_cost is None."""
-        from agentfox.nightshift.daemon import SharedBudget
+        from agentfox.maintenance.daemon import SharedBudget
 
         budget = SharedBudget(max_cost=None)
         budget.add_cost(1000.0)
@@ -101,7 +101,7 @@ class TestDaemonStreamRegistration:
 
     def test_register_three_streams(self) -> None:
         """Runner stores all three registered streams."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         streams = [
             _make_mock_stream(name="spec-executor"),
@@ -130,7 +130,7 @@ class TestDisabledStreamSkipped:
 
     async def test_disabled_stream_not_called(self, tmp_path: Path) -> None:
         """Enabled stream called, disabled stream not called."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         enabled = _make_mock_stream(name="enabled-stream", enabled=True)
         disabled = _make_mock_stream(name="disabled-stream", enabled=False)
@@ -154,7 +154,7 @@ class TestStreamExceptionHandling:
 
     async def test_exception_logged_and_retried(self, tmp_path: Path) -> None:
         """Stream that fails on first call is retried on second cycle."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         stream = _make_mock_stream(
             name="failing-stream",
@@ -187,7 +187,7 @@ class TestDoubleSignal:
 
     def test_second_signal_exits_130(self) -> None:
         """Second request_shutdown raises SystemExit(130)."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         budget = SharedBudget(max_cost=None)
         config = _make_config()
@@ -212,7 +212,7 @@ class TestPidFileRemovedOnShutdown:
 
     async def test_pid_removed_after_run(self, tmp_path: Path) -> None:
         """PID file does not exist after DaemonRunner.run() completes."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         pid_path = tmp_path / "daemon.pid"
         budget = SharedBudget(max_cost=None)
@@ -235,7 +235,7 @@ class TestStreamShutdownCalled:
 
     async def test_all_streams_shutdown(self, tmp_path: Path) -> None:
         """Both streams' shutdown() called exactly once."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         s1 = _make_mock_stream(name="s1")
         s2 = _make_mock_stream(name="s2")
@@ -259,7 +259,7 @@ class TestStreamPriorityOrder:
 
     async def test_launch_order(self, tmp_path: Path) -> None:
         """Spec executor launched first, fix pipeline second, then rest."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         launch_order: list[str] = []
 
@@ -309,7 +309,7 @@ class TestSimultaneousWakePriority:
 
     async def test_execution_order(self, tmp_path: Path) -> None:
         """Streams with same interval execute in priority order."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         execution_order: list[str] = []
 
@@ -358,7 +358,7 @@ class TestUnknownStreamName:
 
     def test_unknown_stream_ignored(self) -> None:
         """Unknown stream in enabled_streams does not cause error."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         streams = [_make_mock_stream(name="spec-executor")]
         config = _make_config(enabled_streams=["specs", "unknown_stream"])
@@ -379,7 +379,7 @@ class TestAllStreamsDisabled:
 
     async def test_no_run_once_called(self, tmp_path: Path) -> None:
         """No stream's run_once called when all disabled."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         streams = [_make_mock_stream(name=f"s{i}", enabled=False) for i in range(4)]
         budget = SharedBudget(max_cost=None)
@@ -402,7 +402,7 @@ class TestDisabledSpecExecutorNoPriorityDelay:
 
     async def test_fix_pipeline_launches_immediately(self, tmp_path: Path) -> None:
         """Fix pipeline launches without waiting for disabled spec executor."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         spec = _make_mock_stream(name="spec-executor", enabled=False)
         fix = _make_mock_stream(name="fix-pipeline", enabled=True)
@@ -429,27 +429,27 @@ class TestFormatIdleText:
     """Verify _format_idle_text produces human-readable idle messages."""
 
     def test_seconds(self) -> None:
-        from agentfox.nightshift.daemon import _format_idle_text
+        from agentfox.maintenance.daemon import _format_idle_text
 
         assert _format_idle_text("fix-pipeline", 45) == "Idle \u2014 next fix check in 45s"
 
     def test_minutes(self) -> None:
-        from agentfox.nightshift.daemon import _format_idle_text
+        from agentfox.maintenance.daemon import _format_idle_text
 
         assert _format_idle_text("fix-pipeline", 900) == "Idle \u2014 next fix check in 15m"
 
     def test_hours_and_minutes(self) -> None:
-        from agentfox.nightshift.daemon import _format_idle_text
+        from agentfox.maintenance.daemon import _format_idle_text
 
         assert _format_idle_text("spec-executor", 14400) == "Idle \u2014 next spec check in 4h"
 
     def test_hours_with_remainder(self) -> None:
-        from agentfox.nightshift.daemon import _format_idle_text
+        from agentfox.maintenance.daemon import _format_idle_text
 
         assert _format_idle_text("spec-executor", 5400) == "Idle \u2014 next spec check in 1h 30m"
 
     def test_unknown_stream_name_passthrough(self) -> None:
-        from agentfox.nightshift.daemon import _format_idle_text
+        from agentfox.maintenance.daemon import _format_idle_text
 
         result = _format_idle_text("custom-stream", 120)
         assert "custom-stream" in result
@@ -460,22 +460,22 @@ class TestFormatWait:
     """Verify _format_wait produces compact duration strings."""
 
     def test_seconds(self) -> None:
-        from agentfox.nightshift.daemon import _format_wait
+        from agentfox.maintenance.daemon import _format_wait
 
         assert _format_wait(45) == "45s"
 
     def test_minutes(self) -> None:
-        from agentfox.nightshift.daemon import _format_wait
+        from agentfox.maintenance.daemon import _format_wait
 
         assert _format_wait(900) == "15m"
 
     def test_hours_exact(self) -> None:
-        from agentfox.nightshift.daemon import _format_wait
+        from agentfox.maintenance.daemon import _format_wait
 
         assert _format_wait(14400) == "4h"
 
     def test_hours_and_minutes(self) -> None:
-        from agentfox.nightshift.daemon import _format_wait
+        from agentfox.maintenance.daemon import _format_wait
 
         assert _format_wait(5400) == "1h 30m"
 
@@ -487,7 +487,7 @@ class TestFormatActiveText:
         """Active spec-executor shows 'spec sessions' label."""
         import time as _time
 
-        from agentfox.nightshift.daemon import _format_active_text
+        from agentfox.maintenance.daemon import _format_active_text
 
         next_run = {"fix-pipeline": _time.monotonic() + 900}
         result = _format_active_text({"spec-executor"}, next_run)
@@ -498,7 +498,7 @@ class TestFormatActiveText:
         """Active text includes countdown for next scheduled stream."""
         import time as _time
 
-        from agentfox.nightshift.daemon import _format_active_text
+        from agentfox.maintenance.daemon import _format_active_text
 
         next_run = {"fix-pipeline": _time.monotonic() + 900}
         result = _format_active_text({"spec-executor"}, next_run)
@@ -509,7 +509,7 @@ class TestFormatActiveText:
         """Multiple active streams appear in priority order."""
         import time as _time
 
-        from agentfox.nightshift.daemon import _format_active_text
+        from agentfox.maintenance.daemon import _format_active_text
 
         next_run = {"hunt-scan": _time.monotonic() + 14400}
         result = _format_active_text({"spec-executor", "fix-pipeline"}, next_run)
@@ -520,7 +520,7 @@ class TestFormatActiveText:
 
     def test_no_next_run_times(self) -> None:
         """Empty next_run_times yields simple 'Running ...' with no countdown."""
-        from agentfox.nightshift.daemon import _format_active_text
+        from agentfox.maintenance.daemon import _format_active_text
 
         result = _format_active_text({"spec-executor"}, {})
         assert result == "Running spec sessions"
@@ -528,7 +528,7 @@ class TestFormatActiveText:
 
     def test_unknown_stream_falls_back_to_name(self) -> None:
         """Unknown stream name is shown as-is."""
-        from agentfox.nightshift.daemon import _format_active_text
+        from agentfox.maintenance.daemon import _format_active_text
 
         result = _format_active_text({"my-custom-stream"}, {})
         assert "my-custom-stream" in result
@@ -541,7 +541,7 @@ class TestActiveStreamDisplay:
         """idle_callback receives 'Running' text when _active_streams is non-empty."""
         import time as _time
 
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         captured: list[str] = []
         budget = SharedBudget(max_cost=None)
@@ -560,7 +560,7 @@ class TestActiveStreamDisplay:
         """idle_callback receives 'Idle' text when no streams are active."""
         import time as _time
 
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         captured: list[str] = []
         budget = SharedBudget(max_cost=None)
@@ -577,7 +577,7 @@ class TestActiveStreamDisplay:
         """Stream name is present in _active_streams while run_once() executes."""
         import asyncio as _asyncio
 
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         active_snapshot: list[set] = []
 
@@ -604,7 +604,7 @@ class TestActiveStreamDisplay:
 
     async def test_stream_removed_from_active_after_run_once(self, tmp_path: Path) -> None:
         """Stream removed from _active_streams after run_once() completes."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         stream = _make_mock_stream(name="spec-executor", interval=999, enabled=True)
         budget = SharedBudget(max_cost=None)
@@ -627,7 +627,7 @@ class TestActiveStreamDisplay:
 
     async def test_idle_callback_shows_idle_after_spec_run_completes(self, tmp_path: Path) -> None:
         """After spec-executor run_once() completes, idle_callback shows Idle text."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         captured: list[str] = []
         stream = _make_mock_stream(name="spec-executor", interval=999, enabled=True)
@@ -663,7 +663,7 @@ class TestIdleCallback:
 
     async def test_idle_callback_called_after_run_once(self, tmp_path: Path) -> None:
         """idle_callback receives idle text after a stream cycle."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         captured: list[str] = []
         stream = _make_mock_stream(name="fix-pipeline", interval=1, enabled=True)
@@ -691,7 +691,7 @@ class TestIdleCallback:
 
     async def test_no_idle_callback_no_error(self, tmp_path: Path) -> None:
         """DaemonRunner works without idle_callback (default None)."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         stream = _make_mock_stream(name="fix-pipeline", interval=1, enabled=True)
         budget = SharedBudget(max_cost=None)
@@ -708,7 +708,7 @@ class TestIdleCallback:
 
     async def test_idle_shows_soonest_stream(self, tmp_path: Path) -> None:
         """When multiple streams are registered, idle text shows the soonest."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         captured: list[str] = []
         fast = _make_mock_stream(name="fix-pipeline", interval=1, enabled=True)

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from afissues.protocol import IssueResult
-from agentfox.nightshift.fix_pipeline import FixPipeline
+from agentfox.maintenance.fix_pipeline import FixPipeline
 from agentfox.workspace import WorkspaceInfo
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -119,7 +119,7 @@ class TestBranchNameContainsIssueNumber:
     )
     def test_branch_name_contains_number(self, issue_number: int, title: str) -> None:
         """str(issue_number) is always a substring of sanitise_branch_name(title, issue_number)."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name(title, issue_number)
         assert str(issue_number) in result, f"Issue number {issue_number} not found in branch name '{result}'"
@@ -232,8 +232,8 @@ class TestForcePushSemantics:
     )
     async def test_force_push_semantics(self, issue_number: int) -> None:
         """push_to_remote is always called with force=True for fix branches."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

@@ -68,7 +68,7 @@ class TestPlatformFactory:
 
         from afissues.github import GitHubPlatform
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]
@@ -91,7 +91,7 @@ class TestPlatformNotConfigured:
     def test_abort_with_exit_code_1(self) -> None:
         """Raises SystemExit with code 1 when platform type is 'none'."""
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.engine import validate_night_shift_prerequisites
+        from agentfox.maintenance.engine import validate_night_shift_prerequisites
 
         config = AgentFoxConfig()
         assert config.platform.type == "none"
@@ -113,7 +113,7 @@ class TestUnknownPlatformType:
     def test_abort_with_exit_code_1(self, tmp_path: object) -> None:
         """Raises SystemExit with code 1 for unknown platform type."""
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = AgentFoxConfig()
         config.platform.type = "bitbucket"  # type: ignore[misc]
@@ -197,7 +197,7 @@ class TestWhitespaceOnlyPat:
         from unittest.mock import patch
 
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]

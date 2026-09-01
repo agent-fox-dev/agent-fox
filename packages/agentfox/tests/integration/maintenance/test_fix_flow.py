@@ -54,7 +54,7 @@ class TestArchetypePipeline:
         import json
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -125,7 +125,7 @@ class TestFixProgressComments:
         """At least one comment is posted to the issue during the fix."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -161,7 +161,7 @@ class TestFixCompletionComment:
         """Completion comment contains the fix branch name."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -198,7 +198,7 @@ class TestFixSessionFailure:
         """Comment posted on issue describing the failure."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

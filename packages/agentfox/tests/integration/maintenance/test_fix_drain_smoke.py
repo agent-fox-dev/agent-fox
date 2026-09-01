@@ -80,10 +80,10 @@ class TestSmokeFixPipelineDrainLoop:
     @pytest.mark.asyncio
     async def test_drain_loop_e2e(self, tmp_path: Path) -> None:
         """Engine drains one issue, FixPipeline.process_issue is called, state updated."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
-        from agentfox.nightshift.engine import NightShiftEngine
-        from agentfox.nightshift.fix_pipeline import FixMetrics
-        from agentfox.nightshift.streams import build_streams
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.engine import NightShiftEngine
+        from agentfox.maintenance.fix_pipeline import FixMetrics
+        from agentfox.maintenance.streams import build_streams
 
         issue = _make_issue(number=42)
         config = _make_config()
@@ -114,11 +114,11 @@ class TestSmokeFixPipelineDrainLoop:
 
         with (
             patch(
-                "agentfox.nightshift.engine.FixPipeline",
+                "agentfox.maintenance.engine.FixPipeline",
                 return_value=mock_pipeline_instance,
             ),
             patch(
-                "agentfox.nightshift.engine.NightShiftEngine._calculate_fix_cost",
+                "agentfox.maintenance.engine.NightShiftEngine._calculate_fix_cost",
                 return_value=0.50,
             ),
         ):

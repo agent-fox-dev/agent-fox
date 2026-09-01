@@ -20,7 +20,7 @@ def _make_fix_pipeline() -> object:
     """Build a minimal FixPipeline with a non-None _conn."""
     from unittest.mock import MagicMock
 
-    from agentfox.nightshift.fix_pipeline import FixPipeline
+    from agentfox.maintenance.fix_pipeline import FixPipeline
 
     config = MagicMock()
     config.orchestrator.max_cost = None
@@ -47,7 +47,7 @@ class TestTryCompleteRunLogsWarning:
         """When complete_run raises, a WARNING is emitted (not DEBUG)."""
         pipeline = _make_fix_pipeline()
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.nightshift.fix_pipeline"):
+        with caplog.at_level(logging.WARNING, logger="agentfox.maintenance.fix_pipeline"):
             with patch(
                 "agentfox.engine.state.complete_run",
                 side_effect=RuntimeError("DuckDB connection stale"),
@@ -63,7 +63,7 @@ class TestTryCompleteRunLogsWarning:
         """AC-4: The failure message must appear at WARNING or above, never only at DEBUG."""
         pipeline = _make_fix_pipeline()
 
-        with caplog.at_level(logging.DEBUG, logger="agentfox.nightshift.fix_pipeline"):
+        with caplog.at_level(logging.DEBUG, logger="agentfox.maintenance.fix_pipeline"):
             with patch(
                 "agentfox.engine.state.complete_run",
                 side_effect=RuntimeError("constraint violation"),
@@ -78,7 +78,7 @@ class TestTryCompleteRunLogsWarning:
 
     def test_complete_run_noop_when_conn_is_none(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning emitted when _conn is None (pipeline skips gracefully)."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -87,7 +87,7 @@ class TestTryCompleteRunLogsWarning:
         pipeline = FixPipeline(config=config, platform=MagicMock(), conn=None)
         pipeline._run_id = "test-run-none"
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.nightshift.fix_pipeline"):
+        with caplog.at_level(logging.WARNING, logger="agentfox.maintenance.fix_pipeline"):
             pipeline._try_complete_run("completed")
 
         assert not caplog.records, f"Expected no log output when conn is None; got: {caplog.records}"

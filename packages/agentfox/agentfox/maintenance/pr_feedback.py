@@ -28,14 +28,14 @@ from afissues.protocol import (
 )
 
 from agentfox.core.config import NightShiftConfig
-from agentfox.nightshift.fix_pipeline import (
+from agentfox.maintenance.fix_pipeline import (
     PR_TRACKING_PATTERN,  # noqa: F401 — re-exported for pr_feedback namespace
     FixPipeline,
     TriageResult,  # noqa: F401 — re-exported for pr_feedback namespace
     format_tracking_comment,  # noqa: F401 — re-exported for pr_feedback namespace
     parse_tracking_comment,
 )
-from agentfox.nightshift.spec_builder import sanitise_branch_name  # noqa: F401
+from agentfox.maintenance.spec_builder import sanitise_branch_name  # noqa: F401
 
 if TYPE_CHECKING:
     pass
@@ -466,7 +466,7 @@ async def _run_feedback_iteration(
 
     Requirements: 07-REQ-8, 07-REQ-9, 07-REQ-11, 07-REQ-12, 07-REQ-13
     """
-    from agentfox.nightshift.spec_builder import (
+    from agentfox.maintenance.spec_builder import (
         InMemorySpec,
         sanitise_branch_name,
     )

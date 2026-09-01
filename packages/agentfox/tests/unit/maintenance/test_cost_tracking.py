@@ -70,7 +70,7 @@ def _mock_workspace():
 
 def _mock_spec():
     """Return an InMemorySpec-like mock."""
-    from agentfox.nightshift.spec_builder import InMemorySpec
+    from agentfox.maintenance.spec_builder import InMemorySpec
 
     spec = MagicMock(spec=InMemorySpec)
     spec.system_context = "test context"
@@ -115,7 +115,7 @@ class TestEngineAcceptsSink:
 
     def test_engine_accepts_sink_dispatcher(self) -> None:
         """NightShiftEngine stores the provided sink_dispatcher as _sink."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         config = _make_config()
@@ -138,7 +138,7 @@ class TestEngineDefaultsNoneSink:
 
     def test_engine_defaults_to_none_sink(self) -> None:
         """When no sink_dispatcher provided, engine._sink is None."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = MagicMock()
@@ -160,7 +160,7 @@ class TestFixPipelineAcceptsSink:
 
     def test_pipeline_accepts_sink_dispatcher(self) -> None:
         """FixPipeline stores sink_dispatcher as _sink."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         config = _make_config()
@@ -186,7 +186,7 @@ class TestProcessIssueGeneratesRunId:
         """Two successive process_issue calls produce two distinct run_ids."""
         from afaudit.events import generate_run_id as real_generate_run_id
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         mock_platform = AsyncMock()
@@ -210,7 +210,7 @@ class TestProcessIssueGeneratesRunId:
             # Intercept generate_run_id in the nightshift.fix_pipeline module
             # (create=True so the patch works before the import is added)
             patch(
-                "agentfox.nightshift.fix_pipeline.generate_run_id",
+                "agentfox.maintenance.fix_pipeline.generate_run_id",
                 side_effect=_capturing_generate,
                 create=True,
             ),
@@ -228,7 +228,7 @@ class TestProcessIssueGeneratesRunId:
     async def test_process_issue_accepts_caller_run_id(self) -> None:
         """When run_id is supplied, process_issue uses it without generating a new one."""
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         mock_platform = AsyncMock()
@@ -245,7 +245,7 @@ class TestProcessIssueGeneratesRunId:
             patch.object(pipeline, "_run_triage", AsyncMock(return_value=MagicMock(criteria=[], summary=""))),
             patch.object(pipeline, "_coder_review_loop", AsyncMock(return_value=False)),
             patch(
-                "agentfox.nightshift.fix_pipeline.generate_run_id",
+                "agentfox.maintenance.fix_pipeline.generate_run_id",
                 side_effect=lambda: generate_called.append(1) or "should-not-be-used",
             ),
         ):
@@ -272,7 +272,7 @@ class TestEnginePropagatessRunId:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -310,8 +310,8 @@ class TestEnginePropagatessRunId:
             return mock_metrics
 
         with (
-            patch("agentfox.nightshift.engine.generate_run_id", side_effect=_track_generate),
-            patch("agentfox.nightshift.engine.FixPipeline") as mock_cls,
+            patch("agentfox.maintenance.engine.generate_run_id", side_effect=_track_generate),
+            patch("agentfox.maintenance.engine.FixPipeline") as mock_cls,
         ):
             mock_pipeline = MagicMock()
             mock_pipeline.process_issue = _fake_process_issue
@@ -341,7 +341,7 @@ class TestRunSessionPassesSinkAndRunId:
     @pytest.mark.asyncio
     async def test_run_session_passes_sink_and_run_id(self) -> None:
         """_run_session calls run_session() with sink_dispatcher and run_id."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         config = _make_config()
@@ -383,7 +383,7 @@ class TestSessionCompleteEmitted:
     async def test_session_complete_emitted_after_triage(self) -> None:
         """_run_triage emits session.complete with archetype, cost, tokens."""
         from afaudit.events import AuditEventType
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         config = _make_config()
@@ -398,7 +398,7 @@ class TestSessionCompleteEmitted:
         with (
             patch.object(pipeline, "_run_session", AsyncMock(return_value=mock_outcome)),
             patch(
-                "agentfox.nightshift.fix_pipeline.emit_audit_event",
+                "agentfox.maintenance.fix_pipeline.emit_audit_event",
                 create=True,
             ) as mock_emit,
         ):
@@ -431,7 +431,7 @@ class TestSessionFailEmitted:
     async def test_session_fail_emitted_when_triage_raises(self) -> None:
         """session.fail with error_message emitted when _run_session raises."""
         from afaudit.events import AuditEventType
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         config = _make_config()
@@ -448,7 +448,7 @@ class TestSessionFailEmitted:
                 AsyncMock(side_effect=RuntimeError("boom")),
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.emit_audit_event",
+                "agentfox.maintenance.fix_pipeline.emit_audit_event",
                 create=True,
             ) as mock_emit,
         ):
@@ -477,7 +477,7 @@ class TestEmitAuxiliaryCost:
         """emit_auxiliary_cost emits SESSION_COMPLETE with archetype and cost."""
         # FAILS with ModuleNotFoundError until cost_helpers.py is created
         from afaudit.events import AuditEventType
-        from agentfox.nightshift.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
+        from agentfox.maintenance.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
 
         mock_sink = MagicMock(spec=SinkDispatcher)
 
@@ -523,7 +523,7 @@ class TestEmitAuxiliaryCostNoopNoneSink:
     def test_emit_auxiliary_cost_noop_when_sink_none(self) -> None:
         """No exception and no event when sink_dispatcher is None."""
         # FAILS with ModuleNotFoundError until cost_helpers.py is created
-        from agentfox.nightshift.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
+        from agentfox.maintenance.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
 
         mock_response = MagicMock()
         mock_response.usage.input_tokens = 100
@@ -555,11 +555,11 @@ class TestJsonlAuditModuleRemoved:
     """TS-91-11: The JSONL-based nightshift/audit.py module no longer exists."""
 
     def test_nightshift_audit_module_does_not_exist(self) -> None:
-        """agentfox/nightshift/audit.py must be absent."""
-        audit_path = Path("packages/agentfox/agentfox/nightshift/audit.py")
+        """agentfox/maintenance/audit.py must be absent."""
+        audit_path = Path("packages/agentfox/agentfox/maintenance/audit.py")
         # FAILS because the file currently exists
         assert not audit_path.exists(), (
-            "agentfox/nightshift/audit.py must be removed (91-REQ-5.1). "
+            "agentfox/maintenance/audit.py must be removed (91-REQ-5.1). "
             "Route all audit events through the standard DuckDB pipeline."
         )
 
@@ -575,11 +575,11 @@ class TestEngineUsesStandardAudit:
 
     def test_engine_imports_standard_audit_helper(self) -> None:
         """engine.py must not import from nightshift.audit."""
-        source = Path("packages/agentfox/agentfox/nightshift/engine.py").read_text(encoding="utf-8")
+        source = Path("packages/agentfox/agentfox/maintenance/engine.py").read_text(encoding="utf-8")
 
         # FAILS because engine.py currently imports from nightshift.audit
-        assert "from agentfox.nightshift.audit" not in source, (
-            "engine.py must not import from agentfox.nightshift.audit (that module is being removed)"
+        assert "from agentfox.maintenance.audit" not in source, (
+            "engine.py must not import from agentfox.maintenance.audit (that module is being removed)"
         )
         assert "from afaudit.emit" in source or "from agentfox.engine.audit_helpers" in source, (
             "engine.py must import emit_audit_event from afaudit.emit or agentfox.engine.audit_helpers"
@@ -597,11 +597,11 @@ class TestDaemonUsesStandardAudit:
 
     def test_daemon_does_not_import_nightshift_audit(self) -> None:
         """daemon.py must not import from the removed nightshift.audit module."""
-        source = Path("packages/agentfox/agentfox/nightshift/daemon.py").read_text(encoding="utf-8")
+        source = Path("packages/agentfox/agentfox/maintenance/daemon.py").read_text(encoding="utf-8")
 
         # FAILS if daemon.py imports from nightshift.audit
-        assert "from agentfox.nightshift.audit" not in source, (
-            "daemon.py must not import from agentfox.nightshift.audit "
+        assert "from agentfox.maintenance.audit" not in source, (
+            "daemon.py must not import from agentfox.maintenance.audit "
             "(that module is being removed — use engine.audit_helpers instead)"
         )
 
@@ -619,7 +619,7 @@ class TestAuditWriteFailureContinues:
     async def test_pipeline_continues_despite_audit_write_failure(self) -> None:
         """process_issue returns FixMetrics even if sink.emit_audit_event raises."""
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         mock_sink.emit_audit_event.side_effect = RuntimeError("write failed")

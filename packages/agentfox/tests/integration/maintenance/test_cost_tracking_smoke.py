@@ -128,7 +128,7 @@ async def test_smoke_fix_session_costs_in_audit_events() -> None:
     Uses real DuckDB + real DuckDBSink + real SinkDispatcher. Does NOT mock
     emit_audit_event or DuckDBSink.
     """
-    from agentfox.nightshift.fix_pipeline import FixPipeline
+    from agentfox.maintenance.fix_pipeline import FixPipeline
 
     conn, sink = _make_in_memory_sink()
 
@@ -173,7 +173,7 @@ def test_smoke_auxiliary_costs_in_audit_events() -> None:
     Uses real DuckDB + real DuckDBSink + real SinkDispatcher. Does NOT mock
     emit_audit_event or DuckDBSink.
     """
-    from agentfox.nightshift.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
+    from agentfox.maintenance.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
 
     conn, sink = _make_in_memory_sink()
 
@@ -221,7 +221,7 @@ async def test_smoke_no_jsonl_audit_files_written(tmp_path: Path) -> None:
     """
     import os
 
-    from agentfox.nightshift.engine import NightShiftEngine
+    from agentfox.maintenance.engine import NightShiftEngine
 
     conn, sink = _make_in_memory_sink()
     config = _make_config()
@@ -242,7 +242,7 @@ async def test_smoke_no_jsonl_audit_files_written(tmp_path: Path) -> None:
 
         # Mock the fix pipeline so we exercise the engine without running Claude
         with patch(
-            "agentfox.nightshift.engine.FixPipeline",
+            "agentfox.maintenance.engine.FixPipeline",
             autospec=True,
         ) as mock_pipeline_cls:
             mock_pipeline = MagicMock()

@@ -97,7 +97,7 @@ class TestBranchNameIncludesIssueNumber:
 
     def test_branch_name_includes_issue_number(self) -> None:
         """sanitise_branch_name with issue_number=42 returns fix/42-unused-imports-in-utils."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name("Unused imports in utils", 42)
         assert result == "fix/42-unused-imports-in-utils"
@@ -105,14 +105,14 @@ class TestBranchNameIncludesIssueNumber:
 
     def test_branch_name_starts_with_fix_prefix(self) -> None:
         """Branch name must always start with fix/."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name("Some issue title", 10)
         assert result.startswith("fix/")
 
     def test_branch_name_issue_number_before_slug(self) -> None:
         """Issue number appears immediately after fix/ prefix."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name("Fix broken tests", 99)
         # Should be fix/99-fix-broken-tests
@@ -131,7 +131,7 @@ class TestPushNotCalledWhenDisabled:
     @pytest.mark.asyncio
     async def test_push_not_called_when_disabled(self) -> None:
         """With push_fix_branch=False, _push_fix_branch_upstream must NOT be called."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config(push_fix_branch=False)
         mock_platform = AsyncMock()
@@ -168,8 +168,8 @@ class TestForcePushFlag:
     @pytest.mark.asyncio
     async def test_force_push_flag(self) -> None:
         """_push_fix_branch_upstream must call push_to_remote with force=True."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = _make_config(push_fix_branch=True)
         mock_platform = AsyncMock()
@@ -207,7 +207,7 @@ class TestPushFailureContinues:
     @pytest.mark.asyncio
     async def test_push_failure_continues(self, caplog: pytest.LogCaptureFixture) -> None:
         """When push raises an exception, harvest still runs and warning is logged."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config(push_fix_branch=True)
         mock_platform = AsyncMock()
@@ -252,7 +252,7 @@ class TestNoRemoteBranchDelete:
     @pytest.mark.asyncio
     async def test_no_remote_branch_delete(self) -> None:
         """After harvest, no git push --delete or :{branch} call is made."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config(push_fix_branch=True)
         mock_platform = AsyncMock()
@@ -321,7 +321,7 @@ class TestEmptyTitleBranchName:
 
     def test_empty_title_branch_name(self) -> None:
         """sanitise_branch_name('', 99) must return 'fix/99'."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name("", 99)
         assert result == "fix/99"
@@ -338,7 +338,7 @@ class TestSpecialCharsTitleBranchName:
 
     def test_special_chars_title_branch_name(self) -> None:
         """sanitise_branch_name('!!@@##$$', 7) must return 'fix/7'."""
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         result = sanitise_branch_name("!!@@##$$", 7)
         assert result == "fix/7"
@@ -356,8 +356,8 @@ class TestPushFailureLogsReason:
     @pytest.mark.asyncio
     async def test_push_failure_logs_reason(self, caplog: pytest.LogCaptureFixture) -> None:
         """When push returns False, warning log must mention branch name and failure."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = _make_config(push_fix_branch=True)
         mock_platform = AsyncMock()

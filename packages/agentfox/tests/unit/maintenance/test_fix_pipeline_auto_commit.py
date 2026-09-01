@@ -36,7 +36,7 @@ class TestAutoCommitDirtyBeforeHarvest:
 
     async def test_auto_commit_called_on_dirty_worktree(self, tmp_path: Path) -> None:
         """auto_commit_worktree is called with the worktree path."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         committed_paths: list[Path] = []
@@ -56,7 +56,7 @@ class TestAutoCommitDirtyBeforeHarvest:
 
     async def test_auto_commit_returns_true_logs_info(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """When auto_commit_worktree returns True, an INFO is logged."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         pipeline = FixPipeline.__new__(FixPipeline)
@@ -66,7 +66,7 @@ class TestAutoCommitDirtyBeforeHarvest:
             new_callable=AsyncMock,
             return_value=True,
         ):
-            with caplog.at_level(logging.INFO, logger="agentfox.nightshift.fix_pipeline"):
+            with caplog.at_level(logging.INFO, logger="agentfox.maintenance.fix_pipeline"):
                 await pipeline._auto_commit_pending_changes(workspace)
 
         assert any(r.levelno >= logging.INFO for r in caplog.records)
@@ -85,7 +85,7 @@ class TestAutoCommitCleanWorktreeNoOp:
 
     async def test_no_warning_on_clean_worktree(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """No WARNING is logged when auto_commit_worktree returns False (clean)."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         pipeline = FixPipeline.__new__(FixPipeline)
@@ -95,7 +95,7 @@ class TestAutoCommitCleanWorktreeNoOp:
             new_callable=AsyncMock,
             return_value=False,
         ):
-            with caplog.at_level(logging.WARNING, logger="agentfox.nightshift.fix_pipeline"):
+            with caplog.at_level(logging.WARNING, logger="agentfox.maintenance.fix_pipeline"):
                 await pipeline._auto_commit_pending_changes(workspace)
 
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -115,7 +115,7 @@ class TestAutoCommitFailureDoesNotBlock:
 
     async def test_does_not_raise_on_exception(self, tmp_path: Path) -> None:
         """_auto_commit_pending_changes does not propagate exceptions."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         pipeline = FixPipeline.__new__(FixPipeline)
@@ -132,7 +132,7 @@ class TestAutoCommitFailureDoesNotBlock:
 
     async def test_logs_warning_on_exception(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """_auto_commit_pending_changes logs a WARNING when auto_commit_worktree raises."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         pipeline = FixPipeline.__new__(FixPipeline)
@@ -144,7 +144,7 @@ class TestAutoCommitFailureDoesNotBlock:
             "agentfox.workspace.git.auto_commit_worktree",
             side_effect=mock_auto_commit_raises,
         ):
-            with caplog.at_level(logging.WARNING, logger="agentfox.nightshift.fix_pipeline"):
+            with caplog.at_level(logging.WARNING, logger="agentfox.maintenance.fix_pipeline"):
                 await pipeline._auto_commit_pending_changes(workspace)
 
         assert any(r.levelno >= logging.WARNING for r in caplog.records)
@@ -170,7 +170,7 @@ class TestAutoCommitAfterCoderAndReviewer:
         """_auto_commit_pending_changes appears after _coder_review_loop in source."""
         import inspect
 
-        from agentfox.nightshift import fix_pipeline
+        from agentfox.maintenance import fix_pipeline
 
         source = inspect.getsource(fix_pipeline)
 

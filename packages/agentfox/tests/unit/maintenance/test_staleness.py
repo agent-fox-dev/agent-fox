@@ -22,7 +22,7 @@ class TestParseStatenessResponse:
     def test_parses_valid_json(self) -> None:
         """Parses a clean JSON response."""
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import _parse_staleness_response
+        from agentfox.maintenance.staleness import _parse_staleness_response
 
         remaining = [
             IssueResult(number=10, title="A", html_url="", body=""),
@@ -36,7 +36,7 @@ class TestParseStatenessResponse:
     def test_ignores_unknown_issue_numbers(self) -> None:
         """Issue numbers not in remaining list are silently dropped."""
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import _parse_staleness_response
+        from agentfox.maintenance.staleness import _parse_staleness_response
 
         remaining = [IssueResult(number=10, title="A", html_url="", body="")]
         response = '{"obsolete": [{"issue_number": 99, "rationale": "?"}]}'
@@ -58,7 +58,7 @@ class TestRunAiStalenessModelTier:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import _run_ai_staleness
+        from agentfox.maintenance.staleness import _run_ai_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -69,7 +69,7 @@ class TestRunAiStalenessModelTier:
         )
 
         with patch(
-            "agentfox.nightshift.cost_helpers.nightshift_ai_call",
+            "agentfox.maintenance.cost_helpers.nightshift_ai_call",
             mock_ai_call,
         ):
             await _run_ai_staleness(fixed, remaining, "diff content", config)
@@ -93,7 +93,7 @@ class TestCheckStalenessGateLogic:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -110,7 +110,7 @@ class TestCheckStalenessGateLogic:
         ai_result = StalenessResult(obsolete_issues=[2], rationale={2: "fixed by issue 1"})
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(return_value=ai_result),
         ):
             result = await check_staleness(fixed, remaining, "", config, mock_platform)
@@ -127,7 +127,7 @@ class TestCheckStalenessGateLogic:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -141,7 +141,7 @@ class TestCheckStalenessGateLogic:
         ai_result = StalenessResult(obsolete_issues=[2], rationale={2: "fixed by issue 1"})
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(return_value=ai_result),
         ):
             result = await check_staleness(fixed, remaining, "", config, mock_platform)
@@ -154,7 +154,7 @@ class TestCheckStalenessGateLogic:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import check_staleness
+        from agentfox.maintenance.staleness import check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -168,7 +168,7 @@ class TestCheckStalenessGateLogic:
         config = MagicMock()
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(side_effect=RuntimeError("AI unavailable")),
         ):
             result = await check_staleness(fixed, remaining, "", config, mock_platform)
@@ -182,7 +182,7 @@ class TestCheckStalenessGateLogic:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -194,7 +194,7 @@ class TestCheckStalenessGateLogic:
         ai_result = StalenessResult(obsolete_issues=[2], rationale={2: "fixed"})
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(return_value=ai_result),
         ):
             result = await check_staleness(fixed, remaining, "", config, mock_platform)

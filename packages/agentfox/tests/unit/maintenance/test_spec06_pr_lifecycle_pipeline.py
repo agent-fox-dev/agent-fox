@@ -34,7 +34,7 @@ def _make_fix_pipeline(
 ) -> object:
     """Create a FixPipeline with the specified merge_strategy config."""
     from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
-    from agentfox.nightshift.fix_pipeline import FixPipeline
+    from agentfox.maintenance.fix_pipeline import FixPipeline
 
     config = AgentFoxConfig(
         workspace=WorkspaceConfig(
@@ -98,7 +98,7 @@ def _make_spec(
     branch_name: str = "fix/test-branch",
 ) -> object:
     """Create a minimal InMemorySpec for testing."""
-    from agentfox.nightshift.spec_builder import InMemorySpec
+    from agentfox.maintenance.spec_builder import InMemorySpec
 
     return InMemorySpec(
         issue_number=issue_number,
@@ -159,16 +159,16 @@ class TestIntegrateFixReturnsPrCreated:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -190,16 +190,16 @@ class TestIntegrateFixReturnsPrCreated:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["src/main.py", "tests/test_main.py"],
             ),
@@ -231,16 +231,16 @@ class TestIntegrateFixSetsPrNumber:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -275,16 +275,16 @@ class TestIntegrateFixPropagatesCreatePrException:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -320,16 +320,16 @@ class TestIntegrateFixTimeout:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),
@@ -615,13 +615,13 @@ class TestPrTrackingPattern:
 
     def test_is_re_pattern(self) -> None:
         """PR_TRACKING_PATTERN must be a compiled re.Pattern."""
-        from agentfox.nightshift.fix_pipeline import PR_TRACKING_PATTERN
+        from agentfox.maintenance.fix_pipeline import PR_TRACKING_PATTERN
 
         assert isinstance(PR_TRACKING_PATTERN, re.Pattern)
 
     def test_matches_valid_tag(self) -> None:
         """PR_TRACKING_PATTERN must match a valid tracking comment tag."""
-        from agentfox.nightshift.fix_pipeline import PR_TRACKING_PATTERN
+        from agentfox.maintenance.fix_pipeline import PR_TRACKING_PATTERN
 
         m = PR_TRACKING_PATTERN.search(
             "<!-- af:pr-tracking pr_number=42 attempt=1 -->"
@@ -632,7 +632,7 @@ class TestPrTrackingPattern:
 
     def test_does_not_match_unrelated_text(self) -> None:
         """PR_TRACKING_PATTERN must not match unrelated text."""
-        from agentfox.nightshift.fix_pipeline import PR_TRACKING_PATTERN
+        from agentfox.maintenance.fix_pipeline import PR_TRACKING_PATTERN
 
         assert PR_TRACKING_PATTERN.search("unrelated text") is None
 
@@ -649,7 +649,7 @@ class TestFormatTrackingComment:
 
     def test_first_line_is_html_comment_tag(self) -> None:
         """First line must be the HTML comment tag with pr_number and attempt."""
-        from agentfox.nightshift.fix_pipeline import format_tracking_comment
+        from agentfox.maintenance.fix_pipeline import format_tracking_comment
 
         result = format_tracking_comment(
             pr_number=42,
@@ -662,7 +662,7 @@ class TestFormatTrackingComment:
 
     def test_message_in_result(self) -> None:
         """Result must contain the message text."""
-        from agentfox.nightshift.fix_pipeline import format_tracking_comment
+        from agentfox.maintenance.fix_pipeline import format_tracking_comment
 
         result = format_tracking_comment(
             pr_number=42,
@@ -685,7 +685,7 @@ class TestParseTrackingComment:
 
     def test_extracts_pr_number_and_attempt(self) -> None:
         """parse_tracking_comment returns (pr_number, attempt) as integers."""
-        from agentfox.nightshift.fix_pipeline import parse_tracking_comment
+        from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
         result = parse_tracking_comment(
             "some text\n<!-- af:pr-tracking pr_number=7 attempt=3 -->\nmore text"
@@ -696,7 +696,7 @@ class TestParseTrackingComment:
 
     def test_returns_none_when_no_tag(self) -> None:
         """parse_tracking_comment returns None when no tracking tag present."""
-        from agentfox.nightshift.fix_pipeline import parse_tracking_comment
+        from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
         assert parse_tracking_comment("no tag here") is None
 
@@ -780,7 +780,7 @@ class TestTrackingUtilitiesImportable:
 
     def test_all_three_importable(self) -> None:
         """All three tracking utilities must be importable at module level."""
-        from agentfox.nightshift.fix_pipeline import (
+        from agentfox.maintenance.fix_pipeline import (
             PR_TRACKING_PATTERN,
             format_tracking_comment,
             parse_tracking_comment,
@@ -803,7 +803,7 @@ class TestParseTrackingCommentMultipleTags:
 
     def test_returns_first_match(self) -> None:
         """parse_tracking_comment returns first (pr_number, attempt) from multiple tags."""
-        from agentfox.nightshift.fix_pipeline import parse_tracking_comment
+        from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
         body = (
             "<!-- af:pr-tracking pr_number=10 attempt=1 -->\n"
@@ -826,12 +826,12 @@ class TestParseTrackingCommentNoTag:
 
     def test_empty_string_returns_none(self) -> None:
         """parse_tracking_comment('') must return None."""
-        from agentfox.nightshift.fix_pipeline import parse_tracking_comment
+        from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
         assert parse_tracking_comment("") is None
 
     def test_untagged_body_returns_none(self) -> None:
         """parse_tracking_comment with no tracking tag must return None."""
-        from agentfox.nightshift.fix_pipeline import parse_tracking_comment
+        from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
         assert parse_tracking_comment("Some random comment with no tag") is None

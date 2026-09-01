@@ -13,9 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentfox.nightshift.coder_reviewer import CoderReviewerLoop
-from agentfox.nightshift.fix_pipeline import FixMetrics, FixReviewResult, TriageResult
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.coder_reviewer import CoderReviewerLoop
+from agentfox.maintenance.fix_pipeline import FixMetrics, FixReviewResult, TriageResult
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------

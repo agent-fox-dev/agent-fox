@@ -101,7 +101,7 @@ def _make_pipeline(
 
     Returns (pipeline, mock_platform, config).
     """
-    from agentfox.nightshift.fix_pipeline import FixPipeline
+    from agentfox.maintenance.fix_pipeline import FixPipeline
 
     config = MagicMock()
     config.archetypes.overrides.get.return_value = None
@@ -168,7 +168,7 @@ class TestCoderPromptIncludesCriteria:
 
         triage_result = parse_triage_output(_triage_json(2), "fix-issue-42", "s1")
 
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
 
@@ -191,7 +191,7 @@ def _make_triage_with_complexity(
     tier: str,
 ) -> object:
     """Build a TriageResult with assessed_complexity and N criteria."""
-    from agentfox.nightshift.fix_pipeline import (
+    from agentfox.maintenance.fix_pipeline import (
         AcceptanceCriterion,
         AssessedComplexity,
         TriageResult,
@@ -227,7 +227,7 @@ class TestCompactRenderingForSimpleIssues:
     def test_simple_2_criteria_uses_compact(self) -> None:
         """NS-REQ-1: compact format, no NS-REQ-N IDs."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(2, "SIMPLE")
@@ -244,7 +244,7 @@ class TestCompactRenderingForSimpleIssues:
     def test_simple_1_criterion_uses_compact(self) -> None:
         """NS-REQ-1: single-criterion SIMPLE issue uses compact."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(1, "SIMPLE")
@@ -262,7 +262,7 @@ class TestSimple3CriteriaUsesFullAfspec:
     def test_simple_3_criteria_uses_afspec(self) -> None:
         """NS-REQ-2: 3+ criteria falls through to full rendering."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(3, "SIMPLE")
@@ -279,7 +279,7 @@ class TestNonSimpleUsesFullAfspec:
     def test_standard_2_criteria_uses_afspec(self) -> None:
         """NS-REQ-3: STANDARD with 2 criteria uses full rendering."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(2, "STANDARD")
@@ -291,7 +291,7 @@ class TestNonSimpleUsesFullAfspec:
     def test_advanced_2_criteria_uses_afspec(self) -> None:
         """NS-REQ-3: ADVANCED with 2 criteria uses full rendering."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(2, "ADVANCED")
@@ -308,7 +308,7 @@ class TestNoneComplexityUsesFullAfspec:
         """NS-REQ-4: covered by existing TestCoderPromptIncludesCriteria."""
         # Duplicate here for explicitness — triage without assessed_complexity
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
         from agentfox.session.review_parser import parse_triage_output
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
@@ -329,7 +329,7 @@ class TestCompactRenderingIncludesAllFields:
     def test_all_fields_present(self) -> None:
         """NS-REQ-5: description, preconditions, expected, assertion all present."""
         pipeline, _, _ = _make_pipeline()
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
         triage = _make_triage_with_complexity(1, "SIMPLE")
@@ -359,7 +359,7 @@ class TestReviewerPromptIncludesCriteria:
 
         triage_result = parse_triage_output(_triage_json(1), "fix-issue-42", "s1")
 
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
 
@@ -628,7 +628,7 @@ class TestReviewerNoTriageCriteria:
 
         empty_triage = parse_triage_output("no json here", "fix-issue-42", "s1")
 
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
 
         spec = build_in_memory_spec(_make_issue(), "fix the bug")
 

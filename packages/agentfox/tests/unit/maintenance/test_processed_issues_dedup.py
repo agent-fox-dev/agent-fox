@@ -21,7 +21,7 @@ from afissues.protocol import IssueResult
 
 def _make_engine(max_cost: float | None = None, max_sessions: int | None = None):
     """Return a NightShiftEngine with a mocked platform and minimal config."""
-    from agentfox.nightshift.engine import NightShiftEngine
+    from agentfox.maintenance.engine import NightShiftEngine
 
     config = MagicMock()
     config.orchestrator.max_cost = max_cost
@@ -82,12 +82,12 @@ class TestNoReprocessing:
 
         # Also stub out helpers called inside _run_issue_check.
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[464]),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[464]),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
         ):
             # First scan: platform returns issue #464.
@@ -120,12 +120,12 @@ class TestNoReprocessing:
             return [i.number for i in issues]
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("agentfox.nightshift.engine.build_graph", side_effect=fake_build_graph),
+            patch("agentfox.maintenance.engine.build_graph", side_effect=fake_build_graph),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
         ):
             # First scan: only issue #464.
@@ -161,12 +161,12 @@ class TestProcessedOnFailure:
             raise RuntimeError("fix failed")
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[464]),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[464]),
             patch.object(engine, "_process_fix", side_effect=failing_process_fix),
         ):
             platform.list_issues_by_label = AsyncMock(return_value=[issue])

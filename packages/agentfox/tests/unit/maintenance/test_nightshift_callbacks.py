@@ -77,7 +77,7 @@ class TestEngineConstructorCallbacks:
 
     def test_81_constructor_accepts_callbacks(self) -> None:
         """NightShiftEngine constructor stores activity, task, and status callbacks."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = MagicMock()
@@ -100,7 +100,7 @@ class TestEngineConstructorCallbacks:
 
     def test_81_constructor_defaults_none(self) -> None:
         """Callbacks default to None when not provided."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = MagicMock()
@@ -126,7 +126,7 @@ class TestFixPipelinePassesCallback:
         """run_session receives activity_callback from FixPipeline."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         activity_cb = MagicMock()
         config = _make_config()
@@ -202,7 +202,7 @@ class TestFixPipelinePassesCallback:
         """run_session receives None when no activity_callback provided."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         config.orchestrator.max_retries = 3
@@ -279,7 +279,7 @@ class TestFixPipelineTaskEvents:
         """TaskEvents emitted with archetypes triage, coder, fix_reviewer."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         events: list[TaskEvent] = []
         config = _make_config()
@@ -345,7 +345,7 @@ class TestFixPipelineTaskEvents:
         """TaskEvents have correct node_id, positive duration, and archetype."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         events: list[TaskEvent] = []
         config = _make_config()
@@ -408,7 +408,7 @@ class TestFixPipelineTaskEvents:
     @pytest.mark.asyncio
     async def test_81_task_event_on_failure(self) -> None:
         """TaskEvent with status='failed' emitted when session fails."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         events: list[TaskEvent] = []
         config = _make_config()
@@ -468,7 +468,7 @@ class TestFixPipelineTaskEvents:
         """No task events emitted when task_callback is None."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         config.orchestrator.max_retries = 3
@@ -534,7 +534,7 @@ class TestActivityEventForwarded:
         """activity_callback receives events when run_session emits them."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
         from agentfox.ui.progress import ActivityEvent
 
         events: list[ActivityEvent] = []
@@ -621,7 +621,7 @@ class TestNoneCallbacks:
     @pytest.mark.asyncio
     async def test_81_none_callbacks(self) -> None:
         """Engine and pipeline work with all callbacks set to None."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = AsyncMock()
@@ -639,7 +639,7 @@ class TestNoneCallbacks:
             cache_creation_input_tokens=0,
         )
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_pipeline_instance = AsyncMock()
             mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
             MockPipeline.return_value = mock_pipeline_instance
@@ -662,7 +662,7 @@ class TestEnginePassesCallbacksToPipeline:
     @pytest.mark.asyncio
     async def test_81_callbacks_passed_to_pipeline(self) -> None:
         """FixPipeline receives activity and task callbacks from engine."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = AsyncMock()
@@ -686,7 +686,7 @@ class TestEnginePassesCallbacksToPipeline:
             cache_creation_input_tokens=0,
         )
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_pipeline_instance = AsyncMock()
             mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
             MockPipeline.return_value = mock_pipeline_instance
@@ -709,7 +709,7 @@ class TestSpinnerCallbackEngineConstructor:
 
     def test_engine_accepts_spinner_callback(self) -> None:
         """NightShiftEngine constructor stores spinner_callback."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = MagicMock()
@@ -725,7 +725,7 @@ class TestSpinnerCallbackEngineConstructor:
 
     def test_engine_spinner_callback_defaults_none(self) -> None:
         """spinner_callback defaults to None when not provided."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = MagicMock()
@@ -737,7 +737,7 @@ class TestSpinnerCallbackEngineConstructor:
     @pytest.mark.asyncio
     async def test_engine_passes_spinner_callback_to_pipeline(self) -> None:
         """Engine forwards spinner_callback to FixPipeline."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = AsyncMock()
@@ -759,7 +759,7 @@ class TestSpinnerCallbackEngineConstructor:
             cache_creation_input_tokens=0,
         )
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_pipeline_instance = AsyncMock()
             mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
             MockPipeline.return_value = mock_pipeline_instance
@@ -782,7 +782,7 @@ class TestEnginePassesRunIdToProcessIssue:
     async def test_process_fix_passes_run_id_to_process_issue(self) -> None:
         """_process_fix passes the same run_id to process_issue that it uses
         for the FIX_START / FIX_COMPLETE lifecycle audit events."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = _make_config()
         platform = AsyncMock()
@@ -805,7 +805,7 @@ class TestEnginePassesRunIdToProcessIssue:
             captured_run_ids.append(run_id or "")
             return mock_metrics
 
-        with patch("agentfox.nightshift.engine.FixPipeline") as MockPipeline:
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
             mock_pipeline_instance = AsyncMock()
             mock_pipeline_instance.process_issue = _capture_process_issue
             MockPipeline.return_value = mock_pipeline_instance
@@ -813,7 +813,7 @@ class TestEnginePassesRunIdToProcessIssue:
             # Also capture the run_id used for the lifecycle audit events
             emitted_run_ids: list[str] = []
             with patch(
-                "agentfox.nightshift.engine._emit_audit_event",
+                "agentfox.maintenance.engine._emit_audit_event",
                 side_effect=lambda sink, run_id, *args, **kwargs: emitted_run_ids.append(run_id),
             ):
                 await engine._process_fix(issue, issue_body="fix something")
@@ -838,7 +838,7 @@ class TestSpinnerCallbackFixPipelinePhases:
         """Spinner texts include triage, coder, and reviewer phase hints."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         spinner_texts: list[str] = []
         config = _make_config()
@@ -908,7 +908,7 @@ class TestSpinnerCallbackFixPipelinePhases:
         """Spinner text for workspace setup is emitted before triage."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         spinner_texts: list[str] = []
         config = _make_config()
@@ -971,7 +971,7 @@ class TestSpinnerCallbackFixPipelinePhases:
         """Pipeline operates normally when spinner_callback is None."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         config.orchestrator.max_retries = 3
@@ -1025,7 +1025,7 @@ class TestSpinnerCallbackFixPipelinePhases:
         """Spinner text for merge/harvest phase is emitted."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         spinner_texts: list[str] = []
         config = _make_config()

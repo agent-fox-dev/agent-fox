@@ -24,7 +24,7 @@ def _make_engine(
     max_parallel: int = 1,
 ):
     """Return a NightShiftEngine with a mocked platform and minimal config."""
-    from agentfox.nightshift.engine import NightShiftEngine
+    from agentfox.maintenance.engine import NightShiftEngine
 
     config = MagicMock()
     config.orchestrator.max_cost = max_cost
@@ -142,13 +142,13 @@ class TestParallelIndependentIssues:
             active_count -= 1
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 2, 3],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -171,7 +171,7 @@ class TestDependencyAwareScheduling:
     @pytest.mark.asyncio
     async def test_dependency_respected(self) -> None:
         """B does not start until A completes; A and C run concurrently."""
-        from agentfox.nightshift.dep_graph import DependencyEdge
+        from agentfox.maintenance.dep_graph import DependencyEdge
 
         engine, platform = _make_engine(max_parallel=2)
 
@@ -198,13 +198,13 @@ class TestDependencyAwareScheduling:
             dispatch_log.append(("end", iss.number))
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=edges),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=edges),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 3, 2],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -240,7 +240,7 @@ class TestConcurrentStateUpdates:
     @pytest.mark.asyncio
     async def test_nightshift_state_lock_protected(self) -> None:
         """10 concurrent tasks incrementing state produce correct totals."""
-        from agentfox.nightshift.engine import IssueOutcome, NightShiftState
+        from agentfox.maintenance.engine import IssueOutcome, NightShiftState
 
         state = NightShiftState()
 
@@ -269,7 +269,7 @@ class TestConcurrentStateUpdates:
     @pytest.mark.asyncio
     async def test_shared_budget_lock_protected(self) -> None:
         """10 concurrent tasks adding cost to SharedBudget produce correct total."""
-        from agentfox.nightshift.daemon import SharedBudget
+        from agentfox.maintenance.daemon import SharedBudget
 
         budget = SharedBudget(max_cost=100.0)
 
@@ -295,7 +295,7 @@ class TestInFlightStalenessExclusion:
         """Issue in in_flight set is not marked obsolete by staleness check."""
         from unittest.mock import patch as _patch
 
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [
@@ -320,7 +320,7 @@ class TestInFlightStalenessExclusion:
         )
 
         with _patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(return_value=ai_result),
         ):
             # Issue 3 is in-flight (being processed by another parallel task)
@@ -342,7 +342,7 @@ class TestInFlightStalenessExclusion:
         """Empty in_flight set does not change behavior."""
         from unittest.mock import patch as _patch
 
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="B", html_url="", body="")]
@@ -356,7 +356,7 @@ class TestInFlightStalenessExclusion:
         ai_result = StalenessResult(obsolete_issues=[2], rationale={2: "fixed"})
 
         with _patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             AsyncMock(return_value=ai_result),
         ):
             result = await check_staleness(
@@ -368,7 +368,7 @@ class TestInFlightStalenessExclusion:
     @pytest.mark.asyncio
     async def test_all_remaining_in_flight_returns_empty(self) -> None:
         """When all remaining issues are in-flight, staleness returns empty."""
-        from agentfox.nightshift.staleness import check_staleness
+        from agentfox.maintenance.staleness import check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [
@@ -414,13 +414,13 @@ class TestSerialProcessingWithMaxParallelOne:
             dispatch_log.append(("end", iss.number))
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 2, 3],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -464,13 +464,13 @@ class TestCostBudgetCheckBetweenDispatches:
                 engine.state.total_cost = 2.0
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 2, 3],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -504,13 +504,13 @@ class TestCostBudgetCheckBetweenDispatches:
                 engine.state.total_cost = 2.0
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 2, 3],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -545,13 +545,13 @@ class TestCostBudgetCheckBetweenDispatches:
             completed.append(iss.number)
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
             patch(
-                "agentfox.nightshift.engine.build_graph",
+                "agentfox.maintenance.engine.build_graph",
                 return_value=[1, 2, 3],
             ),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
@@ -576,7 +576,7 @@ class TestParallelGraph:
 
     def test_ready_issues_no_edges(self) -> None:
         """All issues are ready when there are no edges."""
-        from agentfox.nightshift.dep_graph import build_parallel_graph
+        from agentfox.maintenance.dep_graph import build_parallel_graph
 
         issues = [_make_issue(1), _make_issue(2), _make_issue(3)]
         graph = build_parallel_graph(issues, [])
@@ -586,7 +586,7 @@ class TestParallelGraph:
 
     def test_ready_issues_with_dependency(self) -> None:
         """Only root issues are initially ready."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_parallel_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_parallel_graph
 
         issues = [_make_issue(1), _make_issue(2), _make_issue(3)]
         edges = [DependencyEdge(from_issue=1, to_issue=2, source="explicit", rationale="test")]
@@ -599,7 +599,7 @@ class TestParallelGraph:
 
     def test_complete_releases_dependent(self) -> None:
         """Completing a prerequisite releases its dependent."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_parallel_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_parallel_graph
 
         issues = [_make_issue(1), _make_issue(2)]
         edges = [DependencyEdge(from_issue=1, to_issue=2, source="explicit", rationale="test")]
@@ -614,7 +614,7 @@ class TestParallelGraph:
 
     def test_complete_chain(self) -> None:
         """A chain A->B->C releases issues sequentially."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_parallel_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_parallel_graph
 
         issues = [_make_issue(1), _make_issue(2), _make_issue(3)]
         edges = [
@@ -655,12 +655,12 @@ class TestInFlightTracking:
             in_flight_snapshot.update(engine._in_flight)
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[1]),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[1]),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
         ):
             platform.list_issues_by_label = AsyncMock(return_value=[issue])
@@ -679,12 +679,12 @@ class TestInFlightTracking:
             pass
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
             patch(
-                "agentfox.nightshift.engine.fetch_github_relationships",
+                "agentfox.maintenance.engine.fetch_github_relationships",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[1]),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[1]),
             patch.object(engine, "_process_fix", side_effect=fake_process_fix),
         ):
             platform.list_issues_by_label = AsyncMock(return_value=[issue])

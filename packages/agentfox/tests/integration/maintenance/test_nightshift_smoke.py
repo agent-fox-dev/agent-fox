@@ -86,7 +86,7 @@ class TestFixSessionActivityDisplay:
         """Fix pipeline emits ActivityEvents and TaskEvents with correct fields."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         issue = _make_issue(number=42)
         config = _make_config()

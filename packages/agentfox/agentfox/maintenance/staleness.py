@@ -103,7 +103,7 @@ async def _run_ai_staleness(
 
     Requirements: 71-REQ-5.1
     """
-    from agentfox.nightshift.cost_helpers import nightshift_ai_call
+    from agentfox.maintenance.cost_helpers import nightshift_ai_call
 
     prompt = _build_staleness_prompt(fixed_issue, remaining_issues, fix_diff)
 

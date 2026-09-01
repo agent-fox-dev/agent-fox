@@ -15,7 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from agentfox.nightshift.daemon import SharedBudget
+    from agentfox.maintenance.daemon import SharedBudget
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ def build_streams(
     Requirements: 85-REQ-6.1, 85-REQ-7.1, 125-REQ-3.3, 125-REQ-3.4,
                   125-REQ-3.E1
     """
-    from agentfox.nightshift.daemon import SharedBudget as _SharedBudget
+    from agentfox.maintenance.daemon import SharedBudget as _SharedBudget
 
     if budget is None:
         budget = _SharedBudget(max_cost=None)

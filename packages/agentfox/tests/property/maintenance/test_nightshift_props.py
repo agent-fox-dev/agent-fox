@@ -27,8 +27,8 @@ class TestFixPipelineCompleteness:
     )
     @settings(max_examples=20)
     def test_fix_pipeline_completeness(self, issue_number: int, title: str) -> None:
-        from agentfox.nightshift.fix_pipeline import build_pr_body
-        from agentfox.nightshift.spec_builder import sanitise_branch_name
+        from agentfox.maintenance.fix_pipeline import build_pr_body
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
 
         branch = sanitise_branch_name(title)
         assert branch.startswith("fix/")
@@ -60,7 +60,7 @@ class TestCostMonotonicity:
     )
     @settings(max_examples=50)
     def test_cost_monotonicity(self, costs: list[float]) -> None:
-        from agentfox.nightshift.engine import NightShiftState
+        from agentfox.maintenance.engine import NightShiftState
 
         state = NightShiftState()
         previous = 0.0
@@ -108,7 +108,7 @@ class TestPlatformProtocolSubstitutability:
 
         assert isinstance(mock_platform, PlatformProtocol)
 
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None

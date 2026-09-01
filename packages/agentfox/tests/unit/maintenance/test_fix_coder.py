@@ -14,8 +14,8 @@ import pytest
 from agentfox.workspace import WorkspaceInfo
 
 if TYPE_CHECKING:
-    from agentfox.nightshift.fix_pipeline import TriageResult
-    from agentfox.nightshift.spec_builder import InMemorySpec
+    from agentfox.maintenance.fix_pipeline import TriageResult
+    from agentfox.maintenance.spec_builder import InMemorySpec
 
 
 def _make_config() -> MagicMock:
@@ -34,7 +34,7 @@ _DEFAULT_TASK_PROMPT = (
 
 def _make_spec(task_prompt: str = _DEFAULT_TASK_PROMPT) -> InMemorySpec:
     """Return a minimal InMemorySpec-like object."""
-    from agentfox.nightshift.spec_builder import InMemorySpec
+    from agentfox.maintenance.spec_builder import InMemorySpec
 
     return InMemorySpec(
         issue_number=42,
@@ -47,7 +47,7 @@ def _make_spec(task_prompt: str = _DEFAULT_TASK_PROMPT) -> InMemorySpec:
 
 def _make_triage() -> TriageResult:
     """Return an empty TriageResult."""
-    from agentfox.nightshift.fix_pipeline import TriageResult
+    from agentfox.maintenance.fix_pipeline import TriageResult
 
     return TriageResult()
 
@@ -73,7 +73,7 @@ class TestBuildCoderPromptArchetype:
 
     def test_build_system_prompt_called_with_coder_fix_mode(self) -> None:
         """build_system_prompt receives archetype='coder' and mode='fix'."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()
@@ -97,7 +97,7 @@ class TestBuildCoderPromptArchetype:
 
     def test_build_system_prompt_not_called_with_fix_coder(self) -> None:
         """build_system_prompt is NOT called with archetype='fix_coder'."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()
@@ -133,7 +133,7 @@ class TestBuildCoderPromptNoCommitFormat:
         subtask reference phrase (02-REQ-1.2). This test verifies only that
         no unrelated content (like a hardcoded commit format) is injected.
         """
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()
@@ -157,7 +157,7 @@ class TestBuildCoderPromptNoCommitFormat:
 
     def test_task_prompt_has_no_hardcoded_nightshift_suffix(self) -> None:
         """task_prompt does not contain hardcoded commit format appended by the method."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()
@@ -189,7 +189,7 @@ class TestRunCoderSessionArchetype:
     @pytest.mark.asyncio
     async def test_run_session_called_with_coder(self) -> None:
         """_run_session is called with 'coder' as the first argument."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()
@@ -224,7 +224,7 @@ class TestRunCoderSessionArchetype:
     @pytest.mark.asyncio
     async def test_run_session_not_called_with_fix_coder(self) -> None:
         """_run_session is NOT called with 'fix_coder' as the archetype."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         platform = MagicMock()

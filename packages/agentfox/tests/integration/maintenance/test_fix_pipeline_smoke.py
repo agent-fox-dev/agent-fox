@@ -98,7 +98,7 @@ class TestFullPipelineHappyPath:
 
     @pytest.mark.asyncio
     async def test_happy_path_all_pass(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -163,7 +163,7 @@ class TestRetryLoopWithEscalation:
 
     @pytest.mark.asyncio
     async def test_retry_with_escalation(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -231,7 +231,7 @@ class TestTriageFailureFallback:
 
     @pytest.mark.asyncio
     async def test_triage_failure_coder_proceeds(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -289,7 +289,7 @@ class TestRunIdInExhaustionComment:
 
     @pytest.mark.asyncio
     async def test_exhaustion_comment_includes_run_id(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -333,7 +333,7 @@ class TestRunIdInFailureComment:
 
     @pytest.mark.asyncio
     async def test_failure_comment_includes_run_id(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -375,7 +375,7 @@ class TestRunIdInTriageComment:
 
     @pytest.mark.asyncio
     async def test_triage_comment_includes_run_id(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -420,7 +420,7 @@ class TestRunIdInReviewComment:
 
     @pytest.mark.asyncio
     async def test_review_comment_includes_run_id(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -465,7 +465,7 @@ class TestRunIdInMergeFailureComment:
 
     @pytest.mark.asyncio
     async def test_merge_failure_comment_includes_run_id(self) -> None:
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()

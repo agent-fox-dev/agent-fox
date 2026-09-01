@@ -64,7 +64,7 @@ class TestPrematureCloseInvariant:
         """For any pr_number and label set, pr_created never closes issue."""
         from afissues.protocol import IssueResult
         from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = AgentFoxConfig(
             workspace=WorkspaceConfig(
@@ -87,7 +87,7 @@ class TestPrematureCloseInvariant:
             html_url="https://github.com/test/repo/issues/42",
             labels=existing_labels,
         )
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         spec = InMemorySpec(
             issue_number=42,
@@ -136,7 +136,7 @@ class TestTrackingCommentRoundTrip:
         message: str,
     ) -> None:
         """parse(format(n, a, url, msg)) == (n, a) for all valid inputs."""
-        from agentfox.nightshift.fix_pipeline import (
+        from agentfox.maintenance.fix_pipeline import (
             format_tracking_comment,
             parse_tracking_comment,
         )
@@ -309,8 +309,8 @@ class TestPrNumberPropagation:
         """For any pr_number, _pr_number equals result.number after pr_created."""
         from afissues.protocol import IssueResult, PrResult
         from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
-        from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.maintenance.spec_builder import InMemorySpec
         from agentfox.workspace import WorkspaceInfo
 
         config = AgentFoxConfig(
@@ -351,16 +351,16 @@ class TestPrNumberPropagation:
 
         with (
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.push_to_remote",
+                "agentfox.maintenance.fix_pipeline._workspace_git.push_to_remote",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline._workspace_git.get_changed_files",
+                "agentfox.maintenance.fix_pipeline._workspace_git.get_changed_files",
                 new_callable=AsyncMock,
                 return_value=["file.py"],
             ),

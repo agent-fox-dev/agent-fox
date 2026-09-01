@@ -28,8 +28,8 @@ from afissues.protocol import IssueResult
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.knowledge.extraction import extract_session_summary
-from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
-from agentfox.nightshift.spec_builder import (
+from agentfox.maintenance.prior_attempts import format_prior_attempts, query_prior_attempts
+from agentfox.maintenance.spec_builder import (
     InMemorySpec,
     build_afspec_from_triage,
     build_in_memory_spec,
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from afaudit.sink import SinkDispatcher
 
     from agentfox.knowledge.fox_provider import KnowledgeProvider
-    from agentfox.nightshift.coder_reviewer import CoderReviewerResult
+    from agentfox.maintenance.coder_reviewer import CoderReviewerResult
 
 logger = logging.getLogger(__name__)
 
@@ -1124,7 +1124,7 @@ class FixPipeline:
         Requirements: 82-REQ-7.1, 82-REQ-8.1, 82-REQ-8.2, 82-REQ-8.3,
                       82-REQ-8.4, 82-REQ-8.E1, 05-REQ-9.1
         """
-        from agentfox.nightshift.coder_reviewer import CoderReviewerLoop
+        from agentfox.maintenance.coder_reviewer import CoderReviewerLoop
 
         return await CoderReviewerLoop(self).run(
             spec,
@@ -1213,7 +1213,7 @@ class FixPipeline:
         if merge_strategy == "pr":
             # 02-REQ-4.3 / 02-REQ-4.4: Validate platform lazily at PR
             # creation time, not at startup.
-            from agentfox.nightshift.platform_factory import create_platform_safe
+            from agentfox.maintenance.platform_factory import create_platform_safe
 
             platform = create_platform_safe(self._config, workspace.path)
             if platform is None:

@@ -17,7 +17,7 @@ from agentfox.core.errors import AgentFoxError
 from agentfox.core.json_extraction import extract_json_object
 from agentfox.core.prompt_safety import sanitize_prompt_content
 from agentfox.engine.sdk_params import resolve_model_tier, resolve_security_config
-from agentfox.nightshift.dep_graph import DependencyEdge
+from agentfox.maintenance.dep_graph import DependencyEdge
 from afissues.protocol import IssueResult
 
 if TYPE_CHECKING:
@@ -155,7 +155,7 @@ async def _run_ai_triage(
 
     Requirements: 71-REQ-3.2, 100-REQ-2.2, 100-REQ-5.1, 100-REQ-5.2, 100-REQ-5.3
     """
-    from agentfox.nightshift.cost_helpers import nightshift_ai_call
+    from agentfox.maintenance.cost_helpers import nightshift_ai_call
 
     # Resolve model tier and security config via maintainer:hunt archetype identity
     # (100-REQ-5.1, 100-REQ-5.2, 100-REQ-2.2)

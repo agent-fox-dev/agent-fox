@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import duckdb
 import pytest
-from agentfox.nightshift.prior_attempts import (
+from agentfox.maintenance.prior_attempts import (
     PriorAttempt,
     format_prior_attempts,
     query_prior_attempts,
@@ -289,8 +289,8 @@ class TestContextInjectedIntoPrompt:
 
     def test_context_injected_into_task_prompt(self) -> None:
         """TS-128-7: when prior_context is non-empty, it appears before the issue title."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -325,8 +325,8 @@ class TestEmptyContextUnchanged:
 
     def test_empty_context_leaves_prompt_unchanged(self) -> None:
         """TS-128-8: when prior_context is empty string, prompt has no Prior Fix Attempts."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -361,7 +361,7 @@ class TestPipelineWiring:
         import json
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -422,12 +422,12 @@ class TestPipelineWiring:
 
         with (
             patch(
-                "agentfox.nightshift.fix_pipeline.query_prior_attempts",
+                "agentfox.maintenance.fix_pipeline.query_prior_attempts",
                 create=True,
                 return_value=[],
             ) as mock_query,
             patch(
-                "agentfox.nightshift.fix_pipeline.format_prior_attempts",
+                "agentfox.maintenance.fix_pipeline.format_prior_attempts",
                 create=True,
                 return_value="",
             ),
@@ -725,8 +725,8 @@ class TestSmokeFullPipelineWithPriorAttempts:
 
     def test_full_pipeline_prior_attempts_in_prompt(self, db_conn: duckdb.DuckDBPyConnection) -> None:
         """TS-128-SMOKE-1: real DuckDB + real pipeline code produces enriched prompt."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         # Insert a prior session into the real DuckDB
         _insert_session(

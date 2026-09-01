@@ -43,7 +43,7 @@ class TestFixPipelineLabelFixed:
     @pytest.mark.asyncio
     async def test_fixed_label_assigned_on_successful_close(self) -> None:
         """After close_issue succeeds, assign_label('af:fixed') is called."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -104,7 +104,7 @@ class TestFixPipelineLabelFixed:
     @pytest.mark.asyncio
     async def test_fix_label_not_removed_on_successful_close(self) -> None:
         """After close_issue succeeds, remove_label is NOT called (af:fix preserved)."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -165,7 +165,7 @@ class TestFixPipelineLabelFixed:
     @pytest.mark.asyncio
     async def test_fixed_label_not_assigned_when_harvest_fails(self) -> None:
         """When harvest fails and issue is NOT closed, assign_label is NOT called."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -235,7 +235,7 @@ class TestEngineLabelFixedOnClose:
     @pytest.mark.asyncio
     async def test_fixed_label_assigned_on_supersession_close(self) -> None:
         """When an issue is closed as superseded, af:fixed label is assigned."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -263,15 +263,15 @@ class TestEngineLabelFixedOnClose:
         # Mock dependencies to produce a supersession pair (keep #10, close #11)
         # Need >= 3 issues for batch triage to run
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
-            patch("agentfox.nightshift.engine.fetch_github_relationships", AsyncMock(return_value=[])),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.fetch_github_relationships", AsyncMock(return_value=[])),
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 AsyncMock(return_value=MagicMock(edges=[], supersession_pairs=[(10, 11)])),
             ),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[10, 12]),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[10, 12]),
             patch.object(engine, "_process_fix", AsyncMock()),
-            patch("agentfox.nightshift.engine.check_staleness", AsyncMock(return_value=MagicMock(obsolete_issues=[]))),
+            patch("agentfox.maintenance.engine.check_staleness", AsyncMock(return_value=MagicMock(obsolete_issues=[]))),
         ):
             await engine._run_issue_check()
 
@@ -283,7 +283,7 @@ class TestEngineLabelFixedOnClose:
     @pytest.mark.asyncio
     async def test_fixed_label_assigned_on_staleness_close(self) -> None:
         """When an issue is closed as stale after a fix, af:fixed label is assigned."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None
@@ -313,11 +313,11 @@ class TestEngineLabelFixedOnClose:
         )
 
         with (
-            patch("agentfox.nightshift.engine.parse_text_references", return_value=[]),
-            patch("agentfox.nightshift.engine.fetch_github_relationships", AsyncMock(return_value=[])),
-            patch("agentfox.nightshift.engine.build_graph", return_value=[20, 21]),
+            patch("agentfox.maintenance.engine.parse_text_references", return_value=[]),
+            patch("agentfox.maintenance.engine.fetch_github_relationships", AsyncMock(return_value=[])),
+            patch("agentfox.maintenance.engine.build_graph", return_value=[20, 21]),
             patch.object(engine, "_process_fix", AsyncMock()),
-            patch("agentfox.nightshift.engine.check_staleness", AsyncMock(return_value=staleness_result)),
+            patch("agentfox.maintenance.engine.check_staleness", AsyncMock(return_value=staleness_result)),
         ):
             await engine._run_issue_check()
 

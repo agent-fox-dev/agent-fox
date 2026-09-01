@@ -20,15 +20,15 @@ from afaudit.events import AuditEventType, generate_run_id
 from afissues.labels import LABEL_FIX, LABEL_FIXED, LABEL_PR
 
 from agentfox.core.config import AgentFoxConfig
-from agentfox.nightshift.dep_graph import build_graph, build_parallel_graph, merge_edges
-from agentfox.nightshift.fix_pipeline import FixPipeline
-from agentfox.nightshift.pr_feedback import process_pr_issue
-from agentfox.nightshift.reference_parser import (
+from agentfox.maintenance.dep_graph import build_graph, build_parallel_graph, merge_edges
+from agentfox.maintenance.fix_pipeline import FixPipeline
+from agentfox.maintenance.pr_feedback import process_pr_issue
+from agentfox.maintenance.reference_parser import (
     fetch_github_relationships,
     parse_text_references,
 )
-from agentfox.nightshift.staleness import check_staleness
-from agentfox.nightshift.triage import run_batch_triage
+from agentfox.maintenance.staleness import check_staleness
+from agentfox.maintenance.triage import run_batch_triage
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback
 
 if TYPE_CHECKING:

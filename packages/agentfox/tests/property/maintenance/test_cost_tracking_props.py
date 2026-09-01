@@ -106,7 +106,7 @@ class TestCostCalculationAccuracy:
         Property 2: cost accuracy invariant.
         """
         from agentfox.core.models import calculate_cost
-        from agentfox.nightshift.fix_pipeline import FixPipeline
+        from agentfox.maintenance.fix_pipeline import FixPipeline
 
         config = _make_config()
         mock_platform = MagicMock()
@@ -133,7 +133,7 @@ class TestCostCalculationAccuracy:
             captured_payload = payload or {}
 
         with patch(
-            "agentfox.nightshift.fix_pipeline.emit_audit_event",
+            "agentfox.maintenance.fix_pipeline.emit_audit_event",
             side_effect=_capture_emit,
             create=True,
         ):
@@ -191,7 +191,7 @@ class TestGracefulDegradationNoneSink:
         Property 3: graceful degradation invariant.
         """
         # FAILS with ModuleNotFoundError until cost_helpers.py is created
-        from agentfox.nightshift.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
+        from agentfox.maintenance.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
 
         mock_response = _make_mock_response(input_tokens, output_tokens)
         mock_pricing = MagicMock()

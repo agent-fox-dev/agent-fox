@@ -77,8 +77,8 @@ class TestNightshiftTriageViaMaintainer:
 
         from afissues.protocol import IssueResult
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.nightshift.dep_graph import DependencyEdge
-        from agentfox.nightshift.triage import run_batch_triage
+        from agentfox.maintenance.dep_graph import DependencyEdge
+        from agentfox.maintenance.triage import run_batch_triage
 
         config = AgentFoxConfig()
         issues = [
@@ -100,7 +100,7 @@ class TestNightshiftTriageViaMaintainer:
             return (triage_response, mock_response)
 
         with patch(
-            "agentfox.nightshift.cost_helpers.nightshift_ai_call",
+            "agentfox.maintenance.cost_helpers.nightshift_ai_call",
             side_effect=capturing_ai_call,
         ):
             asyncio.run(run_batch_triage(issues, edges, config))

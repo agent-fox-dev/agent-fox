@@ -92,7 +92,7 @@ def _make_tracking_comment(
     attempt: int = 1,
 ) -> str:
     try:
-        from agentfox.nightshift.fix_pipeline import format_tracking_comment
+        from agentfox.maintenance.fix_pipeline import format_tracking_comment
 
         return format_tracking_comment(
             pr_number=pr_number,
@@ -205,15 +205,15 @@ def _make_feedback_patches(
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value=worktree_path,
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ) as mock_subprocess,
         ):
@@ -250,7 +250,7 @@ class TestRetryLimitProperty:
         max_pr_retries: int,
     ) -> None:
         """For any attempt/max_pr_retries, re-entry only runs when attempt <= max."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=max_pr_retries)
@@ -259,15 +259,15 @@ class TestRetryLimitProperty:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=MagicMock(
                     stdout="file.py\n",
@@ -333,7 +333,7 @@ class TestLabelMutualExclusivityProperty:
         scenario: dict,
     ) -> None:
         """For every PR state transition, af:fix is never added alongside af:pr."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -397,7 +397,7 @@ class TestTrackingCommentBeforePushProperty:
         attempt: int,
     ) -> None:
         """For any attempt, tracking comment is posted before force-push."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=10)
@@ -424,15 +424,15 @@ class TestTrackingCommentBeforePushProperty:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ),
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -495,7 +495,7 @@ class TestCleanupAlwaysCalledProperty:
         failure_point: str,
     ) -> None:
         """Regardless of failure point, cleanup is called exactly once."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=10)
@@ -535,16 +535,16 @@ class TestCleanupAlwaysCalledProperty:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
                 return_value="worktrees/feedback-10",
                 side_effect=setup_side_effect,
             ),
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ) as mock_cleanup,
             patch(
-                "agentfox.nightshift.pr_feedback.asyncio.create_subprocess_exec",
+                "agentfox.maintenance.pr_feedback.asyncio.create_subprocess_exec",
                 side_effect=_mock_subprocess,
             ),
         ):
@@ -603,7 +603,7 @@ class TestCollectFeedbackMutualExclusionProperty:
     ) -> None:
         """For any re-entry trigger, _collect_feedback is called at most once
         with exactly one trigger value, and the output has one markdown section."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -638,7 +638,7 @@ class TestCollectFeedbackMutualExclusionProperty:
         collect_calls: list[dict] = []
 
         with patch(
-            "agentfox.nightshift.pr_feedback._run_feedback_iteration",
+            "agentfox.maintenance.pr_feedback._run_feedback_iteration",
             new_callable=AsyncMock,
         ) as mock_iteration:
             # Capture the trigger argument passed to _run_feedback_iteration
@@ -697,7 +697,7 @@ class TestPollCycleCapProperty:
         issue_count: int,
     ) -> None:
         """For any number of af:pr issues, at most 5 are processed oldest-first."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         issues = [_make_issue(number=i) for i in range(1, issue_count + 1)]
         mock_platform = _make_mock_platform(issues=issues)
@@ -706,7 +706,7 @@ class TestPollCycleCapProperty:
         engine = NightShiftEngine(config=config, platform=mock_platform)
 
         with patch(
-            "agentfox.nightshift.engine.process_pr_issue",
+            "agentfox.maintenance.engine.process_pr_issue",
             new_callable=AsyncMock,
         ) as mock_process:
             await engine._check_open_prs()
@@ -763,7 +763,7 @@ class TestNoCommentOnPollingErrorProperty:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """For any platform API failure during polling, no comment is posted."""
-        from agentfox.nightshift.pr_feedback import process_pr_issue
+        from agentfox.maintenance.pr_feedback import process_pr_issue
 
         issue = _make_issue(number=10)
         platform = _make_mock_platform(
@@ -834,7 +834,7 @@ class TestMaxRetriesZeroDisablesAllProperty:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """For any trigger with max_pr_retries=0, no iteration runs."""
-        from agentfox.nightshift.pr_feedback import _run_feedback_iteration
+        from agentfox.maintenance.pr_feedback import _run_feedback_iteration
 
         issue = _make_issue(number=10)
         config = _make_config(max_pr_retries=0)
@@ -842,11 +842,11 @@ class TestMaxRetriesZeroDisablesAllProperty:
 
         with (
             patch(
-                "agentfox.nightshift.pr_feedback._setup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._setup_feedback_worktree",
                 new_callable=AsyncMock,
             ) as mock_setup,
             patch(
-                "agentfox.nightshift.pr_feedback._cleanup_feedback_worktree",
+                "agentfox.maintenance.pr_feedback._cleanup_feedback_worktree",
             ),
         ):
             with caplog.at_level(logging.INFO):
