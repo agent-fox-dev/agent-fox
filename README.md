@@ -44,17 +44,6 @@ af standup
 
 See the [CLI reference](docs/cli-reference.md) for all command options.
 
-### Night Shift — Fix-Only Daemon
-
-Keep your codebase healthy while you sleep. Night Shift is a continuously-running
-fix-only daemon that polls for `af:fix`-labelled GitHub issues and autonomously
-processes them through a three-stage pipeline (triage → coder → reviewer).
-
-```bash
-# Start the fix daemon (Ctrl-C to stop gracefully)
-nightshift
-```
-
 ## Installation
 
 Install all three CLIs:
@@ -70,7 +59,6 @@ The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces
 | Package | Description |
 |---------|-------------|
 | `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
-| `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`nightshift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
 | `packages/afissues/` | Standalone platform/forge abstraction layer — protocol, GitHub integration, label definitions |
 | `packages/afaudit/` | Standalone audit infrastructure — structured events, sinks, postmortem, traces (zero dependencies) |
@@ -84,8 +72,6 @@ af  ──▶  agentfox  ──▶  afspec (external: spec-format)
               │
               ├──▶  afissues
               └──▶  afaudit
-
-nightshift ──▶ agentfox
 ```
 
 ```bash

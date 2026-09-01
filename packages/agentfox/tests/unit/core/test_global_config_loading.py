@@ -73,13 +73,11 @@ class TestUnifiedLoadConfig:
     """TS-13-1: All CLIs share the same load_config function."""
 
     def test_all_clis_share_load_config_function(self):
-        """Verify af and nightshift import the same load_config."""
+        """Verify af imports the same load_config as agentfox.core.config."""
         import af.app
-        import nightshift.app
         from agentfox.core.config import load_config as agentfox_load_config
 
         assert af.app.load_config is agentfox_load_config
-        assert nightshift.app.load_config is agentfox_load_config
 
 
 # ===================================================================
@@ -732,7 +730,7 @@ class TestAfInitConfigOverwritesLocal:
 class TestRegressionSuite:
     """TS-13-29: Full existing test suite passes without modification.
 
-    Runs all tests in the packages that spec 13 touches — af, nightshift,
+    Runs all tests in the packages that spec 13 touches — af
     and core config — excluding recursive meta-tests that would trigger
     cascading failures and pre-existing broken tests unrelated to spec 13.
 
@@ -754,7 +752,6 @@ class TestRegressionSuite:
                 "-o",
                 "addopts=",
                 "packages/af/",
-                "packages/nightshift/",
                 "packages/agentfox/tests/unit/core/",
                 "-k",
                 "not test_full_test_suite_passes"

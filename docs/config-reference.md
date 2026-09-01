@@ -78,7 +78,7 @@ merge_strategy = "direct"
 ## backend
 
 Selects the AI backend provider used for agent sessions across all entry
-points (`af`, `nightshift`, `spec`).
+points (`af`, `spec`).
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|

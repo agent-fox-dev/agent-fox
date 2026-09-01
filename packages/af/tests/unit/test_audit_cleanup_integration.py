@@ -40,30 +40,6 @@ class TestCodeCallsAuditCleanup:
         assert "exclude_run_id" in source
 
 
-class TestNightshiftCallsAuditCleanup:
-    """TS-NS-4: _run_daemon calls purge_stale_audit_files before the work loop."""
-
-    def test_nightshift_app_source_contains_purge_call(self) -> None:
-        """nightshift/app.py source references purge_stale_audit_files."""
-        import nightshift.app as app_mod
-
-        source = Path(app_mod.__file__).read_text()
-        assert "purge_stale_audit_files" in source, "Expected purge_stale_audit_files call in nightshift/app.py"
-
-    def test_nightshift_app_purge_call_follows_merge_lock_cleanup(self) -> None:
-        """purge_stale_audit_files appears after cleanup_stale_merge_lock in nightshift/app.py."""
-        import nightshift.app as app_mod
-
-        source = Path(app_mod.__file__).read_text()
-        idx_merge = source.find("cleanup_stale_merge_lock")
-        idx_purge = source.find("purge_stale_audit_files")
-        assert idx_merge != -1, "cleanup_stale_merge_lock not found in nightshift/app.py"
-        assert idx_purge != -1, "purge_stale_audit_files not found in nightshift/app.py"
-        assert idx_purge > idx_merge, (
-            "purge_stale_audit_files must appear after cleanup_stale_merge_lock in nightshift/app.py"
-        )
-
-
 class TestReadOnlyCommandsDoNotCleanup:
     """TS-NS-5: af plan and af standup must NOT trigger audit file cleanup."""
 

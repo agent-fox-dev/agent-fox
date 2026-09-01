@@ -4,9 +4,9 @@ These tests verify the atomic import migration across the workspace.
 They will fail until the full migration is complete.
 
 TS-01-34: agentfox/pyproject.toml declares afaudit>=4.3.2
-TS-01-35: No old audit module paths remain in agentfox, af, nightshift
+TS-01-35: No old audit module paths remain in agentfox, af
 TS-01-36: agentfox/__init__.py does not re-export moved audit symbols
-TS-01-37: af and nightshift pyproject.toml declare afaudit dependency
+TS-01-37: af pyproject.toml declares afaudit dependency
 TS-01-38: agentspec and spec have zero direct audit imports
 TS-01-39: cleanup.py has no duckdb; duckdb_sink has retention logic
 """
@@ -21,7 +21,6 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 # Package paths
 AGENTFOX_PKG = WORKSPACE_ROOT / "packages" / "agentfox"
 AF_PKG = WORKSPACE_ROOT / "packages" / "af"
-NIGHTSHIFT_PKG = WORKSPACE_ROOT / "packages" / "nightshift"
 AGENTSPEC_PKG = WORKSPACE_ROOT / "packages" / "agentspec"
 SPEC_PKG = WORKSPACE_ROOT / "packages" / "spec"
 AFAUDIT_SRC = WORKSPACE_ROOT / "packages" / "afaudit" / "afaudit"
@@ -88,13 +87,6 @@ class TestNoOldImportPaths:
         for old_path in self.OLD_MODULE_PATHS:
             assert old_path not in content, f"Old import path '{old_path}' still found in af/"
 
-    def test_no_old_imports_in_nightshift(self) -> None:
-        """No old audit module imports should remain in nightshift/ source."""
-        content = _read_all_py_content(NIGHTSHIFT_PKG)
-        for old_path in self.OLD_MODULE_PATHS:
-            assert old_path not in content, f"Old import path '{old_path}' still found in nightshift/"
-
-
 class TestNoReexportShims:
     """TS-01-36: agentfox/__init__.py does not re-export moved audit symbols.
 
@@ -125,7 +117,7 @@ class TestNoReexportShims:
 
 
 class TestAfNightshiftDependencies:
-    """TS-01-37: af and nightshift declare afaudit as a direct dependency.
+    """TS-01-37: af declares afaudit as a direct dependency.
 
     Requirement: 01-REQ-10.4
     """
@@ -137,25 +129,11 @@ class TestAfNightshiftDependencies:
         deps = toml["project"]["dependencies"]
         assert any("afaudit" in d for d in deps), f"afaudit not found in af [project.dependencies]: {deps}"
 
-    def test_nightshift_depends_on_afaudit(self) -> None:
-        """nightshift/pyproject.toml must list afaudit in [project.dependencies]."""
-        with open(NIGHTSHIFT_PKG / "pyproject.toml", "rb") as f:
-            toml = tomllib.load(f)
-        deps = toml["project"]["dependencies"]
-        assert any("afaudit" in d for d in deps), f"afaudit not found in nightshift [project.dependencies]: {deps}"
-
     def test_af_imports_from_afaudit(self) -> None:
         """af source must import symbols from afaudit (not old agentfox paths)."""
         content = _read_all_py_content(AF_PKG)
         assert "from afaudit" in content or "import afaudit" in content, (
             "af source should import from afaudit after migration"
-        )
-
-    def test_nightshift_imports_from_afaudit(self) -> None:
-        """nightshift source must import symbols from afaudit."""
-        content = _read_all_py_content(NIGHTSHIFT_PKG)
-        assert "from afaudit" in content or "import afaudit" in content, (
-            "nightshift source should import from afaudit after migration"
         )
 
 
