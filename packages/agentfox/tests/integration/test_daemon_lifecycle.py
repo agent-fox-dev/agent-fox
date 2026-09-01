@@ -68,7 +68,7 @@ class TestGracefulShutdown:
 
     async def test_run_once_completes_before_shutdown(self, tmp_path: Path) -> None:
         """run_once completes, not interrupted mid-execution."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         completed = []
 
@@ -106,7 +106,7 @@ class TestConcurrentStreams:
         """Both streams execute within ~0.15s (not ~0.2s if sequential)."""
         import time
 
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         async def slow_run() -> None:
             await asyncio.sleep(0.1)
@@ -148,7 +148,7 @@ class TestCostCheckBetweenCycles:
 
     async def test_run_once_completes_despite_budget(self, tmp_path: Path) -> None:
         """run_once completes fully even when cost exceeds budget."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         completed: list[bool] = []
 
@@ -178,7 +178,7 @@ class TestPersistentStreamFailure:
 
     async def test_failing_stream_doesnt_affect_healthy(self, tmp_path: Path) -> None:
         """Healthy stream runs normally despite another always failing."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         failing = _make_mock_stream(
             name="failing",
@@ -212,7 +212,7 @@ class TestSmokeDaemonFullLifecycle:
 
     async def test_full_lifecycle(self, tmp_path: Path) -> None:
         """PID created, streams run, PID removed, uptime > 0."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         pid_path = tmp_path / "daemon.pid"
         stream = _make_mock_stream(name="test-stream", enabled=True, interval=1)
@@ -244,8 +244,8 @@ class TestSmokeFixPipeline:
 
     async def test_fix_pipeline_e2e(self) -> None:
         """engine._drain_issues called, cost reported."""
-        from agentfox.nightshift.daemon import SharedBudget
-        from agentfox.nightshift.streams import EngineWorkStream
+        from agentfox.maintenance.daemon import SharedBudget
+        from agentfox.maintenance.streams import EngineWorkStream
 
         budget = SharedBudget(max_cost=10.0)
         engine = MagicMock()
@@ -279,7 +279,7 @@ class TestSmokeGracefulShutdown:
 
     async def test_shutdown_preserves_state(self, tmp_path: Path) -> None:
         """Both streams shutdown, PID removed."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         pid_path = tmp_path / "daemon.pid"
         s1 = _make_mock_stream(name="s1")
@@ -305,7 +305,7 @@ class TestSmokePidBlocksCode:
 
     def test_pid_check_blocks(self, tmp_path: Path) -> None:
         """check_pid_file returns ALIVE for current process."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file, write_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file, write_pid_file
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)

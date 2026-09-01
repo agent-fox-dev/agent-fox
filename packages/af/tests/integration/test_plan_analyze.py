@@ -21,7 +21,7 @@ from af.plan import plan_cmd
 from agentfox.core.errors import PlanError
 from agentfox.graph.planner import run_plan
 from agentfox.graph.types import TaskGraph
-from agentfox.nightshift.pid import PidStatus
+from agentfox.maintenance.pid import PidStatus
 from click.testing import CliRunner
 
 # -- Helpers ----------------------------------------------------------------
@@ -174,13 +174,13 @@ def _setup_specs(base: Path, *spec_names: str) -> Path:
 #   open_knowledge_store -> patch at "af.plan.<name>"
 #
 # cli/plan.py imports inline:
-#   check_pid_file -> patch at "agentfox.nightshift.pid.check_pid_file"
+#   check_pid_file -> patch at "agentfox.maintenance.pid.check_pid_file"
 _P_BUILD = "af.plan.build_plan"
 _P_FORMAT_SUMMARY = "af.plan.format_plan_summary"
 _P_DISCOVER = "af.plan.discover_specs"
 _P_SAVE = "af.plan.save_plan"
 _P_OPEN_DB = "af.plan.open_knowledge_store"
-_P_CHECK_PID = "agentfox.nightshift.pid.check_pid_file"
+_P_CHECK_PID = "agentfox.maintenance.pid.check_pid_file"
 
 
 @pytest.fixture(autouse=True)

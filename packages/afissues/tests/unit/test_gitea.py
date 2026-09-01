@@ -2313,7 +2313,7 @@ class TestCheckCredentials503:
 # Requirement: 05-REQ-18.1
 # Note: The platform_factory integration test lives in this file temporarily
 #       since the factory only supports github currently. The factory test
-#       for gitea will be refactored to agentfox/nightshift/tests/ once
+#       for gitea will be refactored to agentfox/maintenance/tests/ once
 #       spec 04 restructures the factory with multi-platform routing.
 # ===========================================================================
 

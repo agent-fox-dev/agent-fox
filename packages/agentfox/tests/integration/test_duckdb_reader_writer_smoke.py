@@ -82,7 +82,7 @@ class TestAfCodeSmoke:
 
     def test_af_code_mock_uses_read_only_true(self) -> None:
         """af code CLI invokes open_knowledge_store with read_only=True."""
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
 
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
@@ -92,7 +92,7 @@ class TestAfCodeSmoke:
             patch("agentfox.core.node_id.DEFAULT_DB_PATH", new=MagicMock(exists=lambda: True)),
             patch("agentfox.graph.persistence.load_plan", return_value=None),
             patch("agentfox.spec.discovery.discover_specs", return_value=[]),
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
         ):
             from af.app import main
             from click.testing import CliRunner
@@ -131,7 +131,7 @@ class TestAfPlanVerifySmoke:
 
     def test_plan_verify_mock_uses_read_only_true(self, tmp_path: Path) -> None:
         """af plan --verify CLI invokes open_knowledge_store with read_only=True."""
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
 
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
@@ -144,7 +144,7 @@ class TestAfPlanVerifySmoke:
             patch("af.plan.load_plan", return_value=None),
             patch("af.plan.discover_specs", return_value=[]),
             patch("agentfox.core.node_id.DEFAULT_DB_PATH", new=MagicMock(exists=lambda: True)),
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
         ):
             from af.app import main
             from click.testing import CliRunner
@@ -205,7 +205,7 @@ class TestOrchestratorStartupSmoke:
             patch("agentfox.engine.run.SinkDispatcher"),
             patch("agentfox.engine.run.FoxKnowledgeProvider"),
             patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
-            patch("agentfox.nightshift.platform_factory.create_platform_safe", return_value=None),
+            patch("agentfox.maintenance.platform_factory.create_platform_safe", return_value=None),
         ):
             from agentfox.engine.run import _setup_infrastructure
 
@@ -228,7 +228,7 @@ class TestAfStandupSmoke:
 
     def test_standup_end_to_end_read_only(self, tmp_path: Path) -> None:
         """Full af standup invocation against a populated DuckDB."""
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
         from agentfox.reporting.standup import AgentActivity, QueueSummary, StandupReport
 
         db_path = str(tmp_path / "knowledge.duckdb")
@@ -269,7 +269,7 @@ class TestAfStandupSmoke:
             patch("af.standup.open_knowledge_store", side_effect=_tracking_open),
             patch("af.standup.DEFAULT_DB_PATH", new=mock_db_path),
             patch("af.standup.generate_standup", return_value=stub_report),
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
         ):
             from af.app import main
             from click.testing import CliRunner

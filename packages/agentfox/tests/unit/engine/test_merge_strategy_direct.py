@@ -29,8 +29,8 @@ from afissues.protocol import IssueResult
 from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.nightshift.fix_pipeline import FixPipeline
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixPipeline
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ class TestHarvestAndIntegrateDirectMode:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=MagicMock(),
             ) as mock_cps,
         ):
@@ -502,7 +502,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=["file.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -550,7 +550,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=["file.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -605,7 +605,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=["fix.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -657,7 +657,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=["fix.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -734,7 +734,7 @@ class TestReturnTupleShapeProperty:
                 return_value=harvest_result,
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -802,7 +802,7 @@ class TestReturnTupleShapeProperty:
                 return_value=harvest_result,
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):

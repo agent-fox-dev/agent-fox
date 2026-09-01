@@ -76,7 +76,7 @@ class TestBootstrapCreatesLabel:
         with (
             patch("agentfox.core.config.load_config", return_value=MagicMock()),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
         ):
@@ -129,7 +129,7 @@ class TestBootstrapLabelCreationError:
         with (
             patch("agentfox.core.config.load_config", return_value=MagicMock()),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
         ):

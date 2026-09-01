@@ -473,7 +473,7 @@ def plan_cmd(
         sys.exit(1)
 
     # 85-REQ-3.2: Refuse to run when daemon is active.
-    from agentfox.nightshift.pid import PidStatus, check_pid_file
+    from agentfox.maintenance.pid import PidStatus, check_pid_file
 
     daemon_pid_path = Path.cwd() / ".agent-fox" / "daemon.pid"
     pid_status, _pid = check_pid_file(daemon_pid_path)

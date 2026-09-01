@@ -67,7 +67,7 @@ class TestEnsurePlatformLabelsNoPlatform:
             with (
                 patch("agentfox.core.config.load_config", return_value=MagicMock()),
                 patch(
-                    "agentfox.nightshift.platform_factory.create_platform_safe",
+                    "agentfox.maintenance.platform_factory.create_platform_safe",
                     return_value=None,
                 ),
             ):
@@ -120,7 +120,7 @@ class TestEnsurePlatformLabelsConfigError:
             with (
                 patch("agentfox.core.config.load_config", return_value=MagicMock()),
                 patch(
-                    "agentfox.nightshift.platform_factory.create_platform_safe",
+                    "agentfox.maintenance.platform_factory.create_platform_safe",
                     return_value=mock_platform,
                 ),
             ):
@@ -156,7 +156,7 @@ class TestEnsurePlatformLabelsFallbackToGlobalConfig:
                     return_value=MagicMock(),
                 ) as mock_load,
                 patch(
-                    "agentfox.nightshift.platform_factory.create_platform_safe",
+                    "agentfox.maintenance.platform_factory.create_platform_safe",
                     return_value=mock_platform,
                 ),
             ):

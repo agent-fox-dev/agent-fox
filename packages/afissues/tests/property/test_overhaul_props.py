@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, patch
 
 from agentfox.core.config import AgentFoxConfig, PlatformConfig
 from agentfox.core.config_gen import extract_schema
-from agentfox.nightshift.platform_factory import create_platform
+from agentfox.maintenance.platform_factory import create_platform
 from agentfox.workspace import WorkspaceInfo
 from agentfox.workspace.harvest import post_harvest_integrate
 from hypothesis import assume, given, settings

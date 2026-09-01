@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from af.plan import plan_cmd
-from agentfox.nightshift.pid import PidStatus
+from agentfox.maintenance.pid import PidStatus
 from click.testing import CliRunner
 
 
@@ -49,7 +49,7 @@ _PATCHES = {
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent the daemon PID check from blocking plan tests."""
     monkeypatch.setattr(
-        "agentfox.nightshift.pid.check_pid_file",
+        "agentfox.maintenance.pid.check_pid_file",
         lambda _path: (PidStatus.ABSENT, None),
     )
 

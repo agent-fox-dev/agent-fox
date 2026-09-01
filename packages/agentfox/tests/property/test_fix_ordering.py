@@ -117,7 +117,7 @@ class TestBaseOrderingProperty:
     @given(issue_nums=issue_numbers_strategy())
     @settings(max_examples=50)
     def test_ts_71_p1_no_edges_ascending_order(self, issue_nums: list[int]) -> None:
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [_make_issue(n) for n in issue_nums]
         order = build_graph(issues, [])
@@ -138,7 +138,7 @@ class TestDependencyRespectProperty:
     @given(data=acyclic_graph_strategy())
     @settings(max_examples=50)
     def test_ts_71_p2_edges_respected(self, data: tuple[list[int], list[tuple[int, int]]]) -> None:
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         nums, edge_tuples = data
         issues = [_make_issue(n) for n in nums]
@@ -166,7 +166,7 @@ class TestExplicitEdgePrecedenceProperty:
     )
     @settings(max_examples=50)
     def test_ts_71_p3_explicit_wins(self, a: int, b: int) -> None:
-        from agentfox.nightshift.dep_graph import DependencyEdge, merge_edges
+        from agentfox.maintenance.dep_graph import DependencyEdge, merge_edges
         from hypothesis import assume
 
         assume(a != b)
@@ -195,7 +195,7 @@ class TestCycleResolutionProperty:
     @given(data=graph_with_possible_cycles_strategy())
     @settings(max_examples=50)
     def test_ts_71_p4_cycles_produce_valid_order(self, data: tuple[list[int], list[tuple[int, int]]]) -> None:
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         nums, edge_tuples = data
         issues = [_make_issue(n) for n in nums]
@@ -227,7 +227,7 @@ class TestTriageFallbackProperty:
     )
     @settings(max_examples=30)
     def test_ts_71_p5_triage_failure_valid_order(self, issue_nums: list[int]) -> None:
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [_make_issue(n) for n in issue_nums]
         # Simulate triage failure => no AI edges, just build graph with no edges

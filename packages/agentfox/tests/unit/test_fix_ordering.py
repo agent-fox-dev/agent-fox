@@ -40,7 +40,7 @@ class TestBaseOrdering:
     @pytest.mark.asyncio
     async def test_ts_71_1_issues_fetched_ascending(self) -> None:
         """Platform called with sort='created', direction='asc'."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -53,11 +53,11 @@ class TestBaseOrdering:
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
         with (
-            patch("agentfox.nightshift.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
-            patch("agentfox.nightshift.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
+            patch("agentfox.maintenance.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
+            patch("agentfox.maintenance.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(processing_order=[10, 20, 30], edges=[], supersession_pairs=[])
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
@@ -76,7 +76,7 @@ class TestBaseOrdering:
     @pytest.mark.asyncio
     async def test_ts_71_2_default_order_ascending_number(self) -> None:
         """With no deps, issues processed lowest-number first."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -96,10 +96,10 @@ class TestBaseOrdering:
         engine._process_fix = track_fix  # type: ignore[assignment]
 
         with patch(
-            "agentfox.nightshift.engine.check_staleness",
+            "agentfox.maintenance.engine.check_staleness",
             new_callable=AsyncMock,
         ) as mock_staleness:
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
@@ -118,7 +118,7 @@ class TestReferenceParsing:
 
     def test_ts_71_3_explicit_text_references_parsed(self) -> None:
         """'depends on #N' in issue body produces a dependency edge."""
-        from agentfox.nightshift.reference_parser import parse_text_references
+        from agentfox.maintenance.reference_parser import parse_text_references
 
         issue_10 = _make_issue(10, body="This is a standalone issue.")
         issue_20 = _make_issue(20, body="This depends on #10 to work.")
@@ -133,7 +133,7 @@ class TestReferenceParsing:
     @pytest.mark.asyncio
     async def test_ts_71_4_github_relationships_incorporated(self) -> None:
         """GitHub blocks/is-blocked-by metadata produces edges."""
-        from agentfox.nightshift.reference_parser import (
+        from agentfox.maintenance.reference_parser import (
             fetch_github_relationships,
         )
 
@@ -162,7 +162,7 @@ class TestReferenceParsing:
 
     def test_ts_71_5_multiple_text_patterns_recognized(self) -> None:
         """All four text patterns matched case-insensitively."""
-        from agentfox.nightshift.reference_parser import parse_text_references
+        from agentfox.maintenance.reference_parser import parse_text_references
 
         issue_1 = _make_issue(1)
         issue_2 = _make_issue(2)
@@ -202,7 +202,7 @@ class TestAITriage:
     @pytest.mark.asyncio
     async def test_ts_71_6_ai_triage_triggered_for_batch_gte_3(self) -> None:
         """AI triage called when batch has 3+ issues."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -216,16 +216,16 @@ class TestAITriage:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(
                 processing_order=[10, 20, 30],
@@ -240,13 +240,13 @@ class TestAITriage:
     @pytest.mark.asyncio
     async def test_ts_71_7_ai_triage_uses_advanced_tier(self) -> None:
         """Triage uses ADVANCED model tier."""
-        from agentfox.nightshift.triage import TriageResult, run_batch_triage
+        from agentfox.maintenance.triage import TriageResult, run_batch_triage
 
         config = MagicMock()
         issues = [_make_issue(10), _make_issue(20), _make_issue(30)]
 
         with patch(
-            "agentfox.nightshift.triage._run_ai_triage",
+            "agentfox.maintenance.triage._run_ai_triage",
             new_callable=AsyncMock,
         ) as mock_ai:
             mock_ai.return_value = TriageResult(
@@ -263,13 +263,13 @@ class TestAITriage:
     @pytest.mark.asyncio
     async def test_ts_71_8_triage_returns_order_edges_supersession(self) -> None:
         """TriageResult contains all three fields."""
-        from agentfox.nightshift.triage import TriageResult, run_batch_triage
+        from agentfox.maintenance.triage import TriageResult, run_batch_triage
 
         config = MagicMock()
         issues = [_make_issue(10), _make_issue(20), _make_issue(30)]
 
         with patch(
-            "agentfox.nightshift.triage._run_ai_triage",
+            "agentfox.maintenance.triage._run_ai_triage",
             new_callable=AsyncMock,
         ) as mock_ai:
             mock_ai.return_value = TriageResult(
@@ -285,7 +285,7 @@ class TestAITriage:
 
     def test_ts_71_9_explicit_edges_override_ai_edges(self) -> None:
         """Explicit edge A->B wins over conflicting AI edge B->A."""
-        from agentfox.nightshift.dep_graph import (
+        from agentfox.maintenance.dep_graph import (
             DependencyEdge,
             build_graph,
             merge_edges,
@@ -303,7 +303,7 @@ class TestAITriage:
     @pytest.mark.asyncio
     async def test_ts_71_10_ai_triage_skipped_for_batch_lt_3(self) -> None:
         """For 1-2 issues, no AI triage invoked."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -317,15 +317,15 @@ class TestAITriage:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
@@ -344,7 +344,7 @@ class TestDepGraph:
 
     def test_ts_71_11_topological_sort_valid_order(self) -> None:
         """Dependencies respected in output order."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         issues = [_make_issue(10), _make_issue(20), _make_issue(30)]
         edges = [
@@ -358,7 +358,7 @@ class TestDepGraph:
 
     def test_ts_71_12_tie_breaking_by_issue_number(self) -> None:
         """Independent issues sorted by ascending number."""
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [_make_issue(30), _make_issue(10), _make_issue(20)]
 
@@ -368,7 +368,7 @@ class TestDepGraph:
 
     def test_ts_71_13_cycle_detected_and_broken(self, caplog: pytest.LogCaptureFixture) -> None:
         """Cycles broken at edge pointing to oldest issue."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         issues = [_make_issue(10), _make_issue(20)]
         edges = [
@@ -396,7 +396,7 @@ class TestStaleness:
     @pytest.mark.asyncio
     async def test_ts_71_14_staleness_check_runs_after_fix(self) -> None:
         """After successful fix, remaining issues evaluated for staleness."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -410,10 +410,10 @@ class TestStaleness:
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
         with patch(
-            "agentfox.nightshift.engine.check_staleness",
+            "agentfox.maintenance.engine.check_staleness",
             new_callable=AsyncMock,
         ) as mock_staleness:
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
@@ -432,7 +432,7 @@ class TestStaleness:
     @pytest.mark.asyncio
     async def test_ts_71_15_staleness_verifies_with_github(self) -> None:
         """Staleness check re-fetches issues from GitHub to verify."""
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
+        from agentfox.maintenance.staleness import StalenessResult, check_staleness
 
         mock_platform = AsyncMock()
         mock_platform.list_issues_by_label = AsyncMock(return_value=[])
@@ -442,7 +442,7 @@ class TestStaleness:
         remaining = [_make_issue(20)]
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             new_callable=AsyncMock,
         ) as mock_ai:
             mock_ai.return_value = StalenessResult(obsolete_issues=[20], rationale={20: "same root cause"})
@@ -460,7 +460,7 @@ class TestStaleness:
     @pytest.mark.asyncio
     async def test_ts_71_16_obsolete_issues_closed_with_comment(self) -> None:
         """Issues determined obsolete are closed on GitHub with comment."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -474,10 +474,10 @@ class TestStaleness:
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
         with patch(
-            "agentfox.nightshift.engine.check_staleness",
+            "agentfox.maintenance.engine.check_staleness",
             new_callable=AsyncMock,
         ) as mock_staleness:
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             # First fix (#10) makes #20 obsolete
             mock_staleness.return_value = StalenessResult(obsolete_issues=[20], rationale={20: "resolved by #10"})
@@ -494,7 +494,7 @@ class TestStaleness:
     @pytest.mark.asyncio
     async def test_ts_71_17_obsolete_issues_removed_from_queue(self) -> None:
         """Closed issues not processed in subsequent iterations."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -514,10 +514,10 @@ class TestStaleness:
         engine._process_fix = track_fix  # type: ignore[assignment]
 
         with patch(
-            "agentfox.nightshift.engine.check_staleness",
+            "agentfox.maintenance.engine.check_staleness",
             new_callable=AsyncMock,
         ) as mock_staleness:
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             call_count = 0
 
@@ -551,7 +551,7 @@ class TestObservability:
     @pytest.mark.asyncio
     async def test_ts_71_18_resolved_order_logged_at_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """Processing order logged at INFO after triage."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -566,17 +566,17 @@ class TestObservability:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
             caplog.at_level(logging.INFO, logger="agentfox"),
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(processing_order=[10, 20, 30], edges=[], supersession_pairs=[])
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
@@ -591,7 +591,7 @@ class TestObservability:
     @pytest.mark.asyncio
     async def test_ts_71_19_staleness_closure_emits_audit_event(self) -> None:
         """Audit event emitted when issue closed as obsolete."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -606,12 +606,12 @@ class TestObservability:
 
         with (
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
-            patch("agentfox.nightshift.engine._emit_audit_event") as mock_audit,
+            patch("agentfox.maintenance.engine._emit_audit_event") as mock_audit,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             call_count = 0
 
@@ -647,7 +647,7 @@ class TestObservability:
         Requirement: 71-REQ-3.5
         Regression guard for: night_shift.issue_superseded AuditEventType
         """
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -662,17 +662,17 @@ class TestObservability:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
-            patch("agentfox.nightshift.engine._emit_audit_event") as mock_audit,
+            patch("agentfox.maintenance.engine._emit_audit_event") as mock_audit,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(
                 processing_order=[10, 30],
@@ -699,7 +699,7 @@ class TestObservability:
 
     def test_ts_71_20_cycle_break_logged_at_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Cycle detection and break logged as WARNING."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         issues = [_make_issue(10), _make_issue(20)]
         edges = [
@@ -728,7 +728,7 @@ class TestEdgeCases:
 
     def test_ts_71_e1_reference_outside_batch_ignored(self) -> None:
         """References to issues not in batch are ignored."""
-        from agentfox.nightshift.reference_parser import parse_text_references
+        from agentfox.maintenance.reference_parser import parse_text_references
 
         issue_10 = _make_issue(10, body="depends on #99")
         issue_20 = _make_issue(20)
@@ -744,8 +744,8 @@ class TestEdgeCases:
 
     def test_ts_71_e2_explicit_reference_cycle(self) -> None:
         """Cycle from explicit refs broken at oldest issue."""
-        from agentfox.nightshift.dep_graph import build_graph
-        from agentfox.nightshift.reference_parser import parse_text_references
+        from agentfox.maintenance.dep_graph import build_graph
+        from agentfox.maintenance.reference_parser import parse_text_references
 
         issue_10 = _make_issue(10, body="depends on #20")
         issue_20 = _make_issue(20, body="depends on #10")
@@ -763,7 +763,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_ts_71_e3_ai_triage_failure_fallback(self, caplog: pytest.LogCaptureFixture) -> None:
         """Triage failure falls back to refs + number order."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -784,17 +784,17 @@ class TestEdgeCases:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("API error"),
             ),
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
             caplog.at_level(logging.WARNING),
         ):
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
@@ -809,7 +809,7 @@ class TestEdgeCases:
 
     def test_ts_71_e4_explicit_edges_correct_ai_order(self) -> None:
         """Explicit edges correct an invalid AI ordering."""
-        from agentfox.nightshift.dep_graph import (
+        from agentfox.maintenance.dep_graph import (
             DependencyEdge,
             build_graph,
             merge_edges,
@@ -831,7 +831,7 @@ class TestEdgeCases:
 
     def test_ts_71_e5_empty_graph_number_order(self) -> None:
         """No edges produces issue-number order."""
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [_make_issue(30), _make_issue(10), _make_issue(20)]
         order = build_graph(issues, [])
@@ -846,7 +846,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_ts_71_e6_staleness_ai_failure_github_fallback(self) -> None:
         """AI failure falls back to GitHub API verification only."""
-        from agentfox.nightshift.staleness import check_staleness
+        from agentfox.maintenance.staleness import check_staleness
 
         mock_platform = AsyncMock()
         # GitHub re-fetch shows #20 was closed (not in results)
@@ -857,7 +857,7 @@ class TestEdgeCases:
         remaining = [_make_issue(20)]
 
         with patch(
-            "agentfox.nightshift.staleness._run_ai_staleness",
+            "agentfox.maintenance.staleness._run_ai_staleness",
             new_callable=AsyncMock,
             side_effect=RuntimeError("AI failed"),
         ):
@@ -874,7 +874,7 @@ class TestEdgeCases:
     async def test_ts_71_e7_github_refetch_failure(self, caplog: pytest.LogCaptureFixture) -> None:
         """GitHub failure logs warning, continues without removal."""
         from afissues.errors import IntegrationError
-        from agentfox.nightshift.staleness import check_staleness
+        from agentfox.maintenance.staleness import check_staleness
 
         mock_platform = AsyncMock()
         mock_platform.list_issues_by_label = AsyncMock(side_effect=IntegrationError("API down"))
@@ -885,12 +885,12 @@ class TestEdgeCases:
 
         with (
             patch(
-                "agentfox.nightshift.staleness._run_ai_staleness",
+                "agentfox.maintenance.staleness._run_ai_staleness",
                 new_callable=AsyncMock,
             ) as mock_ai,
             caplog.at_level(logging.WARNING),
         ):
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_ai.return_value = StalenessResult(obsolete_issues=[20], rationale={20: "obsolete"})
             result = await check_staleness(fixed_issue, remaining, "diff", config, mock_platform)
@@ -906,7 +906,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_ts_71_e8_failed_fix_skips_staleness(self) -> None:
         """Fix pipeline failure skips staleness check."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -931,10 +931,10 @@ class TestEdgeCases:
         engine._process_fix = failing_then_ok_fix  # type: ignore[assignment]
 
         with patch(
-            "agentfox.nightshift.engine.check_staleness",
+            "agentfox.maintenance.engine.check_staleness",
             new_callable=AsyncMock,
         ) as mock_staleness:
-            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.maintenance.staleness import StalenessResult
 
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
@@ -956,7 +956,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_ts_71_e9_local_sort_fallback(self) -> None:
         """Local sort applied when platform ignores sort params."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -977,11 +977,11 @@ class TestEdgeCases:
         engine._process_fix = track_fix  # type: ignore[assignment]
 
         with (
-            patch("agentfox.nightshift.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
-            patch("agentfox.nightshift.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
+            patch("agentfox.maintenance.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
+            patch("agentfox.maintenance.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(processing_order=[10, 20, 30], edges=[], supersession_pairs=[])
             mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
@@ -1007,7 +1007,7 @@ class TestDrainSeenDedup:
     async def test_closed_issue_not_reprocessed_across_drain_iterations(self) -> None:
         """Issue fixed in iteration N is skipped in iteration N+1 even if the
         platform still returns it in the re-poll."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -1036,7 +1036,7 @@ class TestDrainSeenDedup:
     @pytest.mark.asyncio
     async def test_seen_set_shared_across_run_issue_check_calls(self) -> None:
         """_run_issue_check skips issues present in the caller-supplied ``_seen`` set."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -1103,7 +1103,7 @@ class TestPriorityOrdering:
 
     def test_ts_ns_2_independent_issues_ordered_high_medium_low(self) -> None:
         """Independent issues: high > unlabelled (medium) > low, regardless of number."""
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [
             _make_issue_with_labels(30, "priority:low"),
@@ -1116,7 +1116,7 @@ class TestPriorityOrdering:
 
     def test_ts_ns_3_dependency_edges_take_precedence_over_priority(self) -> None:
         """A low-priority prerequisite appears before a high-priority dependent."""
-        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+        from agentfox.maintenance.dep_graph import DependencyEdge, build_graph
 
         issues = [
             _make_issue_with_labels(1, "priority:low"),
@@ -1129,7 +1129,7 @@ class TestPriorityOrdering:
 
     def test_ts_ns_4_issue_number_is_secondary_tiebreaker(self) -> None:
         """Within the same priority tier, the lower issue number appears first."""
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [
             _make_issue_with_labels(50, "priority:high"),
@@ -1141,7 +1141,7 @@ class TestPriorityOrdering:
 
     def test_ts_ns_5_unlabelled_treated_as_medium(self) -> None:
         """Unlabelled issue is treated as medium: order is [high, medium, low]."""
-        from agentfox.nightshift.dep_graph import build_graph
+        from agentfox.maintenance.dep_graph import build_graph
 
         issues = [
             _make_issue_with_labels(20, "priority:high"),

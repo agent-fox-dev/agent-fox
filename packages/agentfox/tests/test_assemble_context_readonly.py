@@ -325,7 +325,7 @@ class TestOrchestratorPassesReadOnlyConn:
             patch("agentfox.engine.run.FoxKnowledgeProvider"),
             patch("afaudit.trace.AgentTraceSink"),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -367,7 +367,7 @@ class TestOrchestratorPassesReadOnlyConn:
             patch("agentfox.engine.run.FoxKnowledgeProvider"),
             patch("afaudit.trace.AgentTraceSink"),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -399,7 +399,7 @@ class TestOrchestratorPassesReadOnlyConn:
             patch("agentfox.engine.run.FoxKnowledgeProvider"),
             patch("afaudit.trace.AgentTraceSink"),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
             patch(
