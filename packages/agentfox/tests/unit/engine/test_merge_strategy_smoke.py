@@ -37,8 +37,8 @@ from afissues.protocol import IssueResult
 from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.nightshift.fix_pipeline import FixPipeline
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixPipeline
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class TestSmokePrModeAfCodeSuccess:
                 side_effect=tracked_gcf,
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 side_effect=tracked_cps,
             ),
             patch(
@@ -411,7 +411,7 @@ class TestSmokeNightshiftPrModeSuccess:
                 new_callable=AsyncMock, return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -498,7 +498,7 @@ class TestSmokePrModeFallbackNoPlatform:
                 new_callable=AsyncMock, return_value=["f.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
             patch(
@@ -563,7 +563,7 @@ class TestSmokePrModeFallbackNoPlatform:
                 new_callable=AsyncMock, return_value=["f.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
         ):
@@ -631,7 +631,7 @@ class TestSmokeNightshiftPrPartialFailure:
                 new_callable=AsyncMock, return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -772,7 +772,7 @@ class TestSmokeDirectModeZeroRegression:
             ),
             patch("agentfox.engine.session_lifecycle.emit_audit_event"),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=MagicMock(),
             ) as mock_cps,
         ):
@@ -852,7 +852,7 @@ class TestSmokeAfCodePrPartialFailure:
                 new_callable=AsyncMock, return_value=["f.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(

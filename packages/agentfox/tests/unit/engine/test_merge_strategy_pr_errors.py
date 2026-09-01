@@ -37,8 +37,8 @@ from afissues.protocol import IssueResult
 from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.nightshift.fix_pipeline import FixPipeline
-from agentfox.nightshift.spec_builder import InMemorySpec
+from agentfox.maintenance.fix_pipeline import FixPipeline
+from agentfox.maintenance.spec_builder import InMemorySpec
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ class TestPushFailurePropagatesException:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -250,7 +250,7 @@ class TestPushFailurePropagatesException:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -306,7 +306,7 @@ class TestPushFailurePropagatesException:
                 return_value=["fix.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -378,7 +378,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -445,7 +445,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -501,7 +501,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -557,7 +557,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -624,7 +624,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -689,7 +689,7 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -728,7 +728,7 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -769,7 +769,7 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -811,7 +811,7 @@ class TestIntegrateFixPrPartialFailure:
                 return_value=["auth/login.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -876,7 +876,7 @@ class TestPrModeEmptyChangedFiles:
                 return_value=[],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -927,7 +927,7 @@ class TestPrModeEmptyChangedFiles:
                 return_value=[],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -994,7 +994,7 @@ class TestPrModeEmptyChangedFiles:
                 return_value=[],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1086,7 +1086,7 @@ class TestOperationSequenceIntegrity:
                 side_effect=track_gcf,
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 side_effect=track_cps,
             ),
             patch(
@@ -1095,7 +1095,7 @@ class TestOperationSequenceIntegrity:
                 side_effect=track_push,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.build_pr_body",
+                "agentfox.maintenance.fix_pipeline.build_pr_body",
                 side_effect=lambda **kwargs: (
                     call_order.append("build_pr_body") or "## Summary\n\ntest"
                 ),
@@ -1193,7 +1193,7 @@ class TestOperationSequenceIntegrity:
                 side_effect=track_gcf,
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 side_effect=track_cps,
             ),
             patch(
@@ -1202,7 +1202,7 @@ class TestOperationSequenceIntegrity:
                 side_effect=track_push,
             ),
             patch(
-                "agentfox.nightshift.fix_pipeline.build_pr_body",
+                "agentfox.maintenance.fix_pipeline.build_pr_body",
                 side_effect=lambda **kwargs: (
                     call_order.append("build_pr_body") or "## Summary\n\ntest"
                 ),
@@ -1276,7 +1276,7 @@ class TestPlatformGuardPrecedesPushProperty:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
             patch(
@@ -1328,7 +1328,7 @@ class TestPlatformGuardPrecedesPushProperty:
                 return_value=["fix.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=None,
             ),
             patch(
@@ -1383,7 +1383,7 @@ class TestPlatformGuardPrecedesPushProperty:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 side_effect=track_cps,
             ),
             patch(
@@ -1457,7 +1457,7 @@ class TestPlatformGuardPrecedesPushProperty:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 side_effect=track_cps,
             ),
             patch(
@@ -1536,7 +1536,7 @@ class TestPushTimeoutPropagation:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1585,7 +1585,7 @@ class TestPushTimeoutPropagation:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1650,7 +1650,7 @@ class TestUnexpectedExceptionPropagation:
                 side_effect=RuntimeError("unexpected"),
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1701,7 +1701,7 @@ class TestUnexpectedExceptionPropagation:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1752,7 +1752,7 @@ class TestUnexpectedExceptionPropagation:
                 side_effect=RuntimeError("unexpected failure"),
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -1797,7 +1797,7 @@ class TestUnexpectedExceptionPropagation:
                 side_effect=KeyboardInterrupt(),
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(

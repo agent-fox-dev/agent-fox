@@ -47,8 +47,8 @@ class TestFixPipelineUsesFix_CodingMd:
         Uses real build_system_prompt and load_profile.
         Does NOT mock build_system_prompt or profile loading.
         """
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = _make_config()
         platform = MagicMock()
@@ -86,8 +86,8 @@ class TestFixPipelineUsesFix_CodingMd:
         Uses real _build_coder_prompt, mocks only _run_session to avoid
         actual execution.
         """
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = _make_config()
         platform = MagicMock()
@@ -132,8 +132,8 @@ class TestFixPipelineUsesFix_CodingMd:
 
     def test_system_prompt_does_not_contain_task_group_instructions(self) -> None:
         """System prompt does not contain spec-driven task group instructions (coding.md)."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
+        from agentfox.maintenance.fix_pipeline import FixPipeline, TriageResult
+        from agentfox.maintenance.spec_builder import InMemorySpec
 
         config = _make_config()
         platform = MagicMock()

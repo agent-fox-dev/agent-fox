@@ -106,7 +106,7 @@ def _setup_infrastructure(
     from afaudit.constants import AUDIT_DIR
 
     from agentfox.engine.session_lifecycle import NodeSessionRunner
-    from agentfox.nightshift.platform_factory import create_platform_safe
+    from agentfox.maintenance.platform_factory import create_platform_safe
 
     # Create DuckDB sink for session outcome recording
     sink_dispatcher = SinkDispatcher()

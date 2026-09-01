@@ -39,7 +39,7 @@ class TestEndToEndIssueCheck:
     @pytest.mark.asyncio
     async def test_full_pipeline_with_triage_and_staleness(self) -> None:
         """Full issue check: triage -> process -> staleness -> skip obsolete."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -60,16 +60,16 @@ class TestEndToEndIssueCheck:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(
                 processing_order=[10, 20, 30],
@@ -100,7 +100,7 @@ class TestEndToEndIssueCheck:
     @pytest.mark.asyncio
     async def test_ascending_fetch_end_to_end(self) -> None:
         """Verify platform called with direction='asc' in full pipeline."""
-        from agentfox.nightshift.engine import NightShiftEngine
+        from agentfox.maintenance.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -114,16 +114,16 @@ class TestEndToEndIssueCheck:
 
         with (
             patch(
-                "agentfox.nightshift.engine.run_batch_triage",
+                "agentfox.maintenance.engine.run_batch_triage",
                 new_callable=AsyncMock,
             ) as mock_triage,
             patch(
-                "agentfox.nightshift.engine.check_staleness",
+                "agentfox.maintenance.engine.check_staleness",
                 new_callable=AsyncMock,
             ) as mock_staleness,
         ):
-            from agentfox.nightshift.staleness import StalenessResult
-            from agentfox.nightshift.triage import TriageResult
+            from agentfox.maintenance.staleness import StalenessResult
+            from agentfox.maintenance.triage import TriageResult
 
             mock_triage.return_value = TriageResult(
                 processing_order=[10, 20, 30],

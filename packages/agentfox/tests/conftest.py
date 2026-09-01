@@ -15,7 +15,7 @@ from hypothesis import settings
 settings.register_profile("ci", deadline=None)
 settings.load_profile("ci")
 
-_SLOW_DIRS = ("/property/", "/integration/", "/spec/", "/nightshift/")
+_SLOW_DIRS = ("/property/", "/integration/", "/spec/", "/maintenance/")
 _SLOW_SUFFIXES = ("_props.py", "_properties.py")
 _SLOW_FILES = ("test_orchestrator.py", "test_block_budget.py", "test_knowledge_pruning.py")
 

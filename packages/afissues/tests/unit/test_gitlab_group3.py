@@ -415,7 +415,7 @@ class TestFactoryGitLabRouting:
 
     def test_creates_gitlab_platform(self, tmp_path: MagicMock) -> None:
         """TS-04-36: create_platform with type='gitlab' returns GitLabPlatform."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         from afissues.gitlab import GitLabPlatform
 
@@ -427,7 +427,7 @@ class TestFactoryGitLabRouting:
         with (
             patch.dict("os.environ", {"GITLAB_TOKEN": "test-token"}, clear=False),
             patch(
-                "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
+                "agentfox.maintenance.platform_factory._resolve_gitlab_remote",
                 return_value="group/project",
             ),
             patch("afissues.gitlab._validate_url"),
@@ -448,7 +448,7 @@ class TestFactorySupportedPlatforms:
 
     def test_supported_platforms_includes_all_three(self) -> None:
         """TS-04-37: All three platform types in _SUPPORTED_PLATFORMS."""
-        from agentfox.nightshift.platform_factory import _SUPPORTED_PLATFORMS
+        from agentfox.maintenance.platform_factory import _SUPPORTED_PLATFORMS
 
         assert "github" in _SUPPORTED_PLATFORMS
         assert "gitlab" in _SUPPORTED_PLATFORMS
@@ -458,7 +458,7 @@ class TestFactorySupportedPlatforms:
         """TS-04-37: create_platform return type references PlatformProtocol."""
         import inspect
 
-        import agentfox.nightshift.platform_factory as factory
+        import agentfox.maintenance.platform_factory as factory
 
         hints = inspect.get_annotations(factory.create_platform)
         return_hint = str(hints.get("return", ""))
@@ -477,7 +477,7 @@ class TestFactoryGitLabMissingProject:
 
     def test_raises_config_error_no_project_id(self, tmp_path: MagicMock) -> None:
         """TS-04-E27: Error when parse_remote is None and no config."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -487,7 +487,7 @@ class TestFactoryGitLabMissingProject:
         with (
             patch.dict("os.environ", {"GITLAB_TOKEN": "tok"}, clear=False),
             patch(
-                "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
+                "agentfox.maintenance.platform_factory._resolve_gitlab_remote",
                 return_value=None,
             ),
         ):
@@ -506,7 +506,7 @@ class TestFactoryGitLabMissingToken:
 
     def test_raises_config_error_missing_token(self, tmp_path: MagicMock) -> None:
         """TS-04-E28: Error when GITLAB_TOKEN env var is not set."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -540,7 +540,7 @@ class TestFactoryGiteaAvailable:
         tmp_path: MagicMock,
     ) -> None:
         """Gitea is available — factory returns GiteaPlatform (05-REQ-18.1)."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -550,7 +550,7 @@ class TestFactoryGiteaAvailable:
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
             patch(
-                "agentfox.nightshift.platform_factory._resolve_remote",
+                "agentfox.maintenance.platform_factory._resolve_remote",
                 return_value=("owner", "repo"),
             ),
             patch("afissues.gitea._validate_url"),
@@ -577,7 +577,7 @@ class TestFactoryImportsWithoutGitea:
         sys.modules.pop("afissues.gitea", None)
         try:
             importlib.invalidate_caches()
-            import agentfox.nightshift.platform_factory  # noqa: F401
+            import agentfox.maintenance.platform_factory  # noqa: F401
         except ImportError:
             pytest.fail("Factory should import without afissues.gitea")
 
@@ -596,7 +596,7 @@ class TestFactoryUnsupportedPlatform:
         tmp_path: MagicMock,
     ) -> None:
         """TS-04-E29: Error for unsupported platform type."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "bitbucket"
@@ -996,7 +996,7 @@ class TestPropertyFactoryImportsAlways:
         sys.modules.pop("afissues.gitea", None)
         importlib.invalidate_caches()
         try:
-            import agentfox.nightshift.platform_factory  # noqa: F401
+            import agentfox.maintenance.platform_factory  # noqa: F401
         except ImportError:
             pytest.fail("platform_factory should import without gitea")
 
@@ -1006,7 +1006,7 @@ class TestPropertyFactoryImportsAlways:
 
         with patch.dict(sys.modules, {"afissues.gitea": None}):
             try:
-                import agentfox.nightshift.platform_factory  # noqa: F401
+                import agentfox.maintenance.platform_factory  # noqa: F401
             except ImportError:
                 pytest.fail(
                     "platform_factory should import with blocked gitea",
@@ -1027,7 +1027,7 @@ class TestSmokeCreateIssueAndLabel:
         tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-1: Full E2E with mocked HTTP responses."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         from afissues.gitlab import GitLabPlatform
 
@@ -1055,7 +1055,7 @@ class TestSmokeCreateIssueAndLabel:
                 clear=False,
             ),
             patch(
-                "agentfox.nightshift.platform_factory._resolve_gitlab_remote",
+                "agentfox.maintenance.platform_factory._resolve_gitlab_remote",
                 return_value="group/project",
             ),
             patch("afissues.gitlab._validate_url"),
@@ -1135,7 +1135,7 @@ class TestSmokeSSRFBlocked:
         tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-4: SSRF violation raises ConfigError."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitlab"
@@ -1160,7 +1160,7 @@ class TestSmokeGiteaAvailable:
         tmp_path: MagicMock,
     ) -> None:
         """TS-04-SMOKE-5 (updated): Gitea available creates GiteaPlatform."""
-        from agentfox.nightshift.platform_factory import create_platform
+        from agentfox.maintenance.platform_factory import create_platform
 
         config = MagicMock()
         config.platform.type = "gitea"
@@ -1170,7 +1170,7 @@ class TestSmokeGiteaAvailable:
         with (
             patch.dict("os.environ", {"GITEA_TOKEN": "tok"}, clear=False),
             patch(
-                "agentfox.nightshift.platform_factory._resolve_remote",
+                "agentfox.maintenance.platform_factory._resolve_remote",
                 return_value=("owner", "repo"),
             ),
             patch("afissues.gitea._validate_url"),

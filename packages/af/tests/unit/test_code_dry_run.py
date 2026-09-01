@@ -16,7 +16,7 @@ import pytest
 from af.app import main
 from agentfox.graph.types import Edge, Node, NodeStatus, PlanMetadata, TaskGraph
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.nightshift.pid import PidStatus
+from agentfox.maintenance.pid import PidStatus
 from agentfox.spec.discovery import SpecInfo
 from click.testing import CliRunner
 from hypothesis import given, settings
@@ -110,7 +110,7 @@ def cli_runner() -> CliRunner:
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent the daemon PID check from blocking ``code`` tests."""
     monkeypatch.setattr(
-        "agentfox.nightshift.pid.check_pid_file",
+        "agentfox.maintenance.pid.check_pid_file",
         lambda _path: (PidStatus.ABSENT, None),
     )
 
@@ -341,7 +341,7 @@ class TestDaemonGuardBypassed:
     def test_dry_run_succeeds_with_daemon_alive(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         """code --dry-run succeeds even when daemon PID check reports ALIVE."""
         monkeypatch.setattr(
-            "agentfox.nightshift.pid.check_pid_file",
+            "agentfox.maintenance.pid.check_pid_file",
             lambda _path: (PidStatus.ALIVE, 12345),
         )
 
@@ -373,7 +373,7 @@ class TestDaemonGuardEnforced:
     def test_non_dry_run_blocked_by_daemon(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         """code without --dry-run is blocked by active daemon."""
         monkeypatch.setattr(
-            "agentfox.nightshift.pid.check_pid_file",
+            "agentfox.maintenance.pid.check_pid_file",
             lambda _path: (PidStatus.ALIVE, 12345),
         )
 
@@ -542,7 +542,7 @@ class TestPropertyNoOrchestrator:
                 return_value=[_mock_spec_info()],
             ),
             patch(
-                "agentfox.nightshift.pid.check_pid_file",
+                "agentfox.maintenance.pid.check_pid_file",
                 return_value=(PidStatus.ABSENT, None),
             ),
         ):
@@ -582,7 +582,7 @@ class TestPropertyCompletedExclusion:
                 return_value=[_mock_spec_info()],
             ),
             patch(
-                "agentfox.nightshift.pid.check_pid_file",
+                "agentfox.maintenance.pid.check_pid_file",
                 return_value=(PidStatus.ABSENT, None),
             ),
         ):
@@ -654,7 +654,7 @@ class TestPropertyReadOnly:
                 return_value=[_mock_spec_info()],
             ),
             patch(
-                "agentfox.nightshift.pid.check_pid_file",
+                "agentfox.maintenance.pid.check_pid_file",
                 return_value=(PidStatus.ABSENT, None),
             ),
         ):
@@ -683,7 +683,7 @@ class TestPropertyDaemonBypass:
     ) -> None:
         """When --dry-run is set, exit code is not 1 due to daemon."""
         monkeypatch.setattr(
-            "agentfox.nightshift.pid.check_pid_file",
+            "agentfox.maintenance.pid.check_pid_file",
             lambda _path: (
                 daemon_state,
                 12345 if daemon_state == PidStatus.ALIVE else None,

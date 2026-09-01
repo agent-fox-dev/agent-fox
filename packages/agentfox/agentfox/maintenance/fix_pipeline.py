@@ -1,0 +1,1682 @@
+"""Fix pipeline: issue-to-branch workflow.
+
+After the archetype sessions complete, the fix branch is harvested into
+develop and pushed to origin via post_harvest_integrate.  PR creation was
+removed from the platform layer (spec 65, 65-REQ-4.2).  The originating
+issue is closed with a comment pointing to the fix branch.
+
+Requirements: 61-REQ-6.1, 61-REQ-6.2, 61-REQ-6.3, 61-REQ-6.4,
+              61-REQ-6.E1, 61-REQ-6.E2,
+              82-REQ-3.1, 82-REQ-3.E1, 82-REQ-6.1, 82-REQ-6.E1,
+              82-REQ-7.1, 82-REQ-7.2, 82-REQ-7.3, 82-REQ-7.E1,
+              82-REQ-8.1, 82-REQ-8.2, 82-REQ-8.3, 82-REQ-8.4, 82-REQ-8.E1
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from afaudit.emit import emit_audit_event
+from afaudit.events import AuditEventType, generate_run_id
+from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE, LABEL_PR
+from afissues.protocol import IssueResult
+
+from agentfox.core.config import AgentFoxConfig
+from agentfox.knowledge.extraction import extract_session_summary
+from agentfox.maintenance.prior_attempts import format_prior_attempts, query_prior_attempts
+from agentfox.maintenance.spec_builder import (
+    InMemorySpec,
+    build_afspec_from_triage,
+    build_in_memory_spec,
+)
+from agentfox.session.context import render_inmemory_spec_sections
+from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
+from agentfox.workspace import WorkspaceInfo
+from agentfox.workspace import git as _workspace_git
+
+if TYPE_CHECKING:
+    import duckdb
+    from afaudit.sink import SinkDispatcher
+
+    from agentfox.knowledge.fox_provider import KnowledgeProvider
+    from agentfox.maintenance.coder_reviewer import CoderReviewerResult
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# PR tracking comment utilities (06-REQ-10.1, 06-REQ-10.2, 06-REQ-10.3)
+# ---------------------------------------------------------------------------
+
+PR_TRACKING_PATTERN: re.Pattern[str] = re.compile(r"<!-- af:pr-tracking pr_number=(\d+) attempt=(\d+) -->")
+
+
+def format_tracking_comment(
+    pr_number: int,
+    attempt: int,
+    pr_url: str,
+    message: str,
+) -> str:
+    """Format a machine-readable PR tracking comment.
+
+    Returns a string with the HTML comment tag on the first line and the
+    human-readable message on the second line.
+
+    Requirements: 06-REQ-10.2
+    """
+    return f"<!-- af:pr-tracking pr_number={pr_number} attempt={attempt} -->\n{message}"
+
+
+def parse_tracking_comment(body: str) -> tuple[int, int] | None:
+    """Extract ``(pr_number, attempt)`` from a tracking comment body.
+
+    Returns ``None`` if no tracking comment tag is found.
+
+    Requirements: 06-REQ-10.3
+    """
+    m = PR_TRACKING_PATTERN.search(body)
+    if m is None:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+# ---------------------------------------------------------------------------
+# Data types for triage and review workflow (formerly nightshift/fix_types)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AcceptanceCriterion:
+    """A single acceptance criterion from the triage agent."""
+
+    id: str
+    description: str
+    preconditions: str
+    expected: str
+    assertion: str
+
+
+@dataclass(frozen=True)
+class AssessedComplexity:
+    """Complexity assessment embedded in triage output.
+
+    Frozen dataclass with tier, variant, confidence, and rationale fields.
+    Used by the nightshift triage model to provide a pre-assessed complexity
+    signal that bypasses the Haiku LLM call for coder nodes.
+
+    Requirement: 15-REQ-11.1
+    """
+
+    tier: str
+    variant: str | None
+    confidence: float
+    rationale: str
+
+
+@dataclass(frozen=True)
+class TriageResult:
+    """Parsed triage output."""
+
+    summary: str = ""
+    affected_files: list[str] = field(default_factory=list)
+    criteria: list[AcceptanceCriterion] = field(default_factory=list)
+    issue_body: str = ""
+    assessed_complexity: AssessedComplexity | None = None
+
+
+@dataclass(frozen=True)
+class FixReviewVerdict:
+    """A single per-criterion verdict from the fix reviewer."""
+
+    criterion_id: str
+    verdict: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class FixReviewResult:
+    """Parsed fix reviewer output."""
+
+    verdicts: list[FixReviewVerdict] = field(default_factory=list)
+    overall_verdict: str = "FAIL"
+    summary: str = ""
+    is_parse_failure: bool = False
+
+
+@dataclass
+class FixMetrics:
+    """Aggregated token metrics from all sessions in a fix pipeline run."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    sessions_run: int = 0
+
+
+def build_pr_body(
+    *,
+    spec_name: str | None = None,
+    task_group_id: str | None = None,
+    task_group_title: str | None = None,
+    changed_files: list[str],
+    issue_number: int | None = None,
+    issue_title: str | None = None,
+) -> str:
+    """Build a Markdown PR body for af code or nightshift fix sessions.
+
+    Pure function with no side effects.  All parameters are keyword-only.
+
+    For **af code** sessions, pass ``spec_name``, ``task_group_id``, and
+    ``task_group_title`` (with ``issue_number`` and ``issue_title`` as
+    ``None``).  The rendered body includes ``## Summary``,
+    ``## Task Group``, and ``## Changed Files`` sections.
+
+    For **nightshift fix** sessions, pass ``issue_number`` and
+    ``issue_title`` (with ``spec_name``, ``task_group_id``, and
+    ``task_group_title`` as ``None``).  The rendered body includes
+    ``## Summary``, ``## Changed Files``, and a trailing
+    ``Fixes #{issue_number}`` line for GitHub auto-close.
+
+    Requirements: 02-REQ-5.1, 02-REQ-5.2, 02-REQ-5.3, 02-REQ-5.E1,
+                  02-REQ-5.E2, 61-REQ-7.2
+    """
+    sections: list[str] = []
+
+    # -- Summary section --
+    if issue_number is not None and issue_title is not None and spec_name is None:
+        # Nightshift fix session
+        sections.append(f"## Summary\n\nFix #{issue_number}: {issue_title}")
+    elif spec_name is not None:
+        sections.append(f"## Summary\n\n{spec_name}")
+    else:
+        sections.append("## Summary")
+
+    # -- Task Group section (af code sessions only) --
+    if task_group_id is not None and task_group_title is not None and issue_number is None:
+        sections.append(f"## Task Group\n\n{task_group_id}: {task_group_title}")
+
+    # -- Changed Files section --
+    if changed_files:
+        file_list = "\n".join(f"- {f}" for f in changed_files)
+        sections.append(f"## Changed Files\n\n{file_list}")
+    else:
+        sections.append("## Changed Files")
+
+    body = "\n\n".join(sections) + "\n"
+
+    # -- Fixes #N line (nightshift fix sessions only) --
+    if issue_number is not None and spec_name is None:
+        body += f"\nFixes #{issue_number}\n"
+
+    return body
+
+
+class FixPipeline:
+    """Issue-to-branch fix workflow.
+
+    Drives an issue through triage, coding, and review using
+    the full archetype pipeline, then posts a completion comment with
+    the branch name so the user can open a PR manually.
+
+    Sessions run in an isolated git worktree, consistent with the
+    regular coding path (NodeSessionRunner).
+
+    Requirements: 61-REQ-6.1 through 61-REQ-6.4,
+                  82-REQ-7.1, 82-REQ-8.1 through 82-REQ-8.4
+    """
+
+    def __init__(
+        self,
+        config: AgentFoxConfig,
+        platform: object,
+        activity_callback: ActivityCallback | None = None,
+        task_callback: TaskCallback | None = None,
+        sink_dispatcher: SinkDispatcher | None = None,
+        spinner_callback: SpinnerCallback | None = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
+        knowledge_provider: KnowledgeProvider | None = None,
+    ) -> None:
+        self._config = config
+        self._platform = platform
+        self._activity_callback = activity_callback
+        self._task_callback = task_callback
+        self._sink = sink_dispatcher
+        self._spinner_callback = spinner_callback
+        self._conn = conn
+        self._knowledge_provider = knowledge_provider
+        self._run_id: str = ""
+        self._pr_number: int | None = None
+        self._pr_url: str | None = None
+
+    async def _post_comment(self, issue_number: int, message: str) -> None:
+        """Post a comment on an issue, logging failures without raising."""
+        try:
+            await self._platform.add_issue_comment(  # type: ignore[attr-defined]
+                issue_number,
+                message,
+            )
+        except Exception as exc:
+            logger.warning("Failed to post comment for issue #%d: %s", issue_number, exc)
+
+    def _update_spinner(self, text: str) -> None:
+        """Update the spinner text with a phase hint.
+
+        No-op when spinner_callback is not set.
+        """
+        if self._spinner_callback is not None:
+            try:
+                self._spinner_callback(text)
+            except Exception:
+                logger.debug("Spinner callback failed", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Knowledge system helpers
+    # ------------------------------------------------------------------
+
+    def _retrieve_knowledge(
+        self,
+        spec_name: str,
+        task_description: str,
+        session_id: str | None = None,
+        file_footprint: list[str] | None = None,
+    ) -> list[str]:
+        """Retrieve knowledge context for the fix pipeline (best-effort).
+
+        Requirements: 05-REQ-5.1, 05-REQ-6.1, 05-REQ-7.1
+        """
+        if self._knowledge_provider is None:
+            return []
+        try:
+            items = self._knowledge_provider.retrieve(
+                spec_name,
+                task_description,
+                task_group="0",
+                session_id=session_id,
+                file_footprint=file_footprint,
+            )
+            logger.info(
+                "Knowledge retrieval completed for %s: task_group=0, items=%d",
+                spec_name,
+                len(items),
+            )
+            return items
+        except Exception:
+            logger.warning(
+                "Knowledge retrieval failed for %s, continuing without knowledge context",
+                spec_name,
+                exc_info=True,
+            )
+            return []
+
+    def _ingest_knowledge(
+        self,
+        session_id: str,
+        spec_name: str,
+        session_status: str,
+        *,
+        archetype: str = "coder",
+        attempt: int = 1,
+    ) -> None:
+        """Ingest knowledge from a completed fix session (best-effort)."""
+        if self._knowledge_provider is None:
+            return
+        context: dict[str, object] = {
+            "session_status": session_status,
+            "touched_files": [],
+            "commit_sha": "",
+            "project_root": str(Path.cwd()),
+            "sink": self._sink,
+            "run_id": self._run_id,
+            "archetype": archetype,
+            "task_group": "0",
+            "attempt": attempt,
+        }
+        try:
+            self._knowledge_provider.ingest(session_id, spec_name, context)
+        except Exception:
+            logger.warning(
+                "Knowledge ingestion failed for %s, continuing",
+                session_id,
+                exc_info=True,
+            )
+
+    def _post_harvest_ingest(
+        self,
+        spec: InMemorySpec,
+        changed_files: list[str],
+        outcome_response: str,
+    ) -> None:
+        """Ingest post-harvest knowledge with real touched_files and summary.
+
+        Called after ``_harvest_and_push`` returns a non-empty file list.
+        Uses a separate try/except from ``_ingest_knowledge`` to log at
+        ERROR level (05-REQ-2.E1) without changing the pre-harvest
+        WARNING-level behavior (05-REQ-10.1).
+
+        Omits ``commit_sha`` from the context because ``harvest()`` does
+        not return it (05-REQ-2.2).
+
+        Requirements: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-2.5,
+                      05-REQ-2.E1, 05-REQ-3.6, 05-REQ-3.7, 05-REQ-4.3
+        """
+        spec_name = f"fix-issue-{spec.issue_number}"
+        session_id = f"fix-issue-{spec.issue_number}"
+
+        # 05-REQ-3.6, 05-REQ-4.3: extract summary synchronously (no await)
+        summary_text, rejected_approaches, gotchas, assumptions = extract_session_summary(
+            outcome_response,
+        )
+        summary_extracted = summary_text is not None
+
+        # Build context dict — no commit_sha (05-REQ-2.2)
+        context: dict[str, object] = {
+            "touched_files": changed_files,
+            "project_root": str(Path.cwd()),
+            "sink": self._sink,
+            "run_id": self._run_id,
+            "archetype": "coder",
+            "task_group": "0",
+            "attempt": 1,
+        }
+
+        # 05-REQ-3.6: include summary fields when extraction succeeds
+        # 05-REQ-3.7: omit summary fields when extraction returns None
+        if summary_text is not None:
+            context["summary"] = summary_text
+            context["rejected_approaches"] = rejected_approaches
+            context["gotchas"] = gotchas
+            context["assumptions"] = assumptions
+
+        try:
+            assert self._knowledge_provider is not None  # guarded by caller
+            self._knowledge_provider.ingest(session_id, spec_name, context)
+        except Exception:
+            # 05-REQ-2.E1: log at ERROR level, do not re-raise
+            logger.error(
+                "Post-harvest knowledge ingestion failed for %s",
+                session_id,
+                exc_info=True,
+            )
+        else:
+            # 05-REQ-2.5: structured log with touched_files count and
+            # summary_extracted flag
+            logger.info(
+                "Post-harvest knowledge ingestion completed: touched_files=%d, summary_extracted=%s",
+                len(changed_files),
+                summary_extracted,
+            )
+
+    @staticmethod
+    def _format_knowledge_context(knowledge_items: list[str]) -> str:
+        """Format knowledge items as a Memory Facts section for prompt injection."""
+        if not knowledge_items:
+            return ""
+        from agentfox.core.prompt_safety import sanitize_prompt_content
+
+        facts_text = "\n".join(f"- {sanitize_prompt_content(fact, label='memory-fact')}" for fact in knowledge_items)
+        return f"## Memory Facts\n\n{facts_text}"
+
+    # ------------------------------------------------------------------
+
+    async def _run_session(
+        self,
+        archetype: str,
+        workspace: WorkspaceInfo,
+        *,
+        spec: InMemorySpec,
+        system_prompt: str | None = None,
+        task_prompt: str | None = None,
+        model_id: str | None = None,
+        mode: str | None = None,
+    ) -> object:
+        """Run a single archetype session for an issue fix.
+
+        Resolves SDK parameters (model, security, max_turns, thinking,
+        budget) per archetype, consistent with the regular coding path.  Subclasses or tests can override this for mock
+        execution.
+
+        Requirements: 61-REQ-6.3
+        """
+        from agentfox.core.models import resolve_model
+        from agentfox.engine.sdk_params import (
+            resolve_model_tier,
+            resolve_security_config,
+            resolve_session_params,
+        )
+        from agentfox.session.prompt import build_system_prompt
+        from agentfox.session.session import run_session
+
+        # Build the archetype-specific system prompt.
+        if system_prompt:
+            effective_system = system_prompt
+        else:
+            effective_system = build_system_prompt(
+                context=spec.system_context,
+                archetype=archetype,
+                mode=mode,
+                project_dir=Path.cwd(),
+            )
+
+        effective_task = task_prompt if task_prompt else spec.task_prompt
+        node_id = f"fix-issue-{spec.issue_number}:0:{archetype}"
+
+        config = self._config
+        resolved_model_id = model_id or resolve_model(resolve_model_tier(config, archetype, mode=mode))
+        resolved_security = resolve_security_config(config, archetype, mode=mode)
+        params = resolve_session_params(
+            config,
+            archetype,
+            mode=mode,
+        )
+
+        return await run_session(
+            workspace=workspace,
+            node_id=node_id,
+            system_prompt=effective_system,
+            task_prompt=effective_task,
+            config=config,
+            activity_callback=self._activity_callback,
+            model_id=resolved_model_id,
+            security_config=resolved_security,
+            max_turns=params.max_turns,
+            max_budget_usd=params.max_budget_usd,
+            thinking=params.thinking,
+            archetype=archetype,
+            sink_dispatcher=self._sink,
+            run_id=self._run_id,
+        )
+
+    async def _setup_workspace(self, spec: InMemorySpec) -> WorkspaceInfo:
+        """Create an isolated worktree for the fix branch.
+
+        Uses the same ``create_worktree`` function as the regular coding
+        path, with a custom branch name to preserve the ``fix/`` prefix
+        convention.
+
+        Requirements: 61-REQ-6.2
+        """
+        from agentfox.workspace import create_worktree
+
+        repo_root = Path.cwd()
+        return await create_worktree(
+            repo_root,
+            spec_name=f"fix-issue-{spec.issue_number}",
+            task_group=0,
+            base_branch=self._config.workspace.integration_branch,
+            branch_name=spec.branch_name,
+        )
+
+    async def _cleanup_workspace(self, workspace: WorkspaceInfo) -> None:
+        """Destroy the worktree created for the fix session."""
+        from agentfox.workspace import destroy_worktree
+
+        repo_root = Path.cwd()
+        try:
+            await destroy_worktree(repo_root, workspace)
+        except Exception:
+            logger.warning(
+                "Failed to clean up worktree for %s",
+                workspace.branch,
+                exc_info=True,
+            )
+
+    def _accumulate_metrics(self, metrics: FixMetrics, outcome: object) -> None:
+        """Add a SessionOutcome's tokens to the running metrics."""
+        metrics.input_tokens += getattr(outcome, "input_tokens", 0)
+        metrics.output_tokens += getattr(outcome, "output_tokens", 0)
+        metrics.cache_read_input_tokens += getattr(outcome, "cache_read_input_tokens", 0)
+        metrics.cache_creation_input_tokens += getattr(outcome, "cache_creation_input_tokens", 0)
+        metrics.sessions_run += 1
+
+    def _get_model_id(self, archetype: str) -> str:
+        """Resolve model_id for the given archetype, with a safe fallback.
+
+        Requirements: 91-REQ-3.1
+        """
+        try:
+            from agentfox.core.models import resolve_model
+            from agentfox.engine.sdk_params import resolve_model_tier
+
+            tier = resolve_model_tier(self._config, archetype)
+            return resolve_model(tier)
+        except Exception:
+            return "claude-sonnet-4-6"
+
+    def _try_complete_run(self, status: str) -> None:
+        """Mark the runs row as finished (best-effort).
+
+        No-op when conn is not set.  The *status* value should be a
+        ``RunStatus`` string (e.g. ``"completed"`` or ``"interrupted"``).
+        """
+        if self._conn is None:
+            return
+        try:
+            from agentfox.engine.state import complete_run
+
+            complete_run(self._conn, self._run_id, status)
+        except Exception:
+            logger.warning("Failed to complete run record for run %s", self._run_id, exc_info=True)
+
+    def _record_session_to_db(
+        self,
+        outcome: object,
+        archetype: str,
+        run_id: str,
+        *,
+        node_id: str = "",
+        attempt: int = 1,
+        cost: float = 0.0,
+    ) -> None:
+        """Write a session outcome row to session_outcomes and update runs totals.
+
+        Best-effort: exceptions are logged and swallowed so the pipeline is
+        never interrupted by a telemetry failure.
+        """
+        if self._conn is None:
+            return
+
+        import uuid as _uuid
+        from datetime import UTC, datetime
+
+        from agentfox.engine.state import (
+            SessionOutcomeRecord,
+            record_session,
+            update_run_totals,
+        )
+
+        try:
+            input_tokens = getattr(outcome, "input_tokens", 0)
+            output_tokens = getattr(outcome, "output_tokens", 0)
+            duration_ms = getattr(outcome, "duration_ms", 0)
+            status = getattr(outcome, "status", "completed")
+            error_message = getattr(outcome, "error_message", None)
+            is_transport_error = getattr(outcome, "is_transport_error", False)
+
+            # Parse spec_name and task_group from node_id (format: spec:group:archetype)
+            parts = node_id.split(":", 2)
+            spec_name = parts[0] if parts else ""
+            task_group = parts[1] if len(parts) > 1 else "0"
+
+            model_id = self._get_model_id(archetype)
+
+            record = SessionOutcomeRecord(
+                id=str(_uuid.uuid4()),
+                spec_name=spec_name,
+                task_group=task_group,
+                node_id=node_id,
+                touched_path="",
+                status=status,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
+                created_at=datetime.now(UTC).isoformat(),
+                run_id=run_id,
+                attempt=attempt,
+                cost=cost,
+                model=model_id,
+                archetype=archetype,
+                commit_sha="",
+                error_message=error_message,
+                is_transport_error=is_transport_error,
+            )
+            record_session(self._conn, record)
+            update_run_totals(
+                self._conn,
+                run_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to record session to DB for %s",
+                node_id,
+                exc_info=True,
+            )
+
+    def _emit_session_event(
+        self,
+        outcome: object,
+        archetype: str,
+        run_id: str,
+        *,
+        node_id: str = "",
+        attempt: int = 1,
+    ) -> None:
+        """Emit session.complete or session.fail based on outcome status.
+
+        Also writes a row to session_outcomes and updates the runs totals via
+        _record_session_to_db (best-effort).
+
+        Best-effort: exceptions from audit infrastructure are logged and
+        swallowed so the fix pipeline is never interrupted.
+
+        Requirements: 91-REQ-3.1, 91-REQ-3.2, 91-REQ-3.E1
+        """
+        from agentfox.engine.audit_helpers import calculate_session_cost
+
+        status = getattr(outcome, "status", "failed")
+        input_tokens = getattr(outcome, "input_tokens", 0)
+        output_tokens = getattr(outcome, "output_tokens", 0)
+        cache_read = getattr(outcome, "cache_read_input_tokens", 0)
+        cache_creation = getattr(outcome, "cache_creation_input_tokens", 0)
+        duration_ms = getattr(outcome, "duration_ms", 0)
+        error_message = getattr(outcome, "error_message", None)
+
+        model_id = self._get_model_id(archetype)
+
+        if status == "completed":
+            cost = calculate_session_cost(
+                self._config,
+                model_id,
+                input_tokens,
+                output_tokens,
+                cache_read_input_tokens=cache_read,
+                cache_creation_input_tokens=cache_creation,
+            )
+            emit_audit_event(
+                self._sink,
+                run_id,
+                AuditEventType.SESSION_COMPLETE,
+                node_id=node_id,
+                archetype=archetype,
+                payload={
+                    "archetype": archetype,
+                    "model_id": model_id,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cache_read_input_tokens": cache_read,
+                    "cache_creation_input_tokens": cache_creation,
+                    "cost": cost,
+                    "duration_ms": duration_ms,
+                },
+            )
+        else:
+            cost = 0.0
+            emit_audit_event(
+                self._sink,
+                run_id,
+                AuditEventType.SESSION_FAIL,
+                node_id=node_id,
+                archetype=archetype,
+                payload={
+                    "archetype": archetype,
+                    "model_id": model_id,
+                    "error_message": str(error_message) if error_message else "",
+                    "attempt": attempt,
+                },
+            )
+
+        # Write to session_outcomes table and update runs totals (best-effort).
+        self._record_session_to_db(
+            outcome,
+            archetype,
+            run_id,
+            node_id=node_id,
+            attempt=attempt,
+            cost=cost,
+        )
+
+        # Ingest knowledge on completed sessions for finding supersession.
+        if status == "completed":
+            parts = node_id.split(":", 2)
+            spec_name = parts[0] if parts else ""
+            self._ingest_knowledge(
+                session_id=node_id,
+                spec_name=spec_name,
+                session_status="completed",
+                archetype=archetype,
+                attempt=attempt,
+            )
+
+    # ------------------------------------------------------------------
+    # Comment formatting (82-REQ-3.1, 82-REQ-6.1)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _render_criteria_section(
+        criteria: list,
+        *,
+        bold: bool = False,
+    ) -> list[str]:
+        """Render criteria items as markdown lines.
+
+        When *bold* is True, field labels use ``**bold**`` (for issue comments).
+        """
+        lines: list[str] = []
+        fmt = "**{}:** {}" if bold else "{}: {}"
+        for c in criteria:
+            lines.append(f"### {c.id}: {c.description}")
+            lines.append(f"- {fmt.format('Preconditions', c.preconditions)}")
+            lines.append(f"- {fmt.format('Expected', c.expected)}")
+            lines.append(f"- {fmt.format('Assertion', c.assertion)}")
+            lines.append("")
+        return lines
+
+    @staticmethod
+    def _render_verdict_section(verdicts: list) -> list[str]:
+        """Render per-criterion verdicts as markdown lines."""
+        lines: list[str] = []
+        for v in verdicts:
+            icon = "\u2705" if v.verdict == "PASS" else "\u274c"
+            lines.append(f"- {icon} **{v.criterion_id}**: {v.verdict}")
+            lines.append(f"  - Evidence: {v.evidence}")
+        if lines:
+            lines.append("")
+        return lines
+
+    def _format_triage_comment(self, triage: TriageResult) -> str:
+        """Render TriageResult as markdown for issue comment.
+
+        Requirements: 82-REQ-3.1
+        """
+        lines: list[str] = ["## Triage Report", ""]
+        if triage.summary:
+            lines.append(f"**Summary:** {triage.summary}")
+            lines.append("")
+        if triage.affected_files:
+            lines.append("**Affected files:**")
+            for f in triage.affected_files:
+                lines.append(f"- `{f}`")
+            lines.append("")
+        if triage.criteria:
+            lines.append("## Acceptance Criteria")
+            lines.append("")
+            lines.extend(self._render_criteria_section(triage.criteria, bold=True))
+        return "\n".join(lines)
+
+    def _format_review_comment(self, review: FixReviewResult) -> str:
+        """Render FixReviewResult as markdown for issue comment.
+
+        Requirements: 82-REQ-6.1
+        """
+        lines: list[str] = [
+            "## Fix Review Report",
+            "",
+            f"**Overall verdict:** {review.overall_verdict}",
+            "",
+        ]
+        if review.summary:
+            lines.append(f"**Summary:** {review.summary}")
+            lines.append("")
+        if review.verdicts:
+            lines.append("### Per-criterion verdicts")
+            lines.append("")
+            lines.extend(self._render_verdict_section(review.verdicts))
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Prompt building (82-REQ-7.2, 82-REQ-7.3, 82-REQ-8.1, 82-REQ-5.E1)
+    # ------------------------------------------------------------------
+
+    def _build_coder_prompt(
+        self,
+        spec: InMemorySpec,
+        triage: TriageResult,
+        review_feedback: str | None = None,
+        prior_context: str = "",
+        knowledge_context: str = "",
+    ) -> tuple[str, str]:
+        """Build system/task prompts with afspec-rendered context.
+
+        Uses ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``
+        to produce structured context. Falls back to ad-hoc criteria rendering
+        via ``_render_criteria_context`` when afspec construction fails.
+
+        When *prior_context* is non-empty it is prepended to the task prompt
+        before the base instructions so the coder knows what was tried before.
+        When *review_feedback* is non-empty it is appended after the base
+        instructions.  When *knowledge_context* is non-empty it is appended
+        to the system context before prompt assembly.
+
+        Requirements: 82-REQ-7.2, 82-REQ-8.1, 02-REQ-1.1, 02-REQ-1.2,
+                      02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.E1,
+                      128-REQ-3.1, 128-REQ-3.2
+        """
+        from agentfox.session.prompt import build_system_prompt
+
+        # For SIMPLE-complexity issues with 1–2 criteria, use compact
+        # checklist rendering to save tokens (no triple-expansion).
+        use_compact = (
+            triage.assessed_complexity is not None
+            and triage.assessed_complexity.tier == "SIMPLE"
+            and len(triage.criteria) <= 2
+        )
+
+        if use_compact:
+            criteria_context = self._render_criteria_context(triage)
+            context = spec.system_context
+            if criteria_context:
+                context = f"{context}\n\n{criteria_context}"
+        else:
+            # Assemble criteria context via afspec rendering (happy path)
+            try:
+                afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+                rendered = render_inmemory_spec_sections(afspec_spec)
+                if isinstance(rendered, list):
+                    rendered = "\n\n".join(rendered)
+                context = f"{spec.system_context}\n\n{rendered}"
+            except Exception:
+                logger.warning(
+                    "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
+                    spec.issue_number,
+                    exc_info=True,
+                )
+                criteria_context = self._render_criteria_context(triage)
+                context = spec.system_context
+                if criteria_context:
+                    context = f"{context}\n\n{criteria_context}"
+
+        if knowledge_context:
+            context = f"{context}\n\n{knowledge_context}"
+
+        system_prompt = build_system_prompt(
+            context=context,
+            archetype="coder",
+            mode="fix",
+            project_dir=Path.cwd(),
+        )
+
+        # Build task prompt with subtask list reference
+        task_prompt = f"{spec.task_prompt}\n\nRefer to the tasks subtask list in the context above"
+
+        # Inject prior attempt context (prepended) and review feedback (appended)
+        if prior_context:
+            task_prompt = f"{prior_context}\n\n{task_prompt}"
+        if review_feedback is not None:
+            task_prompt = f"{task_prompt}\n\n{review_feedback}"
+
+        return system_prompt, task_prompt
+
+    def _build_reviewer_prompt(
+        self,
+        spec: InMemorySpec,
+        triage: TriageResult,
+        knowledge_context: str = "",
+    ) -> tuple[str, str]:
+        """Build system/task prompts with afspec-rendered context for verification.
+
+        Uses ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``
+        to produce structured context.  Falls back to ad-hoc criteria rendering
+        via ``_render_criteria_context`` when afspec construction fails.
+
+        When triage contains no acceptance criteria, the task prompt includes
+        a fallback message instructing the reviewer to verify from the issue
+        description.  When *knowledge_context* is non-empty it is appended
+        to the system context before prompt assembly.
+
+        Requirements: 82-REQ-7.3, 82-REQ-5.3, 82-REQ-5.E1, 02-REQ-2.1,
+                      02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.E1
+        """
+        from agentfox.session.prompt import build_system_prompt
+
+        # Empty triage: skip afspec rendering and use fallback message
+        if not triage.criteria:
+            reviewer_context = spec.system_context
+            if knowledge_context:
+                reviewer_context = f"{reviewer_context}\n\n{knowledge_context}"
+            system_prompt = build_system_prompt(
+                context=reviewer_context,
+                archetype="reviewer",
+                mode="fix-review",
+                project_dir=Path.cwd(),
+            )
+            task_prompt = (
+                f"Review the fix for issue #{spec.issue_number}: {spec.title}\n\n"
+                "No acceptance criteria were produced by triage. "
+                "Verify the fix based on the issue description above."
+            )
+            return system_prompt, task_prompt
+
+        # Assemble criteria context via afspec rendering (happy path)
+        try:
+            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+            rendered = render_inmemory_spec_sections(afspec_spec)
+            if isinstance(rendered, list):
+                rendered = "\n\n".join(rendered)
+            context = f"{spec.system_context}\n\n{rendered}"
+        except Exception:
+            logger.warning(
+                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
+                spec.issue_number,
+                exc_info=True,
+            )
+            criteria_context = self._render_criteria_context(triage)
+            context = spec.system_context
+            if criteria_context:
+                context = f"{context}\n\n{criteria_context}"
+
+        if knowledge_context:
+            context = f"{context}\n\n{knowledge_context}"
+
+        system_prompt = build_system_prompt(
+            context=context,
+            archetype="reviewer",
+            mode="fix-review",
+            project_dir=Path.cwd(),
+        )
+
+        task_prompt = (
+            f"Review the fix for issue #{spec.issue_number}: {spec.title}\n\n"
+            "Run `make check` and verify each acceptance criterion. "
+            "Produce a JSON verdict report."
+        )
+
+        return system_prompt, task_prompt
+
+    def _render_criteria_context(self, triage: TriageResult) -> str:
+        """Render triage criteria as structured context text.
+
+        Used on the happy path for SIMPLE-complexity issues with 1–2 criteria
+        (compact rendering to save tokens), and as a fallback when
+        ``build_afspec_from_triage`` raises for any issue.
+        """
+        if not triage.criteria:
+            return ""
+
+        lines: list[str] = ["## Acceptance Criteria from Triage", ""]
+        lines.extend(self._render_criteria_section(triage.criteria))
+        return "\n".join(lines)
+
+    def _render_review_feedback(self, review: FixReviewResult) -> str:
+        """Render reviewer feedback for injection into coder retry prompt.
+
+        Requirements: 82-REQ-8.1
+        """
+        lines: list[str] = [
+            "## Previous Review Feedback (FAILED)",
+            "",
+            f"Overall verdict: {review.overall_verdict}",
+            "",
+        ]
+        for v in review.verdicts:
+            if v.verdict == "FAIL":
+                lines.append(f"### {v.criterion_id}: FAIL")
+                lines.append(f"Evidence: {v.evidence}")
+                lines.append("")
+        if review.summary:
+            lines.append(f"Reviewer summary: {review.summary}")
+            lines.append("")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Session runners (82-REQ-7.E1, 82-REQ-8.3)
+    # ------------------------------------------------------------------
+
+    async def _run_coder_session(
+        self,
+        workspace: WorkspaceInfo,
+        spec: InMemorySpec,
+        system_prompt: str,
+        task_prompt: str,
+        model_id: str | None = None,
+    ) -> object:
+        """Run coder with optional model override for escalation.
+
+        Requirements: 82-REQ-8.3, 98-REQ-2.2
+        """
+        return await self._run_session(
+            "coder",
+            workspace,
+            spec=spec,
+            system_prompt=system_prompt,
+            task_prompt=task_prompt,
+            model_id=model_id,
+            mode="fix",
+        )
+
+    async def _run_triage(
+        self,
+        spec: InMemorySpec,
+        workspace: WorkspaceInfo,
+    ) -> TriageResult:
+        """Run triage session, parse output, post comment.
+
+        Catches exceptions and returns empty TriageResult on failure.
+        Catches comment posting errors.
+
+        Requirements: 82-REQ-3.1, 82-REQ-3.E1, 82-REQ-7.E1
+        """
+        from agentfox.session.review_parser import parse_triage_output
+
+        node_id = f"fix-issue-{spec.issue_number}:0:triage"
+        triage_task = (
+            f"Triage issue #{spec.issue_number}: {spec.title}\n\n"
+            "Analyze the issue, identify the root cause and affected files, "
+            "and produce a JSON triage report with acceptance criteria.\n\n"
+            "Include an 'assessed_complexity' object in your JSON response to "
+            "recommend the model tier and variant for the coder agent:\n"
+            "{\n"
+            '  "assessed_complexity": {\n'
+            '    "tier": "SIMPLE" | "STANDARD" | "ADVANCED",\n'
+            '    "variant": null | "fast" | "standard" | "extended",\n'
+            '    "confidence": <float between 0.0 and 1.0>,\n'
+            '    "rationale": "<brief explanation of complexity assessment>"\n'
+            "  }\n"
+            "}\n"
+            "Use EXACT case as shown for tier and variant values."
+        )
+        try:
+            outcome = await self._run_session(
+                "maintainer",
+                workspace,
+                spec=spec,
+                mode="fix-triage",
+                task_prompt=triage_task,
+            )
+            self._emit_session_event(outcome, "maintainer", self._run_id, node_id=node_id)
+        except Exception as exc:
+            logger.warning(
+                "Triage session failed for issue #%d: %s",
+                spec.issue_number,
+                exc,
+            )
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.SESSION_FAIL,
+                node_id=node_id,
+                archetype="maintainer",
+                payload={
+                    "archetype": "maintainer",
+                    "model_id": self._get_model_id("maintainer"),
+                    "error_message": str(exc),
+                    "attempt": 1,
+                },
+            )
+            return TriageResult()
+
+        response = getattr(outcome, "response", "") or ""
+        triage = parse_triage_output(
+            response,
+            f"fix-issue-{spec.issue_number}",
+            f"fix-issue-{spec.issue_number}:0:triage",
+        )
+
+        # Post triage comment if we have results
+        if triage.criteria or triage.summary:
+            comment = self._format_triage_comment(triage) + f"\n(run: `{self._run_id}`)"
+            await self._post_comment(spec.issue_number, comment)
+
+        return triage
+
+    async def _coder_review_loop(
+        self,
+        spec: InMemorySpec,
+        triage: TriageResult,
+        metrics: FixMetrics,
+        workspace: WorkspaceInfo,
+        prior_context: str = "",
+        knowledge_context: str = "",
+    ) -> CoderReviewerResult:
+        """Coder-reviewer loop with retry and escalation.
+
+        Delegates to CoderReviewerLoop collaborator class.
+        Returns a :class:`CoderReviewerResult` — truthy on PASS, falsy on
+        exhaustion.
+
+        Requirements: 82-REQ-7.1, 82-REQ-8.1, 82-REQ-8.2, 82-REQ-8.3,
+                      82-REQ-8.4, 82-REQ-8.E1, 05-REQ-9.1
+        """
+        from agentfox.maintenance.coder_reviewer import CoderReviewerLoop
+
+        return await CoderReviewerLoop(self).run(
+            spec,
+            triage,
+            metrics,
+            workspace,
+            prior_context=prior_context,
+            knowledge_context=knowledge_context,
+        )
+
+    # ------------------------------------------------------------------
+    # process_issue helpers
+    # ------------------------------------------------------------------
+
+    def _gather_context(
+        self,
+        spec: InMemorySpec,
+        triage: TriageResult,
+    ) -> tuple[str, str]:
+        """Gather prior-attempt and knowledge context for the coder loop.
+
+        Returns (prior_context, knowledge_context) strings.
+
+        Requirements: 128-REQ-3.1, 128-REQ-3.2, 128-REQ-4.1
+        """
+        # 128-REQ-4.1: query prior fix attempts before coder loop
+        spec_name = f"fix-issue-{spec.issue_number}"
+        prior_context = ""
+        if self._conn is not None:
+            prior = query_prior_attempts(self._conn, spec_name, self._run_id)
+            prior_context = format_prior_attempts(prior)
+
+        # Retrieve knowledge context (review findings, cross-group reviews, summaries)
+        if self._knowledge_provider is not None:
+            self._knowledge_provider.set_run_id(self._run_id)
+        coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
+        task_description = triage.summary or spec.title
+        file_footprint = triage.affected_files if triage.affected_files else None
+        knowledge_items = self._retrieve_knowledge(
+            spec_name,
+            task_description,
+            session_id=coder_node_id,
+            file_footprint=file_footprint,
+        )
+        knowledge_context = self._format_knowledge_context(knowledge_items)
+
+        return prior_context, knowledge_context
+
+    async def _integrate_fix(
+        self,
+        issue: IssueResult,
+        spec: InMemorySpec,
+        workspace: WorkspaceInfo,
+    ) -> tuple[str, list[str]]:
+        """Auto-commit, optionally push, and harvest the fix branch.
+
+        Returns ``(status, changed_files)`` where *status* is ``"merged"``,
+        ``"no_changes"``, or ``"error"`` and *changed_files* is the list of
+        file paths changed by the harvest (empty on error or no changes).
+
+        Requirements: NS-REQ-4, NS-REQ-5, 93-REQ-3.1, 65-REQ-3.2,
+                      02-REQ-2.2, 02-REQ-3.2, 02-REQ-4.2
+        """
+        # Pre-harvest commit sweep: stage and commit any changes left
+        # uncommitted by the coder or reviewer session (NS-REQ-5).
+        await self._auto_commit_pending_changes(workspace)
+
+        # 02-REQ-2.2 / 02-REQ-3.2 / 02-REQ-4.2: Branch on merge strategy
+        merge_strategy = self._config.workspace.merge_strategy
+
+        if merge_strategy == "branch":
+            # 02-REQ-3.2: Skip harvest, keep branch locally, post comment
+            changed_files = await _workspace_git.get_changed_files(
+                workspace.path,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            comment = (
+                f"Fix branch created: `{spec.branch_name}`. "
+                f"Merge strategy is set to `branch` "
+                f"— please review and merge manually."
+            )
+            await self._platform.add_issue_comment(issue.number, comment)
+            return "merged", changed_files
+
+        if merge_strategy == "pr":
+            # 02-REQ-4.3 / 02-REQ-4.4: Validate platform lazily at PR
+            # creation time, not at startup.
+            from agentfox.maintenance.platform_factory import create_platform_safe
+
+            platform = create_platform_safe(self._config, workspace.path)
+            if platform is None:
+                # Fall back to branch mode (02-REQ-4.3)
+                logger.warning(
+                    "Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.",
+                )
+                changed_files = await _workspace_git.get_changed_files(
+                    workspace.path,
+                    workspace.branch,
+                    self._config.workspace.integration_branch,
+                )
+                comment = (
+                    f"Fix branch created: `{spec.branch_name}`. "
+                    f"Merge strategy is set to `branch` "
+                    f"— please review and merge manually."
+                )
+                await self._platform.add_issue_comment(issue.number, comment)
+                return "merged", changed_files
+
+            # 02-REQ-4.2 / 02-REQ-10.1: PR mode — push branch and create PR
+            # Sequence: push → get_changed_files → build_pr_body → create_pr
+            await _workspace_git.push_to_remote(
+                workspace.path,
+                workspace.branch,
+            )
+            changed_files = await _workspace_git.get_changed_files(
+                workspace.path,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            pr_title = f"Fix #{issue.number}: {issue.title}"
+            pr_body = build_pr_body(
+                issue_number=issue.number,
+                issue_title=issue.title,
+                changed_files=changed_files,
+            )
+            # 06-REQ-8.4: Do NOT wrap create_pr() in try/except — let
+            # exceptions propagate naturally so _pr_number stays None on
+            # failure and _handle_result is never called with "pr_created".
+            # This supersedes the previous 02-REQ-4.E3 branch-mode
+            # fallback (see docs/errata/06_pr_create_exception_propagation.md).
+            result = await platform.create_pr(
+                title=pr_title,
+                body=pr_body,
+                head=workspace.branch,
+                base=self._config.workspace.integration_branch,
+            )
+
+            # 06-REQ-8.3 / 06-REQ-8.1: Store PR number and URL for tracking
+            # BEFORE returning pr_created status.
+            self._pr_number = result.number
+            self._pr_url = result.html_url
+            logger.info("Pull request created: %s", result.html_url)
+            return "pr_created", changed_files
+
+        # 'direct' mode (default) — 02-REQ-2.2: unchanged behavior
+        # Optionally push fix branch to upstream remote (93-REQ-3.1).
+        # Must run BEFORE harvest, which changes the working tree.
+        if self._config.night_shift.push_fix_branch:
+            self._update_spinner(f"Pushing fix branch for issue #{issue.number}…")
+            await self._push_fix_branch_upstream(spec, workspace)
+
+        # Harvest fix branch into develop and push to origin (65-REQ-3.2).
+        # Must run BEFORE cleanup destroys the feature branch.
+        self._update_spinner(f"Merging fix for issue #{issue.number} into develop…")
+        try:
+            changed_files = await self._harvest_and_push(spec, workspace)
+        except Exception as exc:
+            logger.warning(
+                "Harvest/push failed for issue #%d on branch %s: %s",
+                spec.issue_number,
+                spec.branch_name,
+                exc,
+            )
+            return "error", []
+        if not changed_files:
+            return "no_changes", []
+        return "merged", changed_files
+
+    async def _handle_result(
+        self,
+        issue: IssueResult,
+        spec: InMemorySpec,
+        harvest_result: str,
+    ) -> None:
+        """Handle post-harvest outcome: error, no_changes, pr_created, or merged.
+
+        Updates the GitHub issue with the appropriate comment and labels,
+        and marks the run as completed.
+
+        Requirements: 61-REQ-6.1, 61-REQ-6.E2,
+                      06-REQ-9.1, 06-REQ-9.2, 06-REQ-9.3,
+                      06-REQ-9.E1, 06-REQ-9.E2, 06-REQ-10.4
+        """
+        if harvest_result == "error":
+            await self._post_comment(
+                issue.number,
+                f"Fix sessions completed but changes from branch "
+                f"`{spec.branch_name}` could not be merged into "
+                f"`{self._config.workspace.integration_branch}`. "
+                f"Manual investigation is required. (run: `{self._run_id}`)",
+            )
+            self._try_complete_run("completed")
+            return
+
+        if harvest_result == "no_changes":
+            # Coder produced no commits — leave the issue open for human review.
+            logger.warning(
+                "No changes produced for issue #%d on branch %s — leaving issue open",
+                issue.number,
+                spec.branch_name,
+            )
+            await self._post_comment(
+                issue.number,
+                f"Fix attempt on branch `{spec.branch_name}` produced no new commits. "
+                "The issue has been left open for human review. "
+                f"(run: `{self._run_id}`)",
+            )
+            try:
+                await self._platform.assign_label(  # type: ignore[attr-defined]
+                    issue.number,
+                    LABEL_NO_CHANGE,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to assign af:no-change label to issue #%d: %s",
+                    issue.number,
+                    exc,
+                )
+            self._try_complete_run("completed")
+            return
+
+        if harvest_result == "pr_created":
+            # 06-REQ-9.E2: _pr_number must be set before pr_created status.
+            assert self._pr_number is not None, "_pr_number must be set before pr_created status"
+
+            # 06-REQ-9.1: Add af:pr label. Let IntegrationError propagate
+            # (06-REQ-9.E1) — do NOT wrap in try/except to avoid leaving
+            # the issue in a partially labeled state that could trigger
+            # premature close.
+            await self._platform.assign_label(  # type: ignore[attr-defined]
+                issue.number,
+                LABEL_PR,
+            )
+
+            # 06-REQ-9.1: Remove af:fix label.
+            try:
+                await self._platform.remove_label(  # type: ignore[attr-defined]
+                    issue.number,
+                    "af:fix",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to remove af:fix label from issue #%d: %s",
+                    issue.number,
+                    exc,
+                )
+
+            # 06-REQ-10.4: Format and post tracking comment.
+            pr_url = self._pr_url or ""
+            comment_body = format_tracking_comment(
+                pr_number=self._pr_number,
+                attempt=1,
+                pr_url=pr_url,
+                message=f"Pull request created: {pr_url}",
+            )
+            await self._post_comment(issue.number, comment_body)
+
+            # 06-REQ-9.3: Do NOT apply af:fixed and do NOT close the issue.
+            self._try_complete_run("completed")
+            return
+
+        # harvest_result == "merged": close the originating issue with a comment
+        # pointing to the branch.
+        _ib = self._config.workspace.integration_branch
+        close_msg = (
+            f"Fix complete on branch `{spec.branch_name}`. "
+            f"Changes have been merged into `{_ib}`."
+            f" (run: `{self._run_id}`)"
+        )
+        try:
+            await self._platform.close_issue(  # type: ignore[attr-defined]
+                issue.number,
+                close_msg,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to close issue #%d: %s",
+                issue.number,
+                exc,
+            )
+        # Add af:fixed label for provenance and re-processing guard (#429).
+        # The af:fix label is intentionally preserved to record that the issue
+        # was submitted for automated fixing. af:fixed signals it was resolved.
+        try:
+            await self._platform.assign_label(  # type: ignore[attr-defined]
+                issue.number,
+                LABEL_FIXED,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to assign af:fixed label to issue #%d: %s",
+                issue.number,
+                exc,
+            )
+        logger.info(
+            "Fix pipeline complete for issue #%d on branch %s",
+            issue.number,
+            spec.branch_name,
+        )
+        self._try_complete_run("completed")
+
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+
+    async def process_issue(
+        self,
+        issue: IssueResult,
+        issue_body: str = "",
+        run_id: str | None = None,
+    ) -> FixMetrics:
+        """Process an af:fix issue through the full pipeline.
+
+        Runs triage -> coder -> reviewer with retry/escalation loop
+        inside an isolated git worktree.
+
+        When ``run_id`` is provided (e.g. by the engine that already emitted
+        a ``FIX_START`` lifecycle event), that same id is reused so all audit
+        events share one ``run_id``.  When omitted a fresh id is generated,
+        preserving backward-compatibility for standalone callers.
+
+        Returns FixMetrics with aggregated token counts from all sessions.
+
+        Args:
+            issue: The issue to process.
+            issue_body: The issue body text.
+            run_id: Optional run ID to use for all audit events.  When
+                provided (e.g. from NightShiftEngine), the same run_id is
+                shared with the parent lifecycle events so that all events
+                for a single fix pipeline can be retrieved with a single
+                ``SELECT … WHERE run_id = ?`` query.  When omitted a fresh
+                ID is generated (91-REQ-2.1).
+
+        Requirements: 61-REQ-6.1, 61-REQ-6.E2, 82-REQ-7.1
+        """
+        metrics = FixMetrics()
+
+        # Use the caller-supplied run_id when available so that lifecycle
+        # events (fix_start / fix_complete) and session events all share the
+        # same identifier.  Fall back to generating a fresh one when called
+        # standalone (91-REQ-2.1).
+        self._run_id = run_id if run_id else generate_run_id()
+
+        # Create a run row in the runs table (best-effort).
+        if self._conn is not None:
+            try:
+                from agentfox.engine.state import create_run
+
+                create_run(self._conn, self._run_id, f"fix-issue-{issue.number}")
+            except Exception:
+                logger.debug(
+                    "Failed to create run record for issue #%d",
+                    issue.number,
+                    exc_info=True,
+                )
+
+        # 61-REQ-6.E2: reject empty issue body
+        if not issue_body or not issue_body.strip():
+            await self._platform.add_issue_comment(  # type: ignore[attr-defined]
+                issue.number,
+                "Insufficient detail in issue body to build a fix. "
+                "Please add more detail describing the problem and expected behavior. "
+                f"(run: `{self._run_id}`)",
+            )
+            self._try_complete_run("completed")
+            return metrics
+
+        spec = build_in_memory_spec(issue, issue_body)
+
+        # 61-REQ-6.2: create an isolated worktree for the fix branch
+        self._update_spinner(f"Setting up workspace for issue #{issue.number}\u2026")
+        workspace = await self._setup_workspace(spec)
+
+        # Post progress comment
+        await self._post_comment(
+            issue.number,
+            f"Starting fix session on branch `{spec.branch_name}`... (run: `{self._run_id}`)",
+        )
+
+        try:
+            # 82-REQ-7.1: run triage first
+            triage_node_id = f"fix-issue-{spec.issue_number}:0:triage"
+            self._update_spinner(f"Analyzing issue #{issue.number} (triage)\u2026")
+            t0 = time.monotonic()
+            triage = await self._run_triage(spec, workspace)
+            duration = time.monotonic() - t0
+
+            # Emit triage task event if we got results
+            if triage.criteria and self._task_callback is not None:
+                self._task_callback(
+                    TaskEvent(
+                        node_id=triage_node_id,
+                        status="completed",
+                        duration_s=duration,
+                        archetype="maintainer",
+                    )
+                )
+            # Count triage session in metrics if it produced output
+            if triage.criteria or triage.summary:
+                metrics.sessions_run += 1
+
+            prior_context, knowledge_context = self._gather_context(spec, triage)
+
+            # 82-REQ-7.1: coder-reviewer loop with retry/escalation
+            success = await self._coder_review_loop(
+                spec,
+                triage,
+                metrics,
+                workspace,
+                prior_context=prior_context,
+                knowledge_context=knowledge_context,
+            )
+
+            if not success:
+                # Ladder exhausted — do NOT close issue
+                self._try_complete_run("completed")
+                return metrics
+
+            # Pre-harvest ingestion: record coder-reviewer loop completion
+            # at the pipeline level (additive to per-session calls in
+            # _emit_session_event).  Uses the existing _ingest_knowledge
+            # helper with its original WARNING-level error handling,
+            # preserving pre-harvest behavior (05-REQ-10.1, 05-REQ-2.4).
+            spec_name = f"fix-issue-{spec.issue_number}"
+            self._ingest_knowledge(
+                session_id=f"fix-issue-{spec.issue_number}:0:coder",
+                spec_name=spec_name,
+                session_status="completed",
+            )
+
+            harvest_result, changed_files = await self._integrate_fix(issue, spec, workspace)
+
+            # 05-REQ-2.1: Post-harvest knowledge ingestion with real touched_files.
+            # This call is independent of the pre-harvest ingestion in
+            # _emit_session_event (05-REQ-10.2) and uses its own try/except
+            # with ERROR-level logging (05-REQ-2.E1) — distinct from the
+            # WARNING-level logging in _ingest_knowledge to preserve
+            # pre-harvest behavior (05-REQ-10.1).
+            if changed_files and self._knowledge_provider is not None:
+                self._post_harvest_ingest(
+                    spec=spec,
+                    changed_files=changed_files,
+                    outcome_response=getattr(success, "response", "") or "",
+                )
+
+        except Exception as exc:
+            # 61-REQ-6.E1: post comment on failure
+            # Use only the exception class name to avoid leaking sensitive details
+            # (file paths, config values) into the public GitHub comment (CWE-209).
+            safe_exc_name = type(exc).__name__
+            await self._post_comment(
+                issue.number,
+                f"Fix session failed: {safe_exc_name}\n\nBranch: `{spec.branch_name}` (run: `{self._run_id}`)",
+            )
+            logger.warning(
+                "Fix session failed for issue #%d: %s",
+                issue.number,
+                exc,
+            )
+            self._try_complete_run("interrupted")
+            return metrics
+        finally:
+            await self._cleanup_workspace(workspace)
+
+        await self._handle_result(issue, spec, harvest_result)
+        return metrics
+
+    async def _push_fix_branch_upstream(
+        self,
+        spec: InMemorySpec,
+        workspace: WorkspaceInfo,
+    ) -> bool:
+        """Force-push the fix branch to origin. Returns True on success.
+
+        Logs a warning and returns False on failure — never raises.
+
+        Requirements: 93-REQ-3.1, 93-REQ-3.2, 93-REQ-3.E1, 93-REQ-3.E2
+        """
+        from agentfox.workspace.git import push_to_remote
+
+        try:
+            success = await push_to_remote(
+                workspace.path,
+                spec.branch_name,
+                force=True,
+            )
+            if not success:
+                logger.warning(
+                    "Failed to push fix branch '%s' to origin",
+                    spec.branch_name,
+                )
+                return False
+            logger.info("Pushed fix branch '%s' to origin", spec.branch_name)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Failed to push fix branch '%s' to origin: %s",
+                spec.branch_name,
+                exc,
+            )
+            return False
+
+    async def _auto_commit_pending_changes(self, workspace: WorkspaceInfo) -> None:
+        """Stage and commit any uncommitted changes left in the worktree.
+
+        Called between the coder-reviewer loop and harvest to prevent silent
+        data loss when the coder or reviewer session exits without committing.
+
+        Best-effort: logs INFO on success, WARNING on failure, never raises.
+
+        Requirements: NS-REQ-4, NS-REQ-5
+        """
+        from agentfox.workspace import git as workspace_git
+
+        try:
+            committed = await workspace_git.auto_commit_worktree(workspace.path)
+            if committed:
+                logger.info(
+                    "Auto-committed uncommitted changes from coder session in worktree %s",
+                    workspace.path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Auto-commit sweep failed, continuing with harvest: %s",
+                exc,
+            )
+
+    async def _harvest_and_push(
+        self,
+        spec: InMemorySpec,
+        workspace: WorkspaceInfo,
+    ) -> list[str]:
+        """Harvest the fix branch into the integration branch and push to origin.
+
+        Returns the list of changed file paths from ``harvest()``.  Returns an
+        empty list when no files were changed.  Raises on error — the caller
+        is responsible for catching and handling exceptions.
+
+        Requirements: 05-REQ-1.1, 05-REQ-1.2, 05-REQ-1.E1
+        """
+        from agentfox.workspace.harvest import harvest, post_harvest_integrate
+
+        branch = self._config.workspace.integration_branch
+        repo_root = Path.cwd()
+        changed_files = await harvest(repo_root, workspace, dev_branch=branch)
+        if not changed_files:
+            logger.warning(
+                "No changes produced for issue #%d on branch %s",
+                spec.issue_number,
+                spec.branch_name,
+            )
+            return []
+        await post_harvest_integrate(repo_root, workspace, branch=branch, push_already_done=True)
+        return changed_files

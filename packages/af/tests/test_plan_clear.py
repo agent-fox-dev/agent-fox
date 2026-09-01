@@ -30,10 +30,10 @@ from click.testing import CliRunner
 @pytest.fixture(autouse=True)
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Suppress daemon PID guard checks in all tests."""
-    from agentfox.nightshift.pid import PidStatus
+    from agentfox.maintenance.pid import PidStatus
 
     monkeypatch.setattr(
-        "agentfox.nightshift.pid.check_pid_file",
+        "agentfox.maintenance.pid.check_pid_file",
         lambda _path: (PidStatus.ABSENT, None),
     )
 
@@ -391,11 +391,11 @@ class TestClearDaemonGuard:
         """WHEN the nightshift daemon PID guard is active,
         THEN exit code is 1 and an error message is shown.
         """
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
 
         # Override the autouse _no_daemon fixture
         monkeypatch.setattr(
-            "agentfox.nightshift.pid.check_pid_file",
+            "agentfox.maintenance.pid.check_pid_file",
             lambda _path: (PidStatus.ALIVE, 12345),
         )
 

@@ -203,7 +203,7 @@ class TestPlatformFactoryMigration:
 
     def test_platform_factory_module_imports(self) -> None:
         """platform_factory module loads without ImportError."""
-        import agentfox.nightshift.platform_factory  # noqa: F401
+        import agentfox.maintenance.platform_factory  # noqa: F401
 
 
 # ── TS-03-30: Root pyproject.toml includes afissues test path ─────────

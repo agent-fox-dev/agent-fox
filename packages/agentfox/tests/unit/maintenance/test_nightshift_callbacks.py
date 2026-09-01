@@ -1,0 +1,1083 @@
+"""Unit tests for callback plumbing: engine and fix pipeline.
+
+Test Spec: TS-81-8, TS-81-9, TS-81-17, TS-81-18, TS-81-19, TS-81-E6
+Requirements: 81-REQ-2.3, 81-REQ-2.4, 81-REQ-5.1, 81-REQ-5.2, 81-REQ-5.3,
+              81-REQ-5.E1
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from afissues.protocol import IssueResult
+from agentfox.ui.progress import TaskEvent
+from agentfox.workspace import WorkspaceInfo
+
+
+def _mock_workspace() -> WorkspaceInfo:
+    return WorkspaceInfo(
+        path=Path("/tmp/mock-worktree"),
+        branch="fix/test-branch",
+        spec_name="fix-issue-42",
+        task_group=0,
+    )
+
+
+def _make_config() -> MagicMock:
+    config = MagicMock()
+    config.orchestrator.max_cost = None
+    config.orchestrator.max_sessions = None
+    config.night_shift.issue_check_interval = 900
+    config.night_shift.hunt_scan_interval = 14400
+    config.archetypes.overrides.get.return_value = None
+    return config
+
+
+def _make_issue(number: int = 42, title: str = "Fix bug") -> IssueResult:
+    return IssueResult(
+        number=number,
+        title=title,
+        html_url=f"https://github.com/test/repo/issues/{number}",
+        body="Detailed bug description.",
+    )
+
+
+def _sdk_param_patches():
+    """Return a contextlib.ExitStack with SDK param resolver patches.
+
+    These are needed when tests exercise the real ``_run_session`` method
+    (which resolves model/security/turns/budget/thinking/fallback) rather
+    than mocking ``_run_session`` entirely.
+    """
+    import contextlib
+
+    mock_model = MagicMock()
+    mock_model.model_id = "mock-model-id"
+
+    stack = contextlib.ExitStack()
+    stack.enter_context(patch("agentfox.core.models.resolve_model", return_value=mock_model))
+    stack.enter_context(patch("agentfox.engine.sdk_params.resolve_model_tier", return_value="standard"))
+    stack.enter_context(patch("agentfox.engine.sdk_params.resolve_security_config", return_value=None))
+    stack.enter_context(patch("agentfox.engine.sdk_params.resolve_max_turns", return_value=10))
+    stack.enter_context(patch("agentfox.engine.sdk_params.resolve_thinking", return_value=None))
+    stack.enter_context(patch("agentfox.engine.sdk_params.resolve_max_budget", return_value=None))
+    return stack
+
+
+# ---------------------------------------------------------------------------
+# TS-81-17: Engine constructor accepts callbacks
+# Requirement: 81-REQ-5.1
+# ---------------------------------------------------------------------------
+
+
+class TestEngineConstructorCallbacks:
+    """Verify NightShiftEngine stores callback parameters."""
+
+    def test_81_constructor_accepts_callbacks(self) -> None:
+        """NightShiftEngine constructor stores activity, task, and status callbacks."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = MagicMock()
+
+        activity_cb = lambda e: None  # noqa: E731
+        task_cb = lambda e: None  # noqa: E731
+        status_cb = lambda text, style: None  # noqa: E731
+
+        engine = NightShiftEngine(
+            config=config,
+            platform=platform,
+            activity_callback=activity_cb,
+            task_callback=task_cb,
+            status_callback=status_cb,
+        )
+
+        assert engine._activity_callback is activity_cb
+        assert engine._task_callback is task_cb
+        assert engine._status_callback is status_cb
+
+    def test_81_constructor_defaults_none(self) -> None:
+        """Callbacks default to None when not provided."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        assert engine._activity_callback is None
+        assert engine._task_callback is None
+        assert engine._status_callback is None
+
+
+# ---------------------------------------------------------------------------
+# TS-81-18: FixPipeline passes activity_callback to run_session
+# Requirement: 81-REQ-5.2
+# ---------------------------------------------------------------------------
+
+
+class TestFixPipelinePassesCallback:
+    """Verify FixPipeline forwards activity_callback to run_session."""
+
+    @pytest.mark.asyncio
+    async def test_81_callback_passed_to_session(self) -> None:
+        """run_session receives activity_callback from FixPipeline."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        activity_cb = MagicMock()
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            activity_callback=activity_cb,
+        )
+
+        issue = _make_issue()
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        # Capture calls to run_session via patching the session module
+        captured_kwargs: list[dict] = []
+
+        async def fake_run_session(**kwargs):
+            captured_kwargs.append(kwargs)
+            node_id = kwargs.get("node_id", "")
+            mock_outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if "maintainer" in str(node_id):
+                mock_outcome.response = triage_response
+            elif "reviewer" in str(node_id):
+                mock_outcome.response = review_response
+            else:
+                mock_outcome.response = ""
+            return mock_outcome
+
+        with (
+            patch(
+                "agentfox.session.session.run_session",
+                side_effect=fake_run_session,
+            ),
+            _sdk_param_patches(),
+        ):
+            pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+            pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+            pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+            await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        # Verify run_session was called with our activity_callback
+        # triage + coder + fix_reviewer = 3 sessions
+        assert len(captured_kwargs) == 3
+        for kw in captured_kwargs:
+            assert kw.get("activity_callback") is activity_cb
+
+    @pytest.mark.asyncio
+    async def test_81_none_callback_passed_to_session(self) -> None:
+        """run_session receives None when no activity_callback provided."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=platform)
+
+        issue = _make_issue()
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        captured_kwargs: list[dict] = []
+
+        async def fake_run_session(**kwargs):
+            captured_kwargs.append(kwargs)
+            node_id = kwargs.get("node_id", "")
+            mock_outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if "maintainer" in str(node_id):
+                mock_outcome.response = triage_response
+            elif "reviewer" in str(node_id):
+                mock_outcome.response = review_response
+            else:
+                mock_outcome.response = ""
+            return mock_outcome
+
+        with (
+            patch(
+                "agentfox.session.session.run_session",
+                side_effect=fake_run_session,
+            ),
+            _sdk_param_patches(),
+        ):
+            pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+            pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+            pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+            await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        for kw in captured_kwargs:
+            assert kw.get("activity_callback") is None
+
+
+# ---------------------------------------------------------------------------
+# TS-81-9 / TS-81-19: FixPipeline emits TaskEvent per archetype
+# Requirement: 81-REQ-2.4, 81-REQ-5.3
+# ---------------------------------------------------------------------------
+
+
+class TestFixPipelineTaskEvents:
+    """Verify FixPipeline emits one TaskEvent per archetype."""
+
+    @pytest.mark.asyncio
+    async def test_81_task_event_per_archetype(self) -> None:
+        """TaskEvents emitted with archetypes triage, coder, fix_reviewer."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        events: list[TaskEvent] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            task_callback=events.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=42)
+
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        # triage + coder + reviewer = 3 archetype events
+        archetype_names = [e.archetype for e in events]
+        assert "maintainer" in archetype_names
+        assert "coder" in archetype_names
+        assert "reviewer" in archetype_names
+        assert all(e.status == "completed" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_81_task_event_fields(self) -> None:
+        """TaskEvents have correct node_id, positive duration, and archetype."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        events: list[TaskEvent] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            task_callback=events.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=99)
+
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        for e in events:
+            assert e.duration_s >= 0
+            assert e.node_id.startswith("fix-issue-99")
+            assert e.status == "completed"
+            assert e.archetype in ("maintainer", "coder", "reviewer")
+
+    @pytest.mark.asyncio
+    async def test_81_task_event_on_failure(self) -> None:
+        """TaskEvent with status='failed' emitted when session fails."""
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        events: list[TaskEvent] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            task_callback=events.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        # Triage succeeds but coder fails
+        import json
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        call_count = {"n": 0}
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            call_count["n"] += 1
+            if archetype == "maintainer":
+                outcome = MagicMock(
+                    input_tokens=10,
+                    output_tokens=5,
+                    cache_read_input_tokens=0,
+                    cache_creation_input_tokens=0,
+                    response=triage_response,
+                )
+                return outcome
+            # coder fails
+            raise RuntimeError("session crash")
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=10)
+
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        # Should have at least one failed event for coder
+        failed = [e for e in events if e.status == "failed"]
+        assert len(failed) >= 1
+        assert failed[0].archetype == "coder"
+        assert failed[0].duration_s >= 0
+
+    @pytest.mark.asyncio
+    async def test_81_no_task_events_when_callback_none(self) -> None:
+        """No task events emitted when task_callback is None."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        # No task_callback
+        pipeline = FixPipeline(config=config, platform=platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue()
+
+        # Should not raise even without callback
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+
+# ---------------------------------------------------------------------------
+# TS-81-8: ActivityEvent forwarded during fix session
+# Requirement: 81-REQ-2.3
+# ---------------------------------------------------------------------------
+
+
+class TestActivityEventForwarded:
+    """Verify ActivityEvents from session runner reach the callback."""
+
+    @pytest.mark.asyncio
+    async def test_81_activity_forwarded(self) -> None:
+        """activity_callback receives events when run_session emits them."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.ui.progress import ActivityEvent
+
+        events: list[ActivityEvent] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            activity_callback=events.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        # Simulate run_session calling activity_callback
+        async def fake_run_session(**kwargs):
+            cb = kwargs.get("activity_callback")
+            node_id = kwargs.get("node_id", "")
+            if cb:
+                cb(
+                    ActivityEvent(
+                        node_id=str(node_id),
+                        tool_name="Read",
+                        argument="file.py",
+                        archetype="test",
+                    )
+                )
+            mock_outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if "maintainer" in str(node_id):
+                mock_outcome.response = triage_response
+            elif "reviewer" in str(node_id):
+                mock_outcome.response = review_response
+            else:
+                mock_outcome.response = ""
+            return mock_outcome
+
+        with (
+            patch(
+                "agentfox.session.session.run_session",
+                side_effect=fake_run_session,
+            ),
+            _sdk_param_patches(),
+        ):
+            await pipeline.process_issue(_make_issue(), issue_body="Fix the bug")
+
+        # At least 3 events (one per archetype session)
+        assert len(events) >= 3
+        assert all(isinstance(e, ActivityEvent) for e in events)
+
+
+# ---------------------------------------------------------------------------
+# TS-81-E6: None callbacks produce no display output
+# Requirement: 81-REQ-5.E1
+# ---------------------------------------------------------------------------
+
+
+class TestNoneCallbacks:
+    """Verify engine operates normally without callbacks."""
+
+    @pytest.mark.asyncio
+    async def test_81_none_callbacks(self) -> None:
+        """Engine and pipeline work with all callbacks set to None."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = AsyncMock()
+
+        # No callbacks
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        issue = _make_issue()
+
+        mock_metrics = MagicMock(
+            sessions_run=3,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
+            mock_pipeline_instance = AsyncMock()
+            mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
+            MockPipeline.return_value = mock_pipeline_instance
+
+            await engine._process_fix(issue)
+
+        # No exception, state updated
+        assert engine.state.issues_fixed == 1
+
+
+# ---------------------------------------------------------------------------
+# TS-81-5.1+5.5: Engine passes callbacks to FixPipeline
+# Requirement: 81-REQ-5.1, 81-REQ-5.E1
+# ---------------------------------------------------------------------------
+
+
+class TestEnginePassesCallbacksToPipeline:
+    """Verify engine forwards stored callbacks to FixPipeline."""
+
+    @pytest.mark.asyncio
+    async def test_81_callbacks_passed_to_pipeline(self) -> None:
+        """FixPipeline receives activity and task callbacks from engine."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = AsyncMock()
+        activity_cb = MagicMock()
+        task_cb = MagicMock()
+
+        engine = NightShiftEngine(
+            config=config,
+            platform=platform,
+            activity_callback=activity_cb,
+            task_callback=task_cb,
+        )
+
+        issue = _make_issue()
+
+        mock_metrics = MagicMock(
+            sessions_run=3,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
+            mock_pipeline_instance = AsyncMock()
+            mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
+            MockPipeline.return_value = mock_pipeline_instance
+
+            await engine._process_fix(issue)
+
+        # Verify FixPipeline was constructed with the callbacks
+        call_kwargs = MockPipeline.call_args.kwargs
+        assert call_kwargs["activity_callback"] is activity_cb
+        assert call_kwargs["task_callback"] is task_cb
+
+
+# ---------------------------------------------------------------------------
+# Spinner callback: engine constructor and plumbing
+# ---------------------------------------------------------------------------
+
+
+class TestSpinnerCallbackEngineConstructor:
+    """Verify NightShiftEngine stores and forwards spinner_callback."""
+
+    def test_engine_accepts_spinner_callback(self) -> None:
+        """NightShiftEngine constructor stores spinner_callback."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = MagicMock()
+        spinner_cb = MagicMock()
+
+        engine = NightShiftEngine(
+            config=config,
+            platform=platform,
+            spinner_callback=spinner_cb,
+        )
+
+        assert engine._spinner_callback is spinner_cb
+
+    def test_engine_spinner_callback_defaults_none(self) -> None:
+        """spinner_callback defaults to None when not provided."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        assert engine._spinner_callback is None
+
+    @pytest.mark.asyncio
+    async def test_engine_passes_spinner_callback_to_pipeline(self) -> None:
+        """Engine forwards spinner_callback to FixPipeline."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = AsyncMock()
+        spinner_cb = MagicMock()
+
+        engine = NightShiftEngine(
+            config=config,
+            platform=platform,
+            spinner_callback=spinner_cb,
+        )
+
+        issue = _make_issue()
+
+        mock_metrics = MagicMock(
+            sessions_run=1,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
+            mock_pipeline_instance = AsyncMock()
+            mock_pipeline_instance.process_issue = AsyncMock(return_value=mock_metrics)
+            MockPipeline.return_value = mock_pipeline_instance
+
+            await engine._process_fix(issue)
+
+        call_kwargs = MockPipeline.call_args.kwargs
+        assert call_kwargs["spinner_callback"] is spinner_cb
+
+
+# ---------------------------------------------------------------------------
+# Run-ID propagation: engine passes fix_run_id to process_issue
+# ---------------------------------------------------------------------------
+
+
+class TestEnginePassesRunIdToProcessIssue:
+    """Verify engine shares its fix_run_id with FixPipeline.process_issue."""
+
+    @pytest.mark.asyncio
+    async def test_process_fix_passes_run_id_to_process_issue(self) -> None:
+        """_process_fix passes the same run_id to process_issue that it uses
+        for the FIX_START / FIX_COMPLETE lifecycle audit events."""
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = _make_config()
+        platform = AsyncMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+
+        issue = IssueResult(number=99, title="Test issue", html_url="http://example.com/99")
+
+        mock_metrics = MagicMock(
+            sessions_run=1,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+
+        captured_run_ids: list[str] = []
+
+        async def _capture_process_issue(iss: object, *, issue_body: str = "", run_id: str | None = None) -> object:
+            captured_run_ids.append(run_id or "")
+            return mock_metrics
+
+        with patch("agentfox.maintenance.engine.FixPipeline") as MockPipeline:
+            mock_pipeline_instance = AsyncMock()
+            mock_pipeline_instance.process_issue = _capture_process_issue
+            MockPipeline.return_value = mock_pipeline_instance
+
+            # Also capture the run_id used for the lifecycle audit events
+            emitted_run_ids: list[str] = []
+            with patch(
+                "agentfox.maintenance.engine._emit_audit_event",
+                side_effect=lambda sink, run_id, *args, **kwargs: emitted_run_ids.append(run_id),
+            ):
+                await engine._process_fix(issue, issue_body="fix something")
+
+        assert len(captured_run_ids) == 1, "process_issue should be called once"
+        assert len(emitted_run_ids) >= 1, "_emit_audit_event should be called for lifecycle events"
+        assert captured_run_ids[0] == emitted_run_ids[0], (
+            f"process_issue run_id {captured_run_ids[0]!r} must match lifecycle run_id {emitted_run_ids[0]!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Spinner callback: FixPipeline emits phase hints
+# ---------------------------------------------------------------------------
+
+
+class TestSpinnerCallbackFixPipelinePhases:
+    """Verify FixPipeline calls spinner_callback at key pipeline phases."""
+
+    @pytest.mark.asyncio
+    async def test_spinner_hints_emitted_for_triage_coder_reviewer(self) -> None:
+        """Spinner texts include triage, coder, and reviewer phase hints."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        spinner_texts: list[str] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            spinner_callback=spinner_texts.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=42)
+        await pipeline.process_issue(issue, issue_body="Fix the bug in module X")
+
+        # Verify phase hints were emitted
+        all_text = " ".join(spinner_texts)
+        assert any("triage" in t.lower() or "analyz" in t.lower() for t in spinner_texts), (
+            f"Expected triage/analyze phase hint, got: {spinner_texts}"
+        )
+        assert any(
+            "coder" in t.lower() or "coding" in t.lower() or "running coder" in t.lower() for t in spinner_texts
+        ), f"Expected coder phase hint, got: {spinner_texts}"
+        assert any("review" in t.lower() for t in spinner_texts), f"Expected reviewer phase hint, got: {spinner_texts}"
+        # All phase texts should mention the issue number
+        assert "42" in all_text, f"Issue number should appear in spinner texts, got: {spinner_texts}"
+
+    @pytest.mark.asyncio
+    async def test_spinner_hints_include_workspace_setup(self) -> None:
+        """Spinner text for workspace setup is emitted before triage."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        spinner_texts: list[str] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            spinner_callback=spinner_texts.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=99)
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        # Workspace setup hint should appear
+        assert any("workspace" in t.lower() or "setup" in t.lower() for t in spinner_texts), (
+            f"Expected workspace setup hint, got: {spinner_texts}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_spinner_callback_none_does_not_raise(self) -> None:
+        """Pipeline operates normally when spinner_callback is None."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        # No spinner_callback
+        pipeline = FixPipeline(config=config, platform=platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        # Must not raise even with no spinner_callback
+        await pipeline.process_issue(_make_issue(), issue_body="Fix the bug")
+
+    @pytest.mark.asyncio
+    async def test_merge_phase_spinner_hint(self) -> None:
+        """Spinner text for merge/harvest phase is emitted."""
+        import json
+
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        spinner_texts: list[str] = []
+        config = _make_config()
+        config.orchestrator.max_retries = 3
+        platform = AsyncMock()
+
+        pipeline = FixPipeline(
+            config=config,
+            platform=platform,
+            spinner_callback=spinner_texts.append,
+        )
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(return_value="merged")  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = _make_issue(number=77)
+        await pipeline.process_issue(issue, issue_body="Fix the bug")
+
+        assert any("merg" in t.lower() or "harvest" in t.lower() for t in spinner_texts), (
+            f"Expected merge/harvest phase hint, got: {spinner_texts}"
+        )

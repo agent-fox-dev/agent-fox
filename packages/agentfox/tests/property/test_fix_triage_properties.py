@@ -176,8 +176,8 @@ class TestRetryFeedbackInjection:
         from unittest.mock import MagicMock
 
         from afissues.protocol import IssueResult
-        from agentfox.nightshift.fix_pipeline import FixPipeline
-        from agentfox.nightshift.spec_builder import build_in_memory_spec
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
         from agentfox.session.review_parser import (
             parse_fix_review_output,
             parse_triage_output,

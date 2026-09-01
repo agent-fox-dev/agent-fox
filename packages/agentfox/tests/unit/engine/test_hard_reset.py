@@ -198,7 +198,7 @@ class TestHardFlagAccepted:
         """plan --reset-hard --yes invokes without Click errors."""
         from af.app import main
         from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
         from click.testing import CliRunner
 
         graph = TaskGraph(
@@ -215,7 +215,7 @@ class TestHardFlagAccepted:
         mock_result = _make_hard_reset_result()
 
         with (
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
             patch("af.plan.open_knowledge_store", return_value=mock_db),
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
@@ -528,7 +528,7 @@ class TestConfirmationRequired:
         """plan --reset-hard without --yes prompts, 'n' cancels."""
         from af.app import main
         from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
         from click.testing import CliRunner
 
         graph = TaskGraph(
@@ -544,7 +544,7 @@ class TestConfirmationRequired:
         mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
 
         with (
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
             patch("af.plan.open_knowledge_store", return_value=mock_db),
             patch("af.plan.load_plan", return_value=graph),
         ):
@@ -894,7 +894,7 @@ class TestUserDeclines:
         """No tasks reset, cancellation message printed."""
         from af.app import main
         from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
-        from agentfox.nightshift.pid import PidStatus
+        from agentfox.maintenance.pid import PidStatus
         from click.testing import CliRunner
 
         graph = TaskGraph(
@@ -910,7 +910,7 @@ class TestUserDeclines:
         mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
 
         with (
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
+            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
             patch("af.plan.open_knowledge_store", return_value=mock_db),
             patch("af.plan.load_plan", return_value=graph),
         ):

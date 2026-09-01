@@ -1,0 +1,1414 @@
+"""Unit tests for fix pipeline: in-memory spec, branch naming, PR body.
+
+Test Spec: TS-61-16, TS-61-17, TS-61-21, TS-61-E2, TS-61-E9
+Requirements: 61-REQ-6.1, 61-REQ-6.2, 61-REQ-7.2, 61-REQ-1.E2,
+              61-REQ-6.E2
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from agentfox.workspace import WorkspaceInfo
+
+
+def _mock_workspace() -> WorkspaceInfo:
+    return WorkspaceInfo(
+        path=Path("/tmp/mock-worktree"),
+        branch="fix/test-branch",
+        spec_name="fix-issue-42",
+        task_group=0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# TS-61-16: In-memory spec from issue
+# Requirement: 61-REQ-6.1
+# ---------------------------------------------------------------------------
+
+
+class TestInMemorySpec:
+    """Verify that an in-memory spec is built from issue content."""
+
+    def test_build_spec_from_issue(self) -> None:
+        """InMemorySpec has populated fields from issue."""
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
+
+        issue = IssueResult(
+            number=42,
+            title="Fix unused imports",
+            html_url="https://github.com/test/repo/issues/42",
+        )
+        issue_body = "Remove unused imports in engine/ ..."
+        spec = build_in_memory_spec(issue, issue_body)
+        assert spec.issue_number == 42
+        # Title is in task_prompt, but body content is not
+        assert "unused imports" in spec.task_prompt.lower()
+        assert issue_body not in spec.task_prompt
+        assert spec.branch_name.startswith("fix/")
+
+    def test_task_prompt_does_not_contain_body(self) -> None:
+        """task_prompt must not duplicate the issue body (it lives in system_context)."""
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
+
+        issue = IssueResult(
+            number=99,
+            title="Fix login",
+            html_url="https://github.com/test/repo/issues/99",
+        )
+        issue_body = (
+            "The login page crashes when the user enters special characters "
+            "in the password field. This affects all users on the production "
+            "environment. Steps to reproduce: 1) Navigate to /login. "
+            "2) Enter 'test@example.com' as email. 3) Enter 'p@ss!w0rd&<>' "
+            "as password. 4) Click submit. Expected: login succeeds. "
+            "Actual: 500 error page is displayed."
+        )
+        spec = build_in_memory_spec(issue, issue_body)
+        # Body should only be in system_context, not in task_prompt
+        assert "login page crashes" not in spec.task_prompt.lower()
+        assert "login page crashes" in spec.system_context.lower()
+        # task_prompt should have a concise directive
+        assert "Fix the issue:" in spec.task_prompt
+        assert "#99" in spec.task_prompt
+        assert "context above" in spec.task_prompt.lower()
+
+    def test_spec_has_system_context(self) -> None:
+        """InMemorySpec contains the issue body as system context."""
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.spec_builder import build_in_memory_spec
+
+        issue = IssueResult(
+            number=10,
+            title="Fix tests",
+            html_url="https://github.com/test/repo/issues/10",
+        )
+        issue_body = "The test suite is failing due to import errors."
+        spec = build_in_memory_spec(issue, issue_body)
+        assert "import errors" in spec.system_context.lower()
+
+
+# ---------------------------------------------------------------------------
+# TS-61-17: Fix branch naming
+# Requirement: 61-REQ-6.2
+# ---------------------------------------------------------------------------
+
+
+class TestBranchNaming:
+    """Verify branch name is fix/{sanitised-title}."""
+
+    def test_sanitise_special_characters(self) -> None:
+        """Title with special chars is sanitised for branch name."""
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
+
+        branch = sanitise_branch_name("Fix: unused imports (engine/)")
+        assert branch == "fix/fix-unused-imports-engine"
+        # No extra slashes after "fix/"
+        assert "/" not in branch[4:]
+
+    def test_sanitise_spaces(self) -> None:
+        """Spaces become hyphens."""
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
+
+        branch = sanitise_branch_name("fix the broken test")
+        assert branch == "fix/fix-the-broken-test"
+
+    def test_sanitise_uppercase(self) -> None:
+        """Branch name is lowercased."""
+        from agentfox.maintenance.spec_builder import sanitise_branch_name
+
+        branch = sanitise_branch_name("Fix Unused IMPORTS")
+        assert branch == "fix/fix-unused-imports"
+
+
+# ---------------------------------------------------------------------------
+# TS-61-21: PR references originating issue
+# Requirement: 61-REQ-7.2
+# ---------------------------------------------------------------------------
+
+
+class TestPRBody:
+    """Verify that the PR body contains an issue reference."""
+
+    def test_pr_body_references_issue(self) -> None:
+        """PR body contains 'Fixes #42' or 'Closes #42'."""
+        from agentfox.maintenance.fix_pipeline import build_pr_body
+
+        body = build_pr_body(
+            issue_number=42,
+            issue_title="Removed unused imports",
+            changed_files=["example.py"],
+        )
+        assert "#42" in body
+        assert "Fixes #42" in body or "Closes #42" in body
+
+
+# ---------------------------------------------------------------------------
+# TS-61-E2: Cost limit reached
+# Requirement: 61-REQ-1.E2
+# ---------------------------------------------------------------------------
+
+
+class TestCostLimitReached:
+    """Verify engine stops on cost limit."""
+
+    def test_check_cost_limit_true(self) -> None:
+        """_check_cost_limit returns True when cost exceeds max."""
+        from unittest.mock import MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = 10.0
+        config.orchestrator.max_sessions = None
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+        engine.state.total_cost = 9.5
+        assert engine._check_cost_limit() is True
+
+    def test_check_cost_limit_false(self) -> None:
+        """_check_cost_limit returns False when cost is under max."""
+        from unittest.mock import MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = 10.0
+        config.orchestrator.max_sessions = None
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+        engine.state.total_cost = 5.0
+        assert engine._check_cost_limit() is False
+
+
+# ---------------------------------------------------------------------------
+# Session limit reached
+# Requirement: 61-REQ-9.3
+# ---------------------------------------------------------------------------
+
+
+class TestSessionLimitReached:
+    """Verify engine stops on session limit."""
+
+    def test_check_session_limit_true(self) -> None:
+        """_check_session_limit returns True when sessions >= max."""
+        from unittest.mock import MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = 5
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+        engine.state.total_sessions = 5
+        assert engine._check_session_limit() is True
+
+    def test_check_session_limit_false(self) -> None:
+        """_check_session_limit returns False when sessions under max."""
+        from unittest.mock import MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = 10
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+        engine.state.total_sessions = 3
+        assert engine._check_session_limit() is False
+
+    def test_check_session_limit_unconfigured(self) -> None:
+        """_check_session_limit returns False when max_sessions is None."""
+        from unittest.mock import MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+        platform = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=platform)
+        engine.state.total_sessions = 100
+        assert engine._check_session_limit() is False
+
+
+# ---------------------------------------------------------------------------
+# Harvest and close: successful fix merges branch and closes issue
+# ---------------------------------------------------------------------------
+
+
+class TestSuccessfulFixHarvestsAndCloses:
+    """Verify that a successful fix triggers harvest + push and closes the issue."""
+
+    @pytest.mark.asyncio
+    async def test_harvest_and_close_called_on_success(self) -> None:
+        """After all sessions succeed, harvest/push runs and the issue is closed."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=7,
+            title="Fix broken login",
+            html_url="https://github.com/test/repo/issues/7",
+        )
+
+        with patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")) as mock_harvest:
+            await pipeline.process_issue(issue, issue_body="Login is broken.")
+
+        mock_harvest.assert_awaited_once()
+        mock_platform.close_issue.assert_awaited_once()
+        closed_num = mock_platform.close_issue.call_args[0][0]
+        assert closed_num == 7
+
+    @pytest.mark.asyncio
+    async def test_issue_not_closed_on_harvest_failure(self) -> None:
+        """When harvest/push fails, the issue is NOT closed."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=9,
+            title="Fix something else",
+            html_url="https://github.com/test/repo/issues/9",
+        )
+
+        with patch.object(pipeline, "_harvest_and_push", AsyncMock(side_effect=RuntimeError("harvest failed"))):
+            await pipeline.process_issue(issue, issue_body="Something else is broken.")
+
+        mock_platform.close_issue.assert_not_awaited()
+        # A comment about manual investigation should be posted
+        comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        assert any("manual" in c.lower() or "merge" in c.lower() for c in comments)
+
+    @pytest.mark.asyncio
+    async def test_issue_not_closed_when_harvest_returns_no_changes(self) -> None:
+        """When reviewer PASS but harvest has no new commits, issue is NOT closed.
+
+        The coder produced no commits -- leave the issue open and add a comment
+        explaining that no changes were made. Assign af:no-change label.
+
+        Requirements: AC-1, AC-2, AC-3 (issue #466)
+        """
+        import json
+        import re
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.labels import LABEL_FIXED, LABEL_NO_CHANGE
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=11,
+            title="Fix empty harvest",
+            html_url="https://github.com/test/repo/issues/11",
+        )
+
+        # harvest() returns [] (no new commits)
+        with (
+            patch("agentfox.workspace.harvest.harvest", AsyncMock(return_value=[])),
+            patch("agentfox.workspace.harvest.post_harvest_integrate", AsyncMock()),
+        ):
+            await pipeline.process_issue(issue, issue_body="Something is broken.")
+
+        # AC-1: Issue must NOT be closed and af:fixed must NOT be assigned
+        mock_platform.close_issue.assert_not_awaited()
+        assigned_labels = [call.args[1] for call in mock_platform.assign_label.call_args_list]
+        assert LABEL_FIXED not in assigned_labels, (
+            f"af:fixed must not be assigned when no changes produced, got labels: {assigned_labels}"
+        )
+
+        # AC-2: A comment mentioning no changes must be posted
+        comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        assert any(re.search(r"no changes|no commits|no new commits", c, re.IGNORECASE) for c in comments), (
+            f"Expected 'no changes'/'no commits' comment, got: {comments}"
+        )
+
+        # AC-3: af:no-change label must be assigned
+        assert LABEL_NO_CHANGE in assigned_labels, (
+            f"af:no-change must be assigned when no changes produced, got labels: {assigned_labels}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_issue_not_closed_on_session_failure(self) -> None:
+        """When a session raises, the issue is NOT closed."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("session boom")
+        )
+
+        issue = IssueResult(
+            number=8,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/8",
+        )
+
+        await pipeline.process_issue(issue, issue_body="Something is broken.")
+
+        mock_platform.close_issue.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# TS-61-E9: Empty issue body
+# Requirement: 61-REQ-6.E2
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyIssueBody:
+    """Verify handling of empty issue body."""
+
+    @pytest.mark.asyncio
+    async def test_empty_body_posts_comment(self) -> None:
+        """When issue body is empty, a comment requesting detail is posted with run_id."""
+        import re
+        from unittest.mock import AsyncMock, MagicMock
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+        mock_platform.add_issue_comment = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+
+        issue = IssueResult(
+            number=1,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/1",
+        )
+        # Issue body is empty
+        await pipeline.process_issue(issue, issue_body="")
+
+        comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        assert any("detail" in c.lower() or "insufficient" in c.lower() for c in comments)
+        # AC-4: empty body comment must also include run_id
+        run_id = pipeline._run_id
+        assert any(f"(run: `{run_id}`)" in c for c in comments), (
+            f"Expected run_id {run_id!r} in empty-body comment, got: {comments}"
+        )
+        # AC-5: run_id format must match YYYYMMDD_HHMMSS_<6hex>
+        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", run_id), f"run_id {run_id!r} does not match expected format"
+
+
+# ---------------------------------------------------------------------------
+# Issue #229: supersession_pairs acted on before processing loop
+# ---------------------------------------------------------------------------
+
+
+class TestSupersessionPairsActedOn:
+    """Engine closes AI-identified superseded issues before processing."""
+
+    @pytest.mark.asyncio
+    async def test_superseded_issue_closed_before_processing(self) -> None:
+        """When triage returns supersession_pairs, the obsolete issue is closed."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.engine import NightShiftEngine
+        from agentfox.maintenance.triage import TriageResult
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+
+        mock_platform = AsyncMock()
+        mock_platform.close_issue = AsyncMock()
+
+        issues = [
+            IssueResult(number=10, title="Keep", html_url="", body="detail"),
+            IssueResult(number=20, title="Superseded", html_url="", body="detail"),
+            IssueResult(number=30, title="Third", html_url="", body="detail"),
+        ]
+        mock_platform.list_issues_by_label = AsyncMock(return_value=issues)
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+        engine._process_fix = AsyncMock()  # type: ignore[assignment]
+
+        triage_result = TriageResult(
+            processing_order=[10, 30],
+            edges=[],
+            supersession_pairs=[(10, 20)],  # 20 superseded by 10
+        )
+
+        with (
+            patch(
+                "agentfox.maintenance.engine.run_batch_triage",
+                AsyncMock(return_value=triage_result),
+            ),
+            patch(
+                "agentfox.maintenance.engine.check_staleness",
+                AsyncMock(return_value=MagicMock(obsolete_issues=[], rationale={})),
+            ),
+            patch(
+                "agentfox.maintenance.engine.fetch_github_relationships",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            await engine._run_issue_check()
+
+        # Issue 20 must be closed as superseded
+        closed_numbers = [call.args[0] for call in mock_platform.close_issue.call_args_list]
+        assert 20 in closed_numbers
+
+    @pytest.mark.asyncio
+    async def test_superseded_issue_not_processed(self) -> None:
+        """A superseded issue is skipped by the processing loop."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.engine import NightShiftEngine
+        from agentfox.maintenance.triage import TriageResult
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+
+        mock_platform = AsyncMock()
+        mock_platform.close_issue = AsyncMock()
+
+        issues = [
+            IssueResult(number=10, title="Keep", html_url="", body="detail"),
+            IssueResult(number=20, title="Superseded", html_url="", body="detail"),
+            IssueResult(number=30, title="Third", html_url="", body="detail"),
+        ]
+        mock_platform.list_issues_by_label = AsyncMock(return_value=issues)
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+        process_fix = AsyncMock()
+        engine._process_fix = process_fix  # type: ignore[assignment]
+
+        triage_result = TriageResult(
+            processing_order=[10, 30],
+            edges=[],
+            supersession_pairs=[(10, 20)],
+        )
+
+        with (
+            patch(
+                "agentfox.maintenance.engine.run_batch_triage",
+                AsyncMock(return_value=triage_result),
+            ),
+            patch(
+                "agentfox.maintenance.engine.check_staleness",
+                AsyncMock(return_value=MagicMock(obsolete_issues=[], rationale={})),
+            ),
+            patch(
+                "agentfox.maintenance.engine.fetch_github_relationships",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            await engine._run_issue_check()
+
+        # _process_fix must never be called for the superseded issue 20
+        processed_numbers = [call.args[0].number for call in process_fix.call_args_list]
+        assert 20 not in processed_numbers
+
+
+# ---------------------------------------------------------------------------
+# Reviewer retry on parse failure (fixes #294)
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerRetryOnParseFailure:
+    """Verify the pipeline retries the reviewer when output is unparseable."""
+
+    @pytest.mark.asyncio
+    async def test_reviewer_retried_on_parse_failure_then_passes(self) -> None:
+        """When first reviewer output is unparseable but retry produces valid
+        JSON with PASS, the pipeline should succeed without coder retry."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        pass_review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        call_count = 0
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            nonlocal call_count
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                call_count += 1
+                if call_count == 1:
+                    # First reviewer call: unparseable
+                    outcome.response = "Here are my thoughts on the fix..."
+                else:
+                    # Retry: valid JSON
+                    outcome.response = pass_review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=42,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/42",
+        )
+
+        with patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")):
+            await pipeline.process_issue(issue, issue_body="Something is broken.")
+
+        # Reviewer was called twice (original + retry), and the fix passed
+        assert call_count == 2
+        mock_platform.close_issue.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reviewer_parse_failure_both_times_triggers_coder_retry(self) -> None:
+        """When both reviewer attempts produce unparseable output, the pipeline
+        should fall through to coder retry (escalation ladder)."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 0  # No coder retries -- exhaust immediately
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                # Always unparseable
+                outcome.response = "I looked at the code and everything seems fine."
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=43,
+            title="Fix another thing",
+            html_url="https://github.com/test/repo/issues/43",
+        )
+
+        with patch.object(pipeline, "_harvest_and_push", AsyncMock(side_effect=RuntimeError("harvest failed"))):
+            await pipeline.process_issue(issue, issue_body="Another thing is broken.")
+
+        # Issue should NOT be closed (max_retries=0 exhausted)
+        mock_platform.close_issue.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Issue #467: fix pipeline must populate session_outcomes and runs tables
+# ---------------------------------------------------------------------------
+
+
+class TestFixPipelineDbTelemetry:
+    """Fix pipeline writes to session_outcomes and runs tables (issue #467).
+
+    The fix pipeline previously only wrote to audit_events.  After the fix,
+    every session must produce a row in session_outcomes and the runs table
+    must be created/completed for each pipeline invocation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_session_outcomes_written_for_each_session(self) -> None:
+        """record_session is called for triage, coder, and reviewer sessions."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        # Provide a mock DuckDB connection
+        mock_conn = MagicMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform, conn=mock_conn)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock()
+            outcome.status = "completed"
+            outcome.input_tokens = 10
+            outcome.output_tokens = 5
+            outcome.cache_read_input_tokens = 0
+            outcome.cache_creation_input_tokens = 0
+            outcome.duration_ms = 1000
+            outcome.error_message = None
+            outcome.is_transport_error = False
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=467,
+            title="Fix broken telemetry",
+            html_url="https://github.com/test/repo/issues/467",
+        )
+
+        with (
+            patch("agentfox.engine.state.record_session") as mock_record_session,
+            patch("agentfox.engine.state.update_run_totals") as mock_update_run_totals,
+            patch("agentfox.engine.state.create_run") as mock_create_run,
+            patch("agentfox.engine.state.complete_run") as mock_complete_run,
+            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
+        ):
+            await pipeline.process_issue(issue, issue_body="The telemetry is broken.")
+
+        # create_run called once at the start
+        mock_create_run.assert_called_once()
+        run_id_arg = mock_create_run.call_args[0][1]
+        assert run_id_arg == pipeline._run_id
+
+        # record_session called for triage (maintainer), coder, reviewer
+        assert mock_record_session.call_count >= 3, (
+            f"Expected at least 3 record_session calls (triage+coder+reviewer), got {mock_record_session.call_count}"
+        )
+
+        # update_run_totals called after each session
+        assert mock_update_run_totals.call_count >= 3
+
+        # complete_run called exactly once at the end
+        mock_complete_run.assert_called_once()
+        completed_run_id = mock_complete_run.call_args[0][1]
+        assert completed_run_id == pipeline._run_id
+
+    @pytest.mark.asyncio
+    async def test_runs_row_created_even_on_empty_body(self) -> None:
+        """create_run is called even when the issue body is empty."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+        mock_conn = MagicMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform, conn=mock_conn)
+
+        issue = IssueResult(
+            number=467,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/467",
+        )
+
+        with (
+            patch("agentfox.engine.state.create_run") as mock_create_run,
+            patch("agentfox.engine.state.complete_run") as mock_complete_run,
+        ):
+            await pipeline.process_issue(issue, issue_body="")
+
+        mock_create_run.assert_called_once()
+        mock_complete_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_session_outcome_has_run_id_and_archetype(self) -> None:
+        """SessionOutcomeRecord written with correct run_id and archetype."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.engine.state import SessionOutcomeRecord
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+        mock_conn = MagicMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform, conn=mock_conn)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        review_response = json.dumps(
+            {
+                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                ],
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock()
+            outcome.status = "completed"
+            outcome.input_tokens = 10
+            outcome.output_tokens = 5
+            outcome.cache_read_input_tokens = 0
+            outcome.cache_creation_input_tokens = 0
+            outcome.duration_ms = 500
+            outcome.error_message = None
+            outcome.is_transport_error = False
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=467,
+            title="Fix telemetry",
+            html_url="https://github.com/test/repo/issues/467",
+        )
+
+        recorded: list[SessionOutcomeRecord] = []
+
+        def capture_record_session(conn: object, record: SessionOutcomeRecord) -> None:
+            recorded.append(record)
+
+        with (
+            patch(
+                "agentfox.engine.state.record_session",
+                side_effect=capture_record_session,
+            ),
+            patch("agentfox.engine.state.update_run_totals"),
+            patch("agentfox.engine.state.create_run"),
+            patch("agentfox.engine.state.complete_run"),
+            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
+        ):
+            await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
+
+        # All records must have the same run_id as the pipeline
+        expected_run_id = pipeline._run_id
+        for rec in recorded:
+            assert rec.run_id == expected_run_id, f"Record run_id mismatch: {rec.run_id!r} != {expected_run_id!r}"
+
+        # Archetypes must include maintainer (triage), coder, reviewer
+        archetypes_recorded = {rec.archetype for rec in recorded}
+        assert "maintainer" in archetypes_recorded, f"triage (maintainer) not in {archetypes_recorded}"
+        assert "coder" in archetypes_recorded, f"coder not in {archetypes_recorded}"
+        assert "reviewer" in archetypes_recorded, f"reviewer not in {archetypes_recorded}"
+
+    @pytest.mark.asyncio
+    async def test_no_db_writes_when_conn_is_none(self) -> None:
+        """When conn=None, no DB functions are called (no-op path)."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        config.orchestrator.max_retries = 3
+        mock_platform = AsyncMock()
+
+        # conn=None (default)
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        review_response = json.dumps(
+            {
+                "verdicts": [
+                    {
+                        "criterion_id": "AC-1",
+                        "verdict": "PASS",
+                        "evidence": "ok",
+                    }
+                ],
+                "overall_verdict": "PASS",
+                "summary": "ok",
+            }
+        )
+        triage_response = json.dumps(
+            {
+                "summary": "s",
+                "affected_files": [],
+                "acceptance_criteria": [
+                    {
+                        "id": "AC-1",
+                        "description": "d",
+                        "preconditions": "p",
+                        "expected": "e",
+                        "assertion": "a",
+                    },
+                ],
+            }
+        )
+
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+            outcome = MagicMock()
+            outcome.status = "completed"
+            outcome.input_tokens = 10
+            outcome.output_tokens = 5
+            outcome.cache_read_input_tokens = 0
+            outcome.cache_creation_input_tokens = 0
+            outcome.duration_ms = 500
+            outcome.error_message = None
+            outcome.is_transport_error = False
+            if archetype == "maintainer":
+                outcome.response = triage_response
+            elif archetype == "reviewer":
+                outcome.response = review_response
+            else:
+                outcome.response = ""
+            return outcome
+
+        pipeline._run_session = mock_run_session  # type: ignore[assignment]
+
+        issue = IssueResult(
+            number=467,
+            title="Fix telemetry",
+            html_url="https://github.com/test/repo/issues/467",
+        )
+
+        with (
+            patch("agentfox.engine.state.record_session") as mock_record_session,
+            patch("agentfox.engine.state.create_run") as mock_create_run,
+            patch("agentfox.engine.state.complete_run") as mock_complete_run,
+            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
+        ):
+            await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
+
+        # None of the DB functions should have been called
+        mock_record_session.assert_not_called()
+        mock_create_run.assert_not_called()
+        mock_complete_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_engine_passes_conn_to_fix_pipeline(self) -> None:
+        """NightShiftEngine passes self._conn to FixPipeline."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+        config.night_shift.push_fix_branch = False
+
+        mock_platform = AsyncMock()
+        mock_conn = MagicMock()
+
+        engine = NightShiftEngine(config=config, platform=mock_platform, conn=mock_conn)
+
+        issue = IssueResult(
+            number=467,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/467",
+            body="The issue body",
+        )
+
+        captured_pipelines: list[object] = []
+
+        original_fix_pipeline = __import__("agentfox.maintenance.fix_pipeline", fromlist=["FixPipeline"]).FixPipeline
+
+        class CapturingFixPipeline(original_fix_pipeline):  # type: ignore[misc]
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                captured_pipelines.append(kwargs.get("conn"))
+                super().__init__(*args, **kwargs)
+
+            async def process_issue(  # type: ignore[override]
+                self, *args: object, **kwargs: object
+            ) -> object:
+                return MagicMock(sessions_run=0)
+
+        with patch(
+            "agentfox.maintenance.engine.FixPipeline",
+            CapturingFixPipeline,
+        ):
+            await engine._process_fix(issue)
+
+        assert len(captured_pipelines) == 1
+        assert captured_pipelines[0] is mock_conn, (
+            f"Expected conn={mock_conn!r} to be passed, got {captured_pipelines[0]!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Scan counter increments in _run_issue_check (fixes #469)
+# ---------------------------------------------------------------------------
+
+
+class TestScanCounterIncrement:
+    """Verify issue_checks_completed is incremented by _run_issue_check.
+
+    Without this, the shutdown summary always reports 'Scans completed: 0'.
+    """
+
+    @pytest.mark.asyncio
+    async def test_scan_counter_incremented_when_no_issues(self) -> None:
+        """Scan counter increments even when no af:fix issues are found."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+
+        mock_platform = AsyncMock()
+        mock_platform.list_issues_by_label = AsyncMock(return_value=[])
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+        assert engine.state.issue_checks_completed == 0
+
+        await engine._run_issue_check()
+
+        assert engine.state.issue_checks_completed == 1
+
+    @pytest.mark.asyncio
+    async def test_scan_counter_incremented_when_issues_processed(
+        self,
+    ) -> None:
+        """Scan counter increments after a full issue-check cycle with issues."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+
+        mock_platform = AsyncMock()
+        mock_platform.list_issues_by_label = AsyncMock(
+            return_value=[
+                IssueResult(number=1, title="Issue 1", html_url="", body="body"),
+            ]
+        )
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+        engine._process_fix = AsyncMock()  # type: ignore[assignment]
+        assert engine.state.issue_checks_completed == 0
+
+        with patch(
+            "agentfox.maintenance.engine.fetch_github_relationships",
+            AsyncMock(return_value=[]),
+        ):
+            await engine._run_issue_check()
+
+        assert engine.state.issue_checks_completed == 1
+
+    @pytest.mark.asyncio
+    async def test_scan_counter_not_incremented_on_api_error(self) -> None:
+        """Scan counter is NOT incremented when the platform API call fails."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+
+        mock_platform = AsyncMock()
+        mock_platform.list_issues_by_label = AsyncMock(side_effect=RuntimeError("API down"))
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+        assert engine.state.issue_checks_completed == 0
+
+        await engine._run_issue_check()
+
+        # Platform error path returns early without counting the scan
+        assert engine.state.issue_checks_completed == 0
+
+    @pytest.mark.asyncio
+    async def test_scan_counter_accumulates_across_calls(self) -> None:
+        """Repeated _run_issue_check calls accumulate the scan count."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agentfox.maintenance.engine import NightShiftEngine
+
+        config = MagicMock()
+        config.orchestrator.max_cost = None
+        config.orchestrator.max_sessions = None
+
+        mock_platform = AsyncMock()
+        mock_platform.list_issues_by_label = AsyncMock(return_value=[])
+
+        engine = NightShiftEngine(config=config, platform=mock_platform)
+
+        for _ in range(3):
+            await engine._run_issue_check()
+
+        assert engine.state.issue_checks_completed == 3
+
+
+# ---------------------------------------------------------------------------
+# Issue #583: Exception details must not leak to GitHub issue comments
+# CWE-209: Generation of Error Message Containing Sensitive Information
+# ---------------------------------------------------------------------------
+
+
+class TestExceptionSanitizationInFailureComment:
+    """Verify that fix session failure comments only expose the class name."""
+
+    @pytest.mark.asyncio
+    async def test_failure_comment_omits_exception_message(self, caplog: pytest.LogCaptureFixture) -> None:
+        """AC-1/AC-2: Comment has class name only; full message in log."""
+        import logging
+        from unittest.mock import AsyncMock, MagicMock
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+
+        sensitive_path = "/home/runner/.agent-fox/db/runs.duckdb is locked"
+        pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError(sensitive_path)
+        )
+
+        issue = IssueResult(
+            number=42,
+            title="Fix something",
+            html_url="https://github.com/test/repo/issues/42",
+        )
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="agentfox.maintenance.fix_pipeline",
+        ):
+            await pipeline.process_issue(issue, issue_body="Something is broken.")
+
+        # Collect all text posted via add_issue_comment
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+
+        # AC-1: No raw exception message in any posted comment
+        for comment in posted_comments:
+            assert sensitive_path not in comment, f"Sensitive path leaked into comment: {comment!r}"
+
+        # AC-1: The class name IS present in the failure comment
+        assert any("RuntimeError" in c for c in posted_comments), (
+            f"Expected 'RuntimeError' in comments, got: {posted_comments}"
+        )
+
+        # AC-2: Full message still appears in the internal log
+        log_messages = [r.getMessage() for r in caplog.records]
+        assert any(sensitive_path in msg for msg in log_messages), (
+            f"Expected sensitive path in log, got: {log_messages}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_comment_includes_branch_and_run_id(
+        self,
+    ) -> None:
+        """AC-3: Branch name and run ID in the sanitized failure comment."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("some internal error")
+        )
+
+        issue = IssueResult(
+            number=43,
+            title="Fix another thing",
+            html_url="https://github.com/test/repo/issues/43",
+        )
+
+        await pipeline.process_issue(issue, issue_body="Another problem.")
+
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+
+        # Locate the failure comment (contains "Fix session failed")
+        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
+        assert failure_comments, f"No failure comment found; all comments: {posted_comments}"
+
+        run_id = pipeline._run_id
+        for fc in failure_comments:
+            assert run_id in fc, f"run_id {run_id!r} missing from failure comment: {fc!r}"
+            # Branch: label must be present
+            assert "Branch:" in fc, f"'Branch:' label missing from failure comment: {fc!r}"
+
+    @pytest.mark.asyncio
+    async def test_failure_comment_bare_exception_no_message(
+        self,
+    ) -> None:
+        """AC-4: A bare Exception() with no message produces well-formed comment."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from afissues.protocol import IssueResult
+        from agentfox.maintenance.fix_pipeline import FixPipeline
+
+        config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
+        mock_platform = AsyncMock()
+
+        pipeline = FixPipeline(config=config, platform=mock_platform)
+        pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
+        pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
+        pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
+            side_effect=Exception()  # no message
+        )
+
+        issue = IssueResult(
+            number=44,
+            title="Fix yet another thing",
+            html_url="https://github.com/test/repo/issues/44",
+        )
+
+        await pipeline.process_issue(issue, issue_body="Yet another problem.")
+
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
+        assert failure_comments, f"No failure comment posted; all comments: {posted_comments}"
+
+        for fc in failure_comments:
+            assert "Exception" in fc, f"Exception class name missing from: {fc!r}"
+            # Ensure the comment is well-formed
+            assert "Fix session failed: Exception" in fc

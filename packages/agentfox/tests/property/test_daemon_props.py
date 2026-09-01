@@ -65,7 +65,7 @@ class TestPidMutualExclusion:
     )
     def test_pid_status_matches_process_liveness(self, pid: int, tmp_path: Path) -> None:
         """check_pid_file returns ALIVE for alive PIDs, STALE for dead ones."""
-        from agentfox.nightshift.pid import PidStatus, check_pid_file
+        from agentfox.maintenance.pid import PidStatus, check_pid_file
 
         pid_path = tmp_path / f"daemon_{pid}.pid"
         pid_path.write_text(str(pid))
@@ -92,7 +92,7 @@ class TestPidMutualExclusion:
 
     def test_write_then_check_returns_alive(self, tmp_path: Path) -> None:
         """write_pid_file + check_pid_file returns ALIVE for current process."""
-        from agentfox.nightshift.pid import (
+        from agentfox.maintenance.pid import (
             PidStatus,
             check_pid_file,
             write_pid_file,
@@ -138,7 +138,7 @@ class TestCostMonotonicity:
     @settings(max_examples=100)
     def test_cost_monotonicity_and_exceeded(self, costs: list[float], max_cost: float | None) -> None:
         """total_cost equals sum of add_cost calls; exceeded triggers correctly."""
-        from agentfox.nightshift.daemon import SharedBudget
+        from agentfox.maintenance.daemon import SharedBudget
 
         budget = SharedBudget(max_cost=max_cost)
         running_total = 0.0
@@ -172,7 +172,7 @@ class TestStreamIsolation:
     )
     def test_failing_stream_does_not_block_others(self, n: int, fail_index: int, tmp_path: Path) -> None:
         """Non-failing streams run even when one stream always fails."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         fail_index = fail_index % n
         streams = []
@@ -217,7 +217,7 @@ class TestShutdownCompleteness:
     )
     def test_all_streams_shutdown(self, n: int, tmp_path: Path) -> None:
         """After run() returns, shutdown() called on all N streams."""
-        from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
+        from agentfox.maintenance.daemon import DaemonRunner, SharedBudget
 
         streams = [_make_mock_stream(name=f"s-{i}") for i in range(n)]
         budget = SharedBudget(max_cost=None)

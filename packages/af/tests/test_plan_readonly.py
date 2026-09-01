@@ -22,10 +22,10 @@ from click.testing import CliRunner
 @pytest.fixture(autouse=True)
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent daemon check from interfering with tests."""
-    from agentfox.nightshift.pid import PidStatus
+    from agentfox.maintenance.pid import PidStatus
 
     monkeypatch.setattr(
-        "agentfox.nightshift.pid.check_pid_file",
+        "agentfox.maintenance.pid.check_pid_file",
         lambda _path: (PidStatus.ABSENT, None),
     )
 

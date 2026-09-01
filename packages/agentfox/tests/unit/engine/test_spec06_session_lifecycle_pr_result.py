@@ -129,7 +129,7 @@ class TestSessionLifecyclePrResult:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
@@ -178,7 +178,7 @@ class TestSessionLifecyclePrResult:
                 return_value=["config.py"],
             ),
             patch(
-                "agentfox.nightshift.platform_factory.create_platform_safe",
+                "agentfox.maintenance.platform_factory.create_platform_safe",
                 return_value=mock_platform,
             ),
             patch(
