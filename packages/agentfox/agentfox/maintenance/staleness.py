@@ -10,9 +10,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentfox.core.json_extraction import extract_json_object
 from afissues.labels import LABEL_FIX
 from afissues.protocol import IssueResult
+
+from agentfox.core.json_extraction import extract_json_object
 
 if TYPE_CHECKING:
     from afaudit.sink import SinkDispatcher

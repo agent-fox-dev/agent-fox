@@ -248,9 +248,7 @@ class TestReviewerVerifierSkipContext:
         _insert_review(conn, "spec_01", "critical", "important finding", task_group="2")
         _insert_summary(conn, "spec_01", "1", run_id, summary="Prior session summary")
 
-        result = provider.retrieve(
-            "spec_01", "task", task_group="2", archetype="reviewer"
-        )
+        result = provider.retrieve("spec_01", "task", task_group="2", archetype="reviewer")
 
         context_items = [r for r in result if r.startswith("[CONTEXT]")]
         review_items = [r for r in result if r.startswith("[REVIEW]")]
@@ -264,9 +262,7 @@ class TestReviewerVerifierSkipContext:
         _insert_review(conn, "spec_01", "critical", "important finding", task_group="2")
         _insert_summary(conn, "spec_01", "1", run_id, summary="Prior session summary")
 
-        result = provider.retrieve(
-            "spec_01", "task", task_group="2", archetype="verifier"
-        )
+        result = provider.retrieve("spec_01", "task", task_group="2", archetype="verifier")
 
         context_items = [r for r in result if r.startswith("[CONTEXT]")]
         review_items = [r for r in result if r.startswith("[REVIEW]")]
@@ -279,9 +275,7 @@ class TestReviewerVerifierSkipContext:
         provider.set_run_id(run_id)
         _insert_summary(conn, "spec_01", "1", run_id, summary="Prior session summary")
 
-        result = provider.retrieve(
-            "spec_01", "task", task_group="2", archetype="coder"
-        )
+        result = provider.retrieve("spec_01", "task", task_group="2", archetype="coder")
 
         context_items = [r for r in result if r.startswith("[CONTEXT]")]
         assert len(context_items) >= 1, "Coder should still see [CONTEXT] items"
@@ -292,9 +286,7 @@ class TestReviewerVerifierSkipContext:
         provider.set_run_id(run_id)
         _insert_summary(conn, "spec_01", "1", run_id, summary="Prior session summary")
 
-        result = provider.retrieve(
-            "spec_01", "task", task_group="2", archetype=None
-        )
+        result = provider.retrieve("spec_01", "task", task_group="2", archetype=None)
 
         context_items = [r for r in result if r.startswith("[CONTEXT]")]
         assert len(context_items) >= 1, "Default archetype should still see [CONTEXT] items"
@@ -304,9 +296,7 @@ class TestReviewerVerifierSkipContext:
         _insert_review(conn, "spec_01", "critical", "review finding", task_group="1")
         _insert_drift(conn, "spec_01", "drift finding")
 
-        result = provider.retrieve(
-            "spec_01", "task", task_group="1", archetype="reviewer"
-        )
+        result = provider.retrieve("spec_01", "task", task_group="1", archetype="reviewer")
 
         review_items = [r for r in result if r.startswith("[REVIEW]")]
         drift_items = [r for r in result if r.startswith("[DRIFT]")]

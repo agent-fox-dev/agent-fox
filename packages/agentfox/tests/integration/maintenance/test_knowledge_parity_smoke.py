@@ -104,24 +104,14 @@ def _pipeline_context_manager(
         patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace())
     )
     stack.enter_context(patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock))
-    stack.enter_context(
-        patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=triage)
-    )
-    stack.enter_context(
-        patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=coder_result)
-    )
+    stack.enter_context(patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=triage))
+    stack.enter_context(patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=coder_result))
     stack.enter_context(patch.object(pipeline, "_handle_result", new_callable=AsyncMock))
     stack.enter_context(patch.object(pipeline, "_post_comment", new_callable=AsyncMock))
     stack.enter_context(patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock))
-    stack.enter_context(
-        patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True)
-    )
-    stack.enter_context(
-        patch("agentfox.workspace.harvest.harvest", new_callable=AsyncMock, return_value=harvest_files)
-    )
-    stack.enter_context(
-        patch("agentfox.workspace.harvest.post_harvest_integrate", new_callable=AsyncMock)
-    )
+    stack.enter_context(patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True))
+    stack.enter_context(patch("agentfox.workspace.harvest.harvest", new_callable=AsyncMock, return_value=harvest_files))
+    stack.enter_context(patch("agentfox.workspace.harvest.post_harvest_integrate", new_callable=AsyncMock))
     return stack
 
 
@@ -130,10 +120,7 @@ def _get_post_harvest_calls(provider: MagicMock) -> list:
     return [
         c
         for c in provider.ingest.call_args_list
-        if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get(
-            "touched_files", []
-        )
-        != []
+        if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
     ]
 
 
@@ -194,15 +181,16 @@ class TestSmoke1SuccessfulFixSession:
             affected_files=["src/foo.py"],
         )
 
-        with caplog.at_level(logging.DEBUG), _pipeline_context_manager(
-            pipeline,
-            triage=triage,
-            coder_result=coder_result,
-            harvest_files=["src/foo.py", "src/bar.py"],
+        with (
+            caplog.at_level(logging.DEBUG),
+            _pipeline_context_manager(
+                pipeline,
+                triage=triage,
+                coder_result=coder_result,
+                harvest_files=["src/foo.py", "src/bar.py"],
+            ),
         ):
-            metrics = await pipeline.process_issue(
-                _make_issue(42), issue_body="bug description"
-            )
+            metrics = await pipeline.process_issue(_make_issue(42), issue_body="bug description")
 
         # --- Verify retrieve() ---
         assert provider.retrieve.call_count >= 1
@@ -222,11 +210,7 @@ class TestSmoke1SuccessfulFixSession:
         )
 
         # --- Verify pre-harvest ingest has session_status ---
-        pre_harvest_calls = [
-            c
-            for c in provider.ingest.call_args_list
-            if "session_status" in _get_ingest_context(c)
-        ]
+        pre_harvest_calls = [c for c in provider.ingest.call_args_list if "session_status" in _get_ingest_context(c)]
         assert len(pre_harvest_calls) >= 1
 
         # --- Verify post-harvest ingest ---
@@ -334,9 +318,7 @@ class TestSmoke3PostHarvestIngestFailure:
     Test Spec: TS-05-SMOKE-3
     """
 
-    async def test_ingest_failure_session_succeeds(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_ingest_failure_session_succeeds(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = MagicMock()
         provider.retrieve.return_value = []
 
@@ -372,9 +354,7 @@ class TestSmoke3PostHarvestIngestFailure:
         ):
             # Override handle_result to verify it was called
             pipeline._handle_result = handle_mock  # type: ignore[method-assign]
-            metrics = await pipeline.process_issue(
-                _make_issue(42), issue_body="broken code"
-            )
+            metrics = await pipeline.process_issue(_make_issue(42), issue_body="broken code")
 
         # Pipeline completed — handle_result was called
         handle_mock.assert_called_once()
@@ -406,9 +386,7 @@ class TestSmoke4SecondRunRetrievesPriorKnowledge:
     Test Spec: TS-05-SMOKE-4
     """
 
-    async def test_second_run_retrieves_prior_knowledge(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_second_run_retrieves_prior_knowledge(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = MagicMock()
         provider.retrieve.return_value = [
             "prior summary from session 1",
@@ -432,24 +410,21 @@ class TestSmoke4SecondRunRetrievesPriorKnowledge:
             affected_files=["src/worker.py"],
         )
 
-        with caplog.at_level(logging.DEBUG), _pipeline_context_manager(
-            pipeline,
-            triage=triage,
-            coder_result=coder_result,
-            harvest_files=["src/worker.py"],
+        with (
+            caplog.at_level(logging.DEBUG),
+            _pipeline_context_manager(
+                pipeline,
+                triage=triage,
+                coder_result=coder_result,
+                harvest_files=["src/worker.py"],
+            ),
         ):
-            metrics = await pipeline.process_issue(
-                _make_issue(7), issue_body="race condition in worker"
-            )
+            metrics = await pipeline.process_issue(_make_issue(7), issue_body="race condition in worker")
 
         # --- Verify retrieve() ---
         assert provider.retrieve.call_count >= 1
         retrieve_call = provider.retrieve.call_args
-        spec_name = (
-            retrieve_call.args[0]
-            if retrieve_call.args
-            else retrieve_call.kwargs.get("spec_name")
-        )
+        spec_name = retrieve_call.args[0] if retrieve_call.args else retrieve_call.kwargs.get("spec_name")
         assert spec_name == "fix-issue-7"
         assert retrieve_call.kwargs["task_group"] == "0"
         assert retrieve_call.kwargs.get("file_footprint") == ["src/worker.py"]

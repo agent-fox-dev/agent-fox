@@ -797,4 +797,3 @@ class DispatchManager:
     def set_result_handler(self, handler: Any) -> None:
         """Update the result handler reference (for workspace backoff checks)."""
         self._result_handler = handler
-

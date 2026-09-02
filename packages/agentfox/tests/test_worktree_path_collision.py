@@ -110,13 +110,7 @@ class TestPathWithRoleAndMode:
             mode="pre-flight",
         )
         expected_path = (
-            repo_root
-            / ".agent-fox"
-            / "worktrees"
-            / "08_spec_generation_improvement"
-            / "0"
-            / "reviewer"
-            / "pre-flight"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "reviewer" / "pre-flight"
         )
         assert result.path == expected_path
         assert result.branch == "feature/08_spec_generation_improvement/0--reviewer--pre-flight"
@@ -417,13 +411,7 @@ class TestBothRoleAndMode4LevelPath:
             mode="pre-flight",
         )
         expected = (
-            repo_root
-            / ".agent-fox"
-            / "worktrees"
-            / "08_spec_generation_improvement"
-            / "0"
-            / "reviewer"
-            / "pre-flight"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "reviewer" / "pre-flight"
         )
         assert result.path == expected
         assert result.branch == "feature/08_spec_generation_improvement/0--reviewer--pre-flight"

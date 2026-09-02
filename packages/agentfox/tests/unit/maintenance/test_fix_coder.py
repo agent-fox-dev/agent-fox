@@ -27,8 +27,7 @@ def _make_config() -> MagicMock:
 
 
 _DEFAULT_TASK_PROMPT = (
-    "Fix the issue: test (#42)\n\n"
-    "Refer to the issue description and acceptance criteria in the context above."
+    "Fix the issue: test (#42)\n\nRefer to the issue description and acceptance criteria in the context above."
 )
 
 
@@ -140,8 +139,7 @@ class TestBuildCoderPromptNoCommitFormat:
         pipeline = FixPipeline(config=config, platform=platform)
 
         original_task = (
-            "Fix the issue: test (#42)\n\n"
-            "Refer to the issue description and acceptance criteria in the context above."
+            "Fix the issue: test (#42)\n\nRefer to the issue description and acceptance criteria in the context above."
         )
         spec = _make_spec(task_prompt=original_task)
         triage = _make_triage()

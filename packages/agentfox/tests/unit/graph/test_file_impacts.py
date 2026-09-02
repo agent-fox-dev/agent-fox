@@ -36,7 +36,7 @@ def _make_spec_dir_with_tasks_json(
         "task_groups": groups,
     }
     (base_dir / "tasks.json").write_text(json.dumps(tasks_json))
-    (base_dir / "prd.md").write_text('---\ntitle: test\n---\n# PRD\n')
+    (base_dir / "prd.md").write_text("---\ntitle: test\n---\n# PRD\n")
     (base_dir / "requirements.json").write_text(json.dumps({"requirements": []}))
     (base_dir / "test_spec.json").write_text(json.dumps({"test_cases": []}))
     return base_dir
@@ -77,16 +77,19 @@ class TestFileImpacts:
         """
         from agentfox.graph.file_impacts import extract_file_impacts
 
-        _make_spec_dir_with_tasks_json(tmp_path, [
-            {
-                "id": 1,
-                "title": "Write tests",
-                "subtasks": [
-                    _make_subtask("1.1", "Create `routing/duration.py`"),
-                    _make_subtask("1.2", "Update `engine/graph_sync.py`"),
-                ],
-            },
-        ])
+        _make_spec_dir_with_tasks_json(
+            tmp_path,
+            [
+                {
+                    "id": 1,
+                    "title": "Write tests",
+                    "subtasks": [
+                        _make_subtask("1.1", "Create `routing/duration.py`"),
+                        _make_subtask("1.2", "Update `engine/graph_sync.py`"),
+                    ],
+                },
+            ],
+        )
 
         impacts = extract_file_impacts(tmp_path, task_group=1)
         assert "routing/duration.py" in impacts
@@ -153,15 +156,18 @@ class TestFileImpacts:
         )
 
         # tasks.json with no file references in subtasks
-        _make_spec_dir_with_tasks_json(tmp_path, [
-            {
-                "id": 1,
-                "title": "Do something",
-                "subtasks": [
-                    _make_subtask("1.1", "Do a thing with no file refs"),
-                ],
-            },
-        ])
+        _make_spec_dir_with_tasks_json(
+            tmp_path,
+            [
+                {
+                    "id": 1,
+                    "title": "Do something",
+                    "subtasks": [
+                        _make_subtask("1.1", "Do a thing with no file refs"),
+                    ],
+                },
+            ],
+        )
 
         impacts = extract_file_impacts(tmp_path, task_group=1)
         assert impacts == set()
@@ -209,28 +215,31 @@ class TestExtractFileImpacts:
         """
         from agentfox.graph.file_impacts import extract_file_impacts
 
-        _make_spec_dir_with_tasks_json(tmp_path, [
-            {
-                "id": 1,
-                "title": "Write tests",
-                "subtasks": [
-                    _make_subtask("1.1", "Create `tests/test_foo.py`"),
-                ],
-            },
-            {
-                "id": 2,
-                "title": "Implement feature",
-                "subtasks": [
-                    _make_subtask("2.1", "Update `agent_fox/cli/status.py`"),
-                    _make_subtask("2.2", "Update `agent_fox/engine/engine.py`"),
-                ],
-            },
-            {
-                "id": 3,
-                "title": "Wire integration",
-                "subtasks": [],
-            },
-        ])
+        _make_spec_dir_with_tasks_json(
+            tmp_path,
+            [
+                {
+                    "id": 1,
+                    "title": "Write tests",
+                    "subtasks": [
+                        _make_subtask("1.1", "Create `tests/test_foo.py`"),
+                    ],
+                },
+                {
+                    "id": 2,
+                    "title": "Implement feature",
+                    "subtasks": [
+                        _make_subtask("2.1", "Update `agent_fox/cli/status.py`"),
+                        _make_subtask("2.2", "Update `agent_fox/engine/engine.py`"),
+                    ],
+                },
+                {
+                    "id": 3,
+                    "title": "Wire integration",
+                    "subtasks": [],
+                },
+            ],
+        )
 
         files = extract_file_impacts(tmp_path, task_group=2)
         assert "agent_fox/cli/status.py" in files
@@ -342,19 +351,22 @@ class TestTasksJsonMigration:
         """extract_file_impacts parses tasks.json and returns predicted paths."""
         from agentfox.graph.file_impacts import extract_file_impacts
 
-        _make_spec_dir_with_tasks_json(tmp_path, [
-            {
-                "id": 1,
-                "title": "Implement feature",
-                "subtasks": [
-                    _make_subtask(
-                        "1.1",
-                        "Update `engine/dispatch.py`",
-                        details=["Also touch `engine/result_handler.py`"],
-                    ),
-                ],
-            },
-        ])
+        _make_spec_dir_with_tasks_json(
+            tmp_path,
+            [
+                {
+                    "id": 1,
+                    "title": "Implement feature",
+                    "subtasks": [
+                        _make_subtask(
+                            "1.1",
+                            "Update `engine/dispatch.py`",
+                            details=["Also touch `engine/result_handler.py`"],
+                        ),
+                    ],
+                },
+            ],
+        )
 
         result = extract_file_impacts(tmp_path, task_group=1)
         assert "engine/dispatch.py" in result
@@ -365,11 +377,7 @@ class TestTasksJsonMigration:
 
         # Only write tasks.md (no tasks.json), should return empty
         tasks_md = tmp_path / "tasks.md"
-        tasks_md.write_text(
-            "## Tasks\n"
-            "- [ ] 1. Write tests\n"
-            "  - [ ] 1.1 Create `routing/duration.py`\n"
-        )
+        tasks_md.write_text("## Tasks\n- [ ] 1. Write tests\n  - [ ] 1.1 Create `routing/duration.py`\n")
 
         result = extract_file_impacts(tmp_path, task_group=1)
         # tasks.md is NOT read — the function only uses parse_tasks (tasks.json)
@@ -379,19 +387,22 @@ class TestTasksJsonMigration:
         """File paths in the group body (rendered from details) are extracted."""
         from agentfox.graph.file_impacts import extract_file_impacts
 
-        _make_spec_dir_with_tasks_json(tmp_path, [
-            {
-                "id": 1,
-                "title": "Implement feature",
-                "subtasks": [
-                    _make_subtask(
-                        "1.1",
-                        "Add feature module",
-                        details=["Create `features/new_module.py`"],
-                    ),
-                ],
-            },
-        ])
+        _make_spec_dir_with_tasks_json(
+            tmp_path,
+            [
+                {
+                    "id": 1,
+                    "title": "Implement feature",
+                    "subtasks": [
+                        _make_subtask(
+                            "1.1",
+                            "Add feature module",
+                            details=["Create `features/new_module.py`"],
+                        ),
+                    ],
+                },
+            ],
+        )
 
         result = extract_file_impacts(tmp_path, task_group=1)
         # The subtask title doesn't have a file path, but the body (rendered

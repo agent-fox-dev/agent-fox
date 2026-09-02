@@ -177,13 +177,9 @@ class TestHarvestAndIntegrateBranchMode:
                 return_value=["changed.py"],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert mock_harvest.call_count == 0, (
-            "harvest() should NOT be called in branch mode"
-        )
+        assert mock_harvest.call_count == 0, "harvest() should NOT be called in branch mode"
 
     @pytest.mark.asyncio
     async def test_git_push_not_called(self) -> None:
@@ -220,9 +216,7 @@ class TestHarvestAndIntegrateBranchMode:
                 new_callable=AsyncMock,
             ) as mock_push,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # push_to_remote should not be called in branch mode
         mock_push.assert_not_called()
@@ -258,13 +252,9 @@ class TestHarvestAndIntegrateBranchMode:
                 return_value=["changed.py"],
             ) as mock_gcf,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert mock_gcf.call_count == 1, (
-            "get_changed_files() should be called exactly once in branch mode"
-        )
+        assert mock_gcf.call_count == 1, "get_changed_files() should be called exactly once in branch mode"
 
     @pytest.mark.asyncio
     async def test_returns_completed_tuple(self) -> None:
@@ -297,9 +287,7 @@ class TestHarvestAndIntegrateBranchMode:
                 return_value=["changed.py"],
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert result == ("completed", None, ["changed.py"], False)
 
@@ -340,23 +328,14 @@ class TestHarvestAndIntegrateBranchMode:
                 return_value=["changed.py"],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        info_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "Merge strategy" in r.message
-        ]
+        info_lines = [r for r in caplog.records if r.levelno == logging.INFO and "Merge strategy" in r.message]
         assert len(info_lines) == 1, (
             f"Expected exactly one INFO log about merge strategy, "
             f"got {len(info_lines)}: {[r.message for r in info_lines]}"
         )
-        expected_msg = (
-            "Merge strategy is 'branch' — feature branch "
-            "'feat/my-feature' kept locally."
-        )
+        expected_msg = "Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally."
         assert info_lines[0].message == expected_msg
 
     @pytest.mark.asyncio
@@ -394,14 +373,10 @@ class TestHarvestAndIntegrateBranchMode:
                 return_value=["changed.py"],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         merge_strategy_logs = [
-            r
-            for r in caplog.records
-            if "Merge strategy" in r.message or "merge strategy" in r.message.lower()
+            r for r in caplog.records if "Merge strategy" in r.message or "merge strategy" in r.message.lower()
         ]
         assert len(merge_strategy_logs) == 1, (
             f"Expected exactly one merge strategy log line, "
@@ -472,9 +447,7 @@ class TestIntegrateFixBranchMode:
         ):
             await pipeline._integrate_fix(issue, spec, workspace)
 
-        assert mock_harvest_push.call_count == 0, (
-            "_harvest_and_push() should NOT be called in branch mode"
-        )
+        assert mock_harvest_push.call_count == 0, "_harvest_and_push() should NOT be called in branch mode"
 
     @pytest.mark.asyncio
     async def test_git_push_not_called(self) -> None:
@@ -618,10 +591,7 @@ class TestIntegrateFixBranchMode:
             if expected_comment in body_text:
                 found = True
                 break
-        assert found, (
-            f"Expected branch-mode comment not found in add_issue_comment calls. "
-            f"Calls made: {comment_calls}"
-        )
+        assert found, f"Expected branch-mode comment not found in add_issue_comment calls. Calls made: {comment_calls}"
 
     @pytest.mark.asyncio
     async def test_returns_valid_tuple(self) -> None:
@@ -717,16 +687,12 @@ class TestIntegrateFixBranchMode:
         branch_mode_calls = [
             c
             for c in comment_calls
-            if "Merge strategy" in str(c)
-            or "merge manually" in str(c)
-            or "branch" in str(c).lower()
+            if "Merge strategy" in str(c) or "merge manually" in str(c) or "branch" in str(c).lower()
         ]
         for c in branch_mode_calls:
             args, kwargs = c
             issue_num = args[0] if args else kwargs.get("issue_number")
-            assert issue_num == 99, (
-                f"Expected issue number 99, got {issue_num}"
-            )
+            assert issue_num == 99, f"Expected issue number 99, got {issue_num}"
 
 
 # ---------------------------------------------------------------------------
@@ -789,9 +755,7 @@ class TestBranchModeSessionSummary:
                 return_value=["changed.py"],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # The branch name should appear somewhere in log output
         all_messages = " ".join(r.message for r in caplog.records)
@@ -831,17 +795,11 @@ class TestBranchModeSessionSummary:
                 return_value=["changed.py"],
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, error_message, _touched_files, _non_retryable = result
-        assert status == "completed", (
-            "Branch mode should return 'completed' status (exit code 0)"
-        )
-        assert error_message is None, (
-            "Branch mode should return None error message"
-        )
+        assert status == "completed", "Branch mode should return 'completed' status (exit code 0)"
+        assert error_message is None, "Branch mode should return None error message"
 
     @pytest.mark.asyncio
     async def test_branch_name_in_info_log_for_different_branch(
@@ -878,15 +836,9 @@ class TestBranchModeSessionSummary:
                 return_value=["changed.py"],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        info_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "Merge strategy" in r.message
-        ]
+        info_lines = [r for r in caplog.records if r.levelno == logging.INFO and "Merge strategy" in r.message]
         assert len(info_lines) == 1
         assert "feature/02_merge_strategy/6" in info_lines[0].message
 
@@ -938,9 +890,7 @@ class TestBranchModeEmptyChangedFiles:
                 return_value=[],
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert result == ("completed", None, [], False)
 
@@ -979,16 +929,11 @@ class TestBranchModeEmptyChangedFiles:
                 return_value=[],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        error_logs = [
-            r for r in caplog.records if r.levelno >= logging.ERROR
-        ]
+        error_logs = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert len(error_logs) == 0, (
-            f"No error logs expected in branch mode with empty changed files, "
-            f"got: {[r.message for r in error_logs]}"
+            f"No error logs expected in branch mode with empty changed files, got: {[r.message for r in error_logs]}"
         )
 
     @pytest.mark.asyncio
@@ -1023,9 +968,7 @@ class TestBranchModeEmptyChangedFiles:
             ),
         ):
             # Should not raise any exception
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Basic sanity check on result shape
         assert len(result) == 4
@@ -1070,15 +1013,7 @@ class TestBranchModeEmptyChangedFiles:
                 return_value=[],
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        info_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "Merge strategy" in r.message
-        ]
-        assert len(info_lines) == 1, (
-            "INFO log about branch mode should be emitted even with empty changed files"
-        )
+        info_lines = [r for r in caplog.records if r.levelno == logging.INFO and "Merge strategy" in r.message]
+        assert len(info_lines) == 1, "INFO log about branch mode should be emitted even with empty changed files"

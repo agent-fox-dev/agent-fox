@@ -87,9 +87,7 @@ def _mock_knowledge_store() -> MagicMock:
 class TestClearAllNodes:
     """af plan --clear marks every node completed and truncates session tables."""
 
-    def test_clear_sets_all_nodes_completed_and_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_clear_sets_all_nodes_completed_and_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --clear on a plan with 3 mixed-status nodes,
         THEN exit code is 0, all nodes are set to completed via
         persist_node_status, and output reports the count.
@@ -138,15 +136,10 @@ class TestClearAllNodes:
         assert result.exit_code == 0
 
         # Verify session tables were truncated via the mock connection
-        executed_sql = [
-            c.args[0].strip()
-            for c in mock_db.connection.execute.call_args_list
-        ]
+        executed_sql = [c.args[0].strip() for c in mock_db.connection.execute.call_args_list]
         session_tables = {"runs", "session_outcomes", "review_findings", "drift_findings"}
         for table in session_tables:
-            assert any(
-                table in sql for sql in executed_sql
-            ), f"Session table '{table}' was not truncated"
+            assert any(table in sql for sql in executed_sql), f"Session table '{table}' was not truncated"
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +151,7 @@ class TestClearAllNodes:
 class TestClearWithSpec:
     """af plan --clear --spec NAME only clears nodes belonging to the named spec."""
 
-    def test_clear_spec_only_updates_matching_nodes(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_clear_spec_only_updates_matching_nodes(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --clear --spec spec_a on a plan with nodes from
         spec_a and spec_b, THEN only spec_a nodes are set to completed.
         """
@@ -189,9 +180,7 @@ class TestClearWithSpec:
         persisted_ids = {c.args[1] for c in mock_persist.call_args_list}
         assert persisted_ids == {"spec_a:1", "spec_a:2"}
 
-    def test_clear_spec_no_matching_nodes_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_clear_spec_no_matching_nodes_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN --clear --spec targets a spec with zero matching nodes,
         THEN exit code is 0 and cleared count is 0.
 
@@ -210,9 +199,7 @@ class TestClearWithSpec:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.persist_node_status") as mock_persist,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--clear", "--spec", "nonexistent_spec"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--clear", "--spec", "nonexistent_spec"])
 
         assert result.exit_code == 0
         assert "0" in result.output
@@ -272,9 +259,7 @@ class TestClearJsonOutput:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.persist_node_status"),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--clear", "--spec", "foo", "--json"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--clear", "--spec", "foo", "--json"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -337,9 +322,7 @@ class TestClearNoPlan:
         combined = result.output + getattr(result, "stderr", "")
         assert "no plan found" in combined.lower()
 
-    def test_clear_no_plan_does_not_modify_tables(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_clear_no_plan_does_not_modify_tables(self, cli_runner: CliRunner) -> None:
         """WHEN load_plan returns None, THEN no tables are modified."""
         mock_db = _mock_knowledge_store()
 
@@ -385,9 +368,7 @@ class TestClearDaemonGuard:
     Edge case: 01-REQ-1.E2
     """
 
-    def test_clear_with_active_daemon_exits_one(
-        self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_clear_with_active_daemon_exits_one(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         """WHEN the nightshift daemon PID guard is active,
         THEN exit code is 1 and an error message is shown.
         """

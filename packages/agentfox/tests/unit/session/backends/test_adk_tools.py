@@ -81,7 +81,6 @@ class TestAdkToolsSignatures:
                 )
 
 
-
 # ---------------------------------------------------------------------------
 # TS-04-20: read_file happy path
 # Requirement: 04-REQ-6.3
@@ -765,19 +764,13 @@ class TestAdkToolsSuiteCoverage:
             "list_files",
             "search_files",
         ):
-            assert tool_name in source, (
-                f"No test found for tool: {tool_name}"
-            )
+            assert tool_name in source, f"No test found for tool: {tool_name}"
 
     def test_path_containment_tests_present(self) -> None:
         """TS-04-40 variant: Path containment tests exist in this file."""
         source = Path(__file__).read_text(encoding="utf-8")
-        assert "path_not_allowed" in source, (
-            "No path containment test found in test file"
-        )
-        assert "Path escapes workspace root" in source, (
-            "No path escape detail assertion found in test file"
-        )
+        assert "path_not_allowed" in source, "No path containment test found in test file"
+        assert "Path escapes workspace root" in source, "No path escape detail assertion found in test file"
 
 
 # ---------------------------------------------------------------------------
@@ -791,11 +784,11 @@ class TestPathContainmentProperty:
 
     # Escape path patterns to test — all should be blocked
     ESCAPE_PATHS = [
-        "../../../etc/passwd",         # relative traversal
-        "../../etc/passwd",            # relative traversal (shorter)
-        "../outside",                  # one level up
-        "/etc/passwd",                 # absolute path
-        "/tmp/outside_workspace",      # absolute path to tmp
+        "../../../etc/passwd",  # relative traversal
+        "../../etc/passwd",  # relative traversal (shorter)
+        "../outside",  # one level up
+        "/etc/passwd",  # absolute path
+        "/tmp/outside_workspace",  # absolute path to tmp
     ]
 
     def test_read_file_rejects_all_escape_paths(self) -> None:
@@ -919,6 +912,4 @@ class TestPathContainmentProperty:
             )
 
             assert result.get("error") == "path_not_allowed"
-            assert not resolved_marker.exists(), (
-                "File was created outside workspace despite containment check"
-            )
+            assert not resolved_marker.exists(), "File was created outside workspace despite containment check"

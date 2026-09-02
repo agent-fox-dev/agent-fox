@@ -384,13 +384,9 @@ class TestPyprojectDeepagentsDependency:
 
     def test_deepagents_in_dependencies(self) -> None:
         """TS-03-36: dependencies contains 'deepagents>=0.5'."""
-        types_path = inspect.getfile(
-            __import__("agentfox.session.backends.types", fromlist=["types"])
-        )
+        types_path = inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         backends_dir = os.path.dirname(types_path)
-        pyproject_path = os.path.normpath(
-            os.path.join(backends_dir, "..", "..", "..", "pyproject.toml")
-        )
+        pyproject_path = os.path.normpath(os.path.join(backends_dir, "..", "..", "..", "pyproject.toml"))
 
         assert os.path.exists(pyproject_path), f"pyproject.toml not found at {pyproject_path}"
 
@@ -401,7 +397,6 @@ class TestPyprojectDeepagentsDependency:
         assert any("deepagents>=0.5" in d for d in deps), (
             f"Expected 'deepagents>=0.5' in project.dependencies, got {deps}"
         )
-
 
 
 # ---------------------------------------------------------------------------
@@ -1357,9 +1352,7 @@ class TestAfSdkToolRegistration:
             "subtask_state",
         }
         actual_names = {t.name for t in captured_tools}
-        assert actual_names == expected_names, (
-            f"Tool names mismatch. Expected {expected_names}, got {actual_names}"
-        )
+        assert actual_names == expected_names, f"Tool names mismatch. Expected {expected_names}, got {actual_names}"
 
     @pytest.mark.asyncio
     async def test_tools_are_langchain_base_tools(self) -> None:
@@ -1441,12 +1434,8 @@ class TestToolSchemaGeneration:
         for tool in captured_tools:
             # LangChain BaseTool.args_schema is a pydantic model class
             schema = tool.args_schema.schema()
-            assert "properties" in schema, (
-                f"Tool '{tool.name}' schema missing 'properties'"
-            )
-            assert len(schema["properties"]) > 0, (
-                f"Tool '{tool.name}' has empty properties"
-            )
+            assert "properties" in schema, f"Tool '{tool.name}' schema missing 'properties'"
+            assert len(schema["properties"]) > 0, f"Tool '{tool.name}' has empty properties"
             # Each field must have a type or $ref (no untyped params)
             for field_name, field_def in schema["properties"].items():
                 assert "type" in field_def or "$ref" in field_def or "anyOf" in field_def, (
@@ -1502,9 +1491,7 @@ class TestToolWrappersCallInProcess:
 
         # Verify each tool is callable (thin sync wrapper)
         for tool_name, tool in tools_by_name.items():
-            assert callable(getattr(tool, "invoke", None)) or callable(tool), (
-                f"Tool '{tool_name}' is not callable"
-            )
+            assert callable(getattr(tool, "invoke", None)) or callable(tool), f"Tool '{tool_name}' is not callable"
 
 
 # ---------------------------------------------------------------------------
@@ -1558,9 +1545,7 @@ class TestAfSdkFunctionAnnotations:
             schema = tool.args_schema.schema()
             properties = schema.get("properties", {})
             # Every tool must have at least one typed parameter
-            assert len(properties) > 0, (
-                f"Tool '{tool.name}' has no typed parameters in args_schema"
-            )
+            assert len(properties) > 0, f"Tool '{tool.name}' has no typed parameters in args_schema"
 
 
 # ---------------------------------------------------------------------------
@@ -1849,9 +1834,7 @@ class TestPropertyPermissionsNeverPassed:
             )
 
         for call_kwargs in all_create_calls:
-            assert "permissions" not in call_kwargs, (
-                "'permissions' found in create_deep_agent kwargs (no callback)"
-            )
+            assert "permissions" not in call_kwargs, "'permissions' found in create_deep_agent kwargs (no callback)"
 
     @pytest.mark.asyncio
     async def test_prop_permissions_absent_with_callback(self) -> None:
@@ -1883,9 +1866,7 @@ class TestPropertyPermissionsNeverPassed:
             )
 
         for call_kwargs in all_create_calls:
-            assert "permissions" not in call_kwargs, (
-                "'permissions' found in create_deep_agent kwargs (with callback)"
-            )
+            assert "permissions" not in call_kwargs, "'permissions' found in create_deep_agent kwargs (with callback)"
 
     @pytest.mark.asyncio
     async def test_prop_permissions_absent_various_models(self) -> None:
@@ -1964,9 +1945,7 @@ class TestThinkingParameterByModelPrefix:
 
         assert mock_create.called
         call_kwargs = mock_create.call_args.kwargs
-        assert "thinking" in call_kwargs, (
-            "Expected 'thinking' in create_deep_agent kwargs for anthropic: model"
-        )
+        assert "thinking" in call_kwargs, "Expected 'thinking' in create_deep_agent kwargs for anthropic: model"
 
     @pytest.mark.asyncio
     async def test_thinking_absent_for_openai_model(self) -> None:
@@ -1993,9 +1972,7 @@ class TestThinkingParameterByModelPrefix:
 
         assert mock_create.called
         call_kwargs = mock_create.call_args.kwargs
-        assert "thinking" not in call_kwargs, (
-            "Expected 'thinking' NOT in create_deep_agent kwargs for openai: model"
-        )
+        assert "thinking" not in call_kwargs, "Expected 'thinking' NOT in create_deep_agent kwargs for openai: model"
 
     @pytest.mark.asyncio
     async def test_thinking_absent_for_ollama_model(self) -> None:
@@ -2018,9 +1995,7 @@ class TestThinkingParameterByModelPrefix:
 
         assert mock_create.called
         call_kwargs = mock_create.call_args.kwargs
-        assert "thinking" not in call_kwargs, (
-            "Expected 'thinking' NOT in create_deep_agent kwargs for ollama: model"
-        )
+        assert "thinking" not in call_kwargs, "Expected 'thinking' NOT in create_deep_agent kwargs for ollama: model"
 
     @pytest.mark.asyncio
     async def test_thinking_typeerror_silently_retried(self) -> None:
@@ -2113,8 +2088,7 @@ class TestMaxBudgetUsdTypeerror:
 
         # Should retry: called at least twice
         assert call_count >= 2, (
-            f"Expected at least 2 create_deep_agent calls (retry without max_budget_usd), "
-            f"got {call_count}"
+            f"Expected at least 2 create_deep_agent calls (retry without max_budget_usd), got {call_count}"
         )
 
         # Should log a DEBUG message about the unsupported parameter
@@ -2174,10 +2148,7 @@ class TestEffortTypeerror:
                 )
 
         # Should retry: called at least twice
-        assert call_count >= 2, (
-            f"Expected at least 2 create_deep_agent calls (retry without effort), "
-            f"got {call_count}"
-        )
+        assert call_count >= 2, f"Expected at least 2 create_deep_agent calls (retry without effort), got {call_count}"
 
         # Should log a DEBUG message
         debug_records = [r for r in caplog.records if r.levelno <= logging.DEBUG]
@@ -2229,8 +2200,7 @@ class TestNoCompactionParameter:
 
         for kwargs in all_kwargs:
             assert "compaction" not in kwargs, (
-                "'compaction' was passed to create_deep_agent; "
-                "context management is delegated to Deep Agents"
+                "'compaction' was passed to create_deep_agent; context management is delegated to Deep Agents"
             )
 
     @pytest.mark.asyncio
@@ -2264,9 +2234,7 @@ class TestNoCompactionParameter:
             )
 
         for kwargs in all_kwargs:
-            assert "compaction" not in kwargs, (
-                "'compaction' forwarded to create_deep_agent from execute() kwargs"
-            )
+            assert "compaction" not in kwargs, "'compaction' forwarded to create_deep_agent from execute() kwargs"
 
 
 # ---------------------------------------------------------------------------
@@ -2532,9 +2500,7 @@ class TestFreshAgentOnRetry:
 
         # Only AssistantMessage from attempt 2 should be present
         asst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
-        assert len(asst_msgs) == 1, (
-            f"Expected 1 AssistantMessage (from retry only), got {len(asst_msgs)}"
-        )
+        assert len(asst_msgs) == 1, f"Expected 1 AssistantMessage (from retry only), got {len(asst_msgs)}"
         assert asst_msgs[0].content == "from-attempt-2"
 
         # Terminal ResultMessage
@@ -2608,14 +2574,11 @@ class TestPropertyRetryBoundInvariant:
         for i, delay in enumerate(sleep_calls):
             expected_delay = _BACKOFF_BASE * (2**i)
             assert delay == expected_delay, (
-                f"Sleep delay {i} was {delay}, expected {expected_delay} "
-                f"(_BACKOFF_BASE * 2^{i})"
+                f"Sleep delay {i} was {delay}, expected {expected_delay} (_BACKOFF_BASE * 2^{i})"
             )
 
         # At most 2 sleeps for 3 attempts
-        assert len(sleep_calls) <= 2, (
-            f"Expected at most 2 sleep calls for 3 attempts, got {len(sleep_calls)}"
-        )
+        assert len(sleep_calls) <= 2, f"Expected at most 2 sleep calls for 3 attempts, got {len(sleep_calls)}"
 
         # Terminal error result
         result = messages[-1]
@@ -2933,10 +2896,7 @@ class TestCloseReleasesState:
         for attr in state_attrs:
             if hasattr(backend, attr):
                 val = getattr(backend, attr)
-                assert val is None, (
-                    f"Expected backend.{attr} to be None after close(), "
-                    f"got {type(val).__name__}"
-                )
+                assert val is None, f"Expected backend.{attr} to be None after close(), got {type(val).__name__}"
 
 
 # ---------------------------------------------------------------------------
@@ -2983,15 +2943,9 @@ class TestCloseNoAsyncCancellation:
             if isinstance(node, ast.Call):
                 # Check for obj.cancel() or cancel() calls
                 if isinstance(node.func, ast.Attribute) and node.func.attr == "cancel":
-                    pytest.fail(
-                        "close() body contains a .cancel() call; "
-                        "it should not perform async task cancellation"
-                    )
+                    pytest.fail("close() body contains a .cancel() call; it should not perform async task cancellation")
                 if isinstance(node.func, ast.Name) and node.func.id == "cancel":
-                    pytest.fail(
-                        "close() body contains a cancel() call; "
-                        "it should not perform async task cancellation"
-                    )
+                    pytest.fail("close() body contains a cancel() call; it should not perform async task cancellation")
 
 
 # ---------------------------------------------------------------------------
@@ -3411,14 +3365,10 @@ class TestSmokeTransientRetryExhaust:
             )
 
         # Step 1: create_deep_agent called exactly 3 times
-        assert create_count == 3, (
-            f"Expected exactly 3 create_deep_agent calls, got {create_count}"
-        )
+        assert create_count == 3, f"Expected exactly 3 create_deep_agent calls, got {create_count}"
 
         # Step 2-3: Backoff delays [1.0, 2.0] — no 4.0 (only 2 waits for 3 attempts)
-        assert sleep_delays == [1.0, 2.0], (
-            f"Expected backoff delays [1.0, 2.0], got {sleep_delays}"
-        )
+        assert sleep_delays == [1.0, 2.0], f"Expected backoff delays [1.0, 2.0], got {sleep_delays}"
 
         # Step 4: Terminal error ResultMessage
         result = messages[-1]

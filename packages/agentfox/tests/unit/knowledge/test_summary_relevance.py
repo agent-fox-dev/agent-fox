@@ -144,9 +144,7 @@ class TestRelevanceRanking:
                 return {"src/auth.py", "src/utils.py"}
             return {"src/unrelated.py"}
 
-        provider = _make_provider(
-            provider_db, run_id="run-1", spec_dir=Path("/fake/spec")
-        )
+        provider = _make_provider(provider_db, run_id="run-1", spec_dir=Path("/fake/spec"))
 
         with patch(
             "agentfox.graph.file_impacts.extract_file_impacts",
@@ -177,8 +175,7 @@ class TestRelevanceRanking:
             last_overlap_idx = max(remaining.index(g) for g in remaining_overlap)
             first_non_overlap_idx = min(remaining.index(g) for g in remaining_non_overlap)
             assert last_overlap_idx < first_non_overlap_idx, (
-                f"Overlap groups should precede non-overlap in ranked portion; "
-                f"full order: {groups}"
+                f"Overlap groups should precede non-overlap in ranked portion; full order: {groups}"
             )
 
 
@@ -186,9 +183,7 @@ class TestRelevanceRanking:
 class TestPrecedingGroupAlwaysIncluded:
     """NS-REQ-2: The immediately preceding group's summary is always included."""
 
-    def test_preceding_group_included_despite_zero_overlap(
-        self, provider_db, provider_conn
-    ):
+    def test_preceding_group_included_despite_zero_overlap(self, provider_db, provider_conn):
         """Group 4 has zero overlap but should still appear because it is
         the immediately preceding group (current = 5).
         """
@@ -200,9 +195,7 @@ class TestPrecedingGroupAlwaysIncluded:
                 return {"src/auth.py"}
             return set()
 
-        provider = _make_provider(
-            provider_db, run_id="run-1", spec_dir=Path("/fake/spec")
-        )
+        provider = _make_provider(provider_db, run_id="run-1", spec_dir=Path("/fake/spec"))
 
         with patch(
             "agentfox.graph.file_impacts.extract_file_impacts",
@@ -219,8 +212,7 @@ class TestPrecedingGroupAlwaysIncluded:
         groups = _extract_group_numbers(context_items)
 
         assert 4 in groups, (
-            f"Group 4 (immediately preceding) should be included despite zero overlap; "
-            f"got groups: {groups}"
+            f"Group 4 (immediately preceding) should be included despite zero overlap; got groups: {groups}"
         )
 
 
@@ -254,18 +246,14 @@ class TestMaxSummaryItemsRespected:
             )
 
         context_items = [i for i in items if i.startswith("[CONTEXT]")]
-        assert len(context_items) <= 3, (
-            f"Expected at most 3 [CONTEXT] items; got {len(context_items)}"
-        )
+        assert len(context_items) <= 3, f"Expected at most 3 [CONTEXT] items; got {len(context_items)}"
 
 
 # TS-NS-4: Fallback to original ordering when file_footprint is None/empty
 class TestFallbackOrdering:
     """NS-REQ-4: Falls back to ascending task-group order when no footprint."""
 
-    def test_none_footprint_preserves_ascending_order(
-        self, provider_db, provider_conn
-    ):
+    def test_none_footprint_preserves_ascending_order(self, provider_db, provider_conn):
         """file_footprint=None -> ascending group order (1, 2, 3)."""
         _insert_groups(provider_conn, [1, 2, 3])
 
@@ -281,13 +269,9 @@ class TestFallbackOrdering:
         context_items = [i for i in items if i.startswith("[CONTEXT]")]
         groups = _extract_group_numbers(context_items)
 
-        assert groups == [1, 2, 3], (
-            f"Expected ascending order [1, 2, 3] with None footprint; got {groups}"
-        )
+        assert groups == [1, 2, 3], f"Expected ascending order [1, 2, 3] with None footprint; got {groups}"
 
-    def test_empty_footprint_preserves_ascending_order(
-        self, provider_db, provider_conn
-    ):
+    def test_empty_footprint_preserves_ascending_order(self, provider_db, provider_conn):
         """file_footprint=[] -> ascending group order (1, 2, 3)."""
         _insert_groups(provider_conn, [1, 2, 3])
 
@@ -303,9 +287,7 @@ class TestFallbackOrdering:
         context_items = [i for i in items if i.startswith("[CONTEXT]")]
         groups = _extract_group_numbers(context_items)
 
-        assert groups == [1, 2, 3], (
-            f"Expected ascending order [1, 2, 3] with empty footprint; got {groups}"
-        )
+        assert groups == [1, 2, 3], f"Expected ascending order [1, 2, 3] with empty footprint; got {groups}"
 
 
 # TS-NS-5: Graceful handling of extract_file_impacts failures
@@ -325,9 +307,7 @@ class TestExtractFileImpactsFailure:
                 return {"src/auth.py"}
             return set()
 
-        provider = _make_provider(
-            provider_db, run_id="run-1", spec_dir=Path("/fake/spec")
-        )
+        provider = _make_provider(provider_db, run_id="run-1", spec_dir=Path("/fake/spec"))
 
         with patch(
             "agentfox.graph.file_impacts.extract_file_impacts",

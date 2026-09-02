@@ -57,17 +57,13 @@ class TestCheckFindingConvergence:
     def test_all_superseded_returns_zero(self, conn: duckdb.DuckDBPyConnection) -> None:
         ids = _insert_and_inject(conn, n_findings=3, session_id="spec_a:2")
         for fid in ids:
-            conn.execute(
-                "UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid]
-            )
+            conn.execute("UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid])
         assert check_finding_convergence(conn, "spec_a:2") == pytest.approx(0.0)
 
     def test_partial_returns_correct_ratio(self, conn: duckdb.DuckDBPyConnection) -> None:
         ids = _insert_and_inject(conn, n_findings=10, session_id="spec_a:2")
         for fid in ids[:3]:
-            conn.execute(
-                "UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid]
-            )
+            conn.execute("UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid])
         assert check_finding_convergence(conn, "spec_a:2") == pytest.approx(0.7)
 
     def test_no_injections_returns_zero(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -87,18 +83,14 @@ class TestQueryUnresolvedInjections:
 
     def test_excludes_superseded(self, conn: duckdb.DuckDBPyConnection) -> None:
         ids = _insert_and_inject(conn, n_findings=3, session_id="spec_a:2", spec_name="spec_a", task_group="2")
-        conn.execute(
-            "UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [ids[0]]
-        )
+        conn.execute("UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [ids[0]])
         result = query_unresolved_injections(conn, "spec_a", "2")
         assert len(result) == 2
 
     def test_all_resolved_returns_empty(self, conn: duckdb.DuckDBPyConnection) -> None:
         ids = _insert_and_inject(conn, n_findings=2, session_id="spec_a:2", spec_name="spec_a", task_group="2")
         for fid in ids:
-            conn.execute(
-                "UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid]
-            )
+            conn.execute("UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID", [fid])
         assert query_unresolved_injections(conn, "spec_a", "2") == []
 
     def test_no_injections_returns_empty(self, conn: duckdb.DuckDBPyConnection) -> None:

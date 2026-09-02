@@ -145,5 +145,3 @@ def sort_findings(
             f.description,
         ),
     )
-
-

@@ -221,9 +221,7 @@ class TestSmokeCreatePr409Fallback:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError, match="duplicate"):
-                await platform.create_pr(
-                    title="T", body="B", head="feat", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="feat", base="main")
 
     @pytest.mark.asyncio
     async def test_409_fallback_get_failure_raises(self) -> None:
@@ -239,9 +237,7 @@ class TestSmokeCreatePr409Fallback:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError, match="409.*fallback.*failed"):
-                await platform.create_pr(
-                    title="T", body="B", head="feat", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="feat", base="main")
 
     @pytest.mark.asyncio
     async def test_non_201_non_409_raises(self) -> None:
@@ -253,9 +249,7 @@ class TestSmokeCreatePr409Fallback:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError, match="422"):
-                await platform.create_pr(
-                    title="T", body="B", head="feat", base="main"
-                )
+                await platform.create_pr(title="T", body="B", head="feat", base="main")
 
 
 # ===========================================================================
@@ -380,8 +374,7 @@ class TestSmokeGiteaImportability:
         # Verify that ConfigError exists and can be raised
         with pytest.raises(ConfigError, match="not.*available"):
             raise ConfigError(
-                "The Gitea platform is not yet available. "
-                "Install the afissues package with Gitea support."
+                "The Gitea platform is not yet available. Install the afissues package with Gitea support."
             )
 
     def test_import_error_does_not_propagate(self) -> None:
@@ -392,9 +385,7 @@ class TestSmokeGiteaImportability:
             try:
                 import afissues.nonexistent_platform  # noqa: F401
             except ImportError:
-                raise ConfigError(
-                    "The requested platform is not yet available."
-                )
+                raise ConfigError("The requested platform is not yet available.")
 
 
 # ===========================================================================
@@ -466,9 +457,7 @@ class TestWiringVerification:
             "check_credentials",
         ]
         for method_name in required_methods:
-            assert hasattr(GitLabPlatform, method_name), (
-                f"GitLabPlatform missing method: {method_name}"
-            )
+            assert hasattr(GitLabPlatform, method_name), f"GitLabPlatform missing method: {method_name}"
             assert callable(getattr(GitLabPlatform, method_name))
 
     def test_gitlab_importable_from_top_level(self) -> None:
@@ -532,9 +521,7 @@ class TestReturnValuePropagation:
         client = _mock_client(post=AsyncMock(return_value=resp))
 
         with patch(_TARGET, return_value=client):
-            url = await platform.create_pr(
-                title="T", body="B", head="feat", base="main"
-            )
+            url = await platform.create_pr(title="T", body="B", head="feat", base="main")
 
         assert hasattr(url, "html_url")
         assert url.html_url == "https://gitlab.com/g/p/-/merge_requests/7"

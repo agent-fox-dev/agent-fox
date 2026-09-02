@@ -188,21 +188,16 @@ def _render_spec_sections(
                 arch_tokens = afspec.estimate_tokens(arch_section)
                 if current_tokens + arch_tokens > max_tokens:
                     logger.info(
-                        "Dropping architecture.md to stay within %d-token budget "
-                        "(spec: %d, arch: %d)",
+                        "Dropping architecture.md to stay within %d-token budget (spec: %d, arch: %d)",
                         max_tokens,
                         current_tokens,
                         arch_tokens,
                     )
-                    sections.append(
-                        "## Architecture\n\n_(Omitted — excluded by token budget.)_"
-                    )
+                    sections.append("## Architecture\n\n_(Omitted — excluded by token budget.)_")
                     return sections
             sections.append(arch_section)
     else:
-        sections.append(
-            "## Architecture\n\n_(Omitted — not required for this session.)_"
-        )
+        sections.append("## Architecture\n\n_(Omitted — not required for this session.)_")
 
     return sections
 
@@ -462,7 +457,10 @@ def assemble_context(
     # 03-REQ-4.1, 134-REQ-1.1: Read spec documents via afspec (v1.2 JSON)
     try:
         raw_sections = _render_spec_sections(
-            spec_dir, task_group=task_group, artifacts=artifacts, max_tokens=max_context_tokens,
+            spec_dir,
+            task_group=task_group,
+            artifacts=artifacts,
+            max_tokens=max_context_tokens,
         )
         sections.extend(sanitize_prompt_content(s, label="spec") for s in raw_sections)
     except Exception:

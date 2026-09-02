@@ -253,9 +253,7 @@ class GiteaPlatform:
         label_id = await self._resolve_label_id(label)
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels"
-        resp = await self._request(
-            "post", url, json={"labels": [label_id]}, headers=self._auth_headers
-        )
+        resp = await self._request("post", url, json={"labels": [label_id]}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -275,9 +273,7 @@ class GiteaPlatform:
             await self.add_issue_comment(issue_number, comment)
 
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
-        resp = await self._request(
-            "patch", url, json={"state": "closed"}, headers=self._auth_headers
-        )
+        resp = await self._request("patch", url, json={"state": "closed"}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -298,10 +294,7 @@ class GiteaPlatform:
         except IntegrationError:
             return  # Label doesn't exist in repo -- silently succeed.
 
-        url = (
-            f"{self._base_url}/repos/{self._owner}/{self._repo}"
-            f"/issues/{issue_number}/labels/{label_id}"
-        )
+        url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}/labels/{label_id}"
         resp = await self._request("delete", url, headers=self._auth_headers)
 
         if resp.status_code in (204, 404, 422):
@@ -365,9 +358,7 @@ class GiteaPlatform:
         Requirements: 05-REQ-11.1, 05-REQ-11.2
         """
         url = f"{self._base_url}/repos/{self._owner}/{self._repo}/issues/{issue_number}"
-        resp = await self._request(
-            "patch", url, json={"body": body}, headers=self._auth_headers
-        )
+        resp = await self._request("patch", url, json={"body": body}, headers=self._auth_headers)
 
         if resp.status_code < 200 or resp.status_code >= 300:
             raise IntegrationError(
@@ -431,21 +422,17 @@ class GiteaPlatform:
         if resp.status_code == 409:
             # Duplicate PR -- look up existing open PR (05-REQ-13.2).
             params = {"head": head, "base": base, "state": "open"}
-            get_resp = await self._request(
-                "get", url, params=params, headers=self._auth_headers
-            )
+            get_resp = await self._request("get", url, params=params, headers=self._auth_headers)
 
             if get_resp.status_code < 200 or get_resp.status_code >= 300:
                 raise IntegrationError(
-                    f"Failed to find existing PR ({get_resp.status_code}): "
-                    f"{_truncate_response(get_resp.text)}",
+                    f"Failed to find existing PR ({get_resp.status_code}): {_truncate_response(get_resp.text)}",
                 )
 
             existing = get_resp.json()
             if not existing:
                 raise IntegrationError(
-                    f"409 duplicate returned but no existing open PR found "
-                    f"for head={head} base={base}",
+                    f"409 duplicate returned but no existing open PR found for head={head} base={base}",
                 )
             return PrResult(html_url=existing[0]["html_url"], number=existing[0]["number"])
 

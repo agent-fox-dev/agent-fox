@@ -179,7 +179,5 @@ class TestRenderSpecSectionsArtifactFilter:
         """Sections list includes architecture when 'architecture' in artifacts."""
         from agentfox.session.context import _render_spec_sections
 
-        sections = _render_spec_sections(
-            tmp_spec_dir, artifacts=["requirements", "architecture"]
-        )
+        sections = _render_spec_sections(tmp_spec_dir, artifacts=["requirements", "architecture"])
         assert any("Design content here" in s for s in sections)

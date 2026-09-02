@@ -389,6 +389,9 @@ class TestSmokeThreeChannelRetrieval:
         # Log line must match four-field format
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
-        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ cross-spec \+ \d+ context items for smoke-spec"
+        pattern = (
+            r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group"
+            r" \+ \d+ cross-spec \+ \d+ context items for smoke-spec"
+        )
         assert re.search(pattern, matching[0]), f"Smoke log line doesn't match four-field format: {matching[0]}"
         conn.close()

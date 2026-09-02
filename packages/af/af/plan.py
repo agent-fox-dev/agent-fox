@@ -57,11 +57,7 @@ def _handle_clear(
 
         # Determine which nodes to clear
         if filter_spec is not None:
-            target_nodes = {
-                nid: node
-                for nid, node in graph.nodes.items()
-                if node.spec_name == filter_spec
-            }
+            target_nodes = {nid: node for nid, node in graph.nodes.items() if node.spec_name == filter_spec}
         else:
             target_nodes = graph.nodes
 

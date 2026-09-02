@@ -61,9 +61,7 @@ def _make_spec_dir(base: Path, spec_name: str, github_url: str) -> None:
     """Create a minimal spec directory with prd.md (frontmatter source) and tasks.md."""
     spec_dir = base / spec_name
     spec_dir.mkdir(parents=True)
-    (spec_dir / "prd.md").write_text(
-        f'---\ntitle: "Test"\nsource: "{github_url}"\n---\n# PRD\n'
-    )
+    (spec_dir / "prd.md").write_text(f'---\ntitle: "Test"\nsource: "{github_url}"\n---\n# PRD\n')
     (spec_dir / "tasks.md").write_text("- [x] 1. Implement feature\n")
 
 

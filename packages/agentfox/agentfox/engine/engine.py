@@ -331,8 +331,7 @@ class Orchestrator:
             return
         self._full_config.caching.cache_policy = CachePolicy.EXTENDED
         logger.info(
-            "Auto-selecting EXTENDED cache policy for multi-session run "
-            "(%d nodes, parallel=%d)",
+            "Auto-selecting EXTENDED cache policy for multi-session run (%d nodes, parallel=%d)",
             len(graph.nodes),
             self._config.parallel,
         )
@@ -903,4 +902,3 @@ class Orchestrator:
             total,
             remaining,
         )
-

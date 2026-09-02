@@ -196,8 +196,7 @@ class TestGoogleADKBackendProtocolConformance:
 
         backend = GoogleADKBackend()
         assert isinstance(backend, Backend), (
-            f"GoogleADKBackend() does not satisfy Backend Protocol: "
-            f"got {type(backend).__name__}"
+            f"GoogleADKBackend() does not satisfy Backend Protocol: got {type(backend).__name__}"
         )
 
 
@@ -1157,15 +1156,11 @@ class TestPermissionCallbackDenial:
                 )
 
         # permission_callback was invoked with the correct tool name and args
-        assert len(permission_calls) == 1, (
-            f"Expected 1 permission check, got {len(permission_calls)}"
-        )
+        assert len(permission_calls) == 1, f"Expected 1 permission check, got {len(permission_calls)}"
         assert permission_calls[0] == ("execute", {"command": "rm -rf /"})
 
         # The tool function was never invoked (04-REQ-5.2 core invariant)
-        assert len(tool_was_called) == 0, (
-            "Tool function was invoked despite permission denial"
-        )
+        assert len(tool_was_called) == 0, "Tool function was invoked despite permission denial"
 
         # A ToolUseMessage should still be yielded for the attempted call
         tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
@@ -1675,15 +1670,10 @@ class TestMaxBudgetDebugLog:
                     ),
                 )
 
-        debug_msgs = [
-            r.getMessage()
-            for r in caplog.records
-            if r.levelno == logging.DEBUG
-        ]
-        assert any(
-            "max_budget_usd=5.0 ignored" in m and "GoogleADKBackend" in m
-            for m in debug_msgs
-        ), f"Expected debug log about max_budget_usd; got: {debug_msgs}"
+        debug_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("max_budget_usd=5.0 ignored" in m and "GoogleADKBackend" in m for m in debug_msgs), (
+            f"Expected debug log about max_budget_usd; got: {debug_msgs}"
+        )
         assert isinstance(messages[-1], ResultMessage)
 
 
@@ -1728,12 +1718,8 @@ class TestIgnoredParameters:
                 )
 
         # No warning or error log entries should appear
-        warn_and_above = [
-            r for r in caplog.records if r.levelno >= logging.WARNING
-        ]
-        assert len(warn_and_above) == 0, (
-            f"Unexpected warning/error logs: {[r.getMessage() for r in warn_and_above]}"
-        )
+        warn_and_above = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warn_and_above) == 0, f"Unexpected warning/error logs: {[r.getMessage() for r in warn_and_above]}"
         assert isinstance(messages[-1], ResultMessage)
         assert messages[-1].is_error is False
 
@@ -1789,27 +1775,14 @@ class TestAfSdkToolRegistration:
                 "tools",
                 call_kwargs.args[3] if len(call_kwargs.args) > 3 else [],
             )
-            tool_names = [
-                getattr(t, "__name__", getattr(t, "name", str(t)))
-                for t in tools_passed
-            ]
+            tool_names = [getattr(t, "__name__", getattr(t, "name", str(t))) for t in tools_passed]
 
             # All five af SDK tools must be present
-            assert "spec_read" in tool_names, (
-                f"spec_read not found in tools: {tool_names}"
-            )
-            assert "context_search" in tool_names, (
-                f"context_search not found in tools: {tool_names}"
-            )
-            assert "context_get" in tool_names, (
-                f"context_get not found in tools: {tool_names}"
-            )
-            assert "memory_recall" in tool_names, (
-                f"memory_recall not found in tools: {tool_names}"
-            )
-            assert "subtask_state" in tool_names, (
-                f"subtask_state not found in tools: {tool_names}"
-            )
+            assert "spec_read" in tool_names, f"spec_read not found in tools: {tool_names}"
+            assert "context_search" in tool_names, f"context_search not found in tools: {tool_names}"
+            assert "context_get" in tool_names, f"context_get not found in tools: {tool_names}"
+            assert "memory_recall" in tool_names, f"memory_recall not found in tools: {tool_names}"
+            assert "subtask_state" in tool_names, f"subtask_state not found in tools: {tool_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -1823,42 +1796,26 @@ class TestAfSdkToolImportPaths:
 
     def test_sdk_tool_names_in_source(self) -> None:
         """TS-04-27: All 5 af SDK function names appear in google_adk.py source."""
-        google_adk_path = Path(__file__).resolve().parents[4] / (
-            "agentfox" / Path("session/backends/google_adk.py")
-        )
+        google_adk_path = Path(__file__).resolve().parents[4] / ("agentfox" / Path("session/backends/google_adk.py"))
         source = google_adk_path.read_text(encoding="utf-8")
 
         assert "spec_read" in source, "spec_read not found in google_adk.py"
-        assert "context_search" in source, (
-            "context_search not found in google_adk.py"
-        )
-        assert "context_get" in source, (
-            "context_get not found in google_adk.py"
-        )
-        assert "memory_recall" in source, (
-            "memory_recall not found in google_adk.py"
-        )
-        assert "subtask_state" in source, (
-            "subtask_state not found in google_adk.py"
-        )
+        assert "context_search" in source, "context_search not found in google_adk.py"
+        assert "context_get" in source, "context_get not found in google_adk.py"
+        assert "memory_recall" in source, "memory_recall not found in google_adk.py"
+        assert "subtask_state" in source, "subtask_state not found in google_adk.py"
 
     def test_no_registry_or_di_pattern(self) -> None:
         """TS-04-27: No DI registry/lookup used for af SDK tool registration."""
-        google_adk_path = Path(__file__).resolve().parents[4] / (
-            "agentfox" / Path("session/backends/google_adk.py")
-        )
+        google_adk_path = Path(__file__).resolve().parents[4] / ("agentfox" / Path("session/backends/google_adk.py"))
         source = google_adk_path.read_text(encoding="utf-8")
 
         # The source should not use a "registry" DI pattern for SDK tools
         source_lower = source.lower()
         # Allow "registry" in comments or docstrings but not as a
         # function call pattern like registry.get() or registry.lookup()
-        assert "registry.get(" not in source_lower, (
-            "Found registry.get() DI pattern in google_adk.py"
-        )
-        assert "registry.lookup(" not in source_lower, (
-            "Found registry.lookup() DI pattern in google_adk.py"
-        )
+        assert "registry.get(" not in source_lower, "Found registry.get() DI pattern in google_adk.py"
+        assert "registry.lookup(" not in source_lower, "Found registry.lookup() DI pattern in google_adk.py"
 
 
 # ---------------------------------------------------------------------------
@@ -1914,12 +1871,8 @@ class TestCreateBackendGoogleAdk:
         from agentfox.session.backends.protocol import Backend
 
         result = create_backend("google-adk")
-        assert isinstance(result, GoogleADKBackend), (
-            f"Expected GoogleADKBackend, got {type(result).__name__}"
-        )
-        assert isinstance(result, Backend), (
-            "GoogleADKBackend instance does not satisfy Backend Protocol"
-        )
+        assert isinstance(result, GoogleADKBackend), f"Expected GoogleADKBackend, got {type(result).__name__}"
+        assert isinstance(result, Backend), "GoogleADKBackend instance does not satisfy Backend Protocol"
 
 
 # ---------------------------------------------------------------------------
@@ -1938,9 +1891,7 @@ class TestCreateBackendExistingKeys:
         from agentfox.session.backends.protocol import Backend
 
         result = create_backend("claude")
-        assert isinstance(result, ClaudeBackend), (
-            f"Expected ClaudeBackend, got {type(result).__name__}"
-        )
+        assert isinstance(result, ClaudeBackend), f"Expected ClaudeBackend, got {type(result).__name__}"
         assert isinstance(result, Backend)
 
     def test_create_backend_deepagents_still_works(self) -> None:
@@ -1950,9 +1901,7 @@ class TestCreateBackendExistingKeys:
         from agentfox.session.backends.protocol import Backend
 
         result = create_backend("deepagents")
-        assert isinstance(result, DeepAgentsBackend), (
-            f"Expected DeepAgentsBackend, got {type(result).__name__}"
-        )
+        assert isinstance(result, DeepAgentsBackend), f"Expected DeepAgentsBackend, got {type(result).__name__}"
         assert isinstance(result, Backend)
 
 
@@ -1999,9 +1948,7 @@ class TestPyprojectGoogleAdkDependency:
     def test_google_adk_in_dependencies(self) -> None:
         """TS-04-36: google-adk>=2.0 in [project.dependencies]."""
         pyproject_path = Path(__file__).resolve().parents[4] / "pyproject.toml"
-        assert pyproject_path.exists(), (
-            f"pyproject.toml not found at {pyproject_path}"
-        )
+        assert pyproject_path.exists(), f"pyproject.toml not found at {pyproject_path}"
 
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
@@ -2030,9 +1977,7 @@ class TestContainmentGoogleAdk:
         source = test_protocol_path.read_text(encoding="utf-8")
 
         # Verify the mapping entry is present and uncommented
-        assert "'google.adk'" in source or '"google.adk"' in source, (
-            "google.adk mapping not found in test_protocol.py"
-        )
+        assert "'google.adk'" in source or '"google.adk"' in source, "google.adk mapping not found in test_protocol.py"
         assert "'google_adk.py'" in source or '"google_adk.py"' in source, (
             "google_adk.py mapping not found in test_protocol.py"
         )
@@ -2041,16 +1986,18 @@ class TestContainmentGoogleAdk:
         """TS-04-37: google.adk imports only appear in google_adk.py."""
         agentfox_dir = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..",
+            "..",
+            "..",
+            "..",
+            "..",
             "agentfox",
         )
         agentfox_dir = os.path.normpath(agentfox_dir)
-        assert os.path.isdir(agentfox_dir), (
-            f"Production source directory not found: {agentfox_dir}"
-        )
+        assert os.path.isdir(agentfox_dir), f"Production source directory not found: {agentfox_dir}"
 
         all_files = glob.glob(
-            os.path.join(agentfox_dir, "**", "*.py"), recursive=True,
+            os.path.join(agentfox_dir, "**", "*.py"),
+            recursive=True,
         )
 
         violations = []
@@ -2060,17 +2007,10 @@ class TestContainmentGoogleAdk:
             with open(filepath, encoding="utf-8") as f:
                 contents = f.read()
             # Check for direct google.adk imports
-            if (
-                "import google.adk" in contents
-                or "from google.adk" in contents
-            ):
-                violations.append(
-                    os.path.relpath(filepath, agentfox_dir)
-                )
+            if "import google.adk" in contents or "from google.adk" in contents:
+                violations.append(os.path.relpath(filepath, agentfox_dir))
 
-        assert violations == [], (
-            f"google.adk imports found outside google_adk.py: {violations}"
-        )
+        assert violations == [], f"google.adk imports found outside google_adk.py: {violations}"
 
 
 # ---------------------------------------------------------------------------
@@ -2393,12 +2333,8 @@ class TestSmoke4PathContainment:
 
         # Tools were registered with Agent, including read_file
         registered_tools = captured_tools[0]
-        tool_names = [
-            getattr(t, "__name__", str(t)) for t in registered_tools
-        ]
-        assert "read_file" in tool_names, (
-            f"read_file not in registered tools: {tool_names}"
-        )
+        tool_names = [getattr(t, "__name__", str(t)) for t in registered_tools]
+        assert "read_file" in tool_names, f"read_file not in registered tools: {tool_names}"
 
         # A ToolUseMessage for 'read_file' was yielded
         tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
@@ -2463,6 +2399,4 @@ class TestCrossSpecEntryPointVerification:
 
             # Factory instantiation
             backend = create_backend(backend_name)
-            assert isinstance(backend, Backend), (
-                f"create_backend('{backend_name}') does not satisfy Backend Protocol"
-            )
+            assert isinstance(backend, Backend), f"create_backend('{backend_name}') does not satisfy Backend Protocol"

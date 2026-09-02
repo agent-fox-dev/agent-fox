@@ -241,5 +241,3 @@ class TestNoDeletedSymbolsInCodebase:
             # Filter out this test file and other test_10_* spec test files
             matches = [line for line in result.stdout.strip().splitlines() if "test_10_" not in line]
             assert not matches, f"Deleted symbol '{symbol}' found in codebase:\n" + "\n".join(matches)
-
-

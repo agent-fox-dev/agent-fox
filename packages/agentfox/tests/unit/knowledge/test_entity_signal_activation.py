@@ -184,8 +184,12 @@ class TestBuildPromptsUsesKnowledgeProvider:
         original_retrieve = runner._knowledge_provider.retrieve
 
         def tracking_retrieve(
-            spec_name, task_description, task_group=None,
-            session_id=None, file_footprint=None, archetype=None,
+            spec_name,
+            task_description,
+            task_group=None,
+            session_id=None,
+            file_footprint=None,
+            archetype=None,
         ):
             nonlocal retrieve_called
             retrieve_called = True

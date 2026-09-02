@@ -124,9 +124,7 @@ class TestCoderReviewerReturnObjectFields:
                 workspace=_make_workspace(),
             )
 
-        assert hasattr(result, "response"), (
-            f"Return object {type(result).__name__} must have a 'response' attribute"
-        )
+        assert hasattr(result, "response"), f"Return object {type(result).__name__} must have a 'response' attribute"
 
     async def test_result_has_affected_files_attribute(self) -> None:
         """The run() return object has an 'affected_files' attribute."""

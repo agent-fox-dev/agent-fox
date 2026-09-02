@@ -507,15 +507,19 @@ class TestSdkContainmentProperty:
     def test_sdk_containment_scan(self) -> None:
         """TS-02-24: No non-designated file contains SDK name substrings."""
         agent_fox_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "..", "agentfox",
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
         )
         agent_fox_dir = os.path.normpath(agent_fox_dir)
-        assert os.path.isdir(agent_fox_dir), (
-            f"Production source directory not found: {agent_fox_dir}"
-        )
+        assert os.path.isdir(agent_fox_dir), f"Production source directory not found: {agent_fox_dir}"
 
         all_files = glob.glob(
-            os.path.join(agent_fox_dir, "**", "*.py"), recursive=True,
+            os.path.join(agent_fox_dir, "**", "*.py"),
+            recursive=True,
         )
         assert len(all_files) > 0, f"No Python files found in {agent_fox_dir}"
 
@@ -525,9 +529,7 @@ class TestSdkContainmentProperty:
                     continue
                 with open(filepath, encoding="utf-8") as f:
                     contents = f.read()
-                assert sdk_name not in contents, (
-                    f'SDK "{sdk_name}" found in non-designated file: {filepath}'
-                )
+                assert sdk_name not in contents, f'SDK "{sdk_name}" found in non-designated file: {filepath}'
 
 
 # ---------------------------------------------------------------------------
@@ -568,12 +570,18 @@ class TestContainmentGlobScope:
     def test_glob_excludes_tests_directory(self) -> None:
         """TS-02-26: No file path under packages/agentfox/tests/."""
         agent_fox_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "..", "agentfox",
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
         )
         agent_fox_dir = os.path.normpath(agent_fox_dir)
 
         all_files = glob.glob(
-            os.path.join(agent_fox_dir, "**", "*.py"), recursive=True,
+            os.path.join(agent_fox_dir, "**", "*.py"),
+            recursive=True,
         )
         for filepath in all_files:
             abs_path = os.path.abspath(filepath)
@@ -605,16 +613,13 @@ class TestProtocolTestsRunnable:
                 "-v",
                 "--tb=short",
                 "-k",
-                "not (test_protocol_tests_pass or test_session_tests_pass"
-                " or test_full_session_suite_passes)",
+                "not (test_protocol_tests_pass or test_session_tests_pass or test_full_session_suite_passes)",
             ],
             capture_output=True,
             text=True,
             timeout=180,
         )
-        assert result.returncode == 0, (
-            f"Protocol tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Protocol tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 
 # ===========================================================================
@@ -845,7 +850,13 @@ class TestSessionTypeIgnoreRemoved:
         """TS-02-18: session.py has no type: ignore[attr-defined]."""
         session_path = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..", "agentfox", "session", "session.py",
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
+            "session",
+            "session.py",
         )
         session_path = os.path.normpath(session_path)
 
@@ -871,7 +882,13 @@ class TestSessionImports:
 
         session_path = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..", "agentfox", "session", "session.py",
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
+            "session",
+            "session.py",
         )
         session_path = os.path.normpath(session_path)
 
@@ -882,9 +899,7 @@ class TestSessionImports:
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 src = ast.unparse(node)
-                assert "ClaudeBackend" not in src, (
-                    f"ClaudeBackend imported directly in session.py: {src}"
-                )
+                assert "ClaudeBackend" not in src, f"ClaudeBackend imported directly in session.py: {src}"
 
         assert "create_backend" in contents
         assert "Backend" in contents
@@ -919,16 +934,13 @@ class TestExistingSessionTestsPass:
                 "--ignore=packages/agentfox/tests/unit/session/backends/test_google_adk.py",
                 "--ignore=packages/agentfox/tests/unit/session/backends/test_adk_tools.py",
                 "-k",
-                "not (test_protocol_tests_pass or test_session_tests_pass"
-                " or test_full_session_suite_passes)",
+                "not (test_protocol_tests_pass or test_session_tests_pass or test_full_session_suite_passes)",
             ],
             capture_output=True,
             text=True,
             timeout=180,
         )
-        assert result.returncode == 0, (
-            f"Session tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Session tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 
 # ---------------------------------------------------------------------------
@@ -1199,7 +1211,8 @@ class TestInvalidTomlBackendCaughtEarly:
     """Verify invalid backend in TOML caught by pydantic, not create_backend."""
 
     def test_load_config_raises_before_create_backend(
-        self, tmp_path: os.PathLike,
+        self,
+        tmp_path: os.PathLike,
     ) -> None:
         """TS-02-E5: load_config raises ConfigError; create_backend not called."""
         from pathlib import Path
@@ -1253,7 +1266,9 @@ class TestSessionCancellationCallsClose:
                 return "slow"
 
             async def execute(
-                self, prompt: str, **kwargs: Any,
+                self,
+                prompt: str,
+                **kwargs: Any,
             ) -> Any:
                 while True:
                     await asyncio.sleep(0.001)
@@ -1288,9 +1303,7 @@ class TestSessionCancellationCallsClose:
         except asyncio.CancelledError:
             pass
 
-        assert close_call_count >= 1, (
-            f"Expected close() called at least once, got {close_call_count}"
-        )
+        assert close_call_count >= 1, f"Expected close() called at least once, got {close_call_count}"
 
 
 # ---------------------------------------------------------------------------
@@ -1395,9 +1408,7 @@ class TestPropertyLazyImportIsolation:
             text=True,
             timeout=30,
         )
-        assert result.returncode == 0, (
-            f"Lazy import isolation failed:\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"Lazy import isolation failed:\n{result.stderr}"
 
 
 # ---------------------------------------------------------------------------
@@ -1431,15 +1442,11 @@ class TestPropertyCreateBackendInvariant:
 
         try:
             result = create_backend(name)
-            assert isinstance(result, Backend), (
-                f"Result is not a Backend: {type(result)}"
-            )
+            assert isinstance(result, Backend), f"Result is not a Backend: {type(result)}"
         except ConfigError:
             pass  # expected for invalid names
         except Exception as exc:
-            raise AssertionError(
-                f"Unexpected exception type {type(exc)}: {exc}"
-            ) from exc
+            raise AssertionError(f"Unexpected exception type {type(exc)}: {exc}") from exc
 
     def test_hypothesis_random_names(self) -> None:
         """TS-02-P3 (hypothesis): Random strings return Backend or ConfigError."""
@@ -1457,9 +1464,7 @@ class TestPropertyCreateBackendInvariant:
             except ConfigError:
                 pass
             except Exception as exc:
-                raise AssertionError(
-                    f"Unexpected exception type {type(exc)}: {exc}"
-                ) from exc
+                raise AssertionError(f"Unexpected exception type {type(exc)}: {exc}") from exc
 
         check_invariant()
 
@@ -1499,12 +1504,14 @@ class TestPropertySdkContainmentInvariant:
         """TS-02-P5: Every non-designated file is free of SDK name strings."""
         agent_fox_dir = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..", "agentfox",
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
         )
         agent_fox_dir = os.path.normpath(agent_fox_dir)
-        assert os.path.isdir(agent_fox_dir), (
-            f"Production source directory not found: {agent_fox_dir}"
-        )
+        assert os.path.isdir(agent_fox_dir), f"Production source directory not found: {agent_fox_dir}"
 
         all_files = glob.glob(
             os.path.join(agent_fox_dir, "**", "*.py"),
@@ -1518,9 +1525,7 @@ class TestPropertySdkContainmentInvariant:
                     continue
                 with open(filepath, encoding="utf-8") as f:
                     contents = f.read()
-                assert sdk_name not in contents, (
-                    f'SDK containment violation: "{sdk_name}" found in {filepath}'
-                )
+                assert sdk_name not in contents, f'SDK containment violation: "{sdk_name}" found in {filepath}'
 
 
 # ---------------------------------------------------------------------------
@@ -1553,16 +1558,14 @@ class TestPropertySessionTestsPass:
                 "--ignore=packages/agentfox/tests/unit/session/backends/test_google_adk.py",
                 "--ignore=packages/agentfox/tests/unit/session/backends/test_adk_tools.py",
                 "-k",
-                "not (test_protocol_tests_pass or test_session_tests_pass"
-                " or test_full_session_suite_passes)",
+                "not (test_protocol_tests_pass or test_session_tests_pass or test_full_session_suite_passes)",
             ],
             capture_output=True,
             text=True,
             timeout=180,
         )
         assert result.returncode == 0, (
-            f"Session test suite has failures after type widening:\n"
-            f"{result.stdout}\n{result.stderr}"
+            f"Session test suite has failures after type widening:\n{result.stdout}\n{result.stderr}"
         )
         assert "passed" in result.stdout
 
@@ -1581,7 +1584,13 @@ class TestPropertyMypySessionPy:
         """TS-02-P7 (source check): No type: ignore[attr-defined] in session.py."""
         session_path = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..", "agentfox", "session", "session.py",
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
+            "session",
+            "session.py",
         )
         session_path = os.path.normpath(session_path)
         with open(session_path, encoding="utf-8") as f:
@@ -1604,7 +1613,11 @@ class TestContainmentDetectsViolation:
         """TS-02-E8: Temporary offending file is detected by containment scan."""
         agent_fox_dir = os.path.join(
             os.path.dirname(__file__),
-            "..", "..", "..", "..", "agentfox",
+            "..",
+            "..",
+            "..",
+            "..",
+            "agentfox",
         )
         agent_fox_dir = os.path.normpath(agent_fox_dir)
 
@@ -1628,10 +1641,7 @@ class TestContainmentDetectsViolation:
                         violations.append((sdk_name, filepath))
 
             assert len(violations) > 0, "Expected violation was not detected"
-            assert any(
-                "claude_agent_sdk" in v[0] and "_test_leak_temp.py" in v[1]
-                for v in violations
-            )
+            assert any("claude_agent_sdk" in v[0] and "_test_leak_temp.py" in v[1] for v in violations)
         finally:
             if os.path.exists(offending_path):
                 os.unlink(offending_path)
@@ -1652,9 +1662,7 @@ class TestContainmentMissingDirectory:
         assert not os.path.isdir(fake_dir)
 
         with pytest.raises(AssertionError) as exc_info:
-            assert os.path.isdir(fake_dir), (
-                f"Production source directory not found: {fake_dir}"
-            )
+            assert os.path.isdir(fake_dir), f"Production source directory not found: {fake_dir}"
         assert "not found" in str(exc_info.value) or "nonexistent" in str(
             exc_info.value,
         )

@@ -153,18 +153,10 @@ def _execute(
     except subprocess.TimeoutExpired as exc:
         stdout = ""
         if exc.stdout is not None:
-            stdout = (
-                exc.stdout
-                if isinstance(exc.stdout, str)
-                else exc.stdout.decode("utf-8", errors="replace")
-            )
+            stdout = exc.stdout if isinstance(exc.stdout, str) else exc.stdout.decode("utf-8", errors="replace")
         stderr = ""
         if exc.stderr is not None:
-            stderr = (
-                exc.stderr
-                if isinstance(exc.stderr, str)
-                else exc.stderr.decode("utf-8", errors="replace")
-            )
+            stderr = exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode("utf-8", errors="replace")
         return {
             "stdout": stdout,
             "stderr": stderr,

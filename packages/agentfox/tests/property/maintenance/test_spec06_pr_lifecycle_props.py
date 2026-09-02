@@ -103,10 +103,7 @@ class TestPrematureCloseInvariant:
         mock_platform.close_issue.assert_not_awaited()
 
         # Invariant: af:fixed never assigned
-        label_calls = [
-            call.args[1]
-            for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:fixed" not in label_calls
 
 
@@ -227,7 +224,11 @@ class TestDataclassImmutability:
     )
     @settings(max_examples=20, deadline=None)
     def test_pr_state_frozen(
-        self, number: int, state: str, merged: bool, head_sha: str,
+        self,
+        number: int,
+        state: str,
+        merged: bool,
+        head_sha: str,
     ) -> None:
         """PrState raises FrozenInstanceError on field assignment."""
         from afissues.protocol import PrState
@@ -279,13 +280,20 @@ class TestDataclassImmutability:
     )
     @settings(max_examples=20, deadline=None)
     def test_review_comment_frozen(
-        self, user: str, state: str, body: str, submitted_at: str,
+        self,
+        user: str,
+        state: str,
+        body: str,
+        submitted_at: str,
     ) -> None:
         """ReviewComment raises FrozenInstanceError on field assignment."""
         from afissues.protocol import ReviewComment
 
         instance = ReviewComment(
-            user=user, state=state, body=body, submitted_at=submitted_at,
+            user=user,
+            state=state,
+            body=body,
+            submitted_at=submitted_at,
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             instance.user = "mutated"  # type: ignore[misc]

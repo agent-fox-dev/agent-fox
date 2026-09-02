@@ -8,8 +8,9 @@ from __future__ import annotations
 import logging
 import re
 
-from agentfox.maintenance.dep_graph import DependencyEdge
 from afissues.protocol import IssueResult
+
+from agentfox.maintenance.dep_graph import DependencyEdge
 
 logger = logging.getLogger(__name__)
 

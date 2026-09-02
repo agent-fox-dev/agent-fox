@@ -65,9 +65,7 @@ class TestPlatformFactoryGitea:
         assert isinstance(result, GiteaPlatform)
         assert result.forge_type == "gitea"
 
-    def test_create_platform_safe_returns_none_without_gitea_token(
-        self, tmp_path: Path
-    ) -> None:
+    def test_create_platform_safe_returns_none_without_gitea_token(self, tmp_path: Path) -> None:
         """create_platform_safe returns None when GITEA_TOKEN is missing.
 
         Requirements: 05-REQ-18.1

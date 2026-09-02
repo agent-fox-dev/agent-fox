@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 import pytest
 from afaudit.sink import SessionOutcome
-
 from agentfox.core.config import AgentFoxConfig, CachePolicy, CachingConfig
 from agentfox.engine.sdk_params import resolve_session_params
 from agentfox.session.backends.types import (
@@ -26,7 +25,6 @@ from agentfox.session.backends.types import (
 from agentfox.session.session import _log_cache_metrics, run_session
 from agentfox.ui.progress import ActivityCallback
 from agentfox.workspace import WorkspaceInfo
-
 
 # -- Helpers ------------------------------------------------------------------
 

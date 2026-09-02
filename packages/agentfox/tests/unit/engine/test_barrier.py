@@ -798,9 +798,7 @@ class TestVerifyWorktreesAlwaysCalled:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_verify_worktrees_logs_orphans(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_verify_worktrees_logs_orphans(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Orphaned worktrees are logged as warnings in non-drain mode."""
         orphan_path = tmp_path / ".agent-fox" / "worktrees" / "stale-branch"
         mock_verify = AsyncMock(return_value=[orphan_path])

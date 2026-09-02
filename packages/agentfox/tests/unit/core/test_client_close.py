@@ -18,7 +18,7 @@ class _FakeStream:
     def __init__(self, message: MagicMock) -> None:
         self._message = message
 
-    async def __aenter__(self) -> "_FakeStream":
+    async def __aenter__(self) -> _FakeStream:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

@@ -81,9 +81,7 @@ class TestConfigError:
     def test_no_agentfox_in_mro(self) -> None:
         """ConfigError.__mro__ does not include any agentfox.core.errors class."""
         for cls in ConfigError.__mro__:
-            assert cls.__module__ != "agentfox.core.errors", (
-                f"Should not inherit from agentfox: {cls}"
-            )
+            assert cls.__module__ != "agentfox.core.errors", f"Should not inherit from agentfox: {cls}"
 
 
 # ── TS-03-19: IntegrationError defaults retryable ────────────────────

@@ -15,7 +15,6 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import (
     _MAX_WORKSPACE_FAILURES,
@@ -55,9 +54,7 @@ def _make_handler(
     )
 
 
-def _make_workspace_record(
-    node_id: str = "spec:1", attempt: int = 1
-) -> SessionRecord:
+def _make_workspace_record(node_id: str = "spec:1", attempt: int = 1) -> SessionRecord:
     return SessionRecord(
         node_id=node_id,
         attempt=attempt,
@@ -72,9 +69,7 @@ def _make_workspace_record(
     )
 
 
-def _make_environment_record(
-    node_id: str = "spec:1", attempt: int = 1
-) -> SessionRecord:
+def _make_environment_record(node_id: str = "spec:1", attempt: int = 1) -> SessionRecord:
     """Create a record that satisfies the is_environment_failure property.
 
     is_environment_failure is a computed property: status != completed,
@@ -97,12 +92,11 @@ def _make_environment_record(
 # TS-NS-1: Workspace backoff emits at most one log per window
 # ---------------------------------------------------------------------------
 
+
 class TestWorkspaceBackoffLogOnce:
     """TS-NS-1: Workspace backoff log message appears at most once per window."""
 
-    def test_workspace_backoff_logs_once_across_many_cycles(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_workspace_backoff_logs_once_across_many_cycles(self, caplog: pytest.LogCaptureFixture) -> None:
         """Calling log_backoff_once N times for workspace produces exactly 1 log."""
         graph_sync, node_states, _ = _make_graph_sync()
         block_calls: list[tuple[str, str]] = []
@@ -116,15 +110,10 @@ class TestWorkspaceBackoffLogOnce:
             for _ in range(50):
                 handler.log_backoff_once("spec:1", "workspace")
 
-        backoff_messages = [
-            r for r in caplog.records
-            if "Workspace backoff active" in r.message
-        ]
+        backoff_messages = [r for r in caplog.records if "Workspace backoff active" in r.message]
         assert len(backoff_messages) == 1
 
-    def test_workspace_backoff_zero_debug_logs_on_subsequent_cycles(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_workspace_backoff_zero_debug_logs_on_subsequent_cycles(self, caplog: pytest.LogCaptureFixture) -> None:
         """After the first log, subsequent cycles emit zero workspace backoff logs."""
         graph_sync, node_states, _ = _make_graph_sync()
         block_calls: list[tuple[str, str]] = []
@@ -142,10 +131,7 @@ class TestWorkspaceBackoffLogOnce:
             for _ in range(100):
                 handler.log_backoff_once("spec:1", "workspace")
 
-        backoff_messages = [
-            r for r in caplog.records
-            if "Workspace backoff active" in r.message
-        ]
+        backoff_messages = [r for r in caplog.records if "Workspace backoff active" in r.message]
         assert len(backoff_messages) == 0
 
 
@@ -153,12 +139,11 @@ class TestWorkspaceBackoffLogOnce:
 # TS-NS-2: Environment backoff emits at most one log per window
 # ---------------------------------------------------------------------------
 
+
 class TestEnvironmentBackoffLogOnce:
     """TS-NS-2: Environment backoff log message appears at most once per window."""
 
-    def test_environment_backoff_logs_once_across_many_cycles(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_environment_backoff_logs_once_across_many_cycles(self, caplog: pytest.LogCaptureFixture) -> None:
         """Calling log_backoff_once N times for environment produces exactly 1 log."""
         graph_sync, node_states, _ = _make_graph_sync()
         block_calls: list[tuple[str, str]] = []
@@ -171,10 +156,7 @@ class TestEnvironmentBackoffLogOnce:
             for _ in range(50):
                 handler.log_backoff_once("spec:1", "environment")
 
-        backoff_messages = [
-            r for r in caplog.records
-            if "Environment failure backoff active" in r.message
-        ]
+        backoff_messages = [r for r in caplog.records if "Environment failure backoff active" in r.message]
         assert len(backoff_messages) == 1
 
 
@@ -182,18 +164,17 @@ class TestEnvironmentBackoffLogOnce:
 # TS-NS-3: create_branch() includes git stderr in WorkspaceError
 # ---------------------------------------------------------------------------
 
+
 class TestCreateBranchStderr:
     """TS-NS-3: create_branch() includes stderr in the error message."""
 
     @pytest.mark.asyncio
     async def test_stderr_included_in_error_message(self) -> None:
         """When git branch fails, str(exc) contains the stderr text."""
-        from agentfox.workspace.git import create_branch
         from agentfox.core.errors import WorkspaceError
+        from agentfox.workspace.git import create_branch
 
-        mock_run_git = AsyncMock(
-            return_value=(128, "", "fatal: not a valid object name 'main'\n")
-        )
+        mock_run_git = AsyncMock(return_value=(128, "", "fatal: not a valid object name 'main'\n"))
 
         with patch("agentfox.workspace.git.run_git", mock_run_git):
             with pytest.raises(WorkspaceError) as exc_info:
@@ -210,8 +191,8 @@ class TestCreateBranchStderr:
     @pytest.mark.asyncio
     async def test_stderr_empty_still_works(self) -> None:
         """When stderr is empty, the error message is still valid."""
-        from agentfox.workspace.git import create_branch
         from agentfox.core.errors import WorkspaceError
+        from agentfox.workspace.git import create_branch
 
         mock_run_git = AsyncMock(return_value=(1, "", ""))
 
@@ -229,8 +210,8 @@ class TestCreateBranchStderr:
     @pytest.mark.asyncio
     async def test_stderr_in_context_details(self) -> None:
         """The raw stderr is also available as exc.context['details']."""
-        from agentfox.workspace.git import create_branch
         from agentfox.core.errors import WorkspaceError
+        from agentfox.workspace.git import create_branch
 
         stderr_text = "fatal: not a valid object name 'main'\n"
         mock_run_git = AsyncMock(return_value=(128, "", stderr_text))
@@ -250,6 +231,7 @@ class TestCreateBranchStderr:
 # TS-NS-4: Circuit breaker unchanged
 # ---------------------------------------------------------------------------
 
+
 class TestCircuitBreakerUnchanged:
     """TS-NS-4: Circuit breaker blocks after _MAX_WORKSPACE_FAILURES."""
 
@@ -266,9 +248,7 @@ class TestCircuitBreakerUnchanged:
         # First 5 failures should not block
         for i in range(_MAX_WORKSPACE_FAILURES - 1):
             node_states["spec:1"] = "in_progress"
-            handler.process(
-                _make_workspace_record(attempt=i + 1), i + 1, state, error_tracker
-            )
+            handler.process(_make_workspace_record(attempt=i + 1), i + 1, state, error_tracker)
 
         assert len(block_calls) == 0, "Should not block before _MAX_WORKSPACE_FAILURES"
 
@@ -289,12 +269,11 @@ class TestCircuitBreakerUnchanged:
 # TS-NS-5: Log flag resets between backoff windows
 # ---------------------------------------------------------------------------
 
+
 class TestBackoffLogFlagResets:
     """TS-NS-5: The log suppression flag resets when a new backoff window starts."""
 
-    def test_two_windows_produce_two_log_entries(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_two_windows_produce_two_log_entries(self, caplog: pytest.LogCaptureFixture) -> None:
         """Simulating two complete backoff windows produces exactly two log entries."""
         graph_sync, node_states, _ = _make_graph_sync()
         block_calls: list[tuple[str, str]] = []
@@ -315,21 +294,14 @@ class TestBackoffLogFlagResets:
 
             # --- Window 2: new failure triggers fresh backoff ---
             node_states["spec:1"] = "in_progress"
-            handler.process(
-                _make_workspace_record(attempt=2), 2, state, error_tracker
-            )
+            handler.process(_make_workspace_record(attempt=2), 2, state, error_tracker)
             for _ in range(20):
                 handler.log_backoff_once("spec:1", "workspace")
 
-        backoff_messages = [
-            r for r in caplog.records
-            if "Workspace backoff active" in r.message
-        ]
+        backoff_messages = [r for r in caplog.records if "Workspace backoff active" in r.message]
         assert len(backoff_messages) == 2
 
-    def test_environment_flag_resets_between_windows(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_environment_flag_resets_between_windows(self, caplog: pytest.LogCaptureFixture) -> None:
         """Environment backoff also resets the log flag between windows."""
         graph_sync, node_states, _ = _make_graph_sync()
         block_calls: list[tuple[str, str]] = []
@@ -350,14 +322,9 @@ class TestBackoffLogFlagResets:
 
             # --- Window 2 ---
             node_states["spec:1"] = "in_progress"
-            handler.process(
-                _make_environment_record(attempt=2), 2, state, error_tracker
-            )
+            handler.process(_make_environment_record(attempt=2), 2, state, error_tracker)
             for _ in range(20):
                 handler.log_backoff_once("spec:1", "environment")
 
-        backoff_messages = [
-            r for r in caplog.records
-            if "Environment failure backoff active" in r.message
-        ]
+        backoff_messages = [r for r in caplog.records if "Environment failure backoff active" in r.message]
         assert len(backoff_messages) == 2

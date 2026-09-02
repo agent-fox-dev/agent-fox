@@ -146,7 +146,9 @@ class TestSmokeHappyPath:
             ),
         ):
             status, files = await pipeline._integrate_fix(
-                _make_issue(), _make_spec(), _make_workspace(),
+                _make_issue(),
+                _make_spec(),
+                _make_workspace(),
             )
 
         assert status == "pr_created"
@@ -163,9 +165,7 @@ class TestSmokeHappyPath:
 
         await pipeline._handle_result(_make_issue(), _make_spec(), "pr_created")
 
-        label_calls = [
-            call.args[1] for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:pr" in label_calls
 
     @pytest.mark.asyncio
@@ -178,9 +178,7 @@ class TestSmokeHappyPath:
 
         await pipeline._handle_result(_make_issue(), _make_spec(), "pr_created")
 
-        remove_calls = [
-            call.args[1] for call in mock_platform.remove_label.call_args_list
-        ]
+        remove_calls = [call.args[1] for call in mock_platform.remove_label.call_args_list]
         assert "af:fix" in remove_calls
 
     @pytest.mark.asyncio
@@ -193,14 +191,8 @@ class TestSmokeHappyPath:
 
         await pipeline._handle_result(_make_issue(), _make_spec(), "pr_created")
 
-        comment_bodies = [
-            call.args[1]
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
-        tracking_found = any(
-            "<!-- af:pr-tracking pr_number=42 attempt=1 -->" in body
-            for body in comment_bodies
-        )
+        comment_bodies = [call.args[1] for call in mock_platform.add_issue_comment.call_args_list]
+        tracking_found = any("<!-- af:pr-tracking pr_number=42 attempt=1 -->" in body for body in comment_bodies)
         assert tracking_found, f"No tracking comment found. Bodies: {comment_bodies}"
 
     @pytest.mark.asyncio
@@ -225,9 +217,7 @@ class TestSmokeHappyPath:
 
         await pipeline._handle_result(_make_issue(), _make_spec(), "pr_created")
 
-        label_calls = [
-            call.args[1] for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:fixed" not in label_calls
 
 
@@ -296,9 +286,7 @@ class TestSmokeIdempotentRetry:
 
         await pipeline._handle_result(issue, _make_spec(), "pr_created")
 
-        label_calls = [
-            call.args[1] for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:fixed" not in label_calls
 
 
@@ -383,7 +371,10 @@ class TestSmokeProtocolConsumer:
         # Mock get_pr_state
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
             return_value=PrState(
-                number=42, state="open", merged=False, head_sha="deadbeef",
+                number=42,
+                state="open",
+                merged=False,
+                head_sha="deadbeef",
             ),
         )
 
@@ -531,7 +522,8 @@ class TestSmokeBootstrapLabel:
 
     @pytest.mark.asyncio
     async def test_bootstrap_calls_create_label_for_af_pr(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Bootstrap calls create_label with af:pr parameters."""
         from agentfox.workspace.init_project import _ensure_platform_labels_async
@@ -557,10 +549,7 @@ class TestSmokeBootstrapLabel:
 
         # Find the create_label call for af:pr
         create_label_calls = mock_platform.create_label.call_args_list
-        af_pr_calls = [
-            call for call in create_label_calls
-            if call.args[0] == "af:pr"
-        ]
+        af_pr_calls = [call for call in create_label_calls if call.args[0] == "af:pr"]
         assert len(af_pr_calls) == 1
 
         af_pr_call = af_pr_calls[0]
@@ -570,7 +559,8 @@ class TestSmokeBootstrapLabel:
 
     @pytest.mark.asyncio
     async def test_bootstrap_completes_without_error(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Bootstrap completes without error when platform succeeds."""
         from agentfox.workspace.init_project import _ensure_platform_labels_async
@@ -598,7 +588,8 @@ class TestSmokeBootstrapLabel:
 
     @pytest.mark.asyncio
     async def test_bootstrap_propagates_integration_error(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Bootstrap propagates IntegrationError when label creation fails."""
         from agentfox.workspace.init_project import _ensure_platform_labels_async

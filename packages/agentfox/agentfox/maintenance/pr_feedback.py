@@ -46,19 +46,13 @@ logger = logging.getLogger(__name__)
 # Module-level string constants (07-REQ-15.2)
 # ---------------------------------------------------------------------------
 
-_FEEDBACK_ITERATION_MESSAGE = (
-    "Feedback iteration {attempt} applied by nightshift."
-)
+_FEEDBACK_ITERATION_MESSAGE = "Feedback iteration {attempt} applied by nightshift."
 
 _NO_CHANGES_MESSAGE = (
-    "Nightshift feedback iteration produced no changes. "
-    "The coder session completed but did not modify any files."
+    "Nightshift feedback iteration produced no changes. The coder session completed but did not modify any files."
 )
 
-_RETRY_LIMIT_MESSAGE = (
-    "Nightshift retry limit reached for this PR. "
-    "Manual intervention is required."
-)
+_RETRY_LIMIT_MESSAGE = "Nightshift retry limit reached for this PR. Manual intervention is required."
 
 _FEEDBACK_COMMIT_MESSAGE = "fix: {issue_title} [nightshift feedback #{attempt}]"
 
@@ -125,8 +119,7 @@ async def process_pr_issue(
 
     if pr_number is None:
         logger.warning(
-            "Skipped issue #%d: no valid tracking comment found. "
-            "Will retry next cycle.",
+            "Skipped issue #%d: no valid tracking comment found. Will retry next cycle.",
             issue.number,
         )
         return None
@@ -228,9 +221,7 @@ async def _check_pr_state(
         try:
             await platform.assign_label(issue.number, LABEL_FIXED)
             await platform.remove_label(issue.number, LABEL_PR)
-            await platform.close_issue(
-                issue.number, f"PR #{pr_number} merged."
-            )
+            await platform.close_issue(issue.number, f"PR #{pr_number} merged.")
             logger.info(
                 "PR #%d merged for issue #%d. Closed with af:fixed.",
                 pr_number,
@@ -250,13 +241,11 @@ async def _check_pr_state(
         try:
             await platform.add_issue_comment(
                 issue.number,
-                f"PR #{pr_number} was closed without merging. "
-                "Removing af:pr label for manual triage.",
+                f"PR #{pr_number} was closed without merging. Removing af:pr label for manual triage.",
             )
             await platform.remove_label(issue.number, LABEL_PR)
             logger.info(
-                "PR #%d closed without merge for issue #%d. "
-                "Removed af:pr for manual triage.",
+                "PR #%d closed without merge for issue #%d. Removed af:pr for manual triage.",
                 pr_number,
                 issue.number,
             )
@@ -311,11 +300,7 @@ async def _check_ci_status(
         return _CICheckResult(action="skip")
 
     # Check for failures or timeouts
-    failures = [
-        c
-        for c in checks
-        if c.conclusion in ("failure", "timed_out")
-    ]
+    failures = [c for c in checks if c.conclusion in ("failure", "timed_out")]
     if failures:
         logger.info(
             "Re-entry triggered for issue #%d, PR #%d: CI failure/timeout.",
@@ -333,8 +318,7 @@ async def _check_ci_status(
     has_success = any(c.conclusion == "success" for c in checks)
     if not has_success:
         logger.warning(
-            "Skipped issue #%d, PR #%d: all checks in ambiguous state "
-            "(cancelled/action_required/stale).",
+            "Skipped issue #%d, PR #%d: all checks in ambiguous state (cancelled/action_required/stale).",
             issue_number,
             pr_number,
         )
@@ -374,10 +358,7 @@ async def _check_reviews(
         return _ReviewCheckResult(action="skip")
 
     # Filter out DISMISSED reviews and reviews with null state
-    active_reviews = [
-        r for r in reviews
-        if r.state is not None and r.state != "DISMISSED"
-    ]
+    active_reviews = [r for r in reviews if r.state is not None and r.state != "DISMISSED"]
 
     if not active_reviews:
         return _ReviewCheckResult(action="skip")
@@ -386,8 +367,7 @@ async def _check_reviews(
     latest = active_reviews[-1]
     if latest.state == "CHANGES_REQUESTED":
         logger.info(
-            "Re-entry triggered for issue #%d, PR #%d: "
-            "reviewer requested changes.",
+            "Re-entry triggered for issue #%d, PR #%d: reviewer requested changes.",
             issue_number,
             pr_number,
         )
@@ -477,8 +457,7 @@ async def _run_feedback_iteration(
     # Retry limit check (07-REQ-8)
     if attempt > max_retries:
         logger.info(
-            "Retry limit reached for issue #%d, PR #%d "
-            "(attempt %d/%d). Needs manual attention.",
+            "Retry limit reached for issue #%d, PR #%d (attempt %d/%d). Needs manual attention.",
             issue.number,
             pr_number,
             attempt,
@@ -494,27 +473,28 @@ async def _run_feedback_iteration(
     try:
         # Step 1: Set up worktree (07-REQ-9.1)
         worktree_path = await _setup_feedback_worktree(
-            issue=issue, config=config,
+            issue=issue,
+            config=config,
         )
 
         # Step 2: Compute affected_files via git diff (07-REQ-11.3)
         affected_files: list[str] = []
         try:
             diff_proc = await asyncio.create_subprocess_exec(
-                "git", "diff", "--name-only", integration_branch, branch,
+                "git",
+                "diff",
+                "--name-only",
+                integration_branch,
+                branch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             diff_stdout, _ = await diff_proc.communicate()
             if diff_proc.returncode == 0 and diff_stdout:
-                affected_files = [
-                    f for f in diff_stdout.decode(errors="replace").strip().split("\n")
-                    if f
-                ]
+                affected_files = [f for f in diff_stdout.decode(errors="replace").strip().split("\n") if f]
         except Exception as exc:
             logger.warning(
-                "git diff --name-only failed for issue #%d, PR #%d "
-                "— defaulting affected_files to []. %s",
+                "git diff --name-only failed for issue #%d, PR #%d — defaulting affected_files to []. %s",
                 issue.number,
                 pr_number,
                 exc,
@@ -574,8 +554,7 @@ async def _run_feedback_iteration(
             raise
         except Exception as exc:
             logger.error(
-                "Error in feedback iteration for issue #%d, PR #%d: "
-                "coder session raised — %s",
+                "Error in feedback iteration for issue #%d, PR #%d: coder session raised — %s",
                 issue.number,
                 pr_number,
                 exc,
@@ -593,8 +572,7 @@ async def _run_feedback_iteration(
             await platform.add_issue_comment(issue.number, tracking_comment)
         except Exception as exc:
             logger.error(
-                "Error in feedback iteration for issue #%d, PR #%d: "
-                "failed to post tracking comment — %s",
+                "Error in feedback iteration for issue #%d, PR #%d: failed to post tracking comment — %s",
                 issue.number,
                 pr_number,
                 exc,
@@ -608,7 +586,9 @@ async def _run_feedback_iteration(
         else:
             try:
                 status_proc = await asyncio.create_subprocess_exec(
-                    "git", "status", "--porcelain",
+                    "git",
+                    "status",
+                    "--porcelain",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=worktree_path,
@@ -622,11 +602,11 @@ async def _run_feedback_iteration(
         if not coder_made_changes:
             # No changes — skip push, post warning comment
             await platform.add_issue_comment(
-                issue.number, _NO_CHANGES_MESSAGE,
+                issue.number,
+                _NO_CHANGES_MESSAGE,
             )
             logger.warning(
-                "Feedback iteration %d for issue #%d, PR #%d: "
-                "coder produced no changes.",
+                "Feedback iteration %d for issue #%d, PR #%d: coder produced no changes.",
                 new_attempt,
                 issue.number,
                 pr_number,
@@ -635,14 +615,14 @@ async def _run_feedback_iteration(
 
         # Step 9: Auto-commit pending changes (07-REQ-12.2)
         commit_msg = _FEEDBACK_COMMIT_MESSAGE.format(
-            issue_title=issue.title, attempt=new_attempt,
+            issue_title=issue.title,
+            attempt=new_attempt,
         )
         try:
             await pipeline._auto_commit_pending_changes(commit_msg, workspace)
         except Exception as exc:
             logger.error(
-                "Error in feedback iteration for issue #%d, PR #%d: "
-                "auto-commit failed — %s",
+                "Error in feedback iteration for issue #%d, PR #%d: auto-commit failed — %s",
                 issue.number,
                 pr_number,
                 exc,
@@ -652,7 +632,11 @@ async def _run_feedback_iteration(
         # Step 10: Force-push (07-REQ-12.2)
         try:
             push_proc = await asyncio.create_subprocess_exec(
-                "git", "push", "--force", "origin", branch,
+                "git",
+                "push",
+                "--force",
+                "origin",
+                branch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=worktree_path,
@@ -660,12 +644,12 @@ async def _run_feedback_iteration(
             await push_proc.communicate()
             if push_proc.returncode != 0:
                 raise subprocess.CalledProcessError(
-                    push_proc.returncode, f"git push --force origin {branch}",
+                    push_proc.returncode,
+                    f"git push --force origin {branch}",
                 )
         except Exception as exc:
             logger.error(
-                "Error in feedback iteration for issue #%d, PR #%d: "
-                "git push --force failed — %s",
+                "Error in feedback iteration for issue #%d, PR #%d: git push --force failed — %s",
                 issue.number,
                 pr_number,
                 exc,
@@ -721,15 +705,16 @@ async def _setup_feedback_worktree(
     Requirements: 07-REQ-9.1, 07-REQ-9.E1, 07-REQ-9.E2, 07-REQ-9.E3
     """
     branch = sanitise_branch_name(issue.title, issue.number)
-    worktree_path = str(
-        pathlib.Path(worktree_base) / f"feedback-{issue.number}"
-    )
+    worktree_path = str(pathlib.Path(worktree_base) / f"feedback-{issue.number}")
 
     # Step 1: git fetch origin <branch>
     try:
         proc = await asyncio.wait_for(
             asyncio.create_subprocess_exec(
-                "git", "fetch", "origin", branch,
+                "git",
+                "fetch",
+                "origin",
+                branch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             ),
@@ -756,14 +741,19 @@ async def _setup_feedback_worktree(
             error_msg,
         )
         raise subprocess.CalledProcessError(
-            proc.returncode, f"git fetch origin {branch}",
+            proc.returncode,
+            f"git fetch origin {branch}",
         )
 
     # Step 2: git worktree add
     try:
         proc = await asyncio.wait_for(
             asyncio.create_subprocess_exec(
-                "git", "worktree", "add", worktree_path, branch,
+                "git",
+                "worktree",
+                "add",
+                worktree_path,
+                branch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             ),
@@ -790,7 +780,8 @@ async def _setup_feedback_worktree(
             error_msg,
         )
         raise subprocess.CalledProcessError(
-            proc.returncode, f"git worktree add {worktree_path} {branch}",
+            proc.returncode,
+            f"git worktree add {worktree_path} {branch}",
         )
 
     return worktree_path

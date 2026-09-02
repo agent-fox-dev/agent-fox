@@ -236,6 +236,7 @@ class TestLegacyFileMigration:
         """Legacy review.md is migrated to DB records."""
         from agentfox.knowledge.review_store import query_active_findings
         from agentfox.session.context import _migrate_legacy_files
+
         from tests.unit.knowledge.conftest import create_schema
 
         spec_dir = tmp_path / "test_spec"
@@ -257,6 +258,7 @@ class TestLegacyFileMigration:
     def test_legacy_parse_failure_skips(self, tmp_path: Path) -> None:
         """Bad legacy files are skipped without blocking."""
         from agentfox.session.context import _migrate_legacy_files
+
         from tests.unit.knowledge.conftest import create_schema
 
         spec_dir = tmp_path / "test_spec"

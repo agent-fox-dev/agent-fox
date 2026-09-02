@@ -9,8 +9,14 @@ from agentfox.spec.types import TaskGroupDef
 
 def _make_group(number, title, kind=None, archetype=None):
     return TaskGroupDef(
-        number=number, title=title, optional=False, completed=False,
-        subtasks=(), body=f"Body of task {number}", kind=kind, archetype=archetype,
+        number=number,
+        title=title,
+        optional=False,
+        completed=False,
+        subtasks=(),
+        body=f"Body of task {number}",
+        kind=kind,
+        archetype=archetype,
     )
 
 
@@ -26,7 +32,8 @@ class TestCheckpointGateArchetype:
         assert nodes["test_spec:2"].archetype == "gate"
 
     def test_standard_kind_keeps_coder_archetype(self):
-        nodes, _ = _create_nodes_and_intra_edges([_FakeSpec()], {"test_spec": [_make_group(1, "Impl", kind="standard")]})
+        groups = {"test_spec": [_make_group(1, "Impl", kind="standard")]}
+        nodes, _ = _create_nodes_and_intra_edges([_FakeSpec()], groups)
         assert nodes["test_spec:1"].archetype == "coder"
 
     def test_none_kind_keeps_coder_archetype(self):

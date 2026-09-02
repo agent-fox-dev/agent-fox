@@ -8,8 +8,6 @@ Requirements: 27-REQ-3.1, 27-REQ-3.2, 27-REQ-3.3, 27-REQ-3.E1, 27-REQ-3.E2,
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from agentfox.session.review_parser import (
     _classify_category,
     parse_auditor_output,

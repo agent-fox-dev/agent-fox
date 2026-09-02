@@ -324,14 +324,12 @@ def run_plan(
                 # 01-REQ-7.2: Clear all nodes to completed
                 nodes = graph.nodes
                 if filter_spec is not None:
-                    nodes = {
-                        nid: n
-                        for nid, n in nodes.items()
-                        if n.spec_name == filter_spec
-                    }
+                    nodes = {nid: n for nid, n in nodes.items() if n.spec_name == filter_spec}
                 for nid in nodes:
                     persist_node_status(
-                        knowledge_db.connection, nid, "completed",
+                        knowledge_db.connection,
+                        nid,
+                        "completed",
                     )
                 return len(nodes)
 

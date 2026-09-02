@@ -29,9 +29,7 @@ def _make_orchestrator(
 ) -> Orchestrator:
     """Build an Orchestrator wired to the given DB and config."""
     mock = MockSessionRunner()
-    config = OrchestratorConfig(
-        parallel=parallel, inter_session_delay=0, sync_interval=0, hot_load=False
-    )
+    config = OrchestratorConfig(parallel=parallel, inter_session_delay=0, sync_interval=0, hot_load=False)
     return Orchestrator(
         config=config,
         session_runner_factory=lambda nid, **kw: mock,
@@ -189,9 +187,7 @@ class TestCachePolicyAutoUpgradeLogging:
     mention the cache policy upgrade.
     """
 
-    def test_info_log_emitted_on_upgrade(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_info_log_emitted_on_upgrade(self, caplog: pytest.LogCaptureFixture) -> None:
         """AC-4: INFO log emitted mentioning EXTENDED and cache."""
         db_conn = write_plan_to_db(
             nodes={f"spec:{i}": {"title": f"Task {i}"} for i in range(1, 5)},
@@ -204,20 +200,13 @@ class TestCachePolicyAutoUpgradeLogging:
         with caplog.at_level(logging.INFO, logger="agentfox.engine.engine"):
             orchestrator._init_run()
 
-        cache_logs = [
-            r
-            for r in caplog.records
-            if "extended" in r.message.lower() and "cache" in r.message.lower()
-        ]
+        cache_logs = [r for r in caplog.records if "extended" in r.message.lower() and "cache" in r.message.lower()]
         assert len(cache_logs) >= 1, (
-            f"Expected INFO log about EXTENDED cache policy, got: "
-            f"{[r.message for r in caplog.records]}"
+            f"Expected INFO log about EXTENDED cache policy, got: {[r.message for r in caplog.records]}"
         )
         assert cache_logs[0].levelno == logging.INFO
 
-    def test_no_log_when_not_upgraded(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_log_when_not_upgraded(self, caplog: pytest.LogCaptureFixture) -> None:
         """No cache upgrade log when conditions are not met."""
         db_conn = write_plan_to_db(
             nodes={"spec:1": {"title": "Task A"}},
@@ -230,11 +219,7 @@ class TestCachePolicyAutoUpgradeLogging:
         with caplog.at_level(logging.INFO, logger="agentfox.engine.engine"):
             orchestrator._init_run()
 
-        cache_logs = [
-            r
-            for r in caplog.records
-            if "extended" in r.message.lower() and "cache" in r.message.lower()
-        ]
+        cache_logs = [r for r in caplog.records if "extended" in r.message.lower() and "cache" in r.message.lower()]
         assert len(cache_logs) == 0
 
 

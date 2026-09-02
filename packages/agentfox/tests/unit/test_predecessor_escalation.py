@@ -144,9 +144,7 @@ class TestReviewerFailureRecordsOnPredCounter:
         Requirement: 58-REQ-1.1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
-        )
+        orch, state, error_tracker = _make_orchestrator(CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states)
 
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
@@ -175,9 +173,7 @@ class TestPredecessorResetToPending:
         Requirement: 58-REQ-1.2
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
-        )
+        orch, state, error_tracker = _make_orchestrator(CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states)
 
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
@@ -209,9 +205,7 @@ class TestPredecessorRetriesAccumulate:
         Requirement: 58-REQ-1.3
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
-        )
+        orch, state, error_tracker = _make_orchestrator(CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states)
 
         # First failure
         orch._result_handler.process(  # type: ignore[union-attr]
@@ -429,9 +423,7 @@ class TestCumulativeRetryDecision:
         }
 
         # max_retries=1: blocked after 2nd cumulative failure
-        orch, state, error_tracker = _make_orchestrator(
-            plan_nodes, edges_list, node_states, max_retries=1
-        )
+        orch, state, error_tracker = _make_orchestrator(plan_nodes, edges_list, node_states, max_retries=1)
 
         # 1st failure (verifier): still pending
         orch._result_handler.process(  # type: ignore[union-attr]
@@ -472,9 +464,7 @@ class TestNoCounterCreatedImplicitly:
         Requirement: 58-REQ-1.E1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
-        )
+        orch, state, error_tracker = _make_orchestrator(CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states)
 
         # Confirm no predecessor counter exists before the call
         assert orch._result_handler.get_failure_count("spec:1") == 0

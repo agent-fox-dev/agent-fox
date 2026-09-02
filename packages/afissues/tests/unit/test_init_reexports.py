@@ -126,6 +126,4 @@ class TestPublicReExports:
 
     def test_total_symbol_count_at_least_15(self) -> None:
         """__all__ contains at least the 15 spec-03 symbols (may have more from later specs)."""
-        assert len(afissues.__all__) >= 15, (
-            f"Expected at least 15 symbols in __all__, got {len(afissues.__all__)}"
-        )
+        assert len(afissues.__all__) >= 15, f"Expected at least 15 symbols in __all__, got {len(afissues.__all__)}"

@@ -60,8 +60,7 @@ class TestPreFlightModeConfig:
         expected_cmds = {"ls", "cat", "git", "grep", "find", "head", "tail", "wc"}
         assert cfg.default_allowlist is not None, "pre-flight allowlist must not be None"
         assert expected_cmds.issubset(set(cfg.default_allowlist)), (
-            f"pre-flight allowlist missing commands. "
-            f"Expected superset of {expected_cmds}, got {cfg.default_allowlist}"
+            f"pre-flight allowlist missing commands. Expected superset of {expected_cmds}, got {cfg.default_allowlist}"
         )
         assert cfg.injection == "auto_pre", f"pre-flight injection should be 'auto_pre', got {cfg.injection!r}"
         assert cfg.default_model_tier == "ADVANCED", (

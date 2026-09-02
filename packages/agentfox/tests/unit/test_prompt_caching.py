@@ -36,7 +36,7 @@ class _MockStream:
     def __init__(self, message: anthropic.types.Message) -> None:
         self._message = message
 
-    async def __aenter__(self) -> "_MockStream":
+    async def __aenter__(self) -> _MockStream:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

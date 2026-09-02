@@ -208,13 +208,9 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ) as mock_push,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert mock_push.call_count == 1, (
-            "git push to origin should be called exactly once in pr mode"
-        )
+        assert mock_push.call_count == 1, "git push to origin should be called exactly once in pr mode"
 
     @pytest.mark.asyncio
     async def test_create_pr_called_with_correct_title(self) -> None:
@@ -261,22 +257,16 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Verify create_pr was called with the correct title format
         mock_platform.create_pr.assert_called_once()
         call_kwargs = mock_platform.create_pr.call_args
         # Title should follow spec_name: task_group_title pattern
-        title = call_kwargs.kwargs.get("title") or (
-            call_kwargs.args[0] if call_kwargs.args else None
-        )
+        title = call_kwargs.kwargs.get("title") or (call_kwargs.args[0] if call_kwargs.args else None)
         assert title is not None, "create_pr must be called with a title"
         # The spec_name for our runner is 'test_spec' from the workspace
-        assert "test_spec" in title, (
-            f"PR title should contain the spec name; got: {title}"
-        )
+        assert "test_spec" in title, f"PR title should contain the spec name; got: {title}"
 
     @pytest.mark.asyncio
     async def test_create_pr_called_with_correct_head_branch(self) -> None:
@@ -319,9 +309,7 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_platform.create_pr.assert_called_once()
         call_kwargs = mock_platform.create_pr.call_args
@@ -375,15 +363,9 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        info_pr_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "Pull request created" in r.message
-        ]
+        info_pr_lines = [r for r in caplog.records if r.levelno == logging.INFO and "Pull request created" in r.message]
         assert len(info_pr_lines) == 1, (
             f"Expected exactly one INFO log about PR creation, "
             f"got {len(info_pr_lines)}: {[r.message for r in info_pr_lines]}"
@@ -435,9 +417,7 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         pr_created_logs = [
             r
@@ -491,9 +471,7 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert result == ("completed", None, ["config.py"], False)
 
@@ -538,13 +516,9 @@ class TestHarvestAndIntegratePrModeSuccess:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert mock_harvest.call_count == 0, (
-            "harvest() (squash-merge) should NOT be called in pr mode"
-        )
+        assert mock_harvest.call_count == 0, "harvest() (squash-merge) should NOT be called in pr mode"
 
 
 # ---------------------------------------------------------------------------
@@ -618,13 +592,9 @@ class TestIntegrateFixPrModeSuccess:
 
         mock_platform.create_pr.assert_called_once()
         call_kwargs = mock_platform.create_pr.call_args
-        title = call_kwargs.kwargs.get("title") or (
-            call_kwargs.args[0] if call_kwargs.args else None
-        )
+        title = call_kwargs.kwargs.get("title") or (call_kwargs.args[0] if call_kwargs.args else None)
         expected_title = "Fix #42: Login fails on empty password"
-        assert title == expected_title, (
-            f"Expected PR title '{expected_title}', got '{title}'"
-        )
+        assert title == expected_title, f"Expected PR title '{expected_title}', got '{title}'"
 
     @pytest.mark.asyncio
     async def test_pr_body_contains_fixes_n(self) -> None:
@@ -677,12 +647,8 @@ class TestIntegrateFixPrModeSuccess:
 
         mock_platform.create_pr.assert_called_once()
         call_kwargs = mock_platform.create_pr.call_args
-        body = call_kwargs.kwargs.get("body") or (
-            call_kwargs.args[1] if len(call_kwargs.args) > 1 else ""
-        )
-        assert "Fixes #42" in body, (
-            f"PR body should contain 'Fixes #42' for GitHub auto-close; got body: {body}"
-        )
+        body = call_kwargs.kwargs.get("body") or (call_kwargs.args[1] if len(call_kwargs.args) > 1 else "")
+        assert "Fixes #42" in body, f"PR body should contain 'Fixes #42' for GitHub auto-close; got body: {body}"
 
     @pytest.mark.asyncio
     async def test_issue_close_not_called(self) -> None:
@@ -841,9 +807,7 @@ class TestIntegrateFixPrModeSuccess:
         ):
             await pipeline._integrate_fix(issue, spec, workspace)
 
-        assert mock_harvest_push.call_count == 0, (
-            "_harvest_and_push() should NOT be called in pr mode"
-        )
+        assert mock_harvest_push.call_count == 0, "_harvest_and_push() should NOT be called in pr mode"
 
 
 # ---------------------------------------------------------------------------
@@ -902,15 +866,9 @@ class TestPlatformNoneFallback:
                 return_value=None,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        warn_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "falling back" in r.message.lower()
-        ]
+        warn_lines = [r for r in caplog.records if r.levelno == logging.WARNING and "falling back" in r.message.lower()]
         assert len(warn_lines) == 1, (
             f"Expected exactly one WARNING about platform fallback, "
             f"got {len(warn_lines)}: {[r.message for r in warn_lines]}"
@@ -959,23 +917,13 @@ class TestPlatformNoneFallback:
                 return_value=None,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        expected_msg = (
-            "Merge strategy is 'pr' but platform is not configured "
-            "— falling back to 'branch' mode."
-        )
-        warn_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING
-        ]
+        expected_msg = "Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode."
+        warn_lines = [r for r in caplog.records if r.levelno == logging.WARNING]
         warn_messages = [r.message for r in warn_lines]
         assert expected_msg in warn_messages, (
-            f"Expected WARNING message '{expected_msg}' not found. "
-            f"Warnings emitted: {warn_messages}"
+            f"Expected WARNING message '{expected_msg}' not found. Warnings emitted: {warn_messages}"
         )
 
     @pytest.mark.asyncio
@@ -1017,9 +965,7 @@ class TestPlatformNoneFallback:
                 new_callable=AsyncMock,
             ) as mock_push,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_push.assert_not_called()
 
@@ -1058,9 +1004,7 @@ class TestPlatformNoneFallback:
                 return_value=None,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, err_msg, _touched, non_retry = result
         assert status == "completed"
@@ -1114,11 +1058,7 @@ class TestPlatformNoneFallback:
         ):
             await pipeline._integrate_fix(issue, spec, workspace)
 
-        warn_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "falling back" in r.message.lower()
-        ]
+        warn_lines = [r for r in caplog.records if r.levelno == logging.WARNING and "falling back" in r.message.lower()]
         assert len(warn_lines) == 1, (
             f"Expected exactly one WARNING about platform fallback in _integrate_fix, "
             f"got {len(warn_lines)}: {[r.message for r in warn_lines]}"
@@ -1248,13 +1188,10 @@ class TestLazyPlatformValidation:
                 return_value=None,
             ) as mock_cps,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert mock_cps.call_count == 1, (
-            "create_platform_safe should be called exactly once during "
-            "_harvest_and_integrate in pr mode"
+            "create_platform_safe should be called exactly once during _harvest_and_integrate in pr mode"
         )
 
     @pytest.mark.asyncio
@@ -1301,8 +1238,7 @@ class TestLazyPlatformValidation:
             await pipeline._integrate_fix(issue, spec, workspace)
 
         assert mock_cps.call_count == 1, (
-            "create_platform_safe should be called exactly once during "
-            "_integrate_fix in pr mode"
+            "create_platform_safe should be called exactly once during _integrate_fix in pr mode"
         )
 
     @pytest.mark.asyncio
@@ -1335,9 +1271,7 @@ class TestLazyPlatformValidation:
                 return_value=MagicMock(),
             ) as mock_cps,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_cps.assert_not_called()
 
@@ -1415,9 +1349,7 @@ class TestPrModeSessionSummary:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         all_messages = " ".join(r.message for r in caplog.records)
         assert "https://github.com/owner/repo/pull/1" in all_messages, (
@@ -1467,17 +1399,11 @@ class TestPrModeSessionSummary:
                 return_value=True,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, error_message, _touched_files, _non_retryable = result
-        assert status == "completed", (
-            "PR mode should return 'completed' status (exit code 0)"
-        )
-        assert error_message is None, (
-            "PR mode should return None error message on success"
-        )
+        assert status == "completed", "PR mode should return 'completed' status (exit code 0)"
+        assert error_message is None, "PR mode should return None error message on success"
 
     @pytest.mark.asyncio
     async def test_pr_url_in_specific_info_log(
@@ -1526,15 +1452,8 @@ class TestPrModeSessionSummary:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        info_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO
-            and "Pull request created" in r.message
-        ]
+        info_lines = [r for r in caplog.records if r.levelno == logging.INFO and "Pull request created" in r.message]
         assert len(info_lines) == 1
         assert "https://github.com/owner/repo/pull/42" in info_lines[0].message

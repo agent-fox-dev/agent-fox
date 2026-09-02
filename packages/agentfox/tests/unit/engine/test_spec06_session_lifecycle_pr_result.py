@@ -140,7 +140,10 @@ class TestSessionLifecyclePrResult:
             caplog.at_level(logging.INFO),
         ):
             await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo"),
+                "test_spec:1",
+                outcome,
+                workspace,
+                Path("/tmp/repo"),
             )
 
         # The URL from PrResult.html_url should appear in log output
@@ -189,7 +192,10 @@ class TestSessionLifecyclePrResult:
         ):
             # Must not raise AttributeError when accessing .html_url
             result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo"),
+                "test_spec:1",
+                outcome,
+                workspace,
+                Path("/tmp/repo"),
             )
 
         # Basic sanity check: result should be a tuple

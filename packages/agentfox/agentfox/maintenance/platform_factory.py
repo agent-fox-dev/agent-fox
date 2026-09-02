@@ -158,10 +158,7 @@ def _create_gitea(platform_cfg: object, project_root: Path) -> PlatformProtocol:
             owner, repo = project_id.split("/", 1)
 
     if not owner or not repo:
-        logger.error(
-            "Could not determine Gitea owner/repo. "
-            "Set platform.project_id in your config."
-        )
+        logger.error("Could not determine Gitea owner/repo. Set platform.project_id in your config.")
         sys.exit(1)
 
     return GiteaPlatform(owner=owner, repo=repo, token=token, url=url)
@@ -177,10 +174,7 @@ def create_platform(config: object, project_root: Path) -> PlatformProtocol:
     platform_type = getattr(platform_cfg, "type", "none")
 
     if platform_type == "none":
-        logger.error(
-            "Night-shift requires a configured platform."
-            " Set [platform] type = 'github' in your config."
-        )
+        logger.error("Night-shift requires a configured platform. Set [platform] type = 'github' in your config.")
         sys.exit(1)
 
     if platform_type not in _SUPPORTED_PLATFORMS:

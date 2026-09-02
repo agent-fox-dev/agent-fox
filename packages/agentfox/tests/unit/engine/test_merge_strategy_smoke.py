@@ -244,9 +244,7 @@ class TestSmokePrModeAfCodeSuccess:
                 side_effect=tracked_push,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # 1. create_platform_safe called (and returns platform)
         assert "create_platform_safe" in call_order
@@ -267,10 +265,7 @@ class TestSmokePrModeAfCodeSuccess:
         assert mock_harvest.call_count == 0
 
         # 6. INFO log with PR URL
-        pr_log = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO and "Pull request created" in r.message
-        ]
+        pr_log = [r for r in caplog.records if r.levelno == logging.INFO and "Pull request created" in r.message]
         assert len(pr_log) == 1
         assert "https://github.com/owner/repo/pull/1" in pr_log[0].message
 
@@ -333,9 +328,7 @@ class TestSmokeBranchModeAfCode:
                 new_callable=AsyncMock,
             ) as mock_push,
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # 1. harvest() NOT called
         assert mock_harvest.call_count == 0
@@ -348,8 +341,7 @@ class TestSmokeBranchModeAfCode:
 
         # 4. INFO log with branch name
         info_logs = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO and "Merge strategy is 'branch'" in r.message
+            r for r in caplog.records if r.levelno == logging.INFO and "Merge strategy is 'branch'" in r.message
         ]
         assert len(info_logs) == 1
         assert "feat/my-feature" in info_logs[0].message
@@ -385,7 +377,8 @@ class TestSmokeNightshiftPrModeSuccess:
             create_pr_url="https://github.com/owner/repo/pull/5",
         )
         pipeline = _make_fix_pipeline(
-            merge_strategy="pr", platform=mock_platform,
+            merge_strategy="pr",
+            platform=mock_platform,
         )
         issue = _make_issue(number=42, title="Login fails on empty password")
         spec = _make_spec(issue_number=42, branch_name="fix/issue-42")
@@ -394,21 +387,26 @@ class TestSmokeNightshiftPrModeSuccess:
         with (
             caplog.at_level(logging.DEBUG),
             patch.object(
-                pipeline, "_harvest_and_push",
-                new_callable=AsyncMock, return_value=["auth/login.py"],
+                pipeline,
+                "_harvest_and_push",
+                new_callable=AsyncMock,
+                return_value=["auth/login.py"],
             ) as mock_hp,
             patch.object(
-                pipeline, "_auto_commit_pending_changes",
+                pipeline,
+                "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
             ),
             patch.object(
-                pipeline, "_push_fix_branch_upstream",
+                pipeline,
+                "_push_fix_branch_upstream",
                 new_callable=AsyncMock,
             ),
             patch.object(pipeline, "_update_spinner"),
             patch(
                 "agentfox.workspace.git.get_changed_files",
-                new_callable=AsyncMock, return_value=["auth/login.py"],
+                new_callable=AsyncMock,
+                return_value=["auth/login.py"],
             ),
             patch(
                 "agentfox.maintenance.platform_factory.create_platform_safe",
@@ -416,7 +414,8 @@ class TestSmokeNightshiftPrModeSuccess:
             ),
             patch(
                 "agentfox.workspace.git.push_to_remote",
-                new_callable=AsyncMock, return_value=True,
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
             result = await pipeline._integrate_fix(issue, spec, workspace)
@@ -442,10 +441,7 @@ class TestSmokeNightshiftPrModeSuccess:
         mock_platform.close_issue.assert_not_called()
 
         # 6. INFO log with PR URL
-        pr_logs = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO and "Pull request created" in r.message
-        ]
+        pr_logs = [r for r in caplog.records if r.levelno == logging.INFO and "Pull request created" in r.message]
         assert len(pr_logs) == 1
         assert "https://github.com/owner/repo/pull/5" in pr_logs[0].message
 
@@ -481,7 +477,8 @@ class TestSmokePrModeFallbackNoPlatform:
             caplog.at_level(logging.DEBUG),
             patch(
                 "agentfox.engine.session_lifecycle.harvest",
-                new_callable=AsyncMock, return_value=["f.py"],
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ) as mock_harvest,
             patch(
                 "agentfox.engine.session_lifecycle.post_harvest_integrate",
@@ -495,7 +492,8 @@ class TestSmokePrModeFallbackNoPlatform:
             patch("agentfox.engine.session_lifecycle.emit_audit_event"),
             patch(
                 "agentfox.workspace.git.get_changed_files",
-                new_callable=AsyncMock, return_value=["f.py"],
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ),
             patch(
                 "agentfox.maintenance.platform_factory.create_platform_safe",
@@ -506,9 +504,7 @@ class TestSmokePrModeFallbackNoPlatform:
                 new_callable=AsyncMock,
             ) as mock_push,
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # 1. Push NOT called
         mock_push.assert_not_called()
@@ -517,10 +513,7 @@ class TestSmokePrModeFallbackNoPlatform:
         assert mock_harvest.call_count == 0
 
         # 3. WARNING log
-        warns = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "falling back" in r.message.lower()
-        ]
+        warns = [r for r in caplog.records if r.levelno == logging.WARNING and "falling back" in r.message.lower()]
         assert len(warns) == 1
         assert "platform is not configured" in warns[0].message.lower()
 
@@ -546,21 +539,26 @@ class TestSmokePrModeFallbackNoPlatform:
         with (
             caplog.at_level(logging.DEBUG),
             patch.object(
-                pipeline, "_harvest_and_push",
-                new_callable=AsyncMock, return_value=["f.py"],
+                pipeline,
+                "_harvest_and_push",
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ),
             patch.object(
-                pipeline, "_auto_commit_pending_changes",
+                pipeline,
+                "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
             ),
             patch.object(
-                pipeline, "_push_fix_branch_upstream",
+                pipeline,
+                "_push_fix_branch_upstream",
                 new_callable=AsyncMock,
             ) as mock_push,
             patch.object(pipeline, "_update_spinner"),
             patch(
                 "agentfox.workspace.git.get_changed_files",
-                new_callable=AsyncMock, return_value=["f.py"],
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ),
             patch(
                 "agentfox.maintenance.platform_factory.create_platform_safe",
@@ -573,10 +571,7 @@ class TestSmokePrModeFallbackNoPlatform:
         mock_push.assert_not_called()
 
         # WARNING log
-        warns = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "falling back" in r.message.lower()
-        ]
+        warns = [r for r in caplog.records if r.levelno == logging.WARNING and "falling back" in r.message.lower()]
         assert len(warns) == 1
 
         # Return value
@@ -615,7 +610,8 @@ class TestSmokeNightshiftPrPartialFailure:
             side_effect=IntegrationError("GitHub PR creation failed (500)"),
         )
         pipeline = _make_fix_pipeline(
-            merge_strategy="pr", platform=mock_platform,
+            merge_strategy="pr",
+            platform=mock_platform,
         )
         issue = _make_issue(number=42, title="Login fails on empty password")
         spec = _make_spec(issue_number=42, branch_name="fix/issue-42")
@@ -623,12 +619,14 @@ class TestSmokeNightshiftPrPartialFailure:
 
         with (
             patch.object(
-                pipeline, "_auto_commit_pending_changes",
+                pipeline,
+                "_auto_commit_pending_changes",
                 new_callable=AsyncMock,
             ),
             patch(
                 "agentfox.workspace.git.get_changed_files",
-                new_callable=AsyncMock, return_value=["auth/login.py"],
+                new_callable=AsyncMock,
+                return_value=["auth/login.py"],
             ),
             patch(
                 "agentfox.maintenance.platform_factory.create_platform_safe",
@@ -636,7 +634,8 @@ class TestSmokeNightshiftPrPartialFailure:
             ),
             patch(
                 "agentfox.workspace.git.push_to_remote",
-                new_callable=AsyncMock, return_value=True,
+                new_callable=AsyncMock,
+                return_value=True,
             ) as mock_push,
         ):
             with pytest.raises(IntegrationError, match="GitHub PR creation failed"):
@@ -714,7 +713,10 @@ class TestSmokeDuplicatePrIdempotent:
         platform._auth_headers = lambda: {"Authorization": "Bearer test"}
 
         result = await platform.create_pr(
-            title="My PR", body="body", head="feat/x", base="main",
+            title="My PR",
+            body="body",
+            head="feat/x",
+            base="main",
         )
 
         # Exactly one POST, one GET
@@ -750,7 +752,9 @@ class TestSmokeDirectModeZeroRegression:
         # Use default config — merge_strategy absent, defaults to 'direct'
         config = AgentFoxConfig(workspace=WorkspaceConfig())
         runner = NodeSessionRunner(
-            "test_spec:1", config, knowledge_db=_MOCK_KB,
+            "test_spec:1",
+            config,
+            knowledge_db=_MOCK_KB,
         )
         workspace = _make_workspace()
         outcome = _make_session_outcome("completed")
@@ -759,7 +763,8 @@ class TestSmokeDirectModeZeroRegression:
             caplog.at_level(logging.DEBUG),
             patch(
                 "agentfox.engine.session_lifecycle.harvest",
-                new_callable=AsyncMock, return_value=["existing_file.py"],
+                new_callable=AsyncMock,
+                return_value=["existing_file.py"],
             ) as mock_harvest,
             patch(
                 "agentfox.engine.session_lifecycle.post_harvest_integrate",
@@ -776,9 +781,7 @@ class TestSmokeDirectModeZeroRegression:
                 return_value=MagicMock(),
             ) as mock_cps,
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # 1. Config defaults to 'direct'
         assert config.workspace.merge_strategy == "direct"
@@ -790,10 +793,7 @@ class TestSmokeDirectModeZeroRegression:
         mock_cps.assert_not_called()
 
         # 4. No merge strategy log lines
-        merge_logs = [
-            r for r in caplog.records
-            if r.levelno >= logging.INFO and "Merge strategy" in r.message
-        ]
+        merge_logs = [r for r in caplog.records if r.levelno >= logging.INFO and "Merge strategy" in r.message]
         assert len(merge_logs) == 0
 
         # 5. Return tuple
@@ -835,7 +835,8 @@ class TestSmokeAfCodePrPartialFailure:
             caplog.at_level(logging.DEBUG),
             patch(
                 "agentfox.engine.session_lifecycle.harvest",
-                new_callable=AsyncMock, return_value=["f.py"],
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ) as mock_harvest,
             patch(
                 "agentfox.engine.session_lifecycle.post_harvest_integrate",
@@ -849,7 +850,8 @@ class TestSmokeAfCodePrPartialFailure:
             patch("agentfox.engine.session_lifecycle.emit_audit_event"),
             patch(
                 "agentfox.workspace.git.get_changed_files",
-                new_callable=AsyncMock, return_value=["f.py"],
+                new_callable=AsyncMock,
+                return_value=["f.py"],
             ),
             patch(
                 "agentfox.maintenance.platform_factory.create_platform_safe",
@@ -857,21 +859,17 @@ class TestSmokeAfCodePrPartialFailure:
             ),
             patch(
                 "agentfox.workspace.git.push_to_remote",
-                new_callable=AsyncMock, return_value=True,
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # 1. harvest NOT called (pr mode)
         assert mock_harvest.call_count == 0
 
         # 2. ERROR log with remote branch URL
-        error_logs = [
-            r for r in caplog.records
-            if r.levelno == logging.ERROR and "PR creation failed" in r.message
-        ]
+        error_logs = [r for r in caplog.records if r.levelno == logging.ERROR and "PR creation failed" in r.message]
         assert len(error_logs) == 1
         assert "https://github.com/owner/repo/tree/feat/my-branch" in error_logs[0].message
 

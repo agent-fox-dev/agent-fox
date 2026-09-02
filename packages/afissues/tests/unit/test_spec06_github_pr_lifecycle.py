@@ -108,9 +108,7 @@ class TestGetPrStateHappyPath:
         with patch(_TARGET, return_value=client):
             result = await platform.get_pr_state(42)
 
-        assert result == PrState(
-            number=42, state="open", merged=False, head_sha="abc123"
-        )
+        assert result == PrState(number=42, state="open", merged=False, head_sha="abc123")
 
     async def test_calls_correct_api_endpoint(self) -> None:
         """GET request is sent to /repos/{owner}/{repo}/pulls/42."""
@@ -295,9 +293,7 @@ class TestGetPrChecksHappyPath:
 
         # Mock get_pr_state to return a PrState with known head_sha
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="deadbeef"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="deadbeef"),
         )
 
         check_runs_response = {
@@ -335,9 +331,7 @@ class TestGetPrChecksHappyPath:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="deadbeef"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="deadbeef"),
         )
 
         captured_urls: list[str] = []
@@ -355,9 +349,7 @@ class TestGetPrChecksHappyPath:
             await platform.get_pr_checks(42)
 
         # Should have called the check-runs endpoint with the head_sha
-        check_run_urls = [
-            u for u in captured_urls if "check-runs" in u
-        ]
+        check_run_urls = [u for u in captured_urls if "check-runs" in u]
         assert len(check_run_urls) >= 1
         assert "/repos/owner/repo/commits/deadbeef/check-runs" in check_run_urls[0]
 
@@ -379,9 +371,7 @@ class TestGetPrChecksPagination:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="abc"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="abc"),
         )
 
         page1_runs = [_make_check_run(f"run-{i}") for i in range(30)]
@@ -393,12 +383,8 @@ class TestGetPrChecksPagination:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return _json_response(
-                    200, {"total_count": 35, "check_runs": page1_runs}
-                )
-            return _json_response(
-                200, {"total_count": 35, "check_runs": page2_runs}
-            )
+                return _json_response(200, {"total_count": 35, "check_runs": page1_runs})
+            return _json_response(200, {"total_count": 35, "check_runs": page2_runs})
 
         client = _mock_client(get=mock_get)
 
@@ -427,9 +413,7 @@ class TestGetPrChecksNullOutput:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="abc"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="abc"),
         )
 
         response_data = {
@@ -474,9 +458,7 @@ class TestGetPrChecksMissingFields:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="abc"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="abc"),
         )
 
         client = _mock_client(
@@ -505,15 +487,11 @@ class TestGetPrChecksPaginationError:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="abc"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="abc"),
         )
 
         page1_runs = [_make_check_run(f"run-{i}") for i in range(30)]
-        page1 = _json_response(
-            200, {"total_count": 35, "check_runs": page1_runs}
-        )
+        page1 = _json_response(200, {"total_count": 35, "check_runs": page1_runs})
 
         call_count = 0
 
@@ -549,9 +527,7 @@ class TestGetPrChecksPageCap:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         platform.get_pr_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=PrState(
-                number=42, state="open", merged=False, head_sha="abc"
-            ),
+            return_value=PrState(number=42, state="open", merged=False, head_sha="abc"),
         )
 
         page_data = {
@@ -706,9 +682,7 @@ class TestGetPrReviewsMissingFields:
         ]
 
         client = _mock_client(
-            get=AsyncMock(
-                return_value=_json_response(200, incomplete_reviews)
-            ),
+            get=AsyncMock(return_value=_json_response(200, incomplete_reviews)),
         )
 
         with patch(_TARGET, return_value=client):
@@ -730,9 +704,7 @@ class TestGetPrReviewsMissingFields:
         ]
 
         client = _mock_client(
-            get=AsyncMock(
-                return_value=_json_response(200, incomplete_reviews)
-            ),
+            get=AsyncMock(return_value=_json_response(200, incomplete_reviews)),
         )
 
         with patch(_TARGET, return_value=client):
@@ -755,9 +727,7 @@ class TestGetPrReviewsApiError:
         platform = GitHubPlatform(owner="owner", repo="repo", token="tok")
 
         client = _mock_client(
-            get=AsyncMock(
-                return_value=_json_response(403, text="Forbidden")
-            ),
+            get=AsyncMock(return_value=_json_response(403, text="Forbidden")),
         )
 
         with patch(_TARGET, return_value=client):
@@ -810,9 +780,7 @@ class TestCreatePrReturnsPrResult:
         client = _mock_client(post=mock_post)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="fix", body="", head="fix-branch", base="main"
-            )
+            result = await platform.create_pr(title="fix", body="", head="fix-branch", base="main")
 
         assert isinstance(result, PrResult)
         assert result.html_url == "https://github.com/owner/repo/pull/99"
@@ -867,9 +835,7 @@ class TestCreatePr422RecoveryPrResult:
         client = _mock_client(post=mock_post, get=mock_get)
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_pr(
-                title="fix", body="", head="fix-branch", base="main"
-            )
+            result = await platform.create_pr(title="fix", body="", head="fix-branch", base="main")
 
         assert isinstance(result, PrResult)
         assert result.number == 7
@@ -910,9 +876,7 @@ class TestCreatePr422EmptyRecovery:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
-                await platform.create_pr(
-                    title="fix", body="", head="branch", base="main"
-                )
+                await platform.create_pr(title="fix", body="", head="branch", base="main")
 
 
 # ---------------------------------------------------------------------------
@@ -938,9 +902,7 @@ class TestCreatePr201MissingNumber:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises((KeyError, IntegrationError)):
-                await platform.create_pr(
-                    title="fix", body="", head="branch", base="main"
-                )
+                await platform.create_pr(title="fix", body="", head="branch", base="main")
 
     async def test_missing_html_url_raises(self) -> None:
         """201 response without 'html_url' field raises."""
@@ -955,6 +917,4 @@ class TestCreatePr201MissingNumber:
 
         with patch(_TARGET, return_value=client):
             with pytest.raises((KeyError, IntegrationError)):
-                await platform.create_pr(
-                    title="fix", body="", head="branch", base="main"
-                )
+                await platform.create_pr(title="fix", body="", head="branch", base="main")

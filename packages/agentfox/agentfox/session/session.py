@@ -67,11 +67,7 @@ async def with_timeout[T](
 
 def _log_cache_metrics(outcome: SessionOutcome, cache_policy: str) -> None:
     """Log prompt cache performance metrics after a session completes."""
-    total_input = (
-        outcome.input_tokens
-        + outcome.cache_read_input_tokens
-        + outcome.cache_creation_input_tokens
-    )
+    total_input = outcome.input_tokens + outcome.cache_read_input_tokens + outcome.cache_creation_input_tokens
     if total_input == 0:
         return
 
@@ -94,8 +90,7 @@ def _log_cache_metrics(outcome: SessionOutcome, cache_policy: str) -> None:
         )
     else:
         logger.info(
-            "Session %s cache metrics: policy=%s, total_input=%d, "
-            "no cache activity (cache_read=0, cache_creation=0)",
+            "Session %s cache metrics: policy=%s, total_input=%d, no cache activity (cache_read=0, cache_creation=0)",
             outcome.node_id,
             cache_policy,
             total_input,

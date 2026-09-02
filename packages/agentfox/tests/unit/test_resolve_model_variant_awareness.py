@@ -167,8 +167,7 @@ class TestResolveModelCanonicalVariantAvailable:
 
         assert result == "claude-haiku-4-5"
         fallback_logs = [
-            r for r in caplog.records
-            if "fallback" in r.message.lower() or "falling back" in r.message.lower()
+            r for r in caplog.records if "fallback" in r.message.lower() or "falling back" in r.message.lower()
         ]
         assert not fallback_logs, "No fallback log expected for valid (SIMPLE, standard) match"
 

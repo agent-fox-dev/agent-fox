@@ -557,9 +557,7 @@ class TestBuildPromptsDeduplicatesFindings:
             _sys, task_prompt = runner._build_prompts(tmp_path, attempt=2, previous_error="some error")
 
         mock_retry_ctx.assert_not_called()
-        assert "previous attempt failed" in task_prompt, (
-            "Retry attempt must include the previous error note"
-        )
+        assert "previous attempt failed" in task_prompt, "Retry attempt must include the previous error note"
 
     def test_first_attempt_with_no_error_skips_retry_context(self, tmp_path: Path) -> None:
         """First attempt (attempt=1, no previous_error) must never call

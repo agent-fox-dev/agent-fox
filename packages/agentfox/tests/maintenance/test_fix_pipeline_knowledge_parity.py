@@ -121,12 +121,15 @@ class TestHarvestAndPushReturnsFileList:
         mock_harvest = AsyncMock(return_value=["src/foo.py", "src/bar.py"])
         mock_integrate = AsyncMock()
 
-        with patch(
-            "agentfox.workspace.harvest.harvest",
-            mock_harvest,
-        ), patch(
-            "agentfox.workspace.harvest.post_harvest_integrate",
-            mock_integrate,
+        with (
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                mock_harvest,
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                mock_integrate,
+            ),
         ):
             result = await pipeline._harvest_and_push(spec, workspace)
 
@@ -144,12 +147,15 @@ class TestHarvestAndPushReturnsFileList:
 
         mock_harvest = AsyncMock(return_value=[])
 
-        with patch(
-            "agentfox.workspace.harvest.harvest",
-            mock_harvest,
-        ), patch(
-            "agentfox.workspace.harvest.post_harvest_integrate",
-            AsyncMock(),
+        with (
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                mock_harvest,
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                AsyncMock(),
+            ),
         ):
             result = await pipeline._harvest_and_push(spec, workspace)
 
@@ -168,12 +174,15 @@ class TestHarvestAndPushReturnsFileList:
         mock_harvest = AsyncMock(return_value=["src/a.py", "src/b.py", "src/c.py"])
         mock_integrate = AsyncMock()
 
-        with patch(
-            "agentfox.workspace.harvest.harvest",
-            mock_harvest,
-        ), patch(
-            "agentfox.workspace.harvest.post_harvest_integrate",
-            mock_integrate,
+        with (
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                mock_harvest,
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                mock_integrate,
+            ),
         ):
             result = await pipeline._harvest_and_push(spec, workspace)
 
@@ -192,12 +201,15 @@ class TestHarvestAndPushReturnsFileList:
 
         mock_harvest = AsyncMock(side_effect=RuntimeError("harvest failed"))
 
-        with patch(
-            "agentfox.workspace.harvest.harvest",
-            mock_harvest,
-        ), patch(
-            "agentfox.workspace.harvest.post_harvest_integrate",
-            AsyncMock(),
+        with (
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                mock_harvest,
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                AsyncMock(),
+            ),
         ):
             with pytest.raises(RuntimeError, match="harvest failed"):
                 await pipeline_with_provider._harvest_and_push(spec, workspace)
@@ -683,17 +695,13 @@ class TestPostHarvestIngestTouchedFiles:
             c
             for c in ingest_calls
             if "touched_files" in (c.kwargs.get("context") or c.args[2] if len(c.args) > 2 else {})
-            and (c.kwargs.get("context") or c.args[2] if len(c.args) > 2 else {}).get("touched_files")
-            != []
+            and (c.kwargs.get("context") or c.args[2] if len(c.args) > 2 else {}).get("touched_files") != []
         ]
         assert len(post_harvest_calls) > 0, (
             "Expected at least one post-harvest ingest call with non-empty touched_files; "
             f"got {len(ingest_calls)} total ingest calls"
         )
-        post_ctx = (
-            post_harvest_calls[0].kwargs.get("context")
-            or post_harvest_calls[0].args[2]
-        )
+        post_ctx = post_harvest_calls[0].kwargs.get("context") or post_harvest_calls[0].args[2]
         assert post_ctx["touched_files"] == ["src/alpha.py", "src/beta.py"]
 
 
@@ -744,9 +752,7 @@ class TestPostHarvestIngestNoCommitSha:
         for call in ingest_calls:
             ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
             if ctx.get("touched_files") and ctx["touched_files"] != []:
-                assert "commit_sha" not in ctx, (
-                    f"Post-harvest ingest context must not contain 'commit_sha', got: {ctx}"
-                )
+                assert "commit_sha" not in ctx, f"Post-harvest ingest context must not contain 'commit_sha', got: {ctx}"
 
 
 class TestPostHarvestIngestSpecName:
@@ -847,7 +853,8 @@ class TestPostHarvestIngestSummaryFields:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=("session summary", ["approach A"], ["gotcha B"], ["assumption C"]),
             ),
         ):
@@ -906,7 +913,8 @@ class TestPostHarvestIngestSummaryFields:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=("summary", ["r"], ["g"], ["a"]),
             ),
         ):
@@ -978,7 +986,8 @@ class TestPostHarvestIngestSummaryAbsent:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1047,8 +1056,7 @@ class TestPostHarvestIngestSkippedOnEmptyHarvest:
             ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
             touched = ctx.get("touched_files", [])
             assert touched == [] or touched is None, (
-                f"Post-harvest ingest should be skipped on empty harvest, "
-                f"but found touched_files={touched}"
+                f"Post-harvest ingest should be skipped on empty harvest, but found touched_files={touched}"
             )
 
 
@@ -1093,7 +1101,8 @@ class TestPostHarvestIngestEmptyResponse:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1126,9 +1135,7 @@ class TestPostHarvestIngestErrorHandling:
     Requirements: 05-REQ-2.E1, 05-REQ-11.3
     """
 
-    async def test_ingest_exception_logged_at_error_level(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_ingest_exception_logged_at_error_level(self, caplog: pytest.LogCaptureFixture) -> None:
         """ERROR log emitted with session ID and exception on ingest failure.
 
         Test Spec: TS-05-36
@@ -1172,7 +1179,8 @@ class TestPostHarvestIngestErrorHandling:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1223,7 +1231,8 @@ class TestPostHarvestIngestErrorHandling:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1244,9 +1253,7 @@ class TestPostHarvestIngestObservability:
     Requirements: 05-REQ-2.5
     """
 
-    async def test_log_line_with_touched_files_count_and_summary_flag(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_log_line_with_touched_files_count_and_summary_flag(self, caplog: pytest.LogCaptureFixture) -> None:
         """Log record emitted with touched_files count and summary_extracted.
 
         Test Spec: TS-05-7
@@ -1277,7 +1284,8 @@ class TestPostHarvestIngestObservability:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=("summary text", [], [], []),
             ),
         ):
@@ -1424,7 +1432,8 @@ class TestPreAndPostHarvestCallIndependence:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1494,7 +1503,8 @@ class TestPreAndPostHarvestCallIndependence:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1502,9 +1512,7 @@ class TestPreAndPostHarvestCallIndependence:
             await pipeline.process_issue(_make_issue(42), issue_body="Some body")
 
         # At least 2 ingest calls attempted (pre-harvest succeeded, post-harvest raised)
-        assert call_count >= 2, (
-            f"Expected at least 2 ingest calls attempted, got {call_count}"
-        )
+        assert call_count >= 2, f"Expected at least 2 ingest calls attempted, got {call_count}"
 
 
 # ===========================================================================
@@ -1557,7 +1565,8 @@ class TestSpecNameConventionRetrieveAndIngest:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -1565,23 +1574,15 @@ class TestSpecNameConventionRetrieveAndIngest:
 
         # Verify retrieve() uses spec_name='fix-issue-99'
         retrieve_call = provider.retrieve.call_args
-        retrieve_spec = (
-            retrieve_call.args[0] if retrieve_call.args else retrieve_call.kwargs.get("spec_name")
-        )
-        assert retrieve_spec == "fix-issue-99", (
-            f"Expected retrieve spec_name='fix-issue-99', got '{retrieve_spec}'"
-        )
+        retrieve_spec = retrieve_call.args[0] if retrieve_call.args else retrieve_call.kwargs.get("spec_name")
+        assert retrieve_spec == "fix-issue-99", f"Expected retrieve spec_name='fix-issue-99', got '{retrieve_spec}'"
 
         # Verify ingest() uses spec_name='fix-issue-99'
         ingest_calls = provider.ingest.call_args_list
         assert len(ingest_calls) > 0, "Expected at least one ingest call"
         for call in ingest_calls:
-            ingest_spec = (
-                call.args[1] if len(call.args) > 1 else call.kwargs.get("spec_name")
-            )
-            assert ingest_spec == "fix-issue-99", (
-                f"Expected ingest spec_name='fix-issue-99', got '{ingest_spec}'"
-            )
+            ingest_spec = call.args[1] if len(call.args) > 1 else call.kwargs.get("spec_name")
+            assert ingest_spec == "fix-issue-99", f"Expected ingest spec_name='fix-issue-99', got '{ingest_spec}'"
 
     def test_spec_name_not_parsed_from_session_id(self) -> None:
         """spec_name comes from spec.issue_number, not from string parsing.
@@ -1704,16 +1705,15 @@ class TestFixPipelineCallsExtractSessionSummary:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ) as mock_extract,
         ):
             await pipeline.process_issue(_make_issue(42), issue_body="Some body")
 
         # extract_session_summary must have been called at least once
-        assert mock_extract.called, (
-            "extract_session_summary from agentfox.knowledge.extraction was not called"
-        )
+        assert mock_extract.called, "extract_session_summary from agentfox.knowledge.extraction was not called"
         # The return value should not be a coroutine (synchronous call)
         call_result = mock_extract.return_value
         assert not inspect.isawaitable(call_result), (
@@ -1752,7 +1752,8 @@ class TestFixPipelineCallsExtractSessionSummary:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=("some summary", ["r1"], ["g1"], ["a1"]),
             ) as mock_extract,
         ):

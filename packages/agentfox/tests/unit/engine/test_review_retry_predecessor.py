@@ -537,6 +537,4 @@ class TestRetryOnReviewBlockTaskGroupFilter:
         blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False
-        graph_sync._transition.assert_any_call(
-            "test_spec:1", "pending", reason="retry after review block"
-        )
+        graph_sync._transition.assert_any_call("test_spec:1", "pending", reason="retry after review block")

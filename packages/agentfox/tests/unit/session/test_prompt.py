@@ -172,16 +172,12 @@ class TestTaskPromptReferencesTasksJson:
     def test_prompt_does_not_contain_tasks_md(self) -> None:
         """Coder task prompt must not reference tasks.md."""
         result = build_task_prompt(1, "my_spec")
-        assert "tasks.md" not in result, (
-            f"Task prompt must not reference tasks.md: {result!r}"
-        )
+        assert "tasks.md" not in result, f"Task prompt must not reference tasks.md: {result!r}"
 
     def test_prompt_references_tasks_json(self) -> None:
         """Coder task prompt references tasks.json."""
         result = build_task_prompt(1, "my_spec")
-        assert "tasks.json" in result, (
-            f"Task prompt must reference tasks.json: {result!r}"
-        )
+        assert "tasks.json" in result, f"Task prompt must reference tasks.json: {result!r}"
 
 
 class TestPreflightSummaryInTaskPrompt:
@@ -206,9 +202,7 @@ class TestPreflightSummaryInTaskPrompt:
 
     def test_no_preflight_for_non_coder(self) -> None:
         """Non-coder archetypes ignore preflight_summary."""
-        result = build_task_prompt(
-            2, "my_spec", archetype="reviewer", preflight_summary="## Preflight State\n"
-        )
+        result = build_task_prompt(2, "my_spec", archetype="reviewer", preflight_summary="## Preflight State\n")
         assert "Preflight State" not in result
 
 

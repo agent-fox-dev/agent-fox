@@ -301,8 +301,7 @@ class DeepAgentsBackend:
                         del kwargs[param_name]
                         if log_debug:
                             logger.debug(
-                                "create_deep_agent does not support '%s'; "
-                                "retrying without it",
+                                "create_deep_agent does not support '%s'; retrying without it",
                                 param_name,
                             )
                         dropped = True
@@ -397,8 +396,7 @@ class DeepAgentsBackend:
 
                         if not event_kind:
                             logger.warning(
-                                "Skipping malformed event with no "
-                                "'event' field: %s",
+                                "Skipping malformed event with no 'event' field: %s",
                                 event,
                             )
                             continue
@@ -426,24 +424,17 @@ class DeepAgentsBackend:
                                 try:
                                     await permission_callback(
                                         tool_name,
-                                        tool_input
-                                        if isinstance(tool_input, dict)
-                                        else {},
+                                        tool_input if isinstance(tool_input, dict) else {},
                                     )
                                 except Exception as cb_exc:
                                     # 03-REQ-4.E1: deny + error
                                     duration_ms = int(
-                                        (time.monotonic() - start_time)
-                                        * 1000,
+                                        (time.monotonic() - start_time) * 1000,
                                     )
                                     yield ResultMessage(
                                         status="error",
-                                        input_tokens=(
-                                            input_tokens_total or 0
-                                        ),
-                                        output_tokens=(
-                                            output_tokens_total or 0
-                                        ),
+                                        input_tokens=(input_tokens_total or 0),
+                                        output_tokens=(output_tokens_total or 0),
                                         duration_ms=duration_ms,
                                         error_message=str(cb_exc),
                                         is_error=True,
@@ -454,11 +445,7 @@ class DeepAgentsBackend:
                             buffered_msgs.append(
                                 ToolUseMessage(
                                     tool_name=tool_name,
-                                    tool_input=(
-                                        tool_input
-                                        if isinstance(tool_input, dict)
-                                        else {}
-                                    ),
+                                    tool_input=(tool_input if isinstance(tool_input, dict) else {}),
                                 ),
                             )
 
@@ -486,13 +473,9 @@ class DeepAgentsBackend:
                                     inp = usage.get("input_tokens")
                                     out = usage.get("output_tokens")
                                     if inp is not None:
-                                        input_tokens_total = (
-                                            input_tokens_total or 0
-                                        ) + inp
+                                        input_tokens_total = (input_tokens_total or 0) + inp
                                     if out is not None:
-                                        output_tokens_total = (
-                                            output_tokens_total or 0
-                                        ) + out
+                                        output_tokens_total = (output_tokens_total or 0) + out
 
                         # Unknown event kinds are silently ignored
 
@@ -513,16 +496,8 @@ class DeepAgentsBackend:
                 duration_ms = int((time.monotonic() - start_time) * 1000)
                 yield ResultMessage(
                     status="completed",
-                    input_tokens=(
-                        input_tokens_total
-                        if input_tokens_total is not None
-                        else 0
-                    ),
-                    output_tokens=(
-                        output_tokens_total
-                        if output_tokens_total is not None
-                        else 0
-                    ),
+                    input_tokens=(input_tokens_total if input_tokens_total is not None else 0),
+                    output_tokens=(output_tokens_total if output_tokens_total is not None else 0),
                     duration_ms=duration_ms,
                     error_message=None,
                     is_error=False,
@@ -574,10 +549,7 @@ class DeepAgentsBackend:
             input_tokens=0,
             output_tokens=0,
             duration_ms=duration_ms,
-            error_message=(
-                f"Transport error after {_MAX_TRANSPORT_RETRIES} retries: "
-                f"{last_exc}"
-            ),
+            error_message=(f"Transport error after {_MAX_TRANSPORT_RETRIES} retries: {last_exc}"),
             is_error=True,
             is_transport_error=True,
         )

@@ -79,8 +79,7 @@ class TestBuildPrBodySignature:
         """build_pr_body has exactly six parameters."""
         sig = inspect.signature(build_pr_body)
         assert len(sig.parameters) == 6, (
-            f"Expected 6 parameters, got {len(sig.parameters)}: "
-            f"{list(sig.parameters.keys())}"
+            f"Expected 6 parameters, got {len(sig.parameters)}: {list(sig.parameters.keys())}"
         )
 
     def test_pure_function_identical_output(self) -> None:
@@ -282,32 +281,20 @@ class TestBuildPrBodyCallerKeywordOnly:
 
     def test_session_lifecycle_uses_keyword_only(self) -> None:
         """All build_pr_body calls in session_lifecycle.py use keyword args."""
-        filepath = (
-            Path(__file__).resolve().parents[3]
-            / "agentfox"
-            / "engine"
-            / "session_lifecycle.py"
-        )
+        filepath = Path(__file__).resolve().parents[3] / "agentfox" / "engine" / "session_lifecycle.py"
         calls = self._find_build_pr_body_calls(filepath)
         for call in calls:
             assert len(call.args) == 0, (
-                f"Positional args found in session_lifecycle.py call to "
-                f"build_pr_body at line {call.lineno}"
+                f"Positional args found in session_lifecycle.py call to build_pr_body at line {call.lineno}"
             )
 
     def test_fix_pipeline_uses_keyword_only(self) -> None:
         """All build_pr_body calls in fix_pipeline.py use keyword args."""
-        filepath = (
-            Path(__file__).resolve().parents[3]
-            / "agentfox"
-            / "nightshift"
-            / "fix_pipeline.py"
-        )
+        filepath = Path(__file__).resolve().parents[3] / "agentfox" / "nightshift" / "fix_pipeline.py"
         calls = self._find_build_pr_body_calls(filepath)
         for call in calls:
             assert len(call.args) == 0, (
-                f"Positional args found in fix_pipeline.py call to "
-                f"build_pr_body at line {call.lineno}"
+                f"Positional args found in fix_pipeline.py call to build_pr_body at line {call.lineno}"
             )
 
 

@@ -246,7 +246,9 @@ class TestFixPipelineCreatePrReturnsResult:
         ):
             # Must not raise AttributeError when accessing .html_url or .number
             status, changed_files = await pipeline._integrate_fix(
-                issue, spec, workspace,
+                issue,
+                spec,
+                workspace,
             )
 
         # Basic assertions that the call succeeded

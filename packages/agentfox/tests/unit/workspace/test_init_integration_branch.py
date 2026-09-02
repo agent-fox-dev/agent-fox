@@ -58,9 +58,7 @@ class TestFreshInitIntegrationBranch:
 
         assert result.status == "ok"
         assert len(calls) == 1
-        assert calls[0] == "main", (
-            f"Expected default integration branch 'main', got '{calls[0]}'"
-        )
+        assert calls[0] == "main", f"Expected default integration branch 'main', got '{calls[0]}'"
 
     def test_fresh_init_reads_config_integration_branch(self, tmp_path: Path) -> None:
         """When config file sets integration_branch='develop', fresh init uses 'develop'.
@@ -141,6 +139,4 @@ class TestFreshInitIntegrationBranch:
             init_project(project, skills=False, quiet=True)
 
         assert len(calls) == 1
-        assert calls[0] != "develop", (
-            "Fresh init should not hardcode 'develop' — it should use config default 'main'"
-        )
+        assert calls[0] != "develop", "Fresh init should not hardcode 'develop' — it should use config default 'main'"

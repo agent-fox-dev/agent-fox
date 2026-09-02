@@ -136,8 +136,7 @@ class GoogleADKBackend:
             # 04-REQ-9.1: Debug log for max_budget_usd
             if max_budget_usd is not None:
                 logger.debug(
-                    "max_budget_usd=%s ignored: budget enforcement not "
-                    "supported by GoogleADKBackend",
+                    "max_budget_usd=%s ignored: budget enforcement not supported by GoogleADKBackend",
                     max_budget_usd,
                 )
 
@@ -227,7 +226,8 @@ class GoogleADKBackend:
                             # 04-REQ-5.2 / 04-REQ-5.3: Permission check
                             if permission_callback is not None:
                                 allowed = await permission_callback(
-                                    tool_name, tool_args,
+                                    tool_name,
+                                    tool_args,
                                 )
                                 if not allowed:
                                     # Tool denied — no need to do anything else
@@ -257,12 +257,22 @@ class GoogleADKBackend:
                             # Extract token usage from the terminal event
                             usage = getattr(event, "usage_metadata", None)
                             if usage is not None:
-                                attempt_input_tokens = getattr(
-                                    usage, "prompt_token_count", 0,
-                                ) or 0
-                                attempt_output_tokens = getattr(
-                                    usage, "candidates_token_count", 0,
-                                ) or 0
+                                attempt_input_tokens = (
+                                    getattr(
+                                        usage,
+                                        "prompt_token_count",
+                                        0,
+                                    )
+                                    or 0
+                                )
+                                attempt_output_tokens = (
+                                    getattr(
+                                        usage,
+                                        "candidates_token_count",
+                                        0,
+                                    )
+                                    or 0
+                                )
 
                         # -- Unrecognised / no-op events --
                         else:
@@ -271,12 +281,22 @@ class GoogleADKBackend:
                             # present (for fallback summation)
                             usage = getattr(event, "usage_metadata", None)
                             if usage is not None:
-                                attempt_input_tokens += getattr(
-                                    usage, "prompt_token_count", 0,
-                                ) or 0
-                                attempt_output_tokens += getattr(
-                                    usage, "candidates_token_count", 0,
-                                ) or 0
+                                attempt_input_tokens += (
+                                    getattr(
+                                        usage,
+                                        "prompt_token_count",
+                                        0,
+                                    )
+                                    or 0
+                                )
+                                attempt_output_tokens += (
+                                    getattr(
+                                        usage,
+                                        "candidates_token_count",
+                                        0,
+                                    )
+                                    or 0
+                                )
 
                     # After the event loop ends:
                     total_input_tokens += attempt_input_tokens
@@ -312,8 +332,7 @@ class GoogleADKBackend:
                     # failure and retry
                     last_error = "ADK stream ended without terminal event"
                     logger.warning(
-                        "GoogleADKBackend: stream ended without terminal "
-                        "(attempt %d/%d)",
+                        "GoogleADKBackend: stream ended without terminal (attempt %d/%d)",
                         attempt + 1,
                         _MAX_TRANSPORT_RETRIES + 1,
                     )
@@ -351,10 +370,7 @@ class GoogleADKBackend:
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=elapsed,
-                error_message=(
-                    f"Transport error after {_MAX_TRANSPORT_RETRIES} "
-                    f"retries: {last_error}"
-                ),
+                error_message=(f"Transport error after {_MAX_TRANSPORT_RETRIES} retries: {last_error}"),
                 is_error=True,
                 is_transport_error=True,
             )

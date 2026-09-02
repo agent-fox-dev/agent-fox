@@ -37,15 +37,12 @@ def _build_structured_response(
     """
     data: dict[str, object] = {
         "summary": summary,
-        "rejected_approaches": rejected
-        or [{"approach": "approach A", "reason": "too slow"}],
+        "rejected_approaches": rejected or [{"approach": "approach A", "reason": "too slow"}],
         "gotchas": gotchas or ["gotcha 1"],
         "assumptions": assumptions or ["assumed X"],
     }
     return (
-        "I completed the fix.\n\n"
-        f"```json\n{json.dumps(data, indent=2)}\n```\n\n"
-        "Let me know if you need anything else."
+        f"I completed the fix.\n\n```json\n{json.dumps(data, indent=2)}\n```\n\nLet me know if you need anything else."
     )
 
 
@@ -118,9 +115,7 @@ class TestExtractSessionSummaryStructuredFields:
     def test_non_none_summary_text(self) -> None:
         """summary_text is non-None when structured fields are present."""
         response = _build_structured_response(summary="Fix worked")
-        summary_text, _rejected, _gotchas, _assumptions = extract_session_summary(
-            response
-        )
+        summary_text, _rejected, _gotchas, _assumptions = extract_session_summary(response)
         assert summary_text is not None
         assert isinstance(summary_text, str)
         assert len(summary_text) > 0
@@ -153,9 +148,7 @@ class TestExtractSessionSummaryStructuredFields:
             gotchas=["Z"],
             assumptions=["W"],
         )
-        summary_text, rejected, gotchas, assumptions = extract_session_summary(
-            response
-        )
+        summary_text, rejected, gotchas, assumptions = extract_session_summary(response)
         assert summary_text is not None
         assert len(summary_text) > 0
         assert len(rejected) > 0
@@ -182,9 +175,7 @@ class TestExtractSessionSummaryEmpty:
 
     def test_plain_text_returns_none_tuple(self) -> None:
         """Plain text with no structured fields returns (None, [], [], [])."""
-        result = extract_session_summary(
-            "Plain text response with no structured fields."
-        )
+        result = extract_session_summary("Plain text response with no structured fields.")
         assert result == (None, [], [], [])
 
 
@@ -283,8 +274,7 @@ class TestSessionLifecycleCallsExtraction:
         import agentfox.engine.session_lifecycle as sl
 
         assert hasattr(sl, "extract_session_summary"), (
-            "session_lifecycle.py must import extract_session_summary "
-            "from agentfox.knowledge.extraction"
+            "session_lifecycle.py must import extract_session_summary from agentfox.knowledge.extraction"
         )
 
     def test_extract_is_same_function_from_shared_module(self) -> None:

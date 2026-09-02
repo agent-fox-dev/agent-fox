@@ -297,9 +297,7 @@ async def _cleanup_stale_worktrees_impl(repo_root: Path) -> _StaleCleanupResult:
         # No worktree directories, but still prune the git registry to
         # clean up any stale entries referencing deleted directories.
         try:
-            rc, _stdout, _stderr = await run_git(
-                ["worktree", "prune"], cwd=repo_root, check=False
-            )
+            rc, _stdout, _stderr = await run_git(["worktree", "prune"], cwd=repo_root, check=False)
             result.pruned = rc == 0
         except Exception:
             logger.debug("git worktree prune failed during stale cleanup", exc_info=True)
@@ -369,15 +367,11 @@ async def _cleanup_stale_worktrees_impl(repo_root: Path) -> _StaleCleanupResult:
         try:
             _cleanup_empty_ancestors(wt_path, worktrees_root)
         except Exception:
-            logger.debug(
-                "Failed to clean up empty ancestors for %s", wt_path, exc_info=True
-            )
+            logger.debug("Failed to clean up empty ancestors for %s", wt_path, exc_info=True)
 
     # Phase 4: prune the git worktree registry (single prune per startup)
     try:
-        rc, _stdout, _stderr = await run_git(
-            ["worktree", "prune"], cwd=repo_root, check=False
-        )
+        rc, _stdout, _stderr = await run_git(["worktree", "prune"], cwd=repo_root, check=False)
         result.pruned = rc == 0
     except Exception:
         logger.debug("git worktree prune failed during stale cleanup", exc_info=True)

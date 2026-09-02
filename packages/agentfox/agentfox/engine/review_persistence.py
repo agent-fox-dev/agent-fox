@@ -23,7 +23,7 @@ from afaudit.sink import SessionSink, SinkDispatcher
 from agentfox.core.json_extraction import extract_json_array
 
 if TYPE_CHECKING:
-    from agentfox.knowledge.review_store import ReviewFinding
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -252,8 +252,15 @@ def _persist_pre_flight_findings(
                 count = insert_findings(knowledge_db_conn, records)
                 logger.info("Persisted %d review findings for %s", count, node_id)
                 _emit_persistence_event(
-                    sink, run_id, archetype, node_id, spec_name, task_group,
-                    records, count, mode=mode,
+                    sink,
+                    run_id,
+                    archetype,
+                    node_id,
+                    spec_name,
+                    task_group,
+                    records,
+                    count,
+                    mode=mode,
                 )
 
     # Extract and persist drift findings
@@ -266,8 +273,15 @@ def _persist_pre_flight_findings(
                 count = insert_drift_findings(knowledge_db_conn, drift_records)
                 logger.info("Persisted %d drift findings for %s", count, node_id)
                 _emit_persistence_event(
-                    sink, run_id, archetype, node_id, spec_name, task_group,
-                    drift_records, count, mode=mode,
+                    sink,
+                    run_id,
+                    archetype,
+                    node_id,
+                    spec_name,
+                    task_group,
+                    drift_records,
+                    count,
+                    mode=mode,
                 )
 
 
@@ -500,5 +514,3 @@ def warn_failed_parse_instances(
                 archetype,
                 run_id,
             )
-
-

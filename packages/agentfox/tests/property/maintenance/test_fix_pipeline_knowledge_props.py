@@ -110,9 +110,7 @@ class TestTouchedFilesEqualsHarvestReturn:
         ),
     )
     @settings(max_examples=50)
-    async def test_touched_files_match_harvest_return(
-        self, file_list: list[str]
-    ) -> None:
+    async def test_touched_files_match_harvest_return(self, file_list: list[str]) -> None:
         """Post-harvest ingest context has touched_files == harvest return value."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -138,7 +136,8 @@ class TestTouchedFilesEqualsHarvestReturn:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -148,18 +147,12 @@ class TestTouchedFilesEqualsHarvestReturn:
         post_harvest_calls = [
             c
             for c in ingest_calls
-            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get(
-                "touched_files", []
-            )
-            != []
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
         ]
         assert len(post_harvest_calls) > 0, (
             "Expected at least one post-harvest ingest call with non-empty touched_files"
         )
-        ctx = (
-            post_harvest_calls[0].kwargs.get("context")
-            or post_harvest_calls[0].args[2]
-        )
+        ctx = post_harvest_calls[0].kwargs.get("context") or post_harvest_calls[0].args[2]
         assert ctx["touched_files"] == file_list
 
 
@@ -190,9 +183,7 @@ class TestCommitShaNeverInPostHarvestContext:
         response_text=st.text(max_size=200),
     )
     @settings(max_examples=50)
-    async def test_commit_sha_absent_for_arbitrary_inputs(
-        self, file_list: list[str], response_text: str
-    ) -> None:
+    async def test_commit_sha_absent_for_arbitrary_inputs(self, file_list: list[str], response_text: str) -> None:
         """commit_sha is never in the post-harvest ingest context dict."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -218,7 +209,8 @@ class TestCommitShaNeverInPostHarvestContext:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
@@ -229,8 +221,7 @@ class TestCommitShaNeverInPostHarvestContext:
             ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
             if ctx.get("touched_files") and ctx["touched_files"] != []:
                 assert "commit_sha" not in ctx, (
-                    f"Post-harvest ingest context must not contain 'commit_sha', "
-                    f"got context keys: {list(ctx.keys())}"
+                    f"Post-harvest ingest context must not contain 'commit_sha', got context keys: {list(ctx.keys())}"
                 )
 
 
@@ -256,9 +247,7 @@ class TestPostHarvestIngestFailureNeverFailsSession:
         exc_message=st.text(min_size=1, max_size=100),
     )
     @settings(max_examples=30)
-    async def test_session_completes_despite_ingest_exception(
-        self, exc_message: str
-    ) -> None:
+    async def test_session_completes_despite_ingest_exception(self, exc_message: str) -> None:
         """Session completes regardless of exception type/message from ingest."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -291,16 +280,15 @@ class TestPostHarvestIngestFailureNeverFailsSession:
                 new_callable=AsyncMock,
             ),
             patch(
-                "agentfox.maintenance.fix_pipeline.extract_session_summary", create=True,
+                "agentfox.maintenance.fix_pipeline.extract_session_summary",
+                create=True,
                 return_value=(None, [], [], []),
             ),
         ):
             try:
                 await pipeline.process_issue(_make_issue(42), issue_body="Some body")
             except Exception as exc:
-                pytest.fail(
-                    f"Exception propagated to runner: {type(exc).__name__}: {exc}"
-                )
+                pytest.fail(f"Exception propagated to runner: {type(exc).__name__}: {exc}")
 
 
 # ===========================================================================
@@ -335,18 +323,14 @@ class TestRetrievalAlwaysUsesTaskGroupZero:
         pipeline._retrieve_knowledge(spec_name, task_desc)
 
         call_kwargs = provider.retrieve.call_args.kwargs
-        assert call_kwargs.get("task_group") == "0", (
-            f"Expected task_group='0', got '{call_kwargs.get('task_group')}'"
-        )
+        assert call_kwargs.get("task_group") == "0", f"Expected task_group='0', got '{call_kwargs.get('task_group')}'"
 
     @given(
         has_triage=st.booleans(),
         affected_files=st.lists(st.text(min_size=1, max_size=40), max_size=5),
     )
     @settings(max_examples=30)
-    def test_task_group_zero_with_various_triage_states(
-        self, has_triage: bool, affected_files: list[str]
-    ) -> None:
+    def test_task_group_zero_with_various_triage_states(self, has_triage: bool, affected_files: list[str]) -> None:
         """task_group='0' regardless of triage presence or content."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -391,9 +375,7 @@ class TestKnowledgeIsolationByIssueNumber:
         n2=st.integers(min_value=1, max_value=10000),
     )
     @settings(max_examples=50)
-    def test_knowledge_isolation_between_distinct_issues(
-        self, n1: int, n2: int
-    ) -> None:
+    def test_knowledge_isolation_between_distinct_issues(self, n1: int, n2: int) -> None:
         """Knowledge for fix-issue-{N1} never returned for fix-issue-{N2} when N1!=N2."""
         from hypothesis import assume
 
@@ -408,9 +390,7 @@ class TestKnowledgeIsolationByIssueNumber:
 
         pipeline_n2 = _make_pipeline(knowledge_provider=provider)
         result_n2 = pipeline_n2._retrieve_knowledge(f"fix-issue-{n2}", "test")
-        assert result_n2 == [], (
-            f"Knowledge for fix-issue-{n1} was returned for fix-issue-{n2}"
-        )
+        assert result_n2 == [], f"Knowledge for fix-issue-{n1} was returned for fix-issue-{n2}"
 
 
 # ===========================================================================
@@ -435,9 +415,7 @@ class TestPreHarvestIngestArgsUnchanged:
         status=st.sampled_from(["completed", "failed", "interrupted"]),
     )
     @settings(max_examples=20)
-    def test_pre_harvest_ingest_has_session_status_and_empty_touched_files(
-        self, status: str
-    ) -> None:
+    def test_pre_harvest_ingest_has_session_status_and_empty_touched_files(self, status: str) -> None:
         """Pre-harvest ingest context has session_status and touched_files=[]."""
         provider = MagicMock()
         pipeline = _make_pipeline(knowledge_provider=provider)
@@ -500,9 +478,7 @@ class TestFileFootprintNoneWhenTriageUnavailable:
         [None, [], ()],
         ids=["none", "empty_list", "empty_tuple"],
     )
-    def test_file_footprint_none_for_falsy_inputs(
-        self, file_footprint_input: object
-    ) -> None:
+    def test_file_footprint_none_for_falsy_inputs(self, file_footprint_input: object) -> None:
         """file_footprint=None when input is None, [], or other falsy value."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -515,9 +491,7 @@ class TestFileFootprintNoneWhenTriageUnavailable:
                 file_footprint=file_footprint_input,
             )
         except AttributeError:
-            pytest.fail(
-                f"AttributeError raised for file_footprint={file_footprint_input}"
-            )
+            pytest.fail(f"AttributeError raised for file_footprint={file_footprint_input}")
 
         kw = provider.retrieve.call_args.kwargs
         # file_footprint should be None or the falsy value passed through
@@ -528,9 +502,7 @@ class TestFileFootprintNoneWhenTriageUnavailable:
         has_affected_files=st.sampled_from([True, False]),
     )
     @settings(max_examples=20)
-    def test_no_attribute_error_for_any_triage_state(
-        self, has_affected_files: bool
-    ) -> None:
+    def test_no_attribute_error_for_any_triage_state(self, has_affected_files: bool) -> None:
         """No AttributeError regardless of triage state."""
         provider = MagicMock()
         provider.retrieve.return_value = []
@@ -545,6 +517,4 @@ class TestFileFootprintNoneWhenTriageUnavailable:
                 file_footprint=file_footprint,
             )
         except AttributeError:
-            pytest.fail(
-                f"AttributeError raised with file_footprint={file_footprint}"
-            )
+            pytest.fail(f"AttributeError raised with file_footprint={file_footprint}")

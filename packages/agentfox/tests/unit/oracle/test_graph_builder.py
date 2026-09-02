@@ -262,5 +262,3 @@ class TestSpecHasExistingCode:
             f"1. **`brand_new.py`** (new) -- New.\n2. **`{target}`** (modified) -- Change.\n"
         )
         assert spec_has_existing_code(tmp_path) is True
-
-

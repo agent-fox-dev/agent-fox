@@ -170,7 +170,6 @@ class TestSquashCommitMessage:
         assert "Author:" not in full_msg
         assert "Date:" not in full_msg
 
-
     @pytest.mark.asyncio
     async def test_squash_skips_housekeeping_tip(
         self,
@@ -510,9 +509,7 @@ class TestCleanConflictingUntracked:
 
         # After issue #724 the finally-block git clean removes the
         # divergent file, leaving a clean working tree.
-        assert not untracked.exists(), (
-            "Divergent file should be removed by finally-block git clean (issue #724)"
-        )
+        assert not untracked.exists(), "Divergent file should be removed by finally-block git clean (issue #724)"
 
     @pytest.mark.asyncio
     async def test_git_show_failure_preserves_file(
@@ -968,9 +965,7 @@ class TestHarvestCleanupOnFailure:
                 await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         # The orphan file should have been cleaned up by the finally block
-        assert not orphan.exists(), (
-            "Orphan untracked file should be removed by finally-block git clean"
-        )
+        assert not orphan.exists(), "Orphan untracked file should be removed by finally-block git clean"
 
         # Verify no unexpected untracked files remain (excluding .agent-fox)
         result = subprocess.run(
@@ -980,10 +975,7 @@ class TestHarvestCleanupOnFailure:
             text=True,
             check=True,
         )
-        untracked = [
-            f for f in result.stdout.strip().splitlines()
-            if f and not f.startswith(".agent-fox")
-        ]
+        untracked = [f for f in result.stdout.strip().splitlines() if f and not f.startswith(".agent-fox")]
         assert untracked == [], f"Unexpected untracked files after failed harvest: {untracked}"
 
     @pytest.mark.asyncio
@@ -1010,9 +1002,7 @@ class TestHarvestCleanupOnFailure:
         # The divergent file is preserved by _clean_conflicting_untracked's
         # own logic (it raises before deleting), but the orphan should be
         # cleaned by the finally block's git clean.
-        assert not orphan.exists(), (
-            "Orphan file should be removed by finally-block git clean"
-        )
+        assert not orphan.exists(), "Orphan file should be removed by finally-block git clean"
 
     @pytest.mark.asyncio
     async def test_git_clean_runs_when_commit_fails(
@@ -1030,6 +1020,7 @@ class TestHarvestCleanupOnFailure:
         async def fail_on_commit(cmd_args, **kwargs):
             if cmd_args and cmd_args[0] == "commit":
                 from agentfox.core.errors import WorkspaceError
+
                 raise WorkspaceError("Simulated commit failure")
             return await original_run_git(cmd_args, **kwargs)
 
@@ -1056,10 +1047,7 @@ class TestHarvestCleanupOnFailure:
             text=True,
             check=True,
         )
-        untracked = [
-            f for f in result.stdout.strip().splitlines()
-            if f and not f.startswith(".agent-fox")
-        ]
+        untracked = [f for f in result.stdout.strip().splitlines() if f and not f.startswith(".agent-fox")]
         assert untracked == [], f"Unexpected untracked files after commit failure: {untracked}"
 
     @pytest.mark.asyncio
@@ -1123,8 +1111,5 @@ class TestHarvestCleanupOnFailure:
             text=True,
             check=True,
         )
-        dirty = [
-            line for line in result.stdout.strip().splitlines()
-            if line and not line.endswith(".agent-fox/")
-        ]
+        dirty = [line for line in result.stdout.strip().splitlines() if line and not line.endswith(".agent-fox/")]
         assert dirty == [], f"Working tree should be clean after successful harvest, got: {dirty}"

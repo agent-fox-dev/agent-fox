@@ -87,6 +87,7 @@ class TestNoOldImportPaths:
         for old_path in self.OLD_MODULE_PATHS:
             assert old_path not in content, f"Old import path '{old_path}' still found in af/"
 
+
 class TestNoReexportShims:
     """TS-01-36: agentfox/__init__.py does not re-export moved audit symbols.
 

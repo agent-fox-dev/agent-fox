@@ -214,9 +214,7 @@ class TestPushFailurePropagatesException:
             ),
         ):
             with pytest.raises(OSError, match="push failed"):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
     @pytest.mark.asyncio
     async def test_create_pr_not_called_after_push_failure(self) -> None:
@@ -260,15 +258,11 @@ class TestPushFailurePropagatesException:
             ),
         ):
             try:
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
             except OSError:
                 pass
 
-        assert mock_platform.create_pr.call_count == 0, (
-            "create_pr() should NOT be called when git push fails"
-        )
+        assert mock_platform.create_pr.call_count == 0, "create_pr() should NOT be called when git push fails"
 
     @pytest.mark.asyncio
     async def test_integrate_fix_push_failure_propagates(self) -> None:
@@ -387,24 +381,14 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        error_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.ERROR
-            and "PR creation failed" in r.message
-        ]
+        error_lines = [r for r in caplog.records if r.levelno == logging.ERROR and "PR creation failed" in r.message]
         assert len(error_lines) == 1, (
             f"Expected exactly one ERROR log about PR creation failure, "
             f"got {len(error_lines)}: {[r.message for r in error_lines]}"
         )
-        assert (
-            "https://github.com/owner/repo/tree/feat/my-branch"
-            in error_lines[0].message
-        )
+        assert "https://github.com/owner/repo/tree/feat/my-branch" in error_lines[0].message
 
     @pytest.mark.asyncio
     async def test_exactly_one_error_log_on_partial_failure(
@@ -454,15 +438,9 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        error_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.ERROR and "PR creation failed" in r.message
-        ]
+        error_lines = [r for r in caplog.records if r.levelno == logging.ERROR and "PR creation failed" in r.message]
         assert len(error_lines) == 1
 
     @pytest.mark.asyncio
@@ -510,13 +488,9 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert mock_harvest.call_count == 0, (
-            "harvest() (squash-merge) should NOT be called on partial failure"
-        )
+        assert mock_harvest.call_count == 0, "harvest() (squash-merge) should NOT be called on partial failure"
 
     @pytest.mark.asyncio
     async def test_returns_completed_tuple_on_partial_failure(self) -> None:
@@ -566,9 +540,7 @@ class TestHarvestAndIntegratePrPartialFailure:
                 return_value=True,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, err_msg, touched, non_retry = result
         assert status == "completed"
@@ -633,15 +605,11 @@ class TestHarvestAndIntegratePrPartialFailure:
                 side_effect=mock_push,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Only the initial push should have happened — no delete/rollback push
         delete_pushes = [c for c in push_calls if c.get("force")]
-        assert len(delete_pushes) == 0, (
-            "Remote branch should NOT be rolled back on partial failure"
-        )
+        assert len(delete_pushes) == 0, "Remote branch should NOT be rolled back on partial failure"
 
 
 # ---------------------------------------------------------------------------
@@ -885,9 +853,7 @@ class TestPrModeEmptyChangedFiles:
                 return_value=True,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Should not raise, and touched_files should be empty
         status, err_msg, touched, non_retry = result
@@ -936,26 +902,19 @@ class TestPrModeEmptyChangedFiles:
                 return_value=True,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_platform.create_pr.assert_called_once()
         call_kwargs = mock_platform.create_pr.call_args
-        body = call_kwargs.kwargs.get("body") or (
-            call_kwargs.args[1] if len(call_kwargs.args) > 1 else ""
-        )
-        assert "## Changed Files" in body, (
-            "PR body should contain '## Changed Files' heading"
-        )
+        body = call_kwargs.kwargs.get("body") or (call_kwargs.args[1] if len(call_kwargs.args) > 1 else "")
+        assert "## Changed Files" in body, "PR body should contain '## Changed Files' heading"
         # The Changed Files section should have no bullet items
         changed_section = body.split("## Changed Files")[1]
         # If there are other sections, only check up to the next ##
         if "##" in changed_section[1:]:
             changed_section = changed_section.split("##")[0]
         assert "- " not in changed_section, (
-            "Changed Files section should have no bullet items when "
-            "changed_files is empty"
+            "Changed Files section should have no bullet items when changed_files is empty"
         )
 
     @pytest.mark.asyncio
@@ -1096,23 +1055,15 @@ class TestOperationSequenceIntegrity:
             ),
             patch(
                 "agentfox.maintenance.fix_pipeline.build_pr_body",
-                side_effect=lambda **kwargs: (
-                    call_order.append("build_pr_body") or "## Summary\n\ntest"
-                ),
+                side_effect=lambda **kwargs: call_order.append("build_pr_body") or "## Summary\n\ntest",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Verify the mandatory sequence
-        assert "create_platform_safe" in call_order, (
-            "create_platform_safe must be called"
-        )
+        assert "create_platform_safe" in call_order, "create_platform_safe must be called"
         assert "git_push" in call_order, "git push must be called"
-        assert "get_changed_files" in call_order, (
-            "get_changed_files must be called"
-        )
+        assert "get_changed_files" in call_order, "get_changed_files must be called"
         assert "create_pr" in call_order, "create_pr must be called"
 
         # Verify order: platform check < push < get_changed_files < create_pr
@@ -1121,18 +1072,9 @@ class TestOperationSequenceIntegrity:
         gcf_idx = call_order.index("get_changed_files")
         pr_idx = call_order.index("create_pr")
 
-        assert cps_idx < push_idx, (
-            f"create_platform_safe (idx={cps_idx}) must precede git_push "
-            f"(idx={push_idx})"
-        )
-        assert push_idx < gcf_idx, (
-            f"git_push (idx={push_idx}) must precede get_changed_files "
-            f"(idx={gcf_idx})"
-        )
-        assert gcf_idx < pr_idx, (
-            f"get_changed_files (idx={gcf_idx}) must precede create_pr "
-            f"(idx={pr_idx})"
-        )
+        assert cps_idx < push_idx, f"create_platform_safe (idx={cps_idx}) must precede git_push (idx={push_idx})"
+        assert push_idx < gcf_idx, f"git_push (idx={push_idx}) must precede get_changed_files (idx={gcf_idx})"
+        assert gcf_idx < pr_idx, f"get_changed_files (idx={gcf_idx}) must precede create_pr (idx={pr_idx})"
 
     @pytest.mark.asyncio
     async def test_integrate_fix_operation_order(self) -> None:
@@ -1203,9 +1145,7 @@ class TestOperationSequenceIntegrity:
             ),
             patch(
                 "agentfox.maintenance.fix_pipeline.build_pr_body",
-                side_effect=lambda **kwargs: (
-                    call_order.append("build_pr_body") or "## Summary\n\ntest"
-                ),
+                side_effect=lambda **kwargs: call_order.append("build_pr_body") or "## Summary\n\ntest",
             ),
         ):
             await pipeline._integrate_fix(issue, spec, workspace)
@@ -1214,15 +1154,10 @@ class TestOperationSequenceIntegrity:
         if "create_platform_safe" in call_order and "git_push" in call_order:
             cps_idx = call_order.index("create_platform_safe")
             push_idx = call_order.index("git_push")
-            assert cps_idx < push_idx, (
-                "create_platform_safe must precede git_push in "
-                "_integrate_fix pr mode"
-            )
+            assert cps_idx < push_idx, "create_platform_safe must precede git_push in _integrate_fix pr mode"
 
         # Verify create_pr is called
-        assert "create_pr" in call_order, (
-            "create_pr must be called in _integrate_fix pr mode"
-        )
+        assert "create_pr" in call_order, "create_pr must be called in _integrate_fix pr mode"
 
 
 # ---------------------------------------------------------------------------
@@ -1284,9 +1219,7 @@ class TestPlatformGuardPrecedesPushProperty:
                 new_callable=AsyncMock,
             ) as mock_push,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_push.assert_not_called()
 
@@ -1392,20 +1325,13 @@ class TestPlatformGuardPrecedesPushProperty:
                 side_effect=track_push,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        assert "create_platform_safe" in call_order, (
-            "create_platform_safe must be called"
-        )
+        assert "create_platform_safe" in call_order, "create_platform_safe must be called"
         assert "git_push" in call_order, "git_push must be called"
         cps_idx = call_order.index("create_platform_safe")
         push_idx = call_order.index("git_push")
-        assert cps_idx < push_idx, (
-            f"create_platform_safe (idx={cps_idx}) must precede "
-            f"git_push (idx={push_idx})"
-        )
+        assert cps_idx < push_idx, f"create_platform_safe (idx={cps_idx}) must precede git_push (idx={push_idx})"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1413,9 +1339,7 @@ class TestPlatformGuardPrecedesPushProperty:
         [None, "valid_platform"],
         ids=["none_platform", "valid_platform"],
     )
-    async def test_platform_guard_invariant(
-        self, platform_result: str | None
-    ) -> None:
+    async def test_platform_guard_invariant(self, platform_result: str | None) -> None:
         """Platform availability is always checked before any branch push in
         pr mode, regardless of whether the platform is available."""
         runner = _make_runner(merge_strategy="pr")
@@ -1466,18 +1390,14 @@ class TestPlatformGuardPrecedesPushProperty:
                 side_effect=track_push,
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # create_platform_safe must always be called
         assert "create_platform_safe" in call_order
 
         if platform_result is None:
             # None result: push must never be called
-            assert "git_push" not in call_order, (
-                "push must not be called when platform is None"
-            )
+            assert "git_push" not in call_order, "push must not be called when platform is None"
         else:
             # Valid platform: platform check must precede push
             assert "git_push" in call_order
@@ -1546,9 +1466,7 @@ class TestPushTimeoutPropagation:
             ),
         ):
             with pytest.raises(TimeoutError, match="push timed out"):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
     @pytest.mark.asyncio
     async def test_subprocess_timeout_propagates(self) -> None:
@@ -1595,9 +1513,7 @@ class TestPushTimeoutPropagation:
             ),
         ):
             with pytest.raises(subprocess.TimeoutExpired):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
 
 # ---------------------------------------------------------------------------
@@ -1660,9 +1576,7 @@ class TestUnexpectedExceptionPropagation:
             ),
         ):
             with pytest.raises(RuntimeError, match="unexpected"):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
     @pytest.mark.asyncio
     async def test_value_error_propagates(self) -> None:
@@ -1711,9 +1625,7 @@ class TestUnexpectedExceptionPropagation:
             ),
         ):
             with pytest.raises(ValueError, match="invalid argument"):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
     @pytest.mark.asyncio
     async def test_integrate_fix_runtime_error_propagates(self) -> None:
@@ -1807,6 +1719,4 @@ class TestUnexpectedExceptionPropagation:
             ),
         ):
             with pytest.raises(KeyboardInterrupt):
-                await runner._harvest_and_integrate(
-                    "test_spec:1", outcome, workspace, Path("/tmp/repo")
-                )
+                await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))

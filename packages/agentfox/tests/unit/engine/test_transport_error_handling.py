@@ -110,9 +110,7 @@ class TestTransportErrorSkipsFailureCounter:
 
         handler._handle_failure(record, 1, state, error_tracker)
 
-        assert handler.get_failure_count("node1") == 0, (
-            "Failure counter must not be incremented for transport errors"
-        )
+        assert handler.get_failure_count("node1") == 0, "Failure counter must not be incremented for transport errors"
 
     def test_transport_error_resets_node_to_pending(self) -> None:
         """AC-6: Node is reset to pending so the orchestrator re-dispatches it."""
@@ -140,9 +138,7 @@ class TestTransportErrorSkipsFailureCounter:
 
         handler._handle_failure(record, 1, state, error_tracker)
 
-        assert handler.get_failure_count("node1") == 1, (
-            "Failure counter must be incremented for non-transport failures"
-        )
+        assert handler.get_failure_count("node1") == 1, "Failure counter must be incremented for non-transport failures"
 
     def test_process_transport_error_does_not_consume_retry(self) -> None:
         """AC-6: Calling process() with a transport-error record leaves the

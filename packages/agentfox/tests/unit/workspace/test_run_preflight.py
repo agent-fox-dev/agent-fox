@@ -300,9 +300,7 @@ class TestSinglePruneDuringPreflight:
         with patch("agentfox.workspace.health.run_git", side_effect=mock_git):
             result = await run_preflight_workspace_check(tmp_path)
 
-        assert len(prune_calls) == 1, (
-            f"Expected exactly 1 worktree prune call, got {len(prune_calls)}"
-        )
+        assert len(prune_calls) == 1, f"Expected exactly 1 worktree prune call, got {len(prune_calls)}"
         assert result.worktrees_pruned is True
 
 
@@ -316,12 +314,8 @@ class TestNoShutilRmtreeInHealth:
         from agentfox.workspace import health
 
         source = inspect.getsource(health)
-        assert "shutil.rmtree" not in source, (
-            "health.py must not use shutil.rmtree; use _safe_rmtree instead"
-        )
-        assert "import shutil" not in source, (
-            "health.py must not import shutil after consolidation"
-        )
+        assert "shutil.rmtree" not in source, "health.py must not use shutil.rmtree; use _safe_rmtree instead"
+        assert "import shutil" not in source, "health.py must not import shutil after consolidation"
 
 
 class TestCleanupStaleWorktreeSymlinkProtection:
@@ -386,6 +380,7 @@ class TestCleanupPreservesNonEmptyAncestors:
             if args[:2] == ["worktree", "remove"]:
                 # Simulate successful removal via git
                 import shutil as _shutil
+
                 target = Path(args[3])
                 if target.exists():
                     _shutil.rmtree(target)

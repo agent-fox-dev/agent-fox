@@ -58,8 +58,7 @@ def _format_block_reason(
     count_label = " + ".join(parts_label) if parts_label else "0"
 
     header = (
-        f"{archetype.capitalize()} found {count_label} finding(s) "
-        f"(threshold: {threshold}) for {spec_name}:{task_group}"
+        f"{archetype.capitalize()} found {count_label} finding(s) (threshold: {threshold}) for {spec_name}:{task_group}"
     )
 
     n = len(actionable)
@@ -227,9 +226,7 @@ def _evaluate_drift_review_blocking(
         if threshold is None:
             return BlockDecision(should_block=False)
 
-        drift_findings = query_active_drift_findings(
-            knowledge_db_conn, spec_name, task_group, include_prereview=True
-        )
+        drift_findings = query_active_drift_findings(knowledge_db_conn, spec_name, task_group, include_prereview=True)
         if not drift_findings:
             return BlockDecision(should_block=False)
 

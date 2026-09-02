@@ -165,9 +165,7 @@ class TestHarvestAndIntegrateDirectMode:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert mock_harvest.call_count == 1
 
@@ -197,9 +195,7 @@ class TestHarvestAndIntegrateDirectMode:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert result == ("completed", None, ["file_a.py"], False)
 
@@ -229,9 +225,7 @@ class TestHarvestAndIntegrateDirectMode:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         # Verify harvest was called with the correct keyword arguments
         call_kwargs = mock_harvest.call_args
@@ -240,9 +234,7 @@ class TestHarvestAndIntegrateDirectMode:
         assert call_kwargs.kwargs.get("dev_branch") == "main"
 
     @pytest.mark.asyncio
-    async def test_no_merge_strategy_log_lines_emitted(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_no_merge_strategy_log_lines_emitted(self, caplog: pytest.LogCaptureFixture) -> None:
         """No INFO/WARNING log lines about merge strategy are emitted in direct mode."""
         runner = _make_runner(merge_strategy="direct")
         workspace = _make_workspace()
@@ -268,14 +260,10 @@ class TestHarvestAndIntegrateDirectMode:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         merge_strategy_logs = [
-            r
-            for r in caplog.records
-            if "Merge strategy" in r.message or "merge strategy" in r.message.lower()
+            r for r in caplog.records if "Merge strategy" in r.message or "merge strategy" in r.message.lower()
         ]
         assert len(merge_strategy_logs) == 0, (
             f"Unexpected merge strategy log lines in direct mode: {merge_strategy_logs}"
@@ -311,9 +299,7 @@ class TestHarvestAndIntegrateDirectMode:
                 return_value=MagicMock(),
             ) as mock_cps,
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         mock_cps.assert_not_called()
 
@@ -506,9 +492,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=None,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert len(result) == 4, f"Expected 4-tuple, got {len(result)}-tuple in {mode} mode"
         status, error_message, touched_files, is_non_retryable = result
@@ -554,9 +538,7 @@ class TestReturnTupleShapeInvariant:
                 return_value=None,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, error_message, _touched, is_non_retryable = result
         assert status == "completed"
@@ -738,9 +720,7 @@ class TestReturnTupleShapeProperty:
                 return_value=None,
             ),
         ):
-            result = await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            result = await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         status, err_msg, touched, non_retry = result
         assert status == "completed"
@@ -868,9 +848,7 @@ class TestDirectModeInvariantProperty:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert mock_harvest.call_count == 1, f"harvest() not called in {description}"
 
@@ -910,9 +888,7 @@ class TestDirectModeInvariantProperty:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
         assert mock_harvest.call_count == 1
 
@@ -946,15 +922,9 @@ class TestDirectModeInvariantProperty:
                 "agentfox.engine.session_lifecycle.emit_audit_event",
             ),
         ):
-            await runner._harvest_and_integrate(
-                "test_spec:1", outcome, workspace, Path("/tmp/repo")
-            )
+            await runner._harvest_and_integrate("test_spec:1", outcome, workspace, Path("/tmp/repo"))
 
-        extra_info_logs = [
-            r
-            for r in caplog.records
-            if r.levelno >= logging.INFO and "Merge strategy" in r.message
-        ]
+        extra_info_logs = [r for r in caplog.records if r.levelno >= logging.INFO and "Merge strategy" in r.message]
         assert len(extra_info_logs) == 0
 
     @pytest.mark.asyncio
@@ -1027,9 +997,5 @@ class TestDirectModeInvariantProperty:
         ):
             await pipeline._integrate_fix(issue, spec, workspace)
 
-        extra_logs = [
-            r
-            for r in caplog.records
-            if r.levelno >= logging.INFO and "Merge strategy" in r.message
-        ]
+        extra_logs = [r for r in caplog.records if r.levelno >= logging.INFO and "Merge strategy" in r.message]
         assert len(extra_logs) == 0

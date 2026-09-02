@@ -115,9 +115,7 @@ def _sample_hard_reset_result(**overrides: object) -> HardResetResult:
 class TestResetAll:
     """af plan --reset prompts for confirmation and calls run_reset."""
 
-    def test_reset_all_confirmed_calls_run_reset_and_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_all_confirmed_calls_run_reset_and_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset and user confirms,
         THEN run_reset is called with soft=True, hard=False, target=None,
         spec=None, and exit code is 0.
@@ -140,9 +138,7 @@ class TestResetAll:
         ):
             result = cli_runner.invoke(main, ["plan", "--reset"], input="y\n")
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
 
         # Verify dispatch args: soft reset, no target, no spec
@@ -156,9 +152,7 @@ class TestResetAll:
         if args:
             assert args[0] is None  # target
 
-    def test_reset_all_output_contains_summary(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_all_output_contains_summary(self, cli_runner: CliRunner) -> None:
         """WHEN --reset succeeds, THEN stdout contains the reset summary
         with task IDs.
         """
@@ -177,9 +171,7 @@ class TestResetAll:
         # Output should reference the reset or the task
         assert "spec:1" in result.output or "reset" in result.output.lower()
 
-    def test_reset_all_with_yes_flag_skips_prompt(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_all_with_yes_flag_skips_prompt(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset --yes, THEN no confirmation prompt
         is shown and run_reset is called.
         """
@@ -208,9 +200,7 @@ class TestResetAll:
 class TestResetDeclined:
     """af plan --reset with declined confirmation aborts without modifying state."""
 
-    def test_reset_declined_confirmation_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_declined_confirmation_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN user declines confirmation prompt for --reset,
         THEN run_reset is not called and exit code is 0.
         """
@@ -237,9 +227,7 @@ class TestResetDeclined:
 class TestResetTaskId:
     """af plan --reset TASK_ID resets a single task without prompting."""
 
-    def test_reset_task_id_calls_run_reset_with_target(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_task_id_calls_run_reset_with_target(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset spec:1,
         THEN run_reset is called with target='spec:1' and no
         confirmation prompt is shown.
@@ -258,9 +246,7 @@ class TestResetTaskId:
         ):
             result = cli_runner.invoke(main, ["plan", "--reset", "spec:1"])
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
 
         # Verify target was passed
@@ -275,9 +261,7 @@ class TestResetTaskId:
         # No confirmation prompt should appear
         assert "confirm" not in result.output.lower()
 
-    def test_reset_task_id_prints_summary(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_task_id_prints_summary(self, cli_runner: CliRunner) -> None:
         """WHEN --reset TASK_ID succeeds,
         THEN stdout contains the reset summary for the task and its
         cascaded dependents.
@@ -309,9 +293,7 @@ class TestResetTaskId:
 class TestResetSpec:
     """af plan --reset --spec NAME resets spec-scoped tasks with confirmation."""
 
-    def test_reset_spec_confirmed_calls_run_reset_with_spec(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_spec_confirmed_calls_run_reset_with_spec(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset --spec spec_a and user confirms,
         THEN run_reset is called with spec='spec_a' and soft=True.
         """
@@ -332,9 +314,7 @@ class TestResetSpec:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--spec", "spec_a"], input="y\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--spec", "spec_a"], input="y\n")
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -344,9 +324,7 @@ class TestResetSpec:
         assert kwargs.get("soft") is True
         assert kwargs.get("hard") is False
 
-    def test_reset_spec_declined_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_spec_declined_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN user declines confirmation for --reset --spec,
         THEN run_reset is not called.
         """
@@ -358,9 +336,7 @@ class TestResetSpec:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset") as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--spec", "spec_a"], input="n\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--spec", "spec_a"], input="n\n")
 
         assert result.exit_code == 0
         mock_run.assert_not_called()
@@ -375,9 +351,7 @@ class TestResetSpec:
 class TestResetJsonOutput:
     """af plan --reset --json --yes emits a JSON object matching ResetResult."""
 
-    def test_reset_json_contains_reset_result_keys(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_json_contains_reset_result_keys(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset --json --yes,
         THEN stdout is valid JSON with keys: reset_tasks, unblocked_tasks,
         cleaned_worktrees, cleaned_branches.
@@ -401,13 +375,9 @@ class TestResetJsonOutput:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--json", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--json", "--yes"])
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         data = json.loads(result.output)
         assert set(data.keys()) >= {
             "reset_tasks",
@@ -417,9 +387,7 @@ class TestResetJsonOutput:
         }
         assert data["reset_tasks"] == ["spec:0", "spec:1"]
 
-    def test_reset_json_values_match_result(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_json_values_match_result(self, cli_runner: CliRunner) -> None:
         """WHEN run_reset returns specific worktrees and branches,
         THEN JSON output faithfully reports them.
         """
@@ -437,9 +405,7 @@ class TestResetJsonOutput:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--json", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--json", "--yes"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -475,9 +441,7 @@ class TestResetNoPlan:
         combined = result.output + getattr(result, "stderr", "")
         assert "no plan found" in combined.lower()
 
-    def test_reset_no_plan_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_no_plan_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN load_plan returns None,
         THEN run_reset is not called.
         """
@@ -500,9 +464,7 @@ class TestResetDaemonGuard:
     Edge case: 01-REQ-2.E2
     """
 
-    def test_reset_with_active_daemon_exits_one(
-        self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_reset_with_active_daemon_exits_one(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         """WHEN the nightshift daemon PID guard is active,
         THEN exit code is 1 and an error message is shown.
         """
@@ -527,9 +489,7 @@ class TestResetNoResettableTasks:
     Edge case: 01-REQ-2.E6
     """
 
-    def test_reset_empty_result_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_empty_result_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN all tasks are in non-resettable statuses,
         THEN exit code is 0 and result lists are empty.
         """
@@ -581,9 +541,7 @@ class TestResetFlagRegistered:
 class TestHardResetAll:
     """af plan --reset-hard prompts for confirmation and calls run_reset with hard=True."""
 
-    def test_hard_reset_all_confirmed_calls_run_reset_and_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_all_confirmed_calls_run_reset_and_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard and user confirms,
         THEN run_reset is called with hard=True, soft=False, target=None,
         and exit code is 0.
@@ -605,13 +563,9 @@ class TestHardResetAll:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard"], input="y\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard"], input="y\n")
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
 
         # Verify dispatch args: hard reset, no target
@@ -624,9 +578,7 @@ class TestHardResetAll:
         if args:
             assert args[0] is None  # target
 
-    def test_hard_reset_all_output_contains_rollback_sha(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_all_output_contains_rollback_sha(self, cli_runner: CliRunner) -> None:
         """WHEN --reset-hard succeeds, THEN stdout contains the rollback_sha
         from the HardResetResult.
         """
@@ -639,16 +591,12 @@ class TestHardResetAll:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard"], input="y\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard"], input="y\n")
 
         assert result.exit_code == 0
         assert "abc123" in result.output
 
-    def test_hard_reset_all_with_yes_flag_skips_prompt(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_all_with_yes_flag_skips_prompt(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --yes, THEN no confirmation prompt
         is shown and run_reset is called.
         """
@@ -661,9 +609,7 @@ class TestHardResetAll:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -680,9 +626,7 @@ class TestHardResetAll:
 class TestHardResetTaskId:
     """af plan --reset-hard TASK_ID resets a single task with confirmation."""
 
-    def test_hard_reset_task_id_calls_run_reset_with_target(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_task_id_calls_run_reset_with_target(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard spec:2 --yes,
         THEN run_reset is called with hard=True, target='spec:2',
         and exit code is 0.
@@ -704,13 +648,9 @@ class TestHardResetTaskId:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "spec:2", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "spec:2", "--yes"])
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
 
         # Verify target was passed
@@ -722,9 +662,7 @@ class TestHardResetTaskId:
         assert kwargs.get("hard") is True
         assert kwargs.get("soft") is False
 
-    def test_hard_reset_task_id_prints_summary_with_rollback_sha(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_task_id_prints_summary_with_rollback_sha(self, cli_runner: CliRunner) -> None:
         """WHEN --reset-hard TASK_ID succeeds,
         THEN stdout contains the reset summary including rollback_sha.
         """
@@ -740,9 +678,7 @@ class TestHardResetTaskId:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "spec:2", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "spec:2", "--yes"])
 
         assert result.exit_code == 0
         assert "def456" in result.output
@@ -757,9 +693,7 @@ class TestHardResetTaskId:
 class TestHardResetConfirmation:
     """af plan --reset-hard always requires confirmation (even with TASK_ID)."""
 
-    def test_hard_reset_task_id_without_yes_prompts_for_confirmation(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_task_id_without_yes_prompts_for_confirmation(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard spec:3 (no --yes),
         THEN a confirmation prompt appears before hard_reset is executed.
         """
@@ -775,21 +709,14 @@ class TestHardResetConfirmation:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "spec:3"], input="y\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "spec:3"], input="y\n")
 
         assert result.exit_code == 0
         assert mock_run.called
         # Verify prompt appeared
-        assert any(
-            kw in result.output.lower()
-            for kw in ["confirm", "proceed", "y/n", "[y/n]"]
-        )
+        assert any(kw in result.output.lower() for kw in ["confirm", "proceed", "y/n", "[y/n]"])
 
-    def test_hard_reset_all_without_yes_prompts_for_confirmation(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_all_without_yes_prompts_for_confirmation(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard (no TASK_ID, no --yes),
         THEN a confirmation prompt appears before hard_reset is executed.
         """
@@ -802,16 +729,11 @@ class TestHardResetConfirmation:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard"], input="y\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard"], input="y\n")
 
         assert result.exit_code == 0
         assert mock_run.called
-        assert any(
-            kw in result.output.lower()
-            for kw in ["confirm", "proceed", "y/n", "[y/n]"]
-        )
+        assert any(kw in result.output.lower() for kw in ["confirm", "proceed", "y/n", "[y/n]"])
 
 
 # ---------------------------------------------------------------------------
@@ -822,9 +744,7 @@ class TestHardResetConfirmation:
 class TestHardResetDeclined:
     """af plan --reset-hard with declined confirmation aborts without modifying state."""
 
-    def test_hard_reset_declined_confirmation_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_declined_confirmation_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN user declines confirmation prompt for --reset-hard,
         THEN run_reset is not called and exit code is 0.
         """
@@ -836,16 +756,12 @@ class TestHardResetDeclined:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset") as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard"], input="n\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard"], input="n\n")
 
         assert result.exit_code == 0
         mock_run.assert_not_called()
 
-    def test_hard_reset_task_declined_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_task_declined_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN user declines confirmation for --reset-hard TASK_ID,
         THEN run_reset is not called and exit code is 0.
         """
@@ -857,9 +773,7 @@ class TestHardResetDeclined:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset") as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "spec:1"], input="n\n"
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "spec:1"], input="n\n")
 
         assert result.exit_code == 0
         mock_run.assert_not_called()
@@ -874,9 +788,7 @@ class TestHardResetDeclined:
 class TestHardResetJsonOutput:
     """af plan --reset-hard --json --yes emits a JSON object matching HardResetResult."""
 
-    def test_hard_reset_json_contains_hard_reset_result_keys(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_json_contains_hard_reset_result_keys(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --json --yes,
         THEN stdout is valid JSON with keys: reset_tasks, cleaned_worktrees,
         cleaned_branches, compaction, rollback_sha.
@@ -901,13 +813,9 @@ class TestHardResetJsonOutput:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--json", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--json", "--yes"])
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         data = json.loads(result.output)
         assert set(data.keys()) >= {
             "reset_tasks",
@@ -918,9 +826,7 @@ class TestHardResetJsonOutput:
         }
         assert data["rollback_sha"] == "abc123"
 
-    def test_hard_reset_json_values_match_result(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_json_values_match_result(self, cli_runner: CliRunner) -> None:
         """WHEN run_reset returns specific worktrees, branches, and compaction,
         THEN JSON output faithfully reports them.
         """
@@ -939,9 +845,7 @@ class TestHardResetJsonOutput:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--json", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--json", "--yes"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -963,9 +867,7 @@ class TestHardResetNoPlan:
     Edge case: 01-REQ-3.E1, 01-PROP-4
     """
 
-    def test_hard_reset_no_plan_exits_one(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_no_plan_exits_one(self, cli_runner: CliRunner) -> None:
         """WHEN load_plan returns None (no plan exists),
         THEN exit code is 1 and error message references missing plan.
         """
@@ -975,17 +877,13 @@ class TestHardResetNoPlan:
             patch("af.plan.open_knowledge_store", return_value=mock_db),
             patch("af.plan.load_plan", return_value=None),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 1
         combined = result.output + getattr(result, "stderr", "")
         assert "no plan found" in combined.lower()
 
-    def test_hard_reset_no_plan_does_not_call_run_reset(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_no_plan_does_not_call_run_reset(self, cli_runner: CliRunner) -> None:
         """WHEN load_plan returns None,
         THEN run_reset is not called.
         """
@@ -996,9 +894,7 @@ class TestHardResetNoPlan:
             patch("af.plan.load_plan", return_value=None),
             patch("af.plan.run_reset") as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 1
         mock_run.assert_not_called()
@@ -1012,16 +908,12 @@ class TestHardResetNoPlan:
 class TestHardResetSpecExclusion:
     """af plan --reset-hard --spec NAME is rejected as mutually exclusive."""
 
-    def test_hard_reset_with_spec_exits_one(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_with_spec_exits_one(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --spec NAME,
         THEN exit code is 1 and error message states the combination
         is not supported.
         """
-        result = cli_runner.invoke(
-            main, ["plan", "--reset-hard", "--spec", "some_spec", "--yes"]
-        )
+        result = cli_runner.invoke(main, ["plan", "--reset-hard", "--spec", "some_spec", "--yes"])
 
         # Should fail regardless of plan state — flags are mutually exclusive
         assert result.exit_code != 0
@@ -1089,9 +981,7 @@ class TestResetDisplayBranches:
     no-rollback-sha scenarios.
     """
 
-    def test_soft_reset_skipped_completed_warning(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_soft_reset_skipped_completed_warning(self, cli_runner: CliRunner) -> None:
         """WHEN run_reset returns empty reset_tasks but skipped_completed,
         THEN the warning about completed tasks is shown.
         """
@@ -1107,16 +997,12 @@ class TestResetDisplayBranches:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--yes"])
 
         assert result.exit_code == 0
         assert "completed tasks cannot be reset" in result.output.lower()
 
-    def test_soft_reset_with_worktrees_and_branches(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_soft_reset_with_worktrees_and_branches(self, cli_runner: CliRunner) -> None:
         """WHEN run_reset returns cleaned_worktrees and cleaned_branches,
         THEN the display includes worktree and branch cleanup counts.
         """
@@ -1133,17 +1019,13 @@ class TestResetDisplayBranches:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--yes"])
 
         assert result.exit_code == 0
         assert "2 worktree(s)" in result.output
         assert "1 branch(es)" in result.output
 
-    def test_hard_reset_with_worktrees_and_branches(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_with_worktrees_and_branches(self, cli_runner: CliRunner) -> None:
         """WHEN hard reset returns cleaned_worktrees and cleaned_branches,
         THEN the display includes worktree and branch cleanup counts.
         """
@@ -1161,17 +1043,13 @@ class TestResetDisplayBranches:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 0
         assert "1 worktree(s)" in result.output
         assert "2 branch(es)" in result.output
 
-    def test_hard_reset_no_rollback_sha(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_hard_reset_no_rollback_sha(self, cli_runner: CliRunner) -> None:
         """WHEN hard reset returns rollback_sha=None,
         THEN the display shows 'Code rollback skipped'.
         """
@@ -1187,9 +1065,7 @@ class TestResetDisplayBranches:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
 
         assert result.exit_code == 0
         assert "rollback skipped" in result.output.lower()

@@ -58,10 +58,7 @@ class GitLabPlatform:
         self._headers = {"PRIVATE-TOKEN": token}
 
     def __repr__(self) -> str:
-        return (
-            f"GitLabPlatform(project_id={self._project_id!r}, "
-            f"base_url={self._base_url!r})"
-        )
+        return f"GitLabPlatform(project_id={self._project_id!r}, base_url={self._base_url!r})"
 
     async def _request(
         self,
@@ -97,13 +94,10 @@ class GitLabPlatform:
         payload: dict[str, object] = {"title": title, "description": body}
         if labels:
             payload["labels"] = ",".join(labels)
-        resp = await self._request(
-            "post", self._project_url("/issues"), json=payload, headers=self._headers
-        )
+        resp = await self._request("post", self._project_url("/issues"), json=payload, headers=self._headers)
         if resp.status_code != 201:
             raise IntegrationError(
-                f"GitLab issue creation failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
+                f"GitLab issue creation failed ({resp.status_code}): {_truncate_response(resp.text)}"
             )
         return _map_issue(resp.json())
 
@@ -123,14 +117,9 @@ class GitLabPlatform:
             "sort": direction,
             "per_page": 100,
         }
-        resp = await self._request(
-            "get", self._project_url("/issues"), params=params, headers=self._headers
-        )
+        resp = await self._request("get", self._project_url("/issues"), params=params, headers=self._headers)
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab issue list failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab issue list failed ({resp.status_code}): {_truncate_response(resp.text)}")
         return [_map_issue(item) for item in resp.json()]
 
     async def add_issue_comment(self, issue_number: int, body: str) -> None:
@@ -143,8 +132,7 @@ class GitLabPlatform:
         )
         if resp.status_code != 201:
             raise IntegrationError(
-                f"GitLab comment creation failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
+                f"GitLab comment creation failed ({resp.status_code}): {_truncate_response(resp.text)}"
             )
 
     async def assign_label(self, issue_number: int, label: str) -> None:
@@ -157,8 +145,7 @@ class GitLabPlatform:
         )
         if resp.status_code != 200:
             raise IntegrationError(
-                f"GitLab label assignment failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
+                f"GitLab label assignment failed ({resp.status_code}): {_truncate_response(resp.text)}"
             )
 
     async def close_issue(
@@ -176,10 +163,7 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab issue close failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab issue close failed ({resp.status_code}): {_truncate_response(resp.text)}")
 
     async def remove_label(self, issue_number: int, label: str) -> None:
         """Remove a label from an issue."""
@@ -190,10 +174,7 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab label removal failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab label removal failed ({resp.status_code}): {_truncate_response(resp.text)}")
 
     async def list_issue_comments(
         self,
@@ -209,8 +190,7 @@ class GitLabPlatform:
         )
         if resp.status_code != 200:
             raise IntegrationError(
-                f"GitLab issue comments failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
+                f"GitLab issue comments failed ({resp.status_code}): {_truncate_response(resp.text)}"
             )
         return [
             IssueComment(
@@ -231,10 +211,7 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab get issue failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab get issue failed ({resp.status_code}): {_truncate_response(resp.text)}")
         return _map_issue(resp.json())
 
     async def update_issue(self, issue_number: int, body: str) -> None:
@@ -246,10 +223,7 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab issue update failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab issue update failed ({resp.status_code}): {_truncate_response(resp.text)}")
 
     async def create_label(
         self,
@@ -269,10 +243,7 @@ class GitLabPlatform:
             return None
         if resp.status_code == 409:
             return None
-        raise IntegrationError(
-            f"GitLab label creation failed ({resp.status_code}): "
-            f"{_truncate_response(resp.text)}"
-        )
+        raise IntegrationError(f"GitLab label creation failed ({resp.status_code}): {_truncate_response(resp.text)}")
 
     async def create_pr(
         self,
@@ -323,10 +294,7 @@ class GitLabPlatform:
                     f"target={base!r}"
                 )
             return PrResult(html_url=mrs[0]["web_url"], number=mrs[0]["iid"])
-        raise IntegrationError(
-            f"GitLab MR creation failed ({resp.status_code}): "
-            f"{_truncate_response(resp.text)}"
-        )
+        raise IntegrationError(f"GitLab MR creation failed ({resp.status_code}): {_truncate_response(resp.text)}")
 
     async def search_issues(
         self,
@@ -346,10 +314,7 @@ class GitLabPlatform:
             headers=self._headers,
         )
         if resp.status_code != 200:
-            raise IntegrationError(
-                f"GitLab issue search failed ({resp.status_code}): "
-                f"{_truncate_response(resp.text)}"
-            )
+            raise IntegrationError(f"GitLab issue search failed ({resp.status_code}): {_truncate_response(resp.text)}")
         return [_map_issue(item) for item in resp.json()]
 
     async def check_credentials(self) -> None:
@@ -373,12 +338,8 @@ class GitLabPlatform:
 # Remote URL parser
 # ---------------------------------------------------------------------------
 
-_GITLAB_HTTPS_RE = re.compile(
-    r"^https://gitlab\.com/(.+?)/([^/]+?)(?:\.git)?$"
-)
-_GITLAB_SSH_RE = re.compile(
-    r"^git@gitlab\.com:(.+?)/([^/]+?)(?:\.git)?$"
-)
+_GITLAB_HTTPS_RE = re.compile(r"^https://gitlab\.com/(.+?)/([^/]+?)(?:\.git)?$")
+_GITLAB_SSH_RE = re.compile(r"^git@gitlab\.com:(.+?)/([^/]+?)(?:\.git)?$")
 
 
 def parse_remote(remote_url: str) -> tuple[str, str] | None:

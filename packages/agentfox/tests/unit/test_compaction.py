@@ -51,9 +51,7 @@ class TestArchetypeRegistryCompaction:
         """All non-coder archetypes have default_compaction=False."""
         for name, entry in ARCHETYPE_REGISTRY.items():
             if name != "coder":
-                assert entry.default_compaction is False, (
-                    f"Expected default_compaction=False for archetype '{name}'"
-                )
+                assert entry.default_compaction is False, f"Expected default_compaction=False for archetype '{name}'"
 
 
 # ---------------------------------------------------------------------------
@@ -68,18 +66,14 @@ class TestCompactionConfigParsing:
     def test_compaction_true_from_toml(self, tmp_path: Path) -> None:
         """compaction = true in TOML loads correctly."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            "[archetypes.overrides.coder]\ncompaction = true\n"
-        )
+        config_file.write_text("[archetypes.overrides.coder]\ncompaction = true\n")
         config = load_config(path=config_file)
         assert config.archetypes.overrides["coder"].compaction is True
 
     def test_compaction_false_from_toml(self, tmp_path: Path) -> None:
         """compaction = false in TOML loads correctly."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            "[archetypes.overrides.coder]\ncompaction = false\n"
-        )
+        config_file.write_text("[archetypes.overrides.coder]\ncompaction = false\n")
         config = load_config(path=config_file)
         assert config.archetypes.overrides["coder"].compaction is False
 
@@ -91,9 +85,7 @@ class TestCompactionConfigParsing:
     def test_compaction_none_when_key_absent(self, tmp_path: Path) -> None:
         """Config without compaction key leaves the field as None."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            "[archetypes.overrides.coder]\nmax_turns = 100\n"
-        )
+        config_file.write_text("[archetypes.overrides.coder]\nmax_turns = 100\n")
         config = load_config(path=config_file)
         assert config.archetypes.overrides["coder"].compaction is None
 

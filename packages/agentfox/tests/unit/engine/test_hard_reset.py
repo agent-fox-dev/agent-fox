@@ -204,11 +204,16 @@ class TestHardFlagAccepted:
         graph = TaskGraph(
             nodes={
                 "s:1": Node(
-                    id="s:1", spec_name="s", group_number=1,
-                    title="T1", optional=False, status=NodeStatus.PENDING,
+                    id="s:1",
+                    spec_name="s",
+                    group_number=1,
+                    title="T1",
+                    optional=False,
+                    status=NodeStatus.PENDING,
                 ),
             },
-            edges=[], order=["s:1"],
+            edges=[],
+            order=["s:1"],
             metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
         )
         mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
@@ -534,11 +539,16 @@ class TestConfirmationRequired:
         graph = TaskGraph(
             nodes={
                 "s:1": Node(
-                    id="s:1", spec_name="s", group_number=1,
-                    title="T1", optional=False, status=NodeStatus.PENDING,
+                    id="s:1",
+                    spec_name="s",
+                    group_number=1,
+                    title="T1",
+                    optional=False,
+                    status=NodeStatus.PENDING,
                 ),
             },
-            edges=[], order=["s:1"],
+            edges=[],
+            order=["s:1"],
             metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
         )
         mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()
@@ -900,11 +910,16 @@ class TestUserDeclines:
         graph = TaskGraph(
             nodes={
                 "s:1": Node(
-                    id="s:1", spec_name="s", group_number=1,
-                    title="T1", optional=False, status=NodeStatus.PENDING,
+                    id="s:1",
+                    spec_name="s",
+                    group_number=1,
+                    title="T1",
+                    optional=False,
+                    status=NodeStatus.PENDING,
                 ),
             },
-            edges=[], order=["s:1"],
+            edges=[],
+            order=["s:1"],
             metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
         )
         mock_db = type("MockDB", (), {"connection": None, "close": lambda self: None})()

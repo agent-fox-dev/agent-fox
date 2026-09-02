@@ -344,4 +344,3 @@ def cleanup_stale_merge_lock(repo_root: Path) -> bool:
         lock_file,
     )
     return True
-

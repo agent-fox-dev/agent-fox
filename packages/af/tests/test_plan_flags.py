@@ -202,9 +202,7 @@ class TestResetInvocationError:
 class TestYesFlagReset:
     """af plan --reset --yes skips the confirmation prompt."""
 
-    def test_reset_yes_skips_prompt_and_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_yes_skips_prompt_and_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset --yes (no stdin),
         THEN exit code is 0, run_reset is called, and no prompt appears.
         """
@@ -217,20 +215,14 @@ class TestYesFlagReset:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--yes"], input=None
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--yes"], input=None)
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
         assert "[y/N]" not in result.output
         assert "confirm" not in result.output.lower()
 
-    def test_reset_short_y_flag_skips_prompt(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_short_y_flag_skips_prompt(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset -y (short form),
         THEN exit code is 0 and no prompt appears.
         """
@@ -243,9 +235,7 @@ class TestYesFlagReset:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "-y"], input=None
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "-y"], input=None)
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -261,9 +251,7 @@ class TestYesFlagReset:
 class TestYesFlagResetHard:
     """af plan --reset-hard --yes skips the confirmation prompt."""
 
-    def test_reset_hard_yes_skips_prompt_and_exits_zero(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_hard_yes_skips_prompt_and_exits_zero(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --yes (no stdin),
         THEN exit code is 0, run_reset is called, and no prompt appears.
         """
@@ -276,20 +264,14 @@ class TestYesFlagResetHard:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--yes"], input=None
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"], input=None)
 
-        assert result.exit_code == 0, (
-            f"Expected exit 0, got {result.exit_code}: {result.output}"
-        )
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         mock_run.assert_called_once()
         assert "[y/N]" not in result.output
         assert "confirm" not in result.output.lower()
 
-    def test_reset_hard_short_y_flag_skips_prompt(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_hard_short_y_flag_skips_prompt(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard -y (short form),
         THEN exit code is 0 and no prompt appears.
         """
@@ -302,9 +284,7 @@ class TestYesFlagResetHard:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result) as mock_run,
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "-y"], input=None
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "-y"], input=None)
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -320,9 +300,7 @@ class TestYesFlagResetHard:
 class TestYesFlagIgnored:
     """--yes is silently ignored when no reset mode is active."""
 
-    def test_yes_without_reset_mode_ignored(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_yes_without_reset_mode_ignored(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with af plan --yes (normal build),
         THEN exit code matches normal af plan and no error about --yes.
         """
@@ -333,9 +311,7 @@ class TestYesFlagIgnored:
         # --yes flag itself should not produce a Click error
         assert "no such option" not in result.output.lower()
 
-    def test_yes_with_clear_ignored(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_yes_with_clear_ignored(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with af plan --clear --yes,
         THEN --yes is silently ignored and clear proceeds normally.
 
@@ -394,17 +370,13 @@ class TestMutualExclusivity:
         assert "--verify" in combined
         mock_ks.assert_not_called()
 
-    def test_reset_and_reset_hard_conflict(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_and_reset_hard_conflict(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset --reset-hard,
         THEN exit code is 1 and error lists conflicting flags.
         """
         mock_ks = MagicMock()
         with patch("af.plan.open_knowledge_store", mock_ks):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--reset-hard"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--reset-hard"])
 
         assert result.exit_code == 1
         combined = result.output + (getattr(result, "stderr", "") or "")
@@ -412,9 +384,7 @@ class TestMutualExclusivity:
         assert "--reset-hard" in combined
         mock_ks.assert_not_called()
 
-    def test_all_five_mode_flags_conflict(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_all_five_mode_flags_conflict(self, cli_runner: CliRunner) -> None:
         """WHEN all five mode flags are provided simultaneously,
         THEN exit code is 1 with a consolidated error listing all flags.
 
@@ -451,15 +421,11 @@ class TestMutualExclusivity:
 class TestResetHardSpecExclusion:
     """--reset-hard and --spec cannot be combined."""
 
-    def test_reset_hard_with_spec_exits_one(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_reset_hard_with_spec_exits_one(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --spec my_spec,
         THEN exit code is 1 and error states the combination is invalid.
         """
-        result = cli_runner.invoke(
-            main, ["plan", "--reset-hard", "--spec", "my_spec"]
-        )
+        result = cli_runner.invoke(main, ["plan", "--reset-hard", "--spec", "my_spec"])
 
         assert result.exit_code == 1
         combined = result.output + (getattr(result, "stderr", "") or "")
@@ -513,16 +479,12 @@ class TestFastIgnoredWithClear:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset", "--fast", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset", "--fast", "--yes"])
 
         assert result.exit_code == 0
         assert "error" not in result.output.lower()
 
-    def test_fast_with_reset_hard_ignored(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_fast_with_reset_hard_ignored(self, cli_runner: CliRunner) -> None:
         """WHEN invoked with --reset-hard --fast --yes,
         THEN exit code is 0, no error about --fast.
         """
@@ -535,9 +497,7 @@ class TestFastIgnoredWithClear:
             patch("af.plan.load_plan", return_value=graph),
             patch("af.plan.run_reset", return_value=mock_result),
         ):
-            result = cli_runner.invoke(
-                main, ["plan", "--reset-hard", "--fast", "--yes"]
-            )
+            result = cli_runner.invoke(main, ["plan", "--reset-hard", "--fast", "--yes"])
 
         assert result.exit_code == 0
         assert "error" not in result.output.lower()

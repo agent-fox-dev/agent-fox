@@ -301,9 +301,7 @@ class TestPostIssueSummaries:
         """Create a minimal spec directory with prd.md (frontmatter source) and tasks.md."""
         spec_dir = base / spec_name
         spec_dir.mkdir(parents=True)
-        (spec_dir / "prd.md").write_text(
-            f'---\ntitle: "Test"\nsource: "{issue_url}"\n---\n# PRD\n'
-        )
+        (spec_dir / "prd.md").write_text(f'---\ntitle: "Test"\nsource: "{issue_url}"\n---\n# PRD\n')
         (spec_dir / "tasks.md").write_text("- [x] 1. Implement feature\n")
         return spec_dir
 
@@ -397,9 +395,7 @@ class TestPostIssueSummaries:
         spec_dir = specs_dir / spec_name
         spec_dir.mkdir(parents=True)
         # Non-URL source in frontmatter
-        (spec_dir / "prd.md").write_text(
-            '---\ntitle: "Test"\nsource: "interactive"\n---\n# PRD\n'
-        )
+        (spec_dir / "prd.md").write_text('---\ntitle: "Test"\nsource: "interactive"\n---\n# PRD\n')
         (spec_dir / "tasks.md").write_text("- [x] 1. Feature\n")
 
         platform = self._make_mock_platform()

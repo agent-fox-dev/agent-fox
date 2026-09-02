@@ -115,7 +115,11 @@ class TestBuildNodesAndEdgesArchetypeDefaults:
         spec_deps: dict[str, list[str]] = {"99_test": []}
 
         new_nodes, _edges, _added = _build_nodes_and_edges(
-            [spec], spec_task_groups, spec_deps, {}, [],
+            [spec],
+            spec_task_groups,
+            spec_deps,
+            {},
+            [],
         )
 
         node = new_nodes["99_test:1"]
@@ -144,7 +148,11 @@ class TestBuildNodesAndEdgesArchetypeDefaults:
         spec_deps: dict[str, list[str]] = {"99_test": []}
 
         new_nodes, _edges, _added = _build_nodes_and_edges(
-            [spec], spec_task_groups, spec_deps, {}, [],
+            [spec],
+            spec_task_groups,
+            spec_deps,
+            {},
+            [],
         )
 
         node = new_nodes["99_test:1"]
@@ -172,7 +180,11 @@ class TestBuildNodesAndEdgesArchetypeDefaults:
         spec_deps: dict[str, list[str]] = {"99_test": []}
 
         new_nodes, _edges, _added = _build_nodes_and_edges(
-            [spec], spec_task_groups, spec_deps, {}, [],
+            [spec],
+            spec_task_groups,
+            spec_deps,
+            {},
+            [],
         )
 
         node = new_nodes["99_test:1"]

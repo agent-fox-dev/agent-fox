@@ -601,8 +601,7 @@ class NodeSessionRunner:
             if platform is None:
                 # Fall back to branch mode (02-REQ-4.3)
                 logger.warning(
-                    "Merge strategy is 'pr' but platform is not configured "
-                    "— falling back to 'branch' mode.",
+                    "Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.",
                 )
                 touched_files = await _workspace_git.get_changed_files(
                     repo_root,
@@ -625,9 +624,7 @@ class NodeSessionRunner:
             )
             from agentfox.maintenance.fix_pipeline import build_pr_body
 
-            pr_title = (
-                f"{workspace.spec_name}: task group {workspace.task_group}"
-            )
+            pr_title = f"{workspace.spec_name}: task group {workspace.task_group}"
             pr_body = build_pr_body(
                 spec_name=workspace.spec_name,
                 task_group_id=str(workspace.task_group),
@@ -645,10 +642,7 @@ class NodeSessionRunner:
                 # 02-REQ-4.E2: Partial failure — branch pushed but PR
                 # creation failed.  Log the error with the remote branch
                 # URL and fall back to branch-mode semantics.
-                branch_url = (
-                    f"https://github.com/{platform._owner}/{platform._repo}"
-                    f"/tree/{workspace.branch}"
-                )
+                branch_url = f"https://github.com/{platform._owner}/{platform._repo}/tree/{workspace.branch}"
                 logger.error(
                     "PR creation failed. Branch available at: %s",
                     branch_url,
@@ -1166,8 +1160,7 @@ class NodeSessionRunner:
             # Convert RejectedApproach models to dicts for downstream consumers.
             # Bare strings (accepted for backward compat) pass through as-is.
             rejected_approaches = [
-                ra.model_dump() if isinstance(ra, RejectedApproach) else ra
-                for ra in artifacts.rejected_approaches
+                ra.model_dump() if isinstance(ra, RejectedApproach) else ra for ra in artifacts.rejected_approaches
             ]
             gotchas_list = artifacts.gotchas
             assumptions_list = artifacts.assumptions
@@ -1183,22 +1176,44 @@ class NodeSessionRunner:
 
         # Phase 7: Emit audit event
         self._emit_session_audit(
-            node_id, attempt, outcome, status, error_message,
-            cost, touched_files, summary_text,
+            node_id,
+            attempt,
+            outcome,
+            status,
+            error_message,
+            cost,
+            touched_files,
+            summary_text,
         )
 
         # Phases 6+8: Extract findings and ingest knowledge
         summary_text = await self._process_knowledge(
-            node_id, attempt, workspace, outcome, status,
-            touched_files, commit_sha, repo_root,
-            summary_text, rejected_approaches, gotchas_list, assumptions_list,
+            node_id,
+            attempt,
+            workspace,
+            outcome,
+            status,
+            touched_files,
+            commit_sha,
+            repo_root,
+            summary_text,
+            rejected_approaches,
+            gotchas_list,
+            assumptions_list,
         )
 
         # Phase 9: Construct and return the SessionRecord
         return self._build_session_record(
-            node_id, attempt, outcome, status, error_message,
-            cost, touched_files, commit_sha,
-            is_budget_exhausted, is_non_retryable,
+            node_id,
+            attempt,
+            outcome,
+            status,
+            error_message,
+            cost,
+            touched_files,
+            commit_sha,
+            is_budget_exhausted,
+            is_non_retryable,
         )
 
     def _persist_review_findings(

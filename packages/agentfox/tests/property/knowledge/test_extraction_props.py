@@ -48,9 +48,7 @@ class TestExtractSessionSummaryNeverRaises:
     def test_first_element_str_or_none(self, input_str: str) -> None:
         """First element of the return tuple is always str or None."""
         result = extract_session_summary(input_str)
-        assert result[0] is None or isinstance(result[0], str), (
-            f"Expected str|None, got {type(result[0])}"
-        )
+        assert result[0] is None or isinstance(result[0], str), f"Expected str|None, got {type(result[0])}"
 
     @given(input_str=st.text())
     @settings(max_examples=200)
@@ -58,9 +56,7 @@ class TestExtractSessionSummaryNeverRaises:
         """Elements 1, 2, 3 are always lists."""
         result = extract_session_summary(input_str)
         for i in range(1, 4):
-            assert isinstance(result[i], list), (
-                f"Element {i}: expected list, got {type(result[i])}"
-            )
+            assert isinstance(result[i], list), f"Element {i}: expected list, got {type(result[i])}"
 
     @given(
         input_str=st.from_regex(
@@ -74,9 +70,7 @@ class TestExtractSessionSummaryNeverRaises:
         try:
             result = extract_session_summary(input_str)
         except Exception as exc:
-            pytest.fail(
-                f"extract_session_summary raised on control/high bytes: {exc}"
-            )
+            pytest.fail(f"extract_session_summary raised on control/high bytes: {exc}")
         assert isinstance(result, tuple)
         assert len(result) == 4
 

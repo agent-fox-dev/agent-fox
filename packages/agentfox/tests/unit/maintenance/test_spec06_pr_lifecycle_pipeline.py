@@ -369,10 +369,7 @@ class TestHandleResultPrCreated:
         await pipeline._handle_result(issue, spec, "pr_created")
 
         # af:pr must have been assigned
-        label_calls = [
-            call.args[1]
-            for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:pr" in label_calls
 
     @pytest.mark.asyncio
@@ -388,10 +385,7 @@ class TestHandleResultPrCreated:
         await pipeline._handle_result(issue, spec, "pr_created")
 
         # af:fix must have been removed
-        remove_calls = [
-            call.args[1]
-            for call in mock_platform.remove_label.call_args_list
-        ]
+        remove_calls = [call.args[1] for call in mock_platform.remove_label.call_args_list]
         assert "af:fix" in remove_calls
 
     @pytest.mark.asyncio
@@ -498,10 +492,7 @@ class TestHandleResultNeverClosesForPrCreated:
 
         await pipeline._handle_result(issue, spec, "pr_created")
 
-        label_calls = [
-            call.args[1]
-            for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:fixed" not in label_calls
 
     @pytest.mark.asyncio
@@ -567,10 +558,7 @@ class TestHandleResultLabelFailure:
 
         # Check that af:fixed was never the label in any assign_label call
         # (all calls raised, so none succeeded with af:fixed)
-        label_calls = [
-            call.args[1]
-            for call in mock_platform.assign_label.call_args_list
-        ]
+        label_calls = [call.args[1] for call in mock_platform.assign_label.call_args_list]
         assert "af:fixed" not in label_calls
 
 
@@ -623,9 +611,7 @@ class TestPrTrackingPattern:
         """PR_TRACKING_PATTERN must match a valid tracking comment tag."""
         from agentfox.maintenance.fix_pipeline import PR_TRACKING_PATTERN
 
-        m = PR_TRACKING_PATTERN.search(
-            "<!-- af:pr-tracking pr_number=42 attempt=1 -->"
-        )
+        m = PR_TRACKING_PATTERN.search("<!-- af:pr-tracking pr_number=42 attempt=1 -->")
         assert m is not None
         assert m.group(1) == "42"
         assert m.group(2) == "1"
@@ -687,9 +673,7 @@ class TestParseTrackingComment:
         """parse_tracking_comment returns (pr_number, attempt) as integers."""
         from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
-        result = parse_tracking_comment(
-            "some text\n<!-- af:pr-tracking pr_number=7 attempt=3 -->\nmore text"
-        )
+        result = parse_tracking_comment("some text\n<!-- af:pr-tracking pr_number=7 attempt=3 -->\nmore text")
         assert result == (7, 3)
         assert isinstance(result[0], int)
         assert isinstance(result[1], int)
@@ -728,19 +712,14 @@ class TestHandleResultPostsTrackingComment:
         await pipeline._handle_result(issue, spec, "pr_created")
 
         # Find the tracking comment among posted comments
-        comment_bodies = [
-            call.args[1]
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
+        comment_bodies = [call.args[1] for call in mock_platform.add_issue_comment.call_args_list]
         tracking_comment = None
         for body in comment_bodies:
             if "af:pr-tracking" in body:
                 tracking_comment = body
                 break
 
-        assert tracking_comment is not None, (
-            f"No tracking comment found. Posted bodies: {comment_bodies}"
-        )
+        assert tracking_comment is not None, f"No tracking comment found. Posted bodies: {comment_bodies}"
         assert "<!-- af:pr-tracking pr_number=42 attempt=1 -->" in tracking_comment
 
     @pytest.mark.asyncio
@@ -759,10 +738,7 @@ class TestHandleResultPostsTrackingComment:
 
         await pipeline._handle_result(issue, spec, "pr_created")
 
-        comment_bodies = [
-            call.args[1]
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
+        comment_bodies = [call.args[1] for call in mock_platform.add_issue_comment.call_args_list]
         # At least one comment must mention the PR URL
         all_text = "\n".join(comment_bodies)
         assert "https://github.com/owner/repo/pull/42" in all_text
@@ -805,11 +781,7 @@ class TestParseTrackingCommentMultipleTags:
         """parse_tracking_comment returns first (pr_number, attempt) from multiple tags."""
         from agentfox.maintenance.fix_pipeline import parse_tracking_comment
 
-        body = (
-            "<!-- af:pr-tracking pr_number=10 attempt=1 -->\n"
-            "text\n"
-            "<!-- af:pr-tracking pr_number=11 attempt=2 -->"
-        )
+        body = "<!-- af:pr-tracking pr_number=10 attempt=1 -->\ntext\n<!-- af:pr-tracking pr_number=11 attempt=2 -->"
         result = parse_tracking_comment(body)
         assert result == (10, 1)
 

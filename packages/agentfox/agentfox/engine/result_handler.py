@@ -853,10 +853,7 @@ class SessionResultHandler:
         setattr(ns, failures_attr, count)
 
         if count >= max_failures:
-            reason = (
-                f"{label} failed {count} times consecutively for {node_id}: "
-                f"{record.error_message}. {diagnostic}"
-            )
+            reason = f"{label} failed {count} times consecutively for {node_id}: {record.error_message}. {diagnostic}"
             logger.warning("%s circuit breaker tripped for %s: %s", label, node_id, reason)
             self._block_task(node_id, state, reason)
             self._check_block_budget(state)
@@ -1098,4 +1095,3 @@ class SessionResultHandler:
                 )
             )
         self._graph_sync.mark_pending(node_id, reason="retry after failure")
-

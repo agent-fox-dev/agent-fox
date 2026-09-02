@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from afissues.protocol import IssueResult
 from afspec.models import (
     Criterion,
     PRDDocument,
@@ -25,7 +26,6 @@ from afspec.models import (
 )
 
 from agentfox.core.prompt_safety import sanitize_prompt_content
-from afissues.protocol import IssueResult
 
 if TYPE_CHECKING:
     from agentfox.maintenance.fix_pipeline import TriageResult

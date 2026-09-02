@@ -342,11 +342,7 @@ async def _build_squash_message(
         )
         if all_subjects:
             primary_subject = primary_msg.splitlines()[0]
-            other_lines = [
-                line
-                for line in all_subjects.strip().splitlines()
-                if line.lstrip("- ") != primary_subject
-            ]
+            other_lines = [line for line in all_subjects.strip().splitlines() if line.lstrip("- ") != primary_subject]
             if other_lines:
                 primary_msg += "\n\n" + "\n".join(other_lines)
 

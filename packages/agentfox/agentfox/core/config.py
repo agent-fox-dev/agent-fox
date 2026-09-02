@@ -160,6 +160,7 @@ class OrchestratorConfig(BaseModel):
             )
             return 0
         return v
+
     hot_load: bool = Field(default=True, description="Hot-load specs between sessions")
     max_retries: Annotated[int, Clamped(ge=0)] = Field(default=2, description="Maximum retries per task group")
     session_timeout: Annotated[int, Clamped(ge=1)] = Field(default=45, description="Session timeout in minutes")

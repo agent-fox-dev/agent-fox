@@ -148,8 +148,5 @@ def _extract_fields(data: dict) -> tuple[str | None, list, list, list]:
     # Convert RejectedApproach models back to dicts for backward
     # compatibility with downstream consumers that expect list[dict].
     # Bare strings (accepted for backward compat) pass through as-is.
-    rejected = [
-        ra.model_dump() if isinstance(ra, RejectedApproach) else ra
-        for ra in model.rejected_approaches
-    ]
+    rejected = [ra.model_dump() if isinstance(ra, RejectedApproach) else ra for ra in model.rejected_approaches]
     return (model.summary, rejected, model.gotchas, model.assumptions)

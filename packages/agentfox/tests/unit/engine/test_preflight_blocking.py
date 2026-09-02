@@ -20,9 +20,8 @@ from __future__ import annotations
 import uuid
 
 import duckdb
-import pytest
 from agentfox.core.config import ArchetypesConfig, ReviewerConfig
-from agentfox.engine.blocking import BlockDecision, evaluate_review_blocking
+from agentfox.engine.blocking import evaluate_review_blocking
 from agentfox.engine.state import SessionRecord
 from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.review_store import (
@@ -110,9 +109,7 @@ class TestPreflightDriftBlocking:
         insert_drift_findings(conn, [_drift_finding()])
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=1), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=1), conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "myspec:1"
@@ -126,9 +123,7 @@ class TestPreflightDriftBlocking:
         insert_drift_findings(conn, findings)
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=2), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=2), conn, mode="pre-flight")
 
         assert decision.should_block is True
 
@@ -137,9 +132,7 @@ class TestPreflightDriftBlocking:
         insert_drift_findings(conn, [_drift_finding(severity="minor")])
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=1), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=1), conn, mode="pre-flight")
 
         assert decision.should_block is False
 
@@ -162,9 +155,7 @@ class TestPreflightReviewFindingsNotFiltered:
         insert_findings(conn, findings)
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=None), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=None), conn, mode="pre-flight")
 
         assert decision.should_block is True
 
@@ -173,9 +164,7 @@ class TestPreflightReviewFindingsNotFiltered:
         insert_findings(conn, [_review_finding(task_group="10", severity="critical")])
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=None), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=None), conn, mode="pre-flight")
 
         assert decision.should_block is True
 
@@ -193,9 +182,7 @@ class TestPreflightAdvisoryMode:
         insert_drift_findings(conn, [_drift_finding()])
 
         record = _preflight_record()
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=None), conn, mode="pre-flight"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=None), conn, mode="pre-flight")
 
         assert decision.should_block is False
 
@@ -226,9 +213,7 @@ class TestNonPreflightReviewerRegression:
             error_message=None,
             timestamp="2026-01-01T00:00:00",
         )
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=1), conn, mode="drift-review"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=1), conn, mode="drift-review")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "myspec:2"
@@ -238,13 +223,11 @@ class TestNonPreflightReviewerRegression:
         conn = _make_conn()
         insert_findings(
             conn,
-            [_review_finding(task_group="3", severity="critical",
-                             session_id="myspec:3:reviewer:pre-review:1")],
+            [_review_finding(task_group="3", severity="critical", session_id="myspec:3:reviewer:pre-review:1")],
         )
         insert_findings(
             conn,
-            [_review_finding(task_group="5", severity="critical",
-                             session_id="myspec:3:reviewer:pre-review:1")],
+            [_review_finding(task_group="5", severity="critical", session_id="myspec:3:reviewer:pre-review:1")],
         )
 
         record = SessionRecord(
@@ -259,9 +242,7 @@ class TestNonPreflightReviewerRegression:
             error_message=None,
             timestamp="2026-01-01T00:00:00",
         )
-        decision = evaluate_review_blocking(
-            record, _archetypes(threshold=None), conn, mode="pre-review"
-        )
+        decision = evaluate_review_blocking(record, _archetypes(threshold=None), conn, mode="pre-review")
 
         # Only the group-3 finding should be counted, not the group-5 one
         assert decision.should_block is True

@@ -601,10 +601,7 @@ class GitHubPlatform:
         head_sha = pr_state.head_sha
 
         headers = self._auth_headers()
-        base_url = (
-            f"{self._api_base}/repos/{self._owner}/{self._repo}"
-            f"/commits/{head_sha}/check-runs"
-        )
+        base_url = f"{self._api_base}/repos/{self._owner}/{self._repo}/commits/{head_sha}/check-runs"
 
         all_results: list[CheckResult] = []
         max_pages = 10
