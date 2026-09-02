@@ -80,7 +80,7 @@ All symbols are importable from the top-level package: `from afaudit import <sym
 | Symbol | Description |
 |--------|-------------|
 | `AuditEvent` | Frozen dataclass — a structured record of a significant agent action. Fields: `run_id`, `event_type: AuditEventType`, `severity: AuditSeverity`, `node_id`, `session_id`, `archetype`, `payload: dict`, `id: UUID`, `timestamp: datetime`. |
-| `AuditEventType` | StrEnum with ~50 event type constants. Categories: `run.*` (start, complete, limit_reached), `session.*` (start, complete, fail, retry, timeout_retry), `task.*` (status_change), `git.*` (merge, conflict, push_failed), `review.*` (parse_failure, findings_persisted), `knowledge.*`, `night_shift.*`, `watch.*`, `workspace.*`. |
+| `AuditEventType` | StrEnum with ~50 event type constants. Categories include: `run.*`, `session.*`, `task.*`, `git.*`, `review.*`, `knowledge.*`, `night_shift.*`, `watch.*`, `workspace.*`, `harvest.*`, `tool.*`, `sync.*`, `config.*`, `preflight.*`, and others. |
 | `AuditSeverity` | StrEnum: `info`, `warning`, `error`, `critical`. |
 | `generate_run_id` | `() -> str` — Generate a unique run ID: `{YYYYMMDD}_{HHMMSS}_{6hex}`. |
 | `default_severity_for` | `(event_type: AuditEventType) -> AuditSeverity` — Default severity for an event type (session.fail -> error, limit_reached -> warning, others -> info). |
@@ -112,7 +112,7 @@ All symbols are importable from the top-level package: `from afaudit import <sym
 | `SessionRecordLike` | Runtime-checkable Protocol — 12 attributes per session record: `node_id`, `attempt`, `status`, `archetype`, `model`, `duration_ms`, `cost`, `error_message`, `timestamp`, `is_transport_error`, `is_budget_exhausted`, `is_non_retryable`. |
 | `build_postmortem` | `(state: PostmortemInput) -> dict` — Build a postmortem data structure from execution state. |
 | `write_postmortem` | `(postmortem: dict, audit_dir: Path) -> Path` — Write postmortem JSON to `audit_dir/postmortem_{run_id}.json`. Returns the written path. |
-| `should_dump` | `(run_status: str) -> bool` — Returns True for terminal failure statuses (stalled, block_limit, cost_limit, session_limit). |
+| `should_dump` | `(state: PostmortemInput) -> bool` — Returns True for terminal failure statuses (stalled, block_limit, cost_limit, session_limit). |
 
 ### Trace
 
@@ -127,7 +127,7 @@ All symbols are importable from the top-level package: `from afaudit import <sym
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `purge_stale_audit_files` | `(audit_dir: Path) -> int` | Delete stale `agent_*.jsonl`, `audit_*.jsonl`, and `postmortem_*.json` files. Returns count of deleted files. |
-| `enforce_file_retention` | `(audit_dir: Path, *, max_runs: int = 10) -> int` | Delete the oldest audit run file sets beyond `max_runs`. Returns count of deleted files. |
+| `enforce_file_retention` | `(audit_dir: Path, *, max_runs: int = 20) -> int` | Delete the oldest audit run file sets beyond `max_runs`. Returns count of deleted files. |
 
 ### Constants
 

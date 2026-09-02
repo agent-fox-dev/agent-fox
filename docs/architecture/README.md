@@ -4,7 +4,7 @@ This guide describes the internal architecture of agent-fox. It is written for
 engineers who want to understand how the system works before reading the source
 code. The documents stay at the conceptual level — no code snippets, no method
 signatures, no class hierarchies. For API details, consult the source under
-`agent_fox/`. For configuration specifics, see the
+`packages/agentfox/agentfox/`. For configuration specifics, see the
 [configuration reference](../config-reference.md). For archetype details,
 see [Part 3](03-execution-and-archetypes.md#agent-archetypes).
 
@@ -31,12 +31,11 @@ them.
 its own feature branch. Multiple agents work simultaneously without stepping
 on each other. Integration happens through a serializing merge lock.
 
-**Separation of concerns through archetypes.** Six archetype entries (Coder,
-Reviewer, Curator, Verifier, Gate, Maintainer) with a mode system divide
-labor. The Reviewer archetype covers three distinct review roles (pre-review,
-drift-review, audit-review) through modes that override injection points and
-tool allowlists. Review modes cannot modify code. The Curator and Verifier
-chain as sequential post-implementation quality gates. The Gate archetype
+**Separation of concerns through archetypes.** Five archetype entries (Coder,
+Reviewer, Verifier, Gate, Maintainer) with a mode system divide
+labor. The Reviewer archetype covers three distinct review modes (pre-flight,
+audit-review, fix-review) through modes that override injection points and
+tool allowlists. Review modes cannot modify code. The Verifier runs as a post-implementation quality gate. The Gate archetype
 handles lightweight checkpoint verification. Implementation agents cannot
 skip quality checks.
 
@@ -68,8 +67,8 @@ hot-load discovery.
 
 How the plan is carried out. Covers the orchestrator's dispatch loop, the
 four-phase session lifecycle (prepare, execute, harvest, assess), context
-assembly with three knowledge retrieval categories, the six-entry archetype
-registry with mode system (coder, reviewer, curator, verifier, gate,
+assembly with three knowledge retrieval categories, the five-entry archetype
+registry with mode system (coder, reviewer, verifier, gate,
 maintainer), multi-instance convergence strategies, retry handling, workspace
 isolation, merge integration, sync barriers, and reset.
 

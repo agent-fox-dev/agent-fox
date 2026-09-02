@@ -23,7 +23,6 @@ agent-fox [OPTIONS] COMMAND [ARGS]
 | `--version` | | Show version and exit |
 | `--verbose` | `-v` | Enable debug logging |
 | `--quiet` | `-q` | Suppress info messages and banner |
-| `--trace` | | Enable trace logging (includes bulk AI prompt/response payloads; implies `--verbose`) |
 | `--help` | | Show help and exit |
 
 When invoked without a subcommand, displays help text.
@@ -118,8 +117,8 @@ directives), it is silently skipped during prompt assembly so agents are not
 distracted by empty templates.
 
 **Profiles installation (`--profiles`):** When `--profiles` is provided, copies
-all built-in archetype profiles (coder, reviewer, verifier, maintainer and
-their mode variants) into `.agent-fox/profiles/`. Existing profile files are
+all built-in archetype profiles (coder, reviewer, verifier, gate, maintainer
+and their mode variants) into `.agent-fox/profiles/`. Existing profile files are
 preserved -- only missing profiles are created. This enables project-level
 customization of agent behavior. See [Profiles](profiles.md) for details.
 
@@ -138,7 +137,8 @@ configured, `init` automatically creates labels on the repository for the
 fix pipeline workflow (`af:fix`, `af:fixed`, `af:no-change`). If the
 platform is not configured, this step is silently skipped.
 
-**Exit codes:** `0` success, `1` not inside a git repository.
+**Exit codes:** `0` success (git-dependent steps are skipped when not inside
+a git repository), `1` unexpected error.
 
 ---
 
@@ -159,6 +159,7 @@ agent-fox plan [OPTIONS] [TASK_ID]
 | `--clear` | flag | off | Mark all plan nodes as completed and truncate session tables |
 | `--reset` | flag | off | Soft-reset failed/blocked/in-progress tasks to pending |
 | `--reset-hard` | flag | off | Hard reset all tasks with code rollback |
+| `--verify` | flag | off | Cross-check spec file states against database plan states |
 | `--yes` / `-y` | flag | off | Skip confirmation prompts (for `--reset` and `--reset-hard`) |
 | `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 

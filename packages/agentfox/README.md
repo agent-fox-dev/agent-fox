@@ -62,26 +62,25 @@ directly: `from agentfox.core.config import load_config`.
 |--------|-------------|
 | `load_config(path=None)` | Load and merge global + local TOML config into `AgentFoxConfig`. Single entry point for all CLIs. |
 | `resolve_spec_root(config, project_root)` | Resolve the spec directory path from config and project root. |
-| `shallow_merge(global_dict, local_dict)` | Merge two config dicts with section-level replacement semantics. |
 | `AgentFoxConfig` | Root pydantic model. Contains all sub-configs below. |
 
 Sub-config models (all pydantic `BaseModel` subclasses with documented defaults):
 
 | Model | Key Fields |
 |-------|------------|
-| `OrchestratorConfig` | `parallel`, `sync_interval`, `max_retries`, `max_cost`, `max_sessions`, `max_blocked_fraction`, `inter_session_delay`, `hot_load`, `watch_interval`, `budget` |
+| `OrchestratorConfig` | `parallel`, `sync_interval`, `max_retries`, `max_cost`, `max_sessions`, `max_blocked_fraction`, `inter_session_delay`, `hot_load`, `watch_interval`, `max_budget_usd` |
 | `RoutingConfig` | `max_timeout_retries`, `timeout_multiplier`, `timeout_ceiling_factor` |
-| `SecurityConfig` | `bash_allowlist` (frozenset of allowed commands) |
+| `SecurityConfig` | `bash_allowlist` (list[str] \| None), `bash_allowlist_extend` |
 | `WorkspaceConfig` | `force_clean`, `integration_branch` |
 | `PathsConfig` | `spec_root` |
-| `KnowledgeConfig` | `db_path`, `retrieval_caps` |
-| `PricingConfig` | Model-keyed `ModelPricing` entries (`input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`) |
+| `KnowledgeConfig` | `store_path`, `provider: KnowledgeProviderConfig` |
+| `PricingConfig` | Model-keyed `ModelPricing` entries (`input_price_per_m`, `output_price_per_m`, `cache_read_price_per_m`, `cache_creation_price_per_m`) |
 | `CachingConfig` | `policy: CachePolicy` (NONE / DEFAULT / EXTENDED) |
-| `PerArchetypeConfig` | `thinking_mode` (adaptive / disabled), resolved per archetype |
+| `PerArchetypeConfig` | `model_tier`, `model_variant`, `max_turns`, `thinking_mode` (adaptive / disabled), `effort`, `allowlist`, `max_budget_usd`, `compaction` |
 | `ArchetypesConfig` | `reviewer_config: ReviewerConfig`, per-archetype enable/disable, custom archetypes |
-| `ReviewerConfig` | `pre_review_block_threshold`, `drift_review_block_threshold`, `audit_min_ts_entries`, `audit_max_retries` |
-| `PlatformConfig` | `type` (github), `url` |
-| `NightShiftConfig` | `check_interval`, `push` settings |
+| `ReviewerConfig` | `pre_flight_block_threshold`, `pre_flight_drift_block_threshold`, `audit_min_ts_entries`, `audit_max_retries` |
+| `PlatformConfig` | `type` (none \| github \| gitlab \| gitea), `url` |
+| `NightShiftConfig` | `issue_check_interval`, `pr_check_interval`, `push_fix_branch`, `max_parallel`, `max_pr_retries` |
 
 ### Engine (`agentfox.engine`)
 
@@ -104,7 +103,7 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `ai_call_sync` | Synchronous variant of `ai_call`. |
 | `cached_messages_create` | `async (client, *, model, max_tokens, messages, system, cache_policy) -> response` -- prompt-caching wrapper around `client.messages.create()`. |
 | `cached_messages_create_sync` | Synchronous variant. |
-| `retry_api_call_async` | `async (fn, *, context, max_retries=3) -> T` -- retry with exponential backoff on transient API errors. |
+| `retry_api_call_async` | `async (fn, *, context='API call') -> T` -- retry with fixed-schedule backoff on transient API errors. |
 | `retry_api_call` | Synchronous variant. |
 | `extract_response_text` | `(response) -> str \| None` -- extract text from first content block. |
 
@@ -116,15 +115,15 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `ModelEntry` | Dataclass: `model_id`, `tier`, `variant`. |
 | `MODEL_REGISTRY` | `dict[str, ModelEntry]` -- all known model IDs. |
 | `resolve_model` | `(name_or_tier, variant=None) -> str` -- resolve a tier name or model alias to a concrete model ID. |
-| `calculate_cost` | `(input_tokens, output_tokens, cache_read, cache_creation, model, pricing) -> float` -- USD cost. |
+| `calculate_cost` | `(input_tokens, output_tokens, model_id, pricing, *, cache_read_input_tokens=0, cache_creation_input_tokens=0) -> float` -- USD cost. |
 
 ### Archetypes (`agentfox.archetypes`)
 
 | Symbol | Description |
 |--------|-------------|
-| `ArchetypeEntry` | Dataclass -- full archetype config: `name`, `default_model_tier`, `default_model_variant`, `injection`, `task_assignable`, `retry_predecessor`, `default_allowlist`, `default_max_turns`, `thinking`, `modes: dict[str, ModeConfig]`. |
-| `ModeConfig` | Dataclass -- per-mode overrides: `model_tier`, `model_variant`, `injection`, `allowlist`, `retry_predecessor`, `max_turns`, `thinking`. |
-| `ARCHETYPE_REGISTRY` | `dict[str, ArchetypeEntry]` -- built-in archetypes: `coder`, `reviewer`, `curator`, `verifier`, `maintainer`. |
+| `ArchetypeEntry` | Dataclass -- full archetype config: `name`, `default_model_tier`, `default_model_variant`, `injection`, `task_assignable`, `retry_predecessor`, `default_allowlist`, `default_max_turns`, `default_thinking_mode`, `default_effort`, `default_compaction`, `modes: dict[str, ModeConfig]`. |
+| `ModeConfig` | Dataclass -- per-mode overrides: `model_tier`, `model_variant`, `injection`, `allowlist`, `retry_predecessor`, `max_turns`, `thinking_mode`. |
+| `ARCHETYPE_REGISTRY` | `dict[str, ArchetypeEntry]` -- built-in archetypes: `coder`, `reviewer`, `verifier`, `gate`, `maintainer`. |
 | `get_archetype` | `(name, project_dir=None, config=None) -> ArchetypeEntry` -- look up by name with custom archetype fallback. |
 | `resolve_effective_config` | `(entry, mode) -> ArchetypeEntry` -- merge mode overrides onto base entry. |
 
@@ -141,7 +140,7 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `KnowledgeProvider` | `knowledge` | Protocol with `ingest(spec_name, session_id, response)` and `retrieve(spec_name, task_group) -> list[KnowledgeItem]`. |
+| `KnowledgeProvider` | `knowledge.fox_provider` | Protocol with `ingest(session_id, spec_name, context: dict) -> None` and `retrieve(spec_name, task_description, task_group=None, session_id=None, file_footprint=None, archetype=None) -> list[str]`. |
 | `NoOpKnowledgeProvider` | `knowledge` | Default no-op implementation. |
 | `FoxKnowledgeProvider` | `knowledge.fox_provider` | Concrete implementation: review finding carry-forward, session summaries, drift findings. |
 | `KnowledgeDB` | `knowledge.db` | DuckDB connection manager for the knowledge store. |
@@ -159,12 +158,12 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `create_worktree` | `workspace.worktree` | `(repo_root, branch_name, base_ref, worktree_dir) -> WorkspaceInfo` -- create an isolated git worktree for a coding session. |
-| `destroy_worktree` | `workspace.worktree` | `(workspace) -> None` -- remove worktree and delete feature branch. |
-| `WorkspaceInfo` | `workspace.worktree` | Dataclass: `path`, `branch`, `base_ref`. |
-| `run_git` | `workspace.git` | `(*args, cwd) -> str` -- run a git command and return stdout. |
+| `create_worktree` | `workspace.worktree` | `async (repo_root, spec_name, task_group, base_branch, branch_name=None, role=None, mode=None) -> WorkspaceInfo` -- create an isolated git worktree for a coding session. |
+| `destroy_worktree` | `workspace.worktree` | `async (repo_root, workspace, *, preserve_branch=False) -> None` -- remove worktree and delete feature branch. |
+| `WorkspaceInfo` | `workspace.worktree` | Dataclass: `path`, `branch`, `spec_name`, `task_group`, `role`, `mode`. |
+| `run_git` | `workspace.git` | `async (args: list[str], cwd: Path, check=True, timeout=None) -> tuple[int, str, str]` -- run a git command and return (returncode, stdout, stderr). |
 | `ensure_integration_branch` | `workspace.integration` | Set up the integration branch for merging. |
-| `push_to_remote` | `workspace.git` | `(branch, cwd, remote="origin") -> None` -- push a branch to origin. |
+| `push_to_remote` | `workspace.git` | `async (repo_root, branch, remote='origin', *, force=False) -> bool` -- push a branch to origin. |
 
 ### Platform (via `afissues`)
 

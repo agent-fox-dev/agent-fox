@@ -25,7 +25,7 @@ bundled versions.
 **Spec-driven development: from idea to implementation-ready spec package.**
 
 Transforms a PRD, product idea, or GitHub issue into a complete specification
-package in the v1.3 JSON format using the `spec` CLI. Full traceability from
+package in the v1.2 JSON format using the `spec` CLI. Full traceability from
 requirements through tests and tasks.
 
 ### What it produces

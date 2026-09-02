@@ -32,11 +32,9 @@ Each archetype/mode pair has a default tier and variant configured in
 |---|---|---|
 | coder | STANDARD / standard | xhigh |
 | coder (fix) | STANDARD / standard | xhigh |
-| reviewer (pre-review) | ADVANCED / standard | high |
-| reviewer (drift-review) | STANDARD / standard | high |
+| reviewer (pre-flight) | ADVANCED / standard | high |
 | reviewer (audit-review) | ADVANCED / standard | high |
 | reviewer (fix-review) | ADVANCED / standard | high |
-| curator | STANDARD / standard | medium |
 | verifier | STANDARD / standard | high |
 | gate | STANDARD / standard | low |
 | maintainer (hunt) | SIMPLE / standard | medium |
@@ -109,17 +107,19 @@ the same work would burn the same budget again.
 ### Transport Errors
 
 Transient connection errors are retried internally by the Claude backend with
-exponential backoff (up to 3 retries). If the error surfaces to the
+fixed-schedule backoff (2s, 30s, 60s delays). If the error surfaces to the
 orchestrator, the task is reset to `pending` without consuming a retry attempt.
 
 ### Review-Triggered Retries
 
-Two archetype modes have `retry_predecessor = true`:
+Three archetype modes have `retry_predecessor = true`:
 
+- **pre-flight**: When pre-flight review findings indicate issues, the
+  preceding coder session is re-run with the findings injected as context.
 - **audit-review**: When test quality findings indicate MISSING or MISALIGNED
   tests, the preceding coder session is re-run with the findings injected as
   context. This is tracked by a separate `audit_max_retries` counter
-  (default: 2).
+  (default: 1).
 - **verifier**: When verification fails, the preceding coder session is re-run
   with the verification results as context. Uses the standard `max_retries`
   counter.

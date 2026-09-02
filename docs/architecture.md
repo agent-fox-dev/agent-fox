@@ -433,8 +433,8 @@ Per-session SDK parameters are resolved before dispatch:
   [Model Tiers and Variants](model-escalation.md) for the resolution priority.
 - **Max turns** — Archetype-specific cap on the number of agent turns (300 for
   Coder, 120 for Verifier, 80 for Reviewer).
-- **Thinking mode** — Extended thinking with configurable token budget. Currently
-  enabled only for the Coder archetype (`adaptive` mode, 64K budget).
+- **Thinking mode** — Extended thinking. Currently enabled only for the Coder
+  archetype (`adaptive` mode).
 - **Timeout** — Wall-clock limit in minutes (default: 45). Timeout failures
   receive specialized retry handling (see Section 6.2).
 - **Budget cap** — Optional per-session USD ceiling. When hit, the SDK signals
@@ -703,13 +703,15 @@ and filters patterns that could constitute prompt injection attacks.
 Before each session, the `KnowledgeProvider` is queried with the spec name, a
 task description derived from the subtask list, the task group number, and a
 session ID. The concrete implementation (`FoxKnowledgeProvider`) retrieves
-three categories of knowledge, each formatted with a distinct prefix for
+five categories of knowledge, each formatted with a distinct prefix for
 prompt traceability:
 
 | Category | Source | Prefix | Scope |
 |---|---|---|---|
 | **Review findings** | `review_findings` table | `[REVIEW]` | Active critical/major for this spec and task group |
+| **Drift findings** | `drift_findings` table | `[DRIFT]` | Active drift findings for this spec and task group |
 | **Cross-group reviews** | `review_findings` table | `[CROSS-GROUP]` | Critical/major findings from other task groups in the same spec |
+| **Cross-spec drift** | `drift_findings` table | `[CROSS-SPEC-DRIFT]` | Drift findings from other specs referencing overlapping files |
 | **Same-spec context summaries** | `session_summaries` table | `[CONTEXT]` | Summaries from earlier sessions on the same spec (current run) |
 
 **Relevance scoring.** Within each category, results are sorted by keyword
@@ -748,7 +750,7 @@ The task prompt is short and archetype-specific:
 
 ## 8. Agent Archetypes in Detail
 
-The archetype registry defines six built-in entries. Several support
+The archetype registry defines five built-in entries. Several support
 **modes** — named variants that override specific fields (injection point,
 tool allowlist, model tier, effort, max turns) while inheriting everything
 else from the base entry.
@@ -781,26 +783,21 @@ specific issues. Same max turns and thinking configuration as the base.
 
 ### 8.2 Reviewer
 
-**Role:** Quality gate agent with four modes covering distinct review roles.
+**Role:** Quality gate agent with three modes covering distinct review roles.
 All modes produce structured findings and have restricted tool allowlists
 (they cannot modify code).
 
-**Pre-review mode** (`auto_pre`, before group 1):
+**Pre-flight mode** (`auto_pre`, before group 1):
 - Model tier: ADVANCED (variant: standard)
-- Examines spec quality: completeness, consistency, feasibility, testability,
-  edge case coverage, security.
-- Has no shell access — works entirely from spec documents in context.
+- Combines spec quality review (completeness, consistency, feasibility,
+  testability, edge case coverage, security) with codebase drift analysis
+  (validates spec assumptions against actual code: referenced files exist,
+  function signatures match, interfaces are consistent).
+- Has read-only filesystem access (`ls`, `cat`, `git`, `grep`, `find`, `head`,
+  `tail`, `wc`).
 - If critical findings exceed a configured threshold, downstream coder tasks
   are blocked.
 - `retry_predecessor`: true — can trigger re-runs of prior work.
-
-**Drift-review mode** (`auto_pre`, before group 1, parallel with pre-review):
-- Model tier: STANDARD (variant: standard)
-- Validates spec assumptions against the actual codebase: referenced files
-  exist, function signatures match, interfaces are consistent.
-- Has read-only filesystem access (`ls`, `cat`, `git`, `grep`, `find`, `head`,
-  `tail`, `wc`).
-- Automatically skipped for specs that reference no existing code.
 
 **Audit-review mode** (`auto_mid`, after test-writing groups):
 - Model tier: ADVANCED (variant: standard)
@@ -816,32 +813,13 @@ All modes produce structured findings and have restricted tool allowlists
 - Max turns: 120 (higher than other reviewer modes).
 - Not injected automatically into coding session plans.
 
-When both pre-review and drift-review are enabled, they execute in parallel
-before the first coder group. Either can produce blocking findings
-independently.
-
-### 8.3 Curator
-
-**Role:** Post-implementation curation. Runs after the last coder group and
-before the Verifier, forming a quality chain: last coder → Curator → Verifier.
-
-**Injection:** `auto_post` (injection order 10) — added before the Verifier.
-
-**Configuration:**
-- Model tier: STANDARD (variant: standard)
-- Effort: medium
-- Max turns: 80
-- Tool access: read-only plus `make`
-- Instances: always clamped to 1
-- Enabled by default (`archetypes.curator`)
-
-### 8.4 Verifier
+### 8.3 Verifier
 
 **Role:** Post-implementation verification. Runs the test suite, checks each
 requirement against acceptance criteria, produces per-requirement pass/fail
 assessments.
 
-**Injection:** `auto_post` (injection order 20) — added after the Curator.
+**Injection:** `auto_post` (injection order 20).
 Uses a sentinel group number (0) with a 3-part node ID format
 (`spec:0:verifier`) to avoid collisions with real coder group nodes.
 
@@ -852,7 +830,7 @@ Uses a sentinel group number (0) with a 3-part node ID format
 - Tool access: full (needs to run tests)
 - `retry_predecessor`: true
 
-### 8.5 Gate
+### 8.4 Gate
 
 **Role:** Lightweight checkpoint verification for mid-spec progress checks.
 Not auto-injected — assigned automatically when a task group has
@@ -865,7 +843,7 @@ Not auto-injected — assigned automatically when a task group has
 - Thinking: disabled
 - Task assignable: yes
 
-### 8.6 Maintainer
+### 8.5 Maintainer
 
 **Role:** Internal archetype used exclusively by the night-shift daemon. Not
 assignable to task groups in coding session plans (`task_assignable: false`).
@@ -954,10 +932,12 @@ allows the knowledge implementation to evolve without affecting the engine.
 
 The protocol defines two methods:
 
-- `retrieve(spec_name, task_description, task_group?, session_id?) → list[str]`
+- `retrieve(spec_name, task_description, task_group?, session_id?, file_footprint?, archetype?) → list[str]`
   — Called before each session. Returns formatted text blocks for prompt
   injection. The optional `task_group` and `session_id` parameters enable
-  scoped retrieval and injection tracking.
+  scoped retrieval and injection tracking. `file_footprint` enables cross-spec
+  drift queries based on overlapping files. `archetype` allows retrieval to
+  adapt to the requesting agent's role.
 - `ingest(session_id, spec_name, context) → None` — Called after each
   successful session. Receives session metadata (touched files, commit SHA,
   session status).
@@ -967,7 +947,7 @@ configured.
 
 ### 10.2 Knowledge Retrieval
 
-The concrete `FoxKnowledgeProvider` queries three sources when `retrieve` is
+The concrete `FoxKnowledgeProvider` queries five sources when `retrieve` is
 called. A full description of each category, including prefixes, scoping, and
 capping behavior, is given in Section 7.2.
 
@@ -977,12 +957,19 @@ In summary, the retrieval pipeline aggregates:
    the current task group. These are the highest-priority items: they represent
    known issues the coder must address.
 
-2. **Cross-group review findings** — Findings from other task groups in the same
+2. **Same-group drift findings** — Active drift findings for this spec and task
+   group. These highlight spec-to-code discrepancies the coder should resolve.
+
+3. **Cross-group review findings** — Findings from other task groups in the same
    spec. These provide awareness of issues in adjacent work without creating
-   blocking obligations. Pre-review findings are excluded from cross-group
+   blocking obligations. Pre-flight findings are excluded from cross-group
    results since they concern spec quality, not implementation.
 
-3. **Same-spec context summaries** — Natural-language summaries from prior
+4. **Cross-spec drift findings** — Drift findings from other specs that
+   reference overlapping files. These surface potential conflicts from adjacent
+   work.
+
+5. **Same-spec context summaries** — Natural-language summaries from prior
    sessions on the same spec (what earlier groups did). These give the agent
    continuity of purpose across the session boundary.
 

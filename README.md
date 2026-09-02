@@ -46,7 +46,7 @@ See the [CLI reference](docs/cli-reference.md) for all command options.
 
 ## Installation
 
-Install all three CLIs:
+Install the CLI:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/refs/heads/main/install.sh | sh
@@ -69,9 +69,10 @@ The specification format library (`afspec`) and AI-powered spec creation tools
 
 ```
 af  ──▶  agentfox  ──▶  afspec (external: spec-format)
-              │
-              ├──▶  afissues
-              └──▶  afaudit
+ │            │
+ │            ├──▶  afissues
+ │            └──▶  afaudit
+ └──────────▶  afaudit
 ```
 
 ```bash
@@ -101,9 +102,9 @@ uv run af <command>
 Install any package directly from git:
 
 ```bash
-pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/agentfox"
-pip install "afissues @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afissues"
-pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afaudit"
+pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/agentfox"
+pip install "afissues @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/afissues"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/afaudit"
 ```
 
 For `afspec` (spec format library), install from the
@@ -144,9 +145,9 @@ and how nightshift processes fix issues — see the
 agent-fox draws on ideas from the following research:
 
 - **MAGMA** — A multi-graph memory architecture for AI agents. agent-fox's
-  knowledge system uses a similar approach: typed facts with causal links,
-  embedding-based retrieval, and lifecycle management (deduplication,
-  contradiction detection, decay).
+  knowledge system draws on MAGMA's concept of typed, structured facts. It
+  uses SQL-based retrieval with relevance scoring, supersession-based
+  deduplication, and a closed-loop finding lifecycle across sessions.
   [arXiv:2601.03236](https://arxiv.org/abs/2601.03236)
 
 - **Sleep-time Compute** — Explores how pre-computation outside of inference

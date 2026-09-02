@@ -14,11 +14,10 @@ changing code.
 
 ## Built-in Profiles
 
-agent-fox ships with profiles for all five archetypes and their modes:
+agent-fox ships with profiles for all built-in archetypes and their modes:
 
 | Profile file | Archetype | Mode | Purpose |
 |---|---|---|---|
-| `agent.md` | (all) | — | Base profile shared by every agent: pre-injected context acknowledgment, orientation guidance, external reference verification, git workflow, scope discipline, documentation conventions |
 | `coder.md` | coder | — | Implementation agent: Quick Triage, task group routing, input triage, session summary |
 | `coder_fix.md` | coder | fix | Fix-mode variant for the night-shift fix pipeline |
 | `reviewer.md` | reviewer | — | Base reviewer (also used by pre-flight mode, which combines spec quality review and drift detection) |
@@ -52,24 +51,24 @@ Profiles can include YAML frontmatter (between `---` delimiters) for metadata.
 Frontmatter is stripped before injection into the prompt — it is never seen by
 the agent.
 
-### Ownership Split
+### Content Scope
 
-`agent.md` (Layer 1) and archetype profiles (Layer 2) have a clear ownership
-boundary. Universal rules live in `agent.md` and are never repeated in
-archetype profiles:
+Each archetype profile is self-contained — it includes both universal session
+rules (orientation, git workflow, scope discipline, quality commands) and
+role-specific content. Universal rules are embedded at the top of each
+profile so the agent receives a single coherent document.
 
-**`agent.md` owns:**
+**Universal session rules** (present in every profile):
 - Pre-injected context acknowledgment (steering, spec artifacts, knowledge)
 - Orientation guidance (git state check, codebase exploration, ADR reading)
 - External reference verification (stale file paths and line numbers)
 - Project structure and spec-driven workflow overview
 - Quality commands (`make check` / `make test`)
-- Git workflow (conventional commits, commit discipline, no Co-Authored-By,
-  never push to remote)
+- Git workflow (conventional commits, commit discipline, never push to remote)
 - Scope discipline (one change per session, no unrelated fixes)
 - Documentation conventions (ADRs, errata, when to update docs)
 
-**Archetype profiles own only role-specific content:**
+**Role-specific content** (varies per profile):
 - Identity and purpose
 - Role-specific rules (e.g., coder: never modify spec files)
 - Role-specific workflow (Quick Triage, Task Group Routing, verification
@@ -95,7 +94,7 @@ This means:
 - A project-level profile always overrides the package default.
 - A mode-specific profile always overrides the base profile for that archetype.
 - You can override just one mode without affecting others — if you customize
-  `reviewer_pre-review.md` at the project level, the other reviewer modes
+  `reviewer_pre-flight.md` at the project level, the other reviewer modes
   still use the package defaults.
 
 If no profile is found in any location, the system logs a warning and uses an
@@ -128,7 +127,7 @@ archetype, create a file named `{archetype}_{mode}.md` in
 `.agent-fox/profiles/`. For example, to customize only pre-review behavior:
 
 ```
-.agent-fox/profiles/reviewer_pre-review.md   # your custom version
+.agent-fox/profiles/reviewer_pre-flight.md   # your custom version
 ```
 
 The base `reviewer.md` (package or project-level) still applies to other
@@ -144,22 +143,19 @@ Custom archetypes can be assigned to task groups using archetype tags in
 
 ## How Profiles Fit Into Prompt Assembly
 
-Profiles are one layer of the three-layer prompt assembly system. For a
+Profiles are one layer of the two-layer prompt assembly system. For a
 detailed description of how profiles combine with task context and knowledge
 facts to form the final prompt, see
 [Prompt Generation](architecture/03-execution-and-archetypes.md#prompt-generation)
 in the Architecture Guide.
 
-The three layers are:
+The two layers are:
 
-1. **Agent base profile** (`agent.md`) — universal rules for all agents (see
-   Ownership Split above)
-2. **Archetype profile** (e.g., `coder.md`) — role-specific behavioral guidance
-3. **Task context** — spec documents (scoped to the active task group),
+1. **Archetype profile** (e.g., `coder.md`) — behavioral guidance including
+   both universal session rules and role-specific content (see Content Scope
+   above)
+2. **Task context** — spec documents (scoped to the active task group),
    knowledge facts, steering directives, prior findings
 
 Each layer is loaded independently and concatenated with section separators.
-The agent sees a single coherent system prompt composed of all three layers.
-Because universal rules live exclusively in Layer 1, archetype profiles
-(Layer 2) do not repeat them — each rule appears exactly once in the combined
-prompt.
+The agent sees a single coherent system prompt composed of both layers.

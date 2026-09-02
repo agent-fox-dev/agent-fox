@@ -8,8 +8,8 @@ the most commonly changed settings. Add any section below manually to
 ### General behavior
 
 - **Symlinks rejected.** `config.toml` must be a regular file, not a symlink.
-  If it is a symlink, the system silently uses all default values (security
-  measure against CWE-59 path traversal). Check logs for a warning.
+  If it is a symlink, loading raises a `ConfigError` (security measure against
+  CWE-59 path traversal).
 - **Out-of-range values clamped.** Numeric values outside their valid bounds
   are silently clamped to the nearest bound (e.g., `parallel = 20` becomes
   `8`). A warning is logged when clamping occurs.
@@ -103,7 +103,7 @@ Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 |-------|------|---------|--------|-------------|
 | `parallel` | int | `4` | 1--8 | Maximum number of parallel coding sessions |
 | `max_budget_usd` | float | `20.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
-| `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
+| `sync_interval` | int\|null | `null` | >= 0 when set | Sync barrier interval; `null` = auto (parallel × 5), `0` = disabled, positive = explicit override |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |
 | `max_retries` | int | `2` | >= 0 | Maximum number of automatic retries per task group before blocking the node |
 | `session_timeout` | int | `45` | >= 1 | Per-session timeout in minutes |
@@ -491,6 +491,8 @@ and processes them through a multi-stage fix pipeline.
 | `issue_check_interval` | int | `900` | >= 60 | Seconds between issue-tracker checks |
 | `push_fix_branch` | bool | `false` | -- | Push fix branches to origin before harvest |
 | `max_parallel` | int | `1` | 1--8 | Maximum number of issues processed concurrently. Independent issues (no dependency edges) are dispatched in parallel up to this limit. Issues with dependencies wait for their prerequisites to complete. Default `1` preserves serial processing. |
+| `pr_check_interval` | int | `900` | >= 60 | Seconds between PR status poll cycles |
+| `max_pr_retries` | int | `2` | 0--10 | Maximum feedback iterations per PR |
 
 **Example:**
 
@@ -584,7 +586,7 @@ settings used for AI-assisted specification generation.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `model` | str | `"claude-sonnet-4-6"` | Anthropic model used for spec generation. Can be overridden by the `AF_SPEC_MODEL` environment variable. |
+| `model` | str | `"STANDARD"` | Model tier name (e.g. `STANDARD`) or direct model ID for spec generation. Can be overridden by the `AF_SPEC_MODEL` environment variable. |
 | `auth_method` | str | `""` | Authentication method (empty string = default API key) |
 | `vertex_project` | str | `""` | Google Cloud Vertex AI project ID |
 | `vertex_region` | str | `""` | Google Cloud Vertex AI region |
@@ -593,7 +595,7 @@ settings used for AI-assisted specification generation.
 
 ```toml
 [spec_tool]
-model = "claude-sonnet-4-6"
+model = "STANDARD"
 auth_method = ""
 vertex_project = ""
 vertex_region = ""
