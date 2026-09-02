@@ -2322,7 +2322,7 @@ class TestPlatformFactoryGitea:
     """Verify GiteaPlatform can be constructed with expected parameters.
 
     The full factory integration test (create_platform with type='gitea')
-    lives in packages/agentfox/tests/unit/nightshift/test_platform_factory_gitea.py.
+    lives in packages/agentfox/tests/unit/maintenance/test_platform_factory_gitea.py.
     This test verifies the afissues-side constructor contract.
     """
 

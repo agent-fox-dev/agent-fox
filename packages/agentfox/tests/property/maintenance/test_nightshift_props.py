@@ -1,9 +1,9 @@
-"""Property tests for Night Shift.
+"""Property tests for maintenance modules.
 
-Test Spec: TS-61-P4, TS-61-P5, TS-61-P8
-Properties: 4, 5, 8 from design.md
-Requirements: 61-REQ-1.E2, 61-REQ-6.2, 61-REQ-7.1, 61-REQ-7.2,
-              61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-9.3
+Test Spec: TS-61-P4, TS-61-P8
+Properties: 4, 8 from design.md
+Requirements: 61-REQ-6.2, 61-REQ-7.1, 61-REQ-7.2,
+              61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3
 """
 
 from __future__ import annotations
@@ -39,35 +39,6 @@ class TestFixPipelineCompleteness:
             changed_files=["example.py"],
         )
         assert f"#{issue_number}" in body
-
-
-# ---------------------------------------------------------------------------
-# TS-61-P5: Cost monotonicity
-# Property 5: Cost never decreases during a run.
-# Requirements: 61-REQ-1.E2, 61-REQ-9.3
-# ---------------------------------------------------------------------------
-
-
-class TestCostMonotonicity:
-    """Cost never decreases during a run."""
-
-    @given(
-        costs=st.lists(
-            st.floats(min_value=0.0, max_value=10.0, allow_nan=False),
-            min_size=1,
-            max_size=20,
-        )
-    )
-    @settings(max_examples=50)
-    def test_cost_monotonicity(self, costs: list[float]) -> None:
-        from agentfox.maintenance.engine import NightShiftState
-
-        state = NightShiftState()
-        previous = 0.0
-        for cost in costs:
-            state.total_cost += cost
-            assert state.total_cost >= previous
-            previous = state.total_cost
 
 
 # ---------------------------------------------------------------------------
