@@ -267,12 +267,9 @@ class TestSmokeStartupPath:
 
         repo_root = Path(__file__).resolve().parents[4]
         run_py = repo_root / "packages" / "agentfox" / "agentfox" / "engine" / "run.py"
-        startup_py = repo_root / "packages" / "nightshift" / "nightshift" / "_startup.py"
 
-        for fpath in [run_py, startup_py]:
-            if not fpath.exists():
-                continue
-            content = fpath.read_text()
+        if run_py.exists():
+            content = run_py.read_text()
             assert "index_errata_from_markdown" not in content, (
-                f"{fpath.name} must not reference index_errata_from_markdown"
+                f"{run_py.name} must not reference index_errata_from_markdown"
             )

@@ -138,7 +138,6 @@ _PRODUCTION_MODULES = [
     "packages/agentfox/agentfox/fix/analyzer.py",
     "packages/agentfox/agentfox/session/context.py",
     "packages/agentfox/agentfox/graph/planner.py",
-    "packages/nightshift/nightshift/_startup.py",
 ]
 
 # Production modules that open DuckDB connections and therefore must
@@ -151,7 +150,6 @@ _MODULES_REQUIRING_FACTORY = [
     "packages/af/af/standup.py",
     "packages/af/af/findings.py",
     "packages/af/af/reset.py",
-    "packages/nightshift/nightshift/_startup.py",
     "packages/agentfox/agentfox/fix/analyzer.py",
 ]
 

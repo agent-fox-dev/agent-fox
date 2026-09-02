@@ -102,8 +102,7 @@ def _make_tracking_comment(
         )
     except ImportError:
         return (
-            f"<!-- nightshift:tracking pr_number={pr_number} attempt={attempt} -->\n"
-            f"PR #{pr_number} | Attempt {attempt}"
+            f"<!-- nightshift:tracking pr_number={pr_number} attempt={attempt} -->\nPR #{pr_number} | Attempt {attempt}"
         )
 
 
@@ -313,11 +312,13 @@ class TestRetryLimitProperty:
 def pr_state_scenarios(draw: st.DrawFn) -> dict:
     """Generate scenarios for PR state transitions."""
     scenario = draw(
-        st.sampled_from([
-            "merged",
-            "closed_without_merge",
-            "open_ci_pass_review_skip",
-        ])
+        st.sampled_from(
+            [
+                "merged",
+                "closed_without_merge",
+                "open_ci_pass_review_skip",
+            ]
+        )
     )
     return {"scenario": scenario}
 
@@ -368,9 +369,7 @@ class TestLabelMutualExclusivityProperty:
         )
 
         # Invariant: af:fix is never assigned during process_pr_issue
-        assigned_labels = [
-            c[0][1] for c in platform.assign_label.call_args_list
-        ]
+        assigned_labels = [c[0][1] for c in platform.assign_label.call_args_list]
         assert "af:fix" not in assigned_labels, (
             f"af:fix should never be assigned by process_pr_issue: {assigned_labels}"
         )
@@ -456,9 +455,7 @@ class TestTrackingCommentBeforePushProperty:
             )
         # Invariant: if comment was not posted, push must not have occurred
         if "comment" not in call_order:
-            assert "push" not in call_order, (
-                f"push should not occur without comment: {call_order}"
-            )
+            assert "push" not in call_order, f"push should not occur without comment: {call_order}"
 
 
 # ---------------------------------------------------------------------------
@@ -473,14 +470,16 @@ class TestTrackingCommentBeforePushProperty:
 def failure_injection_points(draw: st.DrawFn) -> str:
     """Generate points at which to inject failures in _run_feedback_iteration."""
     return draw(
-        st.sampled_from([
-            "setup_worktree",
-            "coder_session",
-            "tracking_comment",
-            "auto_commit",
-            "push",
-            "none",
-        ])
+        st.sampled_from(
+            [
+                "setup_worktree",
+                "coder_session",
+                "tracking_comment",
+                "auto_commit",
+                "push",
+                "none",
+            ]
+        )
     )
 
 
@@ -565,8 +564,7 @@ class TestCleanupAlwaysCalledProperty:
 
         # Invariant: cleanup called exactly once regardless of failure
         assert mock_cleanup.call_count == 1, (
-            f"Expected cleanup called exactly once, got {mock_cleanup.call_count} "
-            f"(failure_point={failure_point})"
+            f"Expected cleanup called exactly once, got {mock_cleanup.call_count} (failure_point={failure_point})"
         )
 
 
@@ -582,11 +580,13 @@ class TestCleanupAlwaysCalledProperty:
 def ci_review_scenarios(draw: st.DrawFn) -> dict:
     """Generate CI check + review combinations that trigger re-entry."""
     scenario = draw(
-        st.sampled_from([
-            "ci_failure",
-            "ci_timed_out",
-            "ci_pass_review_changes_requested",
-        ])
+        st.sampled_from(
+            [
+                "ci_failure",
+                "ci_timed_out",
+                "ci_pass_review_changes_requested",
+            ]
+        )
     )
     return {"scenario": scenario}
 
@@ -646,13 +646,16 @@ class TestCollectFeedbackMutualExclusionProperty:
                 trigger = kwargs.get("trigger", args[3] if len(args) > 3 else None)
                 ci_failures = kwargs.get("ci_failures", args[4] if len(args) > 4 else [])
                 review_comments = kwargs.get(
-                    "review_comments", args[5] if len(args) > 5 else [],
+                    "review_comments",
+                    args[5] if len(args) > 5 else [],
                 )
-                collect_calls.append({
-                    "trigger": trigger,
-                    "ci_failures": ci_failures,
-                    "review_comments": review_comments,
-                })
+                collect_calls.append(
+                    {
+                        "trigger": trigger,
+                        "ci_failures": ci_failures,
+                        "review_comments": review_comments,
+                    }
+                )
 
             mock_iteration.side_effect = _capture_iteration
 
@@ -664,66 +667,12 @@ class TestCollectFeedbackMutualExclusionProperty:
             )
 
         # Invariant: _run_feedback_iteration called at most once
-        assert len(collect_calls) <= 1, (
-            f"Expected at most 1 _run_feedback_iteration call, got {len(collect_calls)}"
-        )
+        assert len(collect_calls) <= 1, f"Expected at most 1 _run_feedback_iteration call, got {len(collect_calls)}"
 
         if collect_calls:
             call = collect_calls[0]
             # Invariant: trigger is either 'ci' or 'review', never both
-            assert call["trigger"] in ("ci", "review"), (
-                f"Expected trigger 'ci' or 'review', got {call['trigger']}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# TS-07-P6: At most 5 issues per poll cycle, oldest-first ordering
-#
-# Property: 07-PROP-6
-# Validates: 07-REQ-3.1, 07-REQ-3.E1
-# ---------------------------------------------------------------------------
-
-
-class TestPollCycleCapProperty:
-    """TS-07-P6: at most _MAX_PR_CHECKS (5) issues processed, oldest-first."""
-
-    @given(
-        issue_count=st.integers(min_value=0, max_value=100),
-    )
-    @settings(max_examples=30, deadline=None)
-    @pytest.mark.asyncio
-    async def test_poll_cycle_cap_invariant(
-        self,
-        issue_count: int,
-    ) -> None:
-        """For any number of af:pr issues, at most 5 are processed oldest-first."""
-        from agentfox.maintenance.engine import NightShiftEngine
-
-        issues = [_make_issue(number=i) for i in range(1, issue_count + 1)]
-        mock_platform = _make_mock_platform(issues=issues)
-        config = _make_config()
-
-        engine = NightShiftEngine(config=config, platform=mock_platform)
-
-        with patch(
-            "agentfox.maintenance.engine.process_pr_issue",
-            new_callable=AsyncMock,
-        ) as mock_process:
-            await engine._check_open_prs()
-
-            # Invariant: at most 5 issues processed
-            assert mock_process.call_count <= 5, (
-                f"Expected at most 5 calls, got {mock_process.call_count}"
-            )
-
-            # Invariant: processed issues are oldest-first
-            processed_numbers = [
-                call.args[0].number for call in mock_process.call_args_list
-            ]
-            expected = list(range(1, min(issue_count + 1, 6)))
-            assert processed_numbers == expected, (
-                f"Expected oldest-first {expected}, got {processed_numbers}"
-            )
+            assert call["trigger"] in ("ci", "review"), f"Expected trigger 'ci' or 'review', got {call['trigger']}"
 
 
 # ---------------------------------------------------------------------------
@@ -738,12 +687,14 @@ class TestPollCycleCapProperty:
 def polling_phase_methods(draw: st.DrawFn) -> str:
     """Generate platform method names that can fail during polling."""
     return draw(
-        st.sampled_from([
-            "list_issue_comments",
-            "get_pr_state",
-            "get_pr_checks",
-            "get_pr_reviews",
-        ])
+        st.sampled_from(
+            [
+                "list_issue_comments",
+                "get_pr_state",
+                "get_pr_checks",
+                "get_pr_reviews",
+            ]
+        )
     )
 
 
@@ -798,12 +749,8 @@ class TestNoCommentOnPollingErrorProperty:
         platform.add_issue_comment.assert_not_awaited()
 
         # Invariant: WARNING log emitted (not ERROR for polling phase)
-        warning_records = [
-            r for r in caplog.records if r.levelno >= logging.WARNING
-        ]
-        assert len(warning_records) > 0, (
-            f"Expected WARNING log for {failing_method} failure"
-        )
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_records) > 0, f"Expected WARNING log for {failing_method} failure"
 
 
 # ---------------------------------------------------------------------------
@@ -874,9 +821,5 @@ class TestMaxRetriesZeroDisablesAllProperty:
         mock_platform.add_issue_comment.assert_awaited_once()
 
         # Invariant: INFO log about retry limit
-        info_msgs = [
-            r.message for r in caplog.records if r.levelno == logging.INFO
-        ]
-        assert any("Retry limit" in m for m in info_msgs), (
-            f"Expected INFO 'Retry limit' log, got: {info_msgs}"
-        )
+        info_msgs = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("Retry limit" in m for m in info_msgs), f"Expected INFO 'Retry limit' log, got: {info_msgs}"

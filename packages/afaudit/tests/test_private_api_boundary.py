@@ -34,7 +34,6 @@ class TestDispatchOptionalBoundary:
         search_dirs = [
             WORKSPACE_ROOT / "packages" / "afaudit" / "tests",
             WORKSPACE_ROOT / "packages" / "af",
-            WORKSPACE_ROOT / "packages" / "nightshift",
             WORKSPACE_ROOT / "packages" / "agentfox",
         ]
         # The definition site is allowed

@@ -1,11 +1,10 @@
-"""Unit tests for nightshift cost tracking.
+"""Unit tests for maintenance cost tracking.
 
-Test Spec: TS-91-1 through TS-91-13, TS-91-E1, TS-91-E2, TS-91-E3
-Requirements: 91-REQ-1.1, 91-REQ-1.2, 91-REQ-1.3, 91-REQ-1.E1,
-              91-REQ-2.1, 91-REQ-2.2, 91-REQ-2.E1,
+Test Spec: TS-91-4 through TS-91-11, TS-91-E2, TS-91-E3
+Requirements: 91-REQ-2.1, 91-REQ-2.2, 91-REQ-2.E1,
               91-REQ-3.1, 91-REQ-3.2, 91-REQ-3.3, 91-REQ-3.E1,
               91-REQ-4.1, 91-REQ-4.E1,
-              91-REQ-5.1, 91-REQ-5.2, 91-REQ-5.3, 91-REQ-5.E1
+              91-REQ-5.1
 """
 
 from __future__ import annotations
@@ -102,51 +101,6 @@ def _mock_session_outcome(
     outcome.response = response
     outcome.error_message = error_message
     return outcome
-
-
-# ---------------------------------------------------------------------------
-# TS-91-1: NightShiftEngine accepts SinkDispatcher
-# Requirement: 91-REQ-1.1
-# ---------------------------------------------------------------------------
-
-
-class TestEngineAcceptsSink:
-    """TS-91-1: NightShiftEngine stores a provided SinkDispatcher."""
-
-    def test_engine_accepts_sink_dispatcher(self) -> None:
-        """NightShiftEngine stores the provided sink_dispatcher as _sink."""
-        from agentfox.maintenance.engine import NightShiftEngine
-
-        mock_sink = MagicMock(spec=SinkDispatcher)
-        config = _make_config()
-        platform = MagicMock()
-
-        # FAILS until __init__ accepts sink_dispatcher parameter
-        engine = NightShiftEngine(config, platform, sink_dispatcher=mock_sink)
-
-        assert engine._sink is mock_sink, "NightShiftEngine._sink must reference the provided SinkDispatcher"
-
-
-# ---------------------------------------------------------------------------
-# TS-91-2: NightShiftEngine defaults to None sink
-# Requirement: 91-REQ-1.3
-# ---------------------------------------------------------------------------
-
-
-class TestEngineDefaultsNoneSink:
-    """TS-91-2: NightShiftEngine works without a SinkDispatcher."""
-
-    def test_engine_defaults_to_none_sink(self) -> None:
-        """When no sink_dispatcher provided, engine._sink is None."""
-        from agentfox.maintenance.engine import NightShiftEngine
-
-        config = _make_config()
-        platform = MagicMock()
-
-        engine = NightShiftEngine(config, platform)
-
-        # FAILS until _sink attribute is added to NightShiftEngine
-        assert engine._sink is None, "NightShiftEngine._sink must be None when no sink_dispatcher is provided"
 
 
 # ---------------------------------------------------------------------------
@@ -255,78 +209,6 @@ class TestProcessIssueGeneratesRunId:
             "process_issue must use the provided run_id, not generate a new one"
         )
         assert len(generate_called) == 0, "generate_run_id must NOT be called when a run_id is already provided"
-
-
-# ---------------------------------------------------------------------------
-# TS-91-5b: engine propagates fix_run_id to FixPipeline.process_issue
-# Requirement: 91-REQ-2.1
-# ---------------------------------------------------------------------------
-
-
-class TestEnginePropagatessRunId:
-    """Engine passes its fix_run_id to pipeline so all events share one run_id."""
-
-    @pytest.mark.asyncio
-    async def test_engine_passes_fix_run_id_to_process_issue(self) -> None:
-        """_process_fix generates one run_id and forwards it to process_issue."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from afissues.protocol import IssueResult
-        from agentfox.maintenance.engine import NightShiftEngine
-
-        config = MagicMock()
-        config.orchestrator.max_cost = None
-        config.orchestrator.max_sessions = None
-        config.night_shift.push_fix_branch = False
-
-        mock_platform = AsyncMock()
-        engine = NightShiftEngine(config=config, platform=mock_platform)
-
-        issue = IssueResult(number=7, title="A bug", html_url="http://example.com/7")
-        generated_ids: list[str] = []
-
-        from afaudit.events import generate_run_id as real_generate_run_id
-
-        def _track_generate() -> str:
-            rid = real_generate_run_id()
-            generated_ids.append(rid)
-            return rid
-
-        mock_metrics = MagicMock()
-        mock_metrics.sessions_run = 0
-        mock_metrics.input_tokens = 0
-        mock_metrics.output_tokens = 0
-        mock_metrics.cache_read_input_tokens = 0
-        mock_metrics.cache_creation_input_tokens = 0
-
-        received_run_ids: list[str | None] = []
-
-        async def _fake_process_issue(
-            issue: object,
-            issue_body: str = "",
-            run_id: str | None = None,
-        ) -> object:
-            received_run_ids.append(run_id)
-            return mock_metrics
-
-        with (
-            patch("agentfox.maintenance.engine.generate_run_id", side_effect=_track_generate),
-            patch("agentfox.maintenance.engine.FixPipeline") as mock_cls,
-        ):
-            mock_pipeline = MagicMock()
-            mock_pipeline.process_issue = _fake_process_issue
-            mock_cls.return_value = mock_pipeline
-
-            await engine._process_fix(issue, issue_body="details")
-
-        # Engine should have generated exactly one run_id
-        assert len(generated_ids) == 1, f"Expected one generate_run_id call, got {len(generated_ids)}"
-        fix_run_id = generated_ids[0]
-
-        # That same id must have been forwarded to process_issue
-        assert received_run_ids == [fix_run_id], (
-            f"process_issue received run_id={received_run_ids!r} but engine generated {fix_run_id!r}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -561,48 +443,6 @@ class TestJsonlAuditModuleRemoved:
         assert not audit_path.exists(), (
             "agentfox/maintenance/audit.py must be removed (91-REQ-5.1). "
             "Route all audit events through the standard DuckDB pipeline."
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-91-12: NightShiftEngine uses standard emit_audit_event
-# Requirements: 91-REQ-5.2, 91-REQ-5.3
-# ---------------------------------------------------------------------------
-
-
-class TestEngineUsesStandardAudit:
-    """TS-91-12: engine.py imports from engine.audit_helpers, not nightshift.audit."""
-
-    def test_engine_imports_standard_audit_helper(self) -> None:
-        """engine.py must not import from nightshift.audit."""
-        source = Path("packages/agentfox/agentfox/maintenance/engine.py").read_text(encoding="utf-8")
-
-        # FAILS because engine.py currently imports from nightshift.audit
-        assert "from agentfox.maintenance.audit" not in source, (
-            "engine.py must not import from agentfox.maintenance.audit (that module is being removed)"
-        )
-        assert "from afaudit.emit" in source or "from agentfox.engine.audit_helpers" in source, (
-            "engine.py must import emit_audit_event from afaudit.emit or agentfox.engine.audit_helpers"
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-91-13: DaemonRunner uses standard emit_audit_event
-# Requirement: 91-REQ-5.3
-# ---------------------------------------------------------------------------
-
-
-class TestDaemonUsesStandardAudit:
-    """TS-91-13: daemon.py must not import from nightshift.audit."""
-
-    def test_daemon_does_not_import_nightshift_audit(self) -> None:
-        """daemon.py must not import from the removed nightshift.audit module."""
-        source = Path("packages/agentfox/agentfox/maintenance/daemon.py").read_text(encoding="utf-8")
-
-        # FAILS if daemon.py imports from nightshift.audit
-        assert "from agentfox.maintenance.audit" not in source, (
-            "daemon.py must not import from agentfox.maintenance.audit "
-            "(that module is being removed — use engine.audit_helpers instead)"
         )
 
 

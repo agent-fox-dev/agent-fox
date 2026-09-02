@@ -32,26 +32,20 @@ class TestPlatformDirectoryDeleted:
 
     def test_platform_dir_does_not_exist(self) -> None:
         """The platform directory must be completely removed."""
-        assert not os.path.exists(_PLATFORM_DIR), (
-            f"Directory should not exist: {_PLATFORM_DIR}"
-        )
+        assert not os.path.exists(_PLATFORM_DIR), f"Directory should not exist: {_PLATFORM_DIR}"
 
     def test_no_py_files_remain(self) -> None:
         """No .py files remain under the old platform directory."""
         if not _PLATFORM_DIR.exists():
             return  # Already deleted — pass
         py_files = list(_PLATFORM_DIR.glob("**/*.py"))
-        assert len(py_files) == 0, (
-            f"Python files remain: {[f.name for f in py_files]}"
-        )
+        assert len(py_files) == 0, f"Python files remain: {[f.name for f in py_files]}"
 
     def test_no_init_py_remains(self) -> None:
         """No __init__.py or shim remains in the platform directory."""
         if not _PLATFORM_DIR.exists():
             return  # Already deleted — pass
-        assert not (_PLATFORM_DIR / "__init__.py").exists(), (
-            "__init__.py still exists in deleted platform directory"
-        )
+        assert not (_PLATFORM_DIR / "__init__.py").exists(), "__init__.py still exists in deleted platform directory"
 
 
 # ── TS-03-24: No agentfox.platform imports in workspace ──────────────
@@ -62,22 +56,17 @@ class TestNoAgentfoxPlatformImports:
 
     def test_no_agentfox_platform_in_any_file(self) -> None:
         """No .py file under packages/ contains 'agentfox.platform' in imports."""
-        all_py = glob.glob(
-            str(_WORKSPACE_ROOT / "packages" / "**" / "*.py"), recursive=True
-        )
+        all_py = glob.glob(str(_WORKSPACE_ROOT / "packages" / "**" / "*.py"), recursive=True)
         violations = []
         for path in all_py:
             content = Path(path).read_text()
             for i, line in enumerate(content.splitlines(), 1):
                 stripped = line.strip()
-                if "agentfox.platform" in stripped and (
-                    stripped.startswith("from ") or stripped.startswith("import ")
-                ):
+                if "agentfox.platform" in stripped and (stripped.startswith("from ") or stripped.startswith("import ")):
                     rel = Path(path).relative_to(_WORKSPACE_ROOT)
                     violations.append(f"{rel}:{i}: {stripped}")
-        assert not violations, (
-            f"Found {len(violations)} stale agentfox.platform import(s):\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, f"Found {len(violations)} stale agentfox.platform import(s):\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -96,9 +85,7 @@ class TestSourceFileMigration:
             if "agentfox.platform" in content:
                 rel = Path(path).relative_to(_WORKSPACE_ROOT)
                 violations.append(str(rel))
-        assert not violations, (
-            f"Stale agentfox.platform references in source files: {violations}"
-        )
+        assert not violations, f"Stale agentfox.platform references in source files: {violations}"
 
 
 # ── TS-03-26: 44 agentfox test files migrated ────────────────────────
@@ -116,9 +103,7 @@ class TestTestFileMigration:
             if "agentfox.platform" in content:
                 rel = Path(path).relative_to(_WORKSPACE_ROOT)
                 violations.append(str(rel))
-        assert not violations, (
-            f"Stale agentfox.platform references in test files: {violations}"
-        )
+        assert not violations, f"Stale agentfox.platform references in test files: {violations}"
 
 
 # ── TS-03-27: af test_init_labels.py imports from afissues.labels ─────
@@ -133,9 +118,7 @@ class TestAfLabelTestMigration:
         if not test_path.exists():
             pytest.skip("test_init_labels.py not found")
         content = test_path.read_text()
-        assert "afissues.labels" in content, (
-            "test_init_labels.py should import from afissues.labels"
-        )
+        assert "afissues.labels" in content, "test_init_labels.py should import from afissues.labels"
 
     def test_test_init_labels_no_agentfox_platform(self) -> None:
         """test_init_labels.py does not reference agentfox.platform."""
@@ -143,9 +126,7 @@ class TestAfLabelTestMigration:
         if not test_path.exists():
             pytest.skip("test_init_labels.py not found")
         content = test_path.read_text()
-        assert "agentfox.platform" not in content, (
-            "test_init_labels.py still references agentfox.platform"
-        )
+        assert "agentfox.platform" not in content, "test_init_labels.py still references agentfox.platform"
 
     def test_af_pyproject_no_afissues_dep(self) -> None:
         """af/pyproject.toml does not directly list afissues in dependencies."""
@@ -153,9 +134,7 @@ class TestAfLabelTestMigration:
         with open(toml_path, "rb") as f:
             toml = tomllib.load(f)
         deps = toml.get("project", {}).get("dependencies", [])
-        assert not any("afissues" in dep for dep in deps), (
-            "af/pyproject.toml should not directly depend on afissues"
-        )
+        assert not any("afissues" in dep for dep in deps), "af/pyproject.toml should not directly depend on afissues"
 
 
 # ── TS-03-28: agentfox pyproject.toml has afissues dependency ─────────
@@ -170,9 +149,7 @@ class TestAgentfoxDependency:
         with open(toml_path, "rb") as f:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
-        assert any("afissues" in dep for dep in deps), (
-            "afissues not found in agentfox dependencies"
-        )
+        assert any("afissues" in dep for dep in deps), "afissues not found in agentfox dependencies"
 
 
 # ── TS-03-29: platform_factory imports from afissues ──────────────────
@@ -183,23 +160,19 @@ class TestPlatformFactoryMigration:
 
     def test_no_agentfox_platform_in_platform_factory(self) -> None:
         """platform_factory.py has no agentfox.platform import statements."""
-        factory_path = _AGENTFOX_SRC / "nightshift" / "platform_factory.py"
+        factory_path = _AGENTFOX_SRC / "maintenance" / "platform_factory.py"
         if not factory_path.exists():
             pytest.skip("platform_factory.py not found")
         source = factory_path.read_text()
-        assert "agentfox.platform" not in source, (
-            "platform_factory.py still references agentfox.platform"
-        )
+        assert "agentfox.platform" not in source, "platform_factory.py still references agentfox.platform"
 
     def test_platform_factory_imports_afissues(self) -> None:
         """platform_factory.py imports from afissues."""
-        factory_path = _AGENTFOX_SRC / "nightshift" / "platform_factory.py"
+        factory_path = _AGENTFOX_SRC / "maintenance" / "platform_factory.py"
         if not factory_path.exists():
             pytest.skip("platform_factory.py not found")
         source = factory_path.read_text()
-        assert "afissues" in source, (
-            "platform_factory.py does not import from afissues"
-        )
+        assert "afissues" in source, "platform_factory.py does not import from afissues"
 
     def test_platform_factory_module_imports(self) -> None:
         """platform_factory module loads without ImportError."""
@@ -218,9 +191,7 @@ class TestRootTestpaths:
         with open(toml_path, "rb") as f:
             toml = tomllib.load(f)
         testpaths = toml["tool"]["pytest"]["ini_options"]["testpaths"]
-        assert any("afissues" in p for p in testpaths), (
-            f"packages/afissues/tests not in testpaths: {testpaths}"
-        )
+        assert any("afissues" in p for p in testpaths), f"packages/afissues/tests not in testpaths: {testpaths}"
 
     def test_pytest_discovers_afissues_tests(self) -> None:
         """Verify afissues test files can be discovered by checking path existence."""

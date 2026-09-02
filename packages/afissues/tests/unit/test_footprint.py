@@ -1,8 +1,8 @@
 """Tests for dependency footprint isolation (TS-03-35 through TS-03-38, TS-03-P1).
 
 Verifies that afissues has minimal dependencies, contains no workspace package
-imports in its source modules, and that nightshift and af do not declare
-afissues as an explicit dependency.
+imports in its source modules, and that af does not declare afissues as an
+explicit dependency.
 
 Requirements: 03-REQ-10.1, 03-REQ-10.2, 03-REQ-10.3, 03-REQ-10.4
 """
@@ -20,7 +20,7 @@ _WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 _AFISSUES_SRC = _WORKSPACE_ROOT / "packages" / "afissues" / "afissues"
 
 # Workspace package names that must NOT appear in afissues source imports.
-_WORKSPACE_PKGS = ("agentfox", "afspec", "afaudit", "nightshift")
+_WORKSPACE_PKGS = ("agentfox", "afspec", "afaudit")
 
 
 # ── TS-03-35: pip show afissues lists only httpx ─────────────────────
@@ -59,25 +59,6 @@ class TestNoWorkspaceImportsInSource:
         assert not violations, "Workspace package references found in afissues source:\n" + "\n".join(
             f"  - {v}" for v in violations
         )
-
-
-# ── TS-03-37: nightshift does not list afissues ──────────────────────
-
-
-class TestNightshiftNoAfissuesDep:
-    """TS-03-37: nightshift/pyproject.toml does not declare afissues."""
-
-    def test_nightshift_deps_exclude_afissues(self) -> None:
-        """afissues must not appear in nightshift's dependencies."""
-        # Find nightshift pyproject.toml(s) - could be under packages/ or at root
-        nightshift_tomls = glob.glob(str(_WORKSPACE_ROOT / "packages" / "*" / "pyproject.toml"))
-        for toml_path in nightshift_tomls:
-            if "nightshift" not in toml_path:
-                continue
-            with open(toml_path, "rb") as f:
-                toml = tomllib.load(f)
-            deps = toml.get("project", {}).get("dependencies", [])
-            assert not any("afissues" in dep for dep in deps), f"afissues should not be in nightshift deps: {deps}"
 
 
 # ── TS-03-38: af/pyproject.toml unchanged ───────────────────────────

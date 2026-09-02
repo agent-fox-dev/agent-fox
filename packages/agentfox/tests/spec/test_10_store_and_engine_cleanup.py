@@ -28,7 +28,6 @@ _SUMMARY_STORE = _PACKAGES_ROOT / "agentfox" / "knowledge" / "summary_store.py"
 _RUN_PY = _PACKAGES_ROOT / "agentfox" / "engine" / "run.py"
 _RESULT_HANDLER = _PACKAGES_ROOT / "agentfox" / "engine" / "result_handler.py"
 _SESSION_LIFECYCLE = _PACKAGES_ROOT / "agentfox" / "engine" / "session_lifecycle.py"
-_NIGHTSHIFT_STARTUP = _REPO_ROOT / "packages" / "nightshift" / "nightshift" / "_startup.py"
 
 
 # ---------------------------------------------------------------------------
@@ -171,21 +170,6 @@ class TestRunPyNoErrataIndexing:
     def test_no_errata_reference(self) -> None:
         matches = _grep_file(_RUN_PY, "index_errata_from_markdown")
         assert not matches, "run.py must not reference index_errata_from_markdown:\n" + "\n".join(matches)
-
-
-# ---------------------------------------------------------------------------
-# TS-10-19: nightshift/_startup.py contains no call to index_errata_from_markdown
-# ---------------------------------------------------------------------------
-
-
-class TestNightshiftStartupNoErrataIndexing:
-    """TS-10-19: Zero occurrences of index_errata_from_markdown in _startup.py."""
-
-    def test_no_errata_reference(self) -> None:
-        matches = _grep_file(_NIGHTSHIFT_STARTUP, "index_errata_from_markdown")
-        assert not matches, "nightshift/_startup.py must not reference index_errata_from_markdown:\n" + "\n".join(
-            matches
-        )
 
 
 # ---------------------------------------------------------------------------
