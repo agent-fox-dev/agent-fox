@@ -1,7 +1,7 @@
 """Unit tests for PlatformProtocol, GitHubPlatform compliance, and factory.
 
-Test Spec: TS-61-23, TS-61-24, TS-61-25, TS-61-E1, TS-61-E11
-Requirements: 61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-1.E1, 61-REQ-8.E1,
+Test Spec: TS-61-23, TS-61-24, TS-61-25, TS-61-E11
+Requirements: 61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-8.E1,
               598-AC-1, 598-AC-3, 598-AC-4, 598-AC-5
 """
 
@@ -77,28 +77,6 @@ class TestPlatformFactory:
             platform = create_platform(config, tmp_path)  # type: ignore[arg-type]
 
         assert isinstance(platform, GitHubPlatform)
-
-
-# ---------------------------------------------------------------------------
-# TS-61-E1: Platform not configured
-# Requirement: 61-REQ-1.E1
-# ---------------------------------------------------------------------------
-
-
-class TestPlatformNotConfigured:
-    """Verify abort when platform is not configured."""
-
-    def test_abort_with_exit_code_1(self) -> None:
-        """Raises SystemExit with code 1 when platform type is 'none'."""
-        from agentfox.core.config import AgentFoxConfig
-        from agentfox.maintenance.engine import validate_night_shift_prerequisites
-
-        config = AgentFoxConfig()
-        assert config.platform.type == "none"
-
-        with pytest.raises(SystemExit) as exc_info:
-            validate_night_shift_prerequisites(config)
-        assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------

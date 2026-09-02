@@ -622,7 +622,7 @@ class NodeSessionRunner:
                 workspace.branch,
                 self._config.workspace.integration_branch,
             )
-            from agentfox.maintenance.fix_pipeline import build_pr_body
+            from agentfox.maintenance.fix_types import build_pr_body
 
             pr_title = f"{workspace.spec_name}: task group {workspace.task_group}"
             pr_body = build_pr_body(
