@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentfox.maintenance.fix_pipeline import FixReviewResult, TriageResult
+    from agentfox.maintenance.fix_types import FixReviewResult, TriageResult
     from agentfox.session.convergence import AuditResult
 
 from agentfox.core.json_extraction import extract_json_array
@@ -792,7 +792,7 @@ def parse_triage_output(
 
     Requirements: 82-REQ-2.1, 82-REQ-2.2, 82-REQ-2.3, 82-REQ-2.E1
     """
-    from agentfox.maintenance.fix_pipeline import AcceptanceCriterion, TriageResult
+    from agentfox.maintenance.fix_types import AcceptanceCriterion, TriageResult
 
     data = _extract_json_dict(response)
 
@@ -843,7 +843,7 @@ def parse_triage_output(
     raw_ac = data.get("assessed_complexity")
     if raw_ac is not None and isinstance(raw_ac, dict):
         try:
-            from agentfox.maintenance.fix_pipeline import AssessedComplexity
+            from agentfox.maintenance.fix_types import AssessedComplexity
 
             ac_tier = raw_ac.get("tier")
             ac_variant = raw_ac.get("variant")
@@ -906,7 +906,7 @@ def parse_fix_review_output(
 
     Requirements: 82-REQ-5.1
     """
-    from agentfox.maintenance.fix_pipeline import FixReviewResult, FixReviewVerdict
+    from agentfox.maintenance.fix_types import FixReviewResult, FixReviewVerdict
 
     _VALID_VERDICTS = {"PASS", "FAIL"}
 
