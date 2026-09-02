@@ -855,23 +855,7 @@ class FixPipeline:
             if criteria_context:
                 context = f"{context}\n\n{criteria_context}"
         else:
-            # Assemble criteria context via afspec rendering (happy path)
-            try:
-                afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
-                rendered = render_inmemory_spec_sections(afspec_spec)
-                if isinstance(rendered, list):
-                    rendered = "\n\n".join(rendered)
-                context = f"{spec.system_context}\n\n{rendered}"
-            except Exception:
-                logger.warning(
-                    "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
-                    spec.issue_number,
-                    exc_info=True,
-                )
-                criteria_context = self._render_criteria_context(triage)
-                context = spec.system_context
-                if criteria_context:
-                    context = f"{context}\n\n{criteria_context}"
+            context = self._resolve_afspec_context(spec, triage)
 
         if knowledge_context:
             context = f"{context}\n\n{knowledge_context}"
@@ -934,23 +918,7 @@ class FixPipeline:
             )
             return system_prompt, task_prompt
 
-        # Assemble criteria context via afspec rendering (happy path)
-        try:
-            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
-            rendered = render_inmemory_spec_sections(afspec_spec)
-            if isinstance(rendered, list):
-                rendered = "\n\n".join(rendered)
-            context = f"{spec.system_context}\n\n{rendered}"
-        except Exception:
-            logger.warning(
-                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
-                spec.issue_number,
-                exc_info=True,
-            )
-            criteria_context = self._render_criteria_context(triage)
-            context = spec.system_context
-            if criteria_context:
-                context = f"{context}\n\n{criteria_context}"
+        context = self._resolve_afspec_context(spec, triage)
 
         if knowledge_context:
             context = f"{context}\n\n{knowledge_context}"
@@ -983,6 +951,29 @@ class FixPipeline:
         lines: list[str] = ["## Acceptance Criteria from Triage", ""]
         lines.extend(self._render_criteria_section(triage.criteria))
         return "\n".join(lines)
+
+    def _resolve_afspec_context(self, spec: InMemorySpec, triage: TriageResult) -> str:
+        """Build system context with afspec-rendered criteria, falling back to ad-hoc rendering.
+
+        Returns the full context string (system_context + rendered criteria).
+        """
+        try:
+            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+            rendered = render_inmemory_spec_sections(afspec_spec)
+            if isinstance(rendered, list):
+                rendered = "\n\n".join(rendered)
+            return f"{spec.system_context}\n\n{rendered}"
+        except Exception:
+            logger.warning(
+                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
+                spec.issue_number,
+                exc_info=True,
+            )
+            criteria_context = self._render_criteria_context(triage)
+            context = spec.system_context
+            if criteria_context:
+                context = f"{context}\n\n{criteria_context}"
+            return context
 
     def _render_review_feedback(self, review: FixReviewResult) -> str:
         """Render reviewer feedback for injection into coder retry prompt.

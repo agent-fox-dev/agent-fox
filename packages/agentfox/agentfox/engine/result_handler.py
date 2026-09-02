@@ -312,6 +312,49 @@ class SessionResultHandler:
         self._block_task(decision.coder_node_id, state, decision.reason)
         return True
 
+    def _reset_for_retry(
+        self,
+        record: SessionRecord,
+        decision: Any,
+        coder_node_id: str,
+        *,
+        reason_label: str,
+        extra_payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Shared tail for retry-on-review-block: reset nodes, emit audit event, notify UI."""
+        coder_status = self._graph_sync.node_states.get(coder_node_id)
+        if coder_status == "completed":
+            self._graph_sync._transition(coder_node_id, "pending", reason=f"retry after {reason_label}")
+            self._graph_sync._transition(record.node_id, "pending", reason=f"retry after {reason_label}")
+
+        payload: dict[str, Any] = {
+            "from_status": "completed",
+            "to_status": "retry_predecessor",
+            "reason": decision.reason,
+            "coder_node_id": coder_node_id,
+        }
+        if extra_payload:
+            payload.update(extra_payload)
+
+        emit_audit_event(
+            self._sink,
+            self._run_id,
+            AuditEventType.TASK_STATUS_CHANGE,
+            node_id=record.node_id,
+            payload=payload,
+        )
+
+        if self._task_callback is not None:
+            self._task_callback(
+                TaskEvent(
+                    node_id=record.node_id,
+                    status="disagreed",
+                    duration_s=0,
+                    archetype=get_node_archetype(self._graph, record.node_id),
+                    predecessor_node=coder_node_id,
+                )
+            )
+
     def _retry_on_review_block(
         self,
         record: SessionRecord,
@@ -353,35 +396,7 @@ class SessionResultHandler:
             "Review blocking converted to retry for %s (findings injected as context)",
             coder_node_id,
         )
-        coder_status = self._graph_sync.node_states.get(coder_node_id)
-        if coder_status == "completed":
-            self._graph_sync._transition(coder_node_id, "pending", reason="retry after review block")
-            self._graph_sync._transition(record.node_id, "pending", reason="retry after review block")
-
-        emit_audit_event(
-            self._sink,
-            self._run_id,
-            AuditEventType.TASK_STATUS_CHANGE,
-            node_id=record.node_id,
-            payload={
-                "from_status": "completed",
-                "to_status": "retry_predecessor",
-                "reason": decision.reason,
-                "coder_node_id": coder_node_id,
-            },
-        )
-
-        if self._task_callback is not None:
-            self._task_callback(
-                TaskEvent(
-                    node_id=record.node_id,
-                    status="disagreed",
-                    duration_s=0,
-                    archetype=get_node_archetype(self._graph, record.node_id),
-                    predecessor_node=coder_node_id,
-                )
-            )
-
+        self._reset_for_retry(record, decision, coder_node_id, reason_label="review block")
         return False
 
     def _get_audit_max_retries(self) -> int:
@@ -446,37 +461,16 @@ class SessionResultHandler:
             count + 1,
             max_retries,
         )
-        coder_status = self._graph_sync.node_states.get(coder_node_id)
-        if coder_status == "completed":
-            self._graph_sync._transition(coder_node_id, "pending", reason="retry after audit-review block")
-            self._graph_sync._transition(record.node_id, "pending", reason="retry after audit-review block")
-
-        emit_audit_event(
-            self._sink,
-            self._run_id,
-            AuditEventType.TASK_STATUS_CHANGE,
-            node_id=record.node_id,
-            payload={
-                "from_status": "completed",
-                "to_status": "retry_predecessor",
-                "reason": decision.reason,
-                "coder_node_id": coder_node_id,
+        self._reset_for_retry(
+            record,
+            decision,
+            coder_node_id,
+            reason_label="audit-review block",
+            extra_payload={
                 "audit_retry_count": count + 1,
                 "audit_max_retries": max_retries,
             },
         )
-
-        if self._task_callback is not None:
-            self._task_callback(
-                TaskEvent(
-                    node_id=record.node_id,
-                    status="disagreed",
-                    duration_s=0,
-                    archetype=get_node_archetype(self._graph, record.node_id),
-                    predecessor_node=coder_node_id,
-                )
-            )
-
         return False
 
     def process(
@@ -833,36 +827,43 @@ class SessionResultHandler:
                     node_id,
                 )
 
-    def _handle_workspace_setup_failure(
+    def _handle_backoff_failure(
         self,
         record: SessionRecord,
         state: ExecutionState,
+        *,
+        kind: str,
+        label: str,
+        max_failures: int,
+        max_backoff: int,
+        diagnostic: str,
+        audit_event_type: AuditEventType,
     ) -> None:
-        """Handle a workspace-setup failure with exponential backoff.
+        """Handle an infrastructure failure with exponential backoff.
 
-        Workspace-setup failures (worktree creation, branch checkout) are
-        infrastructure errors that should not consume escalation retries.
-        After ``_MAX_WORKSPACE_FAILURES`` consecutive failures for the same
-        node, the node is blocked with a diagnostic message.
+        Shared implementation for workspace-setup and environment failures.
+        After *max_failures* consecutive failures the node is blocked;
+        otherwise it is reset to pending with an exponential backoff delay.
         """
         node_id = record.node_id
         ns = self._get_node_state(node_id)
-        ns.workspace_failures += 1
-        count = ns.workspace_failures
 
-        if count >= _MAX_WORKSPACE_FAILURES:
+        failures_attr = f"{kind}_failures"
+        count = getattr(ns, failures_attr) + 1
+        setattr(ns, failures_attr, count)
+
+        if count >= max_failures:
             reason = (
-                f"Workspace setup failed {count} times consecutively for {node_id}: "
-                f"{record.error_message}. "
-                f"Check for stale worktrees (.agent-fox/worktrees/) or lock contention."
+                f"{label} failed {count} times consecutively for {node_id}: "
+                f"{record.error_message}. {diagnostic}"
             )
-            logger.warning("Workspace circuit breaker tripped for %s: %s", node_id, reason)
+            logger.warning("%s circuit breaker tripped for %s: %s", label, node_id, reason)
             self._block_task(node_id, state, reason)
             self._check_block_budget(state)
             emit_audit_event(
                 self._sink,
                 self._run_id,
-                AuditEventType.WORKSPACE_SETUP_FAILED,
+                audit_event_type,
                 node_id=node_id,
                 payload={
                     "consecutive_failures": count,
@@ -872,24 +873,25 @@ class SessionResultHandler:
             )
             return
 
-        delay = min(2**count, _MAX_WORKSPACE_BACKOFF_SECONDS)
-        ns.workspace_next_eligible = time.monotonic() + delay
-        ns.workspace_backoff_logged = False  # reset so next window logs once
+        delay = min(2**count, max_backoff)
+        setattr(ns, f"{kind}_next_eligible", time.monotonic() + delay)
+        setattr(ns, f"{kind}_backoff_logged", False)
 
         logger.warning(
-            "Workspace setup failed for %s (%d/%d), backing off %ds: %s",
+            "%s failed for %s (%d/%d), backing off %ds: %s",
+            label,
             node_id,
             count,
-            _MAX_WORKSPACE_FAILURES,
+            max_failures,
             delay,
             record.error_message,
         )
-        self._graph_sync.mark_pending(node_id, reason="workspace setup retry with backoff")
+        self._graph_sync.mark_pending(node_id, reason=f"{label.lower()} retry with backoff")
 
         emit_audit_event(
             self._sink,
             self._run_id,
-            AuditEventType.WORKSPACE_SETUP_FAILED,
+            audit_event_type,
             node_id=node_id,
             payload={
                 "consecutive_failures": count,
@@ -897,6 +899,23 @@ class SessionResultHandler:
                 "backoff_seconds": delay,
                 "error": record.error_message,
             },
+        )
+
+    def _handle_workspace_setup_failure(
+        self,
+        record: SessionRecord,
+        state: ExecutionState,
+    ) -> None:
+        """Handle a workspace-setup failure with exponential backoff."""
+        self._handle_backoff_failure(
+            record,
+            state,
+            kind="workspace",
+            label="Workspace setup",
+            max_failures=_MAX_WORKSPACE_FAILURES,
+            max_backoff=_MAX_WORKSPACE_BACKOFF_SECONDS,
+            diagnostic="Check for stale worktrees (.agent-fox/worktrees/) or lock contention.",
+            audit_event_type=AuditEventType.WORKSPACE_SETUP_FAILED,
         )
 
     def _handle_environment_failure(
@@ -904,65 +923,16 @@ class SessionResultHandler:
         record: SessionRecord,
         state: ExecutionState,
     ) -> None:
-        """Handle a zero-turn environment failure with backoff.
-
-        The session died before any LLM work (0 tokens, 0 cost). This is
-        an infrastructure issue — retrying with the same model after a
-        backoff delay is the correct response. Does not consume the
-        generic retry counter.
-        """
-        node_id = record.node_id
-        ns = self._get_node_state(node_id)
-        ns.environment_failures += 1
-        count = ns.environment_failures
-
-        if count >= _MAX_ENVIRONMENT_FAILURES:
-            reason = (
-                f"Environment failure {count} times consecutively for {node_id}: "
-                f"{record.error_message}. "
-                f"Session crashed before any LLM call (0 tokens, $0 cost)."
-            )
-            logger.warning("Environment failure circuit breaker tripped for %s: %s", node_id, reason)
-            self._block_task(node_id, state, reason)
-            self._check_block_budget(state)
-            emit_audit_event(
-                self._sink,
-                self._run_id,
-                AuditEventType.SESSION_ENVIRONMENT_FAILURE,
-                node_id=node_id,
-                payload={
-                    "consecutive_failures": count,
-                    "blocked": True,
-                    "error": record.error_message,
-                },
-            )
-            return
-
-        delay = min(2**count, _MAX_ENVIRONMENT_BACKOFF_SECONDS)
-        ns.environment_next_eligible = time.monotonic() + delay
-        ns.environment_backoff_logged = False  # reset so next window logs once
-
-        logger.warning(
-            "Environment failure for %s (%d/%d), backing off %ds: %s",
-            node_id,
-            count,
-            _MAX_ENVIRONMENT_FAILURES,
-            delay,
-            record.error_message,
-        )
-        self._graph_sync.mark_pending(node_id, reason="environment failure retry with backoff")
-
-        emit_audit_event(
-            self._sink,
-            self._run_id,
-            AuditEventType.SESSION_ENVIRONMENT_FAILURE,
-            node_id=node_id,
-            payload={
-                "consecutive_failures": count,
-                "blocked": False,
-                "backoff_seconds": delay,
-                "error": record.error_message,
-            },
+        """Handle a zero-turn environment failure with backoff."""
+        self._handle_backoff_failure(
+            record,
+            state,
+            kind="environment",
+            label="Environment failure",
+            max_failures=_MAX_ENVIRONMENT_FAILURES,
+            max_backoff=_MAX_ENVIRONMENT_BACKOFF_SECONDS,
+            diagnostic="Session crashed before any LLM call (0 tokens, $0 cost).",
+            audit_event_type=AuditEventType.SESSION_ENVIRONMENT_FAILURE,
         )
 
     # Data-driven dispatch table for special failure classes.

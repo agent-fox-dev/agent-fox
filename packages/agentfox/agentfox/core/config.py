@@ -600,12 +600,12 @@ class NightShiftConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    issue_check_interval: int = Field(
+    issue_check_interval: Annotated[int, Clamped(ge=60, cast=int)] = Field(
         default=900,
         description="Seconds between issue checks (minimum 60)",
     )
 
-    pr_check_interval: int = Field(
+    pr_check_interval: Annotated[int, Clamped(ge=60, cast=int)] = Field(
         default=900,
         description="Seconds between PR status poll cycles (minimum 60)",
     )
@@ -615,72 +615,17 @@ class NightShiftConfig(BaseModel):
         description="Push fix branches to origin before harvest",
     )
 
-    max_parallel: int = Field(
+    max_parallel: Annotated[int, Clamped(ge=1, le=8, cast=int)] = Field(
         default=1,
         description="Maximum number of issues processed concurrently (1-8)",
     )
 
-    max_pr_retries: int = Field(
+    max_pr_retries: Annotated[int, Clamped(ge=0, le=10, cast=int)] = Field(
         default=2,
         description="Maximum feedback iterations per PR before manual attention (0-10)",
     )
 
-    @field_validator("issue_check_interval", "pr_check_interval")
-    @classmethod
-    def clamp_interval_minimum(cls, v: int, info: object) -> int:
-        """Clamp intervals to a minimum of 60 seconds.
-
-        Requirements: 61-REQ-9.E1, 07-REQ-1.1
-        """
-        if v < 60:
-            logger.warning(
-                "Config field '%s' value %d below minimum, clamped to 60",
-                getattr(info, "field_name", "interval"),
-                v,
-            )
-            return 60
-        return v
-
-    @field_validator("max_pr_retries")
-    @classmethod
-    def clamp_max_pr_retries(cls, v: int) -> int:
-        """Clamp max_pr_retries to [0, 10].
-
-        Requirements: 07-REQ-1.2
-        """
-        if v < 0:
-            logger.warning(
-                "Config field 'max_pr_retries' value %d below minimum, clamped to 0",
-                v,
-            )
-            return 0
-        if v > 10:
-            logger.warning(
-                "Config field 'max_pr_retries' value %d above maximum, clamped to 10",
-                v,
-            )
-            return 10
-        return v
-
-    @field_validator("max_parallel")
-    @classmethod
-    def clamp_max_parallel(cls, v: int, info: object) -> int:
-        """Clamp max_parallel to range [1, 8]."""
-        if v < 1:
-            logger.warning(
-                "Config field '%s' value %d below minimum, clamped to 1",
-                getattr(info, "field_name", "max_parallel"),
-                v,
-            )
-            return 1
-        if v > 8:
-            logger.warning(
-                "Config field '%s' value %d above maximum, clamped to 8",
-                getattr(info, "field_name", "max_parallel"),
-                v,
-            )
-            return 8
-        return v
+    _auto_clamp = _auto_clamp_validator()
 
 
 class PathsConfig(BaseModel):
