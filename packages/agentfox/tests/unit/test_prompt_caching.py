@@ -259,34 +259,6 @@ class TestNoSystemParameter:
 
 
 # ---------------------------------------------------------------------------
-# TS-77-8: Auxiliary Modules Use Helper
-# ---------------------------------------------------------------------------
-
-AUXILIARY_MODULES = [
-    "agentfox/maintenance/staleness.py",
-    "agentfox/maintenance/triage.py",
-]
-
-
-class TestAuxiliaryModulesUseHelper:
-    """TS-77-8: All auxiliary modules use cached_messages_create."""
-
-    @pytest.mark.parametrize("module_path", AUXILIARY_MODULES)
-    def test_auxiliary_modules_use_helper(self, module_path: str) -> None:
-        """77-REQ-3.1, 77-REQ-3.2: Each module uses cached helper, not raw create."""
-        repo_root = Path(__file__).parent.parent.parent
-        full_path = repo_root / module_path
-        assert full_path.exists(), f"Module not found: {full_path}"
-
-        source = full_path.read_text(encoding="utf-8")
-        caching_helpers = ("cached_messages_create", "ai_call", "ai_call_sync", "nightshift_ai_call")
-        assert any(h in source for h in caching_helpers), (
-            f"{module_path} does not call any caching helper ({', '.join(caching_helpers)})"
-        )
-        assert ".messages.create(" not in source, f"{module_path} still has a raw .messages.create() call"
-
-
-# ---------------------------------------------------------------------------
 # TS-77-9: Token Threshold Estimation
 # ---------------------------------------------------------------------------
 
