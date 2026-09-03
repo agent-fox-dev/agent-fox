@@ -513,7 +513,7 @@ def plan_cmd(
         except PlanError as exc:
             if json_mode:
                 emit_error(str(exc))
-                ctx.exit(1)
+                ctx.exit(0)
                 return
             click.echo(f"Error: {exc}", err=True)
             ctx.exit(1)
@@ -530,7 +530,7 @@ def plan_cmd(
         spinner.stop()
         if json_mode:
             emit_error(str(exc))
-            ctx.exit(1)
+            ctx.exit(0)
             return
         click.echo(f"Error: {exc}", err=True)
         ctx.exit(1)
