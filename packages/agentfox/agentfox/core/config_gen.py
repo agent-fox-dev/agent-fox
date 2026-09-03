@@ -58,7 +58,7 @@ _VISIBLE_SECTIONS: set[str] = {
 # Keys are dot-separated section paths; values are lists of comment strings.
 _SECTION_EXAMPLE_COMMENTS: dict[str, list[str]] = {
     "models.registry": [
-        '## Example: register a new model and assign it to a tier.',
+        "## Example: register a new model and assign it to a tier.",
         '## "claude-haiku-5-0" = {tier = "SIMPLE", variant = "standard"}',
     ],
     "models.tier_defaults": [

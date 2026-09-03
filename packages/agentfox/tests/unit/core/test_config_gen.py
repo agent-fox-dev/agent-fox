@@ -131,9 +131,7 @@ class TestTemplateGeneration:
 
         # [models] must appear as a commented section header (issue #759)
         assert not any(ln.strip() == "[models]" for ln in lines), "[models] must not appear as an active section header"
-        assert any(ln.strip() == "# [models]" for ln in lines), (
-            "[models] must appear as a commented section header"
-        )
+        assert any(ln.strip() == "# [models]" for ln in lines), "[models] must appear as a commented section header"
 
         # Security is hidden — must not appear even as a commented header
         assert "# [security]" not in template

@@ -193,9 +193,7 @@ class TestTemplateContent:
         template = generate_default_config()
         assert "# [models]" in template
         # The active header '[models]' (without '#') must NOT appear — it stays commented.
-        active_header_present = any(
-            line.strip() == "[models]" for line in template.splitlines()
-        )
+        active_header_present = any(line.strip() == "[models]" for line in template.splitlines())
         assert not active_header_present
 
 
@@ -324,9 +322,7 @@ class TestSmoke:
         # [models] is now present as a commented section (issue #759).
         assert "# [models]" in template
         # The active header '[models]' must NOT appear (section stays commented).
-        active_header_present = any(
-            line.strip() == "[models]" for line in template.splitlines()
-        )
+        active_header_present = any(line.strip() == "[models]" for line in template.splitlines())
         assert not active_header_present
         assert "memory_extraction" not in template
         assert "parallel" in template

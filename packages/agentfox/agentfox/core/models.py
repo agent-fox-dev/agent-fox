@@ -141,8 +141,7 @@ def resolve_model(
                 override_tier = ModelTier(tier_name_str)
             except ValueError:
                 raise ConfigError(
-                    f"Invalid tier '{tier_name_str}' in models.tier_defaults. "
-                    f"Valid tiers: {', '.join(valid_tiers)}",
+                    f"Invalid tier '{tier_name_str}' in models.tier_defaults. Valid tiers: {', '.join(valid_tiers)}",
                 )
             effective_tier_defaults[override_tier] = model_id_val
     else:
