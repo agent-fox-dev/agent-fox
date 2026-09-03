@@ -170,8 +170,14 @@ _SHELL_OPERATOR_PATTERN = re.compile(
 )
 
 # Argument patterns that allow a command to execute arbitrary sub-commands.
-# Checked as whitespace-delimited tokens in the command string.
+# Checked as whitespace-delimited tokens in the command string, but only
+# when the leading command is in _EXEC_CAPABLE_COMMANDS.
 _DANGEROUS_ARG_TOKENS = frozenset({"-exec", "-execdir"})
+
+# Commands where -exec/-execdir actually trigger sub-command execution.
+# For all other commands these tokens are ordinary arguments with no
+# sub-execution semantics, so blocking them would produce false positives.
+_EXEC_CAPABLE_COMMANDS = frozenset({"find"})
 
 
 def check_shell_operators(command_string: str) -> str | None:
@@ -195,14 +201,19 @@ def check_shell_operators(command_string: str) -> str | None:
             "arbitrary commands. Use simple, single commands instead."
         )
 
-    # Check for dangerous argument tokens (e.g., find -exec)
+    # Check for dangerous argument tokens (e.g., find -exec).
+    # Only applies to commands that actually use -exec/-execdir for
+    # sub-command execution; other commands use these tokens as ordinary
+    # arguments with no sub-execution semantics.
     tokens = command_string.split()
-    for token in tokens:
-        if token in _DANGEROUS_ARG_TOKENS:
-            return (
-                f"Command contains '{token}' which can execute arbitrary "
-                f"sub-commands. Use alternative approaches instead."
-            )
+    leading_cmd = PurePosixPath(tokens[0]).name if tokens else ""
+    if leading_cmd in _EXEC_CAPABLE_COMMANDS:
+        for token in tokens[1:]:
+            if token in _DANGEROUS_ARG_TOKENS:
+                return (
+                    f"Command contains '{token}' which can execute arbitrary "
+                    f"sub-commands. Use alternative approaches instead."
+                )
 
     return None
 

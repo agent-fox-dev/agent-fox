@@ -498,6 +498,90 @@ class TestShellVariableExpansionBlocked:
         assert result["decision"] == "block"
 
 
+class TestExecTokenCommandAware:
+    """Regression tests for issue #760: -exec/-execdir check is command-aware.
+
+    The -exec/-execdir token check must only fire when the leading command
+    is one that actually uses those flags for sub-command execution (e.g.
+    find). Allowlisted commands that happen to receive -exec as an argument
+    (awk, grep, git, …) must not be blocked.
+
+    Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3, NS-REQ-4
+    Test Spec: TS-NS-1, TS-NS-2, TS-NS-3, TS-NS-4
+    """
+
+    # TS-NS-1 / NS-REQ-1 -------------------------------------------------------
+
+    def test_awk_exec_allowed_check_shell_operators(self) -> None:
+        """check_shell_operators('awk -exec') returns None."""
+        assert check_shell_operators("awk -exec") is None
+
+    def test_grep_exec_allowed_check_shell_operators(self) -> None:
+        """check_shell_operators('grep -exec pattern file') returns None."""
+        assert check_shell_operators("grep -exec pattern file") is None
+
+    def test_git_exec_allowed_check_shell_operators(self) -> None:
+        """check_shell_operators('git -exec') returns None."""
+        assert check_shell_operators("git -exec") is None
+
+    def test_awk_exec_allowed_check_command_allowed(self) -> None:
+        """check_command_allowed('awk -exec', DEFAULT_ALLOWLIST) returns (True, ...)."""
+        allowed, _ = check_command_allowed("awk -exec", DEFAULT_ALLOWLIST)
+        assert allowed is True
+
+    def test_awk_exec_hook_allows(self) -> None:
+        """Pre-tool-use hook returns 'allow' for awk -exec."""
+        hook = make_pre_tool_use_hook(SecurityConfig())
+        result = hook(tool_name="Bash", tool_input={"command": "awk -exec"})
+        assert result["decision"] == "allow"
+
+    def test_grep_exec_hook_allows(self) -> None:
+        """Pre-tool-use hook returns 'allow' for grep -exec."""
+        hook = make_pre_tool_use_hook(SecurityConfig())
+        result = hook(tool_name="Bash", tool_input={"command": "grep -exec pattern file"})
+        assert result["decision"] == "allow"
+
+    # TS-NS-2 / NS-REQ-2 -------------------------------------------------------
+
+    def test_find_exec_blocked_check_shell_operators(self) -> None:
+        """check_shell_operators('find . -exec cat {} +') returns non-None string with '-exec'."""
+        result = check_shell_operators("find . -exec cat {} +")
+        assert result is not None
+        assert "-exec" in result
+
+    def test_find_exec_blocked_hook(self) -> None:
+        """Pre-tool-use hook blocks find . -name '*.py' -exec cat {} +."""
+        hook = make_pre_tool_use_hook(SecurityConfig())
+        result = hook(
+            tool_name="Bash",
+            tool_input={"command": "find . -name '*.py' -exec cat {} +"},
+        )
+        assert result["decision"] == "block"
+        assert "-exec" in result["message"]
+
+    # TS-NS-3 / NS-REQ-3 -------------------------------------------------------
+
+    def test_find_execdir_blocked_check_shell_operators(self) -> None:
+        """check_shell_operators('find . -execdir cat {} +') returns non-None string with '-execdir'."""
+        result = check_shell_operators("find . -execdir cat {} +")
+        assert result is not None
+        assert "-execdir" in result
+
+    def test_find_execdir_blocked_hook(self) -> None:
+        """Pre-tool-use hook blocks find . -execdir cat {} +."""
+        hook = make_pre_tool_use_hook(SecurityConfig())
+        result = hook(
+            tool_name="Bash",
+            tool_input={"command": "find . -execdir cat {} +"},
+        )
+        assert result["decision"] == "block"
+        assert "-execdir" in result["message"]
+
+    def test_awk_execdir_allowed(self) -> None:
+        """check_shell_operators('awk -execdir') returns None (not find)."""
+        assert check_shell_operators("awk -execdir") is None
+
+
 class TestPreToolUseHookShellOperators:
     """Verify the pre-tool-use hook blocks shell operator bypass attempts."""
 
