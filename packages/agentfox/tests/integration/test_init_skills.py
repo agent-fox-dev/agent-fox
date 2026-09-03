@@ -1,8 +1,6 @@
-"""Integration tests for skill installation via init --skills (Spec 47).
+"""Integration tests for skills symlink / migration behaviour (spec 709).
 
-Requirements: 47-REQ-2.1, 47-REQ-2.2, 47-REQ-2.4, 47-REQ-2.5,
-              47-REQ-3.1, 47-REQ-3.2, 47-REQ-4.1, 47-REQ-4.2
-Test Spec: TS-47-1 through TS-47-7
+Requirements: 47-REQ-2.2, 709-AC-3, 709-AC-4, 709-AC-5
 """
 
 from __future__ import annotations
@@ -12,51 +10,22 @@ from pathlib import Path
 from af.app import main
 from click.testing import CliRunner
 
-
 # ---------------------------------------------------------------------------
 # TS-47-2: No skills without flag
 # ---------------------------------------------------------------------------
 
 
 class TestNoSkillsWithoutFlag:
-    """TS-47-2: init without --skills does not create skill files.
+    """47-REQ-2.2: af init does not create skill files (skills come from external repo)."""
 
-    Requirement: 47-REQ-2.2
-    """
-
-    def test_no_skills_without_flag(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """No .agents/skills/ directory created without --skills."""
+    def test_no_skills_on_init(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """af init does not create .agents/skills/ or a .claude/skills symlink."""
         result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
         skills_dir = tmp_git_repo / ".agents" / "skills"
         assert not skills_dir.exists() or len(list(skills_dir.iterdir())) == 0
         assert not (tmp_git_repo / ".claude" / "skills").is_symlink()
-
-
-
-# ---------------------------------------------------------------------------
-# TS-47-7: Skills work on re-init
-# ---------------------------------------------------------------------------
-
-
-class TestSkillsWorkOnReinit:
-    """TS-47-7: --skills works on re-init of already-initialized project.
-
-    Requirement: 47-REQ-4.2
-    """
-
-    def test_skills_work_on_reinit(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init with --skills installs skills and reports already initialized."""
-        # First init without skills
-        cli_runner.invoke(main, ["init"])
-
-        # Re-init with skills
-        result = cli_runner.invoke(main, ["init", "--skills"])
-
-        assert result.exit_code == 0
-        assert (tmp_git_repo / ".agents" / "skills" / "af-spec" / "SKILL.md").exists()
-        assert (tmp_git_repo / ".claude" / "skills").is_symlink()
 
 
 # ---------------------------------------------------------------------------
@@ -93,13 +62,13 @@ class TestSkillsMigrationOnReinit:
     """709-AC-3: Old .claude/skills/ directory is migrated on re-init."""
 
     def test_old_skills_migrated(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Pre-existing .claude/skills/ dir is migrated to .agents/skills/."""
+        """Pre-existing .claude/skills/ dir is migrated to .agents/skills/ on af init."""
         # Simulate old-style install by creating .claude/skills/ as a real dir
         old_skills = tmp_git_repo / ".claude" / "skills" / "af-custom"
         old_skills.mkdir(parents=True)
         (old_skills / "SKILL.md").write_text("custom skill content")
 
-        result = cli_runner.invoke(main, ["init", "--skills"])
+        result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
         # Custom skill migrated

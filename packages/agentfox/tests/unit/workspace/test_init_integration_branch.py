@@ -54,7 +54,7 @@ class TestFreshInitIntegrationBranch:
         ):
             from agentfox.workspace.init_project import init_project
 
-            result = init_project(project, skills=False, quiet=True)
+            result = init_project(project, quiet=True)
 
         assert result.status == "ok"
         assert len(calls) == 1
@@ -99,7 +99,7 @@ class TestFreshInitIntegrationBranch:
         ):
             from agentfox.workspace.init_project import init_project
 
-            result = init_project(project, skills=False, quiet=True)
+            result = init_project(project, quiet=True)
 
         assert result.status == "ok"
         assert len(calls) == 1
@@ -136,7 +136,7 @@ class TestFreshInitIntegrationBranch:
         ):
             from agentfox.workspace.init_project import init_project
 
-            init_project(project, skills=False, quiet=True)
+            init_project(project, quiet=True)
 
         assert len(calls) == 1
         assert calls[0] != "develop", "Fresh init should not hardcode 'develop' — it should use config default 'main'"

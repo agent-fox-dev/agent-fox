@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Template paths
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "_templates"
 _AGENTS_MD_TEMPLATE = _TEMPLATES_DIR / "agents_md.md"
-_SKILLS_DIR = _TEMPLATES_DIR / "skills"
 
 # Lines to add to .gitignore
 _GITIGNORE_ENTRIES = [
@@ -126,66 +125,6 @@ def _create_branch(branch: str) -> None:
         check=True,
     )
 
-
-def _install_skills(project_root: Path) -> int:
-    """Install bundled skill templates into .agents/skills/.
-
-    Discovers all non-hidden files in _SKILLS_DIR, creates
-    {project_root}/.agents/skills/{name}/SKILL.md for each.
-    Overwrites existing files.  Template variables (``{{SPEC_ROOT}}``)
-    are substituted with the project's configured spec root.
-
-    Args:
-        project_root: The project root directory.
-
-    Returns:
-        Number of skills installed.
-
-    Requirements: 47-REQ-2.1, 47-REQ-2.3, 47-REQ-2.4, 47-REQ-1.E1,
-                  47-REQ-2.E1, 47-REQ-2.E2, 371-REQ-3.1
-    """
-    # 47-REQ-2.E1: empty or missing templates dir
-    if not _SKILLS_DIR.exists() or not _SKILLS_DIR.is_dir():
-        logger.warning("Skills templates directory not found: %s", _SKILLS_DIR)
-        return 0
-
-    templates = [f for f in _SKILLS_DIR.iterdir() if f.is_file() and not f.name.startswith(".")]
-
-    if not templates:
-        logger.warning("No skill templates found in %s", _SKILLS_DIR)
-        return 0
-
-    # 47-REQ-2.E2: handle permission errors creating skills directory
-    skills_target = project_root / ".agents" / "skills"
-    try:
-        skills_target.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        logger.error("Cannot create skills directory %s: %s", skills_target, exc)
-        return 0
-
-    # 371-REQ-3.1: Resolve spec root for template variable substitution
-    from agentfox.core.config import load_config
-
-    config_path = project_root / ".agent-fox" / "config.toml"
-    _config = load_config(config_path if config_path.exists() else None)
-    spec_root = _config.paths.spec_root
-
-    count = 0
-    for template_path in templates:
-        name = template_path.name
-        skill_dir = skills_target / name
-        try:
-            skill_dir.mkdir(parents=True, exist_ok=True)
-            content = template_path.read_text(encoding="utf-8")
-            # 371-REQ-3.1: Replace template variables
-            content = content.replace("{{SPEC_ROOT}}", spec_root)
-            (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
-            count += 1
-        except OSError as exc:
-            # 47-REQ-1.E1: skip unreadable templates
-            logger.warning("Skipping skill '%s': %s", name, exc)
-
-    return count
 
 
 def _ensure_skills_symlink(project_root: Path) -> None:
@@ -467,7 +406,6 @@ class InitResult:
     status: str  # "ok" | "already_initialized"
     agents_md: str  # "created" | "skipped"
     steering_md: str = "skipped"
-    skills_installed: int = 0
     labels_ensured: int = 0  # number of required labels created/verified
 
 
@@ -551,7 +489,6 @@ def _ensure_specs_dirs(project_root: Path) -> None:
 def init_project(
     path: Path,
     *,
-    skills: bool = False,
     quiet: bool = False,
 ) -> InitResult:
     """Initialize agent-fox in a project directory.
@@ -560,7 +497,6 @@ def init_project(
 
     Args:
         path: Project root directory.
-        skills: Install bundled Claude Code skills.
         quiet: Suppress human-readable output.
 
     Returns:
@@ -586,10 +522,6 @@ def init_project(
         agents_md_status = _ensure_agents_md(path)
         _ensure_claude_md_symlink(path)
         steering_status = _ensure_steering_md(path)
-
-        skills_count = 0
-        if skills:
-            skills_count = _install_skills(path)
         _ensure_skills_symlink(path)
 
         labels_count = _ensure_platform_labels(path)
@@ -598,7 +530,6 @@ def init_project(
             status="already_initialized",
             agents_md=agents_md_status,
             steering_md=steering_status,
-            skills_installed=skills_count,
             labels_ensured=labels_count,
         )
 
@@ -616,10 +547,6 @@ def init_project(
     agents_md_status = _ensure_agents_md(path)
     _ensure_claude_md_symlink(path)
     steering_status = _ensure_steering_md(path)
-
-    skills_count = 0
-    if skills:
-        skills_count = _install_skills(path)
     _ensure_skills_symlink(path)
 
     labels_count = _ensure_platform_labels(path)
@@ -628,6 +555,5 @@ def init_project(
         status="ok",
         agents_md=agents_md_status,
         steering_md=steering_status,
-        skills_installed=skills_count,
         labels_ensured=labels_count,
     )

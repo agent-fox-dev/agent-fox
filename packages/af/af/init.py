@@ -146,19 +146,13 @@ def _create_local_config(project_root: Path) -> str:
     help="Create a local .agent-fox/config.toml (overwrites if present).",
 )
 @click.option(
-    "--skills",
-    is_flag=True,
-    default=False,
-    help="Install bundled agent skills into .agents/skills/.",
-)
-@click.option(
     "--profiles",
     is_flag=True,
     default=False,
     help="Copy default archetype profiles into .agent-fox/profiles/.",
 )
 @click.pass_context
-def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bool) -> None:
+def init_cmd(ctx: click.Context, create_config: bool, profiles: bool) -> None:
     """Initialize the current project for agent-fox.
 
     Creates the .agent-fox/ directory structure, sets up the integration
@@ -183,7 +177,7 @@ def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bo
             click.echo(local_msg)
         return
 
-    result = init_project(project_root, skills=skills, quiet=False)
+    result = init_project(project_root, quiet=False)
 
     if global_msg:
         click.echo(global_msg)
@@ -194,8 +188,6 @@ def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bo
         click.echo("Created AGENTS.md.")
     if result.steering_md == "created":
         click.echo("Created steering.md in .agent-fox/.")
-    if result.skills_installed:
-        click.echo(f"Installed {result.skills_installed} skills.")
     if result.labels_ensured:
         click.echo(f"Ensured {result.labels_ensured} required label(s) on GitHub repository.")
     if profiles:
