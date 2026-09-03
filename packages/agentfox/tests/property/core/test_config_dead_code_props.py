@@ -97,8 +97,9 @@ class TestSilentIgnoreOldKeys:
         assert config.orchestrator.parallel == default_config.orchestrator.parallel
         assert config.orchestrator.max_budget_usd == default_config.orchestrator.max_budget_usd
 
-        # The models field must not exist
-        assert "models" not in AgentFoxConfig.model_fields
+        # models is now a known field (ModelsConfig, issue #759); old sub-keys
+        # (coding, memory_extraction) are silently ignored by extra="ignore".
+        assert "models" in AgentFoxConfig.model_fields
 
 
 # ---------------------------------------------------------------------------

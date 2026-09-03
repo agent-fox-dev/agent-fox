@@ -704,6 +704,87 @@ class SpecToolConfig(BaseModel):
     )
 
 
+class ModelRegistryConfig(BaseModel):
+    """Override entries for the model registry.
+
+    Each key is a model ID; the value is an inline table with ``tier``
+    (required) and optionally ``variant``.
+
+    Example (config.toml)::
+
+        [models.registry]
+        "claude-haiku-5-0" = {tier = "SIMPLE", variant = "standard"}
+
+    Requirements: 759-REQ-1, 759-REQ-4
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="after")
+    def _validate_tier_values(self) -> "ModelRegistryConfig":
+        """Validate tier strings for all registry entries at parse time.
+
+        Raises ConfigError (not ValidationError) so that load_config()
+        surfaces a descriptive message without wrapping in pydantic noise.
+
+        Requirements: 759-REQ-4
+        """
+        from agentfox.core.models import ModelTier
+
+        valid_tiers = [t.value for t in ModelTier]
+        for model_id, entry in (self.model_extra or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            tier_name = entry.get("tier")
+            try:
+                ModelTier(tier_name)
+            except (ValueError, TypeError):
+                raise ConfigError(
+                    f"Invalid tier '{tier_name}' for model '{model_id}' in"
+                    f" [models.registry]. Valid tiers: {', '.join(valid_tiers)}",
+                    model=model_id,
+                )
+        return self
+
+
+class TierDefaultsConfig(BaseModel):
+    """Override the default model selected for each tier.
+
+    Keys must be ``SIMPLE``, ``STANDARD``, or ``ADVANCED``; values are model IDs.
+
+    Example (config.toml)::
+
+        [models.tier_defaults]
+        SIMPLE = "claude-haiku-5-0"
+
+    Requirements: 759-REQ-2
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ModelsConfig(BaseModel):
+    """Model registry and tier-default overrides via config.toml.
+
+    Allows projects to extend the built-in MODEL_REGISTRY with new models
+    and override TIER_DEFAULTS to point tiers at different model IDs.
+    Unknown keys at the top level of ``[models]`` are silently ignored.
+
+    Requirements: 759-REQ-1, 759-REQ-2
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    registry: ModelRegistryConfig = Field(
+        default_factory=ModelRegistryConfig,
+        description="Additional or override model registry entries (model_id = {tier, variant})",
+    )
+    tier_defaults: TierDefaultsConfig = Field(
+        default_factory=TierDefaultsConfig,
+        description="Override default model for each tier (SIMPLE/STANDARD/ADVANCED = model_id)",
+    )
+
+
 class AgentFoxConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -722,6 +803,7 @@ class AgentFoxConfig(BaseModel):
     caching: CachingConfig = Field(default_factory=CachingConfig)
     night_shift: NightShiftConfig = Field(default_factory=NightShiftConfig)
     spec_tool: SpecToolConfig = Field(default_factory=SpecToolConfig)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
 
     # Private attribute to track whether [spec_tool] was explicitly present
     # in the raw merged config dict before Pydantic validation.  Set by

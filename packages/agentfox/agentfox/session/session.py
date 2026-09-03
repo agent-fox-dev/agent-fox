@@ -160,7 +160,10 @@ async def run_session(
     """
     # Resolve the coding model (archetype override or config default)
     effective_archetype = archetype or "coder"
-    resolved_model_id = resolve_model(model_id or resolve_model_tier(config, effective_archetype))
+    resolved_model_id = resolve_model(
+        model_id or resolve_model_tier(config, effective_archetype),
+        models_config=config.models,
+    )
 
     # Resolve security config (archetype override or config default)
     effective_security = security_config if security_config is not None else config.security

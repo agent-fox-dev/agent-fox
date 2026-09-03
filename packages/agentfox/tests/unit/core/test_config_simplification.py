@@ -29,6 +29,9 @@ _EXPECTED_VISIBLE_SECTIONS = {
     "archetypes.instances",
     "platform",
     "workspace",
+    "models",
+    "models.registry",
+    "models.tier_defaults",
 }
 
 # Sections that must be completely absent from the simplified template.

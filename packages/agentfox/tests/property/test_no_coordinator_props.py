@@ -56,9 +56,10 @@ class TestConfigToleranceExtraModelFields:
         config_file = tmp_path / f"config_{field_name}.toml"
         config_file.write_text(f'[models]\n{field_name} = "STANDARD"\n')
 
-        # Must not raise — entire [models] section is silently ignored
+        # Must not raise — [models] is now a known section (ModelsConfig);
+        # unrecognised keys within it (coordinator, planner, etc.) are silently ignored.
         config = load_config(path=config_file)
         assert config is not None
 
-        # The models field no longer exists on AgentFoxConfig
-        assert "models" not in AgentFoxConfig.model_fields, "AgentFoxConfig should not have a 'models' field"
+        # Issue #759: AgentFoxConfig now has a 'models' field (ModelsConfig).
+        assert "models" in AgentFoxConfig.model_fields, "AgentFoxConfig should have a 'models' field (ModelsConfig)"

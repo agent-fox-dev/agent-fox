@@ -51,12 +51,14 @@ class TestFieldAbsence:
         """
         assert not hasattr(config_mod, "ModelConfig")
 
-    def test_agent_fox_config_no_models(self) -> None:
-        """TS-130-4: AgentFoxConfig has no models field.
+    def test_agent_fox_config_has_models(self) -> None:
+        """TS-130-4 (updated): AgentFoxConfig has a models field (ModelsConfig).
 
-        Requirement: 130-REQ-2.2
+        The old ModelConfig class (130-REQ-2.1) was removed; the new ModelsConfig
+        (issue #759) adds config.toml overrides for MODEL_REGISTRY and TIER_DEFAULTS.
+        Requirement: 130-REQ-2.2 (updated for issue #759)
         """
-        assert "models" not in AgentFoxConfig.model_fields
+        assert "models" in AgentFoxConfig.model_fields
 
 
 # ---------------------------------------------------------------------------
@@ -67,12 +69,14 @@ class TestFieldAbsence:
 class TestConfigGenMetadata:
     """Verify stale metadata entries are removed from config_gen."""
 
-    def test_visible_sections_no_models(self) -> None:
-        """TS-130-5: _VISIBLE_SECTIONS does not include 'models'.
+    def test_visible_sections_has_models(self) -> None:
+        """TS-130-5 (updated): _VISIBLE_SECTIONS includes 'models'.
 
-        Requirements: 130-REQ-2.3, 130-REQ-2.4
+        Issue #759 added ModelsConfig, so the [models] section is now visible
+        in the generated template as a commented section.
+        Requirements: 130-REQ-2.3 (updated for issue #759)
         """
-        assert "models" not in _VISIBLE_SECTIONS
+        assert "models" in _VISIBLE_SECTIONS
 
     def test_promoted_defaults_no_quality_gate(self) -> None:
         """TS-130-6: _PROMOTED_DEFAULTS excludes quality_gate.
@@ -179,14 +183,20 @@ class TestTemplateContent:
         template = generate_default_config()
         assert "quality_gate" not in template
 
-    def test_template_no_models_section(self) -> None:
-        """TS-130-13: Generated template has no [models] section.
+    def test_template_has_models_section(self) -> None:
+        """TS-130-13 (updated): Generated template has a commented [models] section.
 
-        Requirement: 130-REQ-2.3
+        Issue #759 added ModelsConfig; the template now renders '# [models]' as a
+        commented section so users can discover and enable model overrides.
+        Requirement: 130-REQ-2.3 (updated for issue #759)
         """
         template = generate_default_config()
-        assert "[models]" not in template
-        assert "# [models]" not in template
+        assert "# [models]" in template
+        # The active header '[models]' (without '#') must NOT appear — it stays commented.
+        active_header_present = any(
+            line.strip() == "[models]" for line in template.splitlines()
+        )
+        assert not active_header_present
 
 
 # ---------------------------------------------------------------------------
@@ -207,13 +217,18 @@ class TestOldConfigSilentIgnore:
         assert config.orchestrator.parallel == 4
 
     def test_old_models_section_silently_ignored(self) -> None:
-        """TS-130-E2: TOML with [models] section parses silently.
+        """TS-130-E2: TOML with [models] and unknown keys parses silently.
 
+        Issue #759: [models] is now a known section (ModelsConfig), but
+        unrecognised keys inside it (e.g. 'coding', 'memory_extraction') are
+        silently dropped because ModelsConfig uses extra="ignore".
         Requirement: 130-REQ-2.E1
         """
         raw = tomllib.loads('[models]\ncoding = "ADVANCED"\nmemory_extraction = "SIMPLE"')
         config = AgentFoxConfig.model_validate(raw)
-        assert not hasattr(config, "models") or "models" not in AgentFoxConfig.model_fields
+        # [models] is now a valid field; the unknown sub-keys are silently ignored.
+        assert "models" in AgentFoxConfig.model_fields
+        assert config.models is not None
 
     def test_old_skeptic_silently_ignored(self) -> None:
         """TS-130-E3: TOML with archetypes.skeptic parses silently.
@@ -292,7 +307,9 @@ class TestSmoke:
             encoding="utf-8",
         )
         config = load_config(config_toml)
-        assert not hasattr(config, "models") or "models" not in AgentFoxConfig.model_fields
+        # [models] is now a known field (ModelsConfig); unknown sub-keys are silently ignored.
+        assert "models" in AgentFoxConfig.model_fields
+        assert config.models is not None
         assert "quality_gate" not in OrchestratorConfig.model_fields
         assert config.orchestrator.parallel == 4
 
@@ -304,7 +321,13 @@ class TestSmoke:
         """
         template = generate_default_config()
         assert "quality_gate" not in template
-        assert "[models]" not in template
+        # [models] is now present as a commented section (issue #759).
+        assert "# [models]" in template
+        # The active header '[models]' must NOT appear (section stays commented).
+        active_header_present = any(
+            line.strip() == "[models]" for line in template.splitlines()
+        )
+        assert not active_header_present
         assert "memory_extraction" not in template
         assert "parallel" in template
         assert "max_budget_usd" in template

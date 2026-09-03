@@ -18,7 +18,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentfox.core.config import PricingConfig
+    from agentfox.core.config import ModelsConfig, PricingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -63,17 +63,27 @@ TIER_DEFAULTS: dict[ModelTier, str] = {
 }
 
 
-def resolve_model(name: str, *, variant: str | None = None) -> str:
+def resolve_model(
+    name: str,
+    *,
+    variant: str | None = None,
+    models_config: ModelsConfig | None = None,
+) -> str:
     """Resolve a tier name or model ID to a model ID string.
 
     Accepts either a tier name (e.g. "SIMPLE", "STANDARD", "ADVANCED")
     or a specific model ID (e.g. "claude-sonnet-4-6").
 
-    When *variant* is ``None`` (the default), returns the model ID from
-    :data:`TIER_DEFAULTS` for the requested tier — identical to pre-variant
-    behavior.
+    When *models_config* is provided, its ``registry`` and ``tier_defaults``
+    entries are merged on top of the built-in :data:`MODEL_REGISTRY` and
+    :data:`TIER_DEFAULTS` respectively, allowing projects to add new models
+    or redirect tier defaults via ``config.toml``.
 
-    When *variant* is provided, scans :data:`MODEL_REGISTRY` for a
+    When *variant* is ``None`` (the default), returns the model ID from
+    the effective ``TIER_DEFAULTS`` for the requested tier — identical to
+    pre-variant behavior.
+
+    When *variant* is provided, scans the effective ``MODEL_REGISTRY`` for a
     ``(tier, variant)`` match.  If no match is found, falls back to the
     tier default and emits a DEBUG-level log.  No exception is ever raised
     for an unmatched or unrecognized variant string.
@@ -81,19 +91,65 @@ def resolve_model(name: str, *, variant: str | None = None) -> str:
     Args:
         name: A tier name (e.g. ``"ADVANCED"``) or a model ID string.
         variant: Optional variant label (e.g. ``"extended"``).
+        models_config: Optional config-based registry and tier-default
+            overrides loaded from ``config.toml``.
 
     Returns:
         A model ID string (e.g. ``"claude-opus-4-6[1m]"``).
 
     Raises:
-        ConfigError: If *name* is not a recognized tier or model ID.
+        ConfigError: If *name* is not a recognized tier or model ID, or if
+            a registry entry in *models_config* contains an invalid tier.
 
     Requirements: 14-REQ-7.1, 14-REQ-7.2, 14-REQ-7.3, 14-REQ-7.4,
-                  14-REQ-9.1, 14-REQ-9.2, 14-REQ-9.3
+                  14-REQ-9.1, 14-REQ-9.2, 14-REQ-9.3,
+                  759-REQ-1, 759-REQ-2, 759-REQ-3, 759-REQ-4
     """
     from agentfox.core.errors import ConfigError
 
-    # Try as a tier name first
+    # Build effective registries, applying config overrides when provided.
+    if models_config is not None:
+        # Config registry entries are validated first so any ConfigError is raised early.
+        config_registry: dict[str, ModelEntry] = {}
+        for model_id, entry_raw in (models_config.registry.model_extra or {}).items():
+            entry = entry_raw if isinstance(entry_raw, dict) else {}
+            tier_name = entry.get("tier")
+            variant_val = entry.get("variant") or None
+            valid_tiers = [t.value for t in ModelTier]
+            try:
+                entry_tier = ModelTier(tier_name)
+            except (ValueError, TypeError):
+                raise ConfigError(
+                    f"Invalid tier '{tier_name}' for model '{model_id}' in models.registry. "
+                    f"Valid tiers: {', '.join(valid_tiers)}",
+                    model=model_id,
+                )
+            config_registry[model_id] = ModelEntry(model_id, entry_tier, variant=variant_val)
+
+        # Config entries are inserted first so they win the tier+variant scan.
+        # Built-in entries are added for model IDs not already covered by config.
+        effective_registry: dict[str, ModelEntry] = {**config_registry}
+        for model_id, entry in MODEL_REGISTRY.items():
+            if model_id not in effective_registry:
+                effective_registry[model_id] = entry
+
+        # Process tier_defaults overrides from [models.tier_defaults].
+        effective_tier_defaults: dict[ModelTier, str] = dict(TIER_DEFAULTS)
+        for tier_name_str, model_id_val in (models_config.tier_defaults.model_extra or {}).items():
+            valid_tiers = [t.value for t in ModelTier]
+            try:
+                override_tier = ModelTier(tier_name_str)
+            except ValueError:
+                raise ConfigError(
+                    f"Invalid tier '{tier_name_str}' in models.tier_defaults. "
+                    f"Valid tiers: {', '.join(valid_tiers)}",
+                )
+            effective_tier_defaults[override_tier] = model_id_val
+    else:
+        effective_registry = MODEL_REGISTRY
+        effective_tier_defaults = TIER_DEFAULTS
+
+    # Try as a tier name first.
     try:
         tier = ModelTier(name)
     except ValueError:
@@ -101,11 +157,11 @@ def resolve_model(name: str, *, variant: str | None = None) -> str:
 
     if tier is not None:
         if variant is None:
-            # Backward-compatible path: return TIER_DEFAULTS model ID.
-            return TIER_DEFAULTS[tier]
+            # Backward-compatible path: return effective tier-default model ID.
+            return effective_tier_defaults[tier]
 
-        # Scan MODEL_REGISTRY for an entry matching (tier, variant).
-        for entry in MODEL_REGISTRY.values():
+        # Scan effective registry for an entry matching (tier, variant).
+        for entry in effective_registry.values():
             if entry.tier == tier and entry.variant == variant:
                 return entry.model_id
 
@@ -114,15 +170,15 @@ def resolve_model(name: str, *, variant: str | None = None) -> str:
             "No model found for tier=%s variant=%s; falling back to tier default %s",
             tier,
             variant,
-            TIER_DEFAULTS[tier],
+            effective_tier_defaults[tier],
         )
-        return TIER_DEFAULTS[tier]
+        return effective_tier_defaults[tier]
 
-    # Try as a direct model ID
-    if name in MODEL_REGISTRY:
+    # Try as a direct model ID.
+    if name in effective_registry:
         return name
 
-    valid_options = sorted(MODEL_REGISTRY.keys())
+    valid_options = sorted(effective_registry.keys())
     raise ConfigError(
         f"Unknown model '{name}'. Valid options: {', '.join(valid_options)}",
         model=name,

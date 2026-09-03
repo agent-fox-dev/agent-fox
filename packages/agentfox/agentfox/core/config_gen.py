@@ -47,6 +47,24 @@ _VISIBLE_SECTIONS: set[str] = {
     "archetypes.instances",
     "platform",
     "workspace",
+    "models",
+    "models.registry",
+    "models.tier_defaults",
+}
+
+# Example comment lines injected into sections that have no schema-defined fields.
+# These appear in the generated template as usage examples so users can discover
+# the config syntax without consulting external documentation.
+# Keys are dot-separated section paths; values are lists of comment strings.
+_SECTION_EXAMPLE_COMMENTS: dict[str, list[str]] = {
+    "models.registry": [
+        '## Example: register a new model and assign it to a tier.',
+        '## "claude-haiku-5-0" = {tier = "SIMPLE", variant = "standard"}',
+    ],
+    "models.tier_defaults": [
+        "## Example: redirect a tier to a different model ID.",
+        '## SIMPLE = "claude-haiku-5-0"',
+    ],
 }
 
 # Fields rendered as active (uncommented) in the default config template.
@@ -429,6 +447,12 @@ def _render_section(section: SectionSpec, lines: list[str]) -> None:
     # Inactive fields are omitted from the simplified template.
     # All options are documented in docs/config-reference.md.
     # (inactive_fields are still rendered during config_merge operations)
+
+    # Render static example comments for sections that have no schema fields.
+    # These provide discoverable usage hints in the generated config template.
+    if not promoted_fields and not inactive_fields:
+        for example_line in _SECTION_EXAMPLE_COMMENTS.get(section.path, []):
+            lines.append(example_line)
 
     # Render subsections (filtered to visible sections only)
     for sub in section.subsections:

@@ -33,7 +33,7 @@ from typing import Any
 import anthropic
 from anthropic import APIStatusError, RateLimitError
 
-from agentfox.core.config import CachePolicy
+from agentfox.core.config import CachePolicy, ModelsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +400,7 @@ async def ai_call(
     system: str | list[dict[str, Any]] | None = None,
     context: str,
     cache_policy: CachePolicy = CachePolicy.DEFAULT,
+    models_config: ModelsConfig | None = None,
     **kwargs: Any,
 ) -> tuple[str | None, Any]:
     """Async AI call: resolve model, create client, retry, track usage, extract text.
@@ -412,6 +413,11 @@ async def ai_call(
     are forwarded to ``cached_messages_create()`` and ultimately to
     ``client.messages.create()``.
 
+    Args:
+        models_config: Optional config-based registry and tier-default
+            overrides from ``config.toml``.  Pass ``config.models`` to
+            honour project-level model customisations.
+
     Returns:
         A tuple of (response_text_or_none, raw_response). Callers should
         check for None text and handle accordingly.
@@ -419,7 +425,7 @@ async def ai_call(
     from agentfox.core.models import resolve_model
     from agentfox.core.token_tracker import track_response_usage
 
-    model_id = resolve_model(model_tier)
+    model_id = resolve_model(model_tier, models_config=models_config)
 
     async def _call() -> Any:
         client = create_async_anthropic_client()
@@ -449,6 +455,7 @@ def ai_call_sync(
     system: str | list[dict[str, Any]] | None = None,
     context: str,
     cache_policy: CachePolicy = CachePolicy.DEFAULT,
+    models_config: ModelsConfig | None = None,
     **kwargs: Any,
 ) -> tuple[str | None, Any]:
     """Synchronous AI call: resolve model, create client, retry, track usage, extract text.
@@ -459,13 +466,18 @@ def ai_call_sync(
     are forwarded to ``cached_messages_create_sync()`` and ultimately to
     ``client.messages.create()``.
 
+    Args:
+        models_config: Optional config-based registry and tier-default
+            overrides from ``config.toml``.  Pass ``config.models`` to
+            honour project-level model customisations.
+
     Returns:
         A tuple of (response_text_or_none, raw_response).
     """
     from agentfox.core.models import resolve_model
     from agentfox.core.token_tracker import track_response_usage
 
-    model_id = resolve_model(model_tier)
+    model_id = resolve_model(model_tier, models_config=models_config)
     client = create_anthropic_client()
 
     def _call() -> Any:

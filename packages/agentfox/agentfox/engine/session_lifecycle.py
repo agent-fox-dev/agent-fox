@@ -305,6 +305,7 @@ class NodeSessionRunner:
         self._resolved_model_id = resolve_model(
             resolve_model_tier(self._config, self._archetype, mode=self._mode),
             variant=resolved_variant,
+            models_config=self._config.models,
         )
         self._resolved_security = resolve_security_config(self._config, self._archetype, mode=self._mode)
 

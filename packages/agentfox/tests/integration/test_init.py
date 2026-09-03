@@ -273,7 +273,11 @@ class TestInitConfigGeneration:
         for section in ["orchestrator", "platform", "archetypes"]:
             assert f"[{section}]" in content, f"Missing section header: {section}"
 
-        assert "[models]" not in content, "[models] section should have been removed"
+        # [models] appears as a commented section header (issue #759)
+        assert "# [models]" in content, "# [models] commented section should appear in config"
+        assert not any(
+            line.strip() == "[models]" for line in content.splitlines()
+        ), "[models] must not appear as an active (uncommented) section header"
 
     def test_reinit_preserves_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Re-init without --config preserves existing config file unchanged."""

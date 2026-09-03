@@ -22,6 +22,8 @@ _EXPECTED_VISIBLE_SECTIONS = frozenset(
         "backend",
         "orchestrator",
         "models",
+        "models.registry",
+        "models.tier_defaults",
         "archetypes",
         "archetypes.instances",
         "platform",
