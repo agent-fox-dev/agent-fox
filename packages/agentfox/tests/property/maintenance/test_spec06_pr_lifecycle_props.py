@@ -16,7 +16,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-
 # ---------------------------------------------------------------------------
 # TS-06-P3: CheckResult null output — always non-optional strings.
 #

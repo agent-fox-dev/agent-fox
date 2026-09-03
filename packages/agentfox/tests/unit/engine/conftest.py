@@ -164,6 +164,14 @@ def _patch_coverage_measurement(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _patch_post_merge_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip post-merge make check in orchestrator unit tests to avoid subprocess hangs."""
+    from agentfox.engine.engine import Orchestrator
+
+    monkeypatch.setattr(Orchestrator, "_post_merge_check_passes", lambda self: True)
+
+
 # -- DuckDB helpers for plan persistence (post-issue-446) ------------------
 
 

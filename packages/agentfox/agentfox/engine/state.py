@@ -181,7 +181,7 @@ async def invoke_runner(
         cost=result.cost,
         duration_ms=result.duration_ms,
         error_message=result.error_message,
-        timestamp=getattr(result, "timestamp", ""),
+        timestamp=getattr(result, "timestamp", None) or datetime.now(UTC).isoformat(),
         model=getattr(result, "model", ""),
         files_touched=getattr(result, "files_touched", []),
         archetype=getattr(result, "archetype", "coder"),

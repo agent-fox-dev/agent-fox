@@ -1937,7 +1937,7 @@ class TestOrchestratorConfigGoogleAdk:
 
 
 # ---------------------------------------------------------------------------
-# TS-04-36: pyproject.toml declares google-adk>=2.0 dependency
+# TS-04-36: pyproject.toml declares google-adk>=2.8.0 dependency
 # Requirement: 04-REQ-12.1
 # ---------------------------------------------------------------------------
 
@@ -1946,7 +1946,7 @@ class TestPyprojectGoogleAdkDependency:
     """Verify pyproject.toml declares google-adk as a mandatory dependency."""
 
     def test_google_adk_in_dependencies(self) -> None:
-        """TS-04-36: google-adk>=2.0 in [project.dependencies]."""
+        """TS-04-36: google-adk>=2.8.0 in [project.dependencies]."""
         pyproject_path = Path(__file__).resolve().parents[4] / "pyproject.toml"
         assert pyproject_path.exists(), f"pyproject.toml not found at {pyproject_path}"
 
@@ -1954,8 +1954,8 @@ class TestPyprojectGoogleAdkDependency:
             data = tomllib.load(f)
 
         deps = data.get("project", {}).get("dependencies", [])
-        assert any("google-adk>=2.0" in dep for dep in deps), (
-            f"'google-adk>=2.0' not found in project.dependencies: {deps}"
+        assert any("google-adk>=2.8.0" in dep for dep in deps), (
+            f"'google-adk>=2.8.0' not found in project.dependencies: {deps}"
         )
 
 

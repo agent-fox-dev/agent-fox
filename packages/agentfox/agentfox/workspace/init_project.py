@@ -126,7 +126,6 @@ def _create_branch(branch: str) -> None:
     )
 
 
-
 def _ensure_skills_symlink(project_root: Path) -> None:
     """Create .claude/skills symlink pointing to ../.agents/skills.
 

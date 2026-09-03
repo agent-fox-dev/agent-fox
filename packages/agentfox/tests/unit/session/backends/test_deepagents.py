@@ -383,7 +383,7 @@ class TestPyprojectDeepagentsDependency:
     """Verify pyproject.toml declares deepagents as a mandatory dependency."""
 
     def test_deepagents_in_dependencies(self) -> None:
-        """TS-03-36: dependencies contains 'deepagents>=0.5'."""
+        """TS-03-36: dependencies contains 'deepagents>=0.7.13'."""
         types_path = inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         backends_dir = os.path.dirname(types_path)
         pyproject_path = os.path.normpath(os.path.join(backends_dir, "..", "..", "..", "pyproject.toml"))
@@ -394,8 +394,8 @@ class TestPyprojectDeepagentsDependency:
             config = tomllib.load(f)
 
         deps = config.get("project", {}).get("dependencies", [])
-        assert any("deepagents>=0.5" in d for d in deps), (
-            f"Expected 'deepagents>=0.5' in project.dependencies, got {deps}"
+        assert any("deepagents>=0.7.13" in d for d in deps), (
+            f"Expected 'deepagents>=0.7.13' in project.dependencies, got {deps}"
         )
 
 

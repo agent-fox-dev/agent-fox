@@ -121,7 +121,10 @@ class TestOrchestratorSkipsWhenNoPlatform:
 
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.engine.engine"):
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.engine"),
+            patch.object(orchestrator, "_post_merge_check_passes", return_value=True),
+        ):
             await orchestrator.run()
 
         # No warnings about issue summaries should be logged
