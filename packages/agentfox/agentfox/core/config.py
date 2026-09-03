@@ -721,7 +721,7 @@ class ModelRegistryConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     @model_validator(mode="after")
-    def _validate_tier_values(self) -> "ModelRegistryConfig":
+    def _validate_tier_values(self) -> ModelRegistryConfig:
         """Validate tier strings for all registry entries at parse time.
 
         Raises ConfigError (not ValidationError) so that load_config()

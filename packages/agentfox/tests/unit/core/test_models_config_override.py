@@ -7,7 +7,6 @@ Requirements: 759-REQ-1, 759-REQ-2, 759-REQ-3, 759-REQ-4
 from __future__ import annotations
 
 import pytest
-
 from agentfox.core.config import ModelRegistryConfig, ModelsConfig, TierDefaultsConfig
 from agentfox.core.errors import ConfigError
 from agentfox.core.models import resolve_model
@@ -22,9 +21,7 @@ class TestResolveModelWithRegistryOverride:
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(
-                **{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}
-            )
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
         )
         result = resolve_model("SIMPLE", variant="standard", models_config=mc)
         assert result == "claude-haiku-5-0"
@@ -35,9 +32,7 @@ class TestResolveModelWithRegistryOverride:
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(
-                **{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}
-            )
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
         )
         result = resolve_model("claude-haiku-5-0", models_config=mc)
         assert result == "claude-haiku-5-0"
@@ -48,9 +43,7 @@ class TestResolveModelWithRegistryOverride:
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(
-                **{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}
-            )
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
         )
         standard_result = resolve_model("STANDARD", models_config=mc)
         assert standard_result == "claude-sonnet-4-6"
@@ -65,9 +58,7 @@ class TestResolveModelWithTierDefaultsOverride:
         Requirement: 759-REQ-2
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(
-                **{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}
-            ),
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}),
             tier_defaults=TierDefaultsConfig(**{"SIMPLE": "claude-haiku-5-0"}),
         )
         result = resolve_model("SIMPLE", models_config=mc)
@@ -79,9 +70,7 @@ class TestResolveModelWithTierDefaultsOverride:
         Requirement: 759-REQ-2
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(
-                **{"claude-haiku-5-0": {"tier": "STANDARD", "variant": "standard"}}
-            ),
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "STANDARD", "variant": "standard"}}),
             tier_defaults=TierDefaultsConfig(**{"STANDARD": "claude-haiku-5-0"}),
         )
         result = resolve_model("STANDARD", models_config=mc)
@@ -155,11 +144,7 @@ class TestResolveModelInvalidTierInRegistry:
         Requirement: 759-REQ-4
         """
         with pytest.raises(ConfigError):
-            ModelsConfig(
-                registry=ModelRegistryConfig(
-                    **{"my-model": {"tier": "INVALID_TIER", "variant": "standard"}}
-                )
-            )
+            ModelsConfig(registry=ModelRegistryConfig(**{"my-model": {"tier": "INVALID_TIER", "variant": "standard"}}))
 
 
 class TestConfigTemplateContainsModelsSections:
@@ -211,7 +196,5 @@ class TestConfigTemplateContainsModelsSections:
 
         schema = extract_schema(AgentFoxConfig)
         template = generate_config_template(schema)
-        active_header_present = any(
-            line.strip() == "[models]" for line in template.splitlines()
-        )
+        active_header_present = any(line.strip() == "[models]" for line in template.splitlines())
         assert not active_header_present

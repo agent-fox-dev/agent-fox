@@ -275,9 +275,9 @@ class TestInitConfigGeneration:
 
         # [models] appears as a commented section header (issue #759)
         assert "# [models]" in content, "# [models] commented section should appear in config"
-        assert not any(
-            line.strip() == "[models]" for line in content.splitlines()
-        ), "[models] must not appear as an active (uncommented) section header"
+        assert not any(line.strip() == "[models]" for line in content.splitlines()), (
+            "[models] must not appear as an active (uncommented) section header"
+        )
 
     def test_reinit_preserves_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Re-init without --config preserves existing config file unchanged."""
