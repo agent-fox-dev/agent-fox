@@ -9,49 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import agentfox
 from af.app import main
 from click.testing import CliRunner
-
-# Path to bundled skill templates (for verification)
-_SKILLS_DIR = Path(agentfox.__file__).parent / "_templates" / "skills"
-
-
-def _bundled_skill_names() -> set[str]:
-    """Return the set of bundled skill template names."""
-    return {f.name for f in _SKILLS_DIR.iterdir() if f.is_file() and not f.name.startswith(".")}
-
-
-# ---------------------------------------------------------------------------
-# TS-47-1: Skills installed to correct paths
-# ---------------------------------------------------------------------------
-
-
-class TestSkillsInstalledToCorrectPaths:
-    """TS-47-1: init --skills creates SKILL.md files at correct paths.
-
-    Requirements: 47-REQ-2.1, 47-REQ-4.1
-    """
-
-    def test_skills_installed_to_correct_paths(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Each bundled skill produces .agents/skills/{name}/SKILL.md."""
-        result = cli_runner.invoke(main, ["init", "--skills"])
-
-        assert result.exit_code == 0
-        for name in _bundled_skill_names():
-            skill_path = tmp_git_repo / ".agents" / "skills" / name / "SKILL.md"
-            assert skill_path.exists(), f"Missing skill: {name}"
-
-    def test_claude_skills_symlink_created(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """709-AC-2: .claude/skills is a symlink after init --skills."""
-        cli_runner.invoke(main, ["init", "--skills"])
-
-        claude_skills = tmp_git_repo / ".claude" / "skills"
-        assert claude_skills.is_symlink()
-        for name in _bundled_skill_names():
-            assert (claude_skills / name / "SKILL.md").exists(), (
-                f"Skill {name} not accessible via .claude/skills symlink"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -74,63 +33,6 @@ class TestNoSkillsWithoutFlag:
         assert not skills_dir.exists() or len(list(skills_dir.iterdir())) == 0
         assert not (tmp_git_repo / ".claude" / "skills").is_symlink()
 
-
-# ---------------------------------------------------------------------------
-# TS-47-3: Skills overwrite on re-run
-# ---------------------------------------------------------------------------
-
-
-class TestSkillsOverwriteOnRerun:
-    """TS-47-3: Re-running init --skills overwrites existing skill files.
-
-    Requirement: 47-REQ-2.4
-    """
-
-    def test_skills_overwrite_on_rerun(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Modified skill file is overwritten with bundled version."""
-        # First install
-        cli_runner.invoke(main, ["init", "--skills"])
-
-        # Pick the first skill and modify it
-        first_name = sorted(_bundled_skill_names())[0]
-        skill_path = tmp_git_repo / ".agents" / "skills" / first_name / "SKILL.md"
-        skill_path.write_text("modified content")
-
-        # Re-install
-        cli_runner.invoke(main, ["init", "--skills"])
-
-        # Should be overwritten with bundled content (after template substitution)
-        bundled_content = (_SKILLS_DIR / first_name).read_text()
-        # Template variables are substituted at install time (371-REQ-3.1)
-        # Resolve spec_root the same way _install_skills does: project config
-        # first, then fall back to load_config(None) (global → defaults).
-        from agentfox.core.config import load_config
-
-        config_path = tmp_git_repo / ".agent-fox" / "config.toml"
-        _cfg = load_config(config_path if config_path.exists() else None)
-        expected = bundled_content.replace("{{SPEC_ROOT}}", _cfg.paths.spec_root)
-        assert skill_path.read_text() == expected
-        assert skill_path.read_text() != "modified content"
-
-
-# ---------------------------------------------------------------------------
-# TS-47-4: Output reports skill count
-# ---------------------------------------------------------------------------
-
-
-class TestOutputReportsSkillCount:
-    """TS-47-4: Human-readable output mentions number of skills installed.
-
-    Requirement: 47-REQ-2.5
-    """
-
-    def test_output_reports_skill_count(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Output contains 'installed' and the skill count number."""
-        result = cli_runner.invoke(main, ["init", "--skills"])
-
-        expected_count = len(_bundled_skill_names())
-        assert "installed" in result.output.lower()
-        assert str(expected_count) in result.output
 
 
 # ---------------------------------------------------------------------------

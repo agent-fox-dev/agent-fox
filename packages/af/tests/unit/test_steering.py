@@ -2,10 +2,10 @@
 
 Tests _ensure_steering_md(), _STEERING_PLACEHOLDER, and template references.
 
-Test Spec: TS-64-1, TS-64-2, TS-64-3, TS-64-4, TS-64-9, TS-64-10, TS-64-11,
+Test Spec: TS-64-1, TS-64-2, TS-64-3, TS-64-4, TS-64-10, TS-64-11,
            TS-64-E1
 Requirements: 64-REQ-1.1, 64-REQ-1.2, 64-REQ-1.3, 64-REQ-1.4, 64-REQ-1.E1,
-              64-REQ-3.1, 64-REQ-3.2, 64-REQ-4.1, 64-REQ-4.2, 64-REQ-5.1
+              64-REQ-4.1, 64-REQ-4.2, 64-REQ-5.1
 """
 
 from __future__ import annotations
@@ -139,32 +139,6 @@ class TestInitCreatesAgentFoxDirectory:
 
         _ensure_steering_md(tmp_path)
         assert (tmp_path / ".agent-fox" / "steering.md").exists()
-
-
-# ---------------------------------------------------------------------------
-# TS-64-9: Skill templates contain steering reference
-# Requirements: 64-REQ-3.1, 64-REQ-3.2
-# ---------------------------------------------------------------------------
-
-
-class TestSkillTemplatesReferenceSteeringMd:
-    """TS-64-9: Every bundled skill template references .specs/steering.md."""
-
-    def test_skill_templates_reference_steering(self) -> None:
-        """All skill templates contain a reference to .specs/steering.md."""
-        templates_dir = Path(__file__).parents[4] / "packages" / "agentfox" / "agentfox" / "_templates" / "skills"
-        assert templates_dir.is_dir(), f"Skills directory not found: {templates_dir}"
-
-        skill_files = [f for f in templates_dir.iterdir() if not f.name.startswith(".")]
-        assert skill_files, "No skill templates found"
-
-        missing = []
-        for skill_file in skill_files:
-            content = skill_file.read_text(encoding="utf-8")
-            if "steering.md" not in content:
-                missing.append(skill_file.name)
-
-        assert not missing, f"Skill templates missing steering.md reference: {missing}"
 
 
 # ---------------------------------------------------------------------------

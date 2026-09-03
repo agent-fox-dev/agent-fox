@@ -7,16 +7,16 @@ work through the steps together with the agent.
 
 ## Installation
 
-Install all bundled skills into your project with:
+Install skills from [agent-fox-dev/skills](https://github.com/agent-fox-dev/skills) into your project with:
 
 ```bash
 af init --skills
 ```
 
-This copies each skill template to `.agents/skills/{name}/SKILL.md` (the
-agent-agnostic canonical location) and creates a `.claude/skills` symlink for
-Claude Code compatibility. Re-running the command updates skills to the latest
-bundled versions.
+This fetches each skill from the external skills repository and installs it to
+`.agents/skills/{name}/SKILL.md` (the agent-agnostic canonical location), then
+creates a `.claude/skills` symlink for Claude Code compatibility. Re-running the
+command updates skills to the latest versions from the repository.
 
 ---
 

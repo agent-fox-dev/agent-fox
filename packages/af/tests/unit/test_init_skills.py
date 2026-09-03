@@ -81,48 +81,6 @@ class TestUnreadableTemplateSkipped:
 
 
 # ---------------------------------------------------------------------------
-# TS-47-E2: Empty templates directory
-# ---------------------------------------------------------------------------
-
-
-class TestEmptyTemplatesDirectory:
-    """TS-47-E2: Empty or missing _templates/skills/ returns 0."""
-
-    def test_empty_skills_dir_returns_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """47-REQ-2.E1: Empty templates directory returns 0 skills."""
-        from agentfox.workspace.init_project import _install_skills
-
-        fake_skills = tmp_path / "empty_skills"
-        fake_skills.mkdir()
-
-        import agentfox.workspace.init_project as init_mod
-
-        monkeypatch.setattr(init_mod, "_SKILLS_DIR", fake_skills)
-
-        project_root = tmp_path / "project"
-        project_root.mkdir()
-
-        count = _install_skills(project_root)
-        assert count == 0
-
-    def test_missing_skills_dir_returns_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """47-REQ-2.E1: Missing templates directory returns 0 skills."""
-        from agentfox.workspace.init_project import _install_skills
-
-        fake_skills = tmp_path / "nonexistent_skills"
-
-        import agentfox.workspace.init_project as init_mod
-
-        monkeypatch.setattr(init_mod, "_SKILLS_DIR", fake_skills)
-
-        project_root = tmp_path / "project"
-        project_root.mkdir()
-
-        count = _install_skills(project_root)
-        assert count == 0
-
-
-# ---------------------------------------------------------------------------
 # TS-47-E3: Permission error creating skills directory
 # ---------------------------------------------------------------------------
 
