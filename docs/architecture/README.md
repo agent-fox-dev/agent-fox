@@ -92,7 +92,7 @@ multi-instance convergence), and the audit trail.
 
 The JSON-based spec format. Covers the v1.3 file structure (JSON artifacts
 validated by `afspec`), PRD frontmatter and lifecycle states, the parsing
-pipeline that maps `afspec` models to agent-fox types, context assembly and
+pipeline that maps `afspec` models to af types, context assembly and
 rendering, validation, and the verification checklist.
 
 ## See Also

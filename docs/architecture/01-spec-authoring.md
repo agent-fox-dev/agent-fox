@@ -7,7 +7,7 @@ does. Every downstream activity — planning, coding, reviewing, verifying — t
 back to a spec. A spec is not documentation written after the fact; it is the
 input artifact that the system consumes. If the spec is wrong, the code will be
 wrong. If the spec is incomplete, the plan will have gaps. This is by design:
-agent-fox treats specs as contracts, not suggestions.
+af treats specs as contracts, not suggestions.
 
 This document covers how specs are structured, how the system discovers and
 validates them, and how automated fixing keeps specs machine-readable without
@@ -239,7 +239,7 @@ The typical authoring workflow is:
    ```
 2. Run `spec validate my_feature` to validate.
    Fix errors and address warnings as appropriate.
-3. Run `agent-fox plan` to build the task graph (see
+3. Run `af plan` to build the task graph (see
    [Part 2: Planning](02-planning.md)).
 
 Specs are immutable once planning begins. If implementation reveals that a spec

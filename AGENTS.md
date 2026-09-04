@@ -8,12 +8,12 @@ this repository. Treat this file as mandatory policy for every coding session.
 Before making any changes, orient yourself:
 
 1. **Read `README.md`** for project overview and quick-start.
-2. **Read `.specs/steering.mdif it exists — project-level directives that
+2. **Read `.specs/steering.md`** if it exists — project-level directives that
    apply to all agents and skills. Follow any instructions found there.
-3. **Read relevant specs** in `{{SPEC_ROOT}}/` for the area you're working on.
+3. **Read relevant specs** in `.specs/` for the area you're working on.
 4. **Read ADRs** in `docs/adr/` for architectural context.
-5. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
-   unit, property, and integration tests. Their location is language dependent.
+5. **Explore the codebase:** `packages/agentfox/agentfox/` and `packages/af/af/` are the main packages, `packages/agentfox/tests/` and `packages/af/tests/` have
+   unit, property, and integration tests.
 6. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
 
 **Important:** Read all documents and code in depth — don't skim.
@@ -26,17 +26,19 @@ Do not implement anything before completing these steps.
 ## Project Structure
 
 ```
-<main_package>/         # Main package
-<test_directory>/       # Tests directory
-docs/                   # Documentation
-{{SPEC_ROOT}}/                 # Specs to be implemented
-{{SPEC_ROOT}}/archive/         # Old specs. Ignore for coding tasks, except for reference
+packages/agentfox/agentfox/   # Core library (main package)
+packages/af/af/               # CLI package (main package)
+packages/agentfox/tests/      # Tests for agentfox
+packages/af/tests/            # Tests for af
+docs/                         # Documentation
+.specs/                       # Specs to be implemented
+.specs/archive/               # Old specs. Ignore for coding tasks, except for reference
 ```
 
 ## Spec-Driven Workflow
 
 This project uses spec-driven development. Specifications live in
-`{{SPEC_ROOT}}/NN_name/` (numbered by creation order) and contain five artifacts:
+`.specs/NN_name/` (numbered by creation order) and contain five artifacts:
 
 - `prd.md` — product requirements document (source of truth)
 - `requirements.md` — EARS-syntax acceptance criteria

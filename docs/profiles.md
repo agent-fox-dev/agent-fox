@@ -14,7 +14,7 @@ changing code.
 
 ## Built-in Profiles
 
-agent-fox ships with profiles for all built-in archetypes and their modes:
+af ships with profiles for all built-in archetypes and their modes:
 
 | Profile file | Archetype | Mode | Purpose |
 |---|---|---|---|
@@ -105,7 +105,7 @@ context).
 
 ### Installing Defaults
 
-Run `agent-fox init --profiles` to copy all built-in profiles into your
+Run `af init --profiles` to copy all built-in profiles into your
 project's `.agent-fox/profiles/` directory. This is idempotent — existing
 files are preserved, only missing profiles are created.
 

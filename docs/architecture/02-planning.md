@@ -7,7 +7,7 @@ Planning is the bridge between human intent (specs) and machine execution
 [Part 1: Spec Authoring](01-spec-authoring.md), constructs a directed acyclic
 graph of tasks with dependency edges, injects review and validation agents at
 the right points, computes an execution order, and persists the result. The
-output — persisted to DuckDB — is what the engine consumes when `agent-fox code` runs
+output — persisted to DuckDB — is what the engine consumes when `af code` runs
 (see [Part 3: Execution and Archetypes](03-execution-and-archetypes.md)).
 
 The planner is deterministic. Given the same specs and configuration, it
@@ -230,7 +230,7 @@ successors is higher priority than one with few.
 The task graph is persisted in the DuckDB knowledge store across three tables:
 `plan_nodes` (node attributes), `plan_edges` (source/target pairs with edge
 kind), and `plan_meta` (content hash, version, fast mode flag, filtered spec).
-The plan is rebuilt from `.agent-fox/specs/` on every `agent-fox plan` invocation and
+The plan is rebuilt from `.agent-fox/specs/` on every `af plan` invocation and
 written atomically.
 
 Persistence is designed for forward compatibility. Missing fields receive

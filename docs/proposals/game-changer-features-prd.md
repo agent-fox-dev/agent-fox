@@ -39,7 +39,7 @@ recommendation and sequencing.
   been pruned and re-enriched three separate times (archived specs `10`,
   `11`, `12`) — a strong signal that "what knowledge should a session see"
   is still an unsolved product problem, not just an implementation detail.
-- **The project self-hosts.** agent-fox already builds agent-fox. This is
+- **The project self-hosts.** af already builds agent-fox. This is
   a unique asset: every feature idea below can be dogfooded on the
   project's own `main` branch before it ships to users.
 
@@ -193,11 +193,11 @@ Beyond the knowledge-parity work above:
 The user explicitly asked for ideas that go beyond incremental
 improvement. These are bigger swings, ordered roughly by ambition:
 
-1. **Fleet mode.** agent-fox currently reasons about one repo. A thin
+1. **Fleet mode.** af currently reasons about one repo. A thin
    coordination layer that runs the *same* orchestrator concept across
    multiple repos a team owns — shared budget ceiling, shared standup
    report, shared knowledge about cross-repo API contracts — turns
-   agent-fox from a per-project tool into an engineering-org control
+   af from a per-project tool into an engineering-org control
    plane. (Directly enabled by the fact that `af standup --json` and
    `af insights --json` already emit structured, aggregable output.)
 

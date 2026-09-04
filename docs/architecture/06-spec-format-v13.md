@@ -206,7 +206,7 @@ Several context helper functions operate on the structured data:
 
 Validation delegates to `afspec.validate()`, which runs JSON Schema validation
 and cross-file referential integrity checks. The results are `ValidationError`
-objects that are mapped to agent-fox `Finding` objects with identical fields
+objects that are mapped to af `Finding` objects with identical fields
 (file, line, rule, message, severity), so the CLI output format is
 unchanged — findings from `afspec` are indistinguishable from findings
 produced by internal validators.

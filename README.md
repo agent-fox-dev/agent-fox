@@ -60,8 +60,10 @@ The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces
 |---------|-------------|
 | `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
-| `packages/afissues/` | Standalone platform/forge abstraction layer — protocol, GitHub integration, label definitions |
-| `packages/afaudit/` | Standalone audit infrastructure — structured events, sinks, postmortem, traces (zero dependencies) |
+
+`afissues` and `afaudit` are not part of this workspace — they live in the
+separate [agent-fox-dev/af-python](https://github.com/agent-fox-dev/af-python)
+repository and are sourced from there via `uv`.
 
 The specification format library (`afspec`) and AI-powered spec creation tools
 (`agentspec`, `spec` CLI) live in the separate
@@ -103,8 +105,8 @@ Install any package directly from git:
 
 ```bash
 pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/agentfox"
-pip install "afissues @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/afissues"
-pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.7.0#subdirectory=packages/afaudit"
+pip install "afissues @ git+https://github.com/agent-fox-dev/af-python.git#subdirectory=packages/afissues"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/af-python.git#subdirectory=packages/afaudit"
 ```
 
 For `afspec` (spec format library), install from the

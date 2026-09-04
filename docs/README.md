@@ -1,8 +1,8 @@
-# agent-fox Documentation
+# af Documentation
 
 ## How It Works
 
-You write a spec, run `agent-fox code`, and walk away. The fox reads your
+You write a spec, run `af code`, and walk away. The fox reads your
 specs, plans the work, spins up isolated git worktrees, runs each coding
 session with the right context, handles merge conflicts, retries failures,
 extracts learnings into structured memory, and merges clean commits to the
@@ -27,14 +27,14 @@ The typical workflow has four stages:
    ```
    Use `spec validate` to check validity before planning.
 
-2. **Plan.** Run `agent-fox plan` to compile your specs into a dependency
+2. **Plan.** Run `af plan` to compile your specs into a dependency
    graph of tasks. The planner is deterministic — same specs, same graph,
    every time. It parses task groups from each spec, builds intra-spec chains
    (groups execute sequentially), wires cross-spec dependencies declared in
    PRDs, and injects review agents at the right positions. Use `--dry-run` to
    see a parallelism analysis, or `--fast` to exclude optional tasks.
 
-3. **Execute.** Run `agent-fox code` to start autonomous
+3. **Execute.** Run `af code` to start autonomous
    execution. The orchestrator dispatches agents to each ready task in
    dependency order. Each agent works in an isolated git worktree on its own
    feature branch, so multiple agents work simultaneously without conflicts.
@@ -46,15 +46,15 @@ The typical workflow has four stages:
    complete, a summary comment is automatically posted to the originating
    GitHub issue (if `prd.md` contains a `## Source` section with a URL).
 
-4. **Monitor.** Run `agent-fox standup` for an activity report covering
+4. **Monitor.** Run `af standup` for an activity report covering
    agent sessions, human commits, and token consumption. Run
-   `agent-fox insights` for a structured view of review findings, drift
+   `af insights` for a structured view of review findings, drift
    reports, and verification verdicts across specs. Both commands support
    `--json` for machine consumption.
 
 ### Agent Archetypes
 
-agent-fox uses a five-entry archetype registry with a mode system to divide
+af uses a five-entry archetype registry with a mode system to divide
 labor:
 
 - **Coder** — the primary implementation agent. Receives the full spec
@@ -87,15 +87,18 @@ in the Architecture Guide.
 
 ### Night Shift
 
-For ongoing codebase health, the maintenance subsystem (`agentfox.maintenance`)
-provides a fix-only daemon. It polls GitHub for issues labelled `af:fix` and
-processes them through a three-stage pipeline (Triage, Coder, Reviewer in
-fix-review mode). Each fix is implemented on an isolated branch and merged
-back into the integration branch.
+For ongoing codebase health, [nightshift](https://github.com/agent-fox-dev/nightshift)
+is a separate product and standalone CLI (`nightshift` command) that runs a
+fix-only daemon. It lives in its own repository (`agent-fox-dev/nightshift`),
+uses its own core library (`afcore`), and reads its own config
+(`.nightshift/config.toml`). Nightshift polls GitHub for issues labelled
+`af:fix` and processes them through a three-stage pipeline (Triage, Coder,
+Reviewer in fix-review mode). Each fix is implemented on an isolated branch
+and merged back into the integration branch.
 
 ### Knowledge System
 
-agent-fox maintains a persistent knowledge store that provides
+af maintains a persistent knowledge store that provides
 institutional memory across sessions. Each new session starts with a fresh
 context window but receives curated, relevant knowledge from prior sessions
 so agents build on each other's work rather than starting blind.
@@ -114,21 +117,21 @@ active knowledge set current without manual intervention.
 ### Recovery
 
 When tasks fail or become blocked, start by diagnosing what went wrong.
-Run `agent-fox insights` to list active review findings — critical findings
+Run `af insights` to list active review findings — critical findings
 from pre-review, drift-review, or verification often explain why a task is
 blocked. Filter by spec with `--spec NAME` or by severity with
 `--severity critical` to narrow down the cause. Once you understand and
 address the blocking finding (e.g., fix a spec issue flagged by pre-review,
 resolve a drift detected against the codebase), dismiss it with
-`--dismiss ID REASON`, then run `agent-fox plan --reset` to restart the
+`--dismiss ID REASON`, then run `af plan --reset` to restart the
 affected task. For targeted recovery, pass a specific task ID:
-`agent-fox plan --reset TASK_ID`. For a full restart, use
-`agent-fox plan --reset-hard` to reset all tasks, clean up worktrees and
+`af plan --reset TASK_ID`. For a full restart, use
+`af plan --reset-hard` to reset all tasks, clean up worktrees and
 branches, compact the knowledge store, and roll back the integration branch.
 
 ## Architecture
 
-For a detailed understanding of how agent-fox works internally, start with
+For a detailed understanding of how af works internally, start with
 the [Coding Session Architecture](architecture.md) — a top-down walkthrough
 covering persistent state, the orchestrator's dispatch loop, session
 lifecycle, prompt construction, the knowledge system, and worktree/git

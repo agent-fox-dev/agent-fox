@@ -57,7 +57,7 @@ particularly around git state, manifest state, and merge lock coordination —
 are where integration bugs are most likely.
 
 The synthetic repo setup creates a "miniature fork ecosystem": an upstream bare
-repo, a fork (clone), and the agent-fox working directory. This allows testing
+repo, a fork (clone), and the af working directory. This allows testing
 fetch/push/rebase/merge operations against real git repos without network
 access.
 

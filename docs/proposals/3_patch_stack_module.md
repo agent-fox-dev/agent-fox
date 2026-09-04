@@ -53,7 +53,7 @@ list.
 
 ## Background
 
-The current agent-fox integration model is imperative: each fix or feature
+The current af integration model is imperative: each fix or feature
 branch is squash-merged into the integration branch as it completes. There is
 no concept of a persistent, ordered collection of changes that can be replayed.
 When the integration branch diverges from upstream, the divergence is permanent

@@ -1,5 +1,12 @@
 # Night-Shift Mode
 
+> **Note:** Night-shift is a separate product in its own repository:
+> [agent-fox-dev/nightshift](https://github.com/agent-fox-dev/nightshift).
+> It ships its own CLI (`nightshift` command), its own core library (`afcore`),
+> and its own configuration file (`.nightshift/config.toml`). The architecture
+> description below documents the nightshift pipeline as it integrates with an
+> af repository.
+
 ## Purpose and Placement
 
 Night-shift is a fix-only maintenance daemon that runs continuously,
@@ -280,7 +287,7 @@ Night-shift uses platform labels to manage its fix workflow lifecycle:
 | `priority:low` | User | Process after other issues in topological sort |
 
 All labels are automatically created on the GitHub repository by
-`agent-fox init` when a `[platform]` section is configured.
+`af init` when a `[platform]` section is configured.
 
 ---
 
@@ -340,7 +347,7 @@ integration branch. Running both concurrently would create merge contention.
 
 The intended workflow is:
 
-- During active development: run the spec pipeline (`agent-fox code`) to
+- During active development: run the spec pipeline (`af code`) to
   implement features.
 - During off-hours: run the standalone `nightshift` CLI to process
   fix issues.

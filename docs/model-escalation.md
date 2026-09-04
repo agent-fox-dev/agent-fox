@@ -1,6 +1,6 @@
 # Model Tiers, Variants, and Retry Behavior
 
-This document describes how agent-fox selects models for each archetype and
+This document describes how af selects models for each archetype and
 how failed sessions are retried.
 
 ## Model Tiers and Variants

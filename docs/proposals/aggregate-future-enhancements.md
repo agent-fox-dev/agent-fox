@@ -7,7 +7,7 @@
 | **Sources** | `evolution-analysis.md`, `game-changer-features-prd.md`, `agent-fox-v2-prd.md` |
 
 This document consolidates every proposed new capability and enhancement for
-agent-fox across the proposal documents. Organized from lowest-effort
+af across the proposal documents. Organized from lowest-effort
 highest-ROI (finishing half-built features) through strategic bets to
 exploratory ideas.
 
@@ -210,7 +210,7 @@ Currently knowledge scopes retrieval to same-spec sessions. Expand with:
   catches, store the mistake-and-fix pair; warn future sessions
 
 **Why it matters:** Current sessions are amnesiac across specs. Cross-spec
-intelligence gives agent-fox accumulated project intuition.
+intelligence gives af accumulated project intuition.
 
 ### 4.2 Upgrade Retrieval Scoring
 
@@ -320,9 +320,9 @@ A GitHub Action that:
 1. Watches for spec changes in PRs and runs `af plan` + `af code` on a runner
 2. Posts results as PR comments (standup report, findings, costs)
 3. Creates fix PRs from `af:fix` issues automatically (replaces local Night Shift)
-4. Responds to `@agent-fox fix this` in PR review comments
+4. Responds to `@af fix this` in PR review comments
 
-**Why it matters:** Teams can try agent-fox without local installation.
+**Why it matters:** Teams can try af without local installation.
 CI/CD and code review integration. Non-Python teams can use it.
 
 ### 7.2 PR-Native Review Mode
@@ -336,7 +336,7 @@ policy change, not a new subsystem.
 
 Run the same orchestrator across multiple repos a team owns — shared budget
 ceiling, shared standup report, shared knowledge about cross-repo API
-contracts. Turns agent-fox from a per-project tool into an engineering-org
+contracts. Turns af from a per-project tool into an engineering-org
 control plane. Enabled by `af standup --json` and `af insights --json`
 already emitting structured, aggregable output.
 

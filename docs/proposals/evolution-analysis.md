@@ -1,6 +1,6 @@
 # Agent-Fox Evolution: Simplification & Game-Changers
 
-A product analysis and roadmap for the next phase of agent-fox — cutting
+A product analysis and roadmap for the next phase of af — cutting
 complexity that doesn't earn its keep, and adding capabilities that would
 fundamentally change how developers work with AI coding agents.
 
@@ -8,7 +8,7 @@ fundamentally change how developers work with AI coding agents.
 
 ## Part 1: The Current State
 
-### What agent-fox is
+### What af is
 
 Agent-fox is an autonomous coding-agent orchestrator built exclusively for
 Claude Code. You write specs, it plans the work as a dependency graph, spins
@@ -344,7 +344,7 @@ or where things are stuck.
 5. **Timeline** — scrollable history of completions and failures
 
 **Why it's a game-changer:** Trust. The #1 reason users babysit AI agents is
-lack of visibility. A dashboard turns agent-fox from "fire and pray" to "fire
+lack of visibility. A dashboard turns af from "fire and pray" to "fire
 and monitor." Users who can *see* what's happening and *intervene* when needed
 will actually walk away.
 
@@ -385,7 +385,7 @@ class of mistake.
 
 **Why it's a game-changer:** Current sessions are amnesiac across specs. A
 human developer builds project intuition over weeks. Cross-spec intelligence
-gives agent-fox the same capability — each session gets smarter because of
+gives af the same capability — each session gets smarter because of
 every session that came before it.
 
 **Effort:** Medium. The knowledge DB and retrieval infrastructure exist. The
@@ -420,7 +420,7 @@ savings of many successful cheap attempts.
 - Failure cost penalty (already tracked via retries)
 
 **Why it's a game-changer:** Cost is the #2 concern (after quality) for AI
-coding tool adoption. If agent-fox can deliver the same quality at 40-60%
+coding tool adoption. If af can deliver the same quality at 40-60%
 lower cost by routing easy tasks to cheaper models, that's a massive
 competitive advantage.
 
@@ -441,14 +441,14 @@ platform: GitHub.
    cost breakdown
 3. **Creates fix PRs from issues** — monitors `af:fix` issues and creates
    fix PRs automatically (replaces local `nightshift`)
-4. **Interactive review** — when a reviewer comments `@agent-fox fix this` on
+4. **Interactive review** — when a reviewer comments `@af fix this` on
    a PR review comment, the bot runs a targeted fix session
 
 **Why it's a game-changer:**
-- Teams can try agent-fox on one PR without local installation
+- Teams can try af on one PR without local installation
 - CI/CD integration for spec validation
-- Code review integration (reviewers can ask agent-fox to fix issues)
-- Non-Python teams can use agent-fox (they don't need `uv` locally)
+- Code review integration (reviewers can ask af to fix issues)
+- Non-Python teams can use af (they don't need `uv` locally)
 
 **Effort:** Medium-high. The core orchestrator works headlessly. The GitHub
 Action wrapper and CI environment setup are new.
@@ -603,7 +603,7 @@ The gap between today and tomorrow is five capabilities:
    last
 
 These five, layered onto the already-solid orchestration engine, would make
-agent-fox not just an orchestrator but an *autonomous development partner*.
+af not just an orchestrator but an *autonomous development partner*.
 
 ---
 

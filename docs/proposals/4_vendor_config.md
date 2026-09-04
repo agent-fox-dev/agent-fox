@@ -25,7 +25,7 @@ and vendor CLI (spec 08).
 1. **Single config section** -- all vendor-workflow settings live under
    `[vendor]` in the existing `.agent-fox/config.toml` file.
 2. **Opt-in activation** -- the vendor workflow is disabled by default
-   (`vendor.enabled = false`). Existing agent-fox users are unaffected.
+   (`vendor.enabled = false`). Existing af users are unaffected.
 3. **Pydantic validation** -- all fields are validated at config load time with
    clear error messages for invalid values.
 4. **Config template generation** -- the `[vendor]` section appears in the
@@ -46,7 +46,7 @@ and vendor CLI (spec 08).
 
 ## Background
 
-agent-fox configuration lives in `.agent-fox/config.toml` and is loaded into
+af configuration lives in `.agent-fox/config.toml` and is loaded into
 Pydantic models defined in `packages/agentfox/agentfox/config.py`. The existing
 structure includes `[workspace]`, `[nightshift]`, `[platform]`, `[knowledge]`,
 and other sections. Each section maps to a Pydantic model with defaults.

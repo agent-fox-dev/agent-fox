@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-agent-fox previously hardcoded `"develop"` as the integration branch
+af previously hardcoded `"develop"` as the integration branch
 throughout the codebase, coupling the tool to a git-flow branching
 strategy.  Many projects use `main` as their sole long-lived branch
 and do not want or need a separate `develop` branch.

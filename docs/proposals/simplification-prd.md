@@ -1,4 +1,4 @@
-# PRD: Simplify & Accelerate the agent-fox Workflow
+# PRD: Simplify & Accelerate the af Workflow
 
 | | |
 |---|---|
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-agent-fox is a mature, actively self-hosted system (it builds itself: 419
+af is a mature, actively self-hosted system (it builds itself: 419
 GitHub issues to date, 8 shipped patch releases in the last two days of
 history alone, a live `main` branch that the orchestrator itself commits
 to). That maturity is visible in the code: a genuinely well-tested
@@ -250,7 +250,7 @@ that reads it:
 None of these are hard bugs — every one is graceful-degradation-by-design
 — but each one is a support burden: a user sets a documented option,
 observes no effect, and either files an issue or (more likely) silently
-concludes agent-fox is unreliable.
+concludes af is unreliable.
 
 ### 3.5 Support subsystems (`workspace/`, `ui/`, `io/`, `reporting/`)
 

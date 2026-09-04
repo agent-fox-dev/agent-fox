@@ -7,7 +7,7 @@ tasks from the plan graph, the lifecycle of individual coding sessions, the
 workspace isolation model, and the agent archetypes that perform the actual work.
 It assumes familiarity with how specs become task graphs
 ([Part 2: Planning](02-planning.md)) and explains what happens when
-`agent-fox code` starts executing that graph.
+`af code` starts executing that graph.
 
 ---
 
@@ -391,7 +391,7 @@ it implements code to make existing tests pass. The Coder runs quality checks,
 commits with conventional messages, and produces a session summary. It operates
 at the STANDARD model tier by default with adaptive extended thinking enabled,
 and has unrestricted tool access. A `fix` mode variant is used by the
-`agent-fox fix` pipeline.
+nightshift fix pipeline.
 
 ### Reviewer
 

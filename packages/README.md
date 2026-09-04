@@ -7,17 +7,19 @@ This monorepo contains the following packages, managed as a
 |---------|-------------|---------|
 | **[af](af/)** | CLI for the agent-fox orchestrator. Provides the `af` command. | `uv pip install -e packages/af` |
 | **[agentfox](agentfox/)** | Core library — spec engine, graph planner, session runtime, and workspace tools. | `uv pip install -e packages/agentfox` |
-| **[afissues](afissues/)** | Standalone platform/forge abstraction layer — protocol, GitHub integration, label definitions. | `uv pip install -e packages/afissues` |
-| **[afaudit](afaudit/)** | Zero-dependency audit infrastructure — structured events, sinks, postmortem, traces, cleanup. | `uv pip install -e packages/afaudit` |
+
+`afissues` and `afaudit` are **not** part of this workspace. They live in the
+separate [agent-fox-dev/af-python](https://github.com/agent-fox-dev/af-python)
+repository and are sourced from there via `uv`.
 
 ## Dependency graph
 
 ```
 af  ──▶  agentfox  ──▶  afspec (external: spec-format)
  │            │
- │            ├──▶  afissues
- │            └──▶  afaudit
- └──────────▶  afaudit
+ │            ├──▶  afissues  (external: af-python)
+ │            └──▶  afaudit   (external: af-python)
+ └──────────▶  afaudit        (external: af-python)
 ```
 
 `afissues` and `afaudit` have no internal dependencies and can be used independently.

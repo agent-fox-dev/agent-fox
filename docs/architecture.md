@@ -1,6 +1,6 @@
 # Coding Session Architecture
 
-How agent-fox turns a collection of specifications into committed code through
+How af turns a collection of specifications into committed code through
 autonomous, parallel, knowledge-accumulating coding sessions.
 
 This document is a top-down walkthrough — from the persistent state in the
@@ -14,7 +14,7 @@ to how knowledge is harvested and fed forward to future sessions.
 
 ### 1.1 The Contract Model
 
-Everything agent-fox does traces back to a **spec** — a set of structured
+Everything af does traces back to a **spec** — a set of structured
 artifacts that together define a coherent unit of work. Specs use the v1.3
 JSON-based format. See
 [Part 6: Spec Format v1.3](architecture/06-spec-format-v13.md) for details.
@@ -133,7 +133,7 @@ Two tables record tool-level telemetry:
 The database uses forward-only migrations applied at open time. Each migration
 is versioned and idempotent. A `schema_version` table tracks which migrations
 have been applied. The migration system ensures databases created by earlier
-versions of agent-fox are brought up to date transparently.
+versions of af are brought up to date transparently.
 
 ---
 

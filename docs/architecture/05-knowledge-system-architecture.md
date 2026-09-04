@@ -6,7 +6,7 @@
 
 ## 1. What the Knowledge System Is
 
-The agent-fox knowledge system is the institutional memory of an autonomous
+The af knowledge system is the institutional memory of an autonomous
 coding orchestrator. It captures what happens during sessions — quality
 concerns, architectural decisions, spec corrections, session summaries — and
 makes that information available to future sessions for the same or related
@@ -19,7 +19,7 @@ session starts with a fresh context window, but not a blank mind.** The
 orchestrator deliberately resets the LLM's context between sessions to prevent
 accumulated confusion, while the knowledge system provides curated, relevant
 prior knowledge to each new session. This separation of concerns — stateless
-execution with persistent knowledge — is what allows agent-fox to run
+execution with persistent knowledge — is what allows af to run
 autonomously across dozens or hundreds of sessions without context window
 degradation.
 
@@ -391,7 +391,7 @@ considered addressed merely because the session completed.
 
 ## 9. Quality Assurance Layer
 
-Beyond the knowledge protocol, agent-fox maintains a quality layer through its
+Beyond the knowledge protocol, af maintains a quality layer through its
 archetype system. Multiple agent archetypes produce structured findings stored
 in DuckDB:
 

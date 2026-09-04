@@ -1,21 +1,21 @@
 # CLI Reference
 
-Complete reference for all `agent-fox` commands, options, and configuration.
+Complete reference for all `af` commands, options, and configuration.
 
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
-| `agent-fox init` | Initialize project (creates `.agent-fox/`, integration branch, `.gitignore`, `AGENTS.md`) |
-| `agent-fox plan` | Build execution plan from `.agent-fox/specs/` |
-| `agent-fox code` | Execute the task plan via orchestrator |
-| `agent-fox standup` | Generate daily activity report |
-| `agent-fox insights` | Query review findings from the knowledge database |
+| `af init` | Initialize project (creates `.agent-fox/`, integration branch, `.gitignore`, `AGENTS.md`) |
+| `af plan` | Build execution plan from `.agent-fox/specs/` |
+| `af code` | Execute the task plan via orchestrator |
+| `af standup` | Generate daily activity report |
+| `af insights` | Query review findings from the knowledge database |
 
 ## Global Options
 
 ```
-agent-fox [OPTIONS] COMMAND [ARGS]
+af [OPTIONS] COMMAND [ARGS]
 ```
 
 | Option | Short | Description |
@@ -56,17 +56,17 @@ automatically enable JSON output mode. This can be overridden with
 
 ```bash
 # Get structured output from standup
-agent-fox standup --json
+af standup --json
 
 # Combine with --verbose for JSON output + debug logs on stderr
-agent-fox code --json --verbose
+af code --json --verbose
 ```
 
 **Error handling:**
 
 ```bash
 # Invalid JSON on stdin produces an error envelope
-echo 'not json' | agent-fox code --json
+echo 'not json' | af code --json
 # stdout: {"error": "invalid JSON input: ..."}
 # exit code: 1
 ```
@@ -80,7 +80,7 @@ echo 'not json' | agent-fox code --json
 Initialize the current project for agent-fox.
 
 ```
-agent-fox init [OPTIONS]
+af init [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
@@ -123,7 +123,7 @@ preserved -- only missing profiles are created. This enables project-level
 customization of agent behavior. See [Profiles](profiles.md) for details.
 
 **Skills installation (`--skills`):** When `--skills` is provided, copies
-bundled skill templates from the agent-fox package into
+bundled skill templates from the af package into
 `.agents/skills/{name}/SKILL.md` and creates a `.claude/skills` symlink
 pointing to `.agents/skills/` for Claude Code compatibility. Each skill
 becomes available as a slash command in Claude Code (e.g., `/af-spec`).
@@ -147,7 +147,7 @@ a git repository), `1` unexpected error.
 Build an execution plan from specifications.
 
 ```
-agent-fox plan [OPTIONS] [TASK_ID]
+af plan [OPTIONS] [TASK_ID]
 ```
 
 | Option | Type | Default | Description |
@@ -278,7 +278,7 @@ combined with `--clear`, `--reset`, or `--reset-hard`.
 Execute the task plan.
 
 ```
-agent-fox code [OPTIONS]
+af code [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
@@ -297,7 +297,7 @@ each ready task in the plan. Sessions execute in isolated git worktrees with
 feature branches. After each session, results are harvested (merged) and state
 is persisted to the DuckDB knowledge store.
 
-Requires a persisted plan in the knowledge store (run `agent-fox plan` first).
+Requires a persisted plan in the knowledge store (run `af plan` first).
 
 The `--force-clean` flag overrides the `workspace.force_clean` config setting.
 When active, the orchestrator automatically removes untracked files and resets
@@ -348,16 +348,16 @@ empty collections for `nodes`, `edges`, and `order`.
 
 ```bash
 # Preview remaining work in the plan
-agent-fox code --dry-run
+af code --dry-run
 
 # Get structured JSON output for scripting
-agent-fox code --dry-run --json
+af code --dry-run --json
 ```
 
 **Edge cases:**
 
 - If no plan exists (knowledge DB not found), exits with code 1 and an error
-  message suggesting `agent-fox plan`.
+  message suggesting `af plan`.
 - If the plan has no tasks, displays "No tasks in plan." and exits with code 0.
 - If all tasks are completed, displays "All tasks completed." and exits with
   code 0.
@@ -381,7 +381,7 @@ invocation into a long-lived process that picks up new work as it appears.
 
 ```bash
 # Keep the orchestrator running, check for new specs every 30 seconds
-agent-fox code --watch --watch-interval 30
+af code --watch --watch-interval 30
 ```
 
 #### Serial Mode (`--no-parallel`)
@@ -393,7 +393,7 @@ without modifying the config file. The override is transient — the config
 file is not modified.
 
 ```bash
-agent-fox code --no-parallel
+af code --no-parallel
 ```
 
 #### Archive Mode (`--archive`)
@@ -404,7 +404,7 @@ group nodes have `completed` status. Partially completed specs are left in
 place.
 
 ```bash
-agent-fox code --archive
+af code --archive
 ```
 
 **Exit codes:**
@@ -429,7 +429,7 @@ deadlock.
 Generate a daily activity report.
 
 ```
-agent-fox standup [OPTIONS]
+af standup [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
@@ -440,7 +440,7 @@ agent-fox standup [OPTIONS]
 Covers agent activity (sessions, tokens, cost), human commits, file overlaps
 between agent and human work, and queue status (ready/pending/blocked tasks).
 
-Use `agent-fox standup --json` for structured JSON output.
+Use `af standup --json` for structured JSON output.
 
 **Exit codes:** `0` success.
 
@@ -451,7 +451,7 @@ Use `agent-fox standup --json` for structured JSON output.
 Query review findings from the knowledge database.
 
 ```
-agent-fox insights [OPTIONS]
+af insights [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
@@ -465,7 +465,7 @@ agent-fox insights [OPTIONS]
 
 Displays active (non-superseded) review findings from the knowledge store.
 Findings are produced by Reviewer (pre-review, drift-review, audit-review
-modes) and Verifier archetypes during `agent-fox code` sessions.
+modes) and Verifier archetypes during `af code` sessions.
 
 **Exit codes:** `0` success.
 

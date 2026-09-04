@@ -7,7 +7,7 @@
 | **Sources** | `evolution-analysis.md`, `simplification-prd.md`, `game-changer-features-prd.md` |
 
 This document consolidates every actionable improvement to the existing
-agent-fox codebase found across the proposal documents. These are not new
+af codebase found across the proposal documents. These are not new
 features — they are cleanup, consolidation, bug fixes, and structural
 improvements that reduce complexity, remove dead weight, and fix silent
 misbehavior.
