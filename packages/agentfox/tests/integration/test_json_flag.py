@@ -282,13 +282,14 @@ class TestErrorEnvelope:
 
 
 class TestExitCodePreserved:
-    """TS-23-18: Exit codes are the same with and without --json."""
+    """TS-23-18: PlanError exit codes in text vs json mode."""
 
     def test_exit_code_preserved(self, cli_runner: CliRunner, tmp_project: Path) -> None:
-        """Same failing command has same exit code with and without --json."""
+        """json mode exits 0 on PlanError (fix #761); text mode exits 1."""
         result_text = cli_runner.invoke(main, ["plan"])
         result_json = cli_runner.invoke(main, ["plan", "--json"])
-        assert result_text.exit_code == result_json.exit_code
+        assert result_text.exit_code == 1
+        assert result_json.exit_code == 0
 
 
 # ---------------------------------------------------------------------------
