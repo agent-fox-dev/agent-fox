@@ -4,7 +4,7 @@ version = "4.7.2"
 description = "CLI for the agent-fox autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "afaudit>=4.7.2",
+    "afaudit>=1.0.0",
     "agentfox>=4.7.2",
     "click>=8.1",
     "rich>=15.0",
@@ -19,7 +19,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-afaudit = { workspace = true }
+afaudit = { git = "https://github.com/agent-fox-dev/af-python", subdirectory = "packages/afaudit" }
 agentfox = { workspace = true }
 
 [tool.pytest.ini_options]

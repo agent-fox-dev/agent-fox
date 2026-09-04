@@ -11,8 +11,6 @@ resolution-markers = [
 [manifest]
 members = [
     "af",
-    "afaudit",
-    "afissues",
     "agent-fox",
     "agentfox",
 ]
@@ -31,7 +29,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "afaudit", editable = "packages/afaudit" },
+    { name = "afaudit", git = "https://github.com/agent-fox-dev/af-python?subdirectory=packages%2Fafaudit" },
     { name = "agentfox", editable = "packages/agentfox" },
     { name = "click", specifier = ">=8.1" },
     { name = "duckdb", specifier = ">=1.5.5" },
@@ -40,19 +38,16 @@ requires-dist = [
 
 [[package]]
 name = "afaudit"
-version = "4.7.2"
-source = { editable = "packages/afaudit" }
+version = "1.0.0"
+source = { git = "https://github.com/agent-fox-dev/af-python?subdirectory=packages%2Fafaudit#faedf228c51c793093d9f1d0424707d7d8144d1d" }
 
 [[package]]
 name = "afissues"
-version = "4.7.2"
-source = { editable = "packages/afissues" }
+version = "1.0.0"
+source = { git = "https://github.com/agent-fox-dev/af-python?subdirectory=packages%2Fafissues#faedf228c51c793093d9f1d0424707d7d8144d1d" }
 dependencies = [
     { name = "httpx" },
 ]
-
-[package.metadata]
-requires-dist = [{ name = "httpx", specifier = ">=0.27" }]
 
 [[package]]
 name = "afspec"
@@ -147,8 +142,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "afaudit", editable = "packages/afaudit" },
-    { name = "afissues", editable = "packages/afissues" },
+    { name = "afaudit", git = "https://github.com/agent-fox-dev/af-python?subdirectory=packages%2Fafaudit" },
+    { name = "afissues", git = "https://github.com/agent-fox-dev/af-python?subdirectory=packages%2Fafissues" },
     { name = "afspec", git = "https://github.com/agent-fox-dev/spec-format?subdirectory=packages%2Fafspec" },
     { name = "anthropic", extras = ["vertex", "bedrock"], specifier = ">=1.3.0" },
     { name = "claude-agent-sdk", specifier = ">=0.2.152" },

@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afaudit/tests", "packages/afissues/tests"]
+testpaths = ["packages/agentfox/tests", "packages/af/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
 addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke' --import-mode=importlib"
@@ -33,12 +33,12 @@ markers = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/af", "packages/agentfox"]
 
 [tool.uv.sources]
 af = { workspace = true }
-afaudit = { workspace = true }
-afissues = { workspace = true }
+afaudit = { git = "https://github.com/agent-fox-dev/af-python", subdirectory = "packages/afaudit" }
+afissues = { git = "https://github.com/agent-fox-dev/af-python", subdirectory = "packages/afissues" }
 agentfox = { workspace = true }
 
 [tool.ruff]
