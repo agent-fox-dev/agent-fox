@@ -85,7 +85,7 @@ def _make_spec_dir(root: Path) -> Path:
 def _make_steering_file(root: Path, content: str) -> Path:
     """Create steering.md in the .agent-fox directory.
 
-    Steering now lives at {project_root}/.agent-fox/steering.md,
+    Steering now lives at {project_root}/.specs/steering.md,
     separate from the spec directories.
     """
     agent_fox_dir = root / ".agent-fox"

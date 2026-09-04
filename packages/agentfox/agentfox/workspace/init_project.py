@@ -29,7 +29,7 @@ _GITIGNORE_ENTRIES = [
     "# agent-fox",
     ".agent-fox/*",
     "!.agent-fox/config.toml",
-    "!.agent-fox/steering.md",
+    "!.specs/steering.md",
     "!.agent-fox/specs/",
     "!.agent-fox/profiles/",
     "!.agent-fox/profiles/*",
@@ -327,7 +327,7 @@ def _ensure_claude_md_symlink(project_root: Path) -> None:
 
 
 def _ensure_steering_md(project_root: Path, specs_dir: Path | None = None) -> str:
-    """Create .agent-fox/steering.md placeholder if it does not exist.
+    """Create .specs/steering.md placeholder if it does not exist.
 
     Returns:
         "created" if the file was written, "skipped" if it already existed

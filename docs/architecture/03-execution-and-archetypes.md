@@ -282,7 +282,7 @@ The task context layer is assembled from the following sources, in order:
 2. **DB-backed findings.** Review findings and drift findings are queried
    from DuckDB and rendered as structured markdown sections (grouped by
    severity for reviews).
-3. **Steering directives.** Project-wide guidance from `.agent-fox/steering.md`
+3. **Steering directives.** Project-wide guidance from `.specs/steering.md`
    is included after spec files and before memory facts. Placeholder-only
    steering files (containing only HTML comment sentinels) are detected and
    skipped.

@@ -683,7 +683,7 @@ without modifying the package.
    DuckDB and rendered as structured markdown (grouped by severity). This gives
    the agent visibility into prior quality assessments on this spec.
 
-3. **Steering directives.** Project-wide guidance from `.agent-fox/steering.md`
+3. **Steering directives.** Project-wide guidance from `.specs/steering.md`
    is included after spec files.
 
 4. **Knowledge facts.** Relevant context from the knowledge store is retrieved

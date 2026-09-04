@@ -23,7 +23,7 @@ hack/**
 # agent-fox
 .agent-fox/*
 !.agent-fox/config.toml
-!.agent-fox/steering.md
+!.specs/steering.md
 !.agent-fox/specs/
 !.agent-fox/profiles/
 !.agent-fox/profiles/*

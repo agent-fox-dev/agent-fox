@@ -211,7 +211,7 @@ The `/afspec` skill in Claude Code generates the full five-file package from a P
 
 ### 6.3 Steering Document
 
-`.agent-fox/steering.md` is a persistent directive surface. Any instruction placed here (e.g., "always add type hints," "never use global state") is injected into every agent session and skill invocation. If the file contains only the initial placeholder text, it is silently skipped.
+`.specs/steering.md` is a persistent directive surface. Any instruction placed here (e.g., "always add type hints," "never use global state") is injected into every agent session and skill invocation. If the file contains only the initial placeholder text, it is silently skipped.
 
 ### 6.4 Command-Line Inputs
 
