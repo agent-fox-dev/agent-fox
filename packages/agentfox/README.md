@@ -93,20 +93,6 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `SessionRecord` | `engine.state` | Per-session outcome: `node_id`, `attempt`, `status`, `archetype`, `model`, `duration_ms`, `cost`, `error_message`, token counts. |
 | `InterruptedResult` | `engine.run` | Lightweight result for KeyboardInterrupt. |
 
-### Anthropic Client (`agentfox.core.client`)
-
-| Symbol | Description |
-|--------|-------------|
-| `create_anthropic_client()` | Sync Anthropic client. Auto-detects Vertex AI / Bedrock / direct API via env vars. |
-| `create_async_anthropic_client()` | Async variant. |
-| `ai_call` | `async (*, model_tier, max_tokens, messages, system, context, cache_policy) -> (text, response)` -- high-level: resolve model + create client + retry + track usage + extract text. |
-| `ai_call_sync` | Synchronous variant of `ai_call`. |
-| `cached_messages_create` | `async (client, *, model, max_tokens, messages, system, cache_policy) -> response` -- prompt-caching wrapper around `client.messages.create()`. |
-| `cached_messages_create_sync` | Synchronous variant. |
-| `retry_api_call_async` | `async (fn, *, context='API call') -> T` -- retry with fixed-schedule backoff on transient API errors. |
-| `retry_api_call` | Synchronous variant. |
-| `extract_response_text` | `(response) -> str \| None` -- extract text from first content block. |
-
 ### Models (`agentfox.core.models`)
 
 | Symbol | Description |
