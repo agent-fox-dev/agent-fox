@@ -95,8 +95,8 @@ def _save_plan_to_db(graph: TaskGraph, conn: duckdb.DuckDBPyConnection) -> None:
                 INSERT INTO plan_nodes (
                     id, spec_name, group_number, title, body,
                     archetype, mode, model_tier, status,
-                    subtask_count, optional, instances, sort_position
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    subtask_count, optional, sort_position
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     node.id,
@@ -110,7 +110,6 @@ def _save_plan_to_db(graph: TaskGraph, conn: duckdb.DuckDBPyConnection) -> None:
                     str(node.status),
                     node.subtask_count,
                     node.optional,
-                    node.instances,
                     sort_pos,
                 ],
             )
@@ -182,7 +181,7 @@ def _load_plan_from_db(conn: duckdb.DuckDBPyConnection) -> TaskGraph | None:
         """
         SELECT id, spec_name, group_number, title, body,
                archetype, mode, status, subtask_count, optional,
-               instances, sort_position
+               sort_position
         FROM plan_nodes
         ORDER BY sort_position
         """
@@ -201,7 +200,6 @@ def _load_plan_from_db(conn: duckdb.DuckDBPyConnection) -> TaskGraph | None:
             status=NodeStatus(row[7]) if row[7] else NodeStatus.PENDING,
             subtask_count=row[8] if row[8] is not None else 0,
             optional=bool(row[9]) if row[9] is not None else False,
-            instances=row[10] if row[10] is not None else 1,
         )
         nodes[row[0]] = node
 

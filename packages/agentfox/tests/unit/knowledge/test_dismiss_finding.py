@@ -117,9 +117,6 @@ class TestDismissDriftFinding:
         assert row[0].startswith("dismissed:")
 
 
-# TestDismissVerificationResult removed in spec 10.
-
-
 class TestDismissUnknownId:
     """AC-2: dismiss_finding_by_id returns None for unknown IDs without modifying the DB."""
 

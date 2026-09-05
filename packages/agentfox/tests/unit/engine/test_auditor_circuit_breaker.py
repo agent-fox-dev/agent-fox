@@ -55,7 +55,6 @@ def _make_auditor_orchestrator(
             optional=n.get("optional", False),
             archetype=n.get("archetype", "coder"),
             mode=n.get("mode"),
-            instances=n.get("instances", 1),
         )
         for nid, n in plan_nodes.items()
     }

@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from agentfox.session.convergence import AuditEntry, AuditResult
+from agentfox.session.audit_types import AuditEntry, AuditResult
 
 
 def _make_fail_result() -> AuditResult:

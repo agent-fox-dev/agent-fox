@@ -197,8 +197,8 @@ is safe against TOCTOU races.
 After harvest, the system extracts knowledge from the session:
 
 - **Review parsing**: For review archetypes (Reviewer in all modes,
-  Verifier), the session output is parsed for structured JSON containing
-  findings or drift reports. The parser is tolerant of format
+  the session output is parsed for structured JSON containing findings or
+  drift reports. The parser is tolerant of format
   variations — it handles fenced code blocks, bare JSON, wrapper objects with
   various key names, and single-object responses.
 - **Knowledge ingestion**: For completed sessions, the `KnowledgeProvider`
@@ -206,9 +206,6 @@ After harvest, the system extracts knowledge from the session:
   indexes any ADR files created during the session.
 - **Review persistence**: Parsed findings are stored in DuckDB tables for
   querying by subsequent sessions and for convergence analysis.
-- **Multi-instance convergence**: When multiple instances ran for the same
-  node, their outputs are merged deterministically before persistence (see
-  Multi-Instance Convergence below).
 
 ---
 
@@ -431,11 +428,12 @@ The reviewer archetype is controlled by a single configuration toggle
 
 Performs post-implementation verification (injection: `auto_post`). It runs
 the test suite, checks each requirement against the acceptance criteria, and
-produces per-requirement results (PASS, FAIL, PARTIAL). The Verifier runs
-after the last coder group and has full tool access (it needs to run tests).
-It can trigger retries of its predecessor — if verification fails, the
-orchestrator may re-run the preceding coder session with the Verifier's
-findings injected as context.
+produces per-requirement results (PASS or FAIL). The Verifier runs after the
+last coder group and has full tool access (it needs to run tests). Its
+verdicts are informational: a FAIL verdict is reported in the session output
+for a human to act on and does not itself re-run the coder. A Verifier
+session that *fails to complete* does reset its predecessor coder, like any
+other `retry_predecessor` archetype.
 
 ### Gate
 
@@ -478,34 +476,6 @@ model tier, same output format, same convergence semantics. Modes capture only
 the differences — injection point, tool allowlist, effort level, and prompt
 profile — without duplicating the shared structure.
 
-### Multi-Instance Convergence
-
-The reviewer and verifier archetypes can run multiple instances in parallel on
-the same task. When they do, their outputs are merged using mode-specific
-convergence strategies. A single dispatcher (`converge_reviewer`) routes to
-the correct algorithm by mode.
-
-**Pre-flight convergence** uses majority-gating for critical findings. All
-findings across instances are merged and deduplicated. A critical finding
-counts toward blocking only if it appears in at least a majority of instances
-(ceiling of N/2). This prevents a single overzealous instance from blocking
-progress on a spurious finding. Non-critical findings are union-merged.
-
-**Audit-review convergence** uses union semantics with worst-result-wins. For
-each test spec entry, the worst result across all instances is taken. This is
-conservative — if any instance finds a test MISSING, the entry is considered
-MISSING regardless of what other instances report.
-
-**Verifier convergence** uses majority voting per requirement. A requirement
-is considered PASS if a majority of instances report PASS. The representative
-evidence comes from the first matching result.
-
-**Fix-review** does not support multi-instance execution. If multiple results
-are provided, convergence raises an error.
-
-For single-instance execution (the default), convergence is a no-op
-passthrough.
-
 ---
 
 ## Result Handling and Retry Logic
@@ -524,10 +494,11 @@ exceed the configured blocking threshold. Critical security findings always
 block regardless of threshold. If the threshold is exceeded, downstream coder
 tasks are blocked via cascade BFS.
 
-**Retry-predecessor.** The audit-review and verifier archetypes both have
-`retry_predecessor=true`. When their session completes with failing outputs
-(MISSING tests, FAIL requirements), the orchestrator re-runs the preceding
-coder session with the review/verification findings injected as context.
+**Retry-predecessor.** `reviewer:audit-review` and `verifier` are the two
+entries with `retry_predecessor=true`. When an audit-review session completes
+with blocking findings, the orchestrator re-runs the preceding coder session
+instead of blocking it. For the Verifier the flag applies only on the failure
+path (see Failure below); its verdicts are informational.
 
 **Coverage regression.** Before a coder session, the result handler captures a
 test coverage baseline. After the session, it compares per-file percentages.
@@ -557,9 +528,9 @@ Non-timeout failures are classified by cause and handled accordingly:
 5. **Environment failures** (zero tokens, zero cost — the session died
    before reaching the LLM) receive exponential backoff up to three
    attempts without consuming retry budget.
-6. **Retry-predecessor archetypes** (reviewer and verifier with
-   `retry_predecessor=true`) reset the preceding coder to PENDING instead
-   of the failed node, up to `max_retries`.
+6. **Retry-predecessor archetypes** (`reviewer:audit-review` and `verifier`,
+   the two entries with `retry_predecessor=true`) reset the preceding coder
+   to PENDING instead of the failed node, up to `max_retries`.
 7. **Standard failures** increment the failure count. If retries remain
    (up to `max_retries`, default 2), the task is reset to PENDING for
    another attempt at the same model tier. If retries are exhausted, the

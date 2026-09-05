@@ -21,7 +21,7 @@ try:
 except ImportError:
     HAS_HYPOTHESIS = False
 
-from agentfox.session.convergence import AuditResult
+from agentfox.session.audit_types import AuditResult
 
 _SPEC_NAME_ALPHABET = ascii_lowercase + digits + "_"
 

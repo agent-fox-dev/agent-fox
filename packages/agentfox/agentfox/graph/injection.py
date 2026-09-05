@@ -42,16 +42,6 @@ class ArchetypeEntry(NamedTuple):
     mode: str | None = None
 
 
-def resolve_instances(archetypes_config: Any, arch_name: str) -> int:
-    """Resolve the instance count for an archetype from config.
-
-    Returns 1 if config is missing or value is not an int.
-    """
-    instances_cfg = getattr(archetypes_config, "instances", None)
-    instances = getattr(instances_cfg, arch_name, 1) if instances_cfg else 1
-    return instances if isinstance(instances, int) else 1
-
-
 def is_archetype_enabled(name: str, archetypes_config: Any | None) -> bool:
     """Check if an archetype is enabled in config.
 
@@ -130,7 +120,6 @@ class AuditorConfig(NamedTuple):
 
     enabled: bool
     min_ts_entries: int
-    instances: int
 
 
 def resolve_auditor_config(archetypes_config: Any) -> AuditorConfig:
@@ -139,7 +128,7 @@ def resolve_auditor_config(archetypes_config: Any) -> AuditorConfig:
     Reads the consolidated reviewer_config for audit settings.
 
     Returns:
-        AuditorConfig with enabled flag, minimum TS entries, and instance count.
+        AuditorConfig with enabled flag and minimum TS entries.
 
     Requirements: 98-REQ-4.3
     """
@@ -147,10 +136,9 @@ def resolve_auditor_config(archetypes_config: Any) -> AuditorConfig:
     if reviewer_enabled:
         reviewer_cfg = getattr(archetypes_config, "reviewer_config", None)
         min_ts = getattr(reviewer_cfg, "audit_min_ts_entries", 5) if reviewer_cfg else 5
-        instances = resolve_instances(archetypes_config, "reviewer")
-        return AuditorConfig(enabled=True, min_ts_entries=min_ts, instances=instances)
+        return AuditorConfig(enabled=True, min_ts_entries=min_ts)
 
-    return AuditorConfig(enabled=False, min_ts_entries=5, instances=1)
+    return AuditorConfig(enabled=False, min_ts_entries=5)
 
 
 def ensure_graph_archetypes(
@@ -211,9 +199,6 @@ def ensure_graph_archetypes(
             node_id = f"{spec}:0:{arch.name}{mode_suffix}"
             if node_id in nodes:
                 continue
-            # For reviewer modes, resolve instances via "reviewer" key
-            instance_key = arch.name
-            instances = resolve_instances(archetypes_config, instance_key)
             # Human-readable title
             if arch.mode:
                 title = f"{arch.name.capitalize()} ({arch.mode})"
@@ -227,7 +212,6 @@ def ensure_graph_archetypes(
                 optional=False,
                 archetype=arch.name,
                 mode=arch.mode,
-                instances=instances,
             )
             first_id = f"{spec}:{first_group}"
             if first_id in nodes:
@@ -250,7 +234,6 @@ def ensure_graph_archetypes(
             if existing_id in nodes:
                 prev_post_id = existing_id
                 continue
-            instances = resolve_instances(archetypes_config, arch.name)
             node_id = f"{spec}:0:{arch.name}"
             nodes[node_id] = Node(
                 id=node_id,
@@ -259,7 +242,6 @@ def ensure_graph_archetypes(
                 title=f"{arch.name.capitalize()} Check",
                 optional=False,
                 archetype=arch.name,
-                instances=instances,
             )
             if prev_post_id in nodes:
                 edges.append(Edge(source=prev_post_id, target=node_id, kind="intra_spec"))
@@ -314,7 +296,6 @@ def ensure_graph_archetypes(
                     optional=False,
                     archetype="reviewer",
                     mode="audit-review",
-                    instances=aud_cfg.instances,
                 )
 
                 grp_idx = sorted_grps.index(grp_num)
@@ -432,7 +413,7 @@ def build_review_only_graph(
 
 
 def print_review_only_summary(conn: Any) -> None:
-    """Print a summary of active review findings, verdicts, and drift findings.
+    """Print a summary of active review findings and drift findings.
 
     Queries the DuckDB connection for counts of active (non-superseded)
     records across all specs and prints them grouped by severity and status.

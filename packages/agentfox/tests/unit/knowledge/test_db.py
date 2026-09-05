@@ -76,7 +76,7 @@ class TestSchemaVersionRecordedOnCreation:
             "SELECT version, applied_at, description FROM schema_version ORDER BY version"
         ).fetchall()
         assert len(rows) == 1
-        assert rows[0][0] == 26
+        assert rows[0][0] == 27
         assert rows[0][1] is not None  # applied_at is a valid timestamp
         assert len(rows[0][2]) > 0  # description is non-empty
         db.close()

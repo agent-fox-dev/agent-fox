@@ -1,27 +1,19 @@
 """Unit tests for review parse resilience: fuzzy matching, normalization,
-format retry, and partial convergence.
+and format retry.
 
-Test Spec: TS-74-7 through TS-74-27, TS-74-E1 through TS-74-E3
-Requirements: 74-REQ-2.*, 74-REQ-3.*, 74-REQ-4.*, 74-REQ-5.*
+Test Spec: TS-74-7 through TS-74-19, TS-74-23, TS-74-26, TS-74-E1, TS-74-E2
+Requirements: 74-REQ-2.*, 74-REQ-3.*, 74-REQ-5.*
 """
 
 from __future__ import annotations
 
-import logging
 import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from afaudit.events import AuditEventType
 from agentfox.core.json_extraction import extract_json_array
 from agentfox.knowledge.review_store import ReviewFinding
-from agentfox.session.convergence import (
-    AuditEntry,
-    AuditResult,
-    converge_auditor,
-    converge_reviewer_pre_records,
-)
 from agentfox.session.review_parser import (
     _unwrap_items,
     parse_drift_findings,
@@ -428,67 +420,7 @@ class TestNoRetryOnTerminatedSession:
 # ---------------------------------------------------------------------------
 # TS-74-20: Partial convergence - Reviewer pre-review (REQ-4.1)
 # ---------------------------------------------------------------------------
-
-
-class TestPartialConvergenceReviewerPre:
-    """TS-74-20: Reviewer pre-review convergence proceeds with parseable instances only.
-
-    Requirements: 74-REQ-4.1
-    """
-
-    def test_none_instances_filtered_before_convergence(self) -> None:
-        """Convergence input has None results filtered out."""
-        f_a = _make_finding(severity="major", description="finding a")
-        f_b = _make_finding(severity="minor", description="finding b")
-        f_c = _make_finding(severity="critical", description="finding c")
-
-        raw_results: list[list[ReviewFinding] | None] = [
-            [f_a, f_b],
-            [f_c],
-            None,
-        ]
-        filtered = [r for r in raw_results if r is not None]
-
-        assert len(filtered) == 2
-
-        merged, blocked = converge_reviewer_pre_records(filtered, block_threshold=5)
-        assert len(merged) >= 1
-
-    def test_single_parseable_instance_produces_results(self) -> None:
-        """Single non-None instance still produces merged findings."""
-        f = _make_finding(severity="major", description="sole finding")
-        raw_results: list[list[ReviewFinding] | None] = [[f], None, None]
-        filtered = [r for r in raw_results if r is not None]
-
-        assert len(filtered) == 1
-        merged, _blocked = converge_reviewer_pre_records(filtered, block_threshold=5)
-        assert len(merged) == 1
-
-
-# ---------------------------------------------------------------------------
 # TS-74-22: Partial convergence - Auditor (REQ-4.3)
-# ---------------------------------------------------------------------------
-
-
-class TestPartialConvergenceAuditor:
-    """TS-74-22: Auditor convergence proceeds with parseable instances only.
-
-    Requirements: 74-REQ-4.3
-    """
-
-    def test_none_instance_filtered_before_convergence(self) -> None:
-        """Auditor convergence receives only non-None AuditResult instances."""
-        entry = AuditEntry(ts_entry="TS-74-1", test_functions=["test_foo"], verdict="PASS")
-        audit_result = AuditResult(entries=[entry], overall_verdict="PASS", summary="ok")
-
-        raw_results: list[AuditResult | None] = [audit_result, None]
-        filtered: list[AuditResult] = [r for r in raw_results if r is not None]
-
-        assert len(filtered) == 1
-        merged = converge_auditor(filtered)
-        assert merged.overall_verdict == audit_result.overall_verdict
-
-
 # ---------------------------------------------------------------------------
 # TS-74-23: No parse failure when some instances succeed (REQ-4.4)
 # ---------------------------------------------------------------------------
@@ -514,31 +446,6 @@ class TestNoParseFailureWhenSomeSucceed:
 
 # ---------------------------------------------------------------------------
 # TS-74-24: Warning logged for failed instances (REQ-4.5)
-# ---------------------------------------------------------------------------
-
-
-class TestWarningLoggedForFailedInstances:
-    """TS-74-24: A warning is logged when some instances fail parsing.
-
-    Requirements: 74-REQ-4.5
-    """
-
-    def test_warning_logged_for_failed_instance(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Warning log identifies the instance that failed to parse."""
-        # This function will be implemented in task group 4.
-        from agentfox.engine.review_persistence import warn_failed_parse_instances
-
-        f = _make_finding(severity="major", description="found something")
-        raw_results: list[list[ReviewFinding] | None] = [[f], None]
-
-        with caplog.at_level(logging.WARNING):
-            warn_failed_parse_instances(raw_results, archetype="reviewer", run_id="run1")
-
-        assert any("instance" in r.message.lower() and "failed" in r.message.lower() for r in caplog.records), (
-            "Expected a warning about failed parse instances"
-        )
-
-
 # ---------------------------------------------------------------------------
 # TS-74-25: All instances fail emits parse failure (REQ-4.E1)
 # ---------------------------------------------------------------------------
@@ -670,27 +577,3 @@ class TestUnknownWrapperKey:
         # "results_data" is not a registered variant of "findings"
         # The outer dict doesn't have "severity" as a direct key (it's nested)
         assert items == [], "Items from unrecognized wrapper key 'results_data' should not be returned"
-
-
-# ---------------------------------------------------------------------------
-# TS-74-E3: Single instance bypass (REQ-4.E2)
-# ---------------------------------------------------------------------------
-
-
-class TestSingleInstanceBypass:
-    """TS-74-E3: Single-instance mode uses result directly without filtering.
-
-    Requirements: 74-REQ-4.E2
-    """
-
-    def test_single_instance_findings_passed_through(self) -> None:
-        """Single instance result is used directly without convergence filtering."""
-        f = _make_finding(severity="major", description="direct finding")
-        raw_results: list[list[ReviewFinding]] = [[f]]
-
-        # With a single instance, no filtering should happen.
-        # converge_reviewer_pre_records with 1 instance returns the list directly.
-        merged, _blocked = converge_reviewer_pre_records(raw_results, block_threshold=5)
-        assert len(merged) == 1
-        assert merged[0].severity == "major"
-        assert merged[0].description == "direct finding"

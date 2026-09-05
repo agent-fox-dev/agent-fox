@@ -6,7 +6,7 @@ ingestion.
 
 Combines output-level parsing (JSON extraction, fuzzy key matching, legacy
 formats) with item-level typed parsing (field validation, truncation,
-normalization into ReviewFinding / VerificationResult / DriftFinding).
+normalization into ReviewFinding / DriftFinding).
 
 Requirements: 27-REQ-3.1, 27-REQ-3.2, 27-REQ-3.3, 27-REQ-3.E1, 27-REQ-3.E2
              53-REQ-4.1, 53-REQ-4.2, 53-REQ-4.E1
@@ -23,13 +23,12 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentfox.session.convergence import AuditResult
+    from agentfox.session.audit_types import AuditResult
 
 from agentfox.core.json_extraction import extract_json_array
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
-    VerificationResult,
     normalize_severity,
 )
 
@@ -584,7 +583,7 @@ def parse_oracle_output(
 
 def _build_audit_result(data: object) -> AuditResult | None:
     """Convert a parsed JSON value into an AuditResult, or return None."""
-    from agentfox.session.convergence import AuditEntry, AuditResult
+    from agentfox.session.audit_types import AuditEntry, AuditResult
 
     if not isinstance(data, dict):
         return None
@@ -709,41 +708,3 @@ def parse_legacy_review_md(
             )
 
     return findings
-
-
-def parse_legacy_verification_md(
-    content: str,
-    spec_name: str,
-    task_group: str,
-    session_id: str,
-) -> list[VerificationResult]:
-    """Parse a legacy verification.md file into VerificationResult records.
-
-    Extracts verdicts from markdown table rows:
-    | requirement_id | PASS/FAIL | notes |
-
-    Requirements: 27-REQ-10.2, 27-REQ-10.E1
-    """
-    verdicts: list[VerificationResult] = []
-    # Match table rows: | XX-REQ-N.N | PASS/FAIL | notes |
-    pattern = re.compile(r"\|\s*(\S+-REQ-\S+)\s*\|\s*(PASS|FAIL)\s*\|\s*(.*?)\s*\|")
-
-    for line in content.splitlines():
-        match = pattern.search(line)
-        if match:
-            req_id = match.group(1).strip()
-            verdict = match.group(2).strip().upper()
-            evidence = match.group(3).strip() or None
-            verdicts.append(
-                VerificationResult(
-                    id=str(uuid.uuid4()),
-                    requirement_id=req_id,
-                    verdict=verdict,
-                    evidence=evidence,
-                    spec_name=spec_name,
-                    task_group=task_group,
-                    session_id=session_id,
-                )
-            )
-
-    return verdicts

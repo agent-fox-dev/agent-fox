@@ -112,7 +112,6 @@ class SerialRunner:
         *,
         archetype: str = "coder",
         mode: str | None = None,
-        instances: int = 1,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -125,7 +124,6 @@ class SerialRunner:
             node_id,
             archetype=archetype,
             mode=mode,
-            instances=instances,
             run_id=run_id,
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,
@@ -177,7 +175,7 @@ class SerialDispatcher:
             if launch is None:
                 continue
 
-            _, attempt, previous_error, node_archetype, node_instances, node_mode, preflight_summary = launch
+            _, attempt, previous_error, node_archetype, node_mode, preflight_summary = launch
 
             if not first_dispatch:
                 await orch._dispatch_mgr.serial_runner.delay()
@@ -196,7 +194,6 @@ class SerialDispatcher:
                 previous_error,
                 archetype=node_archetype,
                 mode=node_mode,
-                instances=node_instances,
                 run_id=orch._run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
@@ -345,7 +342,7 @@ class ParallelDispatcher:
             if launch is None:
                 continue
 
-            _, attempt, previous_error, archetype, instances, node_mode, preflight_summary = launch
+            _, attempt, previous_error, archetype, node_mode, preflight_summary = launch
 
             orch._graph_sync.mark_in_progress(node_id)
 
@@ -361,7 +358,6 @@ class ParallelDispatcher:
                     previous_error,
                     archetype=archetype,
                     mode=node_mode,
-                    instances=instances,
                     run_id=orch._run_id,
                     timeout_override=timeout_override,
                     max_turns_override=max_turns_override,
@@ -475,11 +471,6 @@ class DispatchManager:
         """Get the archetype name for a node from the task graph."""
         return _get_node_archetype(self._graph, node_id)
 
-    def get_node_instances(self, node_id: str) -> int:
-        """Get the instance count for a node from the task graph."""
-        node = self.get_node(node_id)
-        return node.instances if node else 1
-
     def get_node_mode(self, node_id: str) -> str | None:
         """Get the mode for a node from the task graph (97-REQ-5.3)."""
         return _get_node_mode(self._graph, node_id)
@@ -498,8 +489,8 @@ class DispatchManager:
         fail-open (dispatch proceeds).
 
         Returns a tuple of (verdict, attempt, previous_error, archetype,
-        instances, mode, preflight_summary) if the node is allowed to
-        launch, or None if it was blocked/limited.
+        mode, preflight_summary) if the node is allowed to launch, or None
+        if it was blocked/limited.
         """
         # 118-REQ-4.1: Pre-session workspace health check
         try:
@@ -594,10 +585,9 @@ class DispatchManager:
         if rh is not None:
             rh.record_attempt(node_id, attempt)
         previous_error = error_tracker.get(node_id)
-        instances = self.get_node_instances(node_id)
         preflight_summary = self._preflight_summaries.pop(node_id, None)
 
-        return (verdict, attempt, previous_error, archetype, instances, mode, preflight_summary)
+        return (verdict, attempt, previous_error, archetype, mode, preflight_summary)
 
     def _check_launch(
         self,

@@ -12,7 +12,6 @@ from agentfox.session.review_parser import (
     _classify_category,
     parse_auditor_output,
     parse_legacy_review_md,
-    parse_legacy_verification_md,
     parse_review_output,
 )
 
@@ -161,24 +160,6 @@ class TestLegacyParsing:
         assert "critical" in severities
         assert "major" in severities
         assert "observation" in severities
-
-    def test_legacy_verification_migration(self) -> None:
-        """Legacy verification.md is parsed into verdicts."""
-        content = """# Verification Report: test_spec
-
-## Per-Requirement Assessment
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| 05-REQ-1.1 | PASS | Tests pass |
-| 05-REQ-2.1 | FAIL | Not implemented |
-
-## Verdict: FAIL
-"""
-        verdicts = parse_legacy_verification_md(content, "test_spec", "1", "legacy")
-        assert len(verdicts) == 2
-        assert verdicts[0].requirement_id == "05-REQ-1.1"
-        assert verdicts[0].verdict == "PASS"
-        assert verdicts[1].verdict == "FAIL"
 
 
 # ---------------------------------------------------------------------------

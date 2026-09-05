@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS plan_nodes (
     status          VARCHAR NOT NULL DEFAULT 'pending',
     subtask_count   INTEGER NOT NULL DEFAULT 0,
     optional        BOOLEAN NOT NULL DEFAULT FALSE,
-    instances       INTEGER NOT NULL DEFAULT 1,
     sort_position   INTEGER NOT NULL DEFAULT 0,
     blocked_reason  VARCHAR,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -136,7 +135,6 @@ def valid_nodes(draw: st.DrawFn, node_id: str) -> Node:
         body=draw(st.text(max_size=200)),
         archetype=draw(_ARCHETYPES),
         mode=draw(_MODES),
-        instances=draw(st.integers(min_value=1, max_value=4)),
     )
 
 
@@ -232,7 +230,6 @@ def test_plan_round_trip_equivalence(graph: TaskGraph) -> None:
         assert loaded_node.body == orig.body
         assert loaded_node.archetype == orig.archetype
         assert loaded_node.mode == orig.mode
-        assert loaded_node.instances == orig.instances
 
     # Edges are order-independent for equivalence
     orig_edges = {(e.source, e.target, e.kind) for e in graph.edges}

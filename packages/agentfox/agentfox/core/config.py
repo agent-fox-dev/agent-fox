@@ -349,31 +349,6 @@ class PerArchetypeConfig(BaseModel):
 PerArchetypeConfig.model_rebuild()
 
 
-class ArchetypeInstancesConfig(BaseModel):
-    """Per-archetype instance count configuration.
-
-    Requirements: 26-REQ-6.2, 46-REQ-2.2, 98-REQ-8.3
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    reviewer: Annotated[int, Clamped(ge=1, le=5)] = Field(default=1, description="Number of reviewer instances")
-    verifier: int = Field(default=1, description="Number of verifier instances (max clamped to 1)")
-
-    _auto_clamp = _auto_clamp_validator()
-
-    @field_validator("verifier")
-    @classmethod
-    def clamp_verifier_to_one(cls, v: int) -> int:
-        """Verifier is always single-instance (98-REQ-6.2)."""
-        if v != 1:
-            logger.warning(
-                "verifier instances clamped from %d to 1 (maximum is 1)",
-                v,
-            )
-        return 1
-
-
 class ReviewerConfig(BaseModel):
     """Reviewer-specific configuration.
 
@@ -434,10 +409,6 @@ class ArchetypesConfig(BaseModel):
     reviewer: bool = Field(default=True, description="Enable reviewer archetype")
     verifier: bool = Field(default=True, description="Enable verifier archetype")
 
-    instances: ArchetypeInstancesConfig = Field(
-        default_factory=ArchetypeInstancesConfig,
-        description="Per-archetype instance counts",
-    )
     reviewer_config: ReviewerConfig = Field(
         default_factory=ReviewerConfig,
         description="Reviewer-specific configuration",

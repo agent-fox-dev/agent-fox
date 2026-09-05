@@ -44,21 +44,17 @@ def _score_relevance(text: str, keywords: frozenset[str]) -> int:
 def generate_archetype_summary(
     archetype: str,
     findings: list[Any] | None = None,
-    verdicts: list[Any] | None = None,
 ) -> str | None:
-    """Generate a summary string for reviewer or verifier sessions.
+    """Generate a summary string for reviewer sessions.
 
-    For reviewer: counts findings by severity and includes descriptions of
-    up to 3 top-severity findings.
-    For verifier: counts pass/fail verdicts and lists the requirement IDs
-    of all FAIL verdicts.
+    Counts findings by severity and includes descriptions of up to 3
+    top-severity findings.  Other archetypes get a bare completion line.
 
-    Returns ``None`` when there are no actionable findings or verdicts,
-    so the caller's ``if summary_text:`` guard prevents storage of trivial
-    completion-status noise (11-REQ-4.1, 11-REQ-4.2).
+    Returns ``None`` when there are no actionable findings, so the caller's
+    ``if summary_text:`` guard prevents storage of trivial completion-status
+    noise (11-REQ-4.1).
 
-    Requirements: 120-REQ-3.1, 120-REQ-3.2, 11-REQ-4.1, 11-REQ-4.2,
-                  11-REQ-4.E1
+    Requirements: 120-REQ-3.1, 11-REQ-4.1, 11-REQ-4.E1
     """
     if archetype == "reviewer":
         if not findings:
@@ -82,17 +78,6 @@ def generate_archetype_summary(
         top_descriptions = [getattr(f, "description", "") for f in sorted_findings[:3]]
         desc_str = "; ".join(top_descriptions)
         return f"Reviewer session completed with {count_str}. Top findings: {desc_str}"
-
-    if archetype == "verifier":
-        if not verdicts:
-            return None
-        pass_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "PASS")
-        fail_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "FAIL")
-        fail_req_ids = [getattr(v, "requirement_id", "") for v in verdicts if getattr(v, "verdict", "") == "FAIL"]
-        parts = [f"Verifier session completed with {pass_count} pass, {fail_count} fail."]
-        if fail_req_ids:
-            parts.append(f"Failed requirements: {', '.join(fail_req_ids)}")
-        return " ".join(parts)
 
     return f"{archetype} session completed."
 

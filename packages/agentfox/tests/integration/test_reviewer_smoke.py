@@ -43,13 +43,6 @@ def _make_coder_graph(spec_name: str = "myspec", group_number: int = 1):
     )
 
 
-def _make_finding(severity: str = "critical", description: str = "Test finding"):
-    """Build a Finding for convergence tests."""
-    from agentfox.session.convergence import Finding
-
-    return Finding(severity=severity, description=description)
-
-
 # ---------------------------------------------------------------------------
 # TS-98-SMOKE-1: Pre-review End-to-End
 # Execution Path 1 from design.md
@@ -58,13 +51,10 @@ def _make_finding(severity: str = "critical", description: str = "Test finding")
 
 
 class TestPreReviewEndToEnd:
-    """TS-98-SMOKE-1: Pre-flight injection through convergence.
+    """TS-98-SMOKE-1: Pre-flight node injection.
 
-    Verifies the complete chain:
-    1. ensure_graph_archetypes creates reviewer:pre-flight node
-    2. converge_reviewer dispatches to skeptic algorithm for pre-flight
-
-    Does NOT mock injection or convergence logic.
+    Verifies that ensure_graph_archetypes creates a reviewer:pre-flight node.
+    Does NOT mock injection logic.
     """
 
     def test_pre_flight_node_injected(self) -> None:
@@ -81,35 +71,6 @@ class TestPreReviewEndToEnd:
         assert len(pre_nodes) >= 1, (
             f"Expected at least one reviewer:pre-flight node after injection, "
             f"got nodes: {[(n.archetype, n.mode) for n in graph.nodes.values()]}"
-        )
-
-    def test_pre_flight_convergence_uses_skeptic_algorithm(self) -> None:
-        """TS-98-SMOKE-1 (part 2): converge_reviewer uses skeptic algorithm for pre-flight."""
-        from agentfox.session.convergence import converge_reviewer, converge_reviewer_pre
-
-        # Build mock findings (list[list[Finding]])
-        findings_instance_1 = [
-            _make_finding("critical", "Missing input validation"),
-            _make_finding("major", "No error handling"),
-        ]
-        findings_instance_2 = [
-            _make_finding("critical", "Missing input validation"),
-        ]
-        results = [findings_instance_1, findings_instance_2]
-
-        # Run converge_reviewer with mode="pre-flight" (uses real convergence logic)
-        reviewer_merged, reviewer_blocked = converge_reviewer(results, mode="pre-flight", block_threshold=3)
-        # Run converge_reviewer_pre directly for comparison
-        skeptic_merged, skeptic_blocked = converge_reviewer_pre(results, block_threshold=3)
-
-        # Results must be identical — same algorithm
-        assert reviewer_blocked == skeptic_blocked, (
-            f"converge_reviewer('pre-flight') blocked={reviewer_blocked} "
-            f"but converge_reviewer_pre blocked={skeptic_blocked}"
-        )
-        # Merged finding counts should be equal
-        assert len(reviewer_merged) == len(skeptic_merged), (
-            f"Merged finding count mismatch: reviewer={len(reviewer_merged)}, skeptic={len(skeptic_merged)}"
         )
 
     def test_no_old_archetype_nodes_after_injection(self) -> None:

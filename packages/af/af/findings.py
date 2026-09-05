@@ -32,7 +32,7 @@ DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
 @click.option(
     "--archetype",
     default=None,
-    help="Filter by archetype (reviewer, verifier, reviewer/pre-review, reviewer/drift-review)",
+    help="Filter by archetype (reviewer, reviewer/pre-review, reviewer/drift-review)",
 )
 @click.option("--run", "run_id", default=None, help="Filter by run ID")
 @click.option(
@@ -55,9 +55,9 @@ def findings_cmd(
 ) -> None:
     """Query review findings from the knowledge database.
 
-    Displays active (non-superseded) review findings from reviewer
-    (pre-review and drift-review) and verifier archetypes. Use filters
-    to narrow results.
+    Displays active (non-superseded) review findings from the reviewer
+    archetype (pre-review and drift-review records). Use filters to narrow
+    results.
 
     To dismiss a stale or false-positive finding, use:
 

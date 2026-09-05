@@ -354,37 +354,6 @@ class TestNodeSessionRunnerMode:
 
 
 # ---------------------------------------------------------------------------
-# Additional: clamp_instances with mode (97-REQ-4.5)
-# ---------------------------------------------------------------------------
-
-
-class TestClampInstancesWithMode:
-    """Verify clamp_instances accepts optional mode parameter."""
-
-    def test_coder_clamped_to_one_regardless_of_mode(self) -> None:
-        """97-REQ-4.5: coder archetype always clamped to 1 regardless of mode."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        result = clamp_instances("coder", 3, mode="fast")
-        assert result == 1
-
-    def test_non_coder_with_mode_still_clamped(self) -> None:
-        """Non-coder archetype with mode is still clamped to max 5."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        result = clamp_instances("reviewer", 10, mode="pre-flight")
-        assert result == 5
-
-    def test_mode_none_same_as_no_mode(self) -> None:
-        """mode=None behaves the same as omitting mode."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        result_with_none = clamp_instances("coder", 3, mode=None)
-        result_without = clamp_instances("coder", 3)
-        assert result_with_none == result_without == 1
-
-
-# ---------------------------------------------------------------------------
 # TS-97-E5: None Mode Resolution Identity
 # Requirement: 97-REQ-4.E1
 # ---------------------------------------------------------------------------

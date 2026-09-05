@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentfox.session.convergence import AuditEntry, AuditResult
+from agentfox.session.audit_types import AuditEntry, AuditResult
 
 
 def _make_fail_result() -> AuditResult:

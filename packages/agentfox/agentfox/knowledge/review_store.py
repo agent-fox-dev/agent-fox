@@ -74,21 +74,6 @@ class ReviewFinding:
 
 
 @dataclass(frozen=True)
-class VerificationResult:
-    """A single Verifier verdict stored in DuckDB."""
-
-    id: str
-    requirement_id: str
-    verdict: str
-    evidence: str | None
-    spec_name: str
-    task_group: str
-    session_id: str
-    superseded_by: str | None = None
-    created_at: datetime | None = None
-
-
-@dataclass(frozen=True)
 class DriftFinding:
     """A single Oracle drift finding stored in DuckDB.
 

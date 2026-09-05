@@ -1,9 +1,10 @@
-"""Tests for review retry-predecessor on blocking (issue #519).
+"""Tests for review blocking and retry-predecessor routing (issues #519, #771).
 
-Validates that when a reviewer with retry_predecessor=True finds blocking-level
-critical findings, the coder is not permanently blocked but instead allowed to
-proceed (or retried) with findings as context. Also tests the threshold change
-from > to >= and the group-0 coder_node_id fix.
+Audit-review sets ``retry_predecessor=True``: blocking findings reset the coder
+it followed rather than blocking permanently.  Pre-flight does not, because it
+runs before the coder — its blocking findings block the downstream coder
+outright.  Also tests the threshold change from > to >= and the group-0
+coder_node_id fix.
 """
 
 from __future__ import annotations
@@ -160,14 +161,14 @@ class TestGroup0CoderNodeId:
 
 
 class TestPreFlightRetryPredecessor:
-    """Pre-flight with retry_predecessor=True converts block to retry."""
+    """Pre-flight blocks outright; only audit-review retries its predecessor."""
 
-    def test_pre_flight_has_retry_predecessor(self) -> None:
+    def test_pre_flight_has_no_retry_predecessor(self) -> None:
         from agentfox.archetypes import get_archetype, resolve_effective_config
 
         entry = get_archetype("reviewer")
         resolved = resolve_effective_config(entry, "pre-flight")
-        assert resolved.retry_predecessor is True
+        assert not resolved.retry_predecessor
 
     def test_audit_review_has_retry_predecessor(self) -> None:
         from agentfox.archetypes import get_archetype, resolve_effective_config
@@ -252,8 +253,8 @@ class TestRetryOnReviewBlock:
 
         return handler, state, block_task_fn
 
-    def test_pre_review_block_converts_to_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Pre-review blocking with retry_predecessor does NOT permanently block."""
+    def test_pre_flight_security_finding_blocks_downstream(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Pre-flight blocking findings block the downstream coder (issue #771)."""
         finding = _make_finding(
             severity="critical",
             description="Command injection vulnerability",
@@ -271,11 +272,11 @@ class TestRetryOnReviewBlock:
 
         blocked = handler.check_review_blocking(record, state)
 
-        assert blocked is False
-        block_task_fn.assert_not_called()
+        assert blocked is True
+        block_task_fn.assert_called_once()
 
-    def test_drift_review_block_converts_to_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Pre-flight blocking (drift path) with retry_predecessor converts block to retry."""
+    def test_pre_flight_drift_finding_blocks_downstream(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Pre-flight blocking on the drift path blocks the downstream coder."""
         from agentfox.knowledge.review_store import DriftFinding, insert_drift_findings
 
         drift_finding = DriftFinding(
@@ -352,9 +353,8 @@ class TestRetryOnReviewBlock:
 
         blocked = handler.check_review_blocking(record, state)
 
-        # retry_predecessor=True means block is converted to retry, not permanent
-        assert blocked is False
-        block_task_fn.assert_not_called()
+        assert blocked is True
+        block_task_fn.assert_called_once()
 
 
 class TestDefaultThreshold:
@@ -477,8 +477,8 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
 class TestRetryOnReviewBlockTaskGroupFilter:
     """AC-2: review block with only cross-group findings does not reset the coder."""
 
-    def test_group0_preflight_findings_trigger_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Group-0 pre-flight critical findings trigger blocking and coder retry (issue #713)."""
+    def test_group0_preflight_findings_trigger_block(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Group-0 pre-flight critical findings block the downstream coder (issues #713, #771)."""
         session_id = "test_spec:0:reviewer:pre-flight:1"
         finding = _make_finding(
             severity="critical",
@@ -531,10 +531,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
             attempt=1,
         )
 
-        # check_review_blocking returns False when blocking is converted to a
-        # retry (not permanently blocked).  The key assertion is that the coder
-        # was actually reset to pending for retry.
         blocked = handler.check_review_blocking(record, state)
 
-        assert blocked is False
-        graph_sync._transition.assert_any_call("test_spec:1", "pending", reason="retry after review block")
+        assert blocked is True
+        block_task_fn.assert_called_once()

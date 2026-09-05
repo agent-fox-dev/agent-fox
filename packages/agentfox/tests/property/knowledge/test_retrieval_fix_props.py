@@ -22,7 +22,6 @@ from agentfox.core.config import KnowledgeProviderConfig
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 from agentfox.knowledge.migrations import run_migrations
-from agentfox.knowledge.review_store import ReviewFinding, VerificationResult
 from agentfox.knowledge.summary_store import SummaryRecord, insert_summary
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -186,71 +185,3 @@ class TestNoDuplicationReviewCrossGroup:
             )
         finally:
             conn.close()
-
-
-# TS-120-P3 (Prior-Run Findings Never Tracked) removed — the prior-run
-# Filtering pipeline removed in spec 10.
-
-
-# ---------------------------------------------------------------------------
-# TS-120-P4: Archetype Summary Completeness
-# ---------------------------------------------------------------------------
-
-
-class TestArchetypeSummaryCompleteness:
-    """generate_archetype_summary returns a non-empty string when items exist.
-
-    Property 3: For any archetype in {"reviewer", "verifier"}, findings/verdicts
-    list of length 1..20, the return value is a non-empty string. For length 0
-    the return value is None (trivial session — no actionable content).
-
-    Requirements: 120-REQ-3.1, 120-REQ-3.2, 120-REQ-3.E1, 120-REQ-3.E2
-    """
-
-    @given(
-        num_items=st.integers(min_value=0, max_value=20),
-    )
-    @settings(max_examples=15)
-    def test_reviewer_summary_always_nonempty(self, num_items: int) -> None:
-        findings = [
-            ReviewFinding(
-                id=str(uuid.uuid4()),
-                severity="critical" if i % 2 == 0 else "major",
-                description=f"Finding {i}",
-                requirement_ref=None,
-                spec_name="spec",
-                task_group="1",
-                session_id="s1",
-            )
-            for i in range(num_items)
-        ]
-        summary = _generate_archetype_summary("reviewer", findings=findings)
-        if num_items == 0:
-            assert summary is None
-        else:
-            assert isinstance(summary, str)
-            assert len(summary) > 0
-
-    @given(
-        num_items=st.integers(min_value=0, max_value=20),
-    )
-    @settings(max_examples=15)
-    def test_verifier_summary_always_nonempty(self, num_items: int) -> None:
-        verdicts = [
-            VerificationResult(
-                id=str(uuid.uuid4()),
-                requirement_id=f"REQ-{i}.1",
-                verdict="PASS" if i % 3 != 0 else "FAIL",
-                evidence=None,
-                spec_name="spec",
-                task_group="1",
-                session_id="s1",
-            )
-            for i in range(num_items)
-        ]
-        summary = _generate_archetype_summary("verifier", verdicts=verdicts)
-        if num_items == 0:
-            assert summary is None
-        else:
-            assert isinstance(summary, str)
-            assert len(summary) > 0

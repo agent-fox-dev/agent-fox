@@ -1,8 +1,7 @@
-"""Property tests for context rendering and convergence equivalence.
+"""Property tests for review context rendering.
 
-Test Spec: TS-27-P3, TS-27-P4, TS-27-P7
-Requirements: 27-REQ-5.1, 27-REQ-5.3, 27-REQ-5.E1, 27-REQ-6.1, 27-REQ-6.2,
-              27-REQ-10.1
+Test Spec: TS-27-P3, TS-27-P7
+Requirements: 27-REQ-5.1, 27-REQ-5.3, 27-REQ-5.E1, 27-REQ-10.1
 """
 
 from __future__ import annotations
@@ -13,11 +12,6 @@ import duckdb
 from agentfox.knowledge.review_store import (
     ReviewFinding,
     insert_findings,
-)
-from agentfox.session.convergence import (
-    Finding,
-    converge_reviewer_pre,
-    converge_reviewer_pre_records,
 )
 from agentfox.session.prompt import render_review_context
 from hypothesis import given, settings
@@ -102,59 +96,6 @@ class TestContextRenderingDeterminism:
         assert "Summary:" in md2
 
         conn.close()
-
-
-class TestConvergenceEquivalence:
-    """TS-27-P4: Property 4 -- Convergence Equivalence.
-
-    converge_reviewer_pre_records produces the same blocking decision as
-    converge_reviewer_pre for equivalent input data.
-    """
-
-    @given(
-        instance_count=st.integers(min_value=2, max_value=4),
-        severity=st.sampled_from(list(VALID_SEVERITIES)),
-        desc=st.text(
-            min_size=1,
-            max_size=40,
-            alphabet=st.characters(whitelist_categories=("L", "N")),
-        ),
-        threshold=st.integers(min_value=0, max_value=3),
-    )
-    @settings(max_examples=30)
-    def test_convergence_equivalence(
-        self,
-        instance_count: int,
-        severity: str,
-        desc: str,
-        threshold: int,
-    ) -> None:
-        """Old and new convergence agree on blocking decision."""
-        # Build identical input for both old and new convergence
-        old_instances: list[list[Finding]] = []
-        new_instances: list[list[ReviewFinding]] = []
-
-        for i in range(instance_count):
-            old_instances.append([Finding(severity=severity, description=desc)])
-            new_instances.append(
-                [
-                    ReviewFinding(
-                        id=str(uuid.uuid4()),
-                        severity=severity,
-                        description=desc,
-                        requirement_ref=None,
-                        spec_name="test",
-                        task_group="1",
-                        session_id=f"s{i}",
-                    )
-                ]
-            )
-
-        old_merged, old_blocked = converge_reviewer_pre(old_instances, threshold)
-        new_merged, new_blocked = converge_reviewer_pre_records(new_instances, threshold)
-
-        assert old_blocked == new_blocked
-        assert len(old_merged) == len(new_merged)
 
 
 class TestFallbackCorrectness:
