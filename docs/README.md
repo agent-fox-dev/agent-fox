@@ -40,7 +40,7 @@ The typical workflow has four stages:
    feature branch, so multiple agents work simultaneously without conflicts.
    Reviewer agents (pre-flight mode) check specs before
    coding starts; audit-review and Verifier agents check the result after. Failed
-   tasks are retried with escalation to stronger models. Completed work is
+   tasks are retried at the same model tier. Completed work is
    merged into the integration branch under a serializing lock via squash merge (with
    AI-assisted conflict resolution when needed). When all tasks for a spec
    complete, a summary comment is automatically posted to the originating

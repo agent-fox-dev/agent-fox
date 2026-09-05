@@ -34,6 +34,7 @@ def _capture_banner(
     *,
     quiet: bool = False,
     force_terminal: bool = False,
+    config: object | None = None,
 ) -> str:
     """Capture render_banner output via a StringIO-backed console.
 
@@ -45,6 +46,8 @@ def _capture_banner(
         quiet: Whether to suppress banner output.
         force_terminal: If True, capture ANSI escape codes for role
             verification. If False, capture plain text.
+        config: Optional loaded AgentFoxConfig, forwarded to render_banner so
+            the banner resolves the coder model the way a session does.
 
     Returns:
         The captured console output as a string.
@@ -59,7 +62,7 @@ def _capture_banner(
         force_terminal=force_terminal,
         width=120,
     )
-    render_banner(theme, quiet=quiet)
+    render_banner(theme, quiet=quiet, config=config)
     return buf.getvalue()
 
 
@@ -222,3 +225,46 @@ class TestBannerCwdOSError:
 
         # Should not raise
         _capture_banner(ThemeConfig())
+
+
+# ---------------------------------------------------------------------------
+# Issue #769: the banner must name the model the coder will actually run.
+# ---------------------------------------------------------------------------
+
+
+class TestBannerModelHonoursConfig:
+    """The banner resolves the coder model through the same config as a session."""
+
+    def test_archetype_override_changes_banner_model(self) -> None:
+        """[archetypes.overrides.coder] model_tier is reflected in the banner."""
+        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
+        from agentfox.core.models import resolve_model
+
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")})
+        )
+        output = _capture_banner(ThemeConfig(), config=config)
+
+        advanced = resolve_model("ADVANCED")
+        standard = resolve_model("STANDARD")
+        assert advanced in output, f"Expected ADVANCED model {advanced!r} in banner, got:\n{output}"
+        assert standard not in output, f"Registry default {standard!r} must not be shown, got:\n{output}"
+
+    def test_tier_defaults_override_changes_banner_model(self) -> None:
+        """[models.tier_defaults] is honoured by the banner."""
+        from agentfox.core.config import AgentFoxConfig, ModelsConfig, TierDefaultsConfig
+
+        config = AgentFoxConfig(models=ModelsConfig(tier_defaults=TierDefaultsConfig(STANDARD="claude-haiku-4-5")))
+        output = _capture_banner(ThemeConfig(), config=config)
+
+        assert "claude-haiku-4-5" in output, f"Expected the tier_defaults override in banner, got:\n{output}"
+
+    def test_no_config_falls_back_to_registry_default(self) -> None:
+        """Without a config the banner shows the coder registry default."""
+        from agentfox.archetypes import ARCHETYPE_REGISTRY
+        from agentfox.core.models import resolve_model
+
+        output = _capture_banner(ThemeConfig())
+
+        expected = resolve_model(ARCHETYPE_REGISTRY["coder"].default_model_tier)
+        assert expected in output, f"Expected registry default {expected!r} in banner, got:\n{output}"

@@ -35,7 +35,8 @@ async def run_merge_agent(
     Args:
         worktree_path: Path to the git worktree with unresolved conflicts.
         conflict_output: Git conflict/diff output to include in the prompt.
-        model_id: Model ID to use (resolved from ADVANCED tier).
+        model_id: Model tier name or model ID to use (callers pass the
+            ``"ADVANCED"`` tier name, which ``run_session`` resolves).
 
     Returns:
         True if conflicts were resolved and committed, False otherwise.

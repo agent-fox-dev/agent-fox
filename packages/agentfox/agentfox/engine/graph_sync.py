@@ -396,7 +396,7 @@ class GraphSync:
 
         Only valid when the node is currently ``in_progress``.  This is the
         correct path for timeout retries, transport-error retries, and
-        escalation-ladder retries — any case where a running session ended
+        ordinary counted retries — any case where a running session ended
         without success and the node must be re-queued.
 
         Raises:

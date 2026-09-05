@@ -113,7 +113,7 @@ class RoutingConfig(BaseModel):
     )
     timeout_multiplier: Annotated[float, Clamped(ge=1.0)] = Field(
         default=1.5,
-        description="Factor by which max_turns and session_timeout are extended on timeout retry",
+        description="Factor by which session_timeout is extended on timeout retry",
     )
     timeout_ceiling_factor: Annotated[float, Clamped(ge=1.0)] = Field(
         default=2.0,
@@ -304,7 +304,9 @@ class PerArchetypeConfig(BaseModel):
 
     model_tier: str | None = Field(
         default=None,
-        description="Model tier override (SIMPLE, STANDARD, ADVANCED). None = use registry default.",
+        description=(
+            "Model tier override (SIMPLE, STANDARD, ADVANCED) or a registered model ID. None = use registry default."
+        ),
     )
     max_turns: int | None = Field(
         default=None,
@@ -343,6 +345,28 @@ class PerArchetypeConfig(BaseModel):
             "Per-mode overrides for this archetype. TOML: [archetypes.overrides.<name>.modes.<mode>]. 97-REQ-3.1"
         ),
     )
+
+    @field_validator("model_tier")
+    @classmethod
+    def _validate_model_tier(cls, v: str | None) -> str | None:
+        """Reject unknown tier names and model IDs at config-load time.
+
+        Without this a typo such as ``"advanced"`` only surfaced when the
+        session runner was constructed, mid-run (issue #769).  Accepts a tier
+        name (case-sensitive, as the registry spells it) or a registered model
+        ID, since ``resolve_model`` accepts both.
+        """
+        if v is None:
+            return v
+        from agentfox.core.models import MODEL_REGISTRY, ModelTier
+
+        valid_tiers = {t.value for t in ModelTier}
+        if v in valid_tiers or v in MODEL_REGISTRY:
+            return v
+        raise ValueError(
+            f"invalid model_tier {v!r}: expected one of {sorted(valid_tiers)} "
+            f"or a registered model ID ({sorted(MODEL_REGISTRY)})"
+        )
 
 
 # Required for self-referential Pydantic model (modes: dict[str, PerArchetypeConfig])
@@ -469,12 +493,6 @@ def _default_pricing_models() -> dict[str, ModelPricing]:
             output_price_per_m=15.00,
             cache_read_price_per_m=0.30,
             cache_creation_price_per_m=3.75,
-        ),
-        "claude-opus-4-5": ModelPricing(
-            input_price_per_m=5.00,
-            output_price_per_m=25.00,
-            cache_read_price_per_m=0.50,
-            cache_creation_price_per_m=6.25,
         ),
         "claude-opus-4-6": ModelPricing(
             input_price_per_m=5.00,

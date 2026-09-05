@@ -833,6 +833,7 @@ class TestRunSessionUsesFactory:
                 "task prompt",
                 config,
                 backend=None,
+                model_id="STANDARD",
             )
             mock_factory.assert_called_once_with("claude")
 
@@ -1197,6 +1198,7 @@ class TestConfigErrorPropagatesThroughSession:
                     "task prompt",
                     config,
                     backend=None,
+                    model_id="STANDARD",
                 )
             assert "missing sdk" in str(exc_info.value)
 
@@ -1294,6 +1296,7 @@ class TestSessionCancellationCallsClose:
                 "task prompt",
                 config,
                 backend=backend,  # type: ignore[arg-type]
+                model_id="STANDARD",
             )
         )
         await asyncio.sleep(0.02)
@@ -1348,6 +1351,7 @@ class TestConfigErrorNoCloseCall:
                     "task prompt",
                     config,
                     backend=None,
+                    model_id="STANDARD",
                 )
             # If we get here, ConfigError propagated — no fallback, no close()
 

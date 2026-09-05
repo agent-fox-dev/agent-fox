@@ -74,7 +74,7 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     if not om.quiet and not json_in_sub:
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
-        render_banner(theme, quiet=om.quiet)
+        render_banner(theme, quiet=om.quiet, config=config)
 
     # 01-REQ-1.3: show help when invoked without a subcommand
     if ctx.invoked_subcommand is None:

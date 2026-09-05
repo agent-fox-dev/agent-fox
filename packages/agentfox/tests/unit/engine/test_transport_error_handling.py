@@ -1,7 +1,7 @@
 """Unit tests for transport-error handling in SessionResultHandler.
 
 Verifies AC-6 and AC-7 from issue #269:
-  AC-6: SessionResultHandler does not consume an escalation retry for transport errors.
+  AC-6: SessionResultHandler does not consume a retry attempt for transport errors.
   AC-7: Transport errors that succeed internally do not create a failed SessionRecord.
 
 Requirements: 26-REQ-9.3 (transport-transparent retry path)
@@ -14,7 +14,7 @@ from agentfox.engine.result_handler import SessionResultHandler
 from agentfox.engine.state import ExecutionState, SessionRecord
 
 # ---------------------------------------------------------------------------
-# Helpers (mirrors test_timeout_escalation.py pattern)
+# Helpers (mirrors test_timeout_retry.py pattern)
 # ---------------------------------------------------------------------------
 
 
@@ -94,7 +94,7 @@ def _make_handler(
 
 
 # ---------------------------------------------------------------------------
-# AC-6: Transport errors do not consume an escalation ladder retry attempt
+# AC-6: Transport errors do not consume a retry attempt
 # ---------------------------------------------------------------------------
 
 
@@ -229,7 +229,7 @@ class TestTransportInternalRetryNoFailedRecord:
         Note: The spec says transport errors that INTERNALLY succeed produce no
         failed record.  When transport retries are exhausted (transport failure
         reaches result_handler), we still record the event but do NOT penalise
-        the escalation ladder.
+        the retry counter.
         """
         handler, state, error_tracker = _make_handler()
 

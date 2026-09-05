@@ -16,6 +16,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.style import Style
@@ -210,19 +211,33 @@ def _get_git_revision() -> str | None:
     return None
 
 
-def _resolve_coding_model_display() -> str:
+def _resolve_coding_model_display(config: Any | None = None) -> str:
     """Resolve the coding model to a display string.
 
-    Returns the model ID (e.g., 'claude-opus-4-6') on success,
-    or the raw tier string (e.g., 'ADVANCED') on failure.
+    Returns the model ID (e.g., 'claude-opus-4-6') on success, or the raw tier
+    string (e.g., 'ADVANCED') on failure.
 
-    Uses the coder archetype's registry default tier.
+    Resolves the same way a coder session does, so the banner cannot name a
+    model the coder will not run (issue #769): the tier comes from
+    ``archetypes.overrides.coder.model_tier`` when set, otherwise the registry
+    default, and the model ID is looked up through ``models.tier_defaults`` /
+    ``models.registry``.  Falls back to the registry default when no config is
+    available.
     """
     from agentfox.archetypes import ARCHETYPE_REGISTRY
 
     tier = ARCHETYPE_REGISTRY["coder"].default_model_tier
+    models_config = None
+    if config is not None:
+        try:
+            override = config.archetypes.overrides.get("coder")
+            if override is not None and override.model_tier:
+                tier = override.model_tier
+            models_config = config.models
+        except Exception:
+            logger.debug("Could not read coder model tier from config", exc_info=True)
     try:
-        return resolve_model(tier)
+        return resolve_model(tier, models_config=models_config)
     except Exception:
         return tier
 
@@ -230,12 +245,16 @@ def _resolve_coding_model_display() -> str:
 def render_banner(
     theme: AppTheme,
     quiet: bool = False,
+    config: Any | None = None,
 ) -> None:
     """Render the CLI banner with fox art, version, model, and cwd.
 
     Args:
         theme: The app theme for styled output.
         quiet: If True, suppress all banner output.
+        config: Loaded ``AgentFoxConfig``, used to resolve the coder model the
+            same way a session does.  When omitted the registry default is
+            shown.
     """
     if quiet:
         return
@@ -249,7 +268,7 @@ def render_banner(
         console.print(line, style="header", highlight=False)
 
     # 14-REQ-2.1, 14-REQ-2.2, 14-REQ-2.3, 14-REQ-2.E1: Version + model line
-    model_display = _resolve_coding_model_display()
+    model_display = _resolve_coding_model_display(config)
     revision = _get_git_revision()
     version_part = f"agent-fox v{__version__}"
     if revision:

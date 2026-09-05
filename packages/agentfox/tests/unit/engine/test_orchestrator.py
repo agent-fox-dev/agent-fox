@@ -219,8 +219,7 @@ class TestBlockedAfterRetries:
             sync_interval=0,
             hot_load=False,
         )
-        # Use STANDARD coding tier via overrides so the ladder has room to
-        # escalate (STANDARD → ADVANCED) before exhausting.
+        # Pin the coder to the STANDARD tier so the retry budget is exercised.
         from agentfox.core.config import PerArchetypeConfig
 
         full_config = AgentFoxConfig(archetypes={"overrides": {"coder": PerArchetypeConfig(model_tier="STANDARD")}})

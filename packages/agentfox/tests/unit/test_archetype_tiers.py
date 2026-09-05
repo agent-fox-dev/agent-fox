@@ -3,10 +3,10 @@
 Test Spec: TS-57-1 through TS-57-14, TS-57-E1 through TS-57-E3
 Requirements: 57-REQ-1.1 through 57-REQ-3.E1, 57-REQ-4.1 through 57-REQ-4.3
 
-Updated for spec 98 (reviewer consolidation):
+Updated for spec 98 (reviewer consolidation) and spec 15 tiers:
 - skeptic/oracle → reviewer (STANDARD base, pre-flight/audit-review = ADVANCED)
 - verifier → STANDARD (was ADVANCED, per 98-REQ-6.1)
-- auditor → reviewer:audit-review (STANDARD)
+- auditor → reviewer:audit-review (ADVANCED)
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from agentfox.core.config import (
     ArchetypesConfig,
     PerArchetypeConfig,
 )
-from agentfox.core.errors import ConfigError
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
+from pydantic import ValidationError
 
 _MOCK_KB = MagicMock(spec=KnowledgeDB)
 
@@ -166,11 +166,22 @@ class TestUnknownArchetypeFallback:
 
 
 class TestInvalidConfigTierRaises:
-    """TS-57-E3: Invalid tier name in config raises ConfigError."""
+    """TS-57-E3: Invalid tier name in config is rejected at config-construction time.
 
-    def test_invalid_config_tier_raises_config_error(self) -> None:
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="INVALID_TIER")})
-        )
-        with pytest.raises(ConfigError):
-            NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
+    Since issue #769 ``PerArchetypeConfig`` validates ``model_tier`` eagerly, so
+    a typo fails when the config is built rather than mid-run when the session
+    runner is constructed.
+    """
+
+    def test_invalid_config_tier_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            PerArchetypeConfig(model_tier="INVALID_TIER")
+
+    def test_lowercase_tier_raises(self) -> None:
+        """A lowercase tier name is a typo, not an alias."""
+        with pytest.raises(ValidationError):
+            PerArchetypeConfig(model_tier="advanced")
+
+    def test_registered_model_id_accepted(self) -> None:
+        """A registered model ID is a valid override, as resolve_model accepts both."""
+        assert PerArchetypeConfig(model_tier="claude-opus-4-6").model_tier == "claude-opus-4-6"

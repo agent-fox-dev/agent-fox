@@ -359,7 +359,7 @@ Before dispatching a task, the `DispatchManager` runs a preparation pipeline:
    is LAUNCH, the gate results are captured as a `PreflightResult` and
    forwarded to the coder's task prompt as a `## Preflight State` section,
    so the coder can skip its redundant Quick Triage checks.
-4. **Parameter resolution.** The archetype's model tier and variant, security
+4. **Parameter resolution.** The archetype's model tier, security
    allowlist, session timeout, max turns, thinking configuration, and budget
    cap are resolved from the archetype registry, mode overrides, and
    configuration.
@@ -428,9 +428,9 @@ tool allowlist), and produces output over multiple turns.
 
 Per-session SDK parameters are resolved before dispatch:
 
-- **Model ID** — Determined by the archetype's default tier and variant, with
+- **Model ID** — Determined by the archetype's default tier, with
   optional per-archetype and per-mode config overrides. See
-  [Model Tiers and Variants](model-escalation.md) for the resolution priority.
+  [Model Tiers and Retry Behavior](model-tiers-and-retries.md) for the resolution priority.
 - **Max turns** — Archetype-specific cap on the number of agent turns (300 for
   Coder, 120 for Verifier, 80 for Reviewer).
 - **Thinking mode** — Extended thinking. Currently enabled only for the Coder
@@ -755,7 +755,7 @@ quality checks, verifies its work against the requirements, and produces a
 session summary artifact.
 
 **Configuration:**
-- Model tier: STANDARD (variant: standard)
+- Model tier: STANDARD
 - Thinking mode: adaptive
 - Effort: xhigh
 - Max turns: 300
@@ -772,7 +772,7 @@ All modes produce structured findings and have restricted tool allowlists
 (they cannot modify code).
 
 **Pre-flight mode** (`auto_pre`, before group 1):
-- Model tier: ADVANCED (variant: standard)
+- Model tier: ADVANCED
 - Combines spec quality review (completeness, consistency, feasibility,
   testability, edge case coverage, security) with codebase drift analysis
   (validates spec assumptions against actual code: referenced files exist,
@@ -785,18 +785,12 @@ All modes produce structured findings and have restricted tool allowlists
   findings block the downstream coder rather than retrying a predecessor.
 
 **Audit-review mode** (`auto_mid`, after test-writing groups):
-- Model tier: ADVANCED (variant: standard)
+- Model tier: ADVANCED
 - Validates test quality against test spec contracts: coverage, assertion
   strength, precondition fidelity, edge case rigor, test independence.
 - Has read-only access plus `uv` for test collection.
 - `retry_predecessor`: true — triggers a coder retry when tests are MISSING or
   MISALIGNED.
-
-**Fix-review mode** (used by night-shift):
-- Model tier: ADVANCED (variant: standard)
-- Broader tool access (`make`, `uv`).
-- Max turns: 120 (higher than other reviewer modes).
-- Not injected automatically into coding session plans.
 
 ### 8.3 Verifier
 
@@ -809,7 +803,7 @@ Uses a sentinel group number (0) with a 3-part node ID format
 (`spec:0:verifier`) to avoid collisions with real coder group nodes.
 
 **Configuration:**
-- Model tier: STANDARD (variant: standard)
+- Model tier: STANDARD
 - Effort: high
 - Max turns: 120
 - Tool access: full (needs to run tests)
@@ -824,7 +818,7 @@ Not auto-injected — assigned automatically when a task group has
 `kind: "checkpoint"` in `tasks.json`.
 
 **Configuration:**
-- Model tier: STANDARD (variant: standard)
+- Model tier: STANDARD
 - Effort: low
 - Max turns: 30
 - Thinking: disabled

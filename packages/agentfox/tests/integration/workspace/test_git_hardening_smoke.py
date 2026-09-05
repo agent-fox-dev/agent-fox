@@ -197,7 +197,7 @@ class TestForceCleanEnablesHarvest:
 # ---------------------------------------------------------------------------
 
 
-class TestNonRetryableErrorSkipsEscalation:
+class TestNonRetryableErrorSkipsRetries:
     """TS-118-SMOKE-3: Divergent files produce IntegrationError(retryable=True).
 
     AC-1: Changed from retryable=False to retryable=True so the orchestrator

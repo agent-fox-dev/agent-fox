@@ -4,7 +4,7 @@ Verifies acceptance criteria:
   AC-1: mark_pending() enforces in_progress→pending through _transition() layer.
   AC-3: A node that times out once is dispatched at most twice; both transitions logged.
   AC-4: VALID_TRANSITIONS['in_progress'] includes 'pending'.
-  AC-5: When timeout retries are exhausted, node escalates to failed, no further dispatch.
+  AC-5: When timeout retries are exhausted, node moves to failed, no further dispatch.
 """
 
 from __future__ import annotations
@@ -225,7 +225,7 @@ class TestSingleTimeoutTwoDispatches:
 
 
 class TestExhaustedTimeoutRetries:
-    """AC-5: When timeout retries exhausted, node escalates to failed — no extra dispatch."""
+    """AC-5: When timeout retries exhausted, node moves to failed — no extra dispatch."""
 
     def test_exhausted_timeout_does_not_call_mark_pending(self) -> None:
         """AC-5: When retries exhausted, _handle_timeout falls through to failure path."""
@@ -246,7 +246,7 @@ class TestExhaustedTimeoutRetries:
         )
 
     def test_two_timeouts_max_one_retry_final_state_not_pending(self) -> None:
-        """AC-5: max_timeout_retries=1, two timeouts → escalation ladder, not re-queued."""
+        """AC-5: max_timeout_retries=1, two timeouts → retry counter, not re-queued."""
         node_id = "01_project_setup:2"
         handler, state, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 

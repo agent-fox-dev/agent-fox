@@ -1,4 +1,4 @@
-"""Property-based tests for timeout-aware escalation.
+"""Property-based tests for timeout-aware retries.
 
 Test Spec: TS-75-P1 through TS-75-P6
 Requirements: 75-REQ-1.1, 75-REQ-2.1, 75-REQ-2.2, 75-REQ-2.4, 75-REQ-2.E1,
@@ -85,12 +85,12 @@ def _make_handler(
 
 
 # ---------------------------------------------------------------------------
-# TS-75-P1: Timeout Never Directly Escalates (Property 1)
+# TS-75-P1: Timeout Never Consumes A Retry (Property 1)
 # Requirements: 75-REQ-1.1, 75-REQ-2.2
 # ---------------------------------------------------------------------------
 
 
-class TestTimeoutNeverDirectlyEscalates:
+class TestTimeoutNeverConsumesRetry:
     """TS-75-P1: With retries remaining, timeout never calls record_failure()."""
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
@@ -100,11 +100,13 @@ class TestTimeoutNeverDirectlyEscalates:
         timeout_count=st.integers(min_value=1, max_value=5),
     )
     @settings(max_examples=50)
-    def test_timeout_never_escalates_while_retries_remain(self, max_timeout_retries: int, timeout_count: int) -> None:
+    def test_timeout_never_consumes_retry_while_retries_remain(
+        self, max_timeout_retries: int, timeout_count: int
+    ) -> None:
         """TS-75-P1: Processing N ≤ max_timeout_retries timeouts → 0 ladder failures.
 
         For any N in [1..max_timeout_retries], processing N timeout records
-        must never invoke the escalation ladder's record_failure().
+        must never invoke the failure handler's record_failure().
 
         Validates: 75-REQ-1.1, 75-REQ-2.2
         """
@@ -128,11 +130,11 @@ class TestTimeoutNeverDirectlyEscalates:
                 error_tracker=error_tracker,
             )
 
-        # Property: no escalation ladder failures while retries remain.
+        # Property: no failure-handler failures while retries remain.
         # Currently FAILS because _handle_failure is called for all non-success.
         assert handler.get_failure_count("node1") == 0
 
-    def test_single_timeout_no_escalation(self) -> None:
+    def test_single_timeout_no_failure_recorded(self) -> None:
         """TS-75-P1 (concrete): One timeout with max_timeout_retries=1 → none."""
         handler, state, error_tracker = _make_handler(max_timeout_retries=1)
         # Currently FAILS: _max_timeout_retries doesn't exist.
@@ -173,7 +175,7 @@ class TestCounterIndependence:
 
         For any sequence of 'timeout' and 'failed' events:
         - The timeout retry counter counts only timeout events (up to max).
-        - The escalation ladder records only failure events.
+        - The failure handler records only failure events.
 
         Validates: 75-REQ-2.1, 75-REQ-2.E1
         """
@@ -260,8 +262,6 @@ class TestMonotonicTimeoutExtension:
         ns.timeout = 30
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
-        ns.max_turns = 200
-        ns.has_max_turns = True
 
         handler._extend_node_params("node1")
         assert ns.timeout == 45
@@ -277,13 +277,13 @@ class TestMonotonicTimeoutExtension:
 
 
 class TestTimeoutExhaustionFallsThrough:
-    """TS-75-P4: After max_timeout_retries, next timeout hits escalation."""
+    """TS-75-P4: After max_timeout_retries, next timeout reaches the failure handler."""
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
     @pytest.mark.property
     @given(max_retries=st.integers(min_value=0, max_value=5))
     @settings(max_examples=30)
-    def test_exhaustion_triggers_escalation(self, max_retries: int) -> None:
+    def test_exhaustion_reaches_failure_handler(self, max_retries: int) -> None:
         """TS-75-P4: After exactly max_retries timeouts, (max+1)th hits ladder.
 
         Validates: 75-REQ-2.4
@@ -309,7 +309,7 @@ class TestTimeoutExhaustionFallsThrough:
         # Currently FAILS: record_failure IS called on every failure path.
         assert handler.get_failure_count("node1") == 0
 
-        # One more timeout → must fall through to escalation.
+        # One more timeout → must fall through to the failure handler.
         handler._graph_sync.node_states["node1"] = "in_progress"  # type: ignore[attr-defined]
         record = _make_record("timeout", attempt=max_retries + 1)
         handler.process(
@@ -322,7 +322,7 @@ class TestTimeoutExhaustionFallsThrough:
         assert handler.get_failure_count("node1") == 1
 
     def test_concrete_exhaustion_at_max_two(self) -> None:
-        """TS-75-P4 (concrete): max_timeout_retries=2; 3rd timeout → escalation."""
+        """TS-75-P4 (concrete): max_timeout_retries=2; 3rd timeout → failure handler."""
         handler, state, error_tracker = _make_handler(max_timeout_retries=2)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
@@ -354,51 +354,36 @@ class TestTimeoutExhaustionFallsThrough:
 
 
 # ---------------------------------------------------------------------------
-# TS-75-P5: Unlimited Turns Preserved (Property 5)
-# Requirement: 75-REQ-3.4
+# TS-75-P5: max_turns Untouched By Retries (Property 5)
 # ---------------------------------------------------------------------------
 
 
-class TestUnlimitedTurnsPreserved:
-    """TS-75-P5: max_turns=None stays None through any number of retries."""
+class TestMaxTurnsUntouchedByRetries:
+    """TS-75-P5: no number of timeout retries introduces a max_turns override.
+
+    A timeout extends wall-clock time only (issue #769), so the dispatcher
+    never receives a max_turns override however many times a node times out.
+    """
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
     @pytest.mark.property
     @given(retry_count=st.integers(min_value=1, max_value=10))
     @settings(max_examples=30)
-    def test_none_max_turns_preserved_through_retries(self, retry_count: int) -> None:
-        """TS-75-P5: None max_turns remains None through any number of retries.
+    def test_no_max_turns_override_after_retries(self, retry_count: int) -> None:
+        """After any number of extensions, _resolve_overrides reports no max_turns."""
+        from agentfox.engine.dispatch import _resolve_overrides
 
-        Validates: 75-REQ-3.4
-        """
         handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
-        ns.max_turns = None
-        ns.has_max_turns = True
         ns.timeout = 30
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
 
         for _ in range(retry_count):
             handler._extend_node_params("node1")
-            assert ns.max_turns is None
-
-    def test_none_preserved_concrete_three_retries(self) -> None:
-        """TS-75-P5 (concrete): None max_turns stays None through 3 retries."""
-        handler, _, _ = _make_handler()
-
-        ns = handler._get_node_state("node1")
-        ns.max_turns = None
-        ns.has_max_turns = True
-        ns.timeout = 30
-        handler._timeout_multiplier = 1.5
-        handler._timeout_ceiling_factor = 2.0
-
-        for _ in range(3):
-            handler._extend_node_params("node1")
-
-        assert ns.max_turns is None
+            _timeout, max_turns = _resolve_overrides(handler, "node1")
+            assert max_turns is None
 
 
 # ---------------------------------------------------------------------------

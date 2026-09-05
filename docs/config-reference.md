@@ -34,9 +34,11 @@ the most commonly changed settings. Add any section below manually to
   - [archetypes.custom](#archetypescustom)
 - [pricing](#pricing)
 - [planning](#planning)
-- [night_shift](#night_shift)
 - [caching](#caching)
 - [spec_tool](#spec_tool)
+- [models](#models)
+  - [models.registry](#modelsregistry)
+  - [models.tier_defaults](#modelstier_defaults)
 
 ---
 
@@ -138,7 +140,7 @@ timeout and max-turns limits on each retry.
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
 | `max_timeout_retries` | int | `2` | >= 0 | Maximum timeout retries before falling through to failure handler (0 = disable timeout handling) |
-| `timeout_multiplier` | float | `1.5` | >= 1.0 | Factor by which `max_turns` and `session_timeout` are extended on each timeout retry |
+| `timeout_multiplier` | float | `1.5` | >= 1.0 | Factor by which `session_timeout` is extended on each timeout retry (`max_turns` is not extended) |
 | `timeout_ceiling_factor` | float | `2.0` | >= 1.0 | Maximum `session_timeout` as a multiple of the original configured value |
 
 **Example:**
@@ -424,7 +426,6 @@ Each entry in `models` is a TOML inline table or sub-table with these fields:
 |-------|-----------|------------|----------------|--------------------|
 | `claude-haiku-4-5` | 1.00 | 5.00 | 0.10 | 1.25 |
 | `claude-sonnet-4-6` | 3.00 | 15.00 | 0.30 | 3.75 |
-| `claude-opus-4-5` | 5.00 | 25.00 | 0.50 | 6.25 |
 | `claude-opus-4-6` | 5.00 | 25.00 | 0.50 | 6.25 |
 | `claude-opus-4-6[1m]` | 5.00 | 25.00 | 0.50 | 6.25 |
 
@@ -455,70 +456,6 @@ Controls task scheduling, duration prediction, and file-conflict detection.
 ```toml
 [planning]
 file_conflict_detection = true
-```
-
----
-
-## night_shift
-
-Daemon configuration for the night-shift fix-only daemon
-(`nightshift`). Night-shift polls for `af:fix`-labelled issues
-and processes them through a multi-stage fix pipeline.
-
-> **Note:** This is a hidden section.
-
-| Field | Type | Default | Bounds | Description |
-|-------|------|---------|--------|-------------|
-| `issue_check_interval` | int | `900` | >= 60 | Seconds between issue-tracker checks |
-| `push_fix_branch` | bool | `false` | -- | Push fix branches to origin before harvest |
-| `max_parallel` | int | `1` | 1--8 | Maximum number of issues processed concurrently. Independent issues (no dependency edges) are dispatched in parallel up to this limit. Issues with dependencies wait for their prerequisites to complete. Default `1` preserves serial processing. |
-| `pr_check_interval` | int | `900` | >= 60 | Seconds between PR status poll cycles |
-| `max_pr_retries` | int | `2` | 0--10 | Maximum feedback iterations per PR |
-
-**Example:**
-
-```toml
-[night_shift]
-issue_check_interval = 1800
-max_parallel = 3
-```
-
-### Pipeline model tiers
-
-Each pipeline stage runs a specific archetype and mode. The default model
-tiers are set in the archetype registry and can be overridden via
-[`archetypes.overrides`](#archetypesoverrides) — night-shift has no
-separate model configuration of its own.
-
-| Stage | Archetype | Mode | Default tier | Default model |
-|-------|-----------|------|--------------|---------------|
-| Batch triage (dependency ordering) | `maintainer` | `hunt` | SIMPLE | `claude-haiku-4-5` |
-| Issue triage analysis | `maintainer` | `fix-triage` | STANDARD | `claude-sonnet-4-6` |
-| Coder (fix implementation) | `coder` | `fix` | STANDARD | `claude-sonnet-4-6` |
-| Reviewer (fix review) | `reviewer` | `fix-review` | ADVANCED | `claude-opus-4-6` |
-| Staleness detection | *(direct call)* | -- | ADVANCED | `claude-opus-4-6` |
-
-All stages except staleness detection resolve their model via
-`resolve_model_tier()`, which checks overrides in this order:
-
-1. Mode-level override: `archetypes.overrides.<archetype>.modes.<mode>.model_tier`
-2. Archetype-level override: `archetypes.overrides.<archetype>.model_tier`
-3. Registry default (the values in the table above)
-
-Staleness detection bypasses this resolution and is hardcoded to ADVANCED.
-
-**Example — upgrade the coder to ADVANCED for higher-quality fixes:**
-
-```toml
-[archetypes.overrides.coder.modes.fix]
-model_tier = "ADVANCED"
-```
-
-**Example — downgrade triage to SIMPLE to reduce cost:**
-
-```toml
-[archetypes.overrides.maintainer.modes.fix-triage]
-model_tier = "SIMPLE"
 ```
 
 ---
@@ -580,6 +517,58 @@ model = "STANDARD"
 auth_method = ""
 vertex_project = ""
 vertex_region = ""
+```
+
+---
+
+## models
+
+Extends the built-in model registry and overrides which model each tier
+resolves to. Both sub-tables are empty by default, in which case the built-in
+`MODEL_REGISTRY` and `TIER_DEFAULTS` apply.
+
+### models.registry
+
+Adds or overrides model registry entries. Each key is a model ID; the value is
+an inline table with a required `tier` (`SIMPLE`, `STANDARD` or `ADVANCED`).
+An invalid tier raises a configuration error at load time.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `<model-id>` | table | -- | `{tier = "SIMPLE" \| "STANDARD" \| "ADVANCED"}` |
+
+**Built-in registry:**
+
+| Model | Tier |
+|-------|------|
+| `claude-haiku-4-5` | SIMPLE |
+| `claude-sonnet-4-6` | STANDARD |
+| `claude-opus-4-6` | ADVANCED |
+| `claude-opus-4-6[1m]` | ADVANCED |
+
+**Example:**
+
+```toml
+[models.registry]
+"claude-haiku-5-0" = { tier = "SIMPLE" }
+```
+
+### models.tier_defaults
+
+Overrides the model each tier resolves to. Keys must be `SIMPLE`, `STANDARD`
+or `ADVANCED`; values are model IDs.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `SIMPLE` | str | `claude-haiku-4-5` | Model ID used for the SIMPLE tier |
+| `STANDARD` | str | `claude-sonnet-4-6` | Model ID used for the STANDARD tier |
+| `ADVANCED` | str | `claude-opus-4-6` | Model ID used for the ADVANCED tier |
+
+**Example:**
+
+```toml
+[models.tier_defaults]
+STANDARD = "claude-haiku-5-0"
 ```
 
 ---

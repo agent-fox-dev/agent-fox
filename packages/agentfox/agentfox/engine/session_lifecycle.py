@@ -283,7 +283,7 @@ class NodeSessionRunner:
         self._activity_callback = activity_callback
         self._run_id = run_id
         self._trace_enabled = trace_enabled
-        # 75-REQ-3.5: Per-node timeout/turns overrides from timeout-aware escalation
+        # 75-REQ-3.5: Per-node timeout override from the timeout retry path
         self._timeout_override = timeout_override
         self._max_turns_override = max_turns_override
         # 114-REQ-2.4: Use provided KnowledgeProvider or default to NoOp

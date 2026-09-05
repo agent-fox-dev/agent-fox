@@ -114,7 +114,7 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `ModelTier` | Enum: `SIMPLE`, `STANDARD`, `ADVANCED`. |
 | `ModelEntry` | Dataclass: `model_id`, `tier`. |
 | `MODEL_REGISTRY` | `dict[str, ModelEntry]` -- all known model IDs. |
-| `resolve_model` | `(name_or_tier) -> str` -- resolve a tier name or model alias to a concrete model ID. |
+| `resolve_model` | `(name_or_tier, *, models_config=None) -> str` -- resolve a tier name or model ID to a concrete model ID, honouring `[models.registry]` / `[models.tier_defaults]` when a config is passed. |
 | `calculate_cost` | `(input_tokens, output_tokens, model_id, pricing, *, cache_read_input_tokens=0, cache_creation_input_tokens=0) -> float` -- USD cost. |
 
 ### Archetypes (`agentfox.archetypes`)

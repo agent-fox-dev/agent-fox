@@ -48,7 +48,6 @@ from agentfox.core.config import (
     RoutingConfig,
 )
 from agentfox.core.errors import PlanError
-from agentfox.core.models import ModelTier  # noqa: F401 — used by assess_node() implementation (task group 9)
 from agentfox.engine.barrier import _count_node_status, run_sync_barrier_sequence
 from agentfox.engine.circuit import CircuitBreaker
 from agentfox.engine.config_reload import (  # noqa: F401 — ReloadResult, diff_configs re-exported
@@ -155,7 +154,6 @@ class Orchestrator:
         full_config: AgentFoxConfig | None = None,
         platform: Any | None = None,
         knowledge_provider: Any | None = None,
-        client: Any | None = None,
     ) -> None:
         self._config = config
         self._watch = watch

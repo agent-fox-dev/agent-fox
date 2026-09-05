@@ -152,6 +152,7 @@ class TestSessionRunnerSuccess:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "completed"
@@ -177,6 +178,7 @@ class TestSessionRunnerSuccess:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.input_tokens == 100
@@ -203,6 +205,7 @@ class TestSessionRunnerSuccess:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.duration_ms == 5000
@@ -228,6 +231,7 @@ class TestSessionRunnerSuccess:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.error_message is None
@@ -253,6 +257,7 @@ class TestSessionRunnerSuccess:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.spec_name == workspace_info.spec_name
@@ -278,6 +283,7 @@ class TestSessionRunnerSDKError:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "failed"
@@ -298,6 +304,7 @@ class TestSessionRunnerSDKError:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.error_message is not None
@@ -337,6 +344,7 @@ class TestSessionRunnerTimeout:
                 "task prompt",
                 short_timeout_config,
                 backend=backend,  # type: ignore[arg-type]
+                model_id="STANDARD",
             )
 
         assert outcome.status == "timeout"
@@ -372,6 +380,7 @@ class TestSessionRunnerIsError:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "failed"
@@ -403,6 +412,7 @@ class TestSessionRunnerIsError:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.error_message is not None
@@ -431,6 +441,7 @@ class TestSessionRunnerResultHandling:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "completed"
@@ -458,6 +469,7 @@ class TestSessionRunnerResultHandling:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "failed"
@@ -488,6 +500,7 @@ class TestSessionRunnerResultHandling:
                 "sys prompt",
                 "task prompt",
                 default_config,
+                model_id="STANDARD",
             )
 
         assert outcome.status == "timeout"
@@ -526,6 +539,7 @@ class TestSessionRunnerActivityCallback:
             default_config,
             backend=backend,  # type: ignore[arg-type]
             activity_callback=lambda e: events.append(e),
+            model_id="STANDARD",
         )
 
         assert len(events) >= 1
@@ -560,6 +574,7 @@ class TestSessionRunnerActivityTurnAndTokens:
             default_config,
             backend=backend,  # type: ignore[arg-type]
             activity_callback=lambda e: events.append(e),
+            model_id="STANDARD",
         )
 
         assert len(events) == 2
@@ -594,6 +609,7 @@ class TestSessionRunnerNoCallback:
             "task prompt",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "completed"
@@ -628,6 +644,7 @@ class TestSessionRunnerCallbackException:
             default_config,
             backend=backend,  # type: ignore[arg-type]
             activity_callback=raising_cb,
+            model_id="STANDARD",
         )
 
         assert outcome.status == "completed"
@@ -679,6 +696,7 @@ class TestSessionRunnerRecordsToolCalls:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-abc",
+            model_id="STANDARD",
         )
 
         assert len(recorded) == 1
@@ -720,6 +738,7 @@ class TestSessionRunnerRecordsToolCalls:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-abc",
+            model_id="STANDARD",
         )
 
         assert len(recorded) == 3
@@ -759,6 +778,7 @@ class TestSessionRunnerRecordsToolCalls:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-xyz",
+            model_id="STANDARD",
         )
 
         assert len(recorded) == 1
@@ -786,6 +806,7 @@ class TestSessionRunnerRecordsToolCalls:
             "task",
             default_config,
             backend=backend,  # type: ignore[arg-type]
+            model_id="STANDARD",
         )
 
         assert outcome.status == "completed"
@@ -828,6 +849,7 @@ class TestSessionRunnerRecordsToolErrors:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-err",
+            model_id="STANDARD",
         )
 
         assert len(error_records) == 1
@@ -867,6 +889,7 @@ class TestSessionRunnerRecordsToolErrors:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-ok",
+            model_id="STANDARD",
         )
 
         assert len(error_records) == 0
@@ -904,6 +927,7 @@ class TestSessionRunnerRecordsToolErrors:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-no-tool",
+            model_id="STANDARD",
         )
 
         assert len(error_records) == 0
@@ -944,6 +968,7 @@ class TestSessionRunnerTelemetrySinkFailure:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-fail",
+            model_id="STANDARD",
         )
 
         # Session must complete successfully despite sink failure
@@ -981,6 +1006,7 @@ class TestSessionRunnerTelemetrySinkFailure:
             backend=backend,  # type: ignore[arg-type]
             sink_dispatcher=dispatcher,
             run_id="run-err-sink-fail",
+            model_id="STANDARD",
         )
 
         # Session must return a result without raising, even though the sink failed

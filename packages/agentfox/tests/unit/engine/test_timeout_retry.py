@@ -1,4 +1,4 @@
-"""Unit tests for timeout-aware escalation in SessionResultHandler.
+"""Unit tests for timeout-aware retries in SessionResultHandler.
 
 Test Spec: TS-75-1 through TS-75-15, TS-75-21 through TS-75-23
 Requirements: 75-REQ-1.1, 75-REQ-1.2, 75-REQ-1.3, 75-REQ-1.E1,
@@ -123,7 +123,7 @@ def _make_handler(
 
 
 class TestTimeoutRouting:
-    """TS-75-1: Status 'timeout' routes to timeout handler, not escalation."""
+    """TS-75-1: Status 'timeout' routes to timeout handler, not the retry counter."""
 
     def test_timeout_does_not_increment_failure_count(self) -> None:
         """TS-75-1: Timeout status should NOT increment the failure counter."""
@@ -170,13 +170,13 @@ class TestTimeoutRouting:
 
 
 # ---------------------------------------------------------------------------
-# TS-75-2: Non-Timeout Failure Uses Escalation Ladder
+# TS-75-2: Non-Timeout Failure Uses The Retry Counter
 # Requirement: 75-REQ-1.2
 # ---------------------------------------------------------------------------
 
 
 class TestNonTimeoutFailureRouting:
-    """TS-75-2: Status 'failed' routes to the escalation ladder."""
+    """TS-75-2: Status 'failed' routes to the failure handler."""
 
     def test_failed_status_increments_failure_count(self) -> None:
         """TS-75-2: 'failed' status must increment the failure counter."""
@@ -291,7 +291,7 @@ class TestFailedWithTimeoutInMessage:
 
 
 class TestTimeoutCounterIndependence:
-    """TS-75-5: Timeout retry counter is independent of escalation ladder."""
+    """TS-75-5: Timeout retry counter is independent of the generic retry counter."""
 
     def test_two_timeouts_increment_counter_twice(self) -> None:
         """TS-75-5: Two timeout records increment the counter to 2."""
@@ -373,7 +373,7 @@ class TestRetryAtSameTier:
 
 
 class TestTimeoutFallThrough:
-    """TS-75-7: When timeout retries exhausted, escalation ladder is invoked."""
+    """TS-75-7: When timeout retries exhausted, the failure handler is invoked."""
 
     def test_exhausted_timeout_counter_increments_failure_count(self) -> None:
         """TS-75-7: After max timeout retries, next timeout increments failure counter."""
@@ -450,7 +450,7 @@ class TestMixedTimeoutAndFailures:
 
 
 class TestZeroMaxTimeoutRetries:
-    """TS-75-9: max_timeout_retries=0 → timeout goes directly to escalation."""
+    """TS-75-9: max_timeout_retries=0 → timeout goes directly to the failure handler."""
 
     def test_zero_max_retries_increments_failure_count_immediately(self) -> None:
         """TS-75-9: When max_timeout_retries=0, timeout increments the failure counter."""
@@ -487,28 +487,41 @@ class TestZeroMaxTimeoutRetries:
 
 
 # ---------------------------------------------------------------------------
-# TS-75-10: Max Turns Extended by Multiplier
-# Requirement: 75-REQ-3.1
+# TS-75-10: Max Turns Is Not Extended
 # ---------------------------------------------------------------------------
 
 
-class TestMaxTurnsExtension:
-    """TS-75-10: _extend_node_params() multiplies max_turns and rounds up."""
+class TestMaxTurnsNotExtended:
+    """TS-75-10: a timeout retry extends the timeout only (issue #769).
 
-    def test_max_turns_multiplied_and_rounded_up(self) -> None:
-        """TS-75-10: original=200, multiplier=1.5 → extended=300."""
+    A timeout means the session ran out of wall-clock time, not out of turns,
+    so ``max_turns`` is left alone and the retry state carries no turn ledger.
+    """
+
+    def test_retry_state_has_no_max_turns_ledger(self) -> None:
+        """_NodeRetryState carries no max_turns / has_max_turns fields."""
+        import dataclasses
+
         handler, _, _ = _make_handler()
-
         ns = handler._get_node_state("node1")
-        ns.max_turns = 200
-        ns.has_max_turns = True
-        handler._timeout_multiplier = 1.5
-        handler._timeout_ceiling_factor = 2.0
+        field_names = {f.name for f in dataclasses.fields(ns)}
+        assert "max_turns" not in field_names
+        assert "has_max_turns" not in field_names
+
+    def test_handler_exposes_no_max_turns_override(self) -> None:
+        """The handler offers no max_turns override to the dispatcher."""
+        handler, _, _ = _make_handler()
+        assert not hasattr(handler, "get_max_turns_override")
+
+    def test_dispatch_resolves_no_max_turns_override(self) -> None:
+        """_resolve_overrides always reports None for max_turns."""
+        from agentfox.engine.dispatch import _resolve_overrides
+
+        handler, _, _ = _make_handler()
+        ns = handler._get_node_state("node1")
         ns.timeout = 30
-
-        handler._extend_node_params("node1")
-
-        assert ns.max_turns == 300
+        _timeout, max_turns = _resolve_overrides(handler, "node1")
+        assert max_turns is None
 
 
 # ---------------------------------------------------------------------------
@@ -528,8 +541,6 @@ class TestSessionTimeoutExtension:
         ns.timeout = 30
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
-        ns.max_turns = 200
-        ns.has_max_turns = True
 
         handler._extend_node_params("node1")
 
@@ -553,8 +564,6 @@ class TestTimeoutCeiling:
         ns.timeout = 30
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
-        ns.max_turns = 200
-        ns.has_max_turns = True
 
         # After first retry:
         handler._extend_node_params("node1")  # 45
@@ -563,31 +572,6 @@ class TestTimeoutCeiling:
         # After second retry: ceil(45 * 1.5) = 68, ceiling = ceil(30 * 2.0) = 60
         handler._extend_node_params("node1")  # clamped to 60
         assert ns.timeout == 60
-
-
-# ---------------------------------------------------------------------------
-# TS-75-13: Unlimited Turns Not Modified
-# Requirement: 75-REQ-3.4
-# ---------------------------------------------------------------------------
-
-
-class TestUnlimitedTurnsPreservation:
-    """TS-75-13: max_turns=None stays None after timeout retry."""
-
-    def test_none_max_turns_not_modified(self) -> None:
-        """TS-75-13: If max_turns is None, it must remain None after extension."""
-        handler, _, _ = _make_handler()
-
-        ns = handler._get_node_state("node1")
-        ns.max_turns = None
-        ns.has_max_turns = True
-        handler._timeout_multiplier = 1.5
-        handler._timeout_ceiling_factor = 2.0
-        ns.timeout = 30
-
-        handler._extend_node_params("node1")
-
-        assert ns.max_turns is None
 
 
 # ---------------------------------------------------------------------------
@@ -604,8 +588,6 @@ class TestPerNodeParameterIsolation:
         handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
-        ns.max_turns = 200
-        ns.has_max_turns = True
         ns.timeout = 30
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
@@ -635,8 +617,6 @@ class TestCeilingClamp:
         ns.timeout = 20
         handler._timeout_multiplier = 2.0
         handler._timeout_ceiling_factor = 1.5
-        ns.max_turns = 100
-        ns.has_max_turns = True
 
         handler._extend_node_params("node1")
 
@@ -652,28 +632,11 @@ class TestCeilingClamp:
 class TestMultiplierOneNoExtensionHandler:
     """TS-75-20: Multiplier=1.0 → timeout retries use same params as original."""
 
-    def test_multiplier_one_no_change_to_turns(self) -> None:
-        """TS-75-20: With multiplier=1.0, max_turns is unchanged after extension."""
-        handler, _, _ = _make_handler()
-
-        ns = handler._get_node_state("node1")
-        ns.max_turns = 200
-        ns.has_max_turns = True
-        ns.timeout = 30
-        handler._timeout_multiplier = 1.0
-        handler._timeout_ceiling_factor = 2.0
-
-        handler._extend_node_params("node1")
-
-        assert ns.max_turns == 200
-
     def test_multiplier_one_no_change_to_timeout(self) -> None:
         """TS-75-20: With multiplier=1.0, session_timeout unchanged after extend."""
         handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
-        ns.max_turns = 200
-        ns.has_max_turns = True
         ns.timeout = 30
         handler._timeout_multiplier = 1.0
         handler._timeout_ceiling_factor = 2.0
@@ -801,8 +764,8 @@ class TestAuditEventPayloadValues:
         payload = events[0].payload
         assert "original_timeout" in payload
         assert "extended_timeout" in payload
-        assert "original_max_turns" in payload
-        assert "extended_max_turns" in payload
+        assert "original_max_turns" not in payload
+        assert "extended_max_turns" not in payload
 
     def test_payload_values_are_correct(self) -> None:
         """TS-75-23: Payload values match expected extended parameters."""
@@ -813,9 +776,6 @@ class TestAuditEventPayloadValues:
         sink = _EventCaptureSink()
         handler, state, error_tracker = _make_handler(sink=sink)
 
-        ns = handler._get_node_state("node1")
-        ns.max_turns = 200
-        ns.has_max_turns = True
         handler._timeout_multiplier = 1.5
         handler._timeout_ceiling_factor = 2.0
 
@@ -832,5 +792,3 @@ class TestAuditEventPayloadValues:
         payload = events[0].payload
         # original_timeout from config (default 45), extended = ceil(45 * 1.5) = 68
         assert payload.get("extended_timeout") == 68
-        # original_max_turns=200, extended = ceil(200 * 1.5) = 300
-        assert payload.get("extended_max_turns") == 300

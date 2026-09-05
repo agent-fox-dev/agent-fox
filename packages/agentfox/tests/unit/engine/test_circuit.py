@@ -227,5 +227,5 @@ class TestRetryLimitEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# AC-2: Orchestrator._resolve_retries_before_escalation deprecation
+# AC-2: legacy routing.retries_before_escalation key is ignored
 # ---------------------------------------------------------------------------

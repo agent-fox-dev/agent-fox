@@ -136,6 +136,7 @@ class TestRunSessionCachePolicyFlow:
                 config=config,
                 backend=backend,
                 cache_policy="EXTENDED",
+                model_id="STANDARD",
             )
 
         assert backend.received_cache_policy == "EXTENDED"
@@ -153,6 +154,7 @@ class TestRunSessionCachePolicyFlow:
                 task_prompt="test task",
                 config=config,
                 backend=backend,
+                model_id="STANDARD",
             )
 
         assert backend.received_cache_policy == "NONE"

@@ -46,7 +46,7 @@ class ResultMessage:
         is_transport_error: Whether the failure was a transient transport/
             connection error (e.g. OSError, empty stream) rather than a
             session-level failure.  When ``True`` the orchestrator should
-            reset the node to pending without consuming an escalation retry.
+            reset the node to pending without consuming a retry attempt.
     """
 
     status: str

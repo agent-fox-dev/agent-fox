@@ -189,7 +189,7 @@ class ClaudeBackend:
         # Transient errors (connection failure or missing ResultMessage) are
         # retried up to _MAX_TRANSPORT_RETRIES times with exponential backoff
         # before a terminal failure ResultMessage is emitted.  These retries
-        # are invisible to the orchestrator's escalation ladder.
+        # are invisible to the orchestrator's retry counter.
         last_error: str | None = None
         for _attempt in range(_MAX_TRANSPORT_RETRIES):
             if _attempt > 0:

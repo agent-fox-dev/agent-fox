@@ -1,4 +1,4 @@
-"""Unit tests for timeout-aware escalation configuration.
+"""Unit tests for timeout-aware retry configuration.
 
 Test Spec: TS-75-16, TS-75-17, TS-75-18, TS-75-19, TS-75-20
 Requirements: 75-REQ-4.1, 75-REQ-4.2, 75-REQ-4.3, 75-REQ-4.4,

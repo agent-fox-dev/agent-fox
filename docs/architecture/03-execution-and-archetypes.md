@@ -389,8 +389,7 @@ from the test spec without implementing production code. For subsequent groups,
 it implements code to make existing tests pass. The Coder runs quality checks,
 commits with conventional messages, and produces a session summary. It operates
 at the STANDARD model tier by default with adaptive extended thinking enabled,
-and has unrestricted tool access. A `fix` mode variant is used by the
-nightshift fix pipeline.
+and has unrestricted tool access.
 
 ### Reviewer
 
@@ -506,12 +505,13 @@ Regressions are reported as audit events.
 
 ### Timeout
 
-Timeout failures receive specialized handling. The orchestrator extends the
-session parameters: max turns and session timeout are multiplied by a
-configurable factor, clamped to a ceiling. The task is reset to PENDING for
-retry at the same model tier. This is based on the observation that timeouts
-usually mean the task needed more time, not a smarter model. Timeout retries
-do not consume normal retry attempts.
+Timeout failures receive specialized handling. The orchestrator multiplies the
+session timeout by a configurable factor, clamped to a ceiling; `max_turns` is
+left alone, since a timeout means the session ran out of wall-clock time rather
+than out of turns. The task is reset to PENDING for retry at the same model
+tier. This is based on the observation that timeouts usually mean the task
+needed more time, not a smarter model. Timeout retries do not consume normal
+retry attempts.
 
 ### Failure
 
@@ -552,12 +552,11 @@ succeed because their prerequisites failed.
 Each archetype entry (including its modes) has a default model tier. Model
 tiers map to concrete model IDs through a registry:
 
-| Tier | Default Model | Variant |
-|---|---|---|
-| SIMPLE | `claude-haiku-4-5` | standard |
-| STANDARD | `claude-sonnet-4-6` | standard |
-| ADVANCED | `claude-opus-4-6` | standard |
-| ADVANCED | `claude-opus-4-6[1m]` | extended |
+| Tier | Default Model |
+|---|---|
+| SIMPLE | `claude-haiku-4-5` |
+| STANDARD | `claude-sonnet-4-6` |
+| ADVANCED | `claude-opus-4-6` |
 
 The default tier, thinking, and effort assignments across all archetype
 entries and modes are:

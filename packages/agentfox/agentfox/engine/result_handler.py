@@ -60,8 +60,6 @@ class _NodeRetryState:
     attempts: int = 0
     timeout_retries: int = 0
     audit_retry_count: int = 0
-    max_turns: int | None = None
-    has_max_turns: bool = False
     timeout: int | None = None
     original_timeout: int | None = None
     coverage_baseline: Any = field(default=None, repr=False)
@@ -155,12 +153,6 @@ class SessionResultHandler:
     def get_timeout_override(self, node_id: str) -> int | None:
         ns = self._node_retry_states.get(node_id)
         return ns.timeout if ns is not None else None
-
-    def get_max_turns_override(self, node_id: str) -> tuple[bool, int | None]:
-        ns = self._node_retry_states.get(node_id)
-        if ns is None or not ns.has_max_turns:
-            return False, None
-        return True, ns.max_turns
 
     def _get_predecessors(self, node_id: str) -> list[str]:
         """Get predecessor node IDs for a given node."""
@@ -628,13 +620,14 @@ class SessionResultHandler:
         return ns.original_timeout
 
     def _extend_node_params(self, node_id: str) -> None:
-        """Increase max_turns and session_timeout for the node by the multiplier.
+        """Increase the node's session_timeout by the multiplier.
 
-        Applies ceiling clamping to session_timeout. Skips max_turns when it
-        is None (unlimited). Changes are stored in per-node override dicts.
+        Applies ceiling clamping.  ``max_turns`` is deliberately *not*
+        extended: a timeout means the session ran out of wall-clock time, not
+        out of turns (issue #769).  The change is stored in the per-node
+        override dict.
 
-        Requirements: 75-REQ-3.1, 75-REQ-3.2, 75-REQ-3.3, 75-REQ-3.4,
-                      75-REQ-3.5, 75-REQ-3.E1
+        Requirements: 75-REQ-3.2, 75-REQ-3.3, 75-REQ-3.5, 75-REQ-3.E1
         """
         ns = self._get_node_state(node_id)
         multiplier = self._timeout_multiplier
@@ -652,10 +645,6 @@ class SessionResultHandler:
         )
         ns.timeout = new_timeout
 
-        # Extend max_turns if finite (75-REQ-3.1, 75-REQ-3.4)
-        if ns.has_max_turns and ns.max_turns is not None:
-            ns.max_turns = math.ceil(ns.max_turns * multiplier)
-
     def _handle_timeout(
         self,
         record: SessionRecord,
@@ -666,11 +655,11 @@ class SessionResultHandler:
         """Handle a timeout failure: extend params and retry, or fall through.
 
         When timeout retries are available, increments the per-node timeout
-        counter, extends session_timeout and max_turns, resets the node to
-        pending, and emits a SESSION_TIMEOUT_RETRY audit event.
+        counter, extends session_timeout, resets the node to pending, and
+        emits a SESSION_TIMEOUT_RETRY audit event.
 
         When retries are exhausted, logs a warning and falls through to the
-        normal escalation ladder via _handle_failure().
+        normal retry counter via _handle_failure().
 
         Requirements: 75-REQ-1.1, 75-REQ-2.2, 75-REQ-2.3, 75-REQ-2.4,
                       75-REQ-5.1, 75-REQ-5.2, 75-REQ-5.3
@@ -689,16 +678,14 @@ class SessionResultHandler:
             self._handle_failure(record, attempt, state, error_tracker)
             return
 
-        # Capture original values before extending for audit payload (75-REQ-5.3)
+        # Capture the original value before extending for the audit payload (75-REQ-5.3)
         original_timeout = self._get_original_node_timeout(node_id)
-        original_max_turns = ns.max_turns if ns.has_max_turns else None
 
-        # Increment counter and extend parameters (75-REQ-2.2, 75-REQ-3.1, 75-REQ-3.2)
+        # Increment counter and extend the timeout (75-REQ-2.2, 75-REQ-3.2)
         ns.timeout_retries = current_retries + 1
         self._extend_node_params(node_id)
 
         extended_timeout = ns.timeout
-        extended_max_turns = ns.max_turns if ns.has_max_turns else None
 
         # Reset to pending for retry at same tier (75-REQ-2.3, 535-AC-2)
         self._graph_sync.mark_pending(node_id, reason="timeout retry")
@@ -712,8 +699,6 @@ class SessionResultHandler:
             payload={
                 "timeout_retry_count": current_retries + 1,
                 "max_timeout_retries": self._max_timeout_retries,
-                "original_max_turns": original_max_turns,
-                "extended_max_turns": extended_max_turns,
                 "original_timeout": original_timeout,
                 "extended_timeout": extended_timeout,
             },
@@ -727,7 +712,7 @@ class SessionResultHandler:
         """Handle a non-retryable workspace-state error by blocking immediately.
 
         118-REQ-3.2, 118-REQ-3.3: Non-retryable errors are blocked without
-        consuming escalation ladder retries.
+        consuming retry-counter attempts.
         """
         node_id = record.node_id
         logger.warning(
@@ -771,15 +756,15 @@ class SessionResultHandler:
         record: SessionRecord,
         state: ExecutionState,
     ) -> None:
-        """Handle a transport error by resetting to pending without consuming escalation.
+        """Handle a transport error by resetting to pending without consuming a retry.
 
         The ClaudeBackend already retried internally; this path is reached only
-        when all transport retries were exhausted.  Reset the node to pending
-        so the orchestrator re-dispatches it without touching the ladder.
+        when all transport retries were exhausted.  Reset the node to pending so
+        the orchestrator re-dispatches it without touching the retry counter.
         """
         node_id = record.node_id
         logger.warning(
-            "Transport error for %s (not consuming escalation retry): %s",
+            "Transport error for %s (not consuming a retry attempt): %s",
             node_id,
             record.error_message,
         )

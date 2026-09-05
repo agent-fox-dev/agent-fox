@@ -241,3 +241,72 @@ class TestConfigSymlinkRejection:
         config = load_config(path=config_file)
 
         assert config.orchestrator.parallel == 4
+
+
+# ---------------------------------------------------------------------------
+# Issue #769: model_tier is validated at config-load time, and the default
+# pricing table only names registered models.
+# ---------------------------------------------------------------------------
+
+
+class TestPerArchetypeModelTierValidation:
+    """PerArchetypeConfig.model_tier rejects unknown tiers eagerly."""
+
+    def test_valid_tier_accepted(self) -> None:
+        from agentfox.core.config import PerArchetypeConfig
+
+        assert PerArchetypeConfig(model_tier="ADVANCED").model_tier == "ADVANCED"
+
+    def test_registered_model_id_accepted(self) -> None:
+        """resolve_model accepts a model ID, so the override may name one."""
+        from agentfox.core.config import PerArchetypeConfig
+
+        assert PerArchetypeConfig(model_tier="claude-opus-4-6").model_tier == "claude-opus-4-6"
+
+    def test_none_accepted(self) -> None:
+        from agentfox.core.config import PerArchetypeConfig
+
+        assert PerArchetypeConfig(model_tier=None).model_tier is None
+
+    def test_lowercase_tier_rejected(self) -> None:
+        """A lowercase tier is a typo, not an alias."""
+        from agentfox.core.config import PerArchetypeConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PerArchetypeConfig(model_tier="advanced")
+
+    def test_unknown_tier_rejected(self) -> None:
+        from agentfox.core.config import PerArchetypeConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PerArchetypeConfig(model_tier="TURBO")
+
+    def test_load_config_surfaces_config_error(self, tmp_path: Path) -> None:
+        """A bad tier in config.toml fails the load, not the session runner."""
+        from agentfox.core.config import load_config
+        from agentfox.core.errors import ConfigError
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[archetypes.overrides.coder]\nmodel_tier = "advanced"\n')
+
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(config_path)
+        assert "model_tier" in str(exc_info.value)
+
+
+class TestDefaultPricingModelsAreRegistered:
+    """Every model priced by default is resolvable through MODEL_REGISTRY."""
+
+    def test_pricing_keys_subset_of_registry(self) -> None:
+        from agentfox.core.config import _default_pricing_models
+        from agentfox.core.models import MODEL_REGISTRY
+
+        assert set(_default_pricing_models()) <= set(MODEL_REGISTRY)
+
+    def test_unregistered_model_absent(self) -> None:
+        """claude-opus-4-5 was priced but never registered (issue #769)."""
+        from agentfox.core.config import _default_pricing_models
+
+        assert "claude-opus-4-5" not in _default_pricing_models()

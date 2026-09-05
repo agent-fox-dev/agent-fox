@@ -21,15 +21,10 @@ Each archetype/mode pair has a default tier and effort level configured in
 | Agent / Mode | Default Tier | Effort |
 |---|---|---|
 | coder | STANDARD | xhigh |
-| coder (fix) | STANDARD | xhigh |
 | reviewer (pre-flight) | ADVANCED | high |
 | reviewer (audit-review) | ADVANCED | high |
-| reviewer (fix-review) | ADVANCED | high |
 | verifier | STANDARD | high |
 | gate | STANDARD | low |
-| maintainer (hunt) | SIMPLE | medium |
-| maintainer (fix-triage) | STANDARD | medium |
-| maintainer (extraction) | SIMPLE | medium |
 
 ## Resolution Priority
 
@@ -51,8 +46,8 @@ The first non-null value encountered wins.
 [archetypes.overrides.coder]
 model_tier = "ADVANCED"
 
-# Override only the fix mode of coder
-[archetypes.overrides.coder.modes.fix]
+# Override only the audit-review mode of reviewer
+[archetypes.overrides.reviewer.modes.audit-review]
 model_tier = "STANDARD"
 ```
 
@@ -79,11 +74,12 @@ Timeout failures are handled separately with dedicated settings:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `routing.max_timeout_retries` | 2 | Maximum timeout retries before falling through to failure |
-| `routing.timeout_multiplier` | 1.5 | Factor by which max_turns and session_timeout are extended |
+| `routing.timeout_multiplier` | 1.5 | Factor by which `session_timeout` is extended |
 | `routing.timeout_ceiling_factor` | 2.0 | Maximum session_timeout as multiple of original value |
 
-On each timeout retry, the session parameters (max turns and timeout) are
-extended by the multiplier and clamped to the ceiling. The model tier remains
+On each timeout retry the session timeout is extended by the multiplier and
+clamped to the ceiling. `max_turns` is **not** extended: a timeout means the
+session ran out of wall-clock time, not out of turns. The model tier remains
 unchanged. Only after timeout retries are exhausted does the task fall through
 to the normal failure path.
 
@@ -95,20 +91,24 @@ the same work would burn the same budget again.
 
 ### Transport Errors
 
-Transient connection errors are retried internally by the Claude backend with
-fixed-schedule backoff (2s, 30s, 60s delays). If the error surfaces to the
-orchestrator, the task is reset to `pending` without consuming a retry attempt.
+Transient connection errors are retried internally by the Claude backend: up
+to 3 attempts with exponential backoff (1 s, then 2 s). If the error surfaces
+to the orchestrator, the task is reset to `pending` without consuming a retry
+attempt.
 
 ### Review-Triggered Retries
 
-Three archetype modes have `retry_predecessor = true`:
+Two registry entries have `retry_predecessor = true`:
 
-- **pre-flight**: When pre-flight review findings indicate issues, the
-  preceding coder session is re-run with the findings injected as context.
-- **audit-review**: When test quality findings indicate MISSING or MISALIGNED
-  tests, the preceding coder session is re-run with the findings injected as
-  context. This is tracked by a separate `audit_max_retries` counter
-  (default: 1).
-- **verifier**: When verification fails, the preceding coder session is re-run
-  with the verification results as context. Uses the standard `max_retries`
-  counter.
+- **reviewer (audit-review)**: When test quality findings indicate MISSING or
+  MISALIGNED tests, the preceding coder session is re-run with the findings
+  injected as context. This is tracked by a separate `audit_max_retries`
+  counter (default: 1).
+- **verifier**: The flag applies on the failure path only — a verifier session
+  that fails to complete resets its predecessor coder, using the standard
+  `max_retries` counter. Verifier PASS/FAIL verdicts are informational and
+  trigger no retry.
+
+**pre-flight** deliberately does not have it: it runs *before* the coder, so
+blocking findings block the downstream coder rather than retrying a
+predecessor that has not run yet.

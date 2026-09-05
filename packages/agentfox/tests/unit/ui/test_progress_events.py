@@ -176,7 +176,7 @@ class TestTaskLineArchetypeNone:
 
 
 # ---------------------------------------------------------------------------
-# TS-59-25 through TS-59-28: Disagreement, retry, escalation lines
+# TS-59-25 through TS-59-28: Disagreement and retry lines
 # ---------------------------------------------------------------------------
 
 
@@ -227,39 +227,17 @@ class TestRetryLine:
         assert "[coder]" in text, f"Expected [coder] in: {text!r}"
 
 
-class TestRetryWithEscalation:
-    """TS-59-27: Retry with escalation includes model tier info.
+class TestRetryLineHasNoTierSuffix:
+    """TS-59-28: The retry line carries no model-tier suffix.
 
-    Requirement: 59-REQ-8.3
-    """
-
-    def test_retry_escalation_line_format(self) -> None:
-        """Retry with escalation contains escalation info."""
-        theme, _buf = _make_theme()
-        display = ProgressDisplay(theme, quiet=False)
-        event = TaskEvent(
-            node_id="spec:1",
-            status="retry",
-            duration_s=0,
-            archetype="coder",
-            attempt=2,
-            escalated_from="STANDARD",
-            escalated_to="ADVANCED",
-        )
-        line = display._format_task_line(event)
-        text = str(line)
-        assert "escalated: STANDARD" in text, f"Expected 'escalated: STANDARD' in: {text!r}"
-        assert "ADVANCED" in text, f"Expected 'ADVANCED' in: {text!r}"
-
-
-class TestRetryWithoutEscalation:
-    """TS-59-28: Retry without escalation omits escalation suffix.
+    Retries always happen at the same tier, so the line must not imply a tier
+    change (issue #769).
 
     Requirement: 59-REQ-8.E1
     """
 
-    def test_retry_no_escalation_omits_suffix(self) -> None:
-        """Retry without escalation does not contain 'escalated'."""
+    def test_retry_omits_tier_suffix(self) -> None:
+        """A retry line does not mention escalation."""
         theme, _buf = _make_theme()
         display = ProgressDisplay(theme, quiet=False)
         event = TaskEvent(

@@ -28,7 +28,6 @@ from afaudit.sink import SessionOutcome, SinkDispatcher, ToolCall, ToolError
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.models import resolve_model
 from agentfox.core.security import make_pre_tool_use_hook
-from agentfox.engine.sdk_params import resolve_model_tier
 from agentfox.session.backends import Backend, create_backend
 from agentfox.session.backends.types import (
     AssistantMessage,
@@ -106,7 +105,7 @@ async def run_session(
     *,
     backend: Backend | None = None,
     activity_callback: ActivityCallback | None = None,
-    model_id: str | None = None,
+    model_id: str,
     security_config: Any | None = None,
     sink_dispatcher: SinkDispatcher | None = None,
     run_id: str = "",
@@ -139,8 +138,10 @@ async def run_session(
         backend: Backend instance to use. When ``None``, a backend is created
             via ``create_backend(config.backend.provider)``.
         activity_callback: Optional callback for UI activity events.
-        model_id: Optional model tier or model ID override. When set,
-            overrides the archetype's resolved model tier for this session.
+        model_id: Model tier name or model ID for this session. Required:
+            callers resolve it with
+            ``resolve_model_tier(config, archetype, mode=mode)`` so the
+            session's mode is honoured.
         security_config: Optional SecurityConfig override for the allowlist.
             When set, overrides ``config.security`` for this session.
         max_turns: Optional maximum turn count to pass to the backend.
@@ -158,12 +159,8 @@ async def run_session(
 
     Requirements: 26-REQ-1.E1, 26-REQ-2.4, 26-REQ-3.4, 26-REQ-4.4
     """
-    # Resolve the coding model (archetype override or config default)
-    effective_archetype = archetype or "coder"
-    resolved_model_id = resolve_model(
-        model_id or resolve_model_tier(config, effective_archetype),
-        models_config=config.models,
-    )
+    # Resolve the tier name / model ID the caller supplied to a concrete model ID
+    resolved_model_id = resolve_model(model_id, models_config=config.models)
 
     # Resolve security config (archetype override or config default)
     effective_security = security_config if security_config is not None else config.security

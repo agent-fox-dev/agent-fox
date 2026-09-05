@@ -1,4 +1,4 @@
-"""Integration tests for timeout-aware escalation.
+"""Integration tests for timeout-aware retries.
 
 Test Spec: TS-75-E1, TS-75-E2
 Requirements: 75-REQ-2.3, 75-REQ-2.4
@@ -207,16 +207,16 @@ class TestTimeoutThenSuccess:
 
 
 # ---------------------------------------------------------------------------
-# TS-75-E2: All Retries Exhaust Then Escalate Then Succeed
+# TS-75-E2: All Retries Exhaust Then Fall Through Then Succeed
 # Requirement: 75-REQ-2.4
 # ---------------------------------------------------------------------------
 
 
-class TestTimeoutExhaustionThenEscalation:
-    """TS-75-E2: Repeated timeouts → exhaustion → escalation → success."""
+class TestTimeoutExhaustionThenFallthrough:
+    """TS-75-E2: Repeated timeouts → exhaustion → fall-through → success."""
 
     def test_timeout_exhaustion_then_ladder_called(self) -> None:
-        """TS-75-E2: After max_timeout_retries timeouts, escalation ladder is used.
+        """TS-75-E2: After max_timeout_retries timeouts, the failure handler takes over.
 
         Simulates: 2 timeouts (max_timeout_retries=1) → fall through to ladder.
         """
@@ -250,10 +250,10 @@ class TestTimeoutExhaustionThenEscalation:
             error_tracker=error_tracker,
         )
 
-        # Now the escalation ladder must have been invoked.
+        # Now the retry counter must have been consumed.
         assert handler.get_failure_count(node_id) == 1
 
-    def test_exhausted_retries_warning_then_escalation(self) -> None:
+    def test_exhausted_retries_warning_then_fallthrough(self) -> None:
         """TS-75-E2: Exhaustion warning is logged before falling through."""
         import io
         import logging
@@ -285,10 +285,10 @@ class TestTimeoutExhaustionThenEscalation:
         # After implementation: record_failure is called after exhaustion.
         assert handler.get_failure_count(node_id) == 1
 
-    def test_two_timeouts_one_success_at_escalated_tier(self) -> None:
+    def test_two_timeouts_one_success_after_fallthrough(self) -> None:
         """TS-75-E2: Sequence: timeout → timeout (exhausted) → success at new tier.
 
-        After timeout retries exhaust and escalation occurs, a subsequent
+        After timeout retries exhaust and the failure handler takes over, a subsequent
         success should complete the node.
         """
         node_id = "spec:1"
@@ -305,7 +305,7 @@ class TestTimeoutExhaustionThenEscalation:
             error_tracker=error_tracker,
         )
 
-        # Session 2: timeout (exhausted — falls through to escalation).
+        # Session 2: timeout (exhausted — falls through to the failure handler).
         # Simulate the dispatch loop re-queuing to in_progress.
         state.node_states[node_id] = "in_progress"
         handler._graph_sync.node_states[node_id] = "in_progress"  # type: ignore[attr-defined]
@@ -316,11 +316,11 @@ class TestTimeoutExhaustionThenEscalation:
             error_tracker=error_tracker,
         )
 
-        # After exhaustion, escalation was triggered.
+        # After exhaustion, the failure handler ran.
         # Currently FAILS: record_failure is called on every non-success.
         assert handler.get_failure_count(node_id) == 1
 
-        # Session 3: success at escalated tier.
+        # Session 3: success after fall-through.
         state.node_states[node_id] = "in_progress"
         handler._graph_sync.node_states[node_id] = "in_progress"  # type: ignore[attr-defined]
         handler.process(

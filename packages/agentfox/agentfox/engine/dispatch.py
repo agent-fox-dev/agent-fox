@@ -36,12 +36,14 @@ def _resolve_overrides(
     result_handler: Any | None,
     node_id: str,
 ) -> tuple[int | None, int | None]:
-    """Extract timeout and max_turns overrides from the result handler."""
+    """Extract the per-node session-timeout override from the result handler.
+
+    Returns ``(timeout, max_turns)``.  ``max_turns`` is always ``None``: it is
+    not extended on a timeout retry (issue #769).
+    """
     if result_handler is None:
         return None, None
-    timeout = result_handler.get_timeout_override(node_id)
-    has_mt, mt_val = result_handler.get_max_turns_override(node_id)
-    return timeout, mt_val if has_mt else None
+    return result_handler.get_timeout_override(node_id), None
 
 
 # ---------------------------------------------------------------------------

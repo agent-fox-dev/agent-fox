@@ -44,7 +44,7 @@ class TestNonRetryableImmediateBlock:
 
     def test_nonretryable_blocks_immediately(self) -> None:
         """Non-retryable errors block the node immediately without consuming
-        escalation ladder retries, with 'workspace-state' in reason."""
+        retry-counter attempts, with 'workspace-state' in reason."""
         node_states = {"spec:1": "in_progress"}
         edges: dict[str, list[str]] = {"spec:1": []}
         graph_sync = GraphSync(node_states, edges)

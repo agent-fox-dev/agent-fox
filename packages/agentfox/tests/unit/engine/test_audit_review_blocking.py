@@ -12,7 +12,7 @@ Acceptance Criteria:
         blocking decisions, resetting the test_group coder to pending.
   AC-4: build_retry_context() includes audit findings in the re-run coder's
         prompt when task_group matches.
-  AC-5: Repeated audit failures exhaust the predecessor escalation ladder and
+  AC-5: Repeated audit failures exhaust the predecessor retry budget and
         permanently block the coder rather than looping infinitely.
 
 Requirements: 554-REQ-1
@@ -505,7 +505,7 @@ class TestAC4BuildRetryContextIncludesAuditFindings:
 
 
 # ---------------------------------------------------------------------------
-# AC-5: Exhausted escalation ladder permanently blocks the coder.
+# AC-5: An exhausted retry budget permanently blocks the coder.
 # ---------------------------------------------------------------------------
 
 
@@ -556,7 +556,7 @@ class TestAC5ExhaustedLadderBlocksPermanently:
 
 # ---------------------------------------------------------------------------
 # AC-6: audit_max_retries from ReviewerConfig controls the audit-review
-#        retry limit independently of the generic EscalationLadder.
+#        retry limit independently of the generic retry counter.
 # ---------------------------------------------------------------------------
 
 
