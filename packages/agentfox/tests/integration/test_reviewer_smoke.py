@@ -4,8 +4,7 @@ End-to-end tests that exercise real components without mocking injection,
 convergence logic, or template loading.
 
 Test Spec: TS-98-SMOKE-1, TS-98-SMOKE-2, TS-98-SMOKE-3
-Requirements: 98-REQ-4.1, 98-REQ-4.2, 98-REQ-4.4, 98-REQ-5.1, 98-REQ-5.2,
-              98-REQ-2.1, 98-REQ-2.2
+Requirements: 98-REQ-4.1, 98-REQ-4.2, 98-REQ-4.4, 98-REQ-5.1, 98-REQ-5.2
 """
 
 from __future__ import annotations
@@ -128,63 +127,43 @@ class TestPreReviewEndToEnd:
 
 
 # ---------------------------------------------------------------------------
-# TS-98-SMOKE-3: Coder Fix Mode Session Setup
+# TS-98-SMOKE-3: Coder Session Setup
 # Execution Path 4 from design.md
-# Requirements: 98-REQ-2.1, 98-REQ-2.2
 # ---------------------------------------------------------------------------
 
 _MOCK_KB = MagicMock()
 _MOCK_KB.execute.return_value.fetchall.return_value = []
 
 
-class TestCoderFixModeSessionSetup:
-    """TS-98-SMOKE-3: Coder fix mode resolves correct config in session.
-
-    Tests that NodeSessionRunner with mode="fix" resolves to STANDARD tier
-    and uses fix_coding.md template.
+class TestCoderSessionSetup:
+    """TS-98-SMOKE-3: Coder resolves correct config in session.
 
     Does NOT mock resolve_model_tier or resolve_security_config.
     """
 
-    def test_coder_fix_mode_resolves_to_advanced(self) -> None:
-        """TS-98-SMOKE-3: coder:fix mode resolves to ADVANCED via registry default."""
+    def test_coder_resolves_to_standard(self) -> None:
+        """TS-98-SMOKE-3: coder resolves to STANDARD via registry default."""
         from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.session_lifecycle import NodeSessionRunner
 
         config = AgentFoxConfig()
 
-        # Real NodeSessionRunner with mode="fix" — no mocking of tier resolution
+        # Real NodeSessionRunner — no mocking of tier resolution
         runner = NodeSessionRunner(
             "myspec:1",
             config,
             archetype="coder",
-            mode="fix",
             knowledge_db=_MOCK_KB,
         )
 
         # Coder registry default is STANDARD → claude-sonnet-4-6 (spec 15)
         assert runner._resolved_model_id == "claude-sonnet-4-6", (
-            f"coder:fix mode should resolve to STANDARD (Sonnet) via registry default (spec 15), "
+            f"coder should resolve to STANDARD (Sonnet) via registry default (spec 15), "
             f"got {runner._resolved_model_id!r}"
         )
 
-    def test_coder_fix_mode_uses_fix_profile(self) -> None:
-        """TS-98-SMOKE-3: coder:fix build_system_prompt uses coder_fix.md profile."""
-        from agentfox.session.prompt import build_system_prompt
-
-        # Real build_system_prompt with mode="fix" — no mocking of profile loading
-        system_prompt = build_system_prompt("test context", mode="fix")
-
-        # coder_fix.md should NOT contain spec-driven workflow text from coder.md
-        assert "task group" not in system_prompt.lower() or "fix" in system_prompt.lower(), (
-            "System prompt for coder:fix should use coder_fix.md, not coder.md"
-        )
-
-        # coder_fix.md content should be present — check for distinctive fix mode text
-        assert len(system_prompt) > 100, "System prompt for coder:fix should have meaningful content"
-
     def test_coder_no_mode_uses_default_profile(self) -> None:
-        """TS-98-SMOKE-3 (regression): coder with no mode still uses coder.md."""
+        """TS-98-SMOKE-3 (regression): coder with no mode uses coder.md."""
         from agentfox.session.prompt import build_system_prompt
 
         # Real build_system_prompt with mode=None — no mocking

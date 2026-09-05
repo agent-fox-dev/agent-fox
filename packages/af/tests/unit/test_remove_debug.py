@@ -18,17 +18,7 @@ from af.code import _check_dry_run_conflicts
 from agentfox.engine.run import _setup_infrastructure, run_code
 from agentfox.engine.state import ExecutionState
 from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.maintenance.pid import PidStatus
 from click.testing import CliRunner
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent the daemon PID check from blocking ``code`` tests."""
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 @pytest.fixture

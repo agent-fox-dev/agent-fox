@@ -19,14 +19,10 @@ af ships with profiles for all built-in archetypes and their modes:
 | Profile file | Archetype | Mode | Purpose |
 |---|---|---|---|
 | `coder.md` | coder | — | Implementation agent: Quick Triage, task group routing, input triage, session summary |
-| `coder_fix.md` | coder | fix | Fix-mode variant for the night-shift fix pipeline |
 | `reviewer.md` | reviewer | — | Base reviewer (also used by pre-flight mode, which combines spec quality review and drift detection) |
 | `reviewer_audit-review.md` | reviewer | audit-review | Test quality validation against test spec contracts |
-| `reviewer_fix-review.md` | reviewer | fix-review | Fix patch review with extended tool access |
 | `verifier.md` | verifier | — | Post-implementation verification against requirements |
 | `gate.md` | gate | — | Lightweight checkpoint verification (runs subtask commands only) |
-| `maintainer.md` | maintainer | — | Base maintainer: hunt mode (codebase scanning) and extraction mode (transcript analysis) |
-| `maintainer_fix-triage.md` | maintainer | fix-triage | Issue triage and acceptance criteria generation |
 
 These files live in `agentfox/_templates/profiles/` inside the package.
 

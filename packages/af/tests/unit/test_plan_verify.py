@@ -5,19 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from af.app import main
 from agentfox.graph.types import Edge, Node, NodeStatus, PlanMetadata, TaskGraph
-from agentfox.maintenance.pid import PidStatus
 from click.testing import CliRunner
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 def _make_graph(

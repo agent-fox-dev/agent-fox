@@ -373,22 +373,19 @@ def converge_reviewer(
       :func:`converge_reviewer_pre` (majority-gated blocking)
     - ``"audit-review"`` → :func:`converge_auditor`
       (union / worst-verdict-wins on ``list[AuditResult]`` results)
-    - ``"fix-review"`` → single-instance passthrough (raises if multiple)
     - Any other mode → :exc:`ValueError`
 
     Args:
         results: Instance results.  Type depends on mode:
             - pre-review / drift-review: ``list[list[Finding]]``
             - audit-review: ``list[AuditResult]``
-            - fix-review: single-element ``list``
         mode: Reviewer mode string (``"pre-review"``, ``"drift-review"``,
-            ``"audit-review"``, or ``"fix-review"``).
+            or ``"audit-review"``).
         block_threshold: Passed to :func:`converge_reviewer_pre` for pre/drift modes.
 
     Returns:
         - For pre-review / drift-review: ``tuple[list[Finding], bool]``
         - For audit-review: :class:`AuditResult`
-        - For fix-review: the single element in *results*
 
     Raises:
         ValueError: If *mode* is unknown or None.
@@ -399,14 +396,8 @@ def converge_reviewer(
         return converge_reviewer_pre(results, block_threshold=block_threshold)
     elif mode == "audit-review":
         return converge_auditor(results)
-    elif mode == "fix-review":
-        if len(results) != 1:
-            raise ValueError(
-                f"fix-review mode does not support multi-instance convergence; expected 1 result, got {len(results)}"
-            )
-        return results[0]
     else:
         raise ValueError(
             f"Unknown reviewer mode: {mode!r}. "
-            f"Valid modes are: 'pre-flight', 'pre-review', 'drift-review', 'audit-review', 'fix-review'."
+            f"Valid modes are: 'pre-flight', 'pre-review', 'drift-review', 'audit-review'."
         )

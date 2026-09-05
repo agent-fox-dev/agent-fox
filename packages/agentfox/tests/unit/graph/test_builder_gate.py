@@ -66,5 +66,5 @@ class TestGateArchetypeRegistry:
     def test_gate_not_auto_injected(self):
         assert get_archetype("gate").injection is None
 
-    def test_gate_task_assignable(self):
-        assert get_archetype("gate").task_assignable is True
+    def test_gate_has_no_modes(self):
+        assert get_archetype("gate").modes == {}

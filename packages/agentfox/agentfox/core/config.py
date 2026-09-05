@@ -5,7 +5,7 @@ pydantic models, and merges with documented defaults. Out-of-range numeric
 values are clamped to the nearest valid bound rather than rejected.
 
 The ``load_config()`` function is the single shared entry point used by
-``af``, ``nightshift``, and ``spec`` CLIs.  When called without arguments
+the ``af`` and ``spec`` CLIs.  When called without arguments
 it resolves, merges, and validates a global config
 (``$HOME/.agent-fox/config.toml``) with a local config
 (``.agent-fox/config.toml``) using shallow section replacement semantics.
@@ -127,7 +127,7 @@ class BackendConfig(BaseModel):
     """Backend provider configuration.
 
     Determines which AI backend is used for agent sessions across all
-    entry points (``af``, ``nightshift``, ``spec``).
+    entry points (``af``, ``spec``).
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -588,43 +588,6 @@ class CachingConfig(BaseModel):
         return v
 
 
-class NightShiftConfig(BaseModel):
-    """Night-shift daemon configuration.
-
-    Requirements: 61-REQ-9.1, 61-REQ-9.E1, 125-REQ-5.1, 125-REQ-5.3,
-                  125-REQ-5.4
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    issue_check_interval: Annotated[int, Clamped(ge=60, cast=int)] = Field(
-        default=900,
-        description="Seconds between issue checks (minimum 60)",
-    )
-
-    pr_check_interval: Annotated[int, Clamped(ge=60, cast=int)] = Field(
-        default=900,
-        description="Seconds between PR status poll cycles (minimum 60)",
-    )
-
-    push_fix_branch: bool = Field(
-        default=False,
-        description="Push fix branches to origin before harvest",
-    )
-
-    max_parallel: Annotated[int, Clamped(ge=1, le=8, cast=int)] = Field(
-        default=1,
-        description="Maximum number of issues processed concurrently (1-8)",
-    )
-
-    max_pr_retries: Annotated[int, Clamped(ge=0, le=10, cast=int)] = Field(
-        default=2,
-        description="Maximum feedback iterations per PR before manual attention (0-10)",
-    )
-
-    _auto_clamp = _auto_clamp_validator()
-
-
 class PathsConfig(BaseModel):
     """Path configuration for project directories.
 
@@ -797,7 +760,6 @@ class AgentFoxConfig(BaseModel):
     pricing: PricingConfig = Field(default_factory=PricingConfig)
     planning: PlanningConfig = Field(default_factory=PlanningConfig)
     caching: CachingConfig = Field(default_factory=CachingConfig)
-    night_shift: NightShiftConfig = Field(default_factory=NightShiftConfig)
     spec_tool: SpecToolConfig = Field(default_factory=SpecToolConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
 

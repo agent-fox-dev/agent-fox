@@ -441,13 +441,13 @@ def test_load_state_from_db_empty_plan_nodes_loads_sessions(
 ) -> None:
     """Regression #379: load_state_from_db returns session history even when plan_nodes is empty.
 
-    The nightshift path can populate session_outcomes without ever writing to
-    plan_nodes.  The old code returned None immediately when plan_nodes was
-    empty, silently discarding all session data.
+    session_outcomes can be populated without ever writing to plan_nodes.
+    The old code returned None immediately when plan_nodes was empty,
+    silently discarding all session data.
     """
     from agentfox.engine.state import SessionOutcomeRecord, load_state_from_db, record_session
 
-    # plan_nodes intentionally left empty (nightshift scenario)
+    # plan_nodes intentionally left empty
     pn_row = db_conn.sql("SELECT count(*) FROM plan_nodes").fetchone()
     assert pn_row is not None
     assert pn_row[0] == 0
@@ -456,7 +456,7 @@ def test_load_state_from_db_empty_plan_nodes_loads_sessions(
     record_session(
         db_conn,
         SessionOutcomeRecord(
-            id="s_nightshift",
+            id="s_no_plan",
             spec_name="spec_a",
             task_group="1",
             node_id="spec_a:1",
@@ -502,7 +502,7 @@ def test_load_state_from_db_empty_plan_nodes_loads_run_totals(
     assert pn_row is not None
     assert pn_row[0] == 0
 
-    create_run(db_conn, "run_ns", "hash_nightshift")
+    create_run(db_conn, "run_ns", "hash_no_plan")
     # update_run_totals accumulates — call three times to represent 3 sessions
     update_run_totals(db_conn, "run_ns", input_tokens=20_000, output_tokens=4_000, cost=0.70)
     update_run_totals(db_conn, "run_ns", input_tokens=15_000, output_tokens=3_000, cost=0.55)

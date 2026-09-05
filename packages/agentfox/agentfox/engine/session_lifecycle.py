@@ -593,7 +593,7 @@ class NodeSessionRunner:
         if merge_strategy == "pr":
             # 02-REQ-4.3 / 02-REQ-4.4: Validate platform lazily at PR
             # creation time, not at startup.
-            from agentfox.maintenance.platform_factory import create_platform_safe
+            from agentfox.workspace.platform_factory import create_platform_safe
 
             platform = create_platform_safe(self._config, repo_root)
             if platform is None:
@@ -620,7 +620,7 @@ class NodeSessionRunner:
                 workspace.branch,
                 self._config.workspace.integration_branch,
             )
-            from agentfox.maintenance.fix_types import build_pr_body
+            from agentfox.workspace.integration import build_pr_body
 
             pr_title = f"{workspace.spec_name}: task group {workspace.task_group}"
             pr_body = build_pr_body(

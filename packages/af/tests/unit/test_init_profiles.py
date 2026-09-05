@@ -18,7 +18,7 @@ def test_init_creates_files(tmp_path: Path) -> None:
     paths = init_profiles(project_dir=tmp_path)
 
     assert len(paths) >= 4
-    for name in ["coder", "reviewer", "verifier", "maintainer"]:
+    for name in ["coder", "reviewer", "verifier", "gate"]:
         dest = tmp_path / ".agent-fox" / "profiles" / f"{name}.md"
         assert dest.exists(), f"Profile {name}.md was not created"
 

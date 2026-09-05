@@ -283,7 +283,6 @@ class TestSchemaExtraction:
             "pricing",
             "planning",
             "caching",
-            "night_shift",
             "paths",
             "workspace",
             "spec_tool",

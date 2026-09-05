@@ -56,8 +56,7 @@ def is_archetype_enabled(name: str, archetypes_config: Any | None) -> bool:
     """Check if an archetype is enabled in config.
 
     For reviewer modes, checks archetypes_config.reviewer (single toggle
-    covers all reviewer modes: pre-review, drift-review, audit-review,
-    fix-review).
+    covers all reviewer modes: pre-flight and audit-review).
 
     Requirements: 98-REQ-4.5
     """

@@ -86,10 +86,10 @@ class TestResolveSecurityConfig:
         runner = NodeSessionRunner("spec:1", AgentFoxConfig(), knowledge_db=_MOCK_KB)
         assert runner._resolved_security is None
 
-    def test_maintainer_hunt_returns_default_allowlist(self) -> None:
-        """maintainer:hunt has a default allowlist from the registry (replaces triage)."""
+    def test_reviewer_pre_flight_returns_default_allowlist(self) -> None:
+        """reviewer:pre-flight has a default allowlist from the registry."""
         runner = NodeSessionRunner(
-            "spec:1", AgentFoxConfig(), archetype="maintainer", mode="hunt", knowledge_db=_MOCK_KB
+            "spec:1", AgentFoxConfig(), archetype="reviewer", mode="pre-flight", knowledge_db=_MOCK_KB
         )
         assert runner._resolved_security is not None
         assert runner._resolved_security.bash_allowlist is not None
@@ -99,9 +99,9 @@ class TestResolveSecurityConfig:
     def test_config_allowlist_overrides_registry(self) -> None:
         """Config allowlist override takes priority over registry default."""
         config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(overrides={"maintainer": PerArchetypeConfig(allowlist=["echo", "pwd"])})
+            archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(allowlist=["echo", "pwd"])})
         )
-        runner = NodeSessionRunner("spec:1", config, archetype="maintainer", mode="hunt", knowledge_db=_MOCK_KB)
+        runner = NodeSessionRunner("spec:1", config, archetype="reviewer", mode="pre-flight", knowledge_db=_MOCK_KB)
         assert runner._resolved_security is not None
         assert runner._resolved_security.bash_allowlist == ["echo", "pwd"]
 

@@ -38,10 +38,6 @@ class TestResolveArtifacts:
         result = _resolve_artifacts("reviewer", mode="audit-review")
         assert result == ["requirements", "test_spec"]
 
-    def test_reviewer_fix_review_gets_requirements_and_test_spec(self) -> None:
-        result = _resolve_artifacts("reviewer", mode="fix-review")
-        assert result == ["requirements", "test_spec"]
-
     def test_verifier_gets_requirements_and_tasks(self) -> None:
         result = _resolve_artifacts("verifier")
         assert result == ["requirements", "tasks"]
@@ -52,7 +48,7 @@ class TestResolveArtifacts:
 
     def test_unknown_archetype_gets_all(self) -> None:
         """NS-REQ-5: Unknown archetypes default to all artifacts."""
-        result = _resolve_artifacts("maintainer")
+        result = _resolve_artifacts("custom-archetype")
         assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
     def test_none_archetype_gets_all(self) -> None:
@@ -67,8 +63,8 @@ class TestResolveArtifacts:
 
     def test_mode_ignored_for_non_modal_archetype(self) -> None:
         """Providing a mode for a non-modal archetype falls back to bare."""
-        result = _resolve_artifacts("coder", mode="fix")
-        # "coder:fix" is not in the mapping, falls back to "coder"
+        result = _resolve_artifacts("coder", mode="review")
+        # "coder:review" is not in the mapping, falls back to "coder"
         assert result == ["requirements", "test_spec", "tasks", "architecture"]
 
 
@@ -175,7 +171,7 @@ class TestAssembleContextArchetypeFiltering:
             tmp_spec_dir,
             task_group=1,
             conn=knowledge_conn,
-            archetype="maintainer",
+            archetype="custom-archetype",
         )
         assert "## Requirements" in ctx
         assert "## Test Specification" in ctx

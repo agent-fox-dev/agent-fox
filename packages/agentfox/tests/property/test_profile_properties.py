@@ -12,7 +12,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-BUILTIN_ARCHETYPES = ["coder", "reviewer", "verifier", "maintainer"]
+BUILTIN_ARCHETYPES = ["coder", "reviewer", "verifier", "gate"]
 
 
 @given(st.sampled_from(BUILTIN_ARCHETYPES))
@@ -112,7 +112,7 @@ def test_permission_inheritance(preset: str) -> None:
     Property: Resolved entry has same allowlist as the preset archetype.
     Requirement: 99-REQ-4.2, 99-REQ-4.4
 
-    Note: Uses only coder and verifier since reviewer/maintainer are added
+    Note: Uses only coder and verifier since the other profiles are added
     by later specs (97, 98, 100). The property holds for all presets once
     those archetypes are registered.
     """

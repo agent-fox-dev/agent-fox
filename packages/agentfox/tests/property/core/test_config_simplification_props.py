@@ -41,7 +41,6 @@ _EXPECTED_HIDDEN_SECTIONS = frozenset(
         "planning",
         "blocking",
         "hooks",
-        "night_shift",
     }
 )
 

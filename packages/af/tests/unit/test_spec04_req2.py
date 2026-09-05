@@ -4,8 +4,8 @@ Test Spec: TS-04-4, TS-04-5, TS-04-6, TS-04-7, TS-04-8, TS-04-9, TS-04-E2
 Requirements: 04-REQ-2.1, 04-REQ-2.2, 04-REQ-2.3, 04-REQ-2.4,
               04-REQ-2.5, 04-REQ-2.6, 04-REQ-2.E1
 
-Note: Spec references af/insights.py and af/night_shift.py but the actual
-filenames are af/findings.py and af/nightshift.py (skeptic findings).
+Note: The spec references af/insights.py but the actual filename is
+af/findings.py (skeptic findings).
 """
 
 from __future__ import annotations

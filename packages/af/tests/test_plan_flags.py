@@ -22,7 +22,6 @@ import importlib
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 from af.app import main
 from agentfox.engine.reset import HardResetResult, ResetResult
 from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
@@ -31,17 +30,6 @@ from click.testing import CliRunner
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Suppress daemon PID guard checks in all tests."""
-    from agentfox.maintenance.pid import PidStatus
-
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 # ---------------------------------------------------------------------------

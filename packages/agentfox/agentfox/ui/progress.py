@@ -292,23 +292,6 @@ class ProgressDisplay:
                 # Non-TTY: plain print
                 self._console.print(line, highlight=False)
 
-    def print_status(self, text: str, style: str = "bold cyan") -> None:
-        """Print a permanent status line above the spinner.
-
-        Used by the night-shift engine to emit phase-transition lines
-        (e.g. "Checking for af:fix issues…", "Starting hunt scan…").
-
-        Requirements: 81-REQ-3.1
-        """
-        if self._quiet:
-            return
-        with self._lock:
-            line = Text(text, style=style)
-            if self._is_tty and self._live is not None:
-                self._live.console.print(line)
-            else:
-                self._console.print(line, highlight=False)
-
     def update_spinner_text(self, text: str) -> None:
         """Update the spinner text directly (e.g. for idle state display).
 

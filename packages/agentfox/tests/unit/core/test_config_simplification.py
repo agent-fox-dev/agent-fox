@@ -42,7 +42,6 @@ _EXPECTED_HIDDEN_SECTIONS = {
     "knowledge",
     "pricing",
     "planning",
-    "night_shift",
 }
 
 _FOOTER = _FOOTER_COMMENT

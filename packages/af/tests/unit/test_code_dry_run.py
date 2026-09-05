@@ -16,7 +16,6 @@ import pytest
 from af.app import main
 from agentfox.graph.types import Edge, Node, NodeStatus, PlanMetadata, TaskGraph
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.maintenance.pid import PidStatus
 from agentfox.spec.discovery import SpecInfo
 from click.testing import CliRunner
 from hypothesis import given, settings
@@ -104,15 +103,6 @@ def _mock_spec_info(name: str = "test") -> SpecInfo:
 def cli_runner() -> CliRunner:
     """Provide a Click CLI test runner."""
     return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent the daemon PID check from blocking ``code`` tests."""
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -332,58 +322,6 @@ class TestJsonOutput:
         assert "grouped_edges" in data
 
 
-class TestDaemonGuardBypassed:
-    """TS-123-10: Daemon guard bypassed in dry-run.
-
-    Requirement: 123-REQ-4.1
-    """
-
-    def test_dry_run_succeeds_with_daemon_alive(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-        """code --dry-run succeeds even when daemon PID check reports ALIVE."""
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (PidStatus.ALIVE, 12345),
-        )
-
-        graph = _make_graph()
-        mock_db = _mock_knowledge_db()
-
-        with (
-            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
-            patch("af.code.open_knowledge_store", return_value=mock_db),
-            patch("af.code.load_plan", return_value=graph),
-            patch(
-                "af.code.discover_specs",
-                return_value=[_mock_spec_info()],
-            ),
-        ):
-            mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["code", "--dry-run"])
-
-        assert result.exit_code == 0
-        assert "Plan Analysis" in result.output
-
-
-class TestDaemonGuardEnforced:
-    """TS-123-11: Daemon guard enforced without dry-run.
-
-    Requirement: 123-REQ-4.2
-    """
-
-    def test_non_dry_run_blocked_by_daemon(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-        """code without --dry-run is blocked by active daemon."""
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (PidStatus.ALIVE, 12345),
-        )
-
-        result = cli_runner.invoke(main, ["code"])
-
-        assert result.exit_code == 1
-        output_lower = result.output.lower()
-        assert "daemon" in output_lower or "nightshift" in output_lower
-
-
 # ---------------------------------------------------------------------------
 # Edge-case tests
 # ---------------------------------------------------------------------------
@@ -541,10 +479,6 @@ class TestPropertyNoOrchestrator:
                 "af.code.discover_specs",
                 return_value=[_mock_spec_info()],
             ),
-            patch(
-                "agentfox.maintenance.pid.check_pid_file",
-                return_value=(PidStatus.ABSENT, None),
-            ),
         ):
             mock_db_path.exists.return_value = True
             runner.invoke(main, ["code", "--dry-run"])
@@ -580,10 +514,6 @@ class TestPropertyCompletedExclusion:
             patch(
                 "af.code.discover_specs",
                 return_value=[_mock_spec_info()],
-            ),
-            patch(
-                "agentfox.maintenance.pid.check_pid_file",
-                return_value=(PidStatus.ABSENT, None),
             ),
         ):
             mock_db_path.exists.return_value = True
@@ -653,59 +583,11 @@ class TestPropertyReadOnly:
                 "af.code.discover_specs",
                 return_value=[_mock_spec_info()],
             ),
-            patch(
-                "agentfox.maintenance.pid.check_pid_file",
-                return_value=(PidStatus.ABSENT, None),
-            ),
         ):
             mock_db_path.exists.return_value = True
             runner.invoke(main, ["code", "--dry-run"])
 
         assert mock_sp.call_count == 0
-
-
-class TestPropertyDaemonBypass:
-    """TS-123-P5: Daemon guard bypass.
-
-    Property: code --dry-run succeeds regardless of daemon state.
-    Validates: 123-REQ-4.1
-    """
-
-    @pytest.mark.parametrize(
-        "daemon_state",
-        [PidStatus.ALIVE, PidStatus.ABSENT, PidStatus.STALE],
-    )
-    def test_dry_run_succeeds_regardless_of_daemon(
-        self,
-        cli_runner: CliRunner,
-        daemon_state: PidStatus,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """When --dry-run is set, exit code is not 1 due to daemon."""
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (
-                daemon_state,
-                12345 if daemon_state == PidStatus.ALIVE else None,
-            ),
-        )
-
-        graph = _make_graph()
-        mock_db = _mock_knowledge_db()
-
-        with (
-            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
-            patch("af.code.open_knowledge_store", return_value=mock_db),
-            patch("af.code.load_plan", return_value=graph),
-            patch(
-                "af.code.discover_specs",
-                return_value=[_mock_spec_info()],
-            ),
-        ):
-            mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["code", "--dry-run"])
-
-        assert result.exit_code == 0
 
 
 # ---------------------------------------------------------------------------

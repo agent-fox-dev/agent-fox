@@ -18,18 +18,6 @@ import pytest
 from af.app import main
 from click.testing import CliRunner
 
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent daemon check from interfering with tests."""
-    from agentfox.maintenance.pid import PidStatus
-
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
-
-
 # -----------------------------------------------------------------------
 # TS-06-6: af plan --verify calls open_knowledge_store with read_only=True
 # -----------------------------------------------------------------------

@@ -23,7 +23,7 @@ class TestCreatePlatformSafe:
 
         Requirements: 108-REQ-5.3
         """
-        from agentfox.maintenance.platform_factory import create_platform_safe
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = MagicMock()
         config.platform.type = "none"
@@ -37,7 +37,7 @@ class TestCreatePlatformSafe:
 
         Requirements: 108-REQ-5.3
         """
-        from agentfox.maintenance.platform_factory import create_platform_safe
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = MagicMock()
         config.platform.type = "github"
@@ -57,7 +57,7 @@ class TestCreatePlatformSafe:
         Requirements: 108-REQ-5.1
         """
         from afissues.github import GitHubPlatform
-        from agentfox.maintenance.platform_factory import create_platform_safe
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = MagicMock()
         config.platform.type = "github"

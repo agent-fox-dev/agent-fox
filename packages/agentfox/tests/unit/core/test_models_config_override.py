@@ -20,9 +20,7 @@ class TestResolveModelWithRegistryOverride:
 
         Requirement: 759-REQ-1
         """
-        mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
-        )
+        mc = ModelsConfig(registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}}))
         result = resolve_model("SIMPLE", models_config=mc)
         assert result == "claude-haiku-5-0"
 
@@ -31,9 +29,7 @@ class TestResolveModelWithRegistryOverride:
 
         Requirement: 759-REQ-1
         """
-        mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
-        )
+        mc = ModelsConfig(registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}}))
         result = resolve_model("claude-haiku-5-0", models_config=mc)
         assert result == "claude-haiku-5-0"
 
@@ -42,9 +38,7 @@ class TestResolveModelWithRegistryOverride:
 
         Requirement: 759-REQ-1
         """
-        mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
-        )
+        mc = ModelsConfig(registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}}))
         standard_result = resolve_model("STANDARD", models_config=mc)
         assert standard_result == "claude-sonnet-4-6"
 

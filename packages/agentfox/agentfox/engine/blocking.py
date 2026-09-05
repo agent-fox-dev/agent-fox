@@ -303,7 +303,6 @@ def evaluate_review_blocking(
     archetype = record.archetype
 
     # Only reviewer pre-review, drift-review, pre-flight, and audit-review modes can block.
-    # fix-review does not participate in blocking.
     if archetype == "reviewer":
         if mode not in ("pre-review", "drift-review", "pre-flight", "audit-review"):
             return BlockDecision(should_block=False)

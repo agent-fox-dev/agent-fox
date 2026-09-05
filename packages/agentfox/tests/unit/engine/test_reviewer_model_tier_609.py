@@ -1,11 +1,10 @@
 """Unit tests for reviewer model tier defaults (issue #609).
 
-Verifies that audit-review and pre-flight sessions use STANDARD (Sonnet)
-while fix-review retains ADVANCED (Opus). The config.toml no longer forces
-reviewer to ADVANCED via the models dict.
+Verifies the tier each reviewer mode resolves to. The config.toml no longer
+forces reviewer to ADVANCED via the models dict.
 
-Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3, NS-REQ-4, NS-REQ-5
-Test Spec: TS-NS-1, TS-NS-2, TS-NS-3, TS-NS-4, TS-NS-5
+Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3, NS-REQ-5
+Test Spec: TS-NS-1, TS-NS-2, TS-NS-3, TS-NS-5
 """
 
 from __future__ import annotations
@@ -27,12 +26,6 @@ class TestReviewerModelTier609:
         """TS-NS-3: pre-flight mode returns ADVANCED with no config override."""
         config = AgentFoxConfig()
         result = resolve_model_tier(config, "reviewer", mode="pre-flight")
-        assert result == "ADVANCED"
-
-    def test_fix_review_returns_advanced_from_registry(self) -> None:
-        """TS-NS-4: fix-review mode returns ADVANCED from archetype registry ModeConfig."""
-        config = AgentFoxConfig()
-        result = resolve_model_tier(config, "reviewer", mode="fix-review")
         assert result == "ADVANCED"
 
     def test_coder_returns_advanced_from_overrides(self) -> None:

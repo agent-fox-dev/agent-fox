@@ -277,20 +277,6 @@ class TestAC2EvaluateReviewBlockingNoBlock:
 
         assert decision.should_block is False
 
-    def test_fix_review_mode_never_blocks(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """fix-review mode is excluded from blocking even with audit findings."""
-        finding = _make_audit_finding(
-            severity="critical",
-            spec_name="foo",
-            task_group="2",
-        )
-        insert_findings(audit_conn, [finding])
-
-        record = _make_audit_review_record()
-        decision = evaluate_review_blocking(record, None, audit_conn, mode="fix-review")
-
-        assert decision.should_block is False
-
     def test_null_knowledge_db_returns_no_block(self) -> None:
         """None knowledge_db_conn → should_block=False without crash."""
         record = _make_audit_review_record()

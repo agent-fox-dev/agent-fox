@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from af.app import main
 from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
 from click.testing import CliRunner
@@ -25,17 +24,6 @@ from click.testing import CliRunner
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Suppress daemon PID guard checks in all tests."""
-    from agentfox.maintenance.pid import PidStatus
-
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -360,31 +348,6 @@ class TestClearEmptyPlan:
         assert result.exit_code == 0
         assert "0" in result.output
         mock_persist.assert_not_called()
-
-
-class TestClearDaemonGuard:
-    """af plan --clear refuses to run when daemon is active.
-
-    Edge case: 01-REQ-1.E2
-    """
-
-    def test_clear_with_active_daemon_exits_one(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-        """WHEN the nightshift daemon PID guard is active,
-        THEN exit code is 1 and an error message is shown.
-        """
-        from agentfox.maintenance.pid import PidStatus
-
-        # Override the autouse _no_daemon fixture
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (PidStatus.ALIVE, 12345),
-        )
-
-        result = cli_runner.invoke(main, ["plan", "--clear"])
-
-        assert result.exit_code == 1
-        combined = result.output + getattr(result, "stderr", "")
-        assert "daemon" in combined.lower()
 
 
 class TestClearFlagRegistered:

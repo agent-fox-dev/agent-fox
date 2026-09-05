@@ -1,17 +1,16 @@
 """Unit tests for the reviewer archetype consolidation.
 
 Covers:
-- Reviewer archetype registry entry and mode configs (TS-98-1 through TS-98-6)
+- Reviewer archetype registry entry and mode configs (TS-98-1 through TS-98-4)
 - Verifier STANDARD tier and single-instance clamping (TS-98-13, TS-98-14)
 - Old archetype entries removed from registry (TS-98-15)
 - ArchetypesConfig reviewer toggle (TS-98-16)
 - ReviewerConfig defaults (TS-98-17)
 - Edge cases: old config keys, coder no mode, reviewer disabled (TS-98-E1 through TS-98-E3)
 
-Test Spec: TS-98-1 through TS-98-6, TS-98-13, TS-98-14, TS-98-15, TS-98-16,
+Test Spec: TS-98-1 through TS-98-4, TS-98-13, TS-98-14, TS-98-15, TS-98-16,
            TS-98-17, TS-98-E1, TS-98-E2, TS-98-E3
-Requirements: 98-REQ-1.1 through 98-REQ-1.5, 98-REQ-1.E1,
-              98-REQ-2.1, 98-REQ-2.2, 98-REQ-2.E1,
+Requirements: 98-REQ-1.1 through 98-REQ-1.4, 98-REQ-1.E1, 98-REQ-2.E1,
               98-REQ-6.1, 98-REQ-6.2, 98-REQ-6.3,
               98-REQ-7.1, 98-REQ-7.2,
               98-REQ-8.1, 98-REQ-8.2, 98-REQ-8.3, 98-REQ-8.E1
@@ -28,15 +27,15 @@ import pytest
 
 
 class TestReviewerEntryWithModes:
-    """Verify reviewer archetype has all 3 modes in registry."""
+    """Verify reviewer archetype has both live modes in registry."""
 
     def test_reviewer_modes(self) -> None:
-        """TS-98-1: ARCHETYPE_REGISTRY["reviewer"] has all 3 modes."""
+        """TS-98-1: ARCHETYPE_REGISTRY["reviewer"] has both live modes."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
         assert "reviewer" in ARCHETYPE_REGISTRY, "reviewer not in ARCHETYPE_REGISTRY — consolidation not implemented"
         entry = ARCHETYPE_REGISTRY["reviewer"]
-        expected_modes = {"pre-flight", "audit-review", "fix-review"}
+        expected_modes = {"pre-flight", "audit-review"}
         assert set(entry.modes.keys()) == expected_modes, (
             f"Expected modes {expected_modes}, got {set(entry.modes.keys())}"
         )
@@ -88,58 +87,6 @@ class TestAuditReviewModeConfig:
         assert cfg.injection == "auto_mid", f"audit-review injection should be 'auto_mid', got {cfg.injection!r}"
         assert cfg.retry_predecessor is True, (
             f"audit-review retry_predecessor should be True, got {cfg.retry_predecessor}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-98-5: Fix-review Mode Config
-# Requirement: 98-REQ-1.5
-# ---------------------------------------------------------------------------
-
-
-class TestFixReviewModeConfig:
-    """Verify fix-review has ADVANCED tier, no injection, extended allowlist."""
-
-    def test_fix_review_config(self) -> None:
-        """TS-98-5: fix-review has ADVANCED tier, injection=None, 'make' in allowlist."""
-        from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
-
-        entry = ARCHETYPE_REGISTRY["reviewer"]
-        cfg = resolve_effective_config(entry, "fix-review")
-        assert cfg.default_model_tier == "ADVANCED", (
-            f"fix-review tier should be ADVANCED, got {cfg.default_model_tier!r}"
-        )
-        assert cfg.injection is None, f"fix-review injection should be None (no auto-injection), got {cfg.injection!r}"
-        assert cfg.default_allowlist is not None, "fix-review allowlist must not be None"
-        assert "make" in cfg.default_allowlist, f"'make' must be in fix-review allowlist, got {cfg.default_allowlist}"
-
-
-# ---------------------------------------------------------------------------
-# TS-98-6: Coder Fix Mode
-# Requirements: 98-REQ-2.1, 98-REQ-2.2
-# ---------------------------------------------------------------------------
-
-
-class TestCoderFixMode:
-    """Verify coder fix mode matches former fix_coder configuration."""
-
-    def test_coder_fix_mode(self) -> None:
-        """TS-98-6: coder fix mode has STANDARD tier, 300 turns, adaptive 64k.
-
-        Spec 15 sets coder default to STANDARD. The fix mode inherits this
-        value since it doesn't override model_tier at the mode level.
-        """
-        from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
-
-        entry = ARCHETYPE_REGISTRY["coder"]
-        assert "fix" in entry.modes, f"coder should have 'fix' mode, got modes: {set(entry.modes.keys())}"
-        cfg = resolve_effective_config(entry, "fix")
-        assert cfg.default_model_tier == "STANDARD", (
-            f"coder:fix tier should be STANDARD (spec 15), got {cfg.default_model_tier!r}"
-        )
-        assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
-        assert cfg.default_thinking_mode == "adaptive", (
-            f"coder:fix thinking_mode should be 'adaptive', got {cfg.default_thinking_mode!r}"
         )
 
 
