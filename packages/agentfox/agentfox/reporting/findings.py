@@ -1,6 +1,6 @@
 """Query and format review findings from DuckDB.
 
-Provides query functions for review_findings, verification_results,
+Provides query functions for review_findings,
 and drift_findings tables, plus formatting utilities for table and
 JSON output.
 
@@ -33,7 +33,7 @@ class FindingRow:
 
     id: str
     severity: str
-    archetype: str  # e.g., "reviewer/pre-review", "reviewer/drift-review", "verifier"
+    archetype: str  # e.g., "reviewer/pre-review", "reviewer/drift-review"
     spec_name: str
     task_group: str
     description: str
@@ -62,9 +62,9 @@ def query_findings(
 ) -> list[FindingRow]:
     """Query findings from DuckDB with optional filters.
 
-    Queries review_findings (reviewer/pre-review), verification_results (verifier),
-    and drift_findings (reviewer/drift-review) tables, unifying results into
-    FindingRow objects with an archetype discriminator.
+    Queries the review_findings (reviewer/pre-review) and drift_findings
+    (reviewer/drift-review) tables, unifying results into FindingRow objects
+    with an archetype discriminator.
 
     Args:
         conn: DuckDB connection.
@@ -74,7 +74,6 @@ def query_findings(
             - ``"reviewer"`` — both review_findings and drift_findings
             - ``"reviewer/pre-review"`` — review_findings only
             - ``"reviewer/drift-review"`` — drift_findings only
-            - ``"verifier"`` — verification_results only
             - ``None`` — all tables
         run_id: Filter by run ID (returns empty list if run metadata unavailable).
         active_only: Only return non-superseded findings.
@@ -288,12 +287,11 @@ def lookup_finding_by_id(
     conn: Any,
     finding_id: str,
 ) -> FindingRow | None:
-    """Look up a finding by ID across all three finding tables.
+    """Look up a finding by ID across the finding tables.
 
-    Searches ``review_findings`` (reviewer/pre-review), ``drift_findings``
-    (reviewer/drift-review), and ``verification_results`` (verifier) in that
-    order.  Returns the first matching ``FindingRow``, regardless of whether
-    the record is active or superseded.
+    Searches ``review_findings`` (reviewer/pre-review) then ``drift_findings``
+    (reviewer/drift-review).  Returns the first matching ``FindingRow``,
+    regardless of whether the record is active or superseded.
 
     Args:
         conn: DuckDB connection, or ``None`` (returns ``None``).

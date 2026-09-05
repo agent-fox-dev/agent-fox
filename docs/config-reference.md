@@ -29,7 +29,6 @@ the most commonly changed settings. Add any section below manually to
 - [knowledge](#knowledge)
   - [knowledge.provider](#knowledgeprovider)
 - [archetypes](#archetypes)
-  - [archetypes.instances](#archetypesinstances)
   - [archetypes.reviewer_config](#archetypesreviewer_config)
   - [archetypes.overrides](#archetypesoverrides)
   - [archetypes.custom](#archetypescustom)
@@ -309,7 +308,6 @@ behaviour (`pre-flight`, `audit-review`, `fix-review`).
 |-------|------|---------|--------|-------------|
 | `reviewer` | bool | `true` | -- | Enable the Reviewer archetype (all modes: pre-flight, audit-review, fix-review) |
 | `verifier` | bool | `true` | -- | Enable the Verifier archetype (post-code correctness checks) |
-| `instances` | table | see below | -- | Per-archetype instance counts |
 | `reviewer_config` | table | see below | -- | Reviewer-specific configuration |
 | `overrides` | dict[str, PerArchetypeConfig] | `{}` | -- | Unified per-archetype config overrides (model tier, effort, max turns, thinking, allowlist, budget) |
 | `custom` | dict[str, CustomArchetypeConfig] | `{}` | -- | Custom archetype definitions |
@@ -327,29 +325,13 @@ model_tier = "ADVANCED"
 max_turns = 100
 ```
 
-### archetypes.instances
-
-Controls how many parallel instances of each archetype are spawned.
-
-| Field | Type | Default | Bounds | Description |
-|-------|------|---------|--------|-------------|
-| `reviewer` | int | `1` | 1--5 | Number of parallel Reviewer instances |
-| `verifier` | int | `1` | 1 | Number of Verifier instances (always clamped to 1) |
-
-**Example:**
-
-```toml
-[archetypes.instances]
-reviewer = 2
-```
-
 ### archetypes.reviewer_config
 
 Reviewer-specific configuration, consolidating settings for all review modes.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `pre_flight_block_threshold` | int | `1` | >= 0 | Finding count to block for pre-flight review findings |
+| `pre_flight_block_threshold` | int | `1` | >= 0 | Critical pre-flight finding count at which downstream coder nodes are blocked |
 | `pre_flight_drift_block_threshold` | int\|null | `1` | -- | Drift finding count to block for pre-flight drift findings; `null` = advisory only |
 | `audit_min_ts_entries` | int | `5` | >= 1 | Minimum test-spec entries to trigger audit-review injection |
 | `audit_max_retries` | int | `1` | >= 0 | Maximum audit-review/coder retry cycles before permanently blocking. Tracked independently of the generic failure counter. Set to 0 to block on the first audit-review failure |

@@ -384,7 +384,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, None, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -471,7 +471,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, None, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -573,7 +573,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, None, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -672,7 +672,7 @@ class TestReviewCapDoesNotConsumeRetries:
         async def mock_prepare_launch(node_id, state, et):
             prepare_calls.append(node_id)
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, None, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -751,7 +751,7 @@ class TestReviewCapDoesNotConsumeRetries:
         async def mock_prepare_launch(node_id, state, et):
             prepare_calls.append(node_id)
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, None, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr

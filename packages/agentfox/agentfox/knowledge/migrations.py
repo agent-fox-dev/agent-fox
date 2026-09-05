@@ -915,6 +915,30 @@ def _migrate_v21(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute("ALTER TABLE session_outcomes DROP COLUMN coverage_data")
 
 
+def _migrate_v27(conn: duckdb.DuckDBPyConnection) -> None:
+    """Drop the dead plan_nodes.instances column.
+
+    Multi-instance archetype fan-out was never implemented: the column was
+    written from ``Node.instances`` and read back, but no code ever launched
+    more than one session for a node.  The feature and its config surface were
+    removed in issue #771.
+    """
+    tables = {
+        r[0]
+        for r in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+    }
+    if "plan_nodes" not in tables:
+        return
+    cols = {
+        r[0]
+        for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'plan_nodes'"
+        ).fetchall()
+    }
+    if "instances" in cols:
+        conn.execute("ALTER TABLE plan_nodes DROP COLUMN instances")
+
+
 # Registry of all migrations, ordered by version.
 MIGRATIONS: list[Migration] = [
     Migration(
@@ -1042,6 +1066,11 @@ MIGRATIONS: list[Migration] = [
         description="drop unused knowledge tables: errata, adr_entries, verification_results",
         apply=_migrate_v26,
     ),
+    Migration(
+        version=27,
+        description="drop dead plan_nodes.instances column",
+        apply=_migrate_v27,
+    ),
 ]
 
 
@@ -1149,7 +1178,6 @@ CREATE TABLE IF NOT EXISTS plan_nodes (
     status          VARCHAR NOT NULL DEFAULT 'pending',
     subtask_count   INTEGER NOT NULL DEFAULT 0,
     optional        BOOLEAN NOT NULL DEFAULT FALSE,
-    instances       INTEGER NOT NULL DEFAULT 1,
     sort_position   INTEGER NOT NULL DEFAULT 0,
     blocked_reason  VARCHAR,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

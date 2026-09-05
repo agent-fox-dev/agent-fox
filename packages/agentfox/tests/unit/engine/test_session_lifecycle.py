@@ -15,36 +15,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from afaudit.sink import SessionOutcome
 from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
-from agentfox.engine.sdk_params import clamp_instances
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.workspace import WorkspaceInfo
 
 _MOCK_KB = MagicMock(spec=KnowledgeDB)
-
-# ---------------------------------------------------------------------------
-# _clamp_instances
-# ---------------------------------------------------------------------------
-
-
-class TestClampInstances:
-    """Tests for the _clamp_instances helper."""
-
-    def test_coder_clamped_to_one(self) -> None:
-        assert clamp_instances("coder", 3) == 1
-
-    def test_coder_one_unchanged(self) -> None:
-        assert clamp_instances("coder", 1) == 1
-
-    def test_non_coder_max_five(self) -> None:
-        assert clamp_instances("reviewer", 10) == 5
-
-    def test_non_coder_min_one(self) -> None:
-        assert clamp_instances("verifier", 0) == 1
-
-    def test_valid_value_unchanged(self) -> None:
-        assert clamp_instances("reviewer", 3) == 3
-
 
 # ---------------------------------------------------------------------------
 # _resolve_model_tier

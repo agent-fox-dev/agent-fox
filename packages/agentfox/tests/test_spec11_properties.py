@@ -85,18 +85,12 @@ class TestPropertyBackwardCompat:
 
 
 class TestPropertyNoTrivialSummaries:
-    """For zero findings/verdicts, generate_archetype_summary returns None."""
+    """For zero findings, generate_archetype_summary returns None."""
 
     @settings(max_examples=30)
     @given(st.data())
     def test_reviewer_empty_returns_none(self, data: st.DataObject) -> None:
         result = generate_archetype_summary("reviewer", findings=[])
-        assert result is None
-
-    @settings(max_examples=30)
-    @given(st.data())
-    def test_verifier_empty_returns_none(self, data: st.DataObject) -> None:
-        result = generate_archetype_summary("verifier", verdicts=[])
         assert result is None
 
 

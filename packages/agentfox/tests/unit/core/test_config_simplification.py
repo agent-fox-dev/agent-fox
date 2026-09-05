@@ -10,9 +10,7 @@ from __future__ import annotations
 import re
 import tomllib
 
-import pytest
 import tomlkit
-from agentfox.core.config import ArchetypeInstancesConfig
 from agentfox.core.config_gen import (
     _FOOTER_COMMENT,
     _get_description,
@@ -26,7 +24,6 @@ _EXPECTED_VISIBLE_SECTIONS = {
     "backend",
     "orchestrator",
     "archetypes",
-    "archetypes.instances",
     "platform",
     "workspace",
     "models",
@@ -53,7 +50,6 @@ _EXPECTED_PROMOTED_FIELDS = [
     ("platform", "type"),
     ("archetypes", "reviewer"),
     ("archetypes", "verifier"),
-    ("archetypes.instances", "verifier"),
 ]
 
 
@@ -154,39 +150,6 @@ class TestTemplateLineCount:
 
 
 # ---------------------------------------------------------------------------
-# TS-68-6: archetypes.instances.verifier promoted with value 2
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierInstancesPromoted:
-    """TS-68-6: archetypes.instances.verifier is promoted with value 1."""
-
-    def test_verifier_instances_in_parsed_template(self):
-        """Parsed template has archetypes.instances.verifier == 1."""
-        template = generate_default_config()
-        parsed = tomllib.loads(template)
-        actual = parsed["archetypes"]["instances"]["verifier"]
-        assert actual == 1, f"archetypes.instances.verifier is {actual}, expected 1"
-
-    def test_verifier_instances_line_not_commented(self):
-        """verifier = 1 under [archetypes.instances] is not commented out."""
-        template = generate_default_config()
-        in_instances = False
-        for line in template.split("\n"):
-            stripped = line.strip()
-            if stripped in ("[archetypes.instances]", "# [archetypes.instances]"):
-                in_instances = True
-                continue
-            if in_instances and re.match(r"^\[", stripped):
-                in_instances = False
-            if in_instances and re.match(r"^verifier\s*=\s*1", stripped):
-                assert not line.strip().startswith("#"), f"verifier = 1 is commented: {line!r}"
-                return
-        # If we reach here, line was not found as uncommented
-        pytest.fail("Uncommented 'verifier = 1' not found under [archetypes.instances]")
-
-
-# ---------------------------------------------------------------------------
 # TS-68-7: Quality archetype toggles promoted and active
 # ---------------------------------------------------------------------------
 
@@ -241,20 +204,6 @@ class TestBudgetAndModelPromoted:
                 assert "8.0" not in line, f"max_budget_usd must not be 8.0: {line!r}"
                 return
         raise AssertionError("max_budget_usd not found as an active line in the template")
-
-
-# ---------------------------------------------------------------------------
-# TS-68-9: ArchetypeInstancesConfig default verifier == 2
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierDefaultChanged:
-    """TS-68-9: ArchetypeInstancesConfig() default verifier is 1."""
-
-    def test_verifier_default_is_1(self):
-        """ArchetypeInstancesConfig() has verifier == 1."""
-        config = ArchetypeInstancesConfig()
-        assert config.verifier == 1, f"ArchetypeInstancesConfig().verifier is {config.verifier}, expected 1"
 
 
 # ---------------------------------------------------------------------------

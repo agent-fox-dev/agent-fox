@@ -88,7 +88,6 @@ class ParallelRunner:
         *,
         archetype: str = "coder",
         mode: str | None = None,
-        instances: int = 1,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -106,7 +105,6 @@ class ParallelRunner:
             previous_error: Error message from prior attempt, if any.
             archetype: Archetype name from the plan node.
             mode: Optional mode variant for the archetype (97-REQ-5.3).
-            instances: Instance count from the plan node.
             run_id: Audit run identifier for correlation.
             timeout_override: Per-node session timeout override in minutes.
             max_turns_override: Per-node max_turns override.
@@ -121,7 +119,6 @@ class ParallelRunner:
                 previous_error,
                 archetype=archetype,
                 mode=mode,
-                instances=instances,
                 run_id=run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
@@ -185,7 +182,6 @@ class ParallelRunner:
         *,
         archetype: str = "coder",
         mode: str | None = None,
-        instances: int = 1,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -196,7 +192,6 @@ class ParallelRunner:
             node_id,
             archetype=archetype,
             mode=mode,
-            instances=instances,
             run_id=run_id,
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,

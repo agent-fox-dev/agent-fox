@@ -120,7 +120,7 @@ class TestMigrationIdempotency:
         # Version should be the latest migration version
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert version is not None
-        assert version[0] == 26
+        assert version[0] == 27
 
         # Tables should exist (v2 + v4 migrations)
         tables = conn.execute(

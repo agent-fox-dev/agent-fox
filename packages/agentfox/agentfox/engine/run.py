@@ -134,7 +134,6 @@ def _setup_infrastructure(
         *,
         archetype: str = "coder",
         mode: str | None = None,
-        instances: int = 1,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -145,7 +144,6 @@ def _setup_infrastructure(
             config,
             archetype=archetype,
             mode=mode,
-            instances=instances,
             sink_dispatcher=sink_dispatcher,
             knowledge_db=knowledge_db,
             context_knowledge_db=context_knowledge_db,
@@ -191,8 +189,8 @@ def _run_startup_migrations(
 ) -> None:
     """Run legacy file migrations at orchestrator startup.
 
-    Migrates legacy review.md/verification.md files into DuckDB using the
-    read-write connection, before any sessions are dispatched.
+    Migrates legacy review.md files into DuckDB using the read-write
+    connection, before any sessions are dispatched.
 
     Errors on individual specs are logged and skipped — they do not abort
     the startup sequence.

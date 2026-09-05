@@ -31,7 +31,6 @@ from agentfox.core.prompt_safety import sanitize_prompt_content
 from agentfox.engine.audit_helpers import calculate_session_cost
 from agentfox.engine.review_persistence import persist_review_findings
 from agentfox.engine.sdk_params import (
-    clamp_instances,
     resolve_max_budget,
     resolve_model_tier,
     resolve_security_config,
@@ -262,7 +261,6 @@ class NodeSessionRunner:
         *,
         archetype: str = "coder",
         mode: str | None = None,
-        instances: int = 1,
         sink_dispatcher: SinkDispatcher | None = None,
         knowledge_db: KnowledgeDB,
         context_knowledge_db: KnowledgeDB | ContextKnowledgeDB | None = None,
@@ -277,7 +275,6 @@ class NodeSessionRunner:
         self._config = config
         self._archetype = archetype
         self._mode = mode  # 97-REQ-5.3: mode for per-mode configuration resolution
-        clamp_instances(archetype, instances, mode=mode)
         self._sink = sink_dispatcher
         self._sink_dispatcher = sink_dispatcher  # alias for retrieval audit events
         self._knowledge_db = knowledge_db
@@ -1005,10 +1002,9 @@ class NodeSessionRunner:
             workspace,
             outcome_response=outcome.response,
         )
-        # 120-REQ-3.1, 120-REQ-3.2: Generate summaries for reviewer/verifier
-        # sessions from persisted findings/verdicts when no agent-written
-        # summary exists.
-        if summary_text is None and self._archetype in ("reviewer", "verifier"):
+        # 120-REQ-3.1: Generate summaries for reviewer sessions from persisted
+        # findings when no agent-written summary exists.
+        if summary_text is None and self._archetype == "reviewer":
             summary_text = self._generate_archetype_session_summary(node_id)
         # 114-REQ-4.1, 119-REQ-5.1: Ingest knowledge via KnowledgeProvider.
         # Pass summary, archetype, task_group, and attempt through the
@@ -1250,15 +1246,15 @@ class NodeSessionRunner:
         )
 
     def _generate_archetype_session_summary(self, node_id: str) -> str | None:
-        """Generate a summary for reviewer/verifier sessions from DB findings/verdicts.
+        """Generate a summary for reviewer sessions from persisted DB findings.
 
-        Queries the findings or verdicts persisted by ``_extract_knowledge_and_findings``
+        Queries the findings persisted by ``_extract_knowledge_and_findings``
         for the given session and produces a human-readable summary string via
         ``generate_archetype_summary``.
 
         Returns ``None`` if the DB is unavailable or an error occurs.
 
-        Requirements: 120-REQ-3.1, 120-REQ-3.2, 120-REQ-3.E1, 120-REQ-3.E2
+        Requirements: 120-REQ-3.1, 120-REQ-3.E1
         """
         try:
             conn = self._knowledge_db.connection

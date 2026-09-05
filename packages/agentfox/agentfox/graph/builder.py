@@ -15,7 +15,6 @@ from agentfox.graph.injection import (
     collect_enabled_auto_post,
     collect_enabled_auto_pre,
     resolve_auditor_config,
-    resolve_instances,
 )
 from agentfox.graph.spec_helpers import (
     count_ts_entries,
@@ -48,7 +47,6 @@ def _inject_auto_mid_nodes(
         return
 
     min_ts = aud_cfg.min_ts_entries
-    instances = aud_cfg.instances
 
     for spec in specs:
         groups = task_groups.get(spec.name, [])
@@ -85,7 +83,6 @@ def _inject_auto_mid_nodes(
                 optional=False,
                 archetype="reviewer",
                 mode="audit-review",
-                instances=instances if isinstance(instances, int) else 1,
             )
 
             # Edge from test-writing group to audit-review
@@ -288,7 +285,6 @@ def _inject_archetype_nodes(
                 node_id = f"{spec.name}:0:{arch.name}{mode_suffix}"
             else:
                 node_id = f"{spec.name}:0"
-            instances = resolve_instances(archetypes_config, arch.name)
             # Human-readable title with mode
             if arch.mode:
                 title = f"{arch.name.capitalize()} ({arch.mode})"
@@ -302,7 +298,6 @@ def _inject_archetype_nodes(
                 optional=False,
                 archetype=arch.name,
                 mode=arch.mode,
-                instances=instances,
             )
             # Edge from auto_pre node to first real group
             first_id = f"{spec.name}:{first_group}"
@@ -320,7 +315,6 @@ def _inject_archetype_nodes(
         prev_post_id = f"{spec.name}:{last_group}"
         for arch in enabled_auto_post:
             node_id = f"{spec.name}:0:{arch.name}"
-            instances = resolve_instances(archetypes_config, arch.name)
             nodes[node_id] = Node(
                 id=node_id,
                 spec_name=spec.name,
@@ -328,7 +322,6 @@ def _inject_archetype_nodes(
                 title=f"{arch.name.capitalize()} Check",
                 optional=False,
                 archetype=arch.name,
-                instances=instances,
             )
             if prev_post_id in nodes:
                 edges.append(Edge(source=prev_post_id, target=node_id, kind="intra_spec"))

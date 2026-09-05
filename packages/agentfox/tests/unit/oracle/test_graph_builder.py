@@ -157,7 +157,6 @@ class TestLegacyPlanCompat:
                     optional=False,
                     archetype="reviewer",
                     mode="pre-flight",
-                    instances=1,
                 ),
                 "spec:1": Node(
                     id="spec:1",
@@ -166,7 +165,6 @@ class TestLegacyPlanCompat:
                     title="Task 1",
                     optional=False,
                     archetype="coder",
-                    instances=1,
                 ),
             },
             edges=[Edge(source="spec:0", target="spec:1", kind="intra_spec")],

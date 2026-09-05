@@ -38,42 +38,6 @@ class TestArchetypeToggles:
 # ---------------------------------------------------------------------------
 
 
-class TestInstanceCounts:
-    """Verify archetypes.instances sub-section sets per-archetype counts."""
-
-    def test_default_instances(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig()
-        assert cfg.reviewer == 1
-        assert cfg.verifier == 1  # 98-REQ-6.2: single instance
-
-    def test_custom_instances(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig(reviewer=3, verifier=1)
-        assert cfg.reviewer == 3
-        assert cfg.verifier == 1
-
-    def test_instance_clamped_to_5(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig(reviewer=10)
-        assert cfg.reviewer == 5
-
-    def test_instance_clamped_to_1(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig(reviewer=0)
-        assert cfg.reviewer == 1
-
-
-# ---------------------------------------------------------------------------
-# TS-26-24: Model tier override per archetype
-# Requirement: 26-REQ-6.3
-# ---------------------------------------------------------------------------
-
-
 class TestModelTierOverride:
     """Verify per-archetype model tier overrides in config via overrides table."""
 
@@ -127,7 +91,6 @@ class TestMissingArchetypesSection:
         # AgentFoxConfig without archetypes should use defaults
         cfg = AgentFoxConfig()
         assert cfg.archetypes.reviewer is True
-        assert cfg.archetypes.instances.reviewer == 1
 
     def test_load_config_without_archetypes(
         self,
@@ -140,4 +103,3 @@ class TestMissingArchetypesSection:
 
         cfg = load_config(config_path)
         assert cfg.archetypes.reviewer is True
-        assert cfg.archetypes.instances.reviewer == 1

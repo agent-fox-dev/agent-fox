@@ -114,8 +114,6 @@ class TestTemplateGeneration:
         assert "1-8" in template, "Missing bounds for parallel field"
         # parallel default is 4
         assert "default: 4" in template, "Missing default for parallel"
-        # verifier instances is clamped to 1 (98-REQ-6.2) and is promoted
-        assert "verifier = 1" in template, "Missing verifier instances field in template"
 
     def test_template_has_section_headers(self) -> None:
         """TS-33-3: Template emits proper TOML section headers for visible sections.
@@ -147,7 +145,6 @@ class TestTemplateGeneration:
             )
 
         # Visible sub-table headers
-        assert "[archetypes.instances]" in template
 
     def test_template_uncommented_is_valid_toml(self, tmp_path: Path) -> None:
         """TS-33-4: Uncommented template is valid TOML that load_config accepts.

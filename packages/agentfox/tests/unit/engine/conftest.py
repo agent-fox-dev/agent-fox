@@ -216,7 +216,6 @@ def write_plan_to_db(
             body=props.get("body", ""),
             archetype=props.get("archetype", "coder"),
             mode=props.get("mode"),
-            instances=props.get("instances", 1),
         )
 
     edge_objs = [Edge(source=e["source"], target=e["target"], kind=e.get("kind", "dependency")) for e in edges]

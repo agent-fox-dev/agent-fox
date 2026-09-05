@@ -69,7 +69,6 @@ def _save_old_plan_to_db(conn: duckdb.DuckDBPyConnection) -> None:
                 subtask_count=1,
                 body="",
                 archetype="coder",
-                instances=1,
             )
         },
         edges=[],

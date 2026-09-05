@@ -706,8 +706,8 @@ class TestAC6AuditMaxRetriesConfig:
         assert blocked is True
         block_task_fn.assert_called_once()
 
-    def test_pre_flight_still_uses_escalation_ladder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """Pre-flight mode (not audit-review) still uses the generic failure counter."""
+    def test_pre_flight_blocks_independently_of_audit_max_retries(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """Pre-flight blocks via the generic path, not the audit retry counter."""
         from agentfox.knowledge.review_store import ReviewFinding
 
         finding = ReviewFinding(
@@ -804,15 +804,12 @@ class TestAC6AuditMaxRetriesConfig:
             timestamp="2026-01-01T00:00:00",
         )
 
-        # Pre-flight with retry_predecessor=True should use the escalation ladder,
-        # not audit_max_retries. audit_max_retries=0 would block immediately if
-        # the code incorrectly applied it to pre-flight.
+        # Pre-flight has no retry_predecessor (issue #771): blocking findings
+        # block the downstream coder directly, whatever audit_max_retries says.
         blocked = handler.check_review_blocking(record, state)
 
-        assert blocked is False, (
-            "Pre-flight should use the generic failure counter (max_retries=3), not audit_max_retries=0"
-        )
-        block_task_fn.assert_not_called()
+        assert blocked is True
+        block_task_fn.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

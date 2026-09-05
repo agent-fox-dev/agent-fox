@@ -392,10 +392,14 @@ class TestReviewerBlocking:
             [MockSessionOutcome("spec_a:1", "completed")],
         )
 
-        # Many criticals but pre-flight is advisory (threshold=None)
-        mock_findings = [MagicMock(severity="critical") for _ in range(10)]
+        # Drift blocking is advisory (threshold=None); keep the review-finding
+        # threshold above the finding count so only the drift path is exercised.
+        mock_findings = [MagicMock(severity="critical", category=None) for _ in range(10)]
         archetypes_config = ArchetypesConfig(
-            reviewer_config=ReviewerConfig(pre_flight_drift_block_threshold=None),
+            reviewer_config=ReviewerConfig(
+                pre_flight_block_threshold=50,
+                pre_flight_drift_block_threshold=None,
+            ),
         )
 
         config = OrchestratorConfig(

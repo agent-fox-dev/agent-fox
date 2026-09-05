@@ -44,10 +44,6 @@ Your context may include reports from other archetypes. Triage them:
   primary task. Mention unaddressed major findings in your session summary.
 - **Drift Report:** Adapt your implementation to the codebase reality
   described in the drift report rather than stale spec assumptions.
-- **Verification Report (retry):** A prior Verifier run found issues with
-  this task group. The specific failures are in the retry context. Focus
-  your implementation on fixing those failures — do not re-implement from
-  scratch.
 
 ## Git Workflow
 

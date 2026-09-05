@@ -454,14 +454,15 @@ af insights [OPTIONS]
 |--------|------|---------|-------------|
 | `--spec NAME` | string | all | Filter by spec name |
 | `--severity LEVEL` | string | all | Minimum severity level (`critical`, `major`, `minor`, `observation`) |
-| `--archetype NAME` | string | all | Filter by archetype (`reviewer`, `verifier`, `reviewer/pre-flight`) |
+| `--archetype NAME` | string | all | Filter by archetype (`reviewer`, `reviewer/pre-review`, `reviewer/drift-review`) |
 | `--run ID` | string | all | Filter by run ID |
 | `--dismiss ID REASON` | string pair | | Dismiss a finding by ID with a reason |
 | `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Displays active (non-superseded) review findings from the knowledge store.
-Findings are produced by Reviewer (pre-flight, audit-review
-modes) and Verifier archetypes during `af code` sessions.
+Findings are produced by the Reviewer archetype (pre-flight and audit-review
+modes) during `af code` sessions. Verifier verdicts are informational and are
+not stored as findings.
 
 **Exit codes:** `0` success.
 

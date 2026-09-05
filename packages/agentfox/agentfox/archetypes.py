@@ -83,7 +83,9 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 model_tier="ADVANCED",
                 injection="auto_pre",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
-                retry_predecessor=True,
+                # No retry_predecessor: pre-flight runs *before* the coder, so
+                # there is no predecessor to retry.  Blocking findings block the
+                # downstream coder outright (issue #771).
             ),
             "audit-review": ModeConfig(
                 model_tier="ADVANCED",  # 15-REQ-8.2

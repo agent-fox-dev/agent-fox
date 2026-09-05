@@ -49,7 +49,7 @@ def _make_audit_result(
     description_prefix: str = "Audit issue",
 ):
     """Create a minimal AuditResult for testing."""
-    from agentfox.session.convergence import AuditEntry, AuditResult
+    from agentfox.session.audit_types import AuditEntry, AuditResult
 
     entries = [AuditEntry(severity="critical", description=f"{description_prefix} {i + 1}") for i in range(num_entries)]
     return AuditResult(entries=entries, overall_verdict=verdict, summary="Test summary")

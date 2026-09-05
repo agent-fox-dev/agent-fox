@@ -3,7 +3,7 @@
 Validates that critical findings with category='security' always block
 regardless of numeric threshold, that the category field round-trips
 through DuckDB, that parse_review_findings auto-detects security keywords,
-that converge_reviewer_pre_records preserves category, and that an audit event
+that an audit event
 is emitted on security-based blocking.
 
 Test Spec: AC-1 through AC-9
@@ -22,7 +22,6 @@ from agentfox.knowledge.review_store import (
     insert_findings,
     query_findings_by_session,
 )
-from agentfox.session.convergence import converge_reviewer_pre_records
 from agentfox.session.review_parser import parse_review_findings
 
 # ---------------------------------------------------------------------------
@@ -404,65 +403,6 @@ class TestSecurityBlockingAuditEvent:
         # Verify NO security-specific event was emitted
         security_calls = [call for call in mock_sink.emit_audit_event.call_args_list if "security" in str(call).lower()]
         assert len(security_calls) == 0
-
-
-# ---------------------------------------------------------------------------
-# AC-8: converge_reviewer_pre_records preserves category
-# ---------------------------------------------------------------------------
-
-
-class TestConvergencePreservesCategory:
-    """AC-8: converge_reviewer_pre_records preserves the category field."""
-
-    def test_security_category_preserved_after_convergence(self) -> None:
-        """category='security' is preserved when merging multiple instances."""
-        finding = _make_finding(
-            severity="critical",
-            description="command injection via image_ref",
-            session_id="instance-1",
-            category="security",
-        )
-        finding2 = ReviewFinding(
-            id=str(uuid.uuid4()),
-            severity=finding.severity,
-            description=finding.description,
-            requirement_ref=finding.requirement_ref,
-            spec_name=finding.spec_name,
-            task_group=finding.task_group,
-            session_id="instance-2",
-            category="security",
-        )
-
-        instance_findings = [[finding], [finding2]]
-        merged, _ = converge_reviewer_pre_records(instance_findings, block_threshold=3)
-
-        assert len(merged) == 1
-        assert merged[0].category == "security"
-
-    def test_none_category_preserved_after_convergence(self) -> None:
-        """category=None is preserved during convergence."""
-        finding = _make_finding(
-            severity="major",
-            description="non-security issue",
-            session_id="instance-1",
-            category=None,
-        )
-        finding2 = ReviewFinding(
-            id=str(uuid.uuid4()),
-            severity=finding.severity,
-            description=finding.description,
-            requirement_ref=finding.requirement_ref,
-            spec_name=finding.spec_name,
-            task_group=finding.task_group,
-            session_id="instance-2",
-            category=None,
-        )
-
-        instance_findings = [[finding], [finding2]]
-        merged, _ = converge_reviewer_pre_records(instance_findings, block_threshold=3)
-
-        assert len(merged) == 1
-        assert merged[0].category is None
 
 
 # ---------------------------------------------------------------------------

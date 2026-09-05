@@ -222,7 +222,6 @@ class TestAutoMidInjection:
         # Verify edges: group 1 -> audit-review -> group 2
         assert any(e.source == "spec:1" and e.target == audit_node.id for e in graph.edges)
         assert any(e.source == audit_node.id and e.target == "spec:2" for e in graph.edges)
-        assert audit_node.instances == config.instances.reviewer
 
 
 # ---------------------------------------------------------------------------

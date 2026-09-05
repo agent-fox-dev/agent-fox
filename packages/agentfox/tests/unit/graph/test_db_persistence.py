@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS plan_nodes (
     status          VARCHAR NOT NULL DEFAULT 'pending',
     subtask_count   INTEGER NOT NULL DEFAULT 0,
     optional        BOOLEAN NOT NULL DEFAULT FALSE,
-    instances       INTEGER NOT NULL DEFAULT 1,
     sort_position   INTEGER NOT NULL DEFAULT 0,
     blocked_reason  VARCHAR,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -87,7 +86,6 @@ def three_node_graph() -> TaskGraph:
             body="Do task 1",
             archetype="coder",
             mode=None,
-            instances=1,
         ),
         "spec_a:2": Node(
             id="spec_a:2",
@@ -99,7 +97,6 @@ def three_node_graph() -> TaskGraph:
             body="Do task 2",
             archetype="reviewer",
             mode="fast",
-            instances=1,
         ),
         "spec_a:3": Node(
             id="spec_a:3",
@@ -111,7 +108,6 @@ def three_node_graph() -> TaskGraph:
             body="",
             archetype="coder",
             mode=None,
-            instances=2,
         ),
     }
     edges = [
@@ -160,7 +156,6 @@ def test_plan_round_trip(
         assert loaded_node.body == orig_node.body
         assert loaded_node.archetype == orig_node.archetype
         assert loaded_node.mode == orig_node.mode
-        assert loaded_node.instances == orig_node.instances
         assert str(loaded_node.status) == str(orig_node.status)
 
     loaded_edge_tuples = {(e.source, e.target, e.kind) for e in loaded.edges}

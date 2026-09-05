@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 import tomllib
 
-from agentfox.core.config import ArchetypeInstancesConfig
 from agentfox.core.config_gen import (
     generate_default_config,
     merge_existing_config,
@@ -25,7 +24,6 @@ _EXPECTED_VISIBLE_SECTIONS = frozenset(
         "models.registry",
         "models.tier_defaults",
         "archetypes",
-        "archetypes.instances",
         "platform",
         "workspace",
     }
@@ -186,17 +184,3 @@ class TestPropFooterNonDuplication:
             content = merge_existing_config(content)
         count = content.count("docs/config-reference.md")
         assert count == 1, f"After {n} merges, footer appears {count} times, expected exactly 1"
-
-
-# ---------------------------------------------------------------------------
-# TS-68-P6: Default verifier instances is 2
-# ---------------------------------------------------------------------------
-
-
-class TestPropVerifierDefault:
-    """TS-68-P6: Property 10 — ArchetypeInstancesConfig().verifier == 1."""
-
-    def test_verifier_default_is_1(self):
-        """Default-constructed ArchetypeInstancesConfig always has verifier=1."""
-        config = ArchetypeInstancesConfig()
-        assert config.verifier == 1, f"ArchetypeInstancesConfig().verifier is {config.verifier}, expected 1"

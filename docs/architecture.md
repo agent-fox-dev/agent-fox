@@ -499,32 +499,14 @@ the integration branch. The harvest process:
 
 After harvest, the system processes the session's outputs.
 
-**Review finding persistence.** For review archetypes (Reviewer in all modes,
-Verifier), the session output is parsed for structured findings. Parsed
-findings are written to the appropriate DuckDB quality tables
-(`review_findings`, `drift_findings`).
+**Review finding persistence.** For the Reviewer archetype (`pre-flight` and
+`audit-review` modes), the session output is parsed for structured findings.
+Parsed findings are written to the appropriate DuckDB quality tables
+(`review_findings`, `drift_findings`).  Verifier output is not parsed: its
+verdicts are informational.
 
-**Multi-instance convergence.** When a node is configured with `instances > 1`,
-multiple sessions run in parallel for the same task. Their outputs are merged
-deterministically:
-
-- **Reviewer convergence** (pre-flight): Union all findings,
-  deduplicate by description similarity, majority-gate critical findings —
-  a finding is only promoted to critical severity if a majority of instances
-  flagged it as critical.
-- **Verifier convergence**: Majority-vote each requirement result across
-  instances. A requirement is FAIL only if a majority of instances failed it.
-- **Auditor convergence** (audit-review): Worst-result-wins — if any instance
-  flags an issue, the converged result includes it.
-
-Convergence is entirely deterministic (no LLM calls). It ensures that
-multi-instance results are consistent and that individual outlier sessions
-do not produce spurious blocking findings.
-
-**Session summary generation.** For reviewer and verifier sessions, a
-structured summary is generated from the persisted findings and verification
-results. This summary includes severity counts and lists specific requirement
-IDs for failed checks.
+**Session summary generation.** For reviewer sessions, a structured summary is
+generated from the persisted findings when the agent did not write one itself.
 
 **Knowledge ingestion.** For completed sessions, the `KnowledgeProvider`
 ingests session context — superseding previously injected findings, performing
@@ -564,12 +546,14 @@ threshold. If the threshold is exceeded, all downstream coder tasks for that
 spec are set to `blocked`, and all their transitive dependents are
 cascade-blocked via BFS.
 
-**Retry-predecessor.** The `audit-review` and `verifier` archetypes both have
-`retry_predecessor=true`. When their session completes with failing outputs
-(MISSING tests, FAIL requirements), the orchestrator re-runs the preceding
-coder session with the review/verification findings injected as context.
-Audit-review findings that reference a future task group are excluded from
-the blocking set to avoid unwinnable retry loops.
+**Retry-predecessor.** `reviewer:audit-review` and `verifier` are the two
+entries with `retry_predecessor=true`. When an audit-review session completes
+with blocking findings, the orchestrator re-runs the preceding coder session
+instead of blocking it; audit-review findings that reference a future task
+group are excluded from the blocking set to avoid unwinnable retry loops.
+For the Verifier the flag applies only on the failure path: a Verifier session
+that fails to complete resets its predecessor coder. Verifier verdicts
+themselves are informational and trigger no retry.
 
 **Coverage regression detection.** Before a coder session, the result handler
 captures a test coverage baseline. After the session completes, it measures
@@ -797,7 +781,8 @@ All modes produce structured findings and have restricted tool allowlists
   `tail`, `wc`).
 - If critical findings exceed a configured threshold, downstream coder tasks
   are blocked.
-- `retry_predecessor`: true — can trigger re-runs of prior work.
+- `retry_predecessor`: false — pre-flight runs before the coder, so blocking
+  findings block the downstream coder rather than retrying a predecessor.
 
 **Audit-review mode** (`auto_mid`, after test-writing groups):
 - Model tier: ADVANCED (variant: standard)
@@ -828,7 +813,9 @@ Uses a sentinel group number (0) with a 3-part node ID format
 - Effort: high
 - Max turns: 120
 - Tool access: full (needs to run tests)
-- `retry_predecessor`: true
+- `retry_predecessor`: true — applies on the failure path only: a Verifier
+  session that fails to complete resets its predecessor coder. PASS/FAIL
+  verdicts are informational and trigger no retry.
 
 ### 8.4 Gate
 
@@ -1223,7 +1210,7 @@ Orchestrator  [deterministic dispatch loop, zero LLM]
     │   │      ↓                                                     │
     │   │  Harvest: squash merge → integration branch                │
     │   │      ↓                                                     │
-    │   │  Assess: parse findings → converge (multi-instance)        │
+    │   │  Assess: parse findings                                    │
     │   │      → supersede injected findings → store summary         │
     │   │      → emit audit events                                   │
     │   │                                                            │

@@ -2,15 +2,12 @@
 
 Covers:
 - Mode-archetype mapping correctness (TS-98-P1)
-- Convergence dispatch routing (TS-98-P2)
 - Injection consistency (TS-98-P3)
 - Verifier single-instance invariant (TS-98-P4)
 - Old names rejected from registry (TS-98-P6)
 
-Test Spec: TS-98-P1 through TS-98-P4, TS-98-P6
-Requirements: 98-REQ-1.1 through 98-REQ-1.4,
-              98-REQ-5.1, 98-REQ-5.2, 98-REQ-5.3,
-              98-REQ-6.2, 98-REQ-7.1
+Test Spec: TS-98-P1, TS-98-P3, TS-98-P4, TS-98-P6
+Requirements: 98-REQ-1.1 through 98-REQ-1.4, 98-REQ-6.2, 98-REQ-7.1
 """
 
 from __future__ import annotations
@@ -89,88 +86,6 @@ class TestModeArchetypeMapping:
         assert cfg.injection == expected_injection
 
 
-# ---------------------------------------------------------------------------
-# TS-98-P2: Convergence Dispatch Correctness
-# Requirements: 98-REQ-5.1, 98-REQ-5.2, 98-REQ-5.3
-# ---------------------------------------------------------------------------
-
-
-def _make_findings(n: int, severity: str = "critical", base_desc: str = "Issue") -> list:
-    """Build a list of Finding objects."""
-    from agentfox.session.convergence import Finding
-
-    return [Finding(severity=severity, description=f"{base_desc} {i}") for i in range(n)]
-
-
-def _make_audit_result(verdict: str = "PASS"):
-    """Build a minimal AuditResult."""
-    from agentfox.session.convergence import AuditEntry, AuditResult
-
-    entry = AuditEntry(
-        ts_entry="TS-1",
-        test_functions=["test_foo"],
-        verdict=verdict,
-        notes=None,
-    )
-    return AuditResult(entries=[entry], overall_verdict=verdict, summary="ok")
-
-
-class TestConvergenceDispatchCorrectness:
-    """TS-98-P2: converge_reviewer routes to correct algorithm by mode."""
-
-    @pytest.mark.parametrize("mode", ["pre-flight"])
-    def test_pre_flight_dispatch_to_skeptic(self, mode: str) -> None:
-        """pre-flight routes to converge_reviewer_pre."""
-        from agentfox.session.convergence import (
-            converge_reviewer,  # type: ignore[attr-defined]
-            converge_reviewer_pre,
-        )
-
-        results = [
-            [_make_findings(1, "critical", "Issue")[0]],
-            [_make_findings(1, "major", "Other")[0]],
-        ]
-        result = converge_reviewer(results, mode=mode, block_threshold=5)
-        expected = converge_reviewer_pre(results, block_threshold=5)
-        assert result == expected, f"mode={mode!r}: expected {expected}, got {result}"
-
-    def test_audit_dispatch_to_auditor(self) -> None:
-        """audit-review routes to converge_auditor."""
-        from agentfox.session.convergence import (
-            AuditResult,
-            converge_auditor,
-            converge_reviewer,  # type: ignore[attr-defined]
-        )
-
-        audit_results = [_make_audit_result("PASS"), _make_audit_result("FAIL")]
-        result = converge_reviewer(audit_results, mode="audit-review")
-        expected = converge_auditor(audit_results)
-
-        assert isinstance(result, AuditResult)
-        assert result.overall_verdict == expected.overall_verdict
-
-    @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
-    @given(mode=st.sampled_from(["pre-flight"]))
-    @settings(max_examples=20)
-    def test_skeptic_modes_always_match(self, mode: str) -> None:
-        """Property: pre-flight mode produces same result as converge_reviewer_pre."""
-        from agentfox.session.convergence import (
-            converge_reviewer,  # type: ignore[attr-defined]
-            converge_reviewer_pre,
-        )
-
-        results: list = []
-        result = converge_reviewer(results, mode=mode, block_threshold=3)
-        expected = converge_reviewer_pre(results, block_threshold=3)
-        assert result == expected
-
-
-# ---------------------------------------------------------------------------
-# TS-98-P3: Injection Consistency
-# Requirements: 98-REQ-4.2, 98-REQ-4.3, 98-REQ-7.1
-# ---------------------------------------------------------------------------
-
-
 class TestInjectionConsistency:
     """TS-98-P3: Injected nodes never use old archetype names."""
 
@@ -246,30 +161,6 @@ class TestInjectionConsistency:
 # ---------------------------------------------------------------------------
 # TS-98-P4: Verifier Single-Instance Invariant
 # Requirement: 98-REQ-6.2
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierSingleInstanceInvariant:
-    """TS-98-P4: Verifier always resolves to 1 instance after clamping."""
-
-    @pytest.mark.parametrize("n", [1, 2, 3, 5, 10, 100])
-    def test_verifier_single(self, n: int) -> None:
-        """clamp_instances('verifier', n) always returns 1."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        result = clamp_instances("verifier", n)
-        assert result == 1, f"clamp_instances('verifier', {n}) should return 1, got {result}"
-
-    @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
-    @given(n=st.integers(min_value=1, max_value=100))
-    @settings(max_examples=30)
-    def test_verifier_single_property(self, n: int) -> None:
-        """Property: for any n in 1..100, clamp_instances('verifier', n) == 1."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        assert clamp_instances("verifier", n) == 1, f"clamp_instances('verifier', {n}) should always return 1"
-
-
 # ---------------------------------------------------------------------------
 # TS-98-P6: Old Names Rejected
 # Requirement: 98-REQ-7.1

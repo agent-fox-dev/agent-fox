@@ -20,20 +20,3 @@ class TestAuditorDefaultTrue:
 
         config = ArchetypesConfig()
         assert config.reviewer is True
-
-
-# ---------------------------------------------------------------------------
-# TS-46-4: Config Instance Count Clamping
-# Requirement: 46-REQ-2.2
-# ---------------------------------------------------------------------------
-
-
-class TestInstanceClamping:
-    """Verify reviewer instance count is clamped to [1, 5]."""
-
-    def test_instance_clamping(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        assert ArchetypeInstancesConfig(reviewer=0).reviewer == 1
-        assert ArchetypeInstancesConfig(reviewer=6).reviewer == 5
-        assert ArchetypeInstancesConfig(reviewer=3).reviewer == 3

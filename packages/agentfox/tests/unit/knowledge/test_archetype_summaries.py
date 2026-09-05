@@ -1,7 +1,7 @@
 """Unit tests for all-archetype summary generation and retrieval.
 
 Tests verify that _generate_archetype_summary() produces correct summaries
-for reviewer and verifier archetypes, and that query_same_spec_summaries()
+for the reviewer archetype, and that query_same_spec_summaries()
 returns summaries from all archetypes (not just coder).
 
 Test Spec: TS-120-8, TS-120-9, TS-120-10, TS-120-E5, TS-120-E6
@@ -19,7 +19,7 @@ from agentfox.core.config import KnowledgeProviderConfig
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 from agentfox.knowledge.migrations import run_migrations
-from agentfox.knowledge.review_store import ReviewFinding, VerificationResult
+from agentfox.knowledge.review_store import ReviewFinding
 from agentfox.knowledge.summary_store import (
     SummaryRecord,
     insert_summary,
@@ -94,23 +94,6 @@ def _make_finding(
     )
 
 
-def _make_verdict(
-    *,
-    requirement_id: str = "REQ-1.1",
-    verdict: str = "PASS",
-    evidence: str | None = None,
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence=evidence,
-        spec_name="test_spec",
-        task_group="1",
-        session_id="s1",
-    )
-
-
 # ---------------------------------------------------------------------------
 # TS-120-8: Reviewer summary generated and stored (120-REQ-3.1)
 # ---------------------------------------------------------------------------
@@ -131,26 +114,6 @@ class TestReviewerSummaryGenerated:
         assert "2 critical" in summary.lower()
         assert "3 major" in summary.lower()
         assert "Issue A" in summary  # top finding included
-
-
-# ---------------------------------------------------------------------------
-# TS-120-9: Verifier summary generated and stored (120-REQ-3.2)
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierSummaryGenerated:
-    """Verify verifier sessions produce a summary with pass/fail counts."""
-
-    def test_verifier_summary_contains_counts(self) -> None:
-        verdicts = [_make_verdict(requirement_id=f"REQ-{i}.1", verdict="PASS") for i in range(1, 11)] + [
-            _make_verdict(requirement_id="REQ-5.E3", verdict="FAIL"),
-            _make_verdict(requirement_id="REQ-8.E1", verdict="FAIL"),
-        ]
-        summary = _generate_archetype_summary("verifier", verdicts=verdicts)
-        assert "10 pass" in summary.lower()
-        assert "2 fail" in summary.lower()
-        assert "REQ-5.E3" in summary
-        assert "REQ-8.E1" in summary
 
 
 # ---------------------------------------------------------------------------
@@ -222,18 +185,4 @@ class TestReviewerZeroFindings:
 
     def test_returns_none_no_findings(self) -> None:
         summary = _generate_archetype_summary("reviewer", findings=[])
-        assert summary is None
-
-
-# ---------------------------------------------------------------------------
-# TS-120-E6: Verifier with zero verdicts (120-REQ-3.E2)
-# Superseded by 11-REQ-4.2: returns None instead of a noise string.
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierZeroVerdicts:
-    """Verifier returns None with no verdicts (11-REQ-4.2 supersedes 120-REQ-3.E2)."""
-
-    def test_returns_none_no_verdicts(self) -> None:
-        summary = _generate_archetype_summary("verifier", verdicts=[])
         assert summary is None

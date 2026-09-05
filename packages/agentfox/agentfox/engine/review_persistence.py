@@ -54,6 +54,7 @@ def _emit_persistence_event(
     count: int,
     *,
     mode: str | None = None,
+    drift: bool = False,
 ) -> None:
     """Emit the appropriate persistence audit event after successful insertion.
 
@@ -62,10 +63,14 @@ def _emit_persistence_event(
     Requirements: 84-REQ-2.1, 84-REQ-2.2, 84-REQ-2.3, 84-REQ-2.E1
     """
     try:
-        # Determine the effective dispatch key for reviewer modes
+        # Determine the effective dispatch key for reviewer modes.  Drift
+        # records share the reviewer modes, so the caller flags them
+        # explicitly rather than encoding the kind in the mode string.
         dispatch_key = archetype
         if archetype == "reviewer" and mode:
             dispatch_key = f"reviewer:{mode}"
+        if drift:
+            dispatch_key = f"{dispatch_key}:drift"
 
         if dispatch_key in ("pre-review", "reviewer:pre-review", "pre-flight", "reviewer:pre-flight"):
             severity_summary: dict[str, int] = dict(Counter(r.severity for r in records))
@@ -84,25 +89,7 @@ def _emit_persistence_event(
                     "task_group": task_group,
                 },
             )
-        elif dispatch_key == "verifier":
-            pass_count = sum(1 for r in records if r.verdict == "PASS")
-            fail_count = sum(1 for r in records if r.verdict == "FAIL")
-            emit_audit_event(
-                sink,
-                run_id,
-                AuditEventType.REVIEW_VERDICTS_PERSISTED,
-                node_id=node_id,
-                archetype=archetype,
-                payload={
-                    "archetype": archetype,
-                    "count": count,
-                    "pass_count": pass_count,
-                    "fail_count": fail_count,
-                    "spec_name": spec_name,
-                    "task_group": task_group,
-                },
-            )
-        elif dispatch_key in ("drift-review", "reviewer:drift-review", "reviewer:pre-flight:drift"):
+        elif dispatch_key.endswith(":drift") or dispatch_key in ("drift-review", "reviewer:drift-review"):
             severity_summary = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
@@ -282,6 +269,7 @@ def _persist_pre_flight_findings(
                     drift_records,
                     count,
                     mode=mode,
+                    drift=True,
                 )
 
 
@@ -490,27 +478,3 @@ def persist_review_findings(
             node_id,
             exc_info=True,
         )
-
-
-# ---------------------------------------------------------------------------
-# Partial convergence helpers (74-REQ-4.*)
-# ---------------------------------------------------------------------------
-
-
-def warn_failed_parse_instances(
-    raw_results: list[Any],
-    archetype: str,
-    run_id: str,
-) -> None:
-    """Log a warning for each instance that failed to produce parseable output.
-
-    Requirements: 74-REQ-4.5
-    """
-    for i, result in enumerate(raw_results):
-        if result is None:
-            logger.warning(
-                "Instance %d of archetype '%s' failed to parse (run_id=%s)",
-                i,
-                archetype,
-                run_id,
-            )

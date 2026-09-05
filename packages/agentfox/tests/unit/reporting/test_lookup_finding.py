@@ -87,7 +87,6 @@ class TestLookupDriftFinding:
         assert result.description == "Spec-code mismatch on auth flow"
 
 
-# TestLookupVerificationResult removed in spec 10.
 # table dropped in spec 10.
 
 

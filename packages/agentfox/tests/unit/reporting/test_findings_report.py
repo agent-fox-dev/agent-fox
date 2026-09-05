@@ -379,4 +379,3 @@ class TestCliHelpTextCurrentNames:
         assert "skeptic" not in help_text, f"Legacy name 'skeptic' found in help: {help_text!r}"
         assert "oracle" not in help_text, f"Legacy name 'oracle' found in help: {help_text!r}"
         assert "reviewer" in help_text, f"Expected 'reviewer' in help: {help_text!r}"
-        assert "verifier" in help_text, f"Expected 'verifier' in help: {help_text!r}"

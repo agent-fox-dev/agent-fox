@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 # annotations (e.g. custom field_validators). All other bounds are derived
 # automatically from the Clamped metadata on the field's type annotation.
 _BOUNDS_MAP_OVERRIDES: dict[tuple[str, str], str] = {
-    ("ArchetypeInstancesConfig", "verifier"): "1",
     ("ReviewerConfig", "pre_flight_drift_block_threshold"): ">=1 or None",
 }
 
@@ -44,7 +43,6 @@ _VISIBLE_SECTIONS: set[str] = {
     "backend",
     "orchestrator",
     "archetypes",
-    "archetypes.instances",
     "platform",
     "workspace",
     "models",
@@ -77,7 +75,6 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
     ("orchestrator", "max_budget_usd"),
     ("archetypes", "reviewer"),
     ("archetypes", "verifier"),
-    ("archetypes.instances", "verifier"),
     ("platform", "type"),
     ("workspace", "merge_strategy"),
 }

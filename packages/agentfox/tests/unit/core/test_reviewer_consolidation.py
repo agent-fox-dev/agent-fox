@@ -122,36 +122,6 @@ class TestVerifierStandardTier:
 # TS-98-14: Verifier Single Instance
 # Requirements: 98-REQ-6.2, 98-REQ-8.3
 # ---------------------------------------------------------------------------
-
-
-class TestVerifierSingleInstance:
-    """Verify verifier instances are clamped to 1."""
-
-    def test_verifier_single(self) -> None:
-        """TS-98-14: clamp_instances('verifier', 3) returns 1."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        assert clamp_instances("verifier", 3) == 1, (
-            f"verifier instances should be clamped to 1, got {clamp_instances('verifier', 3)}"
-        )
-
-    def test_verifier_single_large(self) -> None:
-        """TS-98-14: clamp_instances('verifier', 100) returns 1."""
-        from agentfox.engine.sdk_params import clamp_instances
-
-        assert clamp_instances("verifier", 100) == 1, "verifier instances should always be clamped to 1"
-
-    def test_instances_config_verifier_default(self) -> None:
-        """TS-98-14: ArchetypeInstancesConfig has reviewer field (replaces skeptic+auditor)."""
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig()
-        # After consolidation: reviewer replaces skeptic+auditor, verifier default=1
-        assert hasattr(cfg, "reviewer"), "ArchetypeInstancesConfig should have 'reviewer' field"
-        assert cfg.verifier == 1, f"ArchetypeInstancesConfig.verifier default should be 1, got {cfg.verifier}"
-
-
-# ---------------------------------------------------------------------------
 # TS-98-15: Old Entries Removed
 # Requirements: 98-REQ-7.1, 98-REQ-7.2
 # ---------------------------------------------------------------------------

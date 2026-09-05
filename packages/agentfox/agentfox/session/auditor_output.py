@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agentfox.session.convergence import AuditResult
+    from agentfox.session.audit_types import AuditResult
 
 logger = logging.getLogger(__name__)
 

@@ -52,13 +52,13 @@ def _spec(name="spec"):
 
 
 # -------------------------------------------------------------------
-# TS-26-13: Node dataclass has archetype and instances
+# TS-26-13: Node dataclass has archetype defaults
 # Requirement: 26-REQ-4.1
 # -------------------------------------------------------------------
 
 
 class TestNodeArchetypeDefaults:
-    """Verify Node has archetype and instances with defaults."""
+    """Verify Node has archetype with defaults."""
 
     def test_default_archetype(self) -> None:
         from agentfox.graph.types import Node
@@ -71,7 +71,6 @@ class TestNodeArchetypeDefaults:
             optional=False,
         )
         assert node.archetype == "coder"
-        assert node.instances == 1
 
     def test_custom_archetype(self) -> None:
         from agentfox.graph.types import Node
@@ -84,11 +83,9 @@ class TestNodeArchetypeDefaults:
             optional=False,
             archetype="reviewer",
             mode="pre-flight",
-            instances=3,
         )
         assert node.archetype == "reviewer"
         assert node.mode == "pre-flight"
-        assert node.instances == 3
 
 
 # -------------------------------------------------------------------
@@ -98,7 +95,7 @@ class TestNodeArchetypeDefaults:
 
 
 class TestPlanSerializationArchetype:
-    """Verify plan DB includes archetype and instances."""
+    """Verify plan DB includes archetype fields."""
 
     def test_serialization_includes_fields(self) -> None:
         from agentfox.graph.persistence import load_plan, save_plan
@@ -112,7 +109,6 @@ class TestPlanSerializationArchetype:
             optional=False,
             archetype="reviewer",
             mode="pre-flight",
-            instances=3,
         )
         graph = TaskGraph(
             nodes={"s:0": node},
@@ -126,7 +122,6 @@ class TestPlanSerializationArchetype:
         loaded = load_plan(conn)
         assert loaded is not None
         assert loaded.nodes["s:0"].archetype == "reviewer"
-        assert loaded.nodes["s:0"].instances == 3
         conn.close()
 
 
@@ -137,13 +132,13 @@ class TestPlanSerializationArchetype:
 
 
 class TestLegacyPlanDefaults:
-    """Verify plan node without archetype defaults to coder/1."""
+    """Verify plan node without archetype defaults to coder."""
 
     def test_legacy_plan_defaults(self) -> None:
         from agentfox.graph.persistence import load_plan, save_plan
         from agentfox.graph.types import Node, TaskGraph
 
-        # Save a plan with default archetype (coder) and instances (1)
+        # Save a plan with the default archetype (coder)
         graph = TaskGraph(
             nodes={
                 "s:1": Node(
@@ -164,7 +159,6 @@ class TestLegacyPlanDefaults:
         loaded = load_plan(conn)
         assert loaded is not None
         assert loaded.nodes["s:1"].archetype == "coder"
-        assert loaded.nodes["s:1"].instances == 1
         conn.close()
 
 
@@ -490,50 +484,6 @@ class TestAssignmentLogged:
 
 
 # -------------------------------------------------------------------
-# TS-26-E5: Coder instances clamped to 1
-# Requirement: 26-REQ-4.E1
-# -------------------------------------------------------------------
-
-
-class TestCoderInstancesClamped:
-    """Verify instances > 1 for coder is clamped to 1."""
-
-    def test_coder_clamped(self, caplog: pytest.LogCaptureFixture) -> None:
-        from agentfox.engine.sdk_params import clamp_instances
-
-        with caplog.at_level(logging.WARNING):
-            result = clamp_instances("coder", 3)
-        assert result == 1
-        assert any("clamped" in r.message.lower() or "coder" in r.message.lower() for r in caplog.records)
-
-
-# -------------------------------------------------------------------
-# TS-26-E6: Instances > 5 clamped
-# Requirement: 26-REQ-4.E2
-# -------------------------------------------------------------------
-
-
-class TestInstancesOver5Clamped:
-    """Verify instances > 5 is clamped to 5."""
-
-    def test_instances_clamped_in_config(self) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig(reviewer=10)
-        assert cfg.reviewer == 5
-
-    def test_instances_clamped_at_runner_level(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        from agentfox.engine.sdk_params import clamp_instances
-
-        with caplog.at_level(logging.WARNING):
-            result = clamp_instances("reviewer", 10)
-        assert result == 5
-
-
-# -------------------------------------------------------------------
 # TS-26-E8: Unknown archetype in tasks.md tag
 # Requirement: 26-REQ-5.E2
 # -------------------------------------------------------------------
@@ -634,48 +584,6 @@ class TestPropertyInjectionStructure:
 # Property 8: Instance counts clamped to valid ranges
 # Validates: 26-REQ-4.E1, 26-REQ-4.E2
 # -------------------------------------------------------------------
-
-
-class TestPropertyInstanceClamping:
-    """Instance counts are clamped to valid ranges."""
-
-    @pytest.mark.skipif(
-        not HAS_HYPOTHESIS,
-        reason="hypothesis not installed",
-    )
-    @given(instances=st.integers(min_value=0, max_value=20))
-    @settings(max_examples=20)
-    def test_prop_config_clamping(self, instances: int) -> None:
-        from agentfox.core.config import ArchetypeInstancesConfig
-
-        cfg = ArchetypeInstancesConfig(reviewer=instances)
-        assert 1 <= cfg.reviewer <= 5
-
-    @pytest.mark.skipif(
-        not HAS_HYPOTHESIS,
-        reason="hypothesis not installed",
-    )
-    @given(
-        archetype=st.sampled_from(["coder", "reviewer", "verifier"]),
-        instances=st.integers(min_value=0, max_value=20),
-    )
-    @settings(max_examples=30)
-    def test_prop_runner_clamping(self, archetype: str, instances: int) -> None:
-        from agentfox.engine.sdk_params import clamp_instances
-
-        result = clamp_instances(archetype, instances)
-        if archetype in ("coder", "verifier"):
-            # Coder and verifier are always single-instance
-            assert result == 1
-        elif instances > 5:
-            assert result == 5
-        elif instances < 1:
-            assert result == 1
-        else:
-            assert result == instances
-
-
-# -------------------------------------------------------------------
 # TS-26-P14: Backward Compatibility (Property)
 # Property 14: Legacy data defaults correctly
 # Validates: 26-REQ-4.3, 26-REQ-6.E1
@@ -720,5 +628,4 @@ class TestPropertyBackwardCompat:
         assert loaded is not None
         for node in loaded.nodes.values():
             assert node.archetype == "coder"
-            assert node.instances == 1
         conn.close()

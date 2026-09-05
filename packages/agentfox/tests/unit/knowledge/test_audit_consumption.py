@@ -30,7 +30,7 @@ def knowledge_conn_with_schema():
 
 def _make_audit_result(verdict: str = "FAIL", num_entries: int = 3):
     """Create a mock AuditResult with entries."""
-    from agentfox.session.convergence import AuditEntry, AuditResult
+    from agentfox.session.audit_types import AuditEntry, AuditResult
 
     entries = [
         AuditEntry(severity="critical", description=f"Critical finding number {i + 1}") for i in range(num_entries)
@@ -268,8 +268,8 @@ class TestPassAuditEntriesNotPersisted:
         tmp_path: Path,
     ) -> None:
         """PASS entries in an AuditResult produce no rows in review_findings."""
+        from agentfox.session.audit_types import AuditEntry, AuditResult
         from agentfox.session.auditor_output import persist_auditor_results
-        from agentfox.session.convergence import AuditEntry, AuditResult
 
         result = AuditResult(
             entries=[
@@ -312,8 +312,8 @@ class TestPassAuditEntriesNotPersisted:
         tmp_path: Path,
     ) -> None:
         """An AuditResult where every entry is PASS stores nothing in review_findings."""
+        from agentfox.session.audit_types import AuditEntry, AuditResult
         from agentfox.session.auditor_output import persist_auditor_results
-        from agentfox.session.convergence import AuditEntry, AuditResult
 
         result = AuditResult(
             entries=[

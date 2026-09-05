@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS plan_nodes (
     status          VARCHAR NOT NULL DEFAULT 'pending',
     subtask_count   INTEGER NOT NULL DEFAULT 0,
     optional        BOOLEAN NOT NULL DEFAULT FALSE,
-    instances       INTEGER NOT NULL DEFAULT 1,
     sort_position   INTEGER NOT NULL DEFAULT 0,
     blocked_reason  VARCHAR,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

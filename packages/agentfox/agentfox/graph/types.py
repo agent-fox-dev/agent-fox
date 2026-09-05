@@ -36,7 +36,6 @@ class Node:
     body: str = ""  # raw task body for context
     archetype: str = "coder"  # 26-REQ-4.1
     mode: str | None = None  # 97-REQ-2.1 — named variant of the archetype
-    instances: int = 1  # 26-REQ-4.1
 
 
 @dataclass(frozen=True)
