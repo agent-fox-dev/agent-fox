@@ -15,15 +15,15 @@ from agentfox.core.models import resolve_model
 class TestResolveModelWithRegistryOverride:
     """TS-NS-1: resolve_model uses models_config.registry to resolve a new model."""
 
-    def test_registry_override_by_tier_and_variant(self) -> None:
-        """AC-1: New model in registry resolves when tier+variant match.
+    def test_registry_override_by_tier(self) -> None:
+        """AC-1: New model in registry resolves when tier matches.
 
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
         )
-        result = resolve_model("SIMPLE", variant="standard", models_config=mc)
+        result = resolve_model("SIMPLE", models_config=mc)
         assert result == "claude-haiku-5-0"
 
     def test_registry_override_model_id_resolution(self) -> None:
@@ -32,7 +32,7 @@ class TestResolveModelWithRegistryOverride:
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
         )
         result = resolve_model("claude-haiku-5-0", models_config=mc)
         assert result == "claude-haiku-5-0"
@@ -43,7 +43,7 @@ class TestResolveModelWithRegistryOverride:
         Requirement: 759-REQ-1
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}})
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}})
         )
         standard_result = resolve_model("STANDARD", models_config=mc)
         assert standard_result == "claude-sonnet-4-6"
@@ -58,7 +58,7 @@ class TestResolveModelWithTierDefaultsOverride:
         Requirement: 759-REQ-2
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE", "variant": "standard"}}),
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "SIMPLE"}}),
             tier_defaults=TierDefaultsConfig(**{"SIMPLE": "claude-haiku-5-0"}),
         )
         result = resolve_model("SIMPLE", models_config=mc)
@@ -70,7 +70,7 @@ class TestResolveModelWithTierDefaultsOverride:
         Requirement: 759-REQ-2
         """
         mc = ModelsConfig(
-            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "STANDARD", "variant": "standard"}}),
+            registry=ModelRegistryConfig(**{"claude-haiku-5-0": {"tier": "STANDARD"}}),
             tier_defaults=TierDefaultsConfig(**{"STANDARD": "claude-haiku-5-0"}),
         )
         result = resolve_model("STANDARD", models_config=mc)
@@ -127,7 +127,7 @@ class TestResolveModelInvalidTierInRegistry:
         Requirement: 759-REQ-4
         """
         with pytest.raises(ConfigError):
-            ModelRegistryConfig(**{"my-model": {"tier": "INVALID_TIER", "variant": "standard"}})
+            ModelRegistryConfig(**{"my-model": {"tier": "INVALID_TIER"}})
 
     def test_invalid_tier_error_message_mentions_tier(self) -> None:
         """ConfigError for invalid tier includes the bad tier name.
@@ -135,7 +135,7 @@ class TestResolveModelInvalidTierInRegistry:
         Requirement: 759-REQ-4
         """
         with pytest.raises(ConfigError) as exc_info:
-            ModelRegistryConfig(**{"my-model": {"tier": "BOGUS", "variant": "standard"}})
+            ModelRegistryConfig(**{"my-model": {"tier": "BOGUS"}})
         assert "BOGUS" in str(exc_info.value)
 
     def test_invalid_tier_via_models_config_raises(self) -> None:
@@ -144,7 +144,7 @@ class TestResolveModelInvalidTierInRegistry:
         Requirement: 759-REQ-4
         """
         with pytest.raises(ConfigError):
-            ModelsConfig(registry=ModelRegistryConfig(**{"my-model": {"tier": "INVALID_TIER", "variant": "standard"}}))
+            ModelsConfig(registry=ModelRegistryConfig(**{"my-model": {"tier": "INVALID_TIER"}}))
 
 
 class TestConfigTemplateContainsModelsSections:

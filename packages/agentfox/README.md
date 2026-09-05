@@ -76,7 +76,7 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `KnowledgeConfig` | `store_path`, `provider: KnowledgeProviderConfig` |
 | `PricingConfig` | Model-keyed `ModelPricing` entries (`input_price_per_m`, `output_price_per_m`, `cache_read_price_per_m`, `cache_creation_price_per_m`) |
 | `CachingConfig` | `policy: CachePolicy` (NONE / DEFAULT / EXTENDED) |
-| `PerArchetypeConfig` | `model_tier`, `model_variant`, `max_turns`, `thinking_mode` (adaptive / disabled), `effort`, `allowlist`, `max_budget_usd`, `compaction` |
+| `PerArchetypeConfig` | `model_tier`, `max_turns`, `thinking_mode` (adaptive / disabled), `effort`, `allowlist`, `max_budget_usd`, `compaction` |
 | `ArchetypesConfig` | `reviewer_config: ReviewerConfig`, per-archetype enable/disable, custom archetypes |
 | `ReviewerConfig` | `pre_flight_block_threshold`, `pre_flight_drift_block_threshold`, `audit_min_ts_entries`, `audit_max_retries` |
 | `PlatformConfig` | `type` (none \| github \| gitlab \| gitea), `url` |
@@ -112,17 +112,17 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | Symbol | Description |
 |--------|-------------|
 | `ModelTier` | Enum: `SIMPLE`, `STANDARD`, `ADVANCED`. |
-| `ModelEntry` | Dataclass: `model_id`, `tier`, `variant`. |
+| `ModelEntry` | Dataclass: `model_id`, `tier`. |
 | `MODEL_REGISTRY` | `dict[str, ModelEntry]` -- all known model IDs. |
-| `resolve_model` | `(name_or_tier, variant=None) -> str` -- resolve a tier name or model alias to a concrete model ID. |
+| `resolve_model` | `(name_or_tier) -> str` -- resolve a tier name or model alias to a concrete model ID. |
 | `calculate_cost` | `(input_tokens, output_tokens, model_id, pricing, *, cache_read_input_tokens=0, cache_creation_input_tokens=0) -> float` -- USD cost. |
 
 ### Archetypes (`agentfox.archetypes`)
 
 | Symbol | Description |
 |--------|-------------|
-| `ArchetypeEntry` | Dataclass -- full archetype config: `name`, `default_model_tier`, `default_model_variant`, `injection`, `task_assignable`, `retry_predecessor`, `default_allowlist`, `default_max_turns`, `default_thinking_mode`, `default_effort`, `default_compaction`, `modes: dict[str, ModeConfig]`. |
-| `ModeConfig` | Dataclass -- per-mode overrides: `model_tier`, `model_variant`, `injection`, `allowlist`, `retry_predecessor`, `max_turns`, `thinking_mode`. |
+| `ArchetypeEntry` | Dataclass -- full archetype config: `name`, `default_model_tier`, `injection`, `task_assignable`, `retry_predecessor`, `default_allowlist`, `default_max_turns`, `default_thinking_mode`, `default_effort`, `default_compaction`, `modes: dict[str, ModeConfig]`. |
+| `ModeConfig` | Dataclass -- per-mode overrides: `model_tier`, `injection`, `allowlist`, `retry_predecessor`, `max_turns`, `thinking_mode`. |
 | `ARCHETYPE_REGISTRY` | `dict[str, ArchetypeEntry]` -- built-in archetypes: `coder`, `reviewer`, `verifier`, `gate`, `maintainer`. |
 | `get_archetype` | `(name, project_dir=None, config=None) -> ArchetypeEntry` -- look up by name with custom archetype fallback. |
 | `resolve_effective_config` | `(entry, mode) -> ArchetypeEntry` -- merge mode overrides onto base entry. |

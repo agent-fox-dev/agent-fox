@@ -41,7 +41,6 @@ class ModeConfig:
     injection: str | None = None
     allowlist: list[str] | None = None
     model_tier: str | None = None
-    model_variant: str | None = None
     max_turns: int | None = None
     thinking_mode: str | None = None
     effort: str | None = None
@@ -55,7 +54,6 @@ class ArchetypeEntry:
     name: str
     templates: list[str] = field(default_factory=list)  # 97-REQ-1.3 (reserved; profiles used in practice)
     default_model_tier: str = "STANDARD"
-    default_model_variant: str | None = None
     injection: str | None = None  # "auto_pre" | "auto_post" | "manual" | None
     task_assignable: bool = True
     retry_predecessor: bool = False
@@ -72,7 +70,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "coder": ArchetypeEntry(
         name="coder",
         default_model_tier="STANDARD",  # 15-REQ-8.1
-        default_model_variant="standard",  # 15-REQ-8.1
         injection=None,
         task_assignable=True,
         default_max_turns=300,
@@ -82,7 +79,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         modes={
             "fix": ModeConfig(
                 model_tier="STANDARD",  # 15-REQ-8.1
-                model_variant="standard",  # 15-REQ-8.1
                 max_turns=300,
                 thinking_mode="adaptive",
             ),
@@ -91,28 +87,24 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "reviewer": ArchetypeEntry(
         name="reviewer",
         default_model_tier="STANDARD",
-        default_model_variant="standard",  # 15-REQ-8.2
         injection=None,  # mode-specific injection
         task_assignable=True,
         default_max_turns=80,
         modes={
             "pre-flight": ModeConfig(
                 model_tier="ADVANCED",
-                model_variant="standard",
                 injection="auto_pre",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
                 retry_predecessor=True,
             ),
             "audit-review": ModeConfig(
                 model_tier="ADVANCED",  # 15-REQ-8.2
-                model_variant="standard",  # 15-REQ-8.2
                 injection="auto_mid",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"],
                 retry_predecessor=True,
             ),
             "fix-review": ModeConfig(
                 model_tier="ADVANCED",
-                model_variant="standard",  # 15-REQ-8.2
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"],
                 max_turns=120,
             ),
@@ -121,7 +113,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "verifier": ArchetypeEntry(
         name="verifier",
         default_model_tier="STANDARD",  # Changed from ADVANCED (98-REQ-6.1)
-        default_model_variant="standard",  # 15-REQ-8.3
         injection="auto_post",
         injection_order=20,
         task_assignable=True,
@@ -131,7 +122,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "gate": ArchetypeEntry(
         name="gate",
         default_model_tier="STANDARD",
-        default_model_variant="standard",
         injection=None,
         task_assignable=True,
         default_max_turns=30,
@@ -143,7 +133,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "maintainer": ArchetypeEntry(
         name="maintainer",
         default_model_tier="STANDARD",
-        default_model_variant="standard",  # 15-REQ-8.4
         injection=None,
         task_assignable=False,
         default_max_turns=80,
@@ -151,18 +140,15 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         modes={
             "hunt": ModeConfig(
                 model_tier="SIMPLE",  # 15-REQ-8.4
-                model_variant="standard",  # 15-REQ-8.4
                 # Read-only analysis allowlist (100-REQ-1.2)
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
             "fix-triage": ModeConfig(
-                model_variant="standard",  # 15-REQ-8.4
                 # Read-only analysis for single-issue triage (fixes #383)
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
             "extraction": ModeConfig(
                 model_tier="SIMPLE",  # 15-REQ-8.4
-                model_variant="standard",  # 15-REQ-8.4
                 # No shell access for extraction mode (100-REQ-1.3)
                 allowlist=[],
             ),
@@ -209,7 +195,6 @@ def resolve_effective_config(
     # ModeConfig field names map to ArchetypeEntry field names as follows:
     #   templates       -> templates        (direct 1:1)
     #   model_tier      -> default_model_tier
-    #   model_variant   -> default_model_variant
     #   max_turns       -> default_max_turns
     #   thinking_mode   -> default_thinking_mode
     #   effort          -> default_effort
@@ -222,9 +207,6 @@ def resolve_effective_config(
         injection=(mode_cfg.injection if mode_cfg.injection is not None else entry.injection),
         default_allowlist=(mode_cfg.allowlist if mode_cfg.allowlist is not None else entry.default_allowlist),
         default_model_tier=(mode_cfg.model_tier if mode_cfg.model_tier is not None else entry.default_model_tier),
-        default_model_variant=(
-            mode_cfg.model_variant if mode_cfg.model_variant is not None else entry.default_model_variant
-        ),
         default_max_turns=(mode_cfg.max_turns if mode_cfg.max_turns is not None else entry.default_max_turns),
         default_thinking_mode=(
             mode_cfg.thinking_mode if mode_cfg.thinking_mode is not None else entry.default_thinking_mode

@@ -1,9 +1,9 @@
-# Model Tiers, Variants, and Retry Behavior
+# Model Tiers and Retry Behavior
 
 This document describes how af selects models for each archetype and
 how failed sessions are retried.
 
-## Model Tiers and Variants
+## Model Tiers
 
 Three tiers are defined, ordered lowest to highest:
 
@@ -13,37 +13,27 @@ Three tiers are defined, ordered lowest to highest:
 | STANDARD | claude-sonnet-4-6 |
 | ADVANCED | claude-opus-4-6 |
 
-The ADVANCED tier supports two variants, ordered by capability:
-
-| Variant | Model ID |
-|---------|----------|
-| standard | claude-opus-4-6 |
-| extended | claude-opus-4-6[1m] |
-
-Variant ordering across all tiers: `fast (0) < standard (1) < extended (2)`.
-Tiers with no variant (variant = `None`) never participate in variant upgrades.
-
 ## Archetype Default Assignments
 
-Each archetype/mode pair has a default tier and variant configured in
+Each archetype/mode pair has a default tier and effort level configured in
 `ARCHETYPE_REGISTRY`. These defaults are the starting point for every session.
 
-| Agent / Mode | Default Tier / Variant | Effort |
+| Agent / Mode | Default Tier | Effort |
 |---|---|---|
-| coder | STANDARD / standard | xhigh |
-| coder (fix) | STANDARD / standard | xhigh |
-| reviewer (pre-flight) | ADVANCED / standard | high |
-| reviewer (audit-review) | ADVANCED / standard | high |
-| reviewer (fix-review) | ADVANCED / standard | high |
-| verifier | STANDARD / standard | high |
-| gate | STANDARD / standard | low |
-| maintainer (hunt) | SIMPLE / standard | medium |
-| maintainer (fix-triage) | STANDARD / standard | medium |
-| maintainer (extraction) | SIMPLE / standard | medium |
+| coder | STANDARD | xhigh |
+| coder (fix) | STANDARD | xhigh |
+| reviewer (pre-flight) | ADVANCED | high |
+| reviewer (audit-review) | ADVANCED | high |
+| reviewer (fix-review) | ADVANCED | high |
+| verifier | STANDARD | high |
+| gate | STANDARD | low |
+| maintainer (hunt) | SIMPLE | medium |
+| maintainer (fix-triage) | STANDARD | medium |
+| maintainer (extraction) | SIMPLE | medium |
 
 ## Resolution Priority
 
-Model tier and variant are resolved through three layers, highest priority first:
+Model tier is resolved through three layers, highest priority first:
 
 ```
 1. Mode-level config override        [archetypes.overrides.<name>.modes.<mode>]
@@ -57,10 +47,9 @@ The first non-null value encountered wins.
 ### Configuration Example
 
 ```toml
-# Override the coder to use ADVANCED with extended variant
+# Override the coder to use ADVANCED tier
 [archetypes.overrides.coder]
 model_tier = "ADVANCED"
-model_variant = "extended"
 
 # Override only the fix mode of coder
 [archetypes.overrides.coder.modes.fix]

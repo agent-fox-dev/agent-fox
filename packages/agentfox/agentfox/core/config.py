@@ -306,10 +306,6 @@ class PerArchetypeConfig(BaseModel):
         default=None,
         description="Model tier override (SIMPLE, STANDARD, ADVANCED). None = use registry default.",
     )
-    model_variant: str | None = Field(
-        default=None,
-        description="Model variant override (fast, standard, extended). None = use registry default.",
-    )
     max_turns: int | None = Field(
         default=None,
         description="Max turns override. 0 = unlimited. None = use registry default.",
@@ -708,12 +704,12 @@ class ModelRegistryConfig(BaseModel):
     """Override entries for the model registry.
 
     Each key is a model ID; the value is an inline table with ``tier``
-    (required) and optionally ``variant``.
+    (required).
 
     Example (config.toml)::
 
         [models.registry]
-        "claude-haiku-5-0" = {tier = "SIMPLE", variant = "standard"}
+        "claude-haiku-5-0" = {tier = "SIMPLE"}
 
     Requirements: 759-REQ-1, 759-REQ-4
     """
@@ -777,7 +773,7 @@ class ModelsConfig(BaseModel):
 
     registry: ModelRegistryConfig = Field(
         default_factory=ModelRegistryConfig,
-        description="Additional or override model registry entries (model_id = {tier, variant})",
+        description="Additional or override model registry entries (model_id = {tier})",
     )
     tier_defaults: TierDefaultsConfig = Field(
         default_factory=TierDefaultsConfig,

@@ -1,15 +1,12 @@
-"""Pricing entry, backward compatibility, and test suite verification tests.
+"""Pricing entry and backward compatibility tests.
 
-Test Spec: TS-14-37, TS-14-38, TS-14-39, TS-14-40, TS-14-41, TS-14-42
-Requirements: 14-REQ-10.1, 14-REQ-10.2, 14-REQ-10.3,
-              14-REQ-11.1, 14-REQ-11.2, 14-REQ-11.3
+Test Spec: TS-14-37, TS-14-38, TS-14-39, TS-14-40, TS-14-41
+Requirements: 14-REQ-10.1, 14-REQ-10.2, 14-REQ-10.3, 14-REQ-11.1, 14-REQ-11.2
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -92,16 +89,16 @@ class TestPricingSourceDateComment:
 
 
 # ---------------------------------------------------------------------------
-# TS-14-40: resolve_model called without variant returns TIER_DEFAULTS model ID
+# TS-14-40: resolve_model called with a tier name returns TIER_DEFAULTS model ID
 # Requirement: 14-REQ-11.1
 # ---------------------------------------------------------------------------
 
 
-class TestResolveModelNoVariantBackwardCompat:
-    """Verify resolve_model(tier) without variant arg returns TIER_DEFAULTS[tier]."""
+class TestResolveModelTierResolution:
+    """Verify resolve_model(tier) returns the expected TIER_DEFAULTS model ID for each tier."""
 
     @pytest.mark.parametrize("tier", ["SIMPLE", "STANDARD", "ADVANCED"])
-    def test_resolve_model_without_variant_returns_tier_default(self, tier: str) -> None:
+    def test_resolve_model_tier_returns_tier_default(self, tier: str) -> None:
         """TS-14-40: resolve_model(tier) == TIER_DEFAULTS[tier] for all tiers."""
         from agentfox.core.models import TIER_DEFAULTS, resolve_model
 
@@ -109,61 +106,23 @@ class TestResolveModelNoVariantBackwardCompat:
 
 
 # ---------------------------------------------------------------------------
-# TS-14-41: Config without model_variant keys loads without error
+# TS-14-41: Config with only model_tier loads without error (#764)
 # Requirement: 14-REQ-11.2
 # ---------------------------------------------------------------------------
 
 
-class TestConfigWithoutModelVariant:
-    """Verify config.toml without model_variant loads cleanly and model_variant is None."""
+class TestConfigWithModelTierOnly:
+    """Verify config.toml with only model_tier (no extra variant keys) loads cleanly.
 
-    def test_toml_without_model_variant_loads_cleanly(self, tmp_path: Path) -> None:
-        """TS-14-41: TOML with model_tier but no model_variant; model_variant is None."""
+    After #764 the variant dimension was removed entirely.  A config that sets
+    model_tier under [archetypes.overrides.coder] must parse without error and
+    expose the archetype override with the correct tier value.
+    """
+
+    def test_toml_with_model_tier_only_loads_cleanly(self, tmp_path: Path) -> None:
+        """TS-14-41: TOML with model_tier only; config loads without error."""
         config_file = tmp_path / "config.toml"
         config_file.write_text('[archetypes.overrides.coder]\nmodel_tier = "ADVANCED"\n')
         config = load_config(path=config_file)
-        assert config.archetypes.overrides["coder"].model_variant is None
-
-
-# ---------------------------------------------------------------------------
-# TS-14-42: Existing test suite passes without modification after spec merge
-# Requirement: 14-REQ-11.3
-# ---------------------------------------------------------------------------
-
-
-class TestExistingTestSuitePasses:
-    """Verify the spec-14 variant test suite passes after all changes are merged."""
-
-    def test_full_unit_test_suite_passes(self) -> None:
-        """TS-14-42: All spec-14 variant tests pass together in a subprocess.
-
-        Runs the complete set of spec-14 test files via subprocess to verify
-        no regressions. We scope this to spec-14 files rather than the full
-        test suite because the full suite has pre-existing collection errors
-        from missing optional deps (rich, tomlkit, etc.) unrelated to spec-14.
-        """
-        project_root = Path(__file__).resolve().parents[4]
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "packages/agentfox/tests/unit/test_model_entry_variant.py",
-                "packages/agentfox/tests/unit/test_variant_order.py",
-                "packages/agentfox/tests/unit/test_archetype_variant_fields.py",
-                "packages/agentfox/tests/unit/test_per_archetype_config_variant.py",
-                "packages/agentfox/tests/unit/test_resolve_model_variant.py",
-                "packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py",
-                "packages/agentfox/tests/unit/test_variant_properties.py",
-                "packages/agentfox/tests/unit/test_node_session_runner_wiring.py",
-                "-q",
-                "--tb=short",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(project_root),
-        )
-        assert result.returncode == 0, (
-            f"Test suite failed with code {result.returncode}:\n{result.stdout[-2000:]}\n{result.stderr[-500:]}"
-        )
+        assert "coder" in config.archetypes.overrides
+        assert config.archetypes.overrides["coder"].model_tier == "ADVANCED"

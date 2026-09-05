@@ -311,7 +311,7 @@ behaviour (`pre-review`, `drift-review`, `audit-review`, `fix-review`).
 | `verifier` | bool | `true` | -- | Enable the Verifier archetype (post-code correctness checks) |
 | `instances` | table | see below | -- | Per-archetype instance counts |
 | `reviewer_config` | table | see below | -- | Reviewer-specific configuration |
-| `overrides` | dict[str, PerArchetypeConfig] | `{}` | -- | Unified per-archetype config overrides (model tier, variant, max turns, thinking, allowlist, budget) |
+| `overrides` | dict[str, PerArchetypeConfig] | `{}` | -- | Unified per-archetype config overrides (model tier, effort, max turns, thinking, allowlist, budget) |
 | `custom` | dict[str, CustomArchetypeConfig] | `{}` | -- | Custom archetype definitions |
 
 **Example:**
@@ -371,7 +371,6 @@ archetype name and supports:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `model_tier` | str\|null | `null` | Model tier override (SIMPLE, STANDARD, ADVANCED). Null = registry default. |
-| `model_variant` | str\|null | `null` | Model variant override (fast, standard, extended). Null = registry default. |
 | `max_turns` | int\|null | `null` | Max turns override. 0 = unlimited. Null = registry default. |
 | `thinking_mode` | str\|null | `null` | Extended thinking mode: `adaptive` or `disabled`. Null = registry default. |
 | `effort` | str\|null | `null` | Output effort level: `low`, `medium`, `high`, `xhigh`, or `max`. Controls thinking depth and token spend. Null = registry default. |
