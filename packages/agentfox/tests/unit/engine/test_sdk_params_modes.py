@@ -442,24 +442,21 @@ class TestModeAllowlistNoneInheritsBase:
     def test_mode_with_none_allowlist_inherits_archetype_allowlist(self) -> None:
         """TS-97-E6: Mode with None allowlist uses archetype's allowlist.
 
-        Uses maintainer:hunt as the concrete example (replaces triage which was
-        removed in spec 100). maintainer:hunt has an explicit allowlist, and
-        using a non-existent mode falls back to the base entry's allowlist via
-        resolve_effective_config.
+        Uses reviewer:pre-flight as the concrete example: it has an explicit
+        mode allowlist, while the base reviewer entry has none.
         """
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
         from agentfox.engine.sdk_params import resolve_security_config
 
-        # maintainer:hunt has allowlist=["ls", "cat", "git", "wc", "head", "tail"]
         config = AgentFoxConfig()
-        entry = ARCHETYPE_REGISTRY["maintainer"]
-        hunt_cfg = resolve_effective_config(entry, "hunt")
-        assert hunt_cfg.default_allowlist is not None
+        entry = ARCHETYPE_REGISTRY["reviewer"]
+        pre_flight_cfg = resolve_effective_config(entry, "pre-flight")
+        assert pre_flight_cfg.default_allowlist is not None
 
-        result = resolve_security_config(config, "maintainer", mode="hunt")
-        # Should return maintainer:hunt allowlist
+        result = resolve_security_config(config, "reviewer", mode="pre-flight")
+        # Should return the reviewer:pre-flight allowlist
         assert result is not None
-        assert set(result.bash_allowlist) == set(hunt_cfg.default_allowlist)
+        assert set(result.bash_allowlist) == set(pre_flight_cfg.default_allowlist)
 
     def test_mode_with_none_allowlist_from_registry_mode_inherits(self) -> None:
         """Mode ModeConfig(allowlist=None) means inherit from base archetype."""

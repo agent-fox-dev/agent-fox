@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from af.app import main
 from agentfox.engine.reset import HardResetResult, ResetResult
 from agentfox.graph.types import Node, NodeStatus, PlanMetadata, TaskGraph
@@ -27,17 +26,6 @@ from click.testing import CliRunner
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Suppress daemon PID guard checks in all tests."""
-    from agentfox.maintenance.pid import PidStatus
-
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -456,31 +444,6 @@ class TestResetNoPlan:
 
         assert result.exit_code == 1
         mock_run.assert_not_called()
-
-
-class TestResetDaemonGuard:
-    """af plan --reset refuses to run when daemon is active.
-
-    Edge case: 01-REQ-2.E2
-    """
-
-    def test_reset_with_active_daemon_exits_one(self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-        """WHEN the nightshift daemon PID guard is active,
-        THEN exit code is 1 and an error message is shown.
-        """
-        from agentfox.maintenance.pid import PidStatus
-
-        # Override the autouse _no_daemon fixture
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (PidStatus.ALIVE, 12345),
-        )
-
-        result = cli_runner.invoke(main, ["plan", "--reset"])
-
-        assert result.exit_code == 1
-        combined = result.output + getattr(result, "stderr", "")
-        assert "daemon" in combined.lower()
 
 
 class TestResetNoResettableTasks:
@@ -920,38 +883,6 @@ class TestHardResetSpecExclusion:
         combined = result.output + getattr(result, "stderr", "")
         lower = combined.lower()
         assert "reset-hard" in lower or "spec" in lower
-
-
-# ---------------------------------------------------------------------------
-# Edge case: 01-REQ-3.E3 — Daemon guard active
-# ---------------------------------------------------------------------------
-
-
-class TestHardResetDaemonGuard:
-    """af plan --reset-hard refuses to run when daemon is active.
-
-    Edge case: 01-REQ-3.E3
-    """
-
-    def test_hard_reset_with_active_daemon_exits_one(
-        self, cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """WHEN the nightshift daemon PID guard is active,
-        THEN exit code is 1 and an error message is shown.
-        """
-        from agentfox.maintenance.pid import PidStatus
-
-        # Override the autouse _no_daemon fixture
-        monkeypatch.setattr(
-            "agentfox.maintenance.pid.check_pid_file",
-            lambda _path: (PidStatus.ALIVE, 12345),
-        )
-
-        result = cli_runner.invoke(main, ["plan", "--reset-hard", "--yes"])
-
-        assert result.exit_code == 1
-        combined = result.output + getattr(result, "stderr", "")
-        assert "daemon" in combined.lower()
 
 
 # ---------------------------------------------------------------------------

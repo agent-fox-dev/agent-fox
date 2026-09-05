@@ -1,7 +1,7 @@
 """Unit tests for PlatformProtocol, GitHubPlatform compliance, and factory.
 
 Test Spec: TS-61-23, TS-61-24, TS-61-25, TS-61-E11
-Requirements: 61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-8.E1,
+Requirements: 61-REQ-8.1, 61-REQ-8.2, 108-REQ-5.1, 108-REQ-5.3,
               598-AC-1, 598-AC-3, 598-AC-4, 598-AC-5
 """
 
@@ -55,7 +55,7 @@ class TestGitHubPlatformProtocol:
 
 # ---------------------------------------------------------------------------
 # TS-61-25: Platform instantiation from config
-# Requirement: 61-REQ-8.3
+# Requirement: 108-REQ-5.1
 # ---------------------------------------------------------------------------
 
 
@@ -68,37 +68,35 @@ class TestPlatformFactory:
 
         from afissues.github import GitHubPlatform
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.maintenance.platform_factory import create_platform
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]
 
         with patch.dict("os.environ", {"GITHUB_PAT": "test-token"}):
-            platform = create_platform(config, tmp_path)  # type: ignore[arg-type]
+            platform = create_platform_safe(config, tmp_path)  # type: ignore[arg-type]
 
         assert isinstance(platform, GitHubPlatform)
 
 
 # ---------------------------------------------------------------------------
 # TS-61-E11: Unknown platform type
-# Requirement: 61-REQ-8.E1
+# Requirement: 108-REQ-5.3
 # ---------------------------------------------------------------------------
 
 
 class TestUnknownPlatformType:
-    """Verify abort on unknown platform type."""
+    """Verify unknown platform types yield no platform."""
 
-    def test_abort_with_exit_code_1(self, tmp_path: object) -> None:
-        """Raises SystemExit with code 1 for unknown platform type."""
+    def test_returns_none_for_unknown_type(self, tmp_path: object) -> None:
+        """create_platform_safe returns None for an unsupported platform type."""
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.maintenance.platform_factory import create_platform
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = AgentFoxConfig()
         config.platform.type = "bitbucket"  # type: ignore[misc]
 
-        with pytest.raises(SystemExit) as exc_info:
-            create_platform(config, tmp_path)  # type: ignore[arg-type]
-        assert exc_info.value.code == 1
+        assert create_platform_safe(config, tmp_path) is None  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -163,25 +161,22 @@ class TestCheckCredentials:
 
 
 # ---------------------------------------------------------------------------
-# 598-AC-5: whitespace-only GITHUB_PAT is rejected at create_platform() time
+# 598-AC-5: whitespace-only GITHUB_PAT is treated as absent
 # ---------------------------------------------------------------------------
 
 
 class TestWhitespaceOnlyPat:
-    """Verify that a whitespace-only GITHUB_PAT causes create_platform() to exit."""
+    """Verify that a whitespace-only GITHUB_PAT yields no platform."""
 
-    def test_whitespace_only_pat_exits_1(self, tmp_path: object) -> None:
-        """AC-5: GITHUB_PAT='   ' triggers sys.exit(1) before any API call."""
+    def test_whitespace_only_pat_returns_none(self, tmp_path: object) -> None:
+        """AC-5: GITHUB_PAT='   ' returns None before any API call."""
         from unittest.mock import patch
 
         from agentfox.core.config import AgentFoxConfig
-        from agentfox.maintenance.platform_factory import create_platform
+        from agentfox.workspace.platform_factory import create_platform_safe
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]
 
         with patch.dict("os.environ", {"GITHUB_PAT": "   "}):
-            with pytest.raises(SystemExit) as exc_info:
-                create_platform(config, tmp_path)  # type: ignore[arg-type]
-
-        assert exc_info.value.code == 1
+            assert create_platform_safe(config, tmp_path) is None  # type: ignore[arg-type]

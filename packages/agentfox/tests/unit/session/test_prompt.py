@@ -273,6 +273,6 @@ class TestAssemblyWithProjectDir:
         """Mode-specific profile is loaded when mode is provided."""
         profiles_dir = tmp_path / ".agent-fox" / "profiles"
         profiles_dir.mkdir(parents=True)
-        (profiles_dir / "coder_fix.md").write_text("FIX MODE PROFILE")
-        result = build_system_prompt("ctx", archetype="coder", mode="fix", project_dir=tmp_path)
-        assert "FIX MODE PROFILE" in result
+        (profiles_dir / "reviewer_audit-review.md").write_text("AUDIT MODE PROFILE")
+        result = build_system_prompt("ctx", archetype="reviewer", mode="audit-review", project_dir=tmp_path)
+        assert "AUDIT MODE PROFILE" in result

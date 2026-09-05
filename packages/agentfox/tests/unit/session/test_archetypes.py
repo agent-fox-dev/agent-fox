@@ -31,14 +31,11 @@ class TestRegistryCompleteness:
     def test_all_archetypes_present(self) -> None:
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
-        # "triage" was removed in spec 100 and absorbed into maintainer:hunt.
-        # "maintainer" was added in spec 100.
         # "gate" was added in issue #680 for lightweight checkpoint verification.
         expected = {
             "coder",
             "reviewer",
             "verifier",
-            "maintainer",
             "gate",
         }
         assert set(ARCHETYPE_REGISTRY.keys()) == expected
@@ -61,12 +58,12 @@ class TestRegistryCompleteness:
 class TestPerArchetypeAllowlist:
     """Verify archetype allowlist override is used instead of global."""
 
-    def test_maintainer_hunt_has_default_allowlist(self) -> None:
-        """maintainer:hunt has the read-only analysis allowlist (replaces triage)."""
+    def test_reviewer_pre_flight_has_default_allowlist(self) -> None:
+        """reviewer:pre-flight has the read-only analysis allowlist."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
-        entry = ARCHETYPE_REGISTRY["maintainer"]
-        cfg = resolve_effective_config(entry, "hunt")
+        entry = ARCHETYPE_REGISTRY["reviewer"]
+        cfg = resolve_effective_config(entry, "pre-flight")
         assert cfg.default_allowlist is not None
         assert isinstance(cfg.default_allowlist, list)
         assert len(cfg.default_allowlist) > 0
@@ -151,7 +148,6 @@ class TestPropertyArchetypeFallback:
                     "coder",
                     "reviewer",
                     "verifier",
-                    "maintainer",
                     "gate",
                 }
             )

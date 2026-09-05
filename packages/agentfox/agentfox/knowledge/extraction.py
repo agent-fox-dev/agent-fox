@@ -1,9 +1,8 @@
 """Shared session-summary extraction from response text.
 
 Provides ``extract_session_summary`` which parses structured summary
-fields from a session response string.  Used by both the engine
-(``session_lifecycle.py``) and Night Shift (``fix_pipeline.py``) to
-extract institutional-memory fields from agent responses.
+fields from a session response string, extracting institutional-memory
+fields from agent responses.
 
 The function looks for a JSON object (optionally inside a markdown
 fenced code block) containing the session-summary schema fields:

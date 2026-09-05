@@ -5,11 +5,10 @@ Covers:
 - Convergence dispatch routing (TS-98-P2)
 - Injection consistency (TS-98-P3)
 - Verifier single-instance invariant (TS-98-P4)
-- Coder fix mode equivalence (TS-98-P5)
 - Old names rejected from registry (TS-98-P6)
 
-Test Spec: TS-98-P1 through TS-98-P6
-Requirements: 98-REQ-1.1 through 98-REQ-1.5, 98-REQ-2.1, 98-REQ-2.2,
+Test Spec: TS-98-P1 through TS-98-P4, TS-98-P6
+Requirements: 98-REQ-1.1 through 98-REQ-1.4,
               98-REQ-5.1, 98-REQ-5.2, 98-REQ-5.3,
               98-REQ-6.2, 98-REQ-7.1
 """
@@ -32,7 +31,7 @@ pytestmark = pytest.mark.property
 
 # ---------------------------------------------------------------------------
 # TS-98-P1: Mode-Archetype Mapping
-# Requirements: 98-REQ-1.1 through 98-REQ-1.5
+# Requirements: 98-REQ-1.1 through 98-REQ-1.4
 # ---------------------------------------------------------------------------
 
 # Expected config values per reviewer mode:
@@ -40,7 +39,6 @@ pytestmark = pytest.mark.property
 _REVIEWER_MODE_EXPECTATIONS = {
     "pre-flight": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc"], "auto_pre", "ADVANCED"),
     "audit-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"], "auto_mid", "ADVANCED"),
-    "fix-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"], None, "ADVANCED"),
 }
 
 
@@ -270,34 +268,6 @@ class TestVerifierSingleInstanceInvariant:
         from agentfox.engine.sdk_params import clamp_instances
 
         assert clamp_instances("verifier", n) == 1, f"clamp_instances('verifier', {n}) should always return 1"
-
-
-# ---------------------------------------------------------------------------
-# TS-98-P5: Coder Fix Mode Equivalence
-# Requirements: 98-REQ-2.1, 98-REQ-2.2
-# ---------------------------------------------------------------------------
-
-
-class TestCoderFixModeEquivalence:
-    """TS-98-P5: Coder fix mode config matches former fix_coder baseline."""
-
-    def test_coder_fix_equiv(self) -> None:
-        """Coder:fix resolved config matches former fix_coder archetype spec."""
-        from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
-
-        entry = ARCHETYPE_REGISTRY["coder"]
-        assert "fix" in entry.modes, f"coder must have 'fix' mode, got {set(entry.modes.keys())}"
-        cfg = resolve_effective_config(entry, "fix")
-
-        # Matches former fix_coder archetype configuration.
-        # Spec 15 sets coder default to STANDARD, so fix mode inherits STANDARD.
-        assert cfg.default_model_tier == "STANDARD", (
-            f"coder:fix tier should be STANDARD (spec 15), got {cfg.default_model_tier!r}"
-        )
-        assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
-        assert cfg.default_thinking_mode == "adaptive", (
-            f"coder:fix thinking_mode should be 'adaptive', got {cfg.default_thinking_mode!r}"
-        )
 
 
 # ---------------------------------------------------------------------------

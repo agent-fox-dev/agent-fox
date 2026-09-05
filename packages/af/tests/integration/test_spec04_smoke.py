@@ -67,7 +67,6 @@ class TestFullSuitePassesAfterMigration:
                 "--ignore=tests/unit/test_spec04_req456.py",
                 "--ignore=tests/property/test_spec04_properties.py",
                 "--ignore=tests/integration/test_spec04_smoke.py",
-                "--ignore=tests/test_nightshift_removal.py",
             ],
             capture_output=True,
             text=True,

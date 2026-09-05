@@ -79,13 +79,12 @@ class TestPropertyRegistryCompleteness:
     """Reviewer registry entry always has required fields for pre-flight mode."""
 
     def test_registry_completeness(self) -> None:
-        """TS-32-P1: Reviewer entry with pre-flight mode has auto_pre, task_assignable, allowlist."""
+        """TS-32-P1: Reviewer entry with pre-flight mode has auto_pre and an allowlist."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["reviewer"]
         resolved = resolve_effective_config(entry, mode="pre-flight")
         assert resolved.injection == "auto_pre"
-        assert resolved.task_assignable is True
         assert resolved.default_allowlist is not None
         assert len(resolved.default_allowlist) > 0
 

@@ -22,7 +22,6 @@ specified in your task context.
   analysis before coding begins. Produces both `findings` (spec issues)
   and `drift_findings` (codebase discrepancies) in a single session.
 - **audit-review mode:** Test coverage against test specification contracts.
-- **fix-review mode:** Correctness and regression safety of a proposed fix.
 
 ## Output Format
 

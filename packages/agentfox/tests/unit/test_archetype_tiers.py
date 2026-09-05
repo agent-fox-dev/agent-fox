@@ -4,7 +4,7 @@ Test Spec: TS-57-1 through TS-57-14, TS-57-E1 through TS-57-E3
 Requirements: 57-REQ-1.1 through 57-REQ-3.E1, 57-REQ-4.1 through 57-REQ-4.3
 
 Updated for spec 98 (reviewer consolidation):
-- skeptic/oracle → reviewer (STANDARD base, fix-review mode = ADVANCED)
+- skeptic/oracle → reviewer (STANDARD base, pre-flight/audit-review = ADVANCED)
 - verifier → STANDARD (was ADVANCED, per 98-REQ-6.1)
 - auditor → reviewer:audit-review (STANDARD)
 """

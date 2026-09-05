@@ -2,7 +2,6 @@
 
 Covers:
 - TS-NS-1: engine._init_run calls purge_stale_audit_files with exclude_run_id
-- TS-NS-4: af nightshift calls purge_stale_audit_files in _run_daemon
 - TS-NS-5: af plan and af standup do NOT call purge_stale_audit_files
 
 Requirements: NS-REQ-4, NS-REQ-5

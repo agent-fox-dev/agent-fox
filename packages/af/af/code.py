@@ -484,7 +484,7 @@ def code_cmd(
             click.echo(msg, err=True)
         sys.exit(1)
 
-    # 123-REQ-4.1, 123-REQ-4.2: dry-run bypasses daemon guard
+    # 123-REQ-1.1: dry-run reports the plan and returns without executing
     if dry_run:
         _handle_dry_run(config, om, specs_dir)
         return
@@ -492,19 +492,6 @@ def code_cmd(
     # 118-REQ-2.2: CLI --force-clean flag overrides config value
     if force_clean:
         config = config.model_copy(update={"workspace": config.workspace.model_copy(update={"force_clean": True})})
-
-    # 85-REQ-3.1: Refuse to run when daemon is active.
-    from agentfox.maintenance.pid import PidStatus, check_pid_file
-
-    daemon_pid_path = Path.cwd() / ".agent-fox" / "daemon.pid"
-    pid_status, _pid = check_pid_file(daemon_pid_path)
-    if pid_status == PidStatus.ALIVE:
-        msg = f"Error: nightshift daemon is running (PID {_pid}). Stop the daemon before running `code`."
-        if json_mode:
-            emit_error(msg)
-        else:
-            click.echo(msg, err=True)
-        sys.exit(1)
 
     # Clean up stale merge lock left by a crashed process.
     from agentfox.workspace.merge_lock import cleanup_stale_merge_lock

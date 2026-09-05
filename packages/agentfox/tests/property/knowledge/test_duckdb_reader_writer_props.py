@@ -264,7 +264,6 @@ class TestStandupAlwaysReadOnly:
     @pytest.mark.parametrize("hours", [1, 12, 24, 48], ids=["1h", "12h", "24h", "48h"])
     def test_standup_uses_read_only_for_any_hours(self, hours: int) -> None:
         """af standup must use read_only=True regardless of --hours value."""
-        from agentfox.maintenance.pid import PidStatus
 
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
@@ -278,7 +277,6 @@ class TestStandupAlwaysReadOnly:
             patch("af.standup.open_knowledge_store", return_value=mock_db) as mock_oks,
             patch("af.standup.DEFAULT_DB_PATH", new=mock_db_path),
             patch("af.standup.generate_standup", return_value=mock_report),
-            patch("agentfox.maintenance.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
         ):
             from af.app import main
             from click.testing import CliRunner

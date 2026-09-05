@@ -11,9 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from af.plan import plan_cmd
-from agentfox.maintenance.pid import PidStatus
 from click.testing import CliRunner
 
 
@@ -43,15 +41,6 @@ _PATCHES = {
     "open_knowledge_store": "af.plan.open_knowledge_store",
     "resolve_spec_root": "agentfox.core.config.resolve_spec_root",
 }
-
-
-@pytest.fixture(autouse=True)
-def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent the daemon PID check from blocking plan tests."""
-    monkeypatch.setattr(
-        "agentfox.maintenance.pid.check_pid_file",
-        lambda _path: (PidStatus.ABSENT, None),
-    )
 
 
 class TestPlanSpecsDirFlag:

@@ -326,10 +326,6 @@ remaining work is displayed.
 flags are provided alongside `--dry-run`, the command exits with code 1 and
 an error message listing all incompatible flags.
 
-**Daemon guard bypass:** Because `--dry-run` is a read-only operation, it
-bypasses the nightshift daemon PID guard. You can run `code --dry-run` even
-while the daemon is active.
-
 **JSON output:** `--dry-run` composes with `--json`. When both are set, the
 command outputs a JSON object with the following keys:
 

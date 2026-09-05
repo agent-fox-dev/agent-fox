@@ -107,10 +107,10 @@ def test_mode_specific_profile_from_package() -> None:
     """Package-level mode-specific profile is loaded when mode is provided."""
     from agentfox.session.profiles import load_profile
 
-    content = load_profile("coder", mode="fix")
+    content = load_profile("reviewer", mode="audit-review")
 
     assert len(content) > 0
-    assert "nightshift" in content.lower()
+    assert "audit" in content.lower()
 
 
 def test_mode_specific_profile_project_override(tmp_path: Path) -> None:
@@ -119,11 +119,11 @@ def test_mode_specific_profile_project_override(tmp_path: Path) -> None:
 
     profiles_dir = tmp_path / ".agent-fox" / "profiles"
     profiles_dir.mkdir(parents=True)
-    (profiles_dir / "coder_fix.md").write_text("CUSTOM FIX PROFILE")
+    (profiles_dir / "reviewer_audit-review.md").write_text("CUSTOM AUDIT PROFILE")
 
-    content = load_profile("coder", project_dir=tmp_path, mode="fix")
+    content = load_profile("reviewer", project_dir=tmp_path, mode="audit-review")
 
-    assert content == "CUSTOM FIX PROFILE"
+    assert content == "CUSTOM AUDIT PROFILE"
 
 
 def test_mode_fallback_to_base_profile() -> None:

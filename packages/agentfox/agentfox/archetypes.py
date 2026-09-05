@@ -9,8 +9,6 @@ without cross-module coupling.
 Requirements: 26-REQ-3.1, 26-REQ-3.2, 26-REQ-3.3, 26-REQ-3.E1
              97-REQ-1.1, 97-REQ-1.2, 97-REQ-1.3, 97-REQ-1.4, 97-REQ-1.5,
              97-REQ-1.E1, 97-REQ-1.E2
-             100-REQ-1.1, 100-REQ-1.2, 100-REQ-1.3, 100-REQ-1.4,
-             100-REQ-1.E1, 100-REQ-2.1
 """
 
 from __future__ import annotations
@@ -55,7 +53,6 @@ class ArchetypeEntry:
     templates: list[str] = field(default_factory=list)  # 97-REQ-1.3 (reserved; profiles used in practice)
     default_model_tier: str = "STANDARD"
     injection: str | None = None  # "auto_pre" | "auto_post" | "manual" | None
-    task_assignable: bool = True
     retry_predecessor: bool = False
     default_allowlist: list[str] | None = None  # None = use global
     default_max_turns: int = 200
@@ -71,24 +68,15 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         name="coder",
         default_model_tier="STANDARD",  # 15-REQ-8.1
         injection=None,
-        task_assignable=True,
         default_max_turns=300,
         default_thinking_mode="adaptive",
         default_effort="xhigh",
         default_compaction=True,
-        modes={
-            "fix": ModeConfig(
-                model_tier="STANDARD",  # 15-REQ-8.1
-                max_turns=300,
-                thinking_mode="adaptive",
-            ),
-        },
     ),
     "reviewer": ArchetypeEntry(
         name="reviewer",
         default_model_tier="STANDARD",
         injection=None,  # mode-specific injection
-        task_assignable=True,
         default_max_turns=80,
         modes={
             "pre-flight": ModeConfig(
@@ -103,11 +91,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"],
                 retry_predecessor=True,
             ),
-            "fix-review": ModeConfig(
-                model_tier="ADVANCED",
-                allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"],
-                max_turns=120,
-            ),
         },
     ),
     "verifier": ArchetypeEntry(
@@ -115,7 +98,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         default_model_tier="STANDARD",  # Changed from ADVANCED (98-REQ-6.1)
         injection="auto_post",
         injection_order=20,
-        task_assignable=True,
         retry_predecessor=True,
         default_max_turns=120,
     ),
@@ -123,36 +105,9 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         name="gate",
         default_model_tier="STANDARD",
         injection=None,
-        task_assignable=True,
         default_max_turns=30,
         default_thinking_mode="disabled",
         default_effort="low",
-    ),
-    # "triage" was removed in spec 100 and absorbed into maintainer:hunt.
-    # get_archetype("triage") falls back to "coder" with a warning (100-REQ-1.E1).
-    "maintainer": ArchetypeEntry(
-        name="maintainer",
-        default_model_tier="STANDARD",
-        injection=None,
-        task_assignable=False,
-        default_max_turns=80,
-        default_effort="medium",
-        modes={
-            "hunt": ModeConfig(
-                model_tier="SIMPLE",  # 15-REQ-8.4
-                # Read-only analysis allowlist (100-REQ-1.2)
-                allowlist=["ls", "cat", "git", "wc", "head", "tail"],
-            ),
-            "fix-triage": ModeConfig(
-                # Read-only analysis for single-issue triage (fixes #383)
-                allowlist=["ls", "cat", "git", "wc", "head", "tail"],
-            ),
-            "extraction": ModeConfig(
-                model_tier="SIMPLE",  # 15-REQ-8.4
-                # No shell access for extraction mode (100-REQ-1.3)
-                allowlist=[],
-            ),
-        },
     ),
 }
 

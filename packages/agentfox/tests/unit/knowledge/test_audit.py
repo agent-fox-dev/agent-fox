@@ -88,8 +88,8 @@ class TestAuditEventTypeEnum:
     def test_completeness(self) -> None:
         """AuditEventType has at least the required variants from spec 40.
 
-        Night-shift (spec 61) adds additional event types; the set is a
-        superset of the spec-40 variants.
+        Other packages add additional event types; the set is a superset of
+        the spec-40 variants.
         """
         required = {
             "run.start",
@@ -113,9 +113,6 @@ class TestAuditEventTypeEnum:
             "knowledge.ingested",
             "sync.barrier",
             "review.parse_failure",
-            # Night-shift events (spec 61) — regression guard for issue #293
-            "night_shift.issue_superseded",
-            "night_shift.issue_obsolete",
         }
         actual = {e.value for e in AuditEventType}
         assert required.issubset(actual)

@@ -246,20 +246,19 @@ def load_state_from_db(
     Returns None only when the plan_nodes table cannot be queried at all
     (e.g. the table does not exist or the DB is corrupt). An empty
     plan_nodes table is valid — session_outcomes and runs are populated
-    independently of the plan (e.g. nightshift execution path) and must
-    always be loaded regardless.
+    independently of the plan and must always be loaded regardless.
 
     Requirements: 105-REQ-5.3
     """
     # Load node states from plan_nodes.
-    # An empty result is normal (nightshift path); only a query failure
-    # (missing table, corrupt DB) warrants returning None.
+    # An empty result is normal; only a query failure (missing table,
+    # corrupt DB) warrants returning None.
     try:
         rows = conn.sql("SELECT id, status, blocked_reason FROM plan_nodes").fetchall()
     except Exception:
         return None
-    # Empty plan_nodes is valid (nightshift path or pre-migration plan):
-    # continue loading session_outcomes and runs rather than returning None.
+    # Empty plan_nodes is valid (e.g. a pre-migration plan): continue
+    # loading session_outcomes and runs rather than returning None.
     node_states = {row[0]: row[1] for row in rows}
     blocked_reasons: dict[str, str] = {row[0]: row[2] for row in rows if row[2] is not None}
 

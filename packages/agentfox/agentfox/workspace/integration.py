@@ -1,6 +1,7 @@
-"""Integration branch management: ensure, sync, and reconcile.
+"""Integration branch management: ensure, sync, reconcile, and PR bodies.
 
-Requirements: 19-REQ-1.1 through 19-REQ-1.6,
+Requirements: 02-REQ-5.1, 02-REQ-5.2, 02-REQ-5.3, 02-REQ-5.E1, 02-REQ-5.E2,
+              19-REQ-1.1 through 19-REQ-1.6,
               45-REQ-3.2, 45-REQ-5.1, 45-REQ-5.2, 45-REQ-5.E1, 45-REQ-6.2,
               118-REQ-5.1, 118-REQ-5.2, 118-REQ-5.3, 118-REQ-5.E1
 """
@@ -296,3 +297,36 @@ async def _sync_integration_under_lock(repo_root: Path, branch: str, remote_ahea
         },
     )
     return sync_method
+
+
+def build_pr_body(
+    *,
+    spec_name: str | None = None,
+    task_group_id: str | None = None,
+    task_group_title: str | None = None,
+    changed_files: list[str],
+) -> str:
+    """Build a Markdown PR body for ``af code`` sessions.
+
+    Pure function with no side effects.  All parameters are keyword-only.
+
+    Requirements: 02-REQ-5.1, 02-REQ-5.2, 02-REQ-5.3, 02-REQ-5.E1,
+                  02-REQ-5.E2, 61-REQ-7.2
+    """
+    sections: list[str] = []
+
+    if spec_name is not None:
+        sections.append(f"## Summary\n\n{spec_name}")
+    else:
+        sections.append("## Summary")
+
+    if task_group_id is not None and task_group_title is not None:
+        sections.append(f"## Task Group\n\n{task_group_id}: {task_group_title}")
+
+    if changed_files:
+        file_list = "\n".join(f"- {f}" for f in changed_files)
+        sections.append(f"## Changed Files\n\n{file_list}")
+    else:
+        sections.append("## Changed Files")
+
+    return "\n\n".join(sections) + "\n"

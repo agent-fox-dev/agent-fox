@@ -410,7 +410,7 @@ def persist_review_findings(
         return
 
     if mode not in ("pre-review", "drift-review", "pre-flight", "audit-review"):
-        # fix-review and unknown modes do not persist findings
+        # Unknown modes do not persist findings
         return
 
     tg = str(task_group)

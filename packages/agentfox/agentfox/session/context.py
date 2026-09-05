@@ -61,7 +61,6 @@ _ARCHETYPE_ARTIFACTS: dict[str, list[str]] = {
     "coder": _ALL_ARTIFACTS,
     "reviewer:pre-flight": ["requirements"],
     "reviewer:audit-review": ["requirements", "test_spec"],
-    "reviewer:fix-review": ["requirements", "test_spec"],
     "verifier": ["requirements", "tasks"],
     "gate": ["requirements"],
 }

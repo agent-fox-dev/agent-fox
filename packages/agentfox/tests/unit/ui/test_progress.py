@@ -209,41 +209,6 @@ class TestProgressDisplayDefaultWidth:
             assert len(line) <= 80
 
 
-class TestPrintStatus:
-    """TS-81-E4/E5: ProgressDisplay.print_status in TTY, non-TTY, and quiet modes."""
-
-    def test_81_print_status_tty(self) -> None:
-        """print_status prints a permanent line in TTY mode."""
-        theme, buf = _make_theme(force_terminal=True)
-        display = ProgressDisplay(theme, quiet=False)
-        display.start()
-        display.print_status("Checking for af:fix issues\u2026", "bold cyan")
-        display.stop()
-        output = buf.getvalue()
-        assert "af:fix" in output
-
-    def test_81_print_status_non_tty(self) -> None:
-        """print_status prints a plain line in non-TTY mode."""
-        theme, buf = _make_theme(force_terminal=False)
-        display = ProgressDisplay(theme, quiet=False)
-        display.start()
-        display.print_status("Starting hunt scan\u2026", "bold cyan")
-        display.stop()
-        output = buf.getvalue()
-        assert "hunt scan" in output
-        # No ANSI escape codes in non-TTY
-        assert "\x1b[" not in output
-
-    def test_81_print_status_quiet(self) -> None:
-        """print_status produces no output in quiet mode."""
-        theme, buf = _make_theme()
-        display = ProgressDisplay(theme, quiet=True)
-        display.start()
-        display.print_status("Should not appear", "bold cyan")
-        display.stop()
-        assert buf.getvalue() == ""
-
-
 class TestUpdateSpinnerText:
     """ProgressDisplay.update_spinner_text tests."""
 
