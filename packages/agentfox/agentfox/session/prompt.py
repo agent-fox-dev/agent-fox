@@ -21,7 +21,6 @@ from agentfox.session.context import (  # noqa: F401
     render_drift_context,
     render_prior_group_findings,
     render_review_context,
-    render_verification_context,
 )
 from agentfox.session.profiles import load_profile
 from agentfox.session.steering import (  # noqa: F401

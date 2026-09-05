@@ -144,7 +144,7 @@ falling back to generic retry logic. This is functionally correct — the
 test suite around it is strong — but it is the hardest part of the
 orchestrator to safely modify today, and every review-blocking rule lives
 in a *third*, separately-evaluated place (`blocking.py`, three evaluators:
-pre-review, drift, audit).
+pre-flight, drift, audit).
 
 ### 3.2 Knowledge system & Night Shift (`knowledge/`, `nightshift/`)
 

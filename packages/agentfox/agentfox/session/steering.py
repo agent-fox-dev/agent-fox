@@ -1,6 +1,6 @@
 """Steering document loading.
 
-Loads project-level steering directives from {project_root}/.specs/steering.md
+Loads project-level steering directives from {project_root}/.agent-fox/steering.md
 and detects placeholder-only content.
 
 Requirements: 64-REQ-2.1 through 64-REQ-2.E1, 64-REQ-5.1, 64-REQ-5.2

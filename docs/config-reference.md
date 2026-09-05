@@ -303,11 +303,11 @@ Archetype enable/disable toggles and per-archetype advanced configuration.
 
 After the reviewer consolidation, the former `skeptic`, `oracle`, and `auditor`
 archetypes are unified into a single `reviewer` archetype with mode-based
-behaviour (`pre-review`, `drift-review`, `audit-review`, `fix-review`).
+behaviour (`pre-flight`, `audit-review`, `fix-review`).
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `reviewer` | bool | `true` | -- | Enable the Reviewer archetype (all modes: pre-review, drift-review, audit-review, fix-review) |
+| `reviewer` | bool | `true` | -- | Enable the Reviewer archetype (all modes: pre-flight, audit-review, fix-review) |
 | `verifier` | bool | `true` | -- | Enable the Verifier archetype (post-code correctness checks) |
 | `instances` | table | see below | -- | Per-archetype instance counts |
 | `reviewer_config` | table | see below | -- | Reviewer-specific configuration |
@@ -390,7 +390,7 @@ model_tier = "ADVANCED"
 model_tier = "ADVANCED"
 max_turns = 120
 
-[archetypes.overrides.reviewer.modes.pre-review]
+[archetypes.overrides.reviewer.modes.pre-flight]
 model_tier = "STANDARD"
 max_turns = 50
 ```

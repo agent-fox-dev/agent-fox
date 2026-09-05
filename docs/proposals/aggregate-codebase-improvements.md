@@ -156,7 +156,7 @@ code removed.
 
 **Risk:** Low. The Verifier catches everything the Curator would.
 
-### 4.2 Merge Pre-Review and Drift-Review into Single Pre-Flight
+### 4.2 Merge into Single Pre-Flight
 
 Two separate review sessions run at `auto_pre` before any code is written.
 Both analyze the spec against different reference frames.
@@ -165,7 +165,7 @@ Both analyze the spec against different reference frames.
 config (one toggle instead of two).
 
 **Risk:** Medium. Separate sessions allow independent parallelism, but the
-pre-review already runs at ADVANCED tier with capacity for both.
+pre-flight already runs at ADVANCED tier with capacity for both.
 
 ---
 

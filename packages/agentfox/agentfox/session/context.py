@@ -311,19 +311,6 @@ def render_review_context(
     )
 
 
-def render_verification_context(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-) -> str | None:
-    """Render active verdicts as a markdown section.
-
-    Returns None — the verification_results table has been removed and
-    verdicts are no longer persisted.  Retained as a no-op stub so
-    callers do not need updating.
-    """
-    return None
-
-
 def render_retry_history(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,

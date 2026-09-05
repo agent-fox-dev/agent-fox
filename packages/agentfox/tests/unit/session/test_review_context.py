@@ -21,7 +21,6 @@ from agentfox.knowledge.review_store import (
 from agentfox.session.prompt import (
     assemble_context,
     render_review_context,
-    render_verification_context,
 )
 
 
@@ -177,11 +176,6 @@ class TestNoFindingsOmitsSection:
     def test_no_findings_omits_section(self, review_conn: duckdb.DuckDBPyConnection) -> None:
         """render_review_context returns None when no findings."""
         result = render_review_context(review_conn, "nonexistent_spec")
-        assert result is None
-
-    def test_no_verdicts_omits_section(self, review_conn: duckdb.DuckDBPyConnection) -> None:
-        """render_verification_context returns None when no verdicts."""
-        result = render_verification_context(review_conn, "nonexistent_spec")
         assert result is None
 
 

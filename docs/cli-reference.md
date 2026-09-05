@@ -93,9 +93,9 @@ Creates the `.agent-fox/` directory structure, sets up the integration branch
 (configured via `workspace.integration_branch`, default: `main`), updates
 `.gitignore`, creates `.claude/settings.local.json` with canonical permissions,
 scaffolds an `AGENTS.md` template with project instructions for coding agents,
-and creates `.specs/steering.md` as a placeholder for project-level agent
+and creates `.agent-fox/steering.md` as a placeholder for project-level agent
 directives. If `AGENTS.md` already exists it is silently skipped to preserve
-customizations. If `.specs/steering.md` already exists it is also silently
+customizations. If `.agent-fox/steering.md` already exists it is also silently
 skipped.
 
 **Local config (`--config`):** A local `.agent-fox/config.toml` is only created
@@ -108,7 +108,7 @@ entirely. Without a local config, the global config applies. If a local
 - **No local config** → global config at `~/.agent-fox/config.toml` applies
 - **Local config present** → only local config applies (global ignored)
 
-**Steering document:** `init` creates `.specs/steering.md` as an empty
+**Steering document:** `init` creates `.agent-fox/steering.md` as an empty
 placeholder on first run. This file is the user's persistent directive surface
 -- add project-specific "always do X" or "never do Y" instructions here. All
 agent sessions and bundled skills read this file and follow any directives it
@@ -458,13 +458,13 @@ af insights [OPTIONS]
 |--------|------|---------|-------------|
 | `--spec NAME` | string | all | Filter by spec name |
 | `--severity LEVEL` | string | all | Minimum severity level (`critical`, `major`, `minor`, `observation`) |
-| `--archetype NAME` | string | all | Filter by archetype (`reviewer`, `verifier`, `reviewer/pre-review`, `reviewer/drift-review`) |
+| `--archetype NAME` | string | all | Filter by archetype (`reviewer`, `verifier`, `reviewer/pre-flight`) |
 | `--run ID` | string | all | Filter by run ID |
 | `--dismiss ID REASON` | string pair | | Dismiss a finding by ID with a reason |
 | `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Displays active (non-superseded) review findings from the knowledge store.
-Findings are produced by Reviewer (pre-review, drift-review, audit-review
+Findings are produced by Reviewer (pre-flight, audit-review
 modes) and Verifier archetypes during `af code` sessions.
 
 **Exit codes:** `0` success.

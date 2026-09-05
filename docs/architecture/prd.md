@@ -131,8 +131,7 @@ A pipeline or automation script that drives af in `--json` mode, consuming struc
 
 ### 5.4 Agent Archetypes
 
-- WHEN the Reviewer archetype is enabled in pre-review mode, the system SHALL run one or more independent spec review sessions before the first coding group, each producing structured findings categorized by severity.
-- WHEN the Reviewer archetype is enabled in drift-review mode, the system SHALL run a codebase-verification session that checks specification assumptions against the actual codebase before coding begins.
+- WHEN the Reviewer archetype is enabled in pre-flight mode, the system SHALL run one or more independent sessions before the first coding group that combine spec review and codebase-verification, producing structured findings categorized by severity.
 - WHEN the Reviewer archetype is enabled in audit-review mode, the system SHALL run a test-quality audit after each test-writing session, and trigger a coder retry if the audit finds missing, misaligned, or excessively weak tests.
 - WHEN the Curator archetype is enabled, the system SHALL run a post-implementation curation session after the last coding group and before verification.
 - WHEN the Verifier archetype is enabled, the system SHALL run a post-implementation quality review after curation, and trigger a coder retry with verifier feedback if the review fails.
@@ -211,7 +210,7 @@ The `/afspec` skill in Claude Code generates the full five-file package from a P
 
 ### 6.3 Steering Document
 
-`.specs/steering.md` is a persistent directive surface. Any instruction placed here (e.g., "always add type hints," "never use global state") is injected into every agent session and skill invocation. If the file contains only the initial placeholder text, it is silently skipped.
+`.agent-fox/steering.md` is a persistent directive surface. Any instruction placed here (e.g., "always add type hints," "never use global state") is injected into every agent session and skill invocation. If the file contains only the initial placeholder text, it is silently skipped.
 
 ### 6.4 Command-Line Inputs
 

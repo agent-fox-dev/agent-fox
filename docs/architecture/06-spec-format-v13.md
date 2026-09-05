@@ -196,8 +196,8 @@ Several context helper functions operate on the structured data:
   entries).
 
 - **Existing code detection**: Checks `architecture.md` for file path
-  references. This determines whether drift-review should run — if the spec
-  references no files that currently exist in the repository, drift-review
+  references. This determines whether pre-flight should run — if the spec
+  references no files that currently exist in the repository, pre-flight
   is skipped.
 
 ---

@@ -76,11 +76,11 @@ chain, based on the archetype configuration:
 
 **Pre-execution agents** (injection point: `auto_pre`) are added at group 0,
 before the first coder group. Currently this includes the Reviewer in
-pre-review mode (spec quality review) and drift-review mode (design-to-code
-drift detection). These agents examine the spec and existing codebase before
-any implementation begins, providing early warning of problems.
+pre-flight mode (combining spec quality review and design-to-code drift
+detection in a single session). These agents examine the spec and existing
+codebase before any implementation begins, providing early warning of problems.
 
-The drift-review node has a gating rule: if the spec references no files that
+The pre-flight node has a gating rule: if the spec references no files that
 currently exist in the repository (determined by scanning the design artifact
 for file paths and checking the filesystem), the node is skipped. This scans
 `architecture.md` for file path references. There is
@@ -142,7 +142,7 @@ actual group in the referenced spec. This means "depends on spec B" becomes
 "depends on the last group of spec B," which is conservative but correct.
 
 Cross-spec dependencies are also propagated to non-coder predecessor nodes so
-that review nodes wait for upstream specs to complete. However, pre-review
+that review nodes wait for upstream specs to complete. However, pre-flight
 nodes are exempt from this propagation — they validate spec content, not
 upstream implementation, so they can run before upstream specs finish.
 

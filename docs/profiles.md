@@ -124,7 +124,7 @@ behavior for your project. Common customizations:
 
 To customize behavior for a specific mode without affecting the base
 archetype, create a file named `{archetype}_{mode}.md` in
-`.agent-fox/profiles/`. For example, to customize only pre-review behavior:
+`.agent-fox/profiles/`. For example, to customize only pre-flight behavior:
 
 ```
 .agent-fox/profiles/reviewer_pre-flight.md   # your custom version

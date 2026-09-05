@@ -282,7 +282,7 @@ The task context layer is assembled from the following sources, in order:
 2. **DB-backed findings.** Review findings and drift findings are queried
    from DuckDB and rendered as structured markdown sections (grouped by
    severity for reviews).
-3. **Steering directives.** Project-wide guidance from `.specs/steering.md`
+3. **Steering directives.** Project-wide guidance from `.agent-fox/steering.md`
    is included after spec files and before memory facts. Placeholder-only
    steering files (containing only HTML comment sentinels) are detected and
    skipped.
@@ -320,7 +320,9 @@ relevance scoring for result ordering:
 | Category | Source | Prefix | Scope |
 |---|---|---|---|
 | Review findings | `review_findings` | `[REVIEW]` | Active critical/major for this spec and task group |
+| Drift findings | `drift_findings` | `[DRIFT]` | Active drift findings for this spec and task group |
 | Cross-group findings | `review_findings` | `[CROSS-GROUP]` | Critical/major from other task groups in the same spec |
+| Cross-spec drift | `drift_findings` | `[CROSS-SPEC]` | Drift findings from other specs referencing overlapping files |
 | Same-spec summaries | `session_summaries` | `[CONTEXT]` | Summaries from earlier sessions on the same spec |
 
 Within each category, results are sorted by keyword overlap between the task

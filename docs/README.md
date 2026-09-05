@@ -38,7 +38,7 @@ The typical workflow has four stages:
    execution. The orchestrator dispatches agents to each ready task in
    dependency order. Each agent works in an isolated git worktree on its own
    feature branch, so multiple agents work simultaneously without conflicts.
-   Reviewer agents (pre-review, drift-review modes) check specs before
+   Reviewer agents (pre-flight mode) check specs before
    coding starts; audit-review and Verifier agents check the result after. Failed
    tasks are retried with escalation to stronger models. Completed work is
    merged into the integration branch under a serializing lock via squash merge (with
@@ -118,10 +118,10 @@ active knowledge set current without manual intervention.
 
 When tasks fail or become blocked, start by diagnosing what went wrong.
 Run `af insights` to list active review findings — critical findings
-from pre-review, drift-review, or verification often explain why a task is
+from pre-flight, or verification often explain why a task is
 blocked. Filter by spec with `--spec NAME` or by severity with
 `--severity critical` to narrow down the cause. Once you understand and
-address the blocking finding (e.g., fix a spec issue flagged by pre-review,
+address the blocking finding (e.g., fix a spec issue flagged by pre-flight,
 resolve a drift detected against the codebase), dismiss it with
 `--dismiss ID REASON`, then run `af plan --reset` to restart the
 affected task. For targeted recovery, pass a specific task ID:

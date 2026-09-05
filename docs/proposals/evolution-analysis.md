@@ -74,18 +74,18 @@ quality-gate section) and the Verifier.
 **Risk:** Low. The Verifier (running right after at injection order 20) catches
 everything the Curator would.
 
-### 2.2 Merge Pre-Review and Drift-Review into a Single Pre-Flight
+### 2.2 Pre-Flight Replaced Separate Review Sessions
 
-**Problem:** Two separate review sessions run at `auto_pre` before any code is
-written — one for spec quality (pre-review, ADVANCED tier) and one for codebase
-drift (drift-review, STANDARD tier). Both analyze the spec against different
-reference frames (spec quality vs. codebase assumptions).
+**Problem:** Two separate review sessions ran at `auto_pre` before any code was
+written — one for spec quality (pre-flight, ADVANCED tier) and one for codebase
+drift (STANDARD tier). Both analyzed the spec against different reference frames
+(spec quality vs. codebase assumptions).
 
-This means two full AI sessions before a single line of code is written.
+This meant two full AI sessions before a single line of code was written.
 
 **Recommendation:** Merge into a single "pre-flight review" that does both
 analyses in one session. The ADVANCED model is already capable of both spec
-quality assessment and codebase drift detection. The drift-review's read-only
+quality assessment and codebase drift detection. The drift detection's read-only
 filesystem access can be granted to the merged session.
 
 **Impact:**
@@ -96,7 +96,7 @@ filesystem access can be granted to the merged session.
 
 **Risk:** Medium. Separate sessions allow independent parallelism. But for
 most projects, drift checking is fast and could be a section within the
-pre-review prompt. The pre-review already runs at ADVANCED tier — it has the
+pre-flight prompt. The pre-flight already runs at ADVANCED tier — it has the
 capacity.
 
 ### 2.3 Consolidate Three CLIs into One
@@ -456,7 +456,7 @@ Action wrapper and CI environment setup are new.
 ### 3.7 💡 Spec Fuzzing ("What If We Try to Break the Spec?")
 
 **The insight:** The quality pipeline is linear: review spec → write code →
-review code → verify. The spec is treated as correct once it passes pre-review.
+review code → verify. The spec is treated as correct once it passes pre-flight.
 But most spec-driven bugs come from spec *incompleteness* — edge cases, error
 paths, and concurrency scenarios that the spec author didn't think of.
 

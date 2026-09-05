@@ -92,13 +92,13 @@ Two tables track runtime history:
 
 Two tables store the outputs of review and verification agents:
 
-- **`review_findings`** — Findings from pre-review and audit-review sessions,
+- **`review_findings`** — Findings from pre-flight and audit-review sessions,
   classified by severity (`critical`, `major`, `minor`, `observation`). Only
   `critical` and `major` findings are persisted; `minor` and `observation`
   findings are dropped at write time. Each finding has provenance (spec, task
   group, session) and a `superseded_by` column so resolved findings can be
   retired without deletion.
-- **`drift_findings`** — Spec-to-code discrepancies detected by drift-review.
+- **`drift_findings`** — Spec-to-code discrepancies detected by pre-flight.
   Structured identically to review_findings with additional spec and artifact
   reference fields.
 
@@ -171,9 +171,9 @@ edges: group N → group N+1. Groups already marked complete start as
 **Phase 2: Archetype Injection.** The planner inserts non-coder agent nodes at
 three injection points in each spec's chain:
 
-- **`auto_pre`** (before group 1): Reviewer in `pre-review` mode (spec quality
-  review) and `drift-review` mode (spec-vs-codebase drift detection). The
-  drift-review node is only injected if the spec references files that already
+- **`auto_pre`** (before group 1): Reviewer in `pre-flight` mode (combining
+  spec quality review and codebase drift detection in a single session). The
+  pre-flight node is only injected if the spec references files that already
   exist on disk — there is nothing to drift-check against for brand-new specs.
 - **`auto_mid`** (after test-writing groups): Reviewer in `audit-review` mode
   (test coverage validation against test spec contracts). Only injected
@@ -191,7 +191,7 @@ between groups in different specs. The planner validates that both endpoints
 exist. Spec-level dependencies (coarse format) resolve to the last group of the
 referenced spec; group-level dependencies (fine format) create edges between
 precise groups. Inter-spec edges are propagated to any auto_pre review nodes
-that gate the target — with the exception of `pre-review` nodes, which validate
+that gate the target — with the exception of `pre-flight` nodes, which validate
 spec content rather than upstream implementation and can therefore run early.
 
 ### 3.3 Execution Order
@@ -313,7 +313,7 @@ Each iteration:
 When multiple tasks are simultaneously ready, the dispatcher uses a three-tier
 priority system:
 
-1. **Pre-review tier** — Group 0 nodes (pre-review, drift-review) go first,
+1. **Pre-flight tier** — Group 0 nodes (pre-flight) go first,
    ordered by spec fan-out descending so critical-path blockers surface early.
 2. **Coder tier** — Implementation tasks, ordered by spec-fair round-robin
    so no single spec dominates the pool.
@@ -508,7 +508,7 @@ findings are written to the appropriate DuckDB quality tables
 multiple sessions run in parallel for the same task. Their outputs are merged
 deterministically:
 
-- **Reviewer convergence** (pre-review, drift-review): Union all findings,
+- **Reviewer convergence** (pre-flight): Union all findings,
   deduplicate by description similarity, majority-gate critical findings —
   a finding is only promoted to critical severity if a majority of instances
   flagged it as critical.
@@ -557,7 +557,7 @@ The node is marked `completed` in the graph. Three post-success evaluations
 may alter downstream behavior:
 
 **Review blocking.** If the session was a review agent with blocking authority
-(Reviewer in `pre-review` or `drift-review` mode), the result handler evaluates
+(Reviewer in `pre-flight` mode), the result handler evaluates
 whether the findings exceed the configured blocking threshold (default: any
 critical finding). Critical security findings always block regardless of
 threshold. If the threshold is exceeded, all downstream coder tasks for that
@@ -641,7 +641,7 @@ archetype-specific.
 ```
 Layer 1: Agent base profile  (agent.md)
    ↕ section break
-Layer 2: Archetype profile   (e.g., coder.md, reviewer_pre-review.md)
+Layer 2: Archetype profile   (e.g., coder.md, reviewer_pre-flight.md)
    ↕ section break
 Layer 3: Task context        (spec docs + knowledge + findings + steering)
 ```
@@ -683,7 +683,7 @@ without modifying the package.
    DuckDB and rendered as structured markdown (grouped by severity). This gives
    the agent visibility into prior quality assessments on this spec.
 
-3. **Steering directives.** Project-wide guidance from `.specs/steering.md`
+3. **Steering directives.** Project-wide guidance from `.agent-fox/steering.md`
    is included after spec files.
 
 4. **Knowledge facts.** Relevant context from the knowledge store is retrieved
@@ -711,7 +711,7 @@ prompt traceability:
 | **Review findings** | `review_findings` table | `[REVIEW]` | Active critical/major for this spec and task group |
 | **Drift findings** | `drift_findings` table | `[DRIFT]` | Active drift findings for this spec and task group |
 | **Cross-group reviews** | `review_findings` table | `[CROSS-GROUP]` | Critical/major findings from other task groups in the same spec |
-| **Cross-spec drift** | `drift_findings` table | `[CROSS-SPEC-DRIFT]` | Drift findings from other specs referencing overlapping files |
+| **Cross-spec drift** | `drift_findings` table | `[CROSS-SPEC]` | Drift findings from other specs referencing overlapping files |
 | **Same-spec context summaries** | `session_summaries` table | `[CONTEXT]` | Summaries from earlier sessions on the same spec (current run) |
 
 **Relevance scoring.** Within each category, results are sorted by keyword
@@ -1013,9 +1013,9 @@ same spec.
 Beyond the `KnowledgeProvider`, the quality assurance layer contributes
 knowledge through structured review persistence:
 
-- **Review findings** from pre-review and audit-review sessions are parsed
+- **Review findings** from pre-flight and audit-review sessions are parsed
   from the agent's structured output and stored in `review_findings`.
-- **Drift findings** from drift-review sessions are stored in
+- **Drift findings** from pre-flight sessions are stored in
   `drift_findings`.
 
 These findings flow back into future sessions through three paths:
@@ -1030,7 +1030,7 @@ These findings flow back into future sessions through three paths:
 distinct supersession paths depending on finding type:
 
 ```
-Created (by reviewer/drift-review session)
+Created (by reviewer/pre-flight session)
     ↓
 Active (queryable by context assembly and knowledge retrieval)
     ↓

@@ -193,7 +193,7 @@ The knowledge store lives in a single DuckDB database
 
 ### 5.1 `review_findings`
 
-Findings from pre-review, drift-review, and audit-review sessions, classified
+Findings from pre-flight and audit-review sessions, classified
 by severity (critical, major, minor, observation). Only critical and major
 findings are persisted; minor and observation findings are dropped at write
 time. Unrecognized severity values are normalized to observation (and
@@ -204,7 +204,7 @@ quality issues that coders must address.
 
 ### 5.2 `drift_findings`
 
-Spec-to-code discrepancies detected by drift-review sessions. Structured
+Spec-to-code discrepancies detected by pre-flight sessions. Structured
 identically to review findings with additional spec and artifact reference
 fields.
 
@@ -330,7 +330,7 @@ system operates. Two distinct supersession paths exist, depending on the
 finding type:
 
 ```
-Created (by reviewer/verifier/drift-review session)
+Created (by reviewer/verifier/pre-flight session)
     ↓
 Active (queryable by context assembly and knowledge retrieval)
     ↓
@@ -346,7 +346,7 @@ Active (queryable by context assembly and knowledge retrieval)
 ```
 
 **Created.** Review and verifier sessions parse structured JSON output to
-produce findings classified by severity. Drift-review sessions produce drift
+produce findings classified by severity. Pre-flight sessions produce drift
 findings with an `artifact_ref` field referencing the file or directory where
 drift was detected. Findings are stored with full provenance: spec name, task
 group, session ID, attempt number, archetype, and mode.
@@ -397,7 +397,7 @@ in DuckDB:
 
 ### Review Findings
 
-The reviewer archetype in pre-review and audit-review modes produces findings
+The reviewer archetype in pre-flight and audit-review modes produces findings
 classified by severity: critical, major, minor, and observation. Critical
 security findings always block downstream coder tasks regardless of the
 configured blocking threshold. Other critical findings block when they exceed
@@ -405,14 +405,14 @@ the threshold.
 
 ### Drift Findings
 
-The reviewer archetype in drift-review mode compares spec assumptions against
+The reviewer archetype in pre-flight mode compares spec assumptions against
 the actual codebase and detects drift: places where existing code diverges from
 what the spec assumes. Each drift finding carries an optional `artifact_ref`
 field that records the file or directory path where the drift was detected.
 
 Drift findings are superseded through two mechanisms:
 
-1. **Bulk supersession via `insert_drift_findings`**: when a new drift-review
+1. **Bulk supersession via `insert_drift_findings`**: when a new pre-flight
    session runs, all prior active findings for the same `(spec_name,
    task_group)` are superseded and replaced by the new batch.
 2. **File-based supersession via `supersede_drift_findings_by_files`**: after
@@ -429,7 +429,7 @@ Drift findings are superseded through two mechanisms:
 When reviewer or verifier nodes run with multiple instances, their outputs are
 merged deterministically before persistence:
 
-- **Pre-review and drift-review**: Union all findings, deduplicate, and
+- **Pre-flight**: Union all findings, deduplicate, and
   majority-gate critical findings (a finding is only promoted to critical if
   a majority of instances flagged it).
 - **Audit-review**: Worst-result-wins — if any instance flags an issue, it

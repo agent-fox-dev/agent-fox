@@ -50,7 +50,13 @@ surrounding prose, no explanatory text before or after the JSON.
       "expected": "What correct behavior looks like after the fix.",
       "assertion": "How to verify the fix is correct (test or check)."
     }
-  ]
+  ],
+  "assessed_complexity": {
+    "tier": "SIMPLE | STANDARD | ADVANCED",
+    "variant": null,
+    "confidence": 0.85,
+    "rationale": "Brief explanation of why this complexity tier was chosen."
+  }
 }
 ```
 
