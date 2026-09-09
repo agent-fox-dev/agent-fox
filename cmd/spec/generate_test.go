@@ -20,7 +20,7 @@ import (
 func setupMockGenerate(t *testing.T) {
 	t.Helper()
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, specPath string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, specPath string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		reqContent := `{"spec_id":"TST-001","spec_name":"test_spec","requirements":[{"id":"REQ-TST-1","text":"Test requirement"}]}`
 		tsContent := `{"spec_id":"TST-001","spec_name":"test_spec","test_cases":[{"id":"TC-TST-1","name":"Test case"}]}`
 		tasksContent := `{"spec_id":"TST-001","spec_name":"test_spec","tasks":[{"id":"T-TST-1","title":"Test task"}]}`
@@ -405,7 +405,7 @@ func TestTS08_23_GenerateAILayerError(t *testing.T) {
 
 	// Inject a mock that returns an AI layer error.
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, sp string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, sp string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		return agentspec.GenerateResult{}, fmt.Errorf("AI layer error: model returned an error")
 	}
 	t.Cleanup(func() { generateFunc = orig })
@@ -561,7 +561,7 @@ func TestTSNS1_GenerateUsesAIPipeline(t *testing.T) {
 
 	// Inject a mock that writes real (non-stub) artifact content.
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, sp string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, sp string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		reqContent := `{"spec_id":"47","spec_name":"ai_pipeline_spec","requirements":[{"id":"REQ-47-1","text":"The system shall do X"}]}`
 		tsContent := `{"spec_id":"47","spec_name":"ai_pipeline_spec","test_cases":[{"id":"TC-47-1","name":"Verify X"}]}`
 		tasksContent := `{"spec_id":"47","spec_name":"ai_pipeline_spec","tasks":[{"id":"T-47-1","title":"Implement X"}]}`
@@ -774,7 +774,7 @@ func TestTSNS3_GenerateValidationWarningsSurfacedToStderr(t *testing.T) {
 	const warningMsg = "test_spec.json: dangling reference to 66-REQ-NONEXISTENT"
 
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, sp string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, sp string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		// Write artifact stubs so the session save succeeds.
 		for _, f := range []string{"requirements.json", "test_spec.json", "tasks.json"} {
 			_ = os.WriteFile(filepath.Join(sp, f), []byte(`{"spec_id":"66"}`), 0644)
@@ -820,7 +820,7 @@ func TestTSNS4_GenerateValidationExitsNonZero(t *testing.T) {
 	setupSpecWithSession(t, specDir, "66_exitcode_test")
 
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, sp string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, sp string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		for _, f := range []string{"requirements.json", "test_spec.json", "tasks.json"} {
 			_ = os.WriteFile(filepath.Join(sp, f), []byte(`{"spec_id":"66"}`), 0644)
 		}
@@ -852,7 +852,7 @@ func TestTSNS3_GenerateNoWarningsExitsZero(t *testing.T) {
 	setupSpecWithSession(t, specDir, "66_ok_test")
 
 	orig := generateFunc
-	generateFunc = func(ctx context.Context, sp string) (agentspec.GenerateResult, error) {
+	generateFunc = func(ctx context.Context, sp string, _ agentspec.RunOptions) (agentspec.GenerateResult, error) {
 		for _, f := range []string{"requirements.json", "test_spec.json", "tasks.json"} {
 			_ = os.WriteFile(filepath.Join(sp, f), []byte(`{"spec_id":"66"}`), 0644)
 		}

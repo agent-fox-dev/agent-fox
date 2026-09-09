@@ -19,7 +19,7 @@ import (
 func setupMockAssess(t *testing.T, quality string) {
 	t.Helper()
 	orig := assessFunc
-	assessFunc = func(ctx context.Context, specPath string) (agentspec.Assessment, error) {
+	assessFunc = func(ctx context.Context, specPath string, _ agentspec.RunOptions) (agentspec.Assessment, error) {
 		return agentspec.Assessment{
 			Quality:   quality,
 			Summary:   "Mock assessment summary",
@@ -35,7 +35,7 @@ func setupMockAssess(t *testing.T, quality string) {
 func setupMockRefine(t *testing.T, updatedPRD string) {
 	t.Helper()
 	orig := refineFunc
-	refineFunc = func(ctx context.Context, specPath string, answers map[string]string) (agentspec.Assessment, error) {
+	refineFunc = func(ctx context.Context, specPath string, answers map[string]string, _ agentspec.RunOptions) (agentspec.Assessment, error) {
 		if updatedPRD != "" {
 			_ = os.WriteFile(filepath.Join(specPath, "prd.md"), []byte(updatedPRD), 0644)
 		}
