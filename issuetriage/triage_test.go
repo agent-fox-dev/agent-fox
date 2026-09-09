@@ -157,6 +157,9 @@ func TestRenderIsDeterministic(t *testing.T) {
 	if !strings.Contains(first, "No related instances found.") {
 		t.Error("an empty related-instances list should render as a sentence, not as nothing")
 	}
+	if !strings.Contains(first, "[`issue`](https://github.com/agent-fox-dev/agent-fox)") {
+		t.Errorf("the attribution footer should link the tool name to the agent-fox repo:\n%s", first)
+	}
 }
 
 // A path the model made up is the most common way a machine-written triage
