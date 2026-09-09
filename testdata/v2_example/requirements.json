@@ -1,0 +1,76 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "09",
+  "spec_name": "agent_mode",
+  "schema_version": 2,
+  "introduction": "Agent mode makes the spec CLI emit machine-readable JSON only, so that coding agents can drive it programmatically.",
+  "glossary": {
+    "agent mode": "The CLI behaviour selected by the environment variable AF_AGENT=1: JSON-only stdout, no banner, no spinner."
+  },
+  "requirements": [
+    {
+      "id": "09-REQ-1",
+      "title": "JSON-only stdout in agent mode",
+      "rationale": "Agents parse stdout; a single stray byte breaks them.",
+      "criteria": [
+        {
+          "id": "09-REQ-1.1",
+          "pattern": "state_driven",
+          "condition": "AF_AGENT=1 is set in the environment",
+          "system": "spec binary",
+          "action": "suppress the banner and spinner and write only the command's JSON result to stdout",
+          "contract": "stdout parses as exactly one JSON object"
+        },
+        {
+          "id": "09-REQ-1.2",
+          "pattern": "complex_event",
+          "condition": "a command finishes",
+          "guard": "AF_AGENT=1 is set and --quiet was also passed",
+          "system": "spec binary",
+          "action": "behave exactly as with AF_AGENT=1 alone",
+          "contract": "identical stdout, stderr and exit code"
+        },
+        {
+          "id": "09-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "spec binary",
+          "action": "for any command and any arguments, in agent mode, write progress and diagnostics to stderr only"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-2",
+      "title": "Error envelope in agent mode",
+      "criteria": [
+        {
+          "id": "09-REQ-2.1",
+          "pattern": "unwanted",
+          "condition": "a command returns an error while AF_AGENT=1 is set",
+          "system": "spec binary",
+          "action": "write {\"ok\": false, \"error\": <message>} to stdout and exit",
+          "contract": "exit code 1; stdout is {\"ok\": false, \"error\": string}"
+        },
+        {
+          "id": "09-REQ-2.2",
+          "pattern": "unwanted",
+          "condition": "stdout is a closed pipe while the JSON result is written",
+          "system": "spec binary",
+          "action": "discard the write error and keep the command's own exit code",
+          "contract": "no panic; exit code is the command's, not a write error"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "09-PATH-1",
+      "title": "Agent lists specs and parses the result",
+      "steps": [
+        { "actor": "agent", "action": "runs `spec list` with AF_AGENT=1" },
+        { "actor": "spec binary", "action": "detects agent mode before the banner would print" },
+        { "actor": "spec binary", "action": "scans the spec root and builds the list payload" },
+        { "actor": "spec binary", "action": "writes the payload as one JSON object to stdout and exits 0" }
+      ]
+    }
+  ]
+}

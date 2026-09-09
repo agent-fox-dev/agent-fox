@@ -1,0 +1,78 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "spec_id": "abc",
+  "spec_name": "alpha_prefix_feature",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-abc-1",
+      "requirement_id": "abc-REQ-1.1",
+      "kind": "unit",
+      "description": "Alpha prefix IDs pass validation",
+      "preconditions": [],
+      "input": {},
+      "expected": {
+        "valid": true
+      },
+      "assertion_pseudocode": "result = validate(spec); assert result.valid"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-abc-P1",
+      "property_id": "abc-PROP-1",
+      "validates": [
+        "abc-REQ-1.1"
+      ],
+      "description": "ID format consistency with alpha prefix",
+      "for_any_strategy": "valid spec with alpha prefix",
+      "invariant_check": "all IDs match pattern"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-abc-E1",
+      "requirement_id": "abc-REQ-1.E1",
+      "kind": "unit",
+      "description": "Malformed ID raises error",
+      "preconditions": [
+        "spec with malformed ID"
+      ],
+      "input": {
+        "bad_id": "bad!!id"
+      },
+      "expected": {
+        "error": true
+      },
+      "assertion_pseudocode": "result = validate(spec); assert not result.valid"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-abc-SMOKE-1",
+      "execution_path_id": "abc-PATH-1",
+      "description": "Validate spec with alpha prefix end-to-end",
+      "trigger": "validate_cross_file(spec)",
+      "real_components": [
+        "validation"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Returns valid result with no id_format errors"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [
+      "abc-REQ-1.1",
+      "abc-REQ-1.E1"
+    ],
+    "properties_covered": [
+      "abc-PROP-1"
+    ],
+    "paths_covered": [
+      "abc-PATH-1"
+    ],
+    "gaps": []
+  }
+}

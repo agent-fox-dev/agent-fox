@@ -1,4 +1,5 @@
-.PHONY: check test lint build
+.PHONY: check test test-fast lint format build json-gen clean \
+        build-darwin-arm64 build-linux-arm64 build-linux-amd64
 
 VERSION    := $(shell git describe --tags 2>/dev/null || echo "0.1.0")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
@@ -11,6 +12,9 @@ LDFLAGS := -ldflags "\
 
 CONTAINER_REGISTRY ?= quay.io/agentfox
 
+SCHEMAS_DIR := $(CURDIR)/afspec/schemas
+DIST_DIR    := $(CURDIR)/dist
+
 # Run lint + all tests
 check: lint test
 
@@ -18,11 +22,45 @@ check: lint test
 test:
 	go test ./... -count=1
 
+# Run the fast tests only
+test-fast:
+	go test ./... -short -count=1
+
 # Run linter
 lint:
+	test -z "$$(gofmt -l .)"
 	go vet ./...
+
+format:
+	gofmt -w .
 
 # Build all CLIs
 build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/af ./cmd/af
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/nightshift ./cmd/nightshift
+	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/spec ./cmd/spec
+
+# Cross-platform static builds of the spec CLI
+build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
+
+build-darwin-arm64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-darwin-arm64 ./cmd/spec
+
+build-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-linux-arm64 ./cmd/spec
+
+build-linux-amd64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-linux-amd64 ./cmd/spec
+
+clean:
+	rm -rf $(DIST_DIR) bin/af bin/nightshift bin/spec
+
+# Regenerate the Go artifact types from the bundled JSON Schemas.
+# The canonical schemas live in the agent-fox-dev/spec repository; the copies
+# under afspec/schemas/ are what the library compiles and embeds.
+json-gen:
+	go install github.com/atombender/go-jsonschema@latest
+	go-jsonschema -p afspec $(SCHEMAS_DIR)/requirements.v2.json  > $(CURDIR)/afspec/requirements.v2.go
+	go-jsonschema -p afspec $(SCHEMAS_DIR)/test_spec.v2.json     > $(CURDIR)/afspec/test_spec.v2.go
+	go-jsonschema -p afspec $(SCHEMAS_DIR)/tasks.v2.json         > $(CURDIR)/afspec/tasks.v2.go
+	go-jsonschema -p afspec $(SCHEMAS_DIR)/prd-frontmatter.v2.json > $(CURDIR)/afspec/prd-frontmatter.v2.go

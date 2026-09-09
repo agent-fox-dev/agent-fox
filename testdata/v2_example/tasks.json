@@ -1,0 +1,63 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "09",
+  "spec_name": "agent_mode",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "go test ./... -count=1",
+    "linter": "go vet ./...",
+    "spec_tests": "go test ./cmd/spec/... -run 'TestAgentMode' -count=1"
+  },
+  "dependencies": [
+    { "spec": "08", "reason": "extends the cobra root command and emit helpers of the Go CLI" }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Detect agent mode and keep stdout JSON-only",
+      "criteria": ["09-REQ-1"],
+      "tests": ["TS-09-1", "TS-09-2", "TS-09-3"],
+      "steps": [
+        "Write TS-09-1, TS-09-2 and TS-09-3 in cmd/spec/agent_test.go and confirm they fail",
+        "Add isAgentMode() reading AF_AGENT and call it in the root PersistentPreRun before the banner",
+        "Force quiet when in agent mode so the spinner and banner write nothing",
+        "Make emit() the only writer to stdout; route every other message to stderr"
+      ],
+      "touches": ["golang/cmd/spec/root.go", "golang/cmd/spec/banner.go", "golang/cmd/spec/spinner.go"],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Error envelope and closed-pipe handling",
+      "criteria": ["09-REQ-2.1", "09-REQ-2.2"],
+      "tests": ["TS-09-4", "TS-09-5"],
+      "steps": [
+        "Write TS-09-4 and TS-09-5 and confirm they fail",
+        "In Execute(), when agent mode is on and RunE returns an error, print {ok:false,error} via emit() and exit 1",
+        "In emit(), treat EPIPE and io.ErrClosedPipe as success so the command's exit code is preserved"
+      ],
+      "touches": ["golang/cmd/spec/root.go", "golang/cmd/spec/emit.go"],
+      "depends_on": [1],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "integration",
+      "title": "Verify agent mode end to end",
+      "criteria": [],
+      "tests": ["TS-09-6"],
+      "steps": [
+        "Write TS-09-6 against the compiled binary and confirm it passes",
+        "Trace 09-PATH-1 from main() through PersistentPreRun to emit(); confirm no stub remains on the path",
+        "Confirm isAgentMode() is consumed by root.go in production code, not only by tests",
+        "Grep golang/cmd/spec for TODO and panic(\"not implemented\") and remove any that remain"
+      ],
+      "touches": ["golang/cmd/spec/smoke_test.go"],
+      "depends_on": [1, 2],
+      "done_when": ["AF_AGENT=1 spec list | jq . succeeds against the built binary"],
+      "state": "pending"
+    }
+  ]
+}

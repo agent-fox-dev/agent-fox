@@ -17,3 +17,32 @@ The repo is a typical `golang` project:
 - <feature module>/ for any "features" that can be used "standalone" or conceptually belong to the same domain
 - <repo root>/ the most important entry points into the repo.
 
+## Modules
+
+| Path | Package | Purpose |
+|---|---|---|
+| [`afspec/`](afspec/README.md) | `afspec` | Spec format library: load, validate, mutate, render and save specification packages. |
+| `agentspec/` | `agentspec` | LLM-powered spec creation: session state machine, generation pipeline, Claude API integration. |
+| `cmd/spec/` | `main` | The `spec` CLI. |
+| `cmd/af/` | `main` | The `af` CLI. |
+| `cmd/nightshift/` | `main` | The `nightshift` CLI. |
+
+The spec format itself is specified in the
+[`spec`](https://github.com/agent-fox-dev/spec) repository
+(`specification/spec-format-v2.md`). The JSON Schemas the library compiles and
+embeds live in `afspec/schemas/`.
+
+## Quick start
+
+```bash
+make check          # gofmt + go vet + all tests
+make build          # build af, nightshift and spec into bin/
+```
+
+## Documentation
+
+- [Spec CLI Reference](docs/cli.md) — commands, flags and usage
+- [Configuration](docs/configuration.md) — LLM provider setup and model selection
+- [Go Library API](afspec/README.md) — the `afspec` library
+- [Development Guide](docs/development.md) — setup, testing, contributing
+- [ADRs](docs/adr/) — architecture decisions

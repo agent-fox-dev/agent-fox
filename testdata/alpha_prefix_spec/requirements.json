@@ -1,0 +1,76 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v1.json",
+  "spec_id": "abc",
+  "spec_name": "alpha_prefix_feature",
+  "schema_version": 1,
+  "introduction": "The alpha prefix feature validates alphanumeric spec_id prefixes.",
+  "glossary": {
+    "spec": "A four-artifact package representing one feature.",
+    "system": "The afspec library."
+  },
+  "requirements": [
+    {
+      "id": "abc-REQ-1",
+      "title": "Alpha Prefix Support",
+      "user_story": {
+        "role": "developer",
+        "goal": "use alphanumeric prefixes in spec IDs",
+        "benefit": "flexible naming"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "abc-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "the `system`",
+          "action": "accept IDs with alphanumeric prefixes",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "abc-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "error_condition": "the `spec` has a malformed ID",
+          "system": "the `system`",
+          "action": "raise a validation error identifying the bad ID",
+          "return_contract": "raises ValidationError with message listing the bad ID"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "abc-PROP-1",
+      "title": "ID format consistency",
+      "for_any": "valid Spec value with alpha prefix",
+      "invariant": "all IDs match their expected pattern",
+      "validates": [
+        "abc-REQ-1.1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "abc-PATH-1",
+      "title": "Validate spec with alpha prefix",
+      "steps": [
+        {
+          "actor": "consumer",
+          "action": "call validate_cross_file(spec)"
+        },
+        {
+          "actor": "system",
+          "action": "check all ID formats"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "abc-ERR-1",
+      "condition": "Malformed ID",
+      "behavior": "Report id_format error",
+      "requirement_id": "abc-REQ-1.E1"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
+  "spec_id": "abc",
+  "spec_name": "alpha_prefix_feature",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "go test ./...",
+    "all_tests": "go test ./...",
+    "linter": "go vet ./..."
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write failing spec tests",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create test infrastructure",
+          "details": [
+            "Set up test files and fixtures"
+          ],
+          "test_spec_refs": [
+            "TS-abc-1"
+          ],
+          "requirement_refs": [
+            "abc-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All spec tests exist and are syntactically valid",
+          "All spec tests FAIL (no implementation yet)"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "wiring_verification",
+      "title": "Wiring verification",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Stub and dead-code audit",
+          "details": [
+            "Verify all paths are wired",
+            "Confirm no stubs remain"
+          ],
+          "test_spec_refs": [
+            "TS-abc-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "abc-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All smoke tests pass",
+          "No unjustified stubs remain"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "abc-REQ-1.1",
+      "test_spec_id": "TS-abc-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "abc-REQ-1.E1",
+      "test_spec_id": "TS-abc-E1",
+      "task_id": "1.1",
+      "test_path": null
+    }
+  ]
+}
