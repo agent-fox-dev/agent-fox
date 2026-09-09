@@ -115,6 +115,25 @@ func TestAnEmptyModelNameIsRefused(t *testing.T) {
 	}
 }
 
+func TestAModelIDIsNotBlockedByAnUnknownVendor(t *testing.T) {
+	// The vendor only ever selects a tier table. A model named by id must
+	// resolve through the catalog regardless of vendor, including a vendor
+	// (ollama, an OpenAI-compatible gateway, ...) that has no tier table at
+	// all: naming it must not turn into "unknown model vendor".
+	for _, vendor := range []string{"ollama", "openrouter"} {
+		spec, _, err := ModelSpec("anthropic/claude-opus-5", "", vendor)
+		if err != nil {
+			t.Fatalf("ModelSpec(id, vendor=%s): %v", vendor, err)
+		}
+		if spec != "anthropic/claude-opus-5" {
+			t.Errorf("ModelSpec(id, vendor=%s) = %q, want it unchanged", vendor, spec)
+		}
+		if _, _, err := ResolveModel("anthropic/claude-opus-5", "", vendor); err != nil {
+			t.Errorf("ResolveModel(id, vendor=%s): %v", vendor, err)
+		}
+	}
+}
+
 func TestAnUnknownVendorIsRefusedWithTheKnownOnes(t *testing.T) {
 	_, _, err := ModelSpec("STANDARD", "", "nosuchvendor")
 	if err == nil {
