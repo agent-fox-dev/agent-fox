@@ -1,15 +1,148 @@
 package agentspec
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/provider/faux"
+
 	"github.com/agent-fox-dev/agentfox/afspec"
 )
+
+// The helpers below script a provider instead of mocking this package.
+//
+// The old suite injected a function in place of AICall and asserted on the
+// AICallOptions it was handed, which could only ever check that this package
+// had built the arguments it meant to build. provider/faux sits where a
+// vendor sits, so the same tests now assert on core.Request values that went
+// through prompt assembly, tool declaration and the loop — and a tool handler
+// that rejects an artifact is exercised by the loop that would carry the
+// rejection back, rather than by a call this package made to itself.
+
+// fauxRun returns run options that drive a phase against p, with no key, no
+// network and no environment variable.
+func fauxRun(p *faux.Provider) RunOptions {
+	return RunOptions{
+		Model:     faux.Model(),
+		Providers: core.ProviderRegistry{faux.API: p.APIProvider()},
+	}
+}
+
+// toolCallTurn scripts one assistant turn that calls name with args.
+func toolCallTurn(id, name string, args any) faux.Turn {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		panic("toolCallTurn: " + err.Error())
+	}
+	return faux.Turn{
+		Blocks:     []core.ContentBlock{faux.FauxToolCall(id, name, string(raw))},
+		StopReason: core.StopReasonToolUse,
+	}
+}
+
+// textTurn scripts an assistant turn that answers in prose and stops — the
+// shape of a run that ends without submitting anything.
+func textTurn(s string) faux.Turn {
+	return faux.Turn{
+		Blocks:     []core.ContentBlock{faux.FauxText(s)},
+		StopReason: core.StopReasonStop,
+	}
+}
+
+// validAssessment is an assessment payload the submit tool accepts.
+func validAssessment(quality string) map[string]any {
+	return map[string]any{
+		"quality":   quality,
+		"summary":   "The PRD states its intent and its boundaries.",
+		"gaps":      []any{"No error budget is stated."},
+		"questions": []any{map[string]any{"id": "q1", "text": "What is the error budget?"}},
+	}
+}
+
+// generationScript scripts the three generation steps in the order §12.1
+// mandates, each answering with the valid artifact for that step.
+func generationScript(specID, specName string) *faux.Provider {
+	turns := make([]faux.Turn, 0, len(afspec.GenerationSteps))
+	for _, step := range afspec.GenerationSteps {
+		turns = append(turns, toolCallTurn(
+			"call_"+string(step), ArtifactToolName(step), v2Artifact(step, specID, specName)))
+	}
+	return faux.New(turns...)
+}
+
+// systemPromptOf returns the assembled system prompt of the i-th request the
+// provider was asked to complete. It is the assertion that a block reached the
+// model, rather than that this package built one.
+func systemPromptOf(t *testing.T, p *faux.Provider, i int) string {
+	t.Helper()
+	reqs := p.Requests()
+	if i >= len(reqs) {
+		t.Fatalf("request %d was never made; the provider saw %d", i, len(reqs))
+	}
+	var b []byte
+	for _, blk := range reqs[i].System {
+		if tb, ok := blk.(core.TextBlock); ok {
+			b = append(b, tb.Text...)
+			b = append(b, '\n')
+		}
+	}
+	return string(b)
+}
+
+// toolNamesOf returns the tool names declared on the i-th request.
+func toolNamesOf(t *testing.T, p *faux.Provider, i int) []string {
+	t.Helper()
+	reqs := p.Requests()
+	if i >= len(reqs) {
+		t.Fatalf("request %d was never made; the provider saw %d", i, len(reqs))
+	}
+	names := make([]string, 0, len(reqs[i].Tools))
+	for _, tool := range reqs[i].Tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+// toolResultTextOf returns the concatenated text of the tool results on the
+// i-th request. A validation failure travels back to the model as one of
+// these, so it is where a test looks to see that a rejection was actually
+// delivered rather than merely produced.
+func toolResultTextOf(t *testing.T, p *faux.Provider, i int) string {
+	t.Helper()
+	reqs := p.Requests()
+	if i >= len(reqs) {
+		t.Fatalf("request %d was never made; the provider saw %d", i, len(reqs))
+	}
+	var b []byte
+	for _, m := range reqs[i].Messages {
+		if tr, ok := m.(core.ToolResultMessage); ok {
+			b = append(b, tr.Content.Text()...)
+			b = append(b, '\n')
+		}
+	}
+	return string(b)
+}
+
+// userTextOf returns the concatenated text of the user messages on the i-th
+// request.
+func userTextOf(t *testing.T, p *faux.Provider, i int) string {
+	t.Helper()
+	reqs := p.Requests()
+	if i >= len(reqs) {
+		t.Fatalf("request %d was never made; the provider saw %d", i, len(reqs))
+	}
+	var b []byte
+	for _, m := range reqs[i].Messages {
+		if um, ok := m.(core.UserMessage); ok {
+			b = append(b, um.Content.Text()...)
+			b = append(b, '\n')
+		}
+	}
+	return string(b)
+}
 
 // The helpers below build the artifacts a model would return through its
 // submit_* tool. They are complete and valid under format v2: every criterion
@@ -172,43 +305,6 @@ func v2ArtifactByName(name, specID, specName string) map[string]any {
 	return v2Artifact(afspec.GenerationStep(name), specID, specName)
 }
 
-// artifactNameFromContext maps an AICallOptions.Context value such as
-// "GenerateArtifacts:test_spec:repair:1" to the artifact it is generating.
-func artifactNameFromContext(context string) string {
-	// Longest first: "test_spec" would otherwise never match if "tasks" did.
-	for _, name := range []string{"requirements", "test_spec", "tasks"} {
-		if containsSub(context, name) {
-			return name
-		}
-	}
-	return ""
-}
-
-func containsSub(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
-}
-
-// mockGenerationCall returns an aiCallFunc that answers every generation step
-// with the valid artifact for that step.
-func mockGenerationCall(capture *aiCallCapture, specID, specName string) func(ctx context.Context, opts AICallOptions) (string, any, error) {
-	return func(_ context.Context, opts AICallOptions) (string, any, error) {
-		if capture != nil {
-			capture.record(opts)
-		}
-		name := artifactNameFromContext(opts.Context)
-		if name == "" {
-			return "", nil, fmt.Errorf("unexpected AICall context %q", opts.Context)
-		}
-		return "", makeToolCallResponse("end_turn",
-			makeArtifactToolCall(name, v2ArtifactByName(name, specID, specName))), nil
-	}
-}
-
 // writeV2Artifacts writes the three valid artifacts into dir, so that a
 // session test can start from a complete spec.
 func writeV2Artifacts(t *testing.T, dir, specID, specName string) {
@@ -255,4 +351,10 @@ func newSpecDir(t *testing.T, specID, specName string) string {
 		t.Fatalf("cannot write prd.md: %v", err)
 	}
 	return dir
+}
+
+// isZeroAssessment reports whether a is the zero value — the assessment a
+// failed phase returns alongside its error.
+func isZeroAssessment(a Assessment) bool {
+	return a.Quality == "" && a.Summary == "" && len(a.Gaps) == 0 && len(a.Questions) == 0
 }

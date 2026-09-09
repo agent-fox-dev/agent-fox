@@ -1,179 +1,127 @@
 # Model Usage
 
-This document describes how the spec pipeline selects, resolves, and invokes
-Claude models across its three AI-powered stages: assessment, refinement, and
-artifact generation.
+How the spec pipeline invokes a model across its three stages, what each stage
+sends, and what happens when the answer is wrong.
 
-For credentials, provider selection, and TOML config file syntax, see
+For credentials, model selection and the config file, see
 [Configuration](configuration.md).
 
-## Model Tiers
+## A phase is an agent
 
-Three named tiers map to specific Claude model IDs:
+Each stage builds its own agent — its own model, tool set, turn budget and cost
+cap — and runs it to a result. They are separate agents rather than one
+conversation because sharing a transcript would carry the PRD critique into the
+requirements the critique was supposed to improve.
 
-| Tier | Model ID | Use case |
-|------|----------|----------|
-| `SIMPLE` | `claude-haiku-4-5` | Fast and low-cost; suited for lightweight assessment calls |
-| `STANDARD` | `claude-sonnet-4-6` | Balanced quality and cost; the default for all phases |
-| `ADVANCED` | `claude-opus-4-6` | Highest quality; best for complex artifact generation |
+| Phase | `max_tokens` | Temperature | Configurable via | Submits through |
+|---|---|---|---|---|
+| `assess` | 4 096 | 0.2 | `assess_model` | `submit_assessment` |
+| `refine` | 16 384 | 0.2 | `refine_model` | `submit_prd_update` |
+| `generate` (per artifact) | 65 536 | 0.2 | `generate_model` | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
 
-The default tier is `STANDARD` unless overridden by configuration or environment
-variable.
+`max_tokens` is an upper bound and is clamped to the resolved model's own
+ceiling. Temperature is low because every phase produces a structured artifact
+that is then validated — creativity here shows up as a schema violation. A
+model whose catalog row rejects sampling parameters has them dropped by its
+provider rather than by a branch in this code.
 
-## Pipeline Phases
+## The result is a tool call
 
-The spec pipeline runs three sequential AI-powered stages. Every stage calls the
-Anthropic API with a fixed temperature and token budget:
+Every phase ends by calling one tool whose arguments *are* the result. The
+handler decodes them into a typed Go value, validates, and votes to end the
+run. Nothing parses a response afterwards.
 
-| Phase | Source location | `max_tokens` | Temperature | Configurable via | Description |
-|-------|----------------|-------------|-------------|------------------|-------------|
-| `assess` | `agent.py:134` | 4 096 | 0.2 | `assess_model` | Sends the PRD to the model for structured quality evaluation via the `submit_assessment` tool |
-| `refine` | `agent.py:198` | 16 384 | 0.2 | `refine_model` | Sends the PRD, user answers, and prior assessment; the model rewrites the PRD and issues a new assessment via `submit_prd_update` and `submit_assessment` tools |
-| `generate` (per artifact) | `agent.py:289` | 65 536 | 0.2 | `generate_model` | Generates one artifact at a time (`requirements.json`, `test_spec.json`, `tasks.json`) in sequence; each call includes all prior artifacts as context |
-| `generate` (repair) | `agent.py:381` | 65 536 | 0.2 | `generate_model` | Asks the model to fix schema-validation errors in a generated artifact; up to `_MAX_REPAIR_ATTEMPTS = 2` attempts per artifact |
+- **`submit_assessment`** — quality (one of `ready`, `needs_refinement`,
+  `incomplete`), summary, gaps, questions.
+- **`submit_prd_update`** — the rewritten PRD *and* a fresh assessment of it,
+  as two fields of one call. They used to have to appear in one response with a
+  hand-written check enforcing it; making them one call means the schema says
+  so, and a submission missing half is refused by its own tool call.
+- **`submit_{artifact}`** — the whole artifact, against the v2 JSON Schema
+  `afspec` embeds. The schema is converted from those bytes rather than
+  re-authored, so the declaration the model fills in and the rules the artifact
+  is validated against cannot disagree.
 
-Source files are under `packages/agentspec/agentspec/`. The repair loop uses the
-same model tier as the main `generate` stage.
+## Generation is sequential, and each step sees everything before it
 
-All phases default to `STANDARD` (`claude-sonnet-4-6`) when no per-phase
-override is configured.
+Format v2 §12.1 fixes the order: `requirements`, then `test_spec`, then
+`tasks`. Each step receives the complete artifacts produced before it —
+requirements through the library's own renderer, tests as a table carrying
+every id, kind and `verifies` list.
 
-## How the Tier Is Resolved
+The order is the rule and the reason for it is concrete: the previous format
+ran `test_spec` and `tasks` concurrently off a summary of requirement ids, so
+the task generator never saw a test id and could not own the tests it was
+supposed to own. In all eight archived v1 specs, every edge-case and property
+test ended up owned by no task.
 
-Both the Python library and the Go CLI resolve the model through the same
-configuration chain:
+## Repair is the loop
 
-1. **`LoadConfig()` / `load_config()`** constructs an `AgentSpecConfig` with
-   defaults (`model="STANDARD"`, all per-phase fields empty/`None`). It checks
-   two TOML paths in order: `.specs/config.toml` (project-local), then
-   `~/.specs/config.toml` (user-global). The first file found wins; files are
-   not merged. Symlinked config files are rejected (Python only).
+`afspec.ValidateGenerationStep` runs **inside** the submit handler: the
+artifact's schema plus every cross-file rule decidable at that point. A
+violation is returned as a tool error whose text names the rule that failed,
+and the loop appends it to the transcript the model is already holding.
 
-2. **`AF_SPEC_MODEL` environment variable**, if set, overrides `config.model`.
-   Per-phase fields (`assess_model`, `refine_model`, `generate_model`) are not
-   affected by this variable — it applies to all phases uniformly.
+There is no second conversation assembled anywhere. Two things follow:
 
-3. **`config.ModelForPhase(phase)` / `config.model_for_phase(phase)`** returns
-   the phase-specific field when it is set; otherwise falls back to
-   `config.model`.
+- The system prompt and the tool schemas are byte-identical across an attempt
+  and its correction, so the provider's cache prefix survives the repair
+  instead of being rebuilt each time.
+- "How many attempts does the model get" and "how many turns may this phase
+  take" are the same number, bounded by `--max-turns` (default 40).
 
-4. **`SpecAgent(model_tier)`** / **`NewSpecAgent(model_tier)`** is constructed
-   with the resolved tier string.
+A step that never produces a valid artifact within that budget is a failed
+generation: `spec generate` exits non-zero, removes the artifacts that run
+wrote, and reports the violations (§12.2). Artifacts that already existed on
+disk are left alone, so a re-run resumes from the point of failure.
 
-5. On each API call, **`resolve_model(name)`** converts the tier string to a
-   concrete model ID:
-   - If `name` matches `SIMPLE`, `STANDARD`, or `ADVANCED` (exact-case in
-     Python via `ModelTier` StrEnum; case-insensitive in Go via
-     `strings.ToUpper`), the corresponding default model ID is returned from
-     `TIER_DEFAULTS`.
-   - If `name` matches a known entry in `MODEL_REGISTRY`, it is returned as-is,
-     allowing direct model ID strings such as `claude-sonnet-4-6`.
-   - Otherwise a `ConfigError` is raised (Python) or an error is returned (Go).
+## A run that ends without submitting
 
-Sources: `packages/agentspec/agentspec/client.py:66–84`;
-`agentspec/model_registry.go:60–77`;
-`agentspec/session.go:resolveAgent()`.
+The error names the `RunStopReason`, because the three ways this happens want
+three different responses:
 
-## Configuration
+| Reason | What happened | What to do |
+|---|---|---|
+| `end_turn` | the model answered in prose instead of calling the tool | the error quotes what it said |
+| `max_turns` | it kept failing validation | raise `--max-turns`, or read the rejections with `--verbose` |
+| `budget_exceeded` | the phase hit its cost cap | raise `--max-budget`, or use a cheaper tier for that phase |
 
-Select a tier globally or override it per pipeline phase in `.specs/config.toml`:
+There is no way to *force* a tool call: AgentKit's `ToolChoice` is
+unset/auto/none, the tri-state expressible on every wire it speaks. A phase run
+without `--read-source` declares exactly one tool and its prompt guideline says
+to call it.
 
-```toml
-[model]
-model = "STANDARD"             # base tier for all phases
+## Reading the codebase
 
-assess_model   = "SIMPLE"      # short call — use the fast model
-generate_model = "ADVANCED"    # long calls — use the most capable model
+With `--read-source`, the phase additionally gets AgentKit's non-mutating
+built-in tools rooted at `--source`, and the turns it spends reading come out
+of the same budget. `--verbose` reports each tool call on stderr.
+
+Nothing that writes is reachable: the mutating tools are excluded from the
+resolved set, an invariant checks that set before the first request, and
+AgentKit's unguarded-shell guard fails any run where one survived.
+
+## Retry and caching
+
+A transient provider failure is retried by middleware (3 attempts by default,
+exponential with jitter). Prompt caching is the provider's: AgentKit stamps
+breakpoints over the tool schemas and the assembled system prompt and keeps a
+late-added tool after the prefix, so a tool arriving mid-session does not
+invalidate the whole transcript.
+
+## Prompt templates
+
+Nine templates are embedded at compile time and each can be overridden per
+project at `<project>/.spec/prompts/<name>.md`. A symlinked override is
+ignored.
+
+```
+assessment_system     assessment_user
+refinement_system     refinement_user
+generation_system     generation_user_base
+generation_user_requirements  generation_user_test_spec  generation_user_tasks
 ```
 
-With the above configuration:
-
-| Phase | Resolved tier | Model ID |
-|-------|--------------|----------|
-| `assess` | `SIMPLE` | `claude-haiku-4-5` |
-| `refine` | `STANDARD` (inherits `model`) | `claude-sonnet-4-6` |
-| `generate` + repair | `ADVANCED` | `claude-opus-4-6` |
-
-To override a single run without editing a file:
-
-```sh
-export AF_SPEC_MODEL=ADVANCED
-spec generate
-```
-
-`AF_SPEC_MODEL` accepts a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or a
-direct model ID. It has the highest precedence and applies to all phases; it
-does **not** interact with per-phase fields set in the TOML file.
-
-For the full reference — file locations, all available fields, provider
-settings, and precedence rules — see [Configuration](configuration.md).
-
-## Prompt Caching
-
-The AI layer injects Anthropic prompt-cache metadata into system prompts when
-the estimated token count of the system text exceeds a model-specific threshold.
-The estimate is computed as `len(system_text) // 4`.
-
-| Model | Cache threshold (estimated tokens) |
-|-------|-------------------------------------|
-| `claude-sonnet-4-6` | 2 048 |
-| `claude-haiku-4-5` | 4 096 |
-| `claude-opus-4-6` | 4 096 |
-| Any other model | 4 096 (default) |
-
-Source: `packages/agentspec/agentspec/client.py:91–95`
-(`_CACHE_TOKEN_THRESHOLDS`).
-
-Three cache policies control what metadata is injected:
-
-| Policy | Behavior |
-|--------|----------|
-| `CachePolicy.NONE` | Caching disabled; no `cache_control` key is added |
-| `CachePolicy.DEFAULT` | Injects `{"type": "ephemeral"}` on the last system block when the threshold is exceeded |
-| `CachePolicy.EXTENDED` | Injects `{"type": "ephemeral", "ttl": "1h"}` when the threshold is exceeded |
-
-`CachePolicy.DEFAULT` is the active policy for all phases. The cache policy is
-not user-configurable via environment variable or config file.
-
-If the API returns a `BadRequestError` mentioning `cache_control`, the request
-is automatically retried without caching metadata.
-
-## Retry Behavior
-
-All API calls issued from `_call_api()` are retried with fixed backoff delays
-when transient errors occur.
-
-| Attempt | Delay before next attempt |
-|---------|--------------------------|
-| 1 | 2 s |
-| 2 | 30 s |
-| 3 | 60 s |
-| 4 (final) | — (exception re-raised immediately) |
-
-Maximum attempts: 4 (`len(_RETRY_DELAYS) + 1`, where
-`_RETRY_DELAYS = (2.0, 30.0, 60.0)`). Source:
-`packages/agentspec/agentspec/client.py:141`.
-
-Errors that trigger a retry:
-
-| Error class | Condition |
-|-------------|-----------|
-| `anthropic.RateLimitError` | HTTP 429 |
-| `anthropic.APIStatusError` | `status_code >= 500` |
-| `OSError` | Network-level failure |
-
-After all attempts are exhausted, `SpecAgent._call_api()` wraps the final
-exception as an `AgentError`. Error categories classified as retryable:
-`"rate_limit"`, `"transient"`, `"overloaded"`.
-
-## Known Limitations
-
-- **Go CLI has no per-phase model support** ([#94](https://github.com/agent-fox-dev/spec/issues/94)):
-  Per-phase fields (`assess_model`, `refine_model`, `generate_model`) are
-  implemented in the Python `agentspec` library only. The Go binary uses a single
-  hardcoded tier across all phases.
-
-- **No 1M context-window variant** ([#95](https://github.com/agent-fox-dev/spec/issues/95)):
-  The model registry does not include extended-context variants such as
-  `claude-opus-4-6[1m]`. Specifying a 1M model ID raises a `ConfigError`
-  (Python) or returns an error (Go).
+With `--trust-project`, repository-authored skills and context files
+(`AGENTS.md`, `CLAUDE.md`, `.specs/steering.md`) are appended to the assembled
+system prompt as well.

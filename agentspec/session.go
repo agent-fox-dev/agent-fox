@@ -73,6 +73,7 @@ type assessor interface {
 type SpecSession struct {
 	specDir            string
 	agent              assessor
+	runOpts            *RunOptions
 	Current            SessionState `json:"state"`
 	Mode               string       `json:"mode"`
 	PRDPath            string       `json:"prd_path"`
@@ -742,8 +743,17 @@ func (s *SpecSession) readPRD() (string, error) {
 	return string(data), nil
 }
 
+// SetRunOptions overrides the run options the session's phases are built
+// with. It is how a caller supplies the workspace the model may read, the
+// providers it talks to, and the bounds it runs under; the session itself has
+// no opinion about any of the three.
+//
+// Options set here win over the config file for every field they set, and
+// leave the rest to it.
+func (s *SpecSession) SetRunOptions(o RunOptions) { s.runOpts = &o }
+
 // resolveAgent returns the assessor to use — the injected mock if set,
-// or a new SpecAgent configured with the model tier appropriate for phase.
+// or a new SpecAgent configured for the given phase.
 // phase should be one of "assess", "refine", or "generate".
 // If LoadConfig fails (e.g. no config file), it falls back to "STANDARD".
 func (s *SpecSession) resolveAgent(phase string) assessor {
@@ -752,9 +762,50 @@ func (s *SpecSession) resolveAgent(phase string) assessor {
 	}
 	cfg, err := LoadConfig()
 	if err != nil {
-		return NewSpecAgent("STANDARD")
+		cfg = AgentSpecConfig{Model: "STANDARD"}
 	}
-	return NewSpecAgent(cfg.ModelForPhase(phase), cfg.ModelVariant)
+	opts := cfg.RunOptions()
+	if s.runOpts != nil {
+		opts = mergeRunOptions(opts, *s.runOpts)
+	}
+	return NewSpecAgentWith(cfg.ModelForPhase(phase), cfg.ModelVariant, opts)
+}
+
+// mergeRunOptions overlays the caller's options on the configured ones. A zero
+// field in the overlay means "not set here", so a CLI flag that was not passed
+// does not silently reset a value the config file provided.
+func mergeRunOptions(base, over RunOptions) RunOptions {
+	if over.Vendor != "" {
+		base.Vendor = over.Vendor
+	}
+	if over.Model != nil {
+		base.Model = over.Model
+	}
+	if over.Workspace != nil {
+		base.Workspace = over.Workspace
+	}
+	if over.TrustProject {
+		base.TrustProject = true
+	}
+	if over.WorkDir != "" {
+		base.WorkDir = over.WorkDir
+	}
+	if over.MaxTurns > 0 {
+		base.MaxTurns = over.MaxTurns
+	}
+	if over.MaxBudgetUSD > 0 {
+		base.MaxBudgetUSD = over.MaxBudgetUSD
+	}
+	if over.MaxAttempts > 0 {
+		base.MaxAttempts = over.MaxAttempts
+	}
+	if over.Providers != nil {
+		base.Providers = over.Providers
+	}
+	if over.OnEvent != nil {
+		base.OnEvent = over.OnEvent
+	}
+	return base
 }
 
 // persistError sets the LastErr field and persists the session state.

@@ -1,339 +1,192 @@
 package agentspec
 
 import (
-	"sync"
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/agentfox/agentkit-go/core"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
-// --- TS-06-36: AssessmentTools returns correct tool definition ---
-
-// TestTS06_36_AssessmentToolsSchema verifies that AssessmentTools() returns a
-// slice with exactly one entry for submit_assessment with the correct input
-// schema fields: quality (enum), summary (string), gaps (array), questions
-// (array of objects).
-// Test Spec: TS-06-36, Requirement: 06-REQ-11.1
-func TestTS06_36_AssessmentToolsSchema(t *testing.T) {
-	tools := AssessmentTools()
-	if len(tools) != 1 {
-		t.Fatalf("len(AssessmentTools()) = %d; want 1", len(tools))
+// exec runs a tool's Execute handler the way the loop would.
+func exec(t *testing.T, tool core.Tool, args any) core.ToolResult {
+	t.Helper()
+	raw, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return tool.Execute(context.Background(), raw)
+}
 
-	tool := tools[0]
-	name, ok := tool["name"].(string)
-	if !ok || name != "submit_assessment" {
-		t.Errorf("tool[\"name\"] = %v; want %q", tool["name"], "submit_assessment")
+func TestSubmitAssessmentTerminatesOnlyOnAcceptance(t *testing.T) {
+	// Terminate is the batch vote of REQ-TOOL-13: it ends the run when the
+	// submission was accepted, and a rejected one has to leave the run going
+	// or the model never gets the chance to correct it.
+	var got Assessment
+	var done bool
+	tool := submitAssessmentTool(&got, &done)
+
+	res := exec(t, tool, validAssessment("ready"))
+	if !res.OK || !res.Terminate {
+		t.Errorf("an accepted assessment did not terminate the run: %+v", res)
 	}
-
-	// Verify input_schema exists and has properties.
-	inputSchema, ok := tool["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatalf("tool[\"input_schema\"] is %T; want map[string]any", tool["input_schema"])
-	}
-
-	props, ok := inputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("input_schema[\"properties\"] is %T; want map[string]any", inputSchema["properties"])
+	if !done || got.Quality != "ready" {
+		t.Errorf("the assessment was not captured: done=%v %+v", done, got)
 	}
 
-	// Check quality field has enum.
-	qualityProp, ok := props["quality"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties[\"quality\"] is %T; want map[string]any", props["quality"])
+	var got2 Assessment
+	var done2 bool
+	res = exec(t, submitAssessmentTool(&got2, &done2), map[string]any{"quality": "excellent"})
+	if res.OK || res.Terminate {
+		t.Errorf("a rejected assessment terminated the run: %+v", res)
 	}
-	qualityEnum, ok := qualityProp["enum"].([]any)
-	if !ok {
-		t.Fatalf("quality[\"enum\"] is %T; want []any", qualityProp["enum"])
-	}
-	expectedEnums := map[string]bool{
-		"ready":            false,
-		"needs_refinement": false,
-		"incomplete":       false,
-	}
-	for _, v := range qualityEnum {
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		expectedEnums[s] = true
-	}
-	for k, found := range expectedEnums {
-		if !found {
-			t.Errorf("quality enum missing value %q", k)
-		}
-	}
-
-	// Check summary field is string type.
-	summaryProp, ok := props["summary"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties[\"summary\"] is %T; want map[string]any", props["summary"])
-	}
-	if summaryProp["type"] != "string" {
-		t.Errorf("summary[\"type\"] = %v; want %q", summaryProp["type"], "string")
-	}
-
-	// Check gaps field is array type.
-	gapsProp, ok := props["gaps"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties[\"gaps\"] is %T; want map[string]any", props["gaps"])
-	}
-	if gapsProp["type"] != "array" {
-		t.Errorf("gaps[\"type\"] = %v; want %q", gapsProp["type"], "array")
-	}
-
-	// Check questions field is array type.
-	questionsProp, ok := props["questions"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties[\"questions\"] is %T; want map[string]any", props["questions"])
-	}
-	if questionsProp["type"] != "array" {
-		t.Errorf("questions[\"type\"] = %v; want %q", questionsProp["type"], "array")
+	if done2 {
+		t.Error("a rejected assessment was recorded as submitted")
 	}
 }
 
-// TestAssessmentTools_ReturnsNewSlice verifies that each call to
-// AssessmentTools() returns a distinct slice value, preventing callers
-// from mutating the shared definition.
-// Edge Case: 06-REQ-11.E1
-func TestAssessmentTools_ReturnsNewSlice(t *testing.T) {
-	tools1 := AssessmentTools()
-	tools2 := AssessmentTools()
-
-	if len(tools1) == 0 || len(tools2) == 0 {
-		t.Fatalf("AssessmentTools() returned empty slice; want non-empty")
+func TestARejectedSubmissionLeavesThePreviousValueAlone(t *testing.T) {
+	got := Assessment{Quality: "ready", Summary: "kept"}
+	done := true
+	res := exec(t, submitAssessmentTool(&got, &done), map[string]any{"quality": "nonsense"})
+	if res.OK {
+		t.Fatal("expected a rejection")
 	}
-
-	// Mutate tools1 and verify tools2 is unaffected.
-	tools1[0]["name"] = "mutated"
-
-	tools3 := AssessmentTools()
-	if len(tools3) == 0 {
-		t.Fatal("AssessmentTools() returned empty slice after mutation")
-	}
-
-	name, ok := tools3[0]["name"].(string)
-	if !ok || name != "submit_assessment" {
-		t.Errorf("after mutation, AssessmentTools()[0][\"name\"] = %v; want %q (new slice expected)", tools3[0]["name"], "submit_assessment")
+	if got.Summary != "kept" {
+		t.Errorf("the rejected call overwrote the previous value: %+v", got)
 	}
 }
 
-// TestAssessmentTools_QuestionsObjectSchema verifies that the questions
-// field contains an items schema with object properties including id,
-// text, context, options, and required.
-// Test Spec: TS-06-36 (detail), Requirement: 06-REQ-11.1
-func TestAssessmentTools_QuestionsObjectSchema(t *testing.T) {
-	tools := AssessmentTools()
-	if len(tools) != 1 {
-		t.Fatalf("len(AssessmentTools()) = %d; want 1", len(tools))
+func TestSubmitPRDUpdateNeedsBothHalves(t *testing.T) {
+	var prd string
+	var a Assessment
+	var done bool
+	tool := submitPRDUpdateTool(&prd, &a, &done)
+
+	if res := exec(t, tool, map[string]any{"updated_prd": "# PRD"}); res.OK {
+		t.Error("a submission with no assessment was accepted")
+	}
+	if res := exec(t, tool, map[string]any{"assessment": validAssessment("ready")}); res.OK {
+		t.Error("a submission with no PRD was accepted")
+	}
+	res := exec(t, tool, map[string]any{
+		"updated_prd": "# PRD", "assessment": validAssessment("ready")})
+	if !res.OK || !res.Terminate {
+		t.Errorf("a complete submission was not accepted: %+v", res)
+	}
+	if prd != "# PRD" || a.Quality != "ready" || !done {
+		t.Errorf("the submission was not captured: prd=%q %+v done=%v", prd, a, done)
+	}
+}
+
+func TestAnEmptyPRDRejectionSaysWhatToSubmitInstead(t *testing.T) {
+	// The wording is the repair instruction, so it has to say what a correct
+	// submission looks like rather than only that this one was wrong.
+	var prd string
+	var a Assessment
+	var done bool
+	res := exec(t, submitPRDUpdateTool(&prd, &a, &done), map[string]any{
+		"updated_prd": "  \n ", "assessment": validAssessment("ready")})
+	if res.OK {
+		t.Fatal("an empty PRD was accepted")
+	}
+	if !strings.Contains(res.Detail, "complete") {
+		t.Errorf("the rejection does not say to submit the complete PRD: %q", res.Detail)
+	}
+}
+
+func TestSubmitArtifactValidatesBeforeItAccepts(t *testing.T) {
+	s, err := ArtifactSchema(afspec.StepRequirements)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := afspec.PartialSpec{SpecID: "01", SpecName: "widget_service"}
+	var content map[string]any
+	var done bool
+	tool := submitArtifactTool(afspec.StepRequirements, s, &partial, &content, &done)
+
+	broken := v2RequirementsArtifact("01", "widget_service")
+	delete(broken, "requirements")
+	res := exec(t, tool, broken)
+	if res.OK || res.Terminate {
+		t.Errorf("an invalid artifact was accepted: %+v", res)
+	}
+	if partial.Requirements != nil {
+		t.Error("a rejected artifact was recorded in the partial spec")
 	}
 
-	inputSchema, ok := tools[0]["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatalf("input_schema not map[string]any")
+	res = exec(t, tool, v2RequirementsArtifact("01", "widget_service"))
+	if !res.OK || !res.Terminate {
+		t.Errorf("a valid artifact was not accepted: %+v", res)
 	}
-	props, ok := inputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties not map[string]any")
+	if !done || content == nil {
+		t.Error("the accepted artifact was not captured")
 	}
-	questionsProp, ok := props["questions"].(map[string]any)
-	if !ok {
-		t.Fatalf("questions not map[string]any")
+	if partial.Requirements == nil {
+		t.Error("the accepted artifact was not recorded in the partial spec")
+	}
+}
+
+func TestArgumentsThatAreNotAnObjectAreRejectedNotPanicked(t *testing.T) {
+	s, err := ArtifactSchema(afspec.StepRequirements)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := afspec.PartialSpec{}
+	var content map[string]any
+	var done bool
+	tool := submitArtifactTool(afspec.StepRequirements, s, &partial, &content, &done)
+
+	res := tool.Execute(context.Background(), json.RawMessage(`["not","an","object"]`))
+	if res.OK {
+		t.Error("a JSON array was accepted as an artifact")
+	}
+}
+
+func TestEverySubmitToolCarriesItsSchemaAndAGuideline(t *testing.T) {
+	// PromptGuidelines are how a tool tells the model to use it rather than
+	// writing prose, which is the failure the old ToolChoice "any" prevented
+	// on one wire only.
+	var a Assessment
+	var prd string
+	var done bool
+	var content map[string]any
+	partial := afspec.PartialSpec{}
+	reqSchema, err := ArtifactSchema(afspec.StepRequirements)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// The items should be an object with its own properties.
-	items, ok := questionsProp["items"].(map[string]any)
-	if !ok {
-		t.Fatalf("questions[\"items\"] is %T; want map[string]any", questionsProp["items"])
-	}
-	itemProps, ok := items["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("items[\"properties\"] is %T; want map[string]any", items["properties"])
-	}
-
-	requiredFields := []string{"id", "text", "context", "options", "required"}
-	for _, field := range requiredFields {
-		if _, exists := itemProps[field]; !exists {
-			t.Errorf("questions items properties missing field %q", field)
+	for _, tool := range []core.Tool{
+		submitAssessmentTool(&a, &done),
+		submitPRDUpdateTool(&prd, &a, &done),
+		submitArtifactTool(afspec.StepRequirements, reqSchema, &partial, &content, &done),
+	} {
+		if tool.InputSchema == nil {
+			t.Errorf("%s declares no schema", tool.Name)
 		}
-	}
-}
-
-// --- TS-06-37: RefinementTools returns correct tool definitions ---
-
-// TestTS06_37_RefinementToolsSchema verifies that RefinementTools() returns
-// a slice with exactly two entries: submit_prd_update at index 0 and
-// submit_assessment at index 1, with submit_prd_update having an
-// updated_prd string field.
-// Test Spec: TS-06-37, Requirement: 06-REQ-12.1
-func TestTS06_37_RefinementToolsSchema(t *testing.T) {
-	tools := RefinementTools()
-	if len(tools) != 2 {
-		t.Fatalf("len(RefinementTools()) = %d; want 2", len(tools))
-	}
-
-	// Check first tool is submit_prd_update.
-	tool0 := tools[0]
-	name0, ok := tool0["name"].(string)
-	if !ok || name0 != "submit_prd_update" {
-		t.Errorf("tools[0][\"name\"] = %v; want %q", tool0["name"], "submit_prd_update")
-	}
-
-	// Check submit_prd_update has updated_prd field.
-	schema0, ok := tool0["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatalf("tools[0][\"input_schema\"] is %T; want map[string]any", tool0["input_schema"])
-	}
-	props0, ok := schema0["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("input_schema[\"properties\"] is %T; want map[string]any", schema0["properties"])
-	}
-	updatedPRD, ok := props0["updated_prd"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties[\"updated_prd\"] is %T; want map[string]any", props0["updated_prd"])
-	}
-	if updatedPRD["type"] != "string" {
-		t.Errorf("updated_prd[\"type\"] = %v; want %q", updatedPRD["type"], "string")
-	}
-
-	// Check second tool is submit_assessment.
-	tool1 := tools[1]
-	name1, ok := tool1["name"].(string)
-	if !ok || name1 != "submit_assessment" {
-		t.Errorf("tools[1][\"name\"] = %v; want %q", tool1["name"], "submit_assessment")
-	}
-}
-
-// TestRefinementTools_ReturnsNewSlice verifies that each call to
-// RefinementTools() returns a distinct slice value.
-// Edge Case: 06-REQ-12.E1
-func TestRefinementTools_ReturnsNewSlice(t *testing.T) {
-	tools1 := RefinementTools()
-	tools2 := RefinementTools()
-
-	if len(tools1) == 0 || len(tools2) == 0 {
-		t.Fatalf("RefinementTools() returned empty slice; want non-empty")
-	}
-
-	// Mutate tools1 and verify a new call is unaffected.
-	tools1[0]["name"] = "mutated"
-
-	tools3 := RefinementTools()
-	if len(tools3) == 0 {
-		t.Fatal("RefinementTools() returned empty slice after mutation")
-	}
-
-	name, ok := tools3[0]["name"].(string)
-	if !ok || name != "submit_prd_update" {
-		t.Errorf("after mutation, RefinementTools()[0][\"name\"] = %v; want %q", tools3[0]["name"], "submit_prd_update")
-	}
-}
-
-// --- TS-NS-1: ArtifactTool schema computation caching ---
-
-// TestArtifactTool_CachedResultConsistent verifies that repeated calls to
-// ArtifactTool for the same artifact name return structurally identical
-// results, confirming the cache is used correctly.
-// Test Spec: TS-NS-1, Requirement: NS-REQ-1
-func TestArtifactTool_CachedResultConsistent(t *testing.T) {
-	const artifact = "requirements"
-
-	first := ArtifactTool(artifact)
-	if len(first) != 1 {
-		t.Fatalf("first call returned %d entries; want 1", len(first))
-	}
-
-	for i := 0; i < 5; i++ {
-		got := ArtifactTool(artifact)
-		if len(got) != 1 {
-			t.Fatalf("call %d returned %d entries; want 1", i+2, len(got))
+		if len(tool.PromptGuidelines) == 0 {
+			t.Errorf("%s carries no prompt guideline", tool.Name)
 		}
-		gotName, ok := got[0]["name"].(string)
-		if !ok || gotName != "submit_requirements" {
-			t.Errorf("call %d: tool name = %v; want %q", i+2, got[0]["name"], "submit_requirements")
+		if tool.Description == "" {
+			t.Errorf("%s has no description", tool.Name)
 		}
-		// Verify input_schema is present on every call.
-		if _, hasSchema := got[0]["input_schema"]; !hasSchema {
-			t.Errorf("call %d: missing input_schema", i+2)
+		if tool.ConstrainedSampling == nil {
+			t.Errorf("%s does not ask for constrained sampling", tool.Name)
+		} else if tool.ConstrainedSampling.Strict != core.StrictPrefer {
+			t.Errorf("%s requires strict sampling; that fails the whole request on a wire "+
+				"that cannot emit strict schemas, and the handler validates anyway", tool.Name)
 		}
 	}
 }
 
-// --- TS-NS-3: Mutation isolation ---
-
-// TestArtifactTool_MutationIsolation verifies that mutating the slice
-// returned by one ArtifactTool call does not affect results of subsequent
-// calls (mutation-isolation guarantee preserved post-caching).
-// Test Spec: TS-NS-3, Requirement: NS-REQ-3
-func TestArtifactTool_MutationIsolation(t *testing.T) {
-	tools1 := ArtifactTool("requirements")
-	if len(tools1) != 1 {
-		t.Fatalf("first call returned %d entries; want 1", len(tools1))
-	}
-
-	// Mutate the tool name in the first result.
-	tools1[0]["name"] = "mutated_name"
-
-	// A second call must still return the correct, unaffected tool name.
-	tools2 := ArtifactTool("requirements")
-	if len(tools2) != 1 {
-		t.Fatalf("second call returned %d entries; want 1", len(tools2))
-	}
-	name, ok := tools2[0]["name"].(string)
-	if !ok || name != "submit_requirements" {
-		t.Errorf("after mutation, second call tool name = %v; want %q", tools2[0]["name"], "submit_requirements")
-	}
-}
-
-// TestArtifactTool_InputSchemaMutationIsolation verifies that mutating
-// the input_schema map returned by one call does not corrupt subsequent calls.
-// Requirement: NS-REQ-3
-func TestArtifactTool_InputSchemaMutationIsolation(t *testing.T) {
-	tools1 := ArtifactTool("requirements")
-	if len(tools1) != 1 {
-		t.Fatalf("first call returned %d entries; want 1", len(tools1))
-	}
-
-	// Mutate the input_schema map from the first result.
-	schema1, ok := tools1[0]["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatal("input_schema is not map[string]any")
-	}
-	schema1["__injected__"] = "mutation"
-
-	// A second call must return an input_schema without the injected key.
-	tools2 := ArtifactTool("requirements")
-	if len(tools2) != 1 {
-		t.Fatalf("second call returned %d entries; want 1", len(tools2))
-	}
-	schema2, ok := tools2[0]["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatal("second call: input_schema is not map[string]any")
-	}
-	if _, present := schema2["__injected__"]; present {
-		t.Error("second call input_schema contains injected key; cache was mutated")
-	}
-}
-
-// --- TS-NS-4: Concurrent access ---
-
-// TestArtifactTool_ConcurrentAccess verifies that concurrent calls to
-// ArtifactTool from multiple goroutines are data-race-free. Run with
-// go test -race to exercise the race detector.
-// Test Spec: TS-NS-4, Requirement: NS-REQ-4
-func TestArtifactTool_ConcurrentAccess(t *testing.T) {
-	artifacts := []string{"requirements", "test_spec", "tasks"}
-
-	var wg sync.WaitGroup
-	for _, name := range artifacts {
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func(artifactName string) {
-				defer wg.Done()
-				tools := ArtifactTool(artifactName)
-				if len(tools) != 1 {
-					t.Errorf("concurrent ArtifactTool(%q) returned %d entries; want 1", artifactName, len(tools))
-				}
-			}(name)
+func TestArtifactToolNamesMatchTheSteps(t *testing.T) {
+	for _, step := range afspec.GenerationSteps {
+		if got, want := ArtifactToolName(step), "submit_"+string(step); got != want {
+			t.Errorf("ArtifactToolName(%s) = %q, want %q", step, got, want)
 		}
 	}
-	wg.Wait()
 }

@@ -16,9 +16,37 @@ type AgentSpecConfig struct {
 	AssessModel   string // optional per-phase override; empty means use Model
 	RefineModel   string // optional per-phase override; empty means use Model
 	GenerateModel string // optional per-phase override; empty means use Model
+	// Vendor selects which tier table SIMPLE/STANDARD/ADVANCED resolve
+	// against. Empty means DefaultVendor. A model named by id ignores it.
+	Vendor        string
 	AuthMethod    string
 	VertexProject string
 	VertexRegion  string
+
+	// ReadSource lets the model read the source tree while it writes the
+	// spec, through the non-mutating built-in tools.
+	ReadSource bool
+	// TrustProject admits skills and context files authored inside the
+	// working directory into the system prompt.
+	TrustProject bool
+	// MaxTurns, MaxBudgetUSD and MaxAttempts bound one phase. Zero means the
+	// package default.
+	MaxTurns     int
+	MaxBudgetUSD float64
+	MaxAttempts  int
+}
+
+// RunOptions projects the configuration onto the run options a SpecAgent
+// takes. Workspace is the caller's: this package does not decide which
+// directory a model may read.
+func (c AgentSpecConfig) RunOptions() RunOptions {
+	return RunOptions{
+		Vendor:       c.Vendor,
+		TrustProject: c.TrustProject,
+		MaxTurns:     c.MaxTurns,
+		MaxBudgetUSD: c.MaxBudgetUSD,
+		MaxAttempts:  c.MaxAttempts,
+	}
 }
 
 // ModelForPhase returns the model tier or ID to use for the given phase.
@@ -52,6 +80,17 @@ type configFileModel struct {
 	AssessModel   string `toml:"assess_model"`
 	RefineModel   string `toml:"refine_model"`
 	GenerateModel string `toml:"generate_model"`
+	Vendor        string `toml:"vendor"`
+}
+
+// configFileAgent maps to the [agent] TOML section: what the model is allowed
+// to read while it writes, and what one phase may spend doing it.
+type configFileAgent struct {
+	ReadSource   bool    `toml:"read_source"`
+	TrustProject bool    `toml:"trust_project"`
+	MaxTurns     int     `toml:"max_turns"`
+	MaxBudgetUSD float64 `toml:"max_budget_usd"`
+	MaxAttempts  int     `toml:"max_attempts"`
 }
 
 // configFileProvider maps to the [provider] TOML section.
@@ -67,6 +106,7 @@ type configFileProvider struct {
 type configFile struct {
 	Model    configFileModel    `toml:"model"`
 	Provider configFileProvider `toml:"provider"`
+	Agent    configFileAgent    `toml:"agent"`
 }
 
 // LoadConfig searches for config.toml in .specs/ relative to the current
@@ -193,9 +233,15 @@ func loadConfigFile(path string) (bool, AgentSpecConfig, error) {
 		AssessModel:   cf.Model.AssessModel,
 		RefineModel:   cf.Model.RefineModel,
 		GenerateModel: cf.Model.GenerateModel,
+		Vendor:        cf.Model.Vendor,
 		AuthMethod:    cf.Provider.AuthMethod,
 		VertexProject: cf.Provider.VertexProject,
 		VertexRegion:  cf.Provider.VertexRegion,
+		ReadSource:    cf.Agent.ReadSource,
+		TrustProject:  cf.Agent.TrustProject,
+		MaxTurns:      cf.Agent.MaxTurns,
+		MaxBudgetUSD:  cf.Agent.MaxBudgetUSD,
+		MaxAttempts:   cf.Agent.MaxAttempts,
 	}
 
 	// Apply default for Model if not specified in config file.

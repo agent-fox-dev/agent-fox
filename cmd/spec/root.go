@@ -113,6 +113,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSealCmd())
 	cmd.AddCommand(newArchiveCmd())
 	cmd.AddCommand(newSupersedeCmd())
+	cmd.AddCommand(newModelsCmd())
 
 	return cmd
 }

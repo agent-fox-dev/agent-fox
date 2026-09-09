@@ -82,6 +82,11 @@ spec refine [OPTIONS] SPEC
 |--------|-------------|
 | `--answers TEXT` | Path to answers JSON file, or `-` to read from stdin. If the JSON has an `"answers"` key containing a map, the inner map is unwrapped automatically. |
 | `--force` | Reset session to initial state, discarding all assessments, answers, and generated artifacts |
+| `--read-source` | Let the model read the source tree at `--source` while it works. Read-only: the mutating tools are excluded from the resolved set and the run refuses to start if one survives |
+| `--trust-project` | Admit skills and context files authored in the source tree — `AGENTS.md`, `CLAUDE.md`, `.specs/steering.md` — into the system prompt |
+| `--max-turns N` | Maximum turns for the phase (0: the default, 40). This is also the repair budget |
+| `--max-budget USD` | Maximum spend for the phase (0: the default, 5.00) |
+| `-v, --verbose` | Report what the model reads and submits, on stderr. Replaces the spinner |
 
 **Example:**
 
@@ -112,6 +117,11 @@ spec generate [OPTIONS] SPEC
 | Option | Description |
 |--------|-------------|
 | `--force` | Delete existing artifacts and regenerate from scratch |
+| `--read-source` | Let the model read the source tree at `--source` while it works (read-only) |
+| `--trust-project` | Admit skills and context files authored in the source tree into the system prompt |
+| `--max-turns N` | Maximum turns per artifact (0: the default, 40). This is also the repair budget |
+| `--max-budget USD` | Maximum spend per artifact (0: the default, 5.00) |
+| `-v, --verbose` | Report what the model reads and submits, on stderr |
 
 **Example:**
 
@@ -210,6 +220,62 @@ spec render 01_auth_redesign
 spec render --combined 01_auth_redesign
 spec render --task 3 01_auth_redesign
 spec render --json 01_auth_redesign
+```
+
+### models
+
+Show the model each phase will run on, what it costs, and whether this shell
+can authenticate to it.
+
+```
+spec models [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--all` | Also list every tier of every vendor |
+
+The model surface is a catalog spanning several vendors, each with its own
+credential variables, so "which model will `spec generate` use and can I reach
+it" is worth being able to ask before running one. The command reports rather
+than fails: an unconfigured vendor is exactly what it exists to tell you about,
+so it always exits 0.
+
+**Output format:**
+
+```json
+{
+  "ok": true,
+  "vendor": "anthropic",
+  "models": [
+    {
+      "phase": "assess",
+      "tier": "STANDARD",
+      "vendor": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "context_window": 1000000,
+      "max_tokens": 128000,
+      "input_cost_per_mtok": 3,
+      "output_cost_per_mtok": 15,
+      "credential": "ok"
+    }
+  ]
+}
+```
+
+`credential` is `ok` or `missing`. A gateway that authenticates by URL, or an
+instance role, reports `ok` with no key in the environment — that is the
+`ambient` state, and refusing it would reject every such deployment for a key
+it was never going to have.
+
+A model spec that names nothing the catalog knows is reported as
+`"unresolved: …"` in the row rather than failing the command.
+
+**Example:**
+
+```bash
+spec models
+spec models --all
 ```
 
 ### migrate
@@ -410,12 +476,13 @@ The `render` command outputs raw markdown by default; use `--json` for JSON outp
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | **Required** for AI-powered commands (`refine`, `generate`). Anthropic API key used to call Claude for PRD assessment, refinement, and artifact generation. |
-| `AF_SPEC_MODEL` | Override the default model tier or specify a model ID directly. Accepts tier names (`SIMPLE`, `STANDARD`, `ADVANCED`) or model IDs (e.g. `claude-sonnet-4-6`). Default: `STANDARD`. Also configurable via `config.toml` (see below). |
-| `AF_AGENT` | Set to `1` to enable agent mode. Suppresses the banner, forces quiet output, and auto-enables `--json` for `render`. |
+| `ANTHROPIC_API_KEY` | Credential for the AI-powered commands (`refine`, `generate`) when the model resolves to an Anthropic row. Other vendors read their own variables — run `spec models` to see which one the configured model needs. |
+| `<VENDOR>_BASE_URL` | Gateway, proxy or local server for that vendor (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, …). A base URL alone is a valid credential state. |
+| `AF_SPEC_MODEL` | Override the model for every phase. Accepts a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec (`anthropic/claude-opus-4-6`, `openai/gpt-6-astra`). Default: `STANDARD`. |
+| `AF_AGENT` | Set to `1` to enable agent mode. Suppresses the banner, forces quiet output, disables the `--verbose` event trace, and auto-enables `--json` for `render`. |
 | `SPEC_DIR` | Override the default spec root directory (`.specs`). The `--spec-dir` CLI flag takes precedence over this env var. |
-| `CLAUDE_CODE_USE_VERTEX` | Set to `1` to use Google Vertex AI as the Claude provider. |
-| `CLAUDE_CODE_USE_BEDROCK` | Set to `1` to use AWS Bedrock as the Claude provider. |
+| `CLAUDE_CODE_USE_VERTEX` | **Refused.** There is no wire for Claude on Vertex; the error names the alternative. See [errata](errata/agentkit_model_resolution.md). |
+| `CLAUDE_CODE_USE_BEDROCK` | **Refused.** There is no wire for Bedrock; the error names the alternative. |
 
 ### Configuration File
 
@@ -428,15 +495,26 @@ The first file found is used. Symlinked config files are rejected for security.
 
 ```toml
 [model]
-model = "STANDARD"     # tier name or model ID
+model = "STANDARD"     # tier name or catalog model spec
+vendor = "anthropic"   # which tier table SIMPLE/STANDARD/ADVANCED resolve against
+model_variant = ""     # "extended" for the long-context row of a tier
+
+[agent]
+read_source = false    # let the model read the source tree
+trust_project = false  # admit project skills and context files
+max_turns = 40         # per phase; also the repair budget
+max_budget_usd = 5.0   # per phase
+max_attempts = 3       # retries of one model call
 
 [provider]
-auth_method = ""       # optional provider auth method
-vertex_project = ""    # Google Vertex project ID
-vertex_region = ""     # Google Vertex region
+auth_method = ""       # read, not used
+vertex_project = ""    # read, not used
+vertex_region = ""     # read, not used
 ```
 
 The `AF_SPEC_MODEL` environment variable overrides the `[model].model` value.
+Command-line flags win over the file for the fields they set; a flag that was
+not passed leaves the file's value alone.
 
 ## Agent and Skill Workflow
 
@@ -489,30 +567,52 @@ Use `spec status <spec>` to query the current state at any time.
 
 ### AI Pipeline: SpecAgent
 
-The `SpecAgent` (in `agentspec/agent.go`) implements the three AI-powered pipeline stages that the session orchestrates:
+The `SpecAgent` (in `agentspec/agent.go`) implements the three AI-powered
+stages the session orchestrates. It runs on
+[AgentKit](https://github.com/agent-fox-dev/coder): each stage builds its own
+agent — its own model, tool set, turn budget and cost cap — and drives it to a
+result.
 
-**Model tiers.** The agent uses a tiered model system to select the appropriate Claude model:
+**Model tiers.** `SIMPLE`, `STANDARD` and `ADVANCED` are aliases over the
+AgentKit catalog, per vendor, so a tier still means what a spec author chooses
+between while any catalog model spec also works. See
+[Configuration](configuration.md#model-selection) for the table and
+[Model Usage](model-usage.md) for what each stage sends.
 
-| Tier | Default Model | Use Case |
-|------|--------------|----------|
-| `SIMPLE` | `claude-haiku-4-5` | Lightweight, cost-effective tasks |
-| `STANDARD` | `claude-sonnet-4-6` | Balanced capability (default) |
-| `ADVANCED` | `claude-opus-4-6` | Most capable, complex reasoning |
+**Stage 1: AssessPRD.** Sends the PRD with the assessment system prompt and a
+`submit_assessment` tool. The spec landscape (sibling specs) is included so the
+model can see what already exists.
 
-The tier is configured via `AF_SPEC_MODEL`, `config.toml`, or defaults to `STANDARD`.
+**Stage 2: RefinePRD.** Sends the PRD, the author's answers and the previous
+assessment, with a `submit_prd_update` tool whose arguments carry the rewritten
+PRD *and* a fresh assessment of it. Both used to have to appear in one response
+with a hand-written check enforcing it; making them two fields of one call
+means the schema says so.
 
-**Stage 1: AssessPRD.** Sends the PRD text to Claude with a structured assessment prompt and a `submit_assessment` tool. The model evaluates PRD quality and returns an assessment containing a quality rating, summary, identified gaps, and clarifying questions. The spec landscape (sibling specs) is included as context to avoid duplication.
+**Stage 3: GenerateArtifacts.** Generates three artifacts in the order format
+v2 §12.1 mandates, each step receiving the complete artifacts before it:
 
-**Stage 2: RefinePRD.** Sends the PRD text along with user answers and the previous assessment to Claude with a `submit_prd_update` tool. The model rewrites the PRD incorporating the answers, then produces a new assessment. If the assessment is not included in the initial response, a fallback call retrieves it separately.
+1. `requirements.json` — EARS criteria and end-to-end execution paths
+2. `test_spec.json` — one flat list of tests, each verifying named criteria or a path
+3. `tasks.json` — one flat list of tasks, each owning named criteria and tests
 
-**Stage 3: GenerateArtifacts.** Sequentially generates three artifacts in order, each building on the prior ones:
+The order is the rule and the reason is concrete: a generator that cannot see a
+test ID cannot own it, which is how the previous format ended up with specs
+whose edge-case and property tests belonged to no task at all.
 
-1. `requirements.json` -- EARS criteria and end-to-end execution paths
-2. `test_spec.json` -- one flat list of tests, each verifying named criteria or a path
-3. `tasks.json` -- one flat list of tasks, each owning named criteria and tests
+**Repair.** The artifact's schema and every cross-file rule decidable so far
+run *inside* the submit tool's handler. A violation is returned as a tool error
+naming the rule that failed, and the loop appends it to the transcript the
+model is already holding — so the system prompt and the tool schemas stay
+byte-identical across the repair and the provider's cache prefix survives it.
+The turn budget (`--max-turns`, default 40) is the repair budget.
 
-The order is mandatory and the steps are sequential: the tests step receives the complete requirements artifact, and the tasks step receives that plus a table of every test with its id, kind and verifies list. A generator that cannot see a test ID cannot own it, which is how the previous format ended up with specs whose edge-case and property tests belonged to no task at all.
+A generation that ends with an invalid spec is a failed generation: `spec
+generate` exits non-zero, removes the artifacts that run wrote, and reports the
+violations. Artifacts that already existed on disk are left alone, so a re-run
+resumes from the point of failure.
 
-Each artifact is generated via a dedicated `submit_{artifact}` tool call. After each step the pipeline runs the artifact's JSON Schema plus every cross-file rule decidable so far, and sends any violation back to Claude as a `tool_result` naming the rule that failed — up to three repair attempts per artifact. Temperature is 0.2.
-
-A generation that ends with an invalid spec is a failed generation: `spec generate` exits non-zero, removes the artifacts that run wrote, and reports the violations as errors. Artifacts that already existed on disk are left alone, so a re-run still resumes from the point of failure.
+**Reading the codebase.** With `--read-source` a stage additionally gets
+AgentKit's non-mutating built-in tools rooted at `--source`, so a spec can be
+written against the code it describes. The read-only mandate is the tool list
+plus an invariant checked before the first request, not a sentence in a prompt.

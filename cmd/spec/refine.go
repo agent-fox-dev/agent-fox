@@ -14,11 +14,11 @@ import (
 
 // assessFunc is the function used to assess a PRD for quality. It can be
 // replaced in tests with a mock that avoids real AI calls.
-var assessFunc = agentspec.AssessSpec
+var assessFunc = agentspec.AssessSpecWith
 
 // refineFunc is the function used to refine a PRD with user answers. It can
 // be replaced in tests with a mock that avoids real AI calls.
-var refineFunc = agentspec.RefineSpec
+var refineFunc = agentspec.RefineSpecWith
 
 // newRefineCmd creates the "spec refine" subcommand which iteratively
 // refines a PRD through AI-driven Q&A.
@@ -63,6 +63,13 @@ func newRefineCmd() *cobra.Command {
 				quiet = true
 			}
 
+			runOpts, err := runOptionsFor(cmd)
+			if err != nil {
+				return err
+			}
+			// The spinner and the event trace both own the same line.
+			quiet = quiet || runOpts.OnEvent != nil
+
 			// Handle --answers path: read answers and run Refine.
 			if answers != "" {
 				answersData, err := readAnswersInput(cmd, answers)
@@ -72,7 +79,7 @@ func newRefineCmd() *cobra.Command {
 
 				spinner := NewStatusSpinner("Refining PRD...", cmd.ErrOrStderr(), quiet, false)
 				spinner.Start()
-				result, refineErr := refineWithAnswers(ctx, specPath, answersData)
+				result, refineErr := refineWithAnswers(ctx, specPath, answersData, runOpts)
 				spinner.Stop()
 				if refineErr != nil {
 					return refineErr
@@ -86,7 +93,7 @@ func newRefineCmd() *cobra.Command {
 			if sessionNeedsAssessment(state) {
 				spinner := NewStatusSpinner("Assessing PRD quality...", cmd.ErrOrStderr(), quiet, false)
 				spinner.Start()
-				assessment, assessErr := assessPRD(ctx, specPath)
+				assessment, assessErr := assessPRD(ctx, specPath, runOpts)
 				spinner.Stop()
 				if assessErr != nil {
 					return assessErr
@@ -103,6 +110,7 @@ func newRefineCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&answers, "answers", "", "path to answers JSON file (use '-' for stdin)")
 	cmd.Flags().BoolVar(&force, "force", false, "reset session state before refining")
+	addAgentFlags(cmd)
 
 	return cmd
 }
@@ -159,7 +167,7 @@ func sessionNeedsAssessment(state string) bool {
 // assessPRD performs a PRD quality assessment by calling the agentspec AI
 // pipeline. Returns the Assessment result. When SPEC_TEST_BLOCK_AI=1,
 // blocks until context cancellation.
-func assessPRD(ctx context.Context, specPath string) (agentspec.Assessment, error) {
+func assessPRD(ctx context.Context, specPath string, opts agentspec.RunOptions) (agentspec.Assessment, error) {
 	// Test hook: block until context cancellation to simulate a long-running
 	// AI call. Activated by SPEC_TEST_BLOCK_AI=1 environment variable.
 	// If SPEC_TEST_READY_FILE is also set, the file is created before blocking
@@ -179,7 +187,7 @@ func assessPRD(ctx context.Context, specPath string) (agentspec.Assessment, erro
 	default:
 	}
 
-	return assessFunc(ctx, specPath)
+	return assessFunc(ctx, specPath, opts)
 }
 
 // getPendingQuestions extracts unanswered questions from the session's
@@ -286,12 +294,12 @@ func answersToStringMap(in map[string]any) map[string]string {
 // refineWithAnswers runs a refinement pass using the provided answers by
 // calling the agentspec AI pipeline. Updates prd.md on disk and returns
 // the new Assessment.
-func refineWithAnswers(ctx context.Context, specPath string, answers map[string]any) (agentspec.Assessment, error) {
+func refineWithAnswers(ctx context.Context, specPath string, answers map[string]any, opts agentspec.RunOptions) (agentspec.Assessment, error) {
 	select {
 	case <-ctx.Done():
 		return agentspec.Assessment{}, ctx.Err()
 	default:
 	}
 
-	return refineFunc(ctx, specPath, answersToStringMap(answers))
+	return refineFunc(ctx, specPath, answersToStringMap(answers), opts)
 }

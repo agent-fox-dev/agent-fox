@@ -16,7 +16,7 @@ var artifactFiles = []string{"requirements.json", "test_spec.json", "tasks.json"
 // generateFunc is the function used to generate spec artifacts from an
 // accepted PRD. It can be replaced in tests with a mock that avoids real
 // AI calls.
-var generateFunc = agentspec.GenerateSpec
+var generateFunc = agentspec.GenerateSpecWith
 
 // artifactKeyToFile maps agentspec artifact keys to on-disk filenames.
 var artifactKeyToFile = map[string]string{
@@ -75,10 +75,17 @@ func newGenerateCmd() *cobra.Command {
 				quiet = true
 			}
 
-			// Run Generate with a spinner.
-			spinner := NewStatusSpinner("Generating spec artifacts...", cmd.ErrOrStderr(), quiet, false)
+			runOpts, err := runOptionsFor(cmd)
+			if err != nil {
+				return err
+			}
+
+			// The spinner and the event trace are alternatives: one overwrites
+			// the line the other is writing to.
+			verbose := runOpts.OnEvent != nil
+			spinner := NewStatusSpinner("Generating spec artifacts...", cmd.ErrOrStderr(), quiet || verbose, false)
 			spinner.Start()
-			artifacts, warnings, genErr := generateArtifacts(ctx, specPath, session)
+			artifacts, warnings, genErr := generateArtifacts(ctx, specPath, runOpts)
 			spinner.Stop()
 
 			if genErr != nil {
@@ -109,6 +116,7 @@ func newGenerateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "delete existing artifacts before regenerating")
+	addAgentFlags(cmd)
 
 	return cmd
 }
@@ -145,7 +153,7 @@ func cleanupPartialArtifacts(specPath string) {
 // artifacts from the accepted PRD. Returns the list of generated artifact
 // filenames, any post-generation validation warnings, and an error.
 // When SPEC_TEST_BLOCK_AI=1, blocks until context cancellation.
-func generateArtifacts(ctx context.Context, specPath string, _ map[string]any) ([]string, []string, error) {
+func generateArtifacts(ctx context.Context, specPath string, opts agentspec.RunOptions) ([]string, []string, error) {
 	// Test hook: block until context cancellation to simulate a long-running
 	// AI call. Activated by SPEC_TEST_BLOCK_AI=1 environment variable.
 	// If SPEC_TEST_READY_FILE is also set, the file is created before blocking
@@ -165,7 +173,7 @@ func generateArtifacts(ctx context.Context, specPath string, _ map[string]any) (
 	default:
 	}
 
-	result, err := generateFunc(ctx, specPath)
+	result, err := generateFunc(ctx, specPath, opts)
 	if err != nil {
 		return nil, nil, err
 	}
