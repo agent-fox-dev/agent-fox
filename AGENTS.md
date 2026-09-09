@@ -26,15 +26,29 @@ Do not implement anything before completing these steps.
 
 ```
 afspec/                 # Spec format library (package afspec)
-  legacy/               # Read-only version 1 types, used only by `spec migrate`
+  legacy/               # Read-only version 1 types
   schemas/              # Bundled JSON Schemas, embedded at compile time
-agentspec/              # LLM-powered spec creation (package agentspec)
-cmd/                    # Executables: af, nightshift, spec
+specgen/                # The spec pipeline: PRD, three generation phases, project audit
+issuetriage/            # The issue triage pipeline
+codefix/                # The fix pipeline
+internal/               # Shared, not importable from outside this repo
+  toolio/               # Input classification, the JSON envelope, the shared CLI shell
+  agentrun/             # Model resolution, the phase runner, the read-only invariant, the shell guard
+  ghapi/                # GitHub REST client
+  gitx/  checks/        # git, and the command that decides whether a change is correct
+cmd/                    # Executables: spec, issue, fix (plus af and nightshift stubs)
 docs/                   # Documentation, ADRs and PRDs
+skills/                 # The markdown skills the tools replaced, kept for reference
 testdata/               # Shared test fixtures
 .specs/                 # Specs to be implemented
 .specs/archive/         # Old specs. Ignore for coding tasks, except for reference
 ```
+
+The three tools share one interface: one positional input (text, a file path, a
+GitHub URL, or `-`), one JSON object on stdout, progress on stderr, one
+exit-code table. Adding a subcommand to any of them is a change to that
+interface — see [ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) before
+proposing one.
 
 Tests live beside the code they cover, as `*_test.go`.
 

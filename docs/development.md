@@ -5,7 +5,7 @@
 - Go 1.26.5 or later
 - A sibling checkout of [`coder`](https://github.com/agent-fox-dev/coder)
 
-`coder` ships the AgentKit agent SDK that `agentspec` runs on. Its module path
+`coder` ships the AgentKit agent SDK the three tools run on. Its module path
 is `github.com/agentfox/agentkit-go` while its repository is
 `agent-fox-dev/coder`, so the module proxy cannot serve it and it is consumed
 through a `replace` to a checkout beside this one:
@@ -28,13 +28,21 @@ spec library, and it goes away when the module path is fixed upstream.
 ```
 afspec/                   # Spec format library (package afspec)
   schemas/                # Bundled JSON Schemas, embedded at compile time
-agentspec/                # LLM-powered spec creation (package agentspec)
+specgen/                  # The spec pipeline
   templates/              # Prompt templates, embedded at compile time
+issuetriage/              # The triage pipeline
+codefix/                  # The fix pipeline
+internal/
+  toolio/                 # Input classification, the JSON envelope, the shared CLI shell
+  agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
+  ghapi/                  # GitHub REST client
+  gitx/                   # git, and the process runner
+  checks/                 # Detecting and running a project's own quality command
 cmd/
-  af/                     # The af CLI
-  nightshift/             # The nightshift CLI
-  spec/                   # The spec CLI (cobra commands + main)
+  spec/  issue/  fix/     # The three tools
+  af/  nightshift/        # Stubs
 docs/                     # Documentation, ADRs and PRDs
+skills/                   # The markdown skills the tools replaced, kept for reference
 testdata/                 # Shared test fixtures
 bin/, dist/               # Build output
 ```
@@ -63,23 +71,34 @@ go mod download
   discovery. Types are value-oriented — mutation methods return new copies. No
   goroutine-safety guarantees; callers must synchronize externally.
 
-- **agentspec** (`agentspec/`) — AI session layer, built on AgentKit. The
-  SpecAgent pipeline (AssessPRD, RefinePRD, GenerateArtifacts), TOML
-  configuration, tier aliases over the model catalog, campaign directory
-  lifecycle, the session state machine with atomic persistence, prompt
-  templates, and the submit tools each phase ends with.
+- **internal/toolio** — the shared interface. `input.go` classifies the one
+  positional argument; `envelope.go` is the JSON object every tool writes and
+  the exit-code table; `app.go` is the shell each command is a value of;
+  `cli.go` holds the shared flags and model resolution; `progress.go` writes
+  stderr.
 
-  The files worth knowing: `runner.go` builds the `core.AgentConfig` a phase
-  runs under and holds the read-only invariant; `tools.go` defines the submit
-  tools whose handlers validate and terminate; `jsonschema.go` converts
-  afspec's embedded JSON Schemas into the structured schema a tool declares;
-  `models.go` is the tier table over `catalog.ResolveModel`; `credentials.go`
-  is the preflight. See [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
+- **internal/agentrun** — the AgentKit layer. `phase.go` builds the
+  `core.AgentConfig` one phase runs under, installs compaction and drives the
+  stream; `policy.go` holds the read-only invariant; `guard.go` is the shell
+  authorization boundary; `models.go` is the tier table over
+  `catalog.ResolveModel`; `credentials.go` is the preflight. See
+  [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
 
-- **cmd/spec** (`cmd/spec/`) — the `spec` CLI binary, built with cobra. Wires
-  afspec and agentspec together behind `new`, `list`, `refine`, `generate`,
-  `validate`, `lint`, `render`, `status`, `campaign`, `activate`, `seal`,
-  `archive`, `supersede`, `models` and `migrate`.
+- **internal/ghapi** — a dependency-free GitHub REST client. It lives outside
+  every agent on purpose: no model is given a tool that reaches it.
+
+- **internal/gitx**, **internal/checks** — every git command a tool runs, and
+  the detection and execution of the command that decides whether a change is
+  correct.
+
+- **specgen**, **issuetriage**, **codefix** — one package per tool. Each holds
+  its schemas, its prompts, its terminating tools and its pipeline. In `specgen`
+  and `codefix` the model half is an interface (`author`, `brain`) so a test can
+  drive the real pipeline with a scripted one; `issuetriage` has a single phase
+  and is tested through the real agent loop against a scripted provider instead.
+
+- **cmd/spec**, **cmd/issue**, **cmd/fix** — each is a `toolio.App` value and
+  an `os.Exit`. See [ADR 03](adr/03-rebuild-the-skills-as-tools.md).
 
 ## Common tasks
 
@@ -91,15 +110,25 @@ All tasks are driven through `make`. Run from the repository root.
 | `make test`         | Run all Go tests: `go test ./... -count=1`             |
 | `make lint`         | Lint Go source: `gofmt` + `go vet`                     |
 | `make format`       | Auto-format Go source: `gofmt -w`                      |
-| `make build`        | Build `af`, `nightshift` and `spec` into `bin/`        |
-| `make build-all`    | Cross-compile the spec CLI into `dist/`                |
+| `make build`        | Build every CLI into `bin/`                            |
+| `make build-all`    | Cross-compile `spec`, `issue` and `fix` into `dist/`   |
 | `make clean`        | Remove build artifacts                                 |
 | `make json-gen`     | Regenerate Go artifact types from the schemas          |
 
-Tests need no API key and make no network calls: the phases that call a model
-are driven by `provider/faux`, AgentKit's scripted provider, so a test asserts
-on the requests that reached the wire rather than on arguments this repository
-built for itself.
+Tests need no API key, no GitHub token and no network:
+
+- the phases that call a model run against `provider/faux`, AgentKit's scripted
+  provider, so a test asserts on the `core.Request` values that reached the wire
+  rather than on arguments this repository built for itself;
+- GitHub runs against an `httptest` server;
+- git runs against real temporary repositories, because the wrapper's whole job
+  is to get git's own behaviour right and a fake git would only confirm the
+  wrapper's assumptions about it.
+
+The pipelines are tested through their real `Run`, with only the model half
+replaced. That split — judgment in the model, everything else in Go — is the
+design claim the tools make, and having it be an interface is what makes it
+checkable.
 
 ## Schema workflow
 

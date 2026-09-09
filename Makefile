@@ -43,21 +43,31 @@ build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/af ./cmd/af
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/nightshift ./cmd/nightshift
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/spec ./cmd/spec
+	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/issue ./cmd/issue
+	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/fix ./cmd/fix
 
-# Cross-platform static builds of the spec CLI
+# Cross-platform static builds of the three tools
+TOOLS := spec issue fix
+
 build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
 
 build-darwin-arm64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-darwin-arm64 ./cmd/spec
+	@for tool in $(TOOLS); do \
+		CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-darwin-arm64 ./cmd/$$tool; \
+	done
 
 build-linux-arm64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-linux-arm64 ./cmd/spec
+	@for tool in $(TOOLS); do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-linux-arm64 ./cmd/$$tool; \
+	done
 
 build-linux-amd64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/spec-linux-amd64 ./cmd/spec
+	@for tool in $(TOOLS); do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-linux-amd64 ./cmd/$$tool; \
+	done
 
 clean:
-	rm -rf $(DIST_DIR) bin/af bin/nightshift bin/spec
+	rm -rf $(DIST_DIR) bin/af bin/nightshift bin/spec bin/issue bin/fix
 
 # Regenerate the Go artifact types from the bundled JSON Schemas.
 # The canonical schemas live in the agent-fox-dev/spec repository; the copies
@@ -72,19 +82,26 @@ json-gen:
 	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/tasks.v2.json         > $(CURDIR)/afspec/tasks.v2.go
 	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/prd-frontmatter.v2.json > $(CURDIR)/afspec/prd-frontmatter.v2.go
 
+# Only files carrying skill frontmatter are installed; skills/README.md and the
+# legacy reference skills are documentation.
+
+# Only files carrying skill frontmatter are installed; skills/README.md and the
+# legacy reference skills next to it are documentation.
 install-skills:
-	@for skill in $(SKILLS_TEMPLATES_DIR)/*; do \
-		name=$$(basename "$$skill"); \
-		target="$(CLAUDE_SKILLS_DIR)/$$name"; \
-		mkdir -p "$$target"; \
-		cp "$$skill" "$$target/SKILL.md"; \
-		echo "installed: $$name -> $$target/SKILL.md"; \
+	@for skill in $(SKILLS_TEMPLATES_DIR)/*.md; do \
+		name=$$(basename "$$skill" .md); \
+		if [ "$$name" != "README" ]; then \
+			target="$(CLAUDE_SKILLS_DIR)/$$name"; \
+			mkdir -p "$$target"; \
+			cp "$$skill" "$$target/SKILL.md"; \
+			echo "installed: $$name -> $$target/SKILL.md"; \
+		fi; \
 	done
 
 uninstall-skills:
-	@for skill in $(SKILLS_TEMPLATES_DIR)/*; do \
-		name=$$(basename "$$skill"); \
-		if [ -d "$(CLAUDE_SKILLS_DIR)/$$name" ]; then \
+	@for skill in $(SKILLS_TEMPLATES_DIR)/*.md; do \
+		name=$$(basename "$$skill" .md); \
+		if [ "$$name" != "README" ] && [ -d "$(CLAUDE_SKILLS_DIR)/$$name" ]; then \
 			rm -rf "$(CLAUDE_SKILLS_DIR)/$$name"; \
 			echo "removed: $$name"; \
 		fi; \
