@@ -785,10 +785,19 @@ func TestTSNS4_RefineWithAnswersUsesAIPipeline(t *testing.T) {
 // non-zero status and an error message containing "ANTHROPIC_API_KEY".
 // Covers: NS-REQ-5, TS-NS-5
 func TestTSNS5_RefineMissingAPIKeyError(t *testing.T) {
-	// Unset all provider env vars.
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
-	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	// Unset every way a credential can reach the vendor.
+	//
+	// A base URL has to be cleared alongside the keys, because a credential
+	// has three states and a gateway that authenticates by URL is one of
+	// them: leaving ANTHROPIC_BASE_URL set is a configured environment, so
+	// the preflight would pass and the run would go to the network for its
+	// rejection instead of failing before it spends anything.
+	for _, name := range []string{
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN",
+		"ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK",
+	} {
+		t.Setenv(name, "")
+	}
 
 	tmpDir := t.TempDir()
 	specDir := filepath.Join(tmpDir, ".specs")

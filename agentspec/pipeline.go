@@ -2,35 +2,49 @@ package agentspec
 
 import "context"
 
-// AssessSpec is a production entry point that loads a SpecSession from disk
-// and calls Assess. This ensures SpecSession.Assess has at least one
-// non-test caller (satisfies 17.5 call-site verification).
+// AssessSpec loads a SpecSession from disk and assesses its PRD.
 func AssessSpec(ctx context.Context, specDir string) (Assessment, error) {
+	return AssessSpecWith(ctx, specDir, RunOptions{})
+}
+
+// AssessSpecWith is AssessSpec under explicit run options: the workspace the
+// model may read, the providers it talks to, and the bounds it runs under.
+func AssessSpecWith(ctx context.Context, specDir string, o RunOptions) (Assessment, error) {
 	session, err := ResumeSession(specDir)
 	if err != nil {
 		return Assessment{}, err
 	}
+	session.SetRunOptions(o)
 	return session.Assess(ctx)
 }
 
-// RefineSpec is a production entry point that loads a SpecSession from disk
-// and calls Refine with the given answers map. This ensures
-// SpecSession.Refine has at least one non-test caller.
+// RefineSpec loads a SpecSession from disk and refines its PRD with the given
+// answers.
 func RefineSpec(ctx context.Context, specDir string, answers map[string]string) (Assessment, error) {
+	return RefineSpecWith(ctx, specDir, answers, RunOptions{})
+}
+
+// RefineSpecWith is RefineSpec under explicit run options.
+func RefineSpecWith(ctx context.Context, specDir string, answers map[string]string, o RunOptions) (Assessment, error) {
 	session, err := ResumeSession(specDir)
 	if err != nil {
 		return Assessment{}, err
 	}
+	session.SetRunOptions(o)
 	return session.Refine(ctx, answers)
 }
 
-// GenerateSpec is a production entry point that loads a SpecSession from
-// disk and calls Generate. This ensures SpecSession.Generate has at least
-// one non-test caller.
+// GenerateSpec loads a SpecSession from disk and generates its artifacts.
 func GenerateSpec(ctx context.Context, specDir string) (GenerateResult, error) {
+	return GenerateSpecWith(ctx, specDir, RunOptions{})
+}
+
+// GenerateSpecWith is GenerateSpec under explicit run options.
+func GenerateSpecWith(ctx context.Context, specDir string, o RunOptions) (GenerateResult, error) {
 	session, err := ResumeSession(specDir)
 	if err != nil {
 		return GenerateResult{}, err
 	}
+	session.SetRunOptions(o)
 	return session.Generate(ctx)
 }

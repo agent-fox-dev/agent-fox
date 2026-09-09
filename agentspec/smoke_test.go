@@ -3,11 +3,12 @@ package agentspec
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 // --- Smoke Tests (TS-06-SMOKE-1 through TS-06-SMOKE-6) ---
@@ -229,106 +230,53 @@ func TestSmoke_ResumeSessionAndAcceptPRD(t *testing.T) {
 	}
 }
 
-// TestSmoke_ArtifactToolRequirements builds the artifact tool schema for
-// "requirements", verifying InlineRefs and CleanSchema are applied correctly
-// and the schema is used directly as input_schema without a 'content' wrapper.
+// TestSmoke_ArtifactToolSchema builds the tool schema for "requirements" and
+// checks the properties the model is asked to fill in are actually declared.
+//
+// The version of this test that this one replaces walked the schema asserting
+// that no key called "title" appeared at any depth. The requirement object HAS
+// a property called title, so the assertion could only pass because the
+// converter had deleted it — the test was reading the bug as the invariant.
 // Test Spec: TS-06-SMOKE-4, Execution Path: 06-PATH-4
-func TestSmoke_ArtifactToolRequirements(t *testing.T) {
-	tools := ArtifactTool("requirements")
-	if len(tools) != 1 {
-		t.Fatalf("ArtifactTool(\"requirements\") returned %d tools; want 1", len(tools))
+func TestSmoke_ArtifactToolSchema(t *testing.T) {
+	s, err := ArtifactSchema(afspec.StepRequirements)
+	if err != nil {
+		t.Fatalf("ArtifactSchema: %v", err)
 	}
 
-	tool := tools[0]
-
-	// Verify tool name.
-	if tool["name"] != "submit_requirements" {
-		t.Errorf("tool name = %v; want %q", tool["name"], "submit_requirements")
+	// The schema is the artifact's own fields, not a {content: ...} wrapper.
+	if s.Properties["requirements"] == nil {
+		t.Error("the schema does not declare requirements as a top-level field")
+	}
+	if s.Properties["content"] != nil {
+		t.Error("the schema wraps the artifact in a content field")
 	}
 
-	// Get the input schema — this IS the cleaned artifact schema directly.
-	inputSchema, ok := tool["input_schema"].(map[string]any)
-	if !ok {
-		t.Fatal("tool input_schema is not a map")
+	// A requirement has a title, and the model has to be told so.
+	req := s.Properties["requirements"].Items
+	if req == nil {
+		t.Fatal("the requirements array declares no item schema")
 	}
-	props, ok := inputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("input_schema properties is not a map")
+	if req.Properties["title"] == nil {
+		t.Error("the requirement object lost its title property")
 	}
-
-	// The schema must NOT have a 'content' wrapper.
-	if _, hasContent := props["content"]; hasContent {
-		t.Error("input_schema.properties has a 'content' key; want flat artifact fields (no wrapper)")
-	}
-
-	// The flat schema must expose 'requirements' directly.
-	if _, hasReqs := props["requirements"]; !hasReqs {
-		t.Error("input_schema.properties missing 'requirements'; want top-level artifact field")
-	}
-
-	// Check that $schema is stripped at the input_schema top level.
-	if _, ok := inputSchema["$schema"]; ok {
-		t.Error("input_schema has $schema at top level; should be stripped by CleanSchema")
-	}
-
-	// Walk the entire input schema tree and verify no $ref, $defs, title,
-	// or default keys exist at ANY nesting level.
-	var walkSchema func(path string, m map[string]any)
-	walkSchema = func(path string, m map[string]any) {
-		for key, val := range m {
-			switch key {
-			case "$ref":
-				t.Errorf("found $ref at %s", path)
-			case "$defs":
-				t.Errorf("found $defs at %s", path)
-			case "title":
-				t.Errorf("found title at %s", path)
-			case "default":
-				t.Errorf("found default at %s", path)
-			}
-			// Recurse into nested maps.
-			if nested, ok := val.(map[string]any); ok {
-				walkSchema(path+"."+key, nested)
-			}
-			// Recurse into arrays.
-			if arr, ok := val.([]any); ok {
-				for i, item := range arr {
-					if nestedMap, ok := item.(map[string]any); ok {
-						walkSchema(fmt.Sprintf("%s.%s[%d]", path, key, i), nestedMap)
-					}
-				}
-			}
+	for _, name := range req.Required {
+		if req.Properties[name] == nil {
+			t.Errorf("a requirement must have %q, but the schema does not declare it", name)
 		}
 	}
 
-	walkSchema("input_schema", inputSchema)
-
-	// Verify that description fields are preserved (the requirements schema
-	// should have at least some description fields).
-	var countDescriptions func(m map[string]any) int
-	countDescriptions = func(m map[string]any) int {
-		count := 0
-		for key, val := range m {
-			if key == "description" {
-				count++
-			}
-			if nested, ok := val.(map[string]any); ok {
-				count += countDescriptions(nested)
-			}
-			if arr, ok := val.([]any); ok {
-				for _, item := range arr {
-					if nestedMap, ok := item.(map[string]any); ok {
-						count += countDescriptions(nestedMap)
-					}
-				}
-			}
-		}
-		return count
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	descCount := countDescriptions(inputSchema)
-	if descCount == 0 {
-		t.Error("input_schema has no description fields; expected descriptions to be preserved")
+	for _, forbidden := range []string{`"$ref"`, `"$defs"`, `"$schema":"https`} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Errorf("%s survived into the tool schema", forbidden)
+		}
+	}
+	if !strings.Contains(string(raw), `"description"`) {
+		t.Error("every description was dropped; they are what tell the model what a field means")
 	}
 }
 

@@ -2,12 +2,25 @@ package agentspec
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
+
+	"github.com/agentfox/agentkit-go/core"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 )
+
+// Per-phase output caps, clamped to the model's own ceiling by the catalog.
+const (
+	assessMaxTokens   = 4096
+	refineMaxTokens   = 16384
+	generateMaxTokens = 65536
+)
+
+// specTemperature is low because every phase produces a structured artifact
+// that is then validated: creativity here shows up as a schema violation.
+// A model whose catalog row rejects sampling parameters has them dropped by
+// its provider rather than by a branch here.
+const specTemperature = 0.2
 
 // agentOptions holds the resolved configuration from AgentOption functional options.
 type agentOptions struct {
@@ -60,16 +73,19 @@ func applyOptions(opts []AgentOption) agentOptions {
 	return o
 }
 
-// SpecAgent holds the model tier and implements the AI agent pipeline
-// methods: AssessPRD, RefinePRD, and GenerateArtifacts.
+// SpecAgent runs the three model-facing stages of spec authoring: AssessPRD,
+// RefinePRD and GenerateArtifacts.
+//
+// It holds configuration, not a connection. Each stage builds its own agent
+// with its own tool set, bounds and model, because the three have genuinely
+// different shapes — an assessment is one judgement, a generation is three
+// dependent artifacts each of which may need correcting — and sharing a
+// transcript between them would carry the PRD critique into the requirements
+// the critique was supposed to improve.
 type SpecAgent struct {
 	modelTier    string
 	modelVariant string
-
-	// aiCallFunc is an internal hook for testing. When non-nil, it replaces
-	// the real AICall function. Exported tests set this via the unexported
-	// field (package-level tests have access).
-	aiCallFunc func(ctx context.Context, opts AICallOptions) (string, any, error)
+	opts         RunOptions
 }
 
 // NewSpecAgent creates a SpecAgent with the given model tier string.
@@ -82,183 +98,86 @@ func NewSpecAgent(modelTier string, modelVariant ...string) *SpecAgent {
 	return a
 }
 
-// AssessPRD sends a PRD to the LLM with the assessment system prompt and
-// submit_assessment tool, returning a validated Assessment.
+// NewSpecAgentWith creates a SpecAgent with explicit run options: which vendor
+// the tiers resolve against, whether the model may read the codebase, the
+// bounds on a phase, and which providers serve it.
+func NewSpecAgentWith(modelTier, modelVariant string, o RunOptions) *SpecAgent {
+	return &SpecAgent{modelTier: modelTier, modelVariant: modelVariant, opts: o}
+}
+
+// RunOptions reports the options this agent was built with.
+func (sa *SpecAgent) RunOptions() RunOptions { return sa.opts }
+
+// AssessPRD judges a PRD's quality and returns the assessment the model
+// submitted.
 func (sa *SpecAgent) AssessPRD(ctx context.Context, prdText, specName string, opts ...AgentOption) (Assessment, error) {
-	// Apply agent options.
 	o := applyOptions(opts)
 
-	// Build system and user prompts.
 	systemPrompt, err := AssessmentSystemPrompt(o.projectDir)
 	if err != nil {
-		return Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("AssessPRD: failed to load system prompt: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+		return Assessment{}, promptError("AssessPRD", "system", err)
 	}
-
 	userPrompt, err := AssessmentUserPrompt(prdText, specName, o.projectDir, o.specLandscape)
 	if err != nil {
-		return Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("AssessPRD: failed to load user prompt: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+		return Assessment{}, promptError("AssessPRD", "user", err)
 	}
 
-	// Convert assessment tool definitions to Tool structs.
-	toolDefs := mapToTools(AssessmentTools())
+	var assessment Assessment
+	var submitted bool
 
-	// Build AICall options.
-	assessTemp := 0.2
-	callOpts := AICallOptions{
-		ModelTier:    sa.modelTier,
-		ModelVariant: sa.modelVariant,
-		System:       systemPrompt,
-		Messages:     []Message{{Role: "user", Content: userPrompt}},
-		Tools:        toolDefs,
-		ToolChoice:   map[string]any{"type": "any"},
-		Temperature:  &assessTemp,
-		MaxTokens:    4096,
-		Context:      "AssessPRD",
-	}
-
-	// Invoke AICall (or test mock).
-	callFn := sa.resolveCallFunc()
-	_, raw, err := callFn(ctx, callOpts)
-	if err != nil {
-		return Assessment{}, wrapCallError(err)
-	}
-
-	// Process response.
-	resp, ok := raw.(*MessageResponse)
-	if !ok {
-		return Assessment{}, &AgentError{
-			Detail:        "AssessPRD: unexpected response type from AICall",
-			ErrorCategory: "internal",
-		}
-	}
-
-	// Check stop reason for error conditions.
-	if err := checkStopReason(resp.StopReason); err != nil {
-		return Assessment{}, err
-	}
-
-	// Extract submit_assessment tool call.
-	toolInput, err := extractToolCall(resp, "submit_assessment")
+	res, err := sa.run(ctx, phase{
+		name:        "assess",
+		model:       sa.modelTier,
+		variant:     sa.modelVariant,
+		system:      systemPrompt,
+		user:        userPrompt,
+		submit:      submitAssessmentTool(&assessment, &submitted),
+		maxTokens:   assessMaxTokens,
+		temperature: specTemperature,
+	})
 	if err != nil {
 		return Assessment{}, err
 	}
-
-	// Parse tool input into Assessment.
-	assessment, err := parseAssessment(toolInput)
-	if err != nil {
-		return Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("AssessPRD: failed to parse assessment: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+	if !submitted {
+		return Assessment{}, unsubmitted("AssessPRD", ToolSubmitAssessment, res)
 	}
-
 	return assessment, nil
 }
 
-// RefinePRD sends a PRD with user answers and prior assessment to the LLM,
-// returning an updated PRD text and new Assessment.
+// RefinePRD rewrites a PRD from the author's answers and returns the new text
+// together with a fresh assessment of it.
 func (sa *SpecAgent) RefinePRD(ctx context.Context, prdText string, answers map[string]string, prevAssessment Assessment, opts ...AgentOption) (string, Assessment, error) {
-	// Apply agent options.
 	o := applyOptions(opts)
 
-	// Build system and user prompts.
 	systemPrompt, err := RefinementSystemPrompt(o.projectDir)
 	if err != nil {
-		return "", Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("RefinePRD: failed to load system prompt: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+		return "", Assessment{}, promptError("RefinePRD", "system", err)
 	}
-
 	userPrompt, err := RefinementUserPrompt(prdText, answers, prevAssessment, o.projectDir, o.specLandscape)
 	if err != nil {
-		return "", Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("RefinePRD: failed to load user prompt: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+		return "", Assessment{}, promptError("RefinePRD", "user", err)
 	}
 
-	// Convert refinement tool definitions to Tool structs.
-	toolDefs := mapToTools(RefinementTools())
+	var updatedPRD string
+	var assessment Assessment
+	var submitted bool
 
-	// Build AICall options.
-	refineTemp := 0.2
-	callOpts := AICallOptions{
-		ModelTier:    sa.modelTier,
-		ModelVariant: sa.modelVariant,
-		System:       systemPrompt,
-		Messages:     []Message{{Role: "user", Content: userPrompt}},
-		Tools:        toolDefs,
-		ToolChoice:   map[string]any{"type": "any"},
-		Temperature:  &refineTemp,
-		MaxTokens:    16384,
-		Context:      "RefinePRD",
-	}
-
-	// Invoke AICall (or test mock).
-	callFn := sa.resolveCallFunc()
-	_, raw, err := callFn(ctx, callOpts)
-	if err != nil {
-		return "", Assessment{}, wrapCallError(err)
-	}
-
-	// Process response.
-	resp, ok := raw.(*MessageResponse)
-	if !ok {
-		return "", Assessment{}, &AgentError{
-			Detail:        "RefinePRD: unexpected response type from AICall",
-			ErrorCategory: "internal",
-		}
-	}
-
-	// Check stop reason for error conditions.
-	if err := checkStopReason(resp.StopReason); err != nil {
-		return "", Assessment{}, err
-	}
-
-	// Extract submit_prd_update tool call.
-	prdInput, err := extractToolCall(resp, "submit_prd_update")
+	res, err := sa.run(ctx, phase{
+		name:        "refine",
+		model:       sa.modelTier,
+		variant:     sa.modelVariant,
+		system:      systemPrompt,
+		user:        userPrompt,
+		submit:      submitPRDUpdateTool(&updatedPRD, &assessment, &submitted),
+		maxTokens:   refineMaxTokens,
+		temperature: specTemperature,
+	})
 	if err != nil {
 		return "", Assessment{}, err
 	}
-
-	// Parse updated PRD text.
-	updatedPRD, err := parsePRDUpdate(prdInput)
-	if err != nil {
-		return "", Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("RefinePRD: failed to parse PRD update: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+	if !submitted {
+		return "", Assessment{}, unsubmitted("RefinePRD", ToolSubmitPRDUpdate, res)
 	}
-
-	// Extract submit_assessment from the same response — both tools must
-	// appear in a single LLM call; no fallback second call is made.
-	assessmentInput, err := extractToolCall(resp, "submit_assessment")
-	if err != nil {
-		return "", Assessment{}, err
-	}
-
-	assessment, parseErr := parseAssessment(assessmentInput)
-	if parseErr != nil {
-		return "", Assessment{}, &AgentError{
-			Detail:        fmt.Sprintf("RefinePRD: failed to parse assessment: %v", parseErr),
-			ErrorCategory: "internal",
-			Cause:         parseErr,
-		}
-	}
-
 	return updatedPRD, assessment, nil
 }
 
@@ -274,28 +193,21 @@ func (sa *SpecAgent) RefinePRD(ctx context.Context, prdText string, answers map[
 // generation with the full upstream artifact is what removes that failure, and
 // ValidateGenerationStep is what proves it did.
 //
-// After each step the pipeline runs the artifact's schema plus every
-// cross-file rule decidable so far, and sends any violation back to the model
-// as a tool_result for repair. A run that is still invalid after maxRepairs
-// attempts is a failed generation: it returns an error and no partial result
-// (§12.2).
+// Each step runs the artifact's schema plus every cross-file rule decidable so
+// far inside the submit tool, so a violation returns to the model as an error
+// on the turn it made the call. A step that never produces a valid artifact
+// within the phase's turn budget is a failed generation: it returns an error
+// and no partial result (§12.2).
 func (sa *SpecAgent) GenerateArtifacts(ctx context.Context, prdText, specID, specName string, opts ...AgentOption) (map[string]any, error) {
 	o := applyOptions(opts)
 
 	systemPrompt, err := GenerationSystemPrompt(o.projectDir)
 	if err != nil {
-		return nil, &AgentError{
-			Detail:        fmt.Sprintf("GenerateArtifacts: failed to load system prompt: %v", err),
-			ErrorCategory: "internal",
-			Cause:         err,
-		}
+		return nil, promptError("GenerateArtifacts", "system", err)
 	}
 
-	callFn := sa.resolveCallFunc()
-	temp := 0.2
-
 	// partial accumulates the typed artifacts as they are produced, so that
-	// each step can be validated against everything generated before it.
+	// each step is validated against everything generated before it.
 	partial := afspec.PartialSpec{SpecID: specID, SpecName: specName}
 
 	// priorArtifacts is the raw content passed to the prompt builder, which
@@ -304,28 +216,17 @@ func (sa *SpecAgent) GenerateArtifacts(ctx context.Context, prdText, specID, spe
 	result := map[string]any{}
 
 	for _, step := range afspec.GenerationSteps {
-		artifactName := string(step)
-
-		content, err := sa.generateArtifact(ctx, generateArtifactRequest{
-			step:           step,
-			prdText:        prdText,
-			specID:         specID,
-			systemPrompt:   systemPrompt,
-			temperature:    &temp,
-			callFn:         callFn,
-			options:        o,
-			priorArtifacts: priorArtifacts,
-			partial:        &partial,
-		})
+		content, err := sa.generateArtifact(ctx, step, prdText, specID, systemPrompt, o, priorArtifacts, &partial)
 		if err != nil {
 			return nil, err
 		}
 
-		priorArtifacts[artifactName] = content
-		result[artifactName] = content
+		name := string(step)
+		priorArtifacts[name] = content
+		result[name] = content
 
 		if o.onArtifact != nil {
-			if cbErr := safeCallback(o.onArtifact, artifactName, content); cbErr != nil {
+			if cbErr := safeCallback(o.onArtifact, name, content); cbErr != nil {
 				return nil, cbErr
 			}
 		}
@@ -334,146 +235,105 @@ func (sa *SpecAgent) GenerateArtifacts(ctx context.Context, prdText, specID, spe
 	return result, nil
 }
 
-// maxRepairs is how many times a step may be sent back to the model after a
-// validation failure. §12.2 makes inline repair the mechanism that keeps an
-// invalid artifact from ever being written.
-const maxRepairs = 3
-
-// generateArtifactRequest carries the per-step inputs of generateArtifact.
-type generateArtifactRequest struct {
-	step           afspec.GenerationStep
-	prdText        string
-	specID         string
-	systemPrompt   string
-	temperature    *float64
-	callFn         func(ctx context.Context, opts AICallOptions) (string, any, error)
-	options        agentOptions
-	priorArtifacts map[string]any
-	partial        *afspec.PartialSpec
-}
-
-// generateArtifact runs one generation step and its repair loop. On success it
-// returns the artifact content and has recorded the typed artifact in
-// req.partial, so the next step validates against it.
-func (sa *SpecAgent) generateArtifact(ctx context.Context, req generateArtifactRequest) (map[string]any, error) {
+// generateArtifact runs one generation step.
+func (sa *SpecAgent) generateArtifact(
+	ctx context.Context,
+	step afspec.GenerationStep,
+	prdText, specID, systemPrompt string,
+	o agentOptions,
+	priorArtifacts map[string]any,
+	partial *afspec.PartialSpec,
+) (map[string]any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
-	artifactName := string(req.step)
+	name := string(step)
 
 	userPrompt, err := GenerationUserPrompt(
-		req.prdText, artifactName, req.specID, req.options.projectDir,
-		req.priorArtifacts, req.options.dependentInterfaces, req.options.specLandscape,
+		prdText, name, specID, o.projectDir,
+		priorArtifacts, o.dependentInterfaces, o.specLandscape,
 	)
 	if err != nil {
+		return nil, promptError("GenerateArtifacts", "user prompt for "+name, err)
+	}
+
+	toolSchema, err := ArtifactSchema(step)
+	if err != nil {
 		return nil, &AgentError{
-			Detail:        fmt.Sprintf("GenerateArtifacts: failed to build prompt for %s: %v", artifactName, err),
+			Detail:        fmt.Sprintf("GenerateArtifacts: %v", err),
 			ErrorCategory: "internal",
 			Cause:         err,
 		}
 	}
 
-	toolDefs := mapToTools(ArtifactTool(artifactName))
-	toolName := "submit_" + artifactName
+	var content map[string]any
+	var submitted bool
 
-	callOpts := AICallOptions{
-		ModelTier:    sa.modelTier,
-		ModelVariant: sa.modelVariant,
-		System:       req.systemPrompt,
-		Messages:     []Message{{Role: "user", Content: userPrompt}},
-		Tools:        toolDefs,
-		ToolChoice:   map[string]any{"type": "any"},
-		Temperature:  req.temperature,
-		Context:      fmt.Sprintf("GenerateArtifacts:%s", artifactName),
-	}
-
-	_, raw, err := req.callFn(ctx, callOpts)
+	res, err := sa.run(ctx, phase{
+		name:        "generate:" + name,
+		model:       sa.modelTier,
+		variant:     sa.modelVariant,
+		system:      systemPrompt,
+		user:        userPrompt,
+		submit:      submitArtifactTool(step, toolSchema, partial, &content, &submitted),
+		maxTokens:   generateMaxTokens,
+		temperature: specTemperature,
+	})
 	if err != nil {
-		return nil, wrapCallError(err)
-	}
-
-	resp, ok := raw.(*MessageResponse)
-	if !ok {
-		return nil, &AgentError{
-			Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s", artifactName),
-			ErrorCategory: "internal",
-		}
-	}
-	if err := checkStopReason(resp.StopReason); err != nil {
 		return nil, err
 	}
-
-	toolInput, err := extractToolCall(resp, toolName)
-	if err != nil {
-		toolInput = nil
+	if !submitted {
+		return nil, unsubmitted("GenerateArtifacts:"+name, ArtifactToolName(step), res)
 	}
-
-	content, validErr := validateArtifactContent(toolInput, req.step, req.partial)
-
-	// Repair loop. Each attempt continues the same conversation: the original
-	// user prompt, the model's tool_use response, and a tool_result carrying
-	// the validation failure. That preserves generation context and lets the
-	// system-prompt prefix stay in the prompt cache.
-	for repair := 0; repair < maxRepairs && validErr != nil; repair++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		repairMessages := []Message{
-			{Role: "user", Content: userPrompt},
-			{Role: "assistant", Content: resp.Content},
-			{Role: "user", Content: []ContentBlock{{
-				Type:      "tool_result",
-				ToolUseID: findToolUseID(resp, toolName),
-				Text:      validErr.Error(),
-			}}},
-		}
-
-		repairOpts := AICallOptions{
-			ModelTier:    sa.modelTier,
-			ModelVariant: sa.modelVariant,
-			System:       req.systemPrompt,
-			Messages:     repairMessages,
-			Tools:        toolDefs,
-			ToolChoice:   map[string]any{"type": "any"},
-			Temperature:  req.temperature,
-			Context:      fmt.Sprintf("GenerateArtifacts:%s:repair:%d", artifactName, repair+1),
-		}
-
-		_, raw, err = req.callFn(ctx, repairOpts)
-		if err != nil {
-			return nil, wrapCallError(err)
-		}
-
-		resp, ok = raw.(*MessageResponse)
-		if !ok {
-			return nil, &AgentError{
-				Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s repair", artifactName),
-				ErrorCategory: "internal",
-			}
-		}
-		if err := checkStopReason(resp.StopReason); err != nil {
-			return nil, err
-		}
-
-		toolInput, err = extractToolCall(resp, toolName)
-		if err != nil {
-			toolInput = nil
-		}
-
-		content, validErr = validateArtifactContent(toolInput, req.step, req.partial)
-	}
-
-	if validErr != nil {
-		return nil, &AgentError{
-			Detail:        fmt.Sprintf("GenerateArtifacts: validation failed for %s after %d repair attempts: %v", artifactName, maxRepairs, validErr),
-			ErrorCategory: "validation",
-			Cause:         validErr,
-		}
-	}
-
 	return content, nil
+}
+
+// unsubmitted is the error for a run that ended without the phase's tool
+// producing a result.
+//
+// It names the RunStopReason because the three ways this happens want three
+// different responses from the operator: max_turns means the model kept
+// failing validation and the errors are in the transcript, budget_exceeded
+// means raise the cap or use a cheaper tier, and end_turn means the model
+// answered in prose instead of calling the tool.
+func unsubmitted(where, tool string, res core.RunResult) error {
+	category := "validation"
+	switch res.StopReason {
+	case core.RunStopMaxTurns:
+		category = "max_turns"
+	case core.RunStopBudgetExceeded:
+		category = "budget"
+	case core.RunStopAborted:
+		category = "aborted"
+	}
+	detail := fmt.Sprintf("%s: the run ended (%s, %d turns) without a %s call",
+		where, res.StopReason, res.TurnCount, tool)
+	if text := res.FinalText(); text != "" {
+		detail += ". The model's last message was: " + firstLine(text)
+	}
+	return &AgentError{Detail: detail, ErrorCategory: category}
+}
+
+func firstLine(s string) string {
+	const max = 300
+	for i, r := range s {
+		if r == '\n' {
+			s = s[:i]
+			break
+		}
+	}
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
+}
+
+func promptError(where, which string, err error) error {
+	return &AgentError{
+		Detail:        fmt.Sprintf("%s: failed to load %s prompt: %v", where, which, err),
+		ErrorCategory: "internal",
+		Cause:         err,
+	}
 }
 
 // safeCallback invokes a callback function, recovering from panics and
@@ -489,226 +349,4 @@ func safeCallback(fn func(string, any), name string, content any) (err error) {
 	}()
 	fn(name, content)
 	return nil
-}
-
-// resolveCallFunc returns the AI call function to use — the test mock
-// if set, or the real AICall function.
-func (sa *SpecAgent) resolveCallFunc() func(ctx context.Context, opts AICallOptions) (string, any, error) {
-	if sa.aiCallFunc != nil {
-		return sa.aiCallFunc
-	}
-	return func(ctx context.Context, opts AICallOptions) (string, any, error) {
-		return AICall(ctx, opts)
-	}
-}
-
-// mapToTools converts tool definitions from map format (as returned by
-// AssessmentTools, RefinementTools, etc.) to the Tool struct format
-// used by AICallOptions.
-func mapToTools(defs []map[string]any) []Tool {
-	tools := make([]Tool, len(defs))
-	for i, def := range defs {
-		name, _ := def["name"].(string)
-		desc, _ := def["description"].(string)
-		tools[i] = Tool{
-			Name:        name,
-			Description: desc,
-			InputSchema: def["input_schema"],
-		}
-	}
-	return tools
-}
-
-// checkStopReason checks the LLM response stop reason and returns an
-// AgentError for known error stop reasons. Returns nil for acceptable
-// stop reasons like "end_turn" or "tool_use".
-func checkStopReason(stopReason string) error {
-	switch stopReason {
-	case "refusal":
-		return &AgentError{
-			Detail:        "LLM refused the request",
-			ErrorCategory: "refusal",
-		}
-	case "context_window_exceeded":
-		return &AgentError{
-			Detail:        "context window exceeded",
-			ErrorCategory: "context_window",
-		}
-	case "pause_turn":
-		return &AgentError{
-			Detail:        "turn paused by the API",
-			ErrorCategory: "pause_turn",
-		}
-	default:
-		return nil
-	}
-}
-
-// findToolUseID returns the ID of the first tool_use ContentBlock whose Name
-// matches toolName in resp. Returns an empty string if not found.
-func findToolUseID(resp *MessageResponse, toolName string) string {
-	if resp == nil {
-		return ""
-	}
-	for _, block := range resp.Content {
-		if block.Type == "tool_use" && block.Name == toolName {
-			return block.ID
-		}
-	}
-	return ""
-}
-
-// extractToolCall finds a tool_use content block with the given name in
-// the response and returns its Input. Returns an AgentError with
-// category "internal" if the tool call is not found.
-func extractToolCall(resp *MessageResponse, toolName string) (any, error) {
-	if resp == nil {
-		return nil, &AgentError{
-			Detail:        fmt.Sprintf("missing %s tool call: nil response", toolName),
-			ErrorCategory: "internal",
-		}
-	}
-	for _, block := range resp.Content {
-		if block.Type == "tool_use" && block.Name == toolName {
-			return block.Input, nil
-		}
-	}
-	return nil, &AgentError{
-		Detail:        fmt.Sprintf("missing %s tool call in response", toolName),
-		ErrorCategory: "internal",
-	}
-}
-
-// parseAssessment converts a tool call input (expected to be
-// map[string]any) into an Assessment struct.
-func parseAssessment(input any) (Assessment, error) {
-	m, ok := input.(map[string]any)
-	if !ok {
-		return Assessment{}, fmt.Errorf("assessment payload is not a map: %T", input)
-	}
-
-	var a Assessment
-
-	// Validate the quality enum value (NS-REQ-2, NS-REQ-3).
-	quality, _ := m["quality"].(string)
-	if quality == "" {
-		return Assessment{}, fmt.Errorf("assessment payload missing required 'quality' field")
-	}
-	validQualities := map[string]bool{
-		"ready":            true,
-		"needs_refinement": true,
-		"incomplete":       true,
-	}
-	if !validQualities[quality] {
-		return Assessment{}, fmt.Errorf(
-			"invalid assessment quality %q: must be one of [incomplete, needs_refinement, ready]",
-			quality,
-		)
-	}
-	a.Quality = quality
-
-	a.Summary, _ = m["summary"].(string)
-
-	// Parse gaps — could be []string or []any.
-	switch g := m["gaps"].(type) {
-	case []string:
-		a.Gaps = g
-	case []any:
-		for _, item := range g {
-			if s, ok := item.(string); ok {
-				a.Gaps = append(a.Gaps, s)
-			}
-		}
-	}
-
-	// Parse questions — could be []map[string]any or []any.
-	switch q := m["questions"].(type) {
-	case []map[string]any:
-		a.Questions = q
-	case []any:
-		for _, item := range q {
-			if qm, ok := item.(map[string]any); ok {
-				a.Questions = append(a.Questions, qm)
-			}
-		}
-	}
-
-	return a, nil
-}
-
-// parsePRDUpdate extracts the updated_prd string from a submit_prd_update
-// tool call input.
-func parsePRDUpdate(input any) (string, error) {
-	m, ok := input.(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("PRD update payload is not a map: %T", input)
-	}
-	prd, ok := m["updated_prd"].(string)
-	if !ok {
-		return "", fmt.Errorf("PRD update payload missing 'updated_prd' string field")
-	}
-	return prd, nil
-}
-
-// wrapCallError ensures that errors from AICall are returned as
-// *AgentError. If the error is already an *AgentError, it is returned
-// as-is. Other errors are wrapped with category "internal".
-func wrapCallError(err error) error {
-	var agentErr *AgentError
-	if errors.As(err, &agentErr) {
-		return agentErr
-	}
-	return &AgentError{
-		Detail:        err.Error(),
-		ErrorCategory: "internal",
-		Cause:         err,
-	}
-}
-
-// validateArtifactContent decodes a model's tool input for one generation
-// step, runs the artifact's v2 schema and every cross-file rule decidable at
-// that point, and records the typed artifact in partial on success.
-//
-// A step that fails leaves partial untouched, so a repair attempt validates
-// against the same upstream artifacts as the attempt before it.
-func validateArtifactContent(input any, step afspec.GenerationStep, partial *afspec.PartialSpec) (map[string]any, error) {
-	if input == nil {
-		return nil, fmt.Errorf("the model returned no %s artifact", step)
-	}
-	m, ok := input.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("the %s artifact is not a JSON object but a %T", step, input)
-	}
-
-	decoded, err := afspec.DecodeArtifact(step, m)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate a copy of the accumulated state so that a failure cannot leave
-	// a rejected artifact behind for the next attempt to validate against.
-	candidate := *partial
-	switch artifact := decoded.(type) {
-	case *afspec.RequirementsV2Json:
-		candidate.Requirements = artifact
-	case *afspec.TestSpecV2Json:
-		candidate.TestSpec = artifact
-	case *afspec.TasksV2Json:
-		candidate.Tasks = artifact
-	}
-
-	if result := afspec.ValidateGenerationStep(step, candidate); !result.Valid {
-		return nil, formatValidationEntries(step, result.Errors)
-	}
-
-	*partial = candidate
-	return m, nil
-}
-
-// formatValidationEntries turns validation errors into the tool_result text
-// the repair loop sends back to the model. Each line names the rule that
-// failed so the model can act on it rather than guess.
-func formatValidationEntries(step afspec.GenerationStep, entries []afspec.ValidationEntry) error {
-	return fmt.Errorf("the %s artifact has %d validation error(s):\n%s",
-		step, len(entries), strings.TrimRight(afspec.FormatValidationEntries(entries), "\n"))
 }
