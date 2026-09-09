@@ -22,7 +22,7 @@ The repo is a typical `golang` project:
 | Path | Package | Purpose |
 |---|---|---|
 | [`afspec/`](afspec/README.md) | `afspec` | Spec format library: load, validate, mutate, render and save specification packages. |
-| `agentspec/` | `agentspec` | LLM-powered spec creation: session state machine, generation pipeline, Claude API integration. |
+| `agentspec/` | `agentspec` | LLM-powered spec creation: session state machine, generation pipeline, and the agent that runs it — built on the AgentKit SDK from [`coder`](https://github.com/agent-fox-dev/coder). |
 | `cmd/spec/` | `main` | The `spec` CLI. |
 | `cmd/af/` | `main` | The `af` CLI. |
 | `cmd/nightshift/` | `main` | The `nightshift` CLI. |
@@ -34,15 +34,27 @@ embeds live in `afspec/schemas/`.
 
 ## Quick start
 
+`agentspec` runs on the AgentKit SDK, which lives in the `coder` repository
+under the module path `github.com/agentfox/agentkit-go`. That path does not
+match its repository URL, so the module proxy cannot serve it and it is
+consumed through a `replace` to a sibling checkout:
+
+```bash
+git clone https://github.com/agent-fox-dev/coder ../coder
+```
+
 ```bash
 make check          # gofmt + go vet + all tests
 make build          # build af, nightshift and spec into bin/
 ```
 
+The test suite needs no API key and makes no network calls.
+
 ## Documentation
 
 - [Spec CLI Reference](docs/cli.md) — commands, flags and usage
-- [Configuration](docs/configuration.md) — LLM provider setup and model selection
+- [Configuration](docs/configuration.md) — credentials, model selection, and what the model is allowed to read
+- [Model Usage](docs/model-usage.md) — what each pipeline phase sends, and how a failure is repaired
 - [Go Library API](afspec/README.md) — the `afspec` library
 - [Development Guide](docs/development.md) — setup, testing, contributing
 - [ADRs](docs/adr/) — architecture decisions

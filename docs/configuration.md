@@ -1,272 +1,209 @@
 # Configuration
 
-The spec CLI uses the Anthropic Claude API for LLM-powered spec generation.
-This document covers how to set your API credentials, choose a model, switch
-between LLM providers, and manage configuration files.
+The `spec` CLI reaches a model through [AgentKit](https://github.com/agent-fox-dev/coder)
+(module `github.com/agentfox/agentkit-go`), so it speaks every wire API that
+library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
+OpenAI-compatible gateways (OpenRouter, DeepSeek, Groq, xAI, Together,
+Moonshot). This document covers credentials, model selection, what the model
+is allowed to read, and the config file.
 
-## Quick Start
-
-Set your Anthropic API key and you are ready to go:
+## Quick start
 
 ```sh
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-No configuration files are required. With the API key in your environment, the
-tool uses `claude-sonnet-4-6` (the STANDARD tier) by default.
+No configuration file is required. With a key in the environment the tool uses
+the `STANDARD` tier, which resolves to `claude-sonnet-4-6`.
 
-## Model Selection
-
-Four registered models are available across three tiers:
-
-| Tier | Model ID | Variant | Use case |
-|------|----------|---------|----------|
-| `SIMPLE` | `claude-haiku-4-5` | standard | Fast, low-cost tasks |
-| `STANDARD` | `claude-sonnet-4-6` | standard | Default -- good balance of quality and speed |
-| `ADVANCED` | `claude-opus-4-6` | standard | Highest quality, slower and more expensive |
-| `ADVANCED` | `claude-opus-4-6[1m]` | extended | 1M-context window for large specs |
-
-The default tier is `STANDARD`.
-
-### Override via environment variable
-
-Set `AF_SPEC_MODEL` to a tier name or a direct model ID:
+`spec models` prints what each phase will actually run on, what it costs, and
+whether this shell can authenticate to it:
 
 ```sh
-# Use the ADVANCED tier
-export AF_SPEC_MODEL=ADVANCED
-
-# Or specify a model ID directly
-export AF_SPEC_MODEL=claude-opus-4-6
-
-# Use the 1M-context extended variant directly
-export AF_SPEC_MODEL=claude-opus-4-6[1m]
+spec models          # the three phases, as configured here
+spec models --all    # every tier of every vendor
 ```
 
-This environment variable has the highest precedence and overrides any
-file-based configuration.
+## Credentials
 
-### Override via config file
+Each vendor has an **ordered** list of environment variables. The first one set
+wins, and the header scheme differs per variable — which is why it is an
+ordered list rather than a `<VENDOR>_API_KEY` convention.
 
-Add a `[model]` section to your TOML config file:
+| Vendor | Variables, in order | Sent as |
+|---|---|---|
+| `anthropic` | `ANTHROPIC_AUTH_TOKEN` | `Authorization: Bearer` |
+| | `ANTHROPIC_OAUTH_TOKEN` | `Authorization: Bearer` |
+| | `ANTHROPIC_API_KEY` | `x-api-key` |
+| `openai` | `OPENAI_API_KEY` | `Authorization: Bearer` |
+| `google` | `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | `x-goog-api-key` |
+| `ollama` | `OLLAMA_API_KEY` (usually unset) | `Authorization: Bearer` |
+| anything else | `<VENDOR>_API_KEY` | `Authorization: Bearer` |
+
+**A credential has three states, not two.** A deployment behind a gateway that
+authenticates by URL, or on an instance role, has no key this process can read
+and a transport that will nonetheless authenticate. That is `ambient`, and it
+passes the preflight check that an unconfigured environment fails — otherwise
+every such deployment would be refused for a key it was never going to have.
+Setting only a base URL puts you in that state.
+
+### Base URLs
+
+| Variable | Points at |
+|---|---|
+| `ANTHROPIC_BASE_URL` | a proxy or gateway in front of Anthropic |
+| `OPENAI_BASE_URL` | Azure OpenAI, a gateway, or any OpenAI-compatible server |
+| `GOOGLE_GEMINI_BASE_URL` | Vertex AI, or a proxy |
+| `OLLAMA_HOST` | your Ollama server (default `http://localhost:11434`) |
+
+### Vertex AI and AWS Bedrock
+
+`CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_BEDROCK` **are refused**, with an
+error naming what to do instead. AgentKit has no wire for Claude on either
+platform, and honouring the variable would have sent the request to
+`api.anthropic.com` with credentials meant for somewhere else.
+
+Both deployments are usually fronted by an Anthropic-compatible gateway: point
+`ANTHROPIC_BASE_URL` at it and set a token there. Gemini on Vertex is a
+different matter and is reached with `GOOGLE_GEMINI_BASE_URL`. See
+[`docs/errata/agentkit_model_resolution.md`](errata/agentkit_model_resolution.md).
+
+## Model selection
+
+### Tiers
+
+Three named tiers are what a spec author chooses between, so that writing a PRD
+does not require knowing which model id is current this month.
+
+| Tier | `anthropic` (default) | `openai` | `google` |
+|---|---|---|---|
+| `SIMPLE` | `claude-haiku-4-5` | `gpt-5.6-luna` | `gemini-3.5-flash-lite` |
+| `STANDARD` | `claude-sonnet-4-6` | `gpt-5.6-terra` | `gemini-3.8-flash` |
+| `ADVANCED` | `claude-opus-4-6` | `gpt-6-astra` | `gemini-3.1-pro-preview` |
+
+The `extended` variant of `ADVANCED` selects a model with a 1 000 000-token
+context window (`claude-fable-5-1` on Anthropic) for a spec too large for the
+tier default.
+
+### Model ids
+
+Anything that is not a tier name goes to the catalog unchanged, so a
+`vendor/model-id` pair, a bare unambiguous id, and a model released after this
+build was cut all work:
+
+```sh
+export AF_SPEC_MODEL=anthropic/claude-opus-4-6
+export AF_SPEC_MODEL=openai/gpt-6-astra
+export AF_SPEC_MODEL=ADVANCED
+```
+
+`AF_SPEC_MODEL` has the highest precedence and overrides file-based model
+resolution entirely.
+
+### Per-phase models
 
 ```toml
 [model]
-model = "ADVANCED"
+model = "STANDARD"           # default for phases not listed below
+vendor = "anthropic"         # which tier table SIMPLE/STANDARD/ADVANCED use
+model_variant = ""           # "extended" for the long-context row of a tier
+assess_model = "SIMPLE"      # a short, fast call — save cost here
+refine_model = ""            # inherits model
+generate_model = "ADVANCED"  # the bulk of the output
 ```
 
-The `model` field accepts either a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`)
-or a model ID (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6`,
-`claude-opus-4-6[1m]`). Tier names are matched case-insensitively.
+Each per-phase field takes a tier name or a model id. When omitted the phase
+inherits `model`.
 
-## LLM Providers
+## What the model may read
 
-### Anthropic API (Direct)
+By default a spec is written from the PRD alone. Two separate grants change
+that, and they are separate because wanting a project's steering directives is
+not wanting a source-reading run.
 
-This is the default provider. It requires only the `ANTHROPIC_API_KEY`
-environment variable:
+| Grant | Flag | What it does |
+|---|---|---|
+| Source access | `spec refine --read-source`, `spec generate --read-source` | Gives the model AgentKit's non-mutating tools (`read_file`, `find_files`, `search_files`, …) rooted at `--source` |
+| Project trust | `--trust-project` | Admits repository-authored skills and context files — `AGENTS.md`, `CLAUDE.md`, `.specs/steering.md` — into the system prompt |
 
-```sh
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
+The read-only mandate is a mechanism rather than a prompt instruction: the
+mutating tools (`write_file`, `edit_file`, `execute`, `run_command`,
+`powershell`) are excluded from the resolved set, an invariant checks that set
+before the first request, and AgentKit's own unguarded-shell guard fails any
+run where a shell survived. `fetch_url` is never registered.
 
-No additional configuration is needed.
+Project trust defaults to off because a repository that is merely the current
+directory would otherwise author part of the system prompt that reads it — git
+clone, cd, run.
 
-### Google Vertex AI
+## Bounds
 
-To use Claude through Google Cloud Vertex AI:
+One phase is bounded by turns and by spend. Both stop the run cleanly at a turn
+boundary rather than aborting mid-call.
 
-1. Set the environment variable to enable Vertex:
+| Setting | Flag | TOML | Default |
+|---|---|---|---|
+| Turns per phase | `--max-turns` | `[agent] max_turns` | 40 |
+| Spend per phase | `--max-budget` | `[agent] max_budget_usd` | 5.00 |
+| Attempts per model call | — | `[agent] max_attempts` | 3 |
 
-   ```sh
-   export CLAUDE_CODE_USE_VERTEX=1
-   ```
+The turn budget is also the repair budget: a validation failure returns to the
+model as a tool error and costs a turn, so a model that cannot satisfy a rule
+stops costing money rather than looping until the context window ends the run.
 
-2. Set the `CLOUD_ML_REGION` environment variable (required by the Anthropic
-   SDK):
+## Configuration files
 
-   ```sh
-   export CLOUD_ML_REGION="us-east5"
-   ```
-
-3. Authenticate with Google Cloud using Application Default Credentials
-   (e.g., `gcloud auth application-default login`). The project ID is
-   auto-detected from your credentials.
-
-When Vertex AI is enabled, `ANTHROPIC_API_KEY` is not needed -- authentication
-is handled through Google Cloud Application Default Credentials.
-
-Note: The `[provider]` section in the TOML config file accepts
-`vertex_project` and `vertex_region` fields, but these are not currently
-passed to the Anthropic SDK client. Use the `CLOUD_ML_REGION` environment
-variable and Application Default Credentials instead.
-
-### AWS Bedrock
-
-To use Claude through AWS Bedrock:
-
-1. Set the environment variable to enable Bedrock:
-
-   ```sh
-   export CLAUDE_CODE_USE_BEDROCK=1
-   ```
-
-2. Configure your AWS credentials using any standard method (environment
-   variables, `~/.aws/credentials`, IAM role, etc.).
-
-When Bedrock is enabled, `ANTHROPIC_API_KEY` is not needed -- authentication
-is handled through your AWS credentials.
-
-### Provider precedence
-
-If multiple provider environment variables are set, the first match wins:
-
-1. `CLAUDE_CODE_USE_VERTEX` set (any non-empty value) -- use Vertex AI
-2. `CLAUDE_CODE_USE_BEDROCK` set (any non-empty value) -- use Bedrock
-3. Neither set -- use the direct Anthropic API
-
-## Configuration Files
-
-### TOML config
-
-The tool reads TOML configuration from two locations, checked in order:
+Read in order; the first found is used. Symlinked config files are rejected.
 
 | Location | Scope |
-|----------|-------|
-| `.specs/config.toml` (relative to working directory) | Project-local |
-| `~/.specs/config.toml` | Global (user-wide) |
-
-The first file found is used. Project-local settings take precedence over
-global settings. Symlinked config files are rejected for security.
-
-#### Example config file
+|---|---|
+| `.specs/config.toml` | project-local |
+| `~/.specs/config.toml` | user-global |
 
 ```toml
 [model]
-model = "ADVANCED"
+model = "STANDARD"
+vendor = "anthropic"
+model_variant = ""
+assess_model = ""
+refine_model = ""
+generate_model = ""
+
+[agent]
+read_source = false
+trust_project = false
+max_turns = 40
+max_budget_usd = 5.0
+max_attempts = 3
 
 [provider]
-auth_method = ""
-vertex_project = "my-gcp-project"
-vertex_region = "us-east5"
+auth_method = ""       # read, not used
+vertex_project = ""    # read, not used
+vertex_region = ""     # read, not used
 ```
 
-The `[model]` section controls which Claude model is used. The `[provider]`
-section stores authentication and cloud provider settings.
+Command-line flags win over the file for the fields they set; a flag that was
+not passed leaves the file's value alone.
 
-#### Available `[model]` fields
+## Precedence
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `model` | string | `"STANDARD"` | Default model tier or model ID for all phases |
-| `model_variant` | string | *(none)* | Variant for tier resolution (e.g. `"extended"` for the 1M-context model) |
-| `assess_model` | string | *(inherits `model`)* | Override for the PRD assessment phase |
-| `refine_model` | string | *(inherits `model`)* | Override for the PRD refinement phase |
-| `generate_model` | string | *(inherits `model`)* | Override for artifact generation (and repair) |
+1. `AF_SPEC_MODEL` — skips file-based model resolution entirely.
+2. `[model]` in `.specs/config.toml`, else `~/.specs/config.toml`.
+3. `model = "STANDARD"`, resolving to `anthropic/claude-sonnet-4-6`.
 
-Each per-phase field accepts either a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or a
-direct model ID (`claude-haiku-4-5`, etc.). When omitted, the phase inherits the top-level
-`model` value.
-
-The `model_variant` field selects a variant within a tier. When set to
-`"extended"` with `model = "ADVANCED"`, the 1M-context model
-`claude-opus-4-6[1m]` is used instead of the standard `claude-opus-4-6`.
-When the variant does not match any registered model for the resolved tier,
-the tier default is used.
-
-#### Cost-optimization example
-
-Use a cheaper model for the assessment phase (which is a short, fast call) and a more
-capable model for artifact generation (which produces the bulk of the output):
-
-```toml
-[model]
-model = "STANDARD"        # default for phases not listed below
-assess_model = "SIMPLE"   # fast assessment — saves cost
-generate_model = "ADVANCED"  # high-quality artifact generation
-```
-
-With this configuration:
-- `spec assess` uses `claude-haiku-4-5` (SIMPLE)
-- `spec generate` uses `claude-opus-4-6` (ADVANCED) for all three artifact calls
-- `spec refine` uses `claude-sonnet-4-6` (STANDARD, inherited from `model`)
-
-#### Extended-context example
-
-Use the 1M-context variant of the ADVANCED tier for large specs where the
-200K context window of `claude-opus-4-6` is insufficient:
-
-```toml
-[model]
-model = "ADVANCED"
-model_variant = "extended"
-```
-
-This resolves to `claude-opus-4-6[1m]`. Alternatively, specify the model ID
-directly:
-
-```sh
-export AF_SPEC_MODEL=claude-opus-4-6[1m]
-```
-
-#### Available `[provider]` fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `auth_method` | string | `""` | Authentication method hint |
-| `vertex_project` | string | `""` | Google Cloud project ID (loaded but not currently used by the client) |
-| `vertex_region` | string | `""` | Google Cloud region (loaded but not currently used by the client) |
-
-## Configuration Precedence
-
-Model resolution follows a strict 3-step precedence chain. The first source
-that provides a value wins:
-
-1. **`AF_SPEC_MODEL` environment variable** -- highest priority. If set, file-based
-   model resolution is skipped entirely (auth fields from config files are still
-   applied if available).
-
-2. **`[model]` section in TOML config** -- if the section exists in
-   `.specs/config.toml` or `~/.specs/config.toml`, its `model` value is used.
-   Auth fields are read from the `[provider]` section of the same file.
-
-3. **Hardcoded default** -- `model = "STANDARD"`, which resolves to
-   `claude-sonnet-4-6`.
-
-## Prompt Caching
-
-The AI layer supports prompt caching with configurable policies to reduce
-latency and cost for repeated system prompts. Three policies are available:
-
-| Policy | Behavior |
-|--------|----------|
-| `none` | Caching disabled; no `cache_control` metadata is injected |
-| `default` | Injects ephemeral `cache_control` when the system prompt exceeds the token threshold (this is the default) |
-| `extended` | Same as `default` but with a 1-hour TTL on cached content |
-
-Cache injection is conditional on the estimated token count of the system
-prompt exceeding a model-specific threshold:
-
-- **Sonnet models**: 2048 tokens
-- **Haiku and Opus models**: 4096 tokens
-
-If a provider rejects `cache_control` metadata (e.g., a 400 error mentioning
-`cache_control`), the AI layer automatically retries the request without
-caching.
-
-## Environment Variables
+## Environment variables
 
 | Variable | Purpose |
-|----------|---------|
-| `ANTHROPIC_API_KEY` | API key for direct Anthropic API access |
-| `AF_SPEC_MODEL` | Override model tier (`SIMPLE`, `STANDARD`, `ADVANCED`) or model ID (e.g. `claude-opus-4-6[1m]`) |
-| `CLAUDE_CODE_USE_VERTEX` | Set to any non-empty value to route requests through Google Vertex AI |
-| `CLOUD_ML_REGION` | Google Cloud region for Vertex AI (required when Vertex is enabled) |
-| `CLAUDE_CODE_USE_BEDROCK` | Set to any non-empty value to route requests through AWS Bedrock |
-| `AF_AGENT` | Set to `1` for agent mode (suppresses banner, routes errors to JSON on stdout) |
+|---|---|
+| `ANTHROPIC_API_KEY` and the other vendor keys | credentials; see the table above |
+| `<VENDOR>_BASE_URL` | gateway, proxy or local server for that vendor |
+| `AF_SPEC_MODEL` | override the model tier or id for every phase |
+| `AF_AGENT` | `1` for agent mode: no banner, quiet, JSON errors on stdout, no event trace |
+| `SPEC_DIR` | override the default spec root (`.specs`); `--spec-dir` wins |
+| `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
 
-## See Also
+## See also
 
-- [Model Usage](model-usage.md) — how the spec pipeline selects and resolves
-  Claude models across the assess, refine, and generate phases, with details on
-  prompt caching thresholds, retry behavior, and known limitations.
+- [Model Usage](model-usage.md) — what each phase sends and how a failure is repaired
+- [Spec CLI Reference](cli.md) — commands and flags
+- [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md) — why the pipeline is shaped this way

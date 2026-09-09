@@ -3,6 +3,25 @@
 ## Prerequisites
 
 - Go 1.26.5 or later
+- A sibling checkout of [`coder`](https://github.com/agent-fox-dev/coder)
+
+`coder` ships the AgentKit agent SDK that `agentspec` runs on. Its module path
+is `github.com/agentfox/agentkit-go` while its repository is
+`agent-fox-dev/coder`, so the module proxy cannot serve it and it is consumed
+through a `replace` to a checkout beside this one:
+
+```bash
+git clone https://github.com/agent-fox-dev/coder ../coder
+```
+
+Point the replace elsewhere if your layout differs:
+
+```bash
+go mod edit -replace github.com/agentfox/agentkit-go=/path/to/coder
+```
+
+This is the same arrangement `coder`'s own `examples/flatline` uses for the
+spec library, and it goes away when the module path is fixed upstream.
 
 ## Repository layout
 
@@ -27,7 +46,9 @@ build metadata (`version.go`).
 ## Setup
 
 ```bash
-git clone https://github.com/agent-fox-dev/agent-fox.git && cd agent-fox
+git clone https://github.com/agent-fox-dev/agent-fox.git
+git clone https://github.com/agent-fox-dev/coder.git
+cd agent-fox
 go mod download
 ```
 
@@ -42,16 +63,23 @@ go mod download
   discovery. Types are value-oriented — mutation methods return new copies. No
   goroutine-safety guarantees; callers must synchronize externally.
 
-- **agentspec** (`agentspec/`) — AI session layer. SpecAgent pipeline
-  (AssessPRD, RefinePRD, GenerateArtifacts), TOML configuration and model
-  registry, campaign directory lifecycle, session state machine with atomic
-  persistence, prompt templates, and tool schema definitions for Claude API
-  integration.
+- **agentspec** (`agentspec/`) — AI session layer, built on AgentKit. The
+  SpecAgent pipeline (AssessPRD, RefinePRD, GenerateArtifacts), TOML
+  configuration, tier aliases over the model catalog, campaign directory
+  lifecycle, the session state machine with atomic persistence, prompt
+  templates, and the submit tools each phase ends with.
+
+  The files worth knowing: `runner.go` builds the `core.AgentConfig` a phase
+  runs under and holds the read-only invariant; `tools.go` defines the submit
+  tools whose handlers validate and terminate; `jsonschema.go` converts
+  afspec's embedded JSON Schemas into the structured schema a tool declares;
+  `models.go` is the tier table over `catalog.ResolveModel`; `credentials.go`
+  is the preflight. See [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
 
 - **cmd/spec** (`cmd/spec/`) — the `spec` CLI binary, built with cobra. Wires
   afspec and agentspec together behind `new`, `list`, `refine`, `generate`,
   `validate`, `lint`, `render`, `status`, `campaign`, `activate`, `seal`,
-  `archive`, `supersede` and `migrate`.
+  `archive`, `supersede`, `models` and `migrate`.
 
 ## Common tasks
 
@@ -67,6 +95,11 @@ All tasks are driven through `make`. Run from the repository root.
 | `make build-all`    | Cross-compile the spec CLI into `dist/`                |
 | `make clean`        | Remove build artifacts                                 |
 | `make json-gen`     | Regenerate Go artifact types from the schemas          |
+
+Tests need no API key and make no network calls: the phases that call a model
+are driven by `provider/faux`, AgentKit's scripted provider, so a test asserts
+on the requests that reached the wire rather than on arguments this repository
+built for itself.
 
 ## Schema workflow
 
