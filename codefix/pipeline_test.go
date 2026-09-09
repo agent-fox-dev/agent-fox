@@ -428,6 +428,19 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 	}
 }
 
+// The attribution footer carries the current motto, not the retired
+// disclaimer it replaced.
+func TestFooterCarriesTheCurrentMotto(t *testing.T) {
+	const want = "*Written by [`fix`](https://github.com/agent-fox-dev/agent-fox). Trust, but verify!*"
+	const stale = "It is not a substitute for review."
+	if footer != want {
+		t.Errorf("footer = %q, want %q", footer, want)
+	}
+	if strings.Contains(footer, stale) {
+		t.Errorf("footer still contains the retired disclaimer %q", stale)
+	}
+}
+
 func TestParseLandMode(t *testing.T) {
 	for _, s := range LandModes {
 		if _, ok := ParseLandMode(s); !ok {
