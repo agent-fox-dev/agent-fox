@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -637,30 +638,13 @@ func TestSpecSession_Refine_ContextCancellation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSpecSession_Generate_HappyPath(t *testing.T) {
-	specDir := t.TempDir()
-	writePRDFileForAI(t, specDir, "# Test PRD for generation")
-
-	requirementsContent := map[string]any{
-		"spec_id":      "07",
-		"spec_name":    "test",
-		"requirements": []any{},
-	}
-	testSpecContent := map[string]any{
-		"spec_id":    "07",
-		"spec_name":  "test",
-		"test_cases": []any{},
-	}
-	tasksContent := map[string]any{
-		"spec_id":   "07",
-		"spec_name": "test",
-		"tasks":     []any{},
-	}
+	specDir := newSpecDir(t, "07", "test")
 
 	mock := &mockAssessor{
 		generateResult: map[string]any{
-			"requirements": requirementsContent,
-			"test_spec":    testSpecContent,
-			"tasks":        tasksContent,
+			"requirements": v2RequirementsArtifact("07", "test"),
+			"test_spec":    v2TestSpecArtifact("07", "test"),
+			"tasks":        v2TasksArtifact("07", "test"),
 		},
 	}
 	session := setupTestSession(t, specDir, mock, func(s *SpecSession) {
@@ -697,14 +681,13 @@ func TestSpecSession_Generate_HappyPath(t *testing.T) {
 // sets the session state to StateGenerating immediately.
 // Requirement: 07-REQ-11.1
 func TestSpecSession_Generate_TransitionsToGenerating(t *testing.T) {
-	specDir := t.TempDir()
-	writePRDFileForAI(t, specDir, "# Test PRD")
+	specDir := newSpecDir(t, "07", "test")
 
 	mock := &mockAssessor{
 		generateResult: map[string]any{
-			"requirements": map[string]any{"spec_id": "07"},
-			"test_spec":    map[string]any{"spec_id": "07"},
-			"tasks":        map[string]any{"spec_id": "07"},
+			"requirements": v2RequirementsArtifact("07", "test"),
+			"test_spec":    v2TestSpecArtifact("07", "test"),
+			"tasks":        v2TasksArtifact("07", "test"),
 		},
 	}
 	session := setupTestSession(t, specDir, mock, func(s *SpecSession) {
@@ -731,29 +714,22 @@ func TestSpecSession_Generate_TransitionsToGenerating(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSpecSession_Generate_PartialRecovery(t *testing.T) {
-	specDir := t.TempDir()
-	writePRDFileForAI(t, specDir, "# Test PRD")
+	specDir := newSpecDir(t, "07", "test")
 
 	// Pre-write requirements.json to simulate partial failure recovery.
-	existingRequirements := `{"spec_id":"07","spec_name":"test","requirements":[]}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"),
-		[]byte(existingRequirements), 0o644); err != nil {
+	existing, err := json.MarshalIndent(v2RequirementsArtifact("07", "test"), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), existing, 0o644); err != nil {
 		t.Fatalf("failed to write existing requirements.json: %v", err)
 	}
 
 	// Mock only returns test_spec and tasks (requirements already exists).
 	mock := &mockAssessor{
 		generateResult: map[string]any{
-			"test_spec": map[string]any{
-				"spec_id":    "07",
-				"spec_name":  "test",
-				"test_cases": []any{},
-			},
-			"tasks": map[string]any{
-				"spec_id":   "07",
-				"spec_name": "test",
-				"tasks":     []any{},
-			},
+			"test_spec": v2TestSpecArtifact("07", "test"),
+			"tasks":     v2TasksArtifact("07", "test"),
 		},
 		generateOrder: []string{"test_spec", "tasks"},
 	}
@@ -762,9 +738,9 @@ func TestSpecSession_Generate_PartialRecovery(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	result, err := session.Generate(ctx)
-	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+	result, genErr := session.Generate(ctx)
+	if genErr != nil {
+		t.Fatalf("Generate() returned error: %v", genErr)
 	}
 
 	// Result should include all 3 artifacts (pre-existing + generated).
@@ -925,39 +901,86 @@ func TestSpecSession_Generate_ContextCancellation(t *testing.T) {
 // 07-REQ-11.E3: Generate post-generation validation errors
 // ---------------------------------------------------------------------------
 
-func TestSpecSession_Generate_ValidationErrors(t *testing.T) {
-	specDir := t.TempDir()
-	writePRDFileForAI(t, specDir, "# Test PRD")
+// TestSpecSession_Generate_InvalidSpecIsAFailedGeneration covers format v2
+// §12.2: a generation that ends with an invalid spec is a failed generation.
+// It returns an error, and it leaves nothing behind for a coder to pick up.
+// Under v1 the same situation produced a result with the violations demoted to
+// warnings while the files stayed on disk.
+func TestSpecSession_Generate_InvalidSpecIsAFailedGeneration(t *testing.T) {
+	specDir := newSpecDir(t, "07", "test")
+
+	// A plan that owns none of the tests: rules C7, C8 and C9 all fail.
+	brokenTasks := v2TasksArtifact("07", "test")
+	for _, task := range brokenTasks["tasks"].([]any) {
+		task.(map[string]any)["tests"] = []any{"TS-07-1"}
+	}
 
 	mock := &mockAssessor{
 		generateResult: map[string]any{
-			"requirements": map[string]any{"spec_id": "07", "spec_name": "test", "requirements": []any{}},
-			"test_spec":    map[string]any{"spec_id": "07", "spec_name": "test", "test_cases": []any{}},
-			"tasks":        map[string]any{"spec_id": "07", "spec_name": "test", "tasks": []any{}},
+			"requirements": v2RequirementsArtifact("07", "test"),
+			"test_spec":    v2TestSpecArtifact("07", "test"),
+			"tasks":        brokenTasks,
 		},
 	}
 	session := setupTestSession(t, specDir, mock, func(s *SpecSession) {
 		s.Current = StatePRDAccepted
 	})
 
-	ctx := context.Background()
-	result, err := session.Generate(ctx)
+	result, err := session.Generate(context.Background())
+	if err == nil {
+		t.Fatal("Generate() accepted a spec whose tests are owned by no task")
+	}
+	if len(result.Artifacts) != 0 {
+		t.Errorf("result.Artifacts = %v; a failed generation returns nothing", result.Artifacts)
+	}
+	if !strings.Contains(err.Error(), "C7") && !strings.Contains(err.Error(), "C9") {
+		t.Errorf("the error does not name the rule that failed: %v", err)
+	}
 
-	// Validation errors should NOT be treated as fatal — Generate still
-	// returns a result with the validation information.
+	// Nothing written by the failed run may survive.
+	for _, name := range []string{"requirements.json", "test_spec.json", "tasks.json"} {
+		if _, statErr := os.Stat(filepath.Join(specDir, name)); statErr == nil {
+			t.Errorf("%s survived a failed generation", name)
+		}
+	}
+}
+
+// TestSpecSession_Generate_PreExistingArtifactsSurviveAFailure checks that the
+// cleanup removes only what this run wrote.
+func TestSpecSession_Generate_PreExistingArtifactsSurviveAFailure(t *testing.T) {
+	specDir := newSpecDir(t, "07", "test")
+
+	existing, err := json.MarshalIndent(v2RequirementsArtifact("07", "test"), "", "  ")
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v; want nil (validation errors are non-fatal)", err)
+		t.Fatal(err)
+	}
+	reqPath := filepath.Join(specDir, "requirements.json")
+	if err := os.WriteFile(reqPath, existing, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// Result should still include all artifacts.
-	if len(result.Artifacts) != 3 {
-		t.Errorf("result.Artifacts length = %d; want 3", len(result.Artifacts))
+	brokenTasks := v2TasksArtifact("07", "test")
+	for _, task := range brokenTasks["tasks"].([]any) {
+		task.(map[string]any)["tests"] = []any{"TS-07-1"}
 	}
 
-	// Validation result should be populated (may or may not have errors,
-	// depending on the actual content).
-	// The key property is that Generate returns successfully even if
-	// Validate finds issues.
+	mock := &mockAssessor{
+		generateResult: map[string]any{
+			"test_spec": v2TestSpecArtifact("07", "test"),
+			"tasks":     brokenTasks,
+		},
+		generateOrder: []string{"test_spec", "tasks"},
+	}
+	session := setupTestSession(t, specDir, mock, func(s *SpecSession) {
+		s.Current = StatePRDAccepted
+	})
+
+	if _, err := session.Generate(context.Background()); err == nil {
+		t.Fatal("Generate() accepted an invalid plan")
+	}
+	if _, statErr := os.Stat(reqPath); statErr != nil {
+		t.Error("the pre-existing requirements.json was deleted by a failed run that did not write it")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -965,20 +988,8 @@ func TestSpecSession_Generate_ValidationErrors(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSpecSession_Generate_AllExist(t *testing.T) {
-	specDir := t.TempDir()
-	writePRDFileForAI(t, specDir, "# Test PRD")
-
-	// Pre-write all three artifact files.
-	artifacts := map[string]string{
-		"requirements.json": `{"spec_id":"07","spec_name":"test","requirements":[]}`,
-		"test_spec.json":    `{"spec_id":"07","spec_name":"test","test_cases":[]}`,
-		"tasks.json":        `{"spec_id":"07","spec_name":"test","tasks":[]}`,
-	}
-	for name, content := range artifacts {
-		if err := os.WriteFile(filepath.Join(specDir, name), []byte(content), 0o644); err != nil {
-			t.Fatalf("failed to write %s: %v", name, err)
-		}
-	}
+	specDir := newSpecDir(t, "07", "test")
+	writeV2Artifacts(t, specDir, "07", "test")
 
 	// Mock should NOT be called for any artifacts.
 	mock := &mockAssessor{

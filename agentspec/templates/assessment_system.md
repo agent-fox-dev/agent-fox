@@ -12,6 +12,7 @@ Evaluate the PRD against the following spec-format dimensions:
 4. **Testability of requirements** — Each requirement must be written so that a test can be constructed to verify it. Untestable requirements ("the system should feel fast") are a gap.
 5. **Error-handling coverage** — The PRD must address what happens when operations fail, external dependencies are unavailable, or invalid input is received. Missing error paths are a gap.
 6. **External API surface** — If the PRD references external services, libraries, or APIs, check whether it documents: (a) which endpoints or functions are used, (b) expected response shapes, and (c) failure modes (errors, rate limits, missing data). Skip this dimension when the PRD has no external dependencies.
+7. **Spec-sized scope** — A spec covers one cohesive feature and holds at most 10 requirements. Estimate how many requirements this PRD would produce. If it clearly exceeds 10, that is a gap: the PRD must be split into several PRDs before generation, and the quality cannot be `ready`. Ask the user where the natural split lies, and propose one. A PRD that reads as a design document — enumerating functions, flags and file paths feature by feature — is the usual cause; say so, and say that architectural detail belongs in `architecture.md`, not in the PRD.
 
 For each dimension, assess whether it is present, complete, and of sufficient quality. Identify gaps, ambiguities, and missing information.
 

@@ -118,24 +118,9 @@ func mkRefinementResponse() *MessageResponse {
 
 // mkArtifactResponse builds a MessageResponse with a submit_<name> tool call.
 func mkArtifactResponse(name string) *MessageResponse {
-	content := map[string]any{
-		"spec_id":   "07",
-		"spec_name": "test-spec",
-	}
-	switch name {
-	case "requirements":
-		content["requirements"] = []any{
-			map[string]any{"id": "07-REQ-1", "text": "The system SHALL do X"},
-		}
-	case "test_spec":
-		content["test_cases"] = []any{
-			map[string]any{"id": "TS-07-1", "name": "test X"},
-		}
-	case "tasks":
-		content["task_groups"] = []any{
-			map[string]any{"id": 1, "name": "implement X"},
-		}
-	}
+	// A valid v2 artifact: the pipeline validates each step inline and would
+	// otherwise spend its repair budget before the chain could be observed.
+	content := v2ArtifactByName(name, "07", "test")
 
 	return &MessageResponse{
 		StopReason: "end_turn",
@@ -300,8 +285,7 @@ func TestSpec07_WiringGenerateChain(t *testing.T) {
 		return "ok", resp, nil
 	}
 
-	specDir := t.TempDir()
-	os.WriteFile(filepath.Join(specDir, "prd.md"), []byte("# Gen PRD"), 0o644)
+	specDir := newSpecDir(t, "07", "test")
 
 	session := &SpecSession{
 		specDir:            specDir,

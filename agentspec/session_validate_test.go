@@ -16,133 +16,11 @@ import (
 // LoadSpec can load successfully. Returns the path to the spec directory.
 func setupValidSpecDir(t *testing.T) string {
 	t.Helper()
-	specDir := t.TempDir()
-
-	// Write prd.md with YAML frontmatter.
-	prdContent := `---
-spec_id: "06"
-spec_name: "test_spec"
-title: "Test Spec"
-status: "draft"
-created_at: "2024-01-01"
-updated_at: "2024-01-01"
-owner: "test"
-source: "manual"
-supersedes: []
-intent_hash: null
-schema_version: 1
----
-# Test PRD
-
-This is a test PRD body.
-`
-	if err := os.WriteFile(filepath.Join(specDir, "prd.md"), []byte(prdContent), 0o644); err != nil {
-		t.Fatalf("failed to write prd.md: %v", err)
-	}
-
-	// Write minimal valid requirements.json.
-	// Includes one execution path (≥2 steps) so the smoke test can reference it.
-	reqJSON := `{
-		"$schema": "https://agent-fox.dev/schemas/requirements.v1.json",
-		"spec_id": "06",
-		"spec_name": "test_spec",
-		"schema_version": 1,
-		"introduction": "Test introduction",
-		"glossary": {},
-		"requirements": [],
-		"correctness_properties": [],
-		"execution_paths": [
-			{
-				"id": "06-PATH-1",
-				"title": "Basic path",
-				"steps": [
-					{"actor": "caller", "action": "invoke"},
-					{"actor": "system", "action": "return result"}
-				]
-			}
-		],
-		"error_handling": [],
-		"external_apis": []
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), []byte(reqJSON), 0o644); err != nil {
-		t.Fatalf("failed to write requirements.json: %v", err)
-	}
-
-	// Write minimal valid test_spec.json.
-	// Includes one smoke test referencing the execution path above.
-	tsJSON := `{
-		"$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
-		"spec_id": "06",
-		"spec_name": "test_spec",
-		"schema_version": 1,
-		"test_cases": [],
-		"property_tests": [],
-		"edge_case_tests": [],
-		"smoke_tests": [
-			{
-				"id": "TS-06-SMOKE-1",
-				"execution_path_id": "06-PATH-1",
-				"description": "Smoke test",
-				"trigger": "invoke",
-				"real_components": ["core"],
-				"mockable": [],
-				"expected_effects": ["returns result"]
-			}
-		],
-		"coverage": {}
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "test_spec.json"), []byte(tsJSON), 0o644); err != nil {
-		t.Fatalf("failed to write test_spec.json: %v", err)
-	}
-
-	// Write minimal valid tasks.json.
-	// task_groups requires minItems:1 (Section 8.3); first must be "tests",
-	// last must be "wiring_verification" per task_group_structure check.
-	tasksJSON := `{
-		"$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
-		"spec_id": "06",
-		"spec_name": "test_spec",
-		"schema_version": 1,
-		"dependencies": [],
-		"test_commands": {
-			"all_tests": "go test ./...",
-			"spec_tests": "go test ./agentspec/...",
-			"linter": "go vet ./..."
-		},
-		"task_groups": [
-			{
-				"id": 1,
-				"kind": "tests",
-				"title": "Write Tests",
-				"subtasks": [],
-				"verification": {"id": "1.V", "checks": ["all tests pass"]}
-			},
-			{
-				"id": 2,
-				"kind": "wiring_verification",
-				"title": "Wiring Verification",
-				"subtasks": [
-					{
-						"id": "2.1",
-						"title": "Stub and dead-code audit",
-						"details": [],
-						"test_spec_refs": ["TS-06-SMOKE-1"],
-						"requirement_refs": [],
-						"state": "pending",
-						"optional": false
-					}
-				],
-				"verification": {"id": "2.V", "checks": ["stub check"]}
-			}
-		],
-		"traceability": []
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "tasks.json"), []byte(tasksJSON), 0o644); err != nil {
-		t.Fatalf("failed to write tasks.json: %v", err)
-	}
+	specDir := newSpecDir(t, "06", "test_spec")
+	writeV2Artifacts(t, specDir, "06", "test_spec")
 
 	// Write _session.json so ResumeSession can load it.
-	sessionJSON := `{
+	writeSessionFile(t, specDir, `{
 		"state": "generated",
 		"mode": "standard",
 		"prd_path": "prd.md",
@@ -150,8 +28,7 @@ This is a test PRD body.
 		"qa_exchanges": [],
 		"generated_artifacts": ["requirements.json", "test_spec.json", "tasks.json"],
 		"last_error": null
-	}`
-	writeSessionFile(t, specDir, sessionJSON)
+	}`)
 
 	return specDir
 }
@@ -665,17 +542,14 @@ schema_version: 1
 }
 
 // ---------------------------------------------------------------------------
-// TS-NS-1: Post-generation validation only runs cross-file integrity checks,
-// not schema re-validation.
-// Test Spec: TS-NS-1, Requirement: NS-REQ-1
+// Post-generation validation (format v2 §12.2)
 // ---------------------------------------------------------------------------
 
-// TestTSNS1_GenerateSchemaErrorsEmpty_AfterValidArtifacts verifies that
-// Generate() only runs cross-file integrity checks after generation and does
-// not populate SchemaErrors from the post-generation validation step. When
-// all artifacts are valid, both SchemaErrors and IntegrityErrors are empty.
-// Test Spec: TS-NS-1, Requirement: NS-REQ-1.1
-func TestTSNS1_GenerateSchemaErrorsEmpty_AfterValidArtifacts(t *testing.T) {
+// TestGenerateOnValidArtifactsReportsNoErrors verifies that Generate over a
+// complete, valid spec returns a clean validation result. Schema validation is
+// re-run here, unlike under v1 where it was skipped on the claim that the
+// inline check had already covered it.
+func TestGenerateOnValidArtifactsReportsNoErrors(t *testing.T) {
 	specDir := setupValidSpecDir(t)
 
 	session, err := ResumeSession(specDir)
@@ -684,155 +558,58 @@ func TestTSNS1_GenerateSchemaErrorsEmpty_AfterValidArtifacts(t *testing.T) {
 	}
 	session.Current = StatePRDAccepted
 
-	ctx := context.Background()
-	result, genErr := session.Generate(ctx)
+	result, genErr := session.Generate(context.Background())
 	if genErr != nil {
 		t.Fatalf("Generate() returned unexpected error: %v", genErr)
 	}
-
-	// NS-REQ-1.1: SchemaErrors must be empty — the post-generation step only
-	// runs cross-file checks, not schema re-validation.
-	if len(result.Validation.SchemaErrors) != 0 {
-		t.Errorf("GenerateResult.Validation.SchemaErrors is non-empty; want empty (schema validation skipped post-generation): %v",
-			result.Validation.SchemaErrors)
-	}
-
-	// Valid cross-file state means Valid should be true.
 	if !result.Validation.Valid {
-		t.Errorf("GenerateResult.Validation.Valid = false; want true (all artifacts valid): integrityErrors=%v",
-			result.Validation.IntegrityErrors)
+		t.Errorf("Validation.Valid = false; schema=%v integrity=%v",
+			result.Validation.SchemaErrors, result.Validation.IntegrityErrors)
+	}
+	if len(result.Validation.SchemaErrors) != 0 || len(result.Validation.IntegrityErrors) != 0 {
+		t.Errorf("a valid spec produced errors: schema=%v integrity=%v",
+			result.Validation.SchemaErrors, result.Validation.IntegrityErrors)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TS-NS-2: Generate() returns Validation.Valid == false when post-generation
-// validation finds integrity or schema errors.
-// Test Spec: TS-NS-2, Requirements: NS-REQ-1, NS-REQ-2
-// ---------------------------------------------------------------------------
+// TestGenerateFailsOnAnUnreadableArtifact covers §12.2 for artifacts that were
+// already on disk: a spec that does not validate is a failed generation, not a
+// result carrying warnings.
+func TestGenerateFailsOnAnUnreadableArtifact(t *testing.T) {
+	specDir := setupValidSpecDir(t)
 
-// TestTSNS2_GenerateValidationValidFalseOnErrors verifies that when all
-// three artifact files are already present but contain validation errors,
-// Generate() skips the AI call, runs ValidateCrossFile(), and returns a
-// GenerateResult where Validation.Valid == false and Warnings is non-empty.
-// Test Spec: TS-NS-2, Requirements: NS-REQ-1, NS-REQ-2
-func TestTSNS2_GenerateValidationValidFalseOnErrors(t *testing.T) {
-	specDir := t.TempDir()
-
-	// Write prd.md — Generate() reads this file but does not parse YAML.
-	if err := os.WriteFile(filepath.Join(specDir, "prd.md"), []byte("# Test PRD\n"), 0o644); err != nil {
-		t.Fatalf("failed to write prd.md: %v", err)
-	}
-
-	// Write requirements.json and tasks.json as minimal valid JSON so that
-	// os.Stat() finds all three artifacts and skips the AI call.
-	reqJSON := `{"spec_id":"66","spec_name":"test","schema_version":1,"introduction":"","glossary":{},"requirements":[],"correctness_properties":[],"execution_paths":[],"error_handling":[],"external_apis":[]}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), []byte(reqJSON), 0o644); err != nil {
-		t.Fatalf("failed to write requirements.json: %v", err)
-	}
-	tasksJSON := `{"spec_id":"66","spec_name":"test","schema_version":1,"dependencies":[],"test_commands":{"all_tests":"go test ./...","spec_tests":"go test ./...","linter":"go vet ./..."},"task_groups":[{"id":1,"kind":"tests","title":"Tests","subtasks":[],"verification":{"id":"1.V","checks":["pass"]}},{"id":2,"kind":"wiring_verification","title":"Wiring","subtasks":[],"verification":{"id":"2.V","checks":["pass"]}}],"traceability":[]}`
-	if err := os.WriteFile(filepath.Join(specDir, "tasks.json"), []byte(tasksJSON), 0o644); err != nil {
-		t.Fatalf("failed to write tasks.json: %v", err)
-	}
-
-	// Write test_spec.json as invalid JSON to trigger a schema error in the
-	// fallback validator, causing Validation.Valid == false.
 	if err := os.WriteFile(filepath.Join(specDir, "test_spec.json"), []byte("{invalid json}"), 0o644); err != nil {
 		t.Fatalf("failed to write test_spec.json: %v", err)
 	}
 
-	// Build a session directly (agent is nil; not called since all artifacts exist).
-	session := &SpecSession{
-		specDir:            specDir,
-		Current:            StatePRDAccepted,
-		PRDPath:            "prd.md",
-		AssessmentHistory:  []Assessment{},
-		QAExchanges:        []QAExchange{},
-		GeneratedArtifacts: []string{},
-	}
-	data, err := json.Marshal(session)
+	session, err := ResumeSession(specDir)
 	if err != nil {
-		t.Fatalf("marshal session: %v", err)
+		t.Fatalf("ResumeSession() returned error: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(specDir, "_session.json"), data, 0o644); err != nil {
-		t.Fatalf("write _session.json: %v", err)
-	}
+	session.Current = StatePRDAccepted
 
-	ctx := context.Background()
-	result, genErr := session.Generate(ctx)
-	if genErr != nil {
-		t.Fatalf("Generate() returned unexpected error: %v", genErr)
+	result, genErr := session.Generate(context.Background())
+	if genErr == nil {
+		t.Fatal("Generate() accepted a spec whose test_spec.json is not valid JSON")
 	}
-
-	// NS-REQ-2: Validation.Valid must be false when errors exist.
-	if result.Validation.Valid {
-		t.Error("GenerateResult.Validation.Valid = true; want false (test_spec.json has invalid JSON)")
-	}
-
-	// NS-REQ-1/2: Errors must be captured in SchemaErrors or IntegrityErrors.
-	totalErrors := len(result.Validation.SchemaErrors) + len(result.Validation.IntegrityErrors)
-	if totalErrors == 0 {
-		t.Error("expected at least one SchemaError or IntegrityError; got none")
-	}
-
-	// NS-REQ-3: Warnings slice must be non-empty so the CLI can surface them.
-	if len(result.Warnings) == 0 {
-		t.Error("GenerateResult.Warnings is empty; want at least one validation warning")
+	if len(result.Artifacts) != 0 {
+		t.Errorf("result.Artifacts = %v; a failed generation returns nothing", result.Artifacts)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TS-NS-3: Cross-file integrity errors ARE surfaced in GenerateResult.
-// Test Spec: TS-NS-3, Requirement: NS-REQ-3
-// ---------------------------------------------------------------------------
-
-// TestTSNS3_CrossFileIntegrityErrors_SurfacedInGenerateResult verifies that
-// Generate() surfaces cross-file integrity errors in GenerateResult when
-// artifacts are individually valid but violate cross-file integrity rules.
-// Specifically: a test_case with a dangling requirement_id reference produces
-// an IntegrityError while SchemaErrors remains empty.
-// Test Spec: TS-NS-3, Requirement: NS-REQ-3.1
-func TestTSNS3_CrossFileIntegrityErrors_SurfacedInGenerateResult(t *testing.T) {
-	// Use the valid spec dir helper as a base, then override test_spec.json
-	// with a version that contains a dangling requirement reference.
+// TestGenerateFailsOnACrossFileViolation checks the same for artifacts that
+// are individually well-formed but do not agree: here a test verifies a
+// criterion that does not exist (rule C3).
+func TestGenerateFailsOnACrossFileViolation(t *testing.T) {
 	specDir := setupValidSpecDir(t)
 
-	// Overwrite test_spec.json with a test_case that references a requirement
-	// ID ("06-REQ-99") that does not exist in requirements.json.
-	// All other fields are valid so that LoadSpec succeeds and schema
-	// validation passes; the violation is purely a cross-file integrity issue.
-	tsJSON := `{
-		"$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
-		"spec_id": "06",
-		"spec_name": "test_spec",
-		"schema_version": 1,
-		"test_cases": [
-			{
-				"id": "TS-06-1",
-				"requirement_id": "06-REQ-99",
-				"kind": "unit",
-				"description": "Dangling requirement reference test",
-				"preconditions": [],
-				"input": "any",
-				"expected": "something",
-				"assertion_pseudocode": "assert true"
-			}
-		],
-		"property_tests": [],
-		"edge_case_tests": [],
-		"smoke_tests": [
-			{
-				"id": "TS-06-SMOKE-1",
-				"execution_path_id": "06-PATH-1",
-				"description": "Smoke test",
-				"trigger": "invoke",
-				"real_components": ["core"],
-				"mockable": [],
-				"expected_effects": ["returns result"]
-			}
-		],
-		"coverage": {}
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "test_spec.json"), []byte(tsJSON), 0o644); err != nil {
+	broken := v2TestSpecArtifact("06", "test_spec")
+	broken["tests"].([]any)[0].(map[string]any)["verifies"] = []any{"06-REQ-99.1"}
+	data, err := json.MarshalIndent(broken, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "test_spec.json"), data, 0o644); err != nil {
 		t.Fatalf("failed to write test_spec.json: %v", err)
 	}
 
@@ -842,26 +619,15 @@ func TestTSNS3_CrossFileIntegrityErrors_SurfacedInGenerateResult(t *testing.T) {
 	}
 	session.Current = StatePRDAccepted
 
-	ctx := context.Background()
-	result, genErr := session.Generate(ctx)
-	if genErr != nil {
-		t.Fatalf("Generate() returned unexpected error: %v", genErr)
+	_, genErr := session.Generate(context.Background())
+	if genErr == nil {
+		t.Fatal("Generate() accepted a spec with a dangling verifies reference")
 	}
-
-	// NS-REQ-3.1: Generate() must return Valid=false when cross-file rules are violated.
-	if result.Validation.Valid {
-		t.Error("GenerateResult.Validation.Valid = true; want false (dangling requirement reference)")
+	if !strings.Contains(genErr.Error(), "C3") {
+		t.Errorf("the error does not name the rule that failed: %v", genErr)
 	}
-
-	// NS-REQ-3.1: IntegrityErrors must contain the dangling reference error.
-	if len(result.Validation.IntegrityErrors) == 0 {
-		t.Error("GenerateResult.Validation.IntegrityErrors is empty; want at least one integrity error for dangling reference")
-	}
-
-	// NS-REQ-1.1: SchemaErrors must be empty — post-generation step skips schema re-validation.
-	if len(result.Validation.SchemaErrors) != 0 {
-		t.Errorf("GenerateResult.Validation.SchemaErrors is non-empty; want empty (schema validation skipped post-generation): %v",
-			result.Validation.SchemaErrors)
+	if !strings.Contains(genErr.Error(), "06-REQ-99.1") {
+		t.Errorf("the error does not name the dangling reference: %v", genErr)
 	}
 }
 

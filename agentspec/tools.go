@@ -142,10 +142,16 @@ func RefinementTools() []map[string]any {
 }
 
 // ArtifactTool returns a slice containing the Anthropic tool definition for
-// submitting a specific artifact type. It retrieves the JSON Schema for the
-// artifact from afspec.Schemas(), resolves all $ref references via
-// InlineRefs, strips metadata via CleanSchema, and embeds the cleaned
-// schema as the input_schema of the submit_{artifactName} tool.
+// submitting a specific artifact type. It retrieves the artifact's v2 JSON
+// Schema from afspec.Schemas(), resolves all $ref references via InlineRefs,
+// strips metadata and conditionals via CleanSchema, and embeds the result as
+// the input_schema of the submit_{artifactName} tool.
+//
+// The conditional keywords the v2 schemas use — the EARS pattern rules of
+// §6.2.1, "implement tasks need criteria", "real_components iff smoke" — are
+// dropped from the tool schema and enforced instead by
+// afspec.ValidateGenerationStep, whose message names the rule that failed.
+// The tool schema stays a plain structural description the API accepts.
 //
 // The schema computation (InlineRefs + CleanSchema) runs exactly once per
 // artifact type per process lifetime. Every call returns a fresh deep copy
@@ -162,7 +168,10 @@ func ArtifactTool(artifactName string) []map[string]any {
 
 	// Compute the cleaned schema exactly once, storing it in entry.schema.
 	entry.once.Do(func() {
-		schemaKey := artifactName + ".v1.json"
+		schemaKey, ok := afspec.SchemaNameForStep(afspec.GenerationStep(artifactName))
+		if !ok {
+			return
+		}
 		schemas := afspec.Schemas()
 		schemaBytes, schemaOk := schemas[schemaKey]
 		if !schemaOk {

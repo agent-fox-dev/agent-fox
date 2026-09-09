@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
-	"golang.org/x/sync/errgroup"
 )
 
 // agentOptions holds the resolved configuration from AgentOption functional options.
@@ -264,15 +262,26 @@ func (sa *SpecAgent) RefinePRD(ctx context.Context, prdText string, answers map[
 	return updatedPRD, assessment, nil
 }
 
-// GenerateArtifacts generates requirements first, then test_spec and tasks
-// concurrently (both depend only on requirements). Returns the three artifacts
-// in a map on success. If either parallel call fails, the error is propagated
-// and no partial result is returned.
+// GenerateArtifacts generates the three JSON artifacts in the order format v2
+// §12.1 mandates — requirements, then test_spec, then tasks — passing each
+// step the complete artifacts produced before it. Returns the three artifacts
+// in a map on success.
+//
+// The v1 pipeline ran test_spec and tasks concurrently off a summary of
+// requirement IDs. The task generator therefore never saw a test ID and could
+// not own the tests it was supposed to own; in all eight archived v1 specs
+// every edge-case and property test ended up owned by no task. Sequential
+// generation with the full upstream artifact is what removes that failure, and
+// ValidateGenerationStep is what proves it did.
+//
+// After each step the pipeline runs the artifact's schema plus every
+// cross-file rule decidable so far, and sends any violation back to the model
+// as a tool_result for repair. A run that is still invalid after maxRepairs
+// attempts is a failed generation: it returns an error and no partial result
+// (§12.2).
 func (sa *SpecAgent) GenerateArtifacts(ctx context.Context, prdText, specID, specName string, opts ...AgentOption) (map[string]any, error) {
-	// Apply agent options.
 	o := applyOptions(opts)
 
-	// Build system prompt.
 	systemPrompt, err := GenerationSystemPrompt(o.projectDir)
 	if err != nil {
 		return nil, &AgentError{
@@ -284,202 +293,187 @@ func (sa *SpecAgent) GenerateArtifacts(ctx context.Context, prdText, specID, spe
 
 	callFn := sa.resolveCallFunc()
 	temp := 0.2
-	const maxRepairs = 2
 
-	// generateOne runs the generation + repair loop for a single artifact name.
-	// priorArtifacts is read-only (no writes during the parallel phase).
-	generateOne := func(ctx context.Context, artifactName string, priorArtifacts map[string]any) (map[string]any, error) {
-		// Check context before starting.
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+	// partial accumulates the typed artifacts as they are produced, so that
+	// each step can be validated against everything generated before it.
+	partial := afspec.PartialSpec{SpecID: specID, SpecName: specName}
 
-		// Build user prompt with prior artifacts context.
-		userPrompt, err := GenerationUserPrompt(
-			prdText, artifactName, specID, o.projectDir,
-			priorArtifacts, o.dependentInterfaces, o.specLandscape,
-		)
-		if err != nil {
-			return nil, &AgentError{
-				Detail:        fmt.Sprintf("GenerateArtifacts: failed to build prompt for %s: %v", artifactName, err),
-				ErrorCategory: "internal",
-				Cause:         err,
-			}
-		}
+	// priorArtifacts is the raw content passed to the prompt builder, which
+	// renders it in full via the library renderer.
+	priorArtifacts := map[string]any{}
+	result := map[string]any{}
 
-		toolDefs := mapToTools(ArtifactTool(artifactName))
-		toolName := "submit_" + artifactName
+	for _, step := range afspec.GenerationSteps {
+		artifactName := string(step)
 
-		callOpts := AICallOptions{
-			ModelTier:    sa.modelTier,
-			ModelVariant: sa.modelVariant,
-			System:       systemPrompt,
-			Messages:     []Message{{Role: "user", Content: userPrompt}},
-			Tools:        toolDefs,
-			ToolChoice:   map[string]any{"type": "any"},
-			Temperature:  &temp,
-			Context:      fmt.Sprintf("GenerateArtifacts:%s", artifactName),
-		}
-
-		_, raw, err := callFn(ctx, callOpts)
-		if err != nil {
-			return nil, wrapCallError(err)
-		}
-
-		resp, ok := raw.(*MessageResponse)
-		if !ok {
-			return nil, &AgentError{
-				Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s", artifactName),
-				ErrorCategory: "internal",
-			}
-		}
-
-		if err := checkStopReason(resp.StopReason); err != nil {
-			return nil, err
-		}
-
-		toolInput, err := extractToolCall(resp, toolName)
-		if err != nil {
-			toolInput = nil
-		}
-
-		content, validErr := validateArtifactContent(toolInput, artifactName)
-
-		// Repair loop: up to maxRepairs attempts if validation fails.
-		// Each repair is sent as a conversation continuation: the original user
-		// prompt, the model's most recent tool_use response, and a tool_result
-		// message containing the validation error. This preserves generation
-		// context and enables prompt-cache reuse on the system prompt prefix.
-		for repair := 0; repair < maxRepairs && validErr != nil; repair++ {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-
-			toolUseID := findToolUseID(resp, toolName)
-
-			repairMessages := []Message{
-				{Role: "user", Content: userPrompt},
-				{Role: "assistant", Content: resp.Content},
-				{Role: "user", Content: []ContentBlock{{
-					Type:      "tool_result",
-					ToolUseID: toolUseID,
-					Text:      validErr.Error(),
-				}}},
-			}
-
-			repairOpts := AICallOptions{
-				ModelTier:    sa.modelTier,
-				ModelVariant: sa.modelVariant,
-				System:       systemPrompt,
-				Messages:     repairMessages,
-				Tools:        toolDefs,
-				ToolChoice:   map[string]any{"type": "any"},
-				Temperature:  &temp,
-				Context:      fmt.Sprintf("GenerateArtifacts:%s:repair:%d", artifactName, repair+1),
-			}
-
-			_, raw, err = callFn(ctx, repairOpts)
-			if err != nil {
-				return nil, wrapCallError(err)
-			}
-
-			resp, ok = raw.(*MessageResponse)
-			if !ok {
-				return nil, &AgentError{
-					Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s repair", artifactName),
-					ErrorCategory: "internal",
-				}
-			}
-
-			if err := checkStopReason(resp.StopReason); err != nil {
-				return nil, err
-			}
-
-			toolInput, err = extractToolCall(resp, toolName)
-			if err != nil {
-				toolInput = nil
-			}
-
-			content, validErr = validateArtifactContent(toolInput, artifactName)
-		}
-
-		if validErr != nil {
-			return nil, &AgentError{
-				Detail:        fmt.Sprintf("GenerateArtifacts: validation failed for %s after %d repair attempts: %v", artifactName, maxRepairs, validErr),
-				ErrorCategory: "validation",
-				Cause:         validErr,
-			}
-		}
-
-		return content, nil
-	}
-
-	// Phase 1: generate requirements sequentially — both test_spec and tasks need it.
-	requirementsContent, err := generateOne(ctx, "requirements", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Invoke OnArtifact callback for requirements (guaranteed before test_spec/tasks).
-	if o.onArtifact != nil {
-		if cbErr := safeCallback(o.onArtifact, "requirements", requirementsContent); cbErr != nil {
-			return nil, cbErr
-		}
-	}
-
-	// Phase 2: generate test_spec and tasks concurrently.
-	// Both depend only on requirements, not on each other.
-	priorForParallel := map[string]any{"requirements": requirementsContent}
-
-	type artifactResult struct {
-		name    string
-		content map[string]any
-	}
-
-	var (
-		resultsMu sync.Mutex
-		results   []artifactResult
-	)
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	for _, name := range []string{"test_spec", "tasks"} {
-		name := name // capture loop variable
-		g.Go(func() error {
-			content, err := generateOne(gCtx, name, priorForParallel)
-			if err != nil {
-				return err
-			}
-			resultsMu.Lock()
-			results = append(results, artifactResult{name: name, content: content})
-			resultsMu.Unlock()
-			return nil
+		content, err := sa.generateArtifact(ctx, generateArtifactRequest{
+			step:           step,
+			prdText:        prdText,
+			specID:         specID,
+			systemPrompt:   systemPrompt,
+			temperature:    &temp,
+			callFn:         callFn,
+			options:        o,
+			priorArtifacts: priorArtifacts,
+			partial:        &partial,
 		})
-	}
+		if err != nil {
+			return nil, err
+		}
 
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
+		priorArtifacts[artifactName] = content
+		result[artifactName] = content
 
-	// Invoke OnArtifact callbacks for the two parallel artifacts.
-	// Order is non-deterministic (test_spec or tasks may arrive first).
-	for _, r := range results {
 		if o.onArtifact != nil {
-			if cbErr := safeCallback(o.onArtifact, r.name, r.content); cbErr != nil {
+			if cbErr := safeCallback(o.onArtifact, artifactName, content); cbErr != nil {
 				return nil, cbErr
 			}
 		}
 	}
 
-	// Build final result map.
-	result := map[string]any{
-		"requirements": requirementsContent,
-	}
-	for _, r := range results {
-		result[r.name] = r.content
+	return result, nil
+}
+
+// maxRepairs is how many times a step may be sent back to the model after a
+// validation failure. §12.2 makes inline repair the mechanism that keeps an
+// invalid artifact from ever being written.
+const maxRepairs = 3
+
+// generateArtifactRequest carries the per-step inputs of generateArtifact.
+type generateArtifactRequest struct {
+	step           afspec.GenerationStep
+	prdText        string
+	specID         string
+	systemPrompt   string
+	temperature    *float64
+	callFn         func(ctx context.Context, opts AICallOptions) (string, any, error)
+	options        agentOptions
+	priorArtifacts map[string]any
+	partial        *afspec.PartialSpec
+}
+
+// generateArtifact runs one generation step and its repair loop. On success it
+// returns the artifact content and has recorded the typed artifact in
+// req.partial, so the next step validates against it.
+func (sa *SpecAgent) generateArtifact(ctx context.Context, req generateArtifactRequest) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
-	return result, nil
+	artifactName := string(req.step)
+
+	userPrompt, err := GenerationUserPrompt(
+		req.prdText, artifactName, req.specID, req.options.projectDir,
+		req.priorArtifacts, req.options.dependentInterfaces, req.options.specLandscape,
+	)
+	if err != nil {
+		return nil, &AgentError{
+			Detail:        fmt.Sprintf("GenerateArtifacts: failed to build prompt for %s: %v", artifactName, err),
+			ErrorCategory: "internal",
+			Cause:         err,
+		}
+	}
+
+	toolDefs := mapToTools(ArtifactTool(artifactName))
+	toolName := "submit_" + artifactName
+
+	callOpts := AICallOptions{
+		ModelTier:    sa.modelTier,
+		ModelVariant: sa.modelVariant,
+		System:       req.systemPrompt,
+		Messages:     []Message{{Role: "user", Content: userPrompt}},
+		Tools:        toolDefs,
+		ToolChoice:   map[string]any{"type": "any"},
+		Temperature:  req.temperature,
+		Context:      fmt.Sprintf("GenerateArtifacts:%s", artifactName),
+	}
+
+	_, raw, err := req.callFn(ctx, callOpts)
+	if err != nil {
+		return nil, wrapCallError(err)
+	}
+
+	resp, ok := raw.(*MessageResponse)
+	if !ok {
+		return nil, &AgentError{
+			Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s", artifactName),
+			ErrorCategory: "internal",
+		}
+	}
+	if err := checkStopReason(resp.StopReason); err != nil {
+		return nil, err
+	}
+
+	toolInput, err := extractToolCall(resp, toolName)
+	if err != nil {
+		toolInput = nil
+	}
+
+	content, validErr := validateArtifactContent(toolInput, req.step, req.partial)
+
+	// Repair loop. Each attempt continues the same conversation: the original
+	// user prompt, the model's tool_use response, and a tool_result carrying
+	// the validation failure. That preserves generation context and lets the
+	// system-prompt prefix stay in the prompt cache.
+	for repair := 0; repair < maxRepairs && validErr != nil; repair++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		repairMessages := []Message{
+			{Role: "user", Content: userPrompt},
+			{Role: "assistant", Content: resp.Content},
+			{Role: "user", Content: []ContentBlock{{
+				Type:      "tool_result",
+				ToolUseID: findToolUseID(resp, toolName),
+				Text:      validErr.Error(),
+			}}},
+		}
+
+		repairOpts := AICallOptions{
+			ModelTier:    sa.modelTier,
+			ModelVariant: sa.modelVariant,
+			System:       req.systemPrompt,
+			Messages:     repairMessages,
+			Tools:        toolDefs,
+			ToolChoice:   map[string]any{"type": "any"},
+			Temperature:  req.temperature,
+			Context:      fmt.Sprintf("GenerateArtifacts:%s:repair:%d", artifactName, repair+1),
+		}
+
+		_, raw, err = req.callFn(ctx, repairOpts)
+		if err != nil {
+			return nil, wrapCallError(err)
+		}
+
+		resp, ok = raw.(*MessageResponse)
+		if !ok {
+			return nil, &AgentError{
+				Detail:        fmt.Sprintf("GenerateArtifacts: unexpected response type for %s repair", artifactName),
+				ErrorCategory: "internal",
+			}
+		}
+		if err := checkStopReason(resp.StopReason); err != nil {
+			return nil, err
+		}
+
+		toolInput, err = extractToolCall(resp, toolName)
+		if err != nil {
+			toolInput = nil
+		}
+
+		content, validErr = validateArtifactContent(toolInput, req.step, req.partial)
+	}
+
+	if validErr != nil {
+		return nil, &AgentError{
+			Detail:        fmt.Sprintf("GenerateArtifacts: validation failed for %s after %d repair attempts: %v", artifactName, maxRepairs, validErr),
+			ErrorCategory: "validation",
+			Cause:         validErr,
+		}
+	}
+
+	return content, nil
 }
 
 // safeCallback invokes a callback function, recovering from panics and
@@ -671,79 +665,50 @@ func wrapCallError(err error) error {
 	}
 }
 
-// validateArtifactContent checks that the tool input is a valid
-// map[string]any with expected artifact fields, then runs the afspec
-// library's full validation checks. Returns the content map and nil on
-// success, or nil and an error describing validation failures.
+// validateArtifactContent decodes a model's tool input for one generation
+// step, runs the artifact's v2 schema and every cross-file rule decidable at
+// that point, and records the typed artifact in partial on success.
 //
-// Validation runs in two phases:
-//  1. Required top-level key presence check (fast structural check).
-//  2. For requirements: EARS pattern field constraints and ID format checks
-//     from the afspec library, returning specific ValidationEntry messages.
-func validateArtifactContent(input any, artifactName string) (map[string]any, error) {
+// A step that fails leaves partial untouched, so a repair attempt validates
+// against the same upstream artifacts as the attempt before it.
+func validateArtifactContent(input any, step afspec.GenerationStep, partial *afspec.PartialSpec) (map[string]any, error) {
 	if input == nil {
-		return nil, fmt.Errorf("nil content for artifact %s", artifactName)
+		return nil, fmt.Errorf("the model returned no %s artifact", step)
 	}
 	m, ok := input.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("artifact %s content is not a map: %T", artifactName, input)
+		return nil, fmt.Errorf("the %s artifact is not a JSON object but a %T", step, input)
 	}
 
-	// Check for expected keys based on artifact type.
-	var requiredKeys []string
-	switch artifactName {
-	case "requirements":
-		requiredKeys = []string{"spec_id", "spec_name", "requirements"}
-	case "test_spec":
-		requiredKeys = []string{"spec_id", "spec_name", "test_cases"}
-	case "tasks":
-		requiredKeys = []string{"spec_id", "spec_name", "task_groups"}
+	decoded, err := afspec.DecodeArtifact(step, m)
+	if err != nil {
+		return nil, err
 	}
 
-	var missing []string
-	for _, key := range requiredKeys {
-		if _, exists := m[key]; !exists {
-			missing = append(missing, key)
-		}
+	// Validate a copy of the accumulated state so that a failure cannot leave
+	// a rejected artifact behind for the next attempt to validate against.
+	candidate := *partial
+	switch artifact := decoded.(type) {
+	case *afspec.RequirementsV2Json:
+		candidate.Requirements = artifact
+	case *afspec.TestSpecV2Json:
+		candidate.TestSpec = artifact
+	case *afspec.TasksV2Json:
+		candidate.Tasks = artifact
 	}
 
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("artifact %s missing required keys: %s", artifactName, strings.Join(missing, ", "))
+	if result := afspec.ValidateGenerationStep(step, candidate); !result.Valid {
+		return nil, formatValidationEntries(step, result.Errors)
 	}
 
-	// Run library validation for structural integrity beyond key presence.
-	switch artifactName {
-	case "requirements":
-		if entries := afspec.ValidateRequirementsMap(m); len(entries) > 0 {
-			return nil, formatValidationEntries(artifactName, entries)
-		}
-	case "test_spec":
-		if entries := afspec.ValidateTestSpecMap(m); len(entries) > 0 {
-			return nil, formatValidationEntries(artifactName, entries)
-		}
-	case "tasks":
-		if entries := afspec.ValidateTasksMap(m); len(entries) > 0 {
-			return nil, formatValidationEntries(artifactName, entries)
-		}
-	}
-
+	*partial = candidate
 	return m, nil
 }
 
-// formatValidationEntries converts a slice of ValidationEntry from the afspec
-// library into a single error suitable for the repair loop's tool_result
-// message. Each entry's check name, path, and message are included to give
-// the LLM specific, actionable feedback about what needs to be fixed.
-func formatValidationEntries(artifactName string, entries []afspec.ValidationEntry) error {
-	var parts []string
-	for _, e := range entries {
-		part := fmt.Sprintf("[%s]", e.Check)
-		if e.Path != "" {
-			part += fmt.Sprintf(" at %s", e.Path)
-		}
-		part += fmt.Sprintf(": %s", e.Message)
-		parts = append(parts, part)
-	}
-	return fmt.Errorf("artifact %s has %d validation error(s):\n%s",
-		artifactName, len(entries), strings.Join(parts, "\n"))
+// formatValidationEntries turns validation errors into the tool_result text
+// the repair loop sends back to the model. Each line names the rule that
+// failed so the model can act on it rather than guess.
+func formatValidationEntries(step afspec.GenerationStep, entries []afspec.ValidationEntry) error {
+	return fmt.Errorf("the %s artifact has %d validation error(s):\n%s",
+		step, len(entries), strings.TrimRight(afspec.FormatValidationEntries(entries), "\n"))
 }

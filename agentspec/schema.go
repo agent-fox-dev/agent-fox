@@ -98,10 +98,29 @@ func refToDefName(ref string) string {
 	return ""
 }
 
-// CleanSchema recursively strips metadata noise from a JSON Schema map
-// for the Anthropic API. It removes all title fields at every nesting
-// level, all default fields at every nesting level, and the top-level
-// $schema field. All description fields are preserved.
+// droppedSchemaKeys are removed from a tool input_schema at every level.
+//
+// title and default are metadata noise. The conditional keywords are dropped
+// because the tool schema is a structural description for the model, not the
+// validation gate: afspec.ValidateGenerationStep runs the real schema, whose
+// conditionals produce a message naming the rule, and the repair loop feeds
+// that back. Leaving them in would ask the API to interpret constructs its
+// tool schemas do not support.
+var droppedSchemaKeys = map[string]bool{
+	"title":   true,
+	"default": true,
+	"allOf":   true,
+	"anyOf":   true,
+	"oneOf":   true,
+	"not":     true,
+	"if":      true,
+	"then":    true,
+	"else":    true,
+}
+
+// CleanSchema recursively strips metadata and conditional keywords from a JSON
+// Schema map for the Anthropic API, and the top-level $schema field. All
+// description fields are preserved.
 //
 // If the input is nil or empty, an empty map is returned.
 func CleanSchema(schema map[string]any) map[string]any {
@@ -111,16 +130,16 @@ func CleanSchema(schema map[string]any) map[string]any {
 	return cleanSchemaWalk(schema, true)
 }
 
-// cleanSchemaWalk recursively copies a map, stripping title and default
-// keys at every level, and $schema at the top level only.
+// cleanSchemaWalk recursively copies a map, stripping the dropped keys at
+// every level and $schema at the top level only.
 func cleanSchemaWalk(m map[string]any, isTopLevel bool) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		// Skip title and default at every level.
-		if k == "title" || k == "default" {
+		if droppedSchemaKeys[k] {
 			continue
 		}
-		// Skip $schema at top level only.
+		// Skip $schema at top level only: nested "$schema" is a property name
+		// in the artifact schemas, not the meta-schema declaration.
 		if k == "$schema" && isTopLevel {
 			continue
 		}
@@ -129,8 +148,8 @@ func cleanSchemaWalk(m map[string]any, isTopLevel bool) map[string]any {
 	return out
 }
 
-// cleanCopyValue deep-copies a value, stripping title and default from
-// any nested maps.
+// cleanCopyValue deep-copies a value, stripping the dropped keys from any
+// nested maps.
 func cleanCopyValue(v any) any {
 	switch val := v.(type) {
 	case map[string]any:

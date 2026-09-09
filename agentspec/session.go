@@ -285,9 +285,12 @@ var knownArtifacts = []string{
 	"tasks.json",
 }
 
-// GenerateResult holds the result of artifact generation. It contains
-// the list of generated artifact names, the validation result, and
-// any warnings encountered during generation.
+// GenerateResult holds the result of artifact generation: the artifacts
+// written, the validation result, and the advisory warnings.
+//
+// A GenerateResult is only ever returned for a spec that validates. Format v2
+// §12.2 makes an invalid spec a failed generation, so Generate returns an
+// error and removes what it wrote rather than reporting the violations here.
 type GenerateResult struct {
 	Artifacts  []string                `json:"artifacts"`
 	Validation SessionValidationResult `json:"validation"`
@@ -311,11 +314,9 @@ func (s *SpecSession) Validate() (SessionValidationResult, error) {
 }
 
 // ValidateCrossFile loads the spec from the session's spec directory and runs
-// only cross-file integrity checks, skipping schema validation. Schema
-// validation is already performed inline during artifact generation by
-// validateArtifactContent. If LoadSpec fails (e.g., missing or unreadable
-// artifacts), it falls back to reporting the affected artifacts as integrity
-// errors without running schema validation.
+// only the cross-file integrity rules, skipping schema validation. If LoadSpec
+// fails (missing or unreadable artifacts), it reports the affected artifacts
+// as integrity errors.
 func (s *SpecSession) ValidateCrossFile() (SessionValidationResult, error) {
 	// Try the happy path: load the full spec and run cross-file checks only.
 	spec, loadErr := afspec.LoadSpec(s.specDir)
@@ -331,8 +332,7 @@ func (s *SpecSession) ValidateCrossFile() (SessionValidationResult, error) {
 
 // crossFileFallback checks which known artifact files are present in the spec
 // directory and reports any missing or unreadable artifacts as integrity
-// errors. It does not run schema validation — inline validation in the
-// generation pipeline already covers schema correctness.
+// errors. It does not run schema validation.
 func (s *SpecSession) crossFileFallback() (SessionValidationResult, error) {
 	result := SessionValidationResult{
 		Valid:           false,
@@ -458,21 +458,12 @@ func (s *SpecSession) validateFallback() (SessionValidationResult, error) {
 			continue
 		}
 
-		// Try to unmarshal into the specific type and build a partial spec
-		// for schema validation only (cross-file validation is not meaningful
-		// for partial specs).
-		partialSpec, parseErr := parseArtifactIntoSpec(artifactName, data)
-		if parseErr != nil {
-			result.SchemaErrors = append(result.SchemaErrors,
-				fmt.Sprintf("schema error in %s: %v", artifactName, parseErr))
-			continue
-		}
-
-		// Run schema-only validation on the partial spec (skip cross-file
-		// checks which produce false positives on incomplete specs).
-		if partialSpec != nil {
-			vr := partialSpec.ValidateSchema()
-			partial := categorizeValidationResult(vr)
+		// Validate this one artifact against its schema. The cross-file rules
+		// are not meaningful here — the other artifacts may be missing — and
+		// validating a Spec built from one artifact would also report the PRD
+		// frontmatter it does not have.
+		if entries := validateArtifactFile(artifactName, data); len(entries) > 0 {
+			partial := categorizeValidationResult(afspec.ValidationResult{Errors: entries})
 			result.SchemaErrors = append(result.SchemaErrors, partial.SchemaErrors...)
 			result.IntegrityErrors = append(result.IntegrityErrors, partial.IntegrityErrors...)
 			result.RepairSuggestions = append(result.RepairSuggestions, partial.RepairSuggestions...)
@@ -487,33 +478,29 @@ func (s *SpecSession) validateFallback() (SessionValidationResult, error) {
 	return result, nil
 }
 
-// parseArtifactIntoSpec parses a single artifact's data into a partial Spec
-// containing only that artifact, suitable for validation.
-func parseArtifactIntoSpec(artifactName string, data []byte) (*afspec.Spec, error) {
-	spec := &afspec.Spec{}
+// validateArtifactFile validates one artifact file's bytes against its v2
+// schema and returns the violations.
+func validateArtifactFile(artifactName string, data []byte) []afspec.ValidationEntry {
+	var content map[string]any
+	if err := json.Unmarshal(data, &content); err != nil {
+		return []afspec.ValidationEntry{{
+			Category: "schema", Check: "json_schema", Artifact: artifactName,
+			Message: fmt.Sprintf("cannot parse %s: %v", artifactName, err),
+		}}
+	}
+
+	var schemaName string
 	switch artifactName {
 	case "requirements.json":
-		var req afspec.RequirementsV1Json
-		if err := json.Unmarshal(data, &req); err != nil {
-			return nil, err
-		}
-		spec.Requirements = &req
+		schemaName = afspec.RequirementsSchemaName
 	case "test_spec.json":
-		var ts afspec.TestSpecV1Json
-		if err := json.Unmarshal(data, &ts); err != nil {
-			return nil, err
-		}
-		spec.TestSpec = &ts
+		schemaName = afspec.TestSpecSchemaName
 	case "tasks.json":
-		var tasks afspec.TasksV1Json
-		if err := json.Unmarshal(data, &tasks); err != nil {
-			return nil, err
-		}
-		spec.Tasks = &tasks
+		schemaName = afspec.TasksSchemaName
 	default:
-		return nil, nil
+		return nil
 	}
-	return spec, nil
+	return afspec.ValidateArtifactSchema(content, schemaName, artifactName)
 }
 
 // Render loads the spec from the session's spec directory and renders
@@ -574,7 +561,7 @@ func (s *SpecSession) loadPartialSpec() *afspec.Spec {
 	// Try to load each JSON artifact.
 	reqPath := filepath.Join(s.specDir, "requirements.json")
 	if data, err := os.ReadFile(reqPath); err == nil {
-		var req afspec.RequirementsV1Json
+		var req afspec.RequirementsV2Json
 		if json.Unmarshal(data, &req) == nil {
 			spec.Requirements = &req
 		}
@@ -582,7 +569,7 @@ func (s *SpecSession) loadPartialSpec() *afspec.Spec {
 
 	tsPath := filepath.Join(s.specDir, "test_spec.json")
 	if data, err := os.ReadFile(tsPath); err == nil {
-		var ts afspec.TestSpecV1Json
+		var ts afspec.TestSpecV2Json
 		if json.Unmarshal(data, &ts) == nil {
 			spec.TestSpec = &ts
 		}
@@ -590,7 +577,7 @@ func (s *SpecSession) loadPartialSpec() *afspec.Spec {
 
 	tasksPath := filepath.Join(s.specDir, "tasks.json")
 	if data, err := os.ReadFile(tasksPath); err == nil {
-		var tasks afspec.TasksV1Json
+		var tasks afspec.TasksV2Json
 		if json.Unmarshal(data, &tasks) == nil {
 			spec.Tasks = &tasks
 		}
@@ -860,6 +847,9 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 		}
 	}
 
+	// writtenPaths accumulates the artifact files this run created.
+	var writtenPaths []string
+
 	// Only call GenerateArtifacts if there are missing artifacts.
 	if len(existing) < len(artifactNameToFile) {
 		agent := s.resolveAgent("generate")
@@ -876,7 +866,10 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 		landscape := s.loadSiblingLandscape()
 
 		// writeErr captures any error from the OnArtifact callback so it
-		// can be surfaced after GenerateArtifacts returns.
+		// can be surfaced after GenerateArtifacts returns. writtenPaths
+		// records what this run put on disk so that a spec which fails final
+		// validation can be removed again (§12.2: a failed generation does not
+		// leave partial output behind).
 		var writeErr error
 
 		onArtifact := func(name string, content any) {
@@ -901,6 +894,7 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 				return
 			}
 
+			writtenPaths = append(writtenPaths, filePath)
 			s.GeneratedArtifacts = append(s.GeneratedArtifacts, name)
 		}
 
@@ -923,7 +917,9 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 		}
 	}
 
-	// Record existing (pre-generated) artifacts that were skipped.
+	// Record existing (pre-generated) artifacts that were skipped. They are
+	// deliberately not added to writtenPaths: this run did not create them, so
+	// a failed generation must not delete them.
 	for name := range existing {
 		if !slices.Contains(s.GeneratedArtifacts, name) {
 			s.GeneratedArtifacts = append(s.GeneratedArtifacts, name)
@@ -933,26 +929,32 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 	// Transition to StateGenerated.
 	s.Current = StateGenerated
 
-	// Run ValidateCrossFile to check cross-file integrity of generated artifacts.
-	// Schema validation is skipped here because it was already performed inline
-	// during artifact generation by validateArtifactContent.
-	validation, validateErr := s.ValidateCrossFile()
+	// Validate the assembled spec. Each artifact was already checked against
+	// its schema and against the rules decidable at its step, so this is the
+	// final proof that the three together form a complete plan.
+	validation, warnings, validateErr := s.validateGenerated()
 	if validateErr != nil {
-		// Validate() itself failed (e.g., could not read artifacts); record
-		// the error in the validation result so callers can surface it.
 		validation.Valid = false
 		validation.IntegrityErrors = append(validation.IntegrityErrors, validateErr.Error())
 	}
 
-	// Collect warnings from validation result.
-	var warnings []string
 	if !validation.Valid {
-		for _, e := range validation.SchemaErrors {
-			warnings = append(warnings, e)
+		// §12.2: a generation that ends with an invalid spec is a failed
+		// generation. Remove what this run wrote so that no half-valid spec
+		// is left for a coder to pick up, and report the violations as an
+		// error rather than as warnings.
+		for _, path := range writtenPaths {
+			_ = os.Remove(path)
 		}
-		for _, e := range validation.IntegrityErrors {
-			warnings = append(warnings, e)
+		s.GeneratedArtifacts = nil
+
+		err := &AgentError{
+			Detail: fmt.Sprintf("generation produced an invalid spec:\n%s",
+				strings.Join(append(validation.SchemaErrors, validation.IntegrityErrors...), "\n")),
+			ErrorCategory: "validation",
 		}
+		s.persistError(err)
+		return GenerateResult{}, err
 	}
 
 	// Persist final session state.
@@ -965,4 +967,21 @@ func (s *SpecSession) Generate(ctx context.Context) (GenerateResult, error) {
 		Validation: validation,
 		Warnings:   warnings,
 	}, nil
+}
+
+// validateGenerated runs full validation on the spec the session just wrote
+// and returns the categorised result along with the advisory warnings.
+func (s *SpecSession) validateGenerated() (SessionValidationResult, []string, error) {
+	spec, loadErr := afspec.LoadSpec(s.specDir)
+	if loadErr != nil {
+		result, err := s.crossFileFallback()
+		return result, nil, err
+	}
+
+	vr := spec.Validate()
+	warnings := make([]string, 0, len(vr.Warnings))
+	for _, w := range vr.Warnings {
+		warnings = append(warnings, formatValidationEntry(w))
+	}
+	return categorizeValidationResult(vr), warnings, nil
 }

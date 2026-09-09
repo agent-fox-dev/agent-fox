@@ -336,6 +336,45 @@ func testPrefix(id string) string {
 // Spec.ValidateCrossFile — rules C1 to C11 of §10.2
 // ---------------------------------------------------------------------------
 
+// The rule functions below run over whatever artifacts the Spec carries, so
+// that the generation pipeline can apply the decidable subset after each step
+// (§12.2). These accessors return an empty slice for an absent artifact.
+
+func requirementsOf(s *Spec) []Requirement {
+	if s.Requirements == nil {
+		return nil
+	}
+	return s.Requirements.Requirements
+}
+
+func executionPathsOf(s *Spec) []ExecutionPath {
+	if s.Requirements == nil {
+		return nil
+	}
+	return s.Requirements.ExecutionPaths
+}
+
+func glossaryOf(s *Spec) RequirementsV2JsonGlossary {
+	if s.Requirements == nil {
+		return nil
+	}
+	return s.Requirements.Glossary
+}
+
+func testsOf(s *Spec) []Test {
+	if s.TestSpec == nil {
+		return nil
+	}
+	return s.TestSpec.Tests
+}
+
+func tasksOf(s *Spec) []Task {
+	if s.Tasks == nil {
+		return nil
+	}
+	return s.Tasks.Tasks
+}
+
 // specIndex holds the entity sets the cross-file rules resolve references
 // against, built once per validation run.
 type specIndex struct {
@@ -436,10 +475,15 @@ func (s *Spec) checkC1() []ValidationEntry {
 		specID   string
 		specName string
 	}
-	artifacts := []artifactID{
-		{"requirements.json", s.Requirements.SpecId, s.Requirements.SpecName},
-		{"test_spec.json", s.TestSpec.SpecId, s.TestSpec.SpecName},
-		{"tasks.json", s.Tasks.SpecId, s.Tasks.SpecName},
+	var artifacts []artifactID
+	if s.Requirements != nil {
+		artifacts = append(artifacts, artifactID{"requirements.json", s.Requirements.SpecId, s.Requirements.SpecName})
+	}
+	if s.TestSpec != nil {
+		artifacts = append(artifacts, artifactID{"test_spec.json", s.TestSpec.SpecId, s.TestSpec.SpecName})
+	}
+	if s.Tasks != nil {
+		artifacts = append(artifacts, artifactID{"tasks.json", s.Tasks.SpecId, s.Tasks.SpecName})
 	}
 	for _, a := range artifacts {
 		if a.specID != s.SpecID {
@@ -497,7 +541,7 @@ func (s *Spec) checkC2(idx specIndex) []ValidationEntry {
 
 	seenReq := map[string]bool{}
 	seenCriterion := map[string]bool{}
-	for _, r := range s.Requirements.Requirements {
+	for _, r := range requirementsOf(s) {
 		if !requirementIDPattern.MatchString(r.Id) {
 			errors = append(errors, bad("requirements.json", r.Id,
 				fmt.Sprintf("requirement ID %q does not match {spec_id}-REQ-{N}", r.Id)))
@@ -534,7 +578,7 @@ func (s *Spec) checkC2(idx specIndex) []ValidationEntry {
 	}
 
 	seenPath := map[string]bool{}
-	for _, p := range s.Requirements.ExecutionPaths {
+	for _, p := range executionPathsOf(s) {
 		if !pathIDPattern.MatchString(p.Id) {
 			errors = append(errors, bad("requirements.json", p.Id,
 				fmt.Sprintf("execution path ID %q does not match {spec_id}-PATH-{N}", p.Id)))
@@ -550,7 +594,7 @@ func (s *Spec) checkC2(idx specIndex) []ValidationEntry {
 	}
 
 	seenTest := map[string]bool{}
-	for _, t := range s.TestSpec.Tests {
+	for _, t := range testsOf(s) {
 		if !testIDPattern.MatchString(t.Id) {
 			errors = append(errors, bad("test_spec.json", t.Id,
 				fmt.Sprintf("test ID %q does not match TS-{spec_id}-{N}", t.Id)))
@@ -566,7 +610,7 @@ func (s *Spec) checkC2(idx specIndex) []ValidationEntry {
 	}
 
 	seenTask := map[int]bool{}
-	for _, task := range s.Tasks.Tasks {
+	for _, task := range tasksOf(s) {
 		if task.Id < 1 {
 			errors = append(errors, bad("tasks.json", fmt.Sprint(task.Id),
 				fmt.Sprintf("task ID %d is not a positive integer", task.Id)))
@@ -594,7 +638,7 @@ func (s *Spec) checkC3C5(idx specIndex) []ValidationEntry {
 	verifiedCriteria := map[string]bool{}
 	verifiedPathsBySmoke := map[string]bool{}
 
-	for _, t := range s.TestSpec.Tests {
+	for _, t := range testsOf(s) {
 		smokeVerifiesAPath := false
 		for _, ref := range t.Verifies {
 			switch {
@@ -659,11 +703,11 @@ func (s *Spec) checkC6C9(idx specIndex) []ValidationEntry {
 	ownedTests := map[string]bool{}
 	ownedCriteria := map[string]bool{}
 	taskIDs := map[int]bool{}
-	for _, task := range s.Tasks.Tasks {
+	for _, task := range tasksOf(s) {
 		taskIDs[task.Id] = true
 	}
 
-	for _, task := range s.Tasks.Tasks {
+	for _, task := range tasksOf(s) {
 		for _, ref := range task.Criteria {
 			switch {
 			case idx.criterionIDs[ref]:
@@ -749,8 +793,9 @@ func (s *Spec) checkC6C9(idx specIndex) []ValidationEntry {
 func (s *Spec) checkC9(idx specIndex) []ValidationEntry {
 	var errors []ValidationEntry
 
+	tasks := tasksOf(s)
 	var integrationIdx []int
-	for i, task := range s.Tasks.Tasks {
+	for i, task := range tasks {
 		if task.Kind == TaskKindIntegration {
 			integrationIdx = append(integrationIdx, i)
 		}
@@ -768,7 +813,7 @@ func (s *Spec) checkC9(idx specIndex) []ValidationEntry {
 	default:
 		ids := make([]string, 0, len(integrationIdx))
 		for _, i := range integrationIdx {
-			ids = append(ids, fmt.Sprint(s.Tasks.Tasks[i].Id))
+			ids = append(ids, fmt.Sprint(tasks[i].Id))
 		}
 		errors = append(errors, ValidationEntry{
 			Category: "integrity", Check: "C9", Artifact: "tasks.json",
@@ -778,8 +823,8 @@ func (s *Spec) checkC9(idx specIndex) []ValidationEntry {
 	}
 
 	last := integrationIdx[len(integrationIdx)-1]
-	integration := s.Tasks.Tasks[last]
-	if last != len(s.Tasks.Tasks)-1 {
+	integration := tasks[last]
+	if last != len(tasks)-1 {
 		errors = append(errors, ValidationEntry{
 			Category: "integrity", Check: "C9", Artifact: "tasks.json",
 			EntityID: fmt.Sprint(integration.Id),
@@ -807,7 +852,7 @@ func (s *Spec) checkC9(idx specIndex) []ValidationEntry {
 // checkC10: every unwanted criterion has a non-empty contract.
 func (s *Spec) checkC10() []ValidationEntry {
 	var errors []ValidationEntry
-	for _, r := range s.Requirements.Requirements {
+	for _, r := range requirementsOf(s) {
 		for _, c := range r.Criteria {
 			if c.Pattern == CriterionPatternUnwanted && c.ContractText() == "" {
 				errors = append(errors, ValidationEntry{
@@ -825,7 +870,7 @@ func (s *Spec) checkC10() []ValidationEntry {
 // smoke.
 func (s *Spec) checkC11() []ValidationEntry {
 	var errors []ValidationEntry
-	for _, t := range s.TestSpec.Tests {
+	for _, t := range testsOf(s) {
 		switch t.Kind {
 		case TestKindSmoke:
 			if len(t.RealComponents) == 0 {
@@ -860,11 +905,11 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 	}
 
 	// §6.5.3 — spec and requirement scope.
-	if n := len(s.Requirements.Requirements); n > maxRequirementsPerSpec {
+	if n := len(requirementsOf(s)); n > maxRequirementsPerSpec {
 		warn("requirements.json", s.SpecID,
 			fmt.Sprintf("spec has %d requirements (limit %d); consider splitting it", n, maxRequirementsPerSpec))
 	}
-	for _, r := range s.Requirements.Requirements {
+	for _, r := range requirementsOf(s) {
 		if n := len(r.Criteria); n > maxCriteriaPerReq {
 			warn("requirements.json", r.Id,
 				fmt.Sprintf("requirement %s has %d criteria (limit %d); consider splitting it", r.Id, n, maxCriteriaPerReq))
@@ -872,7 +917,7 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 	}
 
 	// §6.5.4 — vague language, and the contract hint of §10.2.
-	for _, r := range s.Requirements.Requirements {
+	for _, r := range requirementsOf(s) {
 		for _, c := range r.Criteria {
 			fields := map[string]string{"action": c.Action}
 			if c.Condition != nil {
@@ -901,7 +946,7 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 	}
 
 	// §7.3.4 — a test that verifies more than four criteria is usually two.
-	for _, t := range s.TestSpec.Tests {
+	for _, t := range testsOf(s) {
 		criteriaCount := 0
 		for _, ref := range t.Verifies {
 			if idx.criterionIDs[ref] {
@@ -915,11 +960,11 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 	}
 
 	// §8.6.4-5 — task size and count.
-	if n := len(s.Tasks.Tasks); n > maxTasksPerSpec {
+	if n := len(tasksOf(s)); n > maxTasksPerSpec {
 		warn("tasks.json", s.SpecID,
 			fmt.Sprintf("spec has %d tasks (limit %d); consider splitting it", n, maxTasksPerSpec))
 	}
-	for _, task := range s.Tasks.Tasks {
+	for _, task := range tasksOf(s) {
 		if n := len(task.Tests); n > maxTestsPerTask {
 			warn("tasks.json", fmt.Sprint(task.Id),
 				fmt.Sprintf("task %d owns %d tests (limit %d); consider splitting it", task.Id, n, maxTestsPerTask))
@@ -939,7 +984,7 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 // rule made this an error and produced most of the repair churn.
 func (s *Spec) glossaryHints() []ValidationEntry {
 	counts := map[string]int{}
-	for _, r := range s.Requirements.Requirements {
+	for _, r := range requirementsOf(s) {
 		for _, c := range r.Criteria {
 			seenInCriterion := map[string]bool{}
 			for _, text := range []string{c.Action, c.ConditionText(), c.GuardText(), c.ContractText()} {
@@ -962,7 +1007,7 @@ func (s *Spec) glossaryHints() []ValidationEntry {
 		if n < glossaryHintThreshold {
 			continue
 		}
-		if _, defined := s.Requirements.Glossary[term]; defined {
+		if _, defined := glossaryOf(s)[term]; defined {
 			continue
 		}
 		terms = append(terms, term)

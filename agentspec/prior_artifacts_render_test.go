@@ -20,21 +20,7 @@ func TestGenPrompts_PriorArtifacts_RequirementsMarkdown(t *testing.T) {
 	emptyTmpDir := t.TempDir()
 
 	priorArtifacts := map[string]any{
-		"requirements": map[string]any{
-			"spec_id":   "07",
-			"spec_name": "Test Spec",
-			"requirements": []any{
-				map[string]any{
-					"id":    "07-REQ-1",
-					"title": "Test requirement",
-					"acceptance_criteria": []any{
-						map[string]any{
-							"id": "07-REQ-1.1",
-						},
-					},
-				},
-			},
-		},
+		"requirements": v2RequirementsArtifact("07", "test"),
 	}
 
 	prompt, err := GenerationUserPrompt(
@@ -50,7 +36,7 @@ func TestGenPrompts_PriorArtifacts_RequirementsMarkdown(t *testing.T) {
 		t.Fatalf("GenerationUserPrompt() returned error: %v", err)
 	}
 
-	// Must contain Markdown heading from renderRequirementsArtifact.
+	// Must contain the Markdown heading the library renderer emits.
 	if !strings.Contains(prompt, "## Requirements") {
 		t.Error("prompt does not contain '## Requirements'; prior artifacts should be rendered as Markdown")
 	}
@@ -74,17 +60,7 @@ func TestGenPrompts_PriorArtifacts_IDsPreserved(t *testing.T) {
 	emptyTmpDir := t.TempDir()
 
 	priorArtifacts := map[string]any{
-		"requirements": map[string]any{
-			"spec_id":   "07",
-			"spec_name": "Test Spec",
-			"requirements": []any{
-				map[string]any{
-					"id":                  "07-REQ-1",
-					"title":               "Test requirement",
-					"acceptance_criteria": []any{},
-				},
-			},
-		},
+		"requirements": v2RequirementsArtifact("07", "test"),
 	}
 
 	prompt, err := GenerationUserPrompt(
@@ -100,56 +76,53 @@ func TestGenPrompts_PriorArtifacts_IDsPreserved(t *testing.T) {
 		t.Fatalf("GenerationUserPrompt() returned error: %v", err)
 	}
 
-	if !strings.Contains(prompt, "07-REQ-1") {
-		t.Error("prompt does not contain requirement ID '07-REQ-1'; Markdown rendering must preserve all requirement IDs")
-	}
-	if !strings.Contains(prompt, "Test requirement") {
-		t.Error("prompt does not contain requirement title 'Test requirement'; Markdown rendering must preserve all requirement titles")
+	// The complete artifact, not a summary of IDs: every criterion sentence,
+	// every contract and every path must survive into the downstream prompt
+	// (format v2 §12.1).
+	for _, want := range []string{
+		"07-REQ-1", "Widget storage",
+		"07-REQ-1.1", "WHEN a client submits a widget with a name",
+		"07-REQ-1.2", "IF the submitted widget has no name",
+		"→ HTTP 201 with body {id: string}",
+		"07-PATH-1", "A client stores a widget and reads it back",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the downstream prompt is missing %q", want)
+		}
 	}
 }
 
 // ---------------------------------------------------------------------------
-// TS-NS-3 (issue #54): test_spec prior artifact renders as Markdown
+// The test_spec prior artifact renders as a table the task generator can use
 // ---------------------------------------------------------------------------
 
-// TestGenPrompts_PriorArtifacts_TestSpecMarkdown verifies that when
-// GenerationUserPrompt is called with a priorArtifacts map containing a
-// test_spec entry, the returned prompt includes the test spec in Markdown
-// format with "## Test Cases" heading.
-// Test Spec: TS-NS-3 (issue #54), Requirement: NS-REQ-3
-func TestGenPrompts_PriorArtifacts_TestSpecMarkdown(t *testing.T) {
+// TestGenPrompts_PriorArtifacts_TestSpecTable verifies that the tasks step
+// receives every test's id, kind and verifies list. Owning a test (rule C7)
+// and owning every smoke test (rule C9) are impossible for a generator that
+// cannot see them, which is exactly how v1 produced orphaned tests.
+func TestGenPrompts_PriorArtifacts_TestSpecTable(t *testing.T) {
 	emptyTmpDir := t.TempDir()
 
 	priorArtifacts := map[string]any{
-		"test_spec": map[string]any{
-			"spec_id":   "07",
-			"spec_name": "Test Spec",
-			"test_cases": []any{
-				map[string]any{
-					"id":             "TS-07-1",
-					"description":    "Verify basic behavior",
-					"requirement_id": "07-REQ-1",
-				},
-			},
-		},
+		"test_spec": v2TestSpecArtifact("07", "test"),
 	}
 
 	prompt, err := GenerationUserPrompt(
-		"PRD text",
-		"tasks",
-		"07",
-		emptyTmpDir,
-		priorArtifacts,
-		nil,
-		nil,
+		"PRD text", "tasks", "07", emptyTmpDir, priorArtifacts, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("GenerationUserPrompt() returned error: %v", err)
 	}
 
-	// Must contain "## Test Cases" heading from renderTestSpecArtifact.
-	if !strings.Contains(prompt, "## Test Cases") {
-		t.Error("prompt does not contain '## Test Cases'; test_spec prior artifact should render as Markdown")
+	for _, want := range []string{
+		"| Test | Kind | Verifies | Title |",
+		"TS-07-1", "TS-07-2", "TS-07-3",
+		"smoke",
+		"07-PATH-1",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the tasks prompt is missing %q", want)
+		}
 	}
 }
 
