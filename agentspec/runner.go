@@ -212,8 +212,9 @@ func (sa *SpecAgent) run(ctx context.Context, p phase) (core.RunResult, error) {
 	}
 
 	model := sa.opts.Model
+	var thinking core.ThinkingLevel
 	if model == nil {
-		resolved, err := ResolveModel(p.model, p.variant, sa.opts.Vendor)
+		resolved, tl, err := ResolveModel(p.model, p.variant, sa.opts.Vendor)
 		if err != nil {
 			return core.RunResult{}, &AgentError{
 				Detail:        err.Error(),
@@ -222,6 +223,7 @@ func (sa *SpecAgent) run(ctx context.Context, p phase) (core.RunResult, error) {
 			}
 		}
 		model = resolved
+		thinking = tl
 		if err := CheckCredentials(model); err != nil {
 			return core.RunResult{}, err
 		}
@@ -234,12 +236,13 @@ func (sa *SpecAgent) run(ctx context.Context, p phase) (core.RunResult, error) {
 
 	maxTokens := p.maxTokens
 	cfg := core.AgentConfig{
-		Model:        model,
-		Provider:     model.Provider,
-		Providers:    providers,
-		SystemPrompt: p.system,
-		MaxTokens:    &maxTokens,
-		Temperature:  &p.temperature,
+		Model:         model,
+		Provider:      model.Provider,
+		Providers:     providers,
+		SystemPrompt:  p.system,
+		MaxTokens:     &maxTokens,
+		Temperature:   &p.temperature,
+		ThinkingLevel: thinking,
 		// SessionID is the phase name, not a per-run identifier. On the
 		// OpenAI wires it becomes prompt_cache_key, whose job is to group
 		// requests that share a prefix so they land on a backend holding it —

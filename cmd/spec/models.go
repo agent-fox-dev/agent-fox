@@ -19,6 +19,7 @@ type modelEntry struct {
 	Variant       string  `json:"variant,omitempty"`
 	Vendor        string  `json:"vendor"`
 	Model         string  `json:"model"`
+	ThinkingLevel string  `json:"thinking_level,omitempty"`
 	ContextWindow int     `json:"context_window"`
 	MaxTokens     int     `json:"max_tokens"`
 	InputCost     float64 `json:"input_cost_per_mtok"`
@@ -72,13 +73,14 @@ func resolvedPhaseModels(cfg agentspec.AgentSpecConfig) []modelEntry {
 	for _, phase := range []string{"assess", "refine", "generate"} {
 		name := cfg.ModelForPhase(phase)
 		entry := modelEntry{Phase: phase, Tier: name, Variant: cfg.ModelVariant, Vendor: vendorOf(cfg)}
-		m, err := agentspec.ResolveModel(name, cfg.ModelVariant, cfg.Vendor)
+		m, tl, err := agentspec.ResolveModel(name, cfg.ModelVariant, cfg.Vendor)
 		if err != nil {
 			entry.Model = fmt.Sprintf("unresolved: %v", err)
 			entry.Credential = "unknown"
 			out = append(out, entry)
 			continue
 		}
+		entry.ThinkingLevel = string(tl)
 		out = append(out, describe(entry, m))
 	}
 	return out
@@ -91,13 +93,14 @@ func tierTableEntries() []modelEntry {
 	for _, vendor := range agentspec.TierVendors() {
 		for _, tier := range agentspec.Tiers {
 			entry := modelEntry{Tier: string(tier), Vendor: vendor}
-			m, err := agentspec.ResolveModel(string(tier), "", vendor)
+			m, tl, err := agentspec.ResolveModel(string(tier), "", vendor)
 			if err != nil {
 				entry.Model = fmt.Sprintf("unresolved: %v", err)
 				entry.Credential = "unknown"
 				out = append(out, entry)
 				continue
 			}
+			entry.ThinkingLevel = string(tl)
 			out = append(out, describe(entry, m))
 		}
 	}

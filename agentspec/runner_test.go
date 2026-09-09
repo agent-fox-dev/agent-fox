@@ -145,7 +145,7 @@ func TestMissingCredentialsAreReportedWithTheVariablesToSet(t *testing.T) {
 	} {
 		t.Setenv(name, "")
 	}
-	m, err := ResolveModel("STANDARD", "", "anthropic")
+	m, _, err := ResolveModel("STANDARD", "", "anthropic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestABaseURLAloneIsEnoughToPassThePreflight(t *testing.T) {
 	}
 	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.internal/anthropic")
 
-	m, err := ResolveModel("STANDARD", "", "anthropic")
+	m, _, err := ResolveModel("STANDARD", "", "anthropic")
 	if err != nil {
 		t.Fatal(err)
 	}
