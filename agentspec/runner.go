@@ -240,7 +240,13 @@ func (sa *SpecAgent) run(ctx context.Context, p phase) (core.RunResult, error) {
 		SystemPrompt: p.system,
 		MaxTokens:    &maxTokens,
 		Temperature:  &p.temperature,
-		SessionID:    p.name,
+		// SessionID is the phase name, not a per-run identifier. On the
+		// OpenAI wires it becomes prompt_cache_key, whose job is to group
+		// requests that share a prefix so they land on a backend holding it —
+		// and every "generate:requirements" call in the world shares this
+		// package's system prompt and tool schema. Making it unique per spec
+		// would fragment exactly the cache it exists to help.
+		SessionID: p.name,
 		StopPolicy: agentkit.StopAny(
 			agentkit.StopAfterTurns(sa.opts.maxTurns()),
 			agentkit.StopOverBudget(sa.opts.maxBudget()),
@@ -248,7 +254,6 @@ func (sa *SpecAgent) run(ctx context.Context, p phase) (core.RunResult, error) {
 		Middleware: []core.Middleware{
 			agentkit.RetryMiddleware(agentkit.RetryOptions{MaxAttempts: sa.opts.maxAttempts()}),
 		},
-		Hooks: core.Hooks{},
 		// BeforeToolCall is deliberately nil. AgentKit fails any run whose
 		// resolved set carries a shell tool and no interceptor
 		// (ErrUnguardedExecute), so the nil is the check that the read-only

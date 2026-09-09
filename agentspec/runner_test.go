@@ -280,3 +280,113 @@ func TestAnUnsetOverlayFieldDoesNotResetTheConfiguredOne(t *testing.T) {
 		t.Errorf("MaxTurns = %d, want the overlay's 5", got.MaxTurns)
 	}
 }
+
+func TestTheModelCanActuallyReadTheWorkspaceBeforeItSubmits(t *testing.T) {
+	// The configuration tests above check what was declared. This one checks
+	// that a read actually happens: the loop executes read_file against the
+	// workspace, feeds the contents back, and the second turn submits.
+	ws := newWorkspace(t)
+	if err := os.WriteFile(filepath.Join(ws.Root, "store.go"),
+		[]byte("package store\n\n// WIDGET-SENTINEL\nfunc Insert() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := faux.New(
+		toolCallTurn("r1", "read_file", map[string]any{"path": "store.go"}),
+		toolCallTurn("c1", ToolSubmitAssessment, validAssessment("ready")),
+	)
+	opts := fauxRun(p)
+	opts.Workspace = ws
+
+	got, err := NewSpecAgentWith("STANDARD", "", opts).AssessPRD(
+		context.Background(), "# Widget service", "01_widgets")
+	if err != nil {
+		t.Fatalf("AssessPRD: %v", err)
+	}
+	if got.Quality != "ready" {
+		t.Errorf("quality = %q", got.Quality)
+	}
+	if p.Calls() != 2 {
+		t.Fatalf("the provider saw %d calls; the read should have produced a second turn", p.Calls())
+	}
+	if !strings.Contains(toolResultTextOf(t, p, 1), "WIDGET-SENTINEL") {
+		t.Error("the file contents did not reach the model")
+	}
+}
+
+func TestAReadOutsideTheWorkspaceIsRefusedRatherThanServed(t *testing.T) {
+	// Containment is the workspace's, not this package's, but a run that let
+	// a path escape would be this package's problem — so it is pinned here.
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("SECRET-SENTINEL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := faux.New(
+		toolCallTurn("r1", "read_file", map[string]any{"path": outside}),
+		toolCallTurn("c1", ToolSubmitAssessment, validAssessment("ready")),
+	)
+	opts := fauxRun(p)
+	opts.Workspace = newWorkspace(t)
+
+	if _, err := NewSpecAgentWith("STANDARD", "", opts).AssessPRD(
+		context.Background(), "# PRD", "01_x"); err != nil {
+		t.Fatalf("AssessPRD: %v", err)
+	}
+	if strings.Contains(toolResultTextOf(t, p, 1), "SECRET-SENTINEL") {
+		t.Error("a file outside the workspace was read")
+	}
+}
+
+func TestAWorkspaceRunStartsAtAllUnderTheUnguardedShellRule(t *testing.T) {
+	// AgentKit fails any run whose resolved set carries a shell tool and no
+	// BeforeToolCall interceptor. This package leaves that nil deliberately —
+	// the nil is the check — so a regression that let `execute` through would
+	// show up as every workspace run refusing to start.
+	p := faux.New(toolCallTurn("c1", ToolSubmitAssessment, validAssessment("ready")))
+	opts := fauxRun(p)
+	opts.Workspace = newWorkspace(t)
+
+	if _, err := NewSpecAgentWith("STANDARD", "", opts).AssessPRD(
+		context.Background(), "# PRD", "01_x"); err != nil {
+		if errors.Is(err, core.ErrUnguardedExecute) {
+			t.Fatal("a shell tool reached the resolved set")
+		}
+		t.Fatalf("AssessPRD: %v", err)
+	}
+}
+
+func TestSteeringDirectivesReachTheSystemPromptOnlyUnderTrust(t *testing.T) {
+	// A repository that is merely the current directory would otherwise
+	// author part of the system prompt that reads it: git clone, cd, run.
+	ws := newWorkspace(t)
+	const sentinel = "STEERING-SENTINEL: prefer table-driven tests"
+	if err := os.WriteFile(filepath.Join(ws.Root, "AGENTS.md"),
+		[]byte("# Project directives\n\n"+sentinel+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	untrusted := faux.New(toolCallTurn("c1", ToolSubmitAssessment, validAssessment("ready")))
+	opts := fauxRun(untrusted)
+	opts.Workspace = ws
+	if _, err := NewSpecAgentWith("STANDARD", "", opts).AssessPRD(
+		context.Background(), "# PRD", "01_x"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(systemPromptOf(t, untrusted, 0), sentinel) {
+		t.Error("an untrusted project's context file reached the system prompt")
+	}
+
+	trusted := faux.New(toolCallTurn("c1", ToolSubmitAssessment, validAssessment("ready")))
+	opts = fauxRun(trusted)
+	opts.Workspace = ws
+	opts.TrustProject = true
+	if _, err := NewSpecAgentWith("STANDARD", "", opts).AssessPRD(
+		context.Background(), "# PRD", "01_x"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(systemPromptOf(t, trusted, 0), sentinel) {
+		t.Errorf("a trusted project's context file did not reach the system prompt:\n%s",
+			systemPromptOf(t, trusted, 0))
+	}
+}
