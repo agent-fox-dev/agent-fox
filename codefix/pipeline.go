@@ -504,7 +504,7 @@ func phaseSummary(res agentrun.Result) string {
 		toolio.FormatTokens(int64(res.Usage.InputTokens)),
 		toolio.FormatTokens(int64(res.Usage.OutputTokens)))
 	if res.Blocked > 0 {
-		s += fmt.Sprintf(" · %d blocked", res.Blocked)
+		s += fmt.Sprintf(" · %d tools blocked", res.Blocked)
 	}
 	return s
 }
