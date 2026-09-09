@@ -319,9 +319,11 @@ func (c *Campaign) NewSpec(specName, prdPath, mode, source string) (*SpecSession
 	prdMD.WriteString("status: draft\n")
 	prdMD.WriteString(fmt.Sprintf("created_at: %s\n", now.Format(time.RFC3339)))
 	prdMD.WriteString(fmt.Sprintf("updated_at: %s\n", now.Format(time.RFC3339)))
-	prdMD.WriteString("owner: \"\"\n")
-	prdMD.WriteString(fmt.Sprintf("source: %s\n", source))
-	prdMD.WriteString("schema_version: 1\n")
+	prdMD.WriteString("intent_hash: null\n")
+	prdMD.WriteString(fmt.Sprintf("schema_version: %d\n", afspec.SchemaVersion))
+	if source != "" {
+		prdMD.WriteString(fmt.Sprintf("source: %s\n", source))
+	}
 	prdMD.WriteString("---\n")
 	prdMD.Write(prdBody)
 

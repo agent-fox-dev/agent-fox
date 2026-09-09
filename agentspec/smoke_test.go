@@ -87,7 +87,7 @@ func TestSmoke_CreateCampaignAndProvisionFirstSpec(t *testing.T) {
 	prdStr := string(prdContent)
 	for _, expected := range []string{
 		"spec_id:", "spec_name:", "status: draft",
-		"schema_version: 1", "source: docs/prds/my.md",
+		"schema_version: 2", "source: docs/prds/my.md",
 		"# My PRD",
 	} {
 		if !strings.Contains(prdStr, expected) {
@@ -345,20 +345,13 @@ func TestSmoke_ValidateWithMissingArtifacts(t *testing.T) {
 		t.Fatalf("CreateSession() returned error: %v", err)
 	}
 
-	// Write only requirements.json (missing test_spec.json and tasks.json).
-	// Use a minimal valid-structure JSON that will parse but may not validate.
-	reqJSON := `{
-		"spec_id": "01",
-		"spec_name": "test_spec",
-		"introduction": "Test",
-		"glossary": [],
-		"requirements": [],
-		"correctness_properties": [],
-		"execution_paths": [],
-		"error_handling": [],
-		"external_apis": []
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), []byte(reqJSON), 0o644); err != nil {
+	// Write only requirements.json, leaving test_spec.json and tasks.json
+	// missing, so validation takes the per-artifact fallback path.
+	reqJSON, err := json.MarshalIndent(v2RequirementsArtifact("01", "test_spec"), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), reqJSON, 0o644); err != nil {
 		t.Fatalf("failed to write requirements.json: %v", err)
 	}
 

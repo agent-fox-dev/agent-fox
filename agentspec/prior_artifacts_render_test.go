@@ -2,7 +2,6 @@ package agentspec
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -167,100 +166,61 @@ func TestGenPrompts_PriorArtifacts_MalformedFallback(t *testing.T) {
 // ---------------------------------------------------------------------------
 // TS-NS-5 (issue #54): Prompt is at least 30% shorter than JSON baseline
 // ---------------------------------------------------------------------------
+// The size of a prior-artifact block
+// ---------------------------------------------------------------------------
 
-// TestGenPrompts_PriorArtifacts_TokenReduction verifies that the prior artifacts
-// block produced by renderPriorArtifact is at least 30% shorter than the
-// previous json.MarshalIndent approach for a representative fixture with 5+
-// requirements and 5+ test cases.
-// Test Spec: TS-NS-5 (issue #54), Requirement: NS-REQ-5
-func TestGenPrompts_PriorArtifacts_TokenReduction(t *testing.T) {
-	// Build representative prior artifacts with 5+ requirements and 5+ test cases.
-	var reqs []any
-	for i := 1; i <= 6; i++ {
-		reqs = append(reqs, map[string]any{
-			"id":    fmt.Sprintf("07-REQ-%d", i),
-			"title": fmt.Sprintf("Requirement number %d with a descriptive title", i),
-			"user_story": map[string]any{
-				"role":    "developer",
-				"goal":    fmt.Sprintf("accomplish goal %d for the system", i),
-				"benefit": fmt.Sprintf("so that benefit %d is realized by users", i),
-			},
-			"acceptance_criteria": []any{
-				map[string]any{
-					"id":              fmt.Sprintf("07-REQ-%d.1", i),
-					"ears_pattern":    "ubiquitous",
-					"system":          "The system",
-					"action":          fmt.Sprintf("performs action %d correctly", i),
-					"return_contract": nil,
-				},
-			},
-			"edge_cases": []any{},
-		})
-	}
-	reqArtifact := map[string]any{
-		"spec_id":                "07",
-		"spec_name":              "Test Spec For Token Reduction",
-		"schema_version":         1,
-		"introduction":           "This spec defines requirements for the system under test.",
-		"glossary":               map[string]any{"SystemUnderTest": "The component being specified"},
-		"requirements":           reqs,
-		"correctness_properties": []any{},
-		"execution_paths":        []any{},
-		"error_handling":         []any{},
-	}
+// TestGenPrompts_PriorArtifacts_TestTableIsCompact checks the one place where
+// the prior-artifact block trades detail for size. Format v2 §12.1 requires
+// the downstream step to see the *complete* upstream artifact, so the
+// requirements render carries every criterion sentence and contract. The test
+// list is the exception: the tasks step needs each test's id, kind and
+// verifies list to own it, and the given/when/then would multiply the prompt
+// without helping it decide which task a test belongs to.
+func TestGenPrompts_PriorArtifacts_TestTableIsCompact(t *testing.T) {
+	tests := v2TestSpecArtifact("07", "test")
 
-	var cases []any
-	for i := 1; i <= 6; i++ {
-		cases = append(cases, map[string]any{
-			"id":                   fmt.Sprintf("TS-07-%d", i),
-			"description":          fmt.Sprintf("Test case %d verifies the expected system behavior", i),
-			"requirement_id":       fmt.Sprintf("07-REQ-%d", i),
-			"kind":                 "acceptance",
-			"preconditions":        []any{fmt.Sprintf("precondition %d is met", i)},
-			"input":                fmt.Sprintf("input value %d", i),
-			"expected":             fmt.Sprintf("expected output %d", i),
-			"assertion_pseudocode": fmt.Sprintf("assert result == expected_%d", i),
-		})
-	}
-	tsArtifact := map[string]any{
-		"spec_id":         "07",
-		"spec_name":       "Test Spec For Token Reduction",
-		"schema_version":  1,
-		"test_cases":      cases,
-		"property_tests":  []any{},
-		"edge_case_tests": []any{},
-		"smoke_tests":     []any{},
-		"coverage": map[string]any{
-			"requirements_covered": []any{},
-		},
-	}
-
-	priorArtifacts := map[string]any{
-		"requirements": reqArtifact,
-		"test_spec":    tsArtifact,
-	}
-
-	// --- Old approach: json.MarshalIndent over the whole map ---
-	oldData, err := json.MarshalIndent(priorArtifacts, "", "  ")
+	full, err := json.MarshalIndent(tests, "", "  ")
 	if err != nil {
-		t.Fatalf("json.MarshalIndent() returned error: %v", err)
+		t.Fatal(err)
 	}
-	oldBlock := "Previously generated artifacts:\n" + string(oldData)
-	oldLen := len(oldBlock)
+	table := renderPriorArtifact("test_spec", tests)
 
-	// --- New approach: renderPriorArtifact per entry ---
-	var newBlock strings.Builder
-	newBlock.WriteString("Previously generated artifacts:\n\n")
-	for _, k := range []string{"requirements", "test_spec"} {
-		newBlock.WriteString(fmt.Sprintf("### %s\n\n", k))
-		newBlock.WriteString(renderPriorArtifact(k, priorArtifacts[k]))
-		newBlock.WriteString("\n")
+	if len(table) >= len(full)/2 {
+		t.Errorf("the test table is %d chars against %d for the raw artifact; it should be far smaller",
+			len(table), len(full))
 	}
-	newLen := newBlock.Len()
 
-	threshold := int(float64(oldLen) * 0.70)
-	if newLen > threshold {
-		t.Errorf("new prior artifacts block (%d chars) is not at least 30%% shorter than old JSON block (%d chars); ratio = %.2f (want <= 0.70)",
-			newLen, oldLen, float64(newLen)/float64(oldLen))
+	// Everything the tasks step needs must survive.
+	for _, want := range []string{"TS-07-1", "TS-07-2", "TS-07-3", "smoke", "07-PATH-1", "07-REQ-1.1"} {
+		if !strings.Contains(table, want) {
+			t.Errorf("the test table dropped %q", want)
+		}
+	}
+	// Detail the tasks step does not need is dropped.
+	if strings.Contains(table, "an empty store") {
+		t.Error("the test table kept the Given clauses")
+	}
+}
+
+// TestGenPrompts_PriorArtifacts_RequirementsAreComplete is the other half:
+// the requirements render is not compressed. The v1 pipeline passed an
+// ID-and-title summary here, so the test generator had to re-derive edge
+// cases from the PRD and guess their IDs.
+func TestGenPrompts_PriorArtifacts_RequirementsAreComplete(t *testing.T) {
+	requirements := v2RequirementsArtifact("07", "test")
+	rendered := renderPriorArtifact("requirements", requirements)
+
+	for _, want := range []string{
+		"07-REQ-1.1",
+		"WHEN a client submits a widget with a name",
+		"→ HTTP 201 with body {id: string}",
+		"07-REQ-1.2",
+		"IF the submitted widget has no name",
+		"07-PATH-1",
+		"**client** submits a widget",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the requirements render dropped %q", want)
+		}
 	}
 }

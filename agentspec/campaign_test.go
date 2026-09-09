@@ -517,7 +517,7 @@ func TestTS06_19_NewSpecSuccess(t *testing.T) {
 		t.Fatalf("prd.md not found: %v", readErr)
 	}
 	prdStr := string(prdOnDisk)
-	for _, field := range []string{"spec_id:", "spec_name:", "status: draft", "schema_version: 1", "source: docs/prds/my.md"} {
+	for _, field := range []string{"spec_id:", "spec_name:", "status: draft", "schema_version: 2", "source: docs/prds/my.md"} {
 		if !strings.Contains(prdStr, field) {
 			t.Errorf("prd.md missing %q; got:\n%s", field, prdStr)
 		}

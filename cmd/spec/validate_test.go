@@ -837,45 +837,38 @@ func TestTS_NS3_MultiSpecLibraryErrors(t *testing.T) {
 	// Create one fully valid spec.
 	setupLoadableSpec(t, specDir, "08_valid_spec", nil)
 
-	// Create one spec with a cross-file integrity error (dangling test reference).
-	setupLoadableSpec(t, specDir, "09_invalid_spec", nil)
-	// Overwrite test_spec.json to reference a non-existent requirement.
+	// Create one spec whose first test verifies a criterion that does not
+	// exist: rule C3.
 	testSpec := `{
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
   "spec_id": "09",
-  "spec_name": "09_invalid_spec",
-  "schema_version": 1,
-  "test_cases": [{
-    "id": "TS-09-1",
-    "requirement_id": "09-REQ-999.1",
-    "kind": "unit",
-    "description": "Test referencing non-existent requirement",
-    "preconditions": [],
-    "input": {},
-    "expected": {},
-    "assertion_pseudocode": "assert true"
-  }],
-  "property_tests": [],
-  "edge_case_tests": [],
-  "smoke_tests": [{
-    "id": "TS-09-SMOKE-1",
-    "execution_path_id": "09-PATH-1",
-    "description": "Smoke test",
-    "trigger": "run",
-    "real_components": ["all"],
-    "mockable": [],
-    "expected_effects": ["works"]
-  }],
-  "coverage": {
-    "requirements_covered": [],
-    "properties_covered": [],
-    "paths_covered": [],
-    "gaps": []
-  }
+  "spec_name": "invalid_spec",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-09-1",
+      "kind": "unit",
+      "verifies": ["09-REQ-999.1"],
+      "title": "A test that verifies a criterion which does not exist",
+      "given": [],
+      "when": "the store is exercised",
+      "then": ["something happens"]
+    },
+    {
+      "id": "TS-09-2",
+      "kind": "smoke",
+      "verifies": ["09-PATH-1"],
+      "title": "A client stores a widget end to end",
+      "given": [],
+      "when": "a widget is submitted and read back",
+      "then": ["the read returns the widget that was submitted"],
+      "real_components": ["widget service", "store"]
+    }
+  ]
 }`
-	if err := os.WriteFile(filepath.Join(specDir, "09_invalid_spec", "test_spec.json"), []byte(testSpec), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeSpecFixture(t, filepath.Join(specDir, "09_invalid_spec"), "09", "invalid_spec", specFixture{
+		TestSpecOverride: testSpec,
+	})
 
 	cmd := newRootCmd()
 	stdoutBuf := new(bytes.Buffer)

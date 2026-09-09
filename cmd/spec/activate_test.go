@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
@@ -18,165 +17,12 @@ import (
 // test_spec.json, tasks.json). Returns the full spec path.
 func createDraftSpecWithIntentForCLI(t *testing.T, specDir, specName string) string {
 	t.Helper()
+	specID, suffix := splitSpecDirName(t, specName)
 	specPath := filepath.Join(specDir, specName)
-	if err := os.MkdirAll(specPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	specID := strings.SplitN(specName, "_", 2)[0]
-
-	prd := "---\n" +
-		"spec_id: \"" + specID + "\"\n" +
-		"spec_name: \"" + specName + "\"\n" +
-		"title: \"Test Spec " + specID + "\"\n" +
-		"status: \"draft\"\n" +
-		"created_at: \"2026-01-01T00:00:00Z\"\n" +
-		"updated_at: \"2026-01-01T00:00:00Z\"\n" +
-		"owner: \"test\"\n" +
-		"source: \"\"\n" +
-		"supersedes: []\n" +
-		"tags: []\n" +
-		"intent_hash: null\n" +
-		"schema_version: 1\n" +
-		"---\n" +
-		"# Test Spec " + specID + "\n\n" +
-		"## Intent\n\n" +
-		"This spec tests the activate lifecycle CLI command.\n\n" +
-		"## Goals\n\n" +
-		"- Validate activate transition works from the CLI.\n"
-
-	reqJSON := `{
-  "$schema": "https://agent-fox.dev/schemas/requirements.v1.json",
-  "spec_id": "` + specID + `",
-  "spec_name": "` + specName + `",
-  "schema_version": 1,
-  "introduction": "Test spec.",
-  "glossary": {},
-  "requirements": [
-    {
-      "id": "` + specID + `-REQ-1",
-      "title": "Requirement 1",
-      "user_story": {"role": "dev", "goal": "test", "benefit": "test"},
-      "acceptance_criteria": [
-        {
-          "id": "` + specID + `-REQ-1.1",
-          "ears_pattern": "ubiquitous",
-          "system": "the system",
-          "action": "do something",
-          "return_contract": null
-        }
-      ],
-      "edge_cases": []
-    }
-  ],
-  "correctness_properties": [],
-  "execution_paths": [
-    {
-      "id": "` + specID + `-PATH-1",
-      "title": "Main path",
-      "steps": [
-        {"actor": "user", "action": "do"},
-        {"actor": "system", "action": "respond"}
-      ]
-    }
-  ],
-  "error_handling": []
-}`
-
-	testSpecJSON := `{
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
-  "spec_id": "` + specID + `",
-  "spec_name": "` + specName + `",
-  "schema_version": 1,
-  "test_cases": [
-    {
-      "id": "TS-` + specID + `-1",
-      "requirement_id": "` + specID + `-REQ-1.1",
-      "kind": "unit",
-      "description": "Test something",
-      "preconditions": [],
-      "input": {},
-      "expected": {},
-      "assertion_pseudocode": "assert true"
-    }
-  ],
-  "property_tests": [],
-  "edge_case_tests": [],
-  "smoke_tests": [
-    {
-      "id": "TS-` + specID + `-SMOKE-1",
-      "execution_path_id": "` + specID + `-PATH-1",
-      "description": "Smoke test",
-      "trigger": "run",
-      "real_components": ["all"],
-      "mockable": [],
-      "expected_effects": ["works"]
-    }
-  ],
-  "coverage": {
-    "requirements_covered": [],
-    "properties_covered": [],
-    "paths_covered": [],
-    "gaps": []
-  }
-}`
-
-	tasksJSON := `{
-  "$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
-  "spec_id": "` + specID + `",
-  "spec_name": "` + specName + `",
-  "schema_version": 1,
-  "test_commands": {
-    "spec_tests": "go test ./...",
-    "all_tests": "go test ./...",
-    "linter": "golangci-lint run"
-  },
-  "dependencies": [],
-  "task_groups": [
-    {
-      "id": 1,
-      "kind": "standard",
-      "title": "Implement feature",
-      "subtasks": [
-        {
-          "id": "1.1",
-          "title": "Do the thing",
-          "details": ["Detail 1"],
-          "test_spec_refs": ["TS-` + specID + `-1"],
-          "requirement_refs": ["` + specID + `-REQ-1.1"],
-          "state": "pending",
-          "optional": false
-        }
-      ],
-      "verification": {
-        "id": "1.V",
-        "checks": ["All tests pass"]
-      }
-    }
-  ],
-  "traceability": [
-    {
-      "requirement_id": "` + specID + `-REQ-1.1",
-      "test_spec_id": "TS-` + specID + `-1",
-      "task_id": "1.1",
-      "test_path": null
-    }
-  ]
-}`
-
-	files := map[string]string{
-		"prd.md":            prd,
-		"requirements.json": reqJSON,
-		"test_spec.json":    testSpecJSON,
-		"tasks.json":        tasksJSON,
-	}
-	for name, content := range files {
-		p := filepath.Join(specPath, name)
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatalf("failed to write %s: %v", name, err)
-		}
-	}
-
+	writeSpecFixture(t, specPath, specID, suffix, specFixture{
+		PRDBody: "# Widget Service\n\n## Intent\n\nStore widgets and serve them back.\n\n" +
+			"## Goals\n\n- Exercise the lifecycle commands from the CLI.\n",
+	})
 	return specPath
 }
 

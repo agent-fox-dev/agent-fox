@@ -733,7 +733,7 @@ func writeSiblingPRD(t *testing.T, parentDir, dirName, specID, specName, status 
 		"supersedes: []\n" +
 		"tags: []\n" +
 		"intent_hash: null\n" +
-		"schema_version: 1\n" +
+		"schema_version: 2\n" +
 		"---\n# Test\n"
 	if err := os.WriteFile(filepath.Join(dir, "prd.md"), []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write prd.md in %s: %v", dir, err)

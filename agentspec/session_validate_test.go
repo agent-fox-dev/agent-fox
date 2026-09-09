@@ -84,7 +84,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # Partial PRD
 `
@@ -92,19 +92,11 @@ schema_version: 1
 		t.Fatalf("failed to write prd.md: %v", err)
 	}
 
-	reqJSON := `{
-		"spec_id": "06",
-		"spec_name": "test_partial",
-		"schema_version": 1,
-		"introduction": "Partial test",
-		"glossary": {},
-		"requirements": [],
-		"correctness_properties": [],
-		"execution_paths": [],
-		"error_handling": [],
-		"external_apis": []
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), []byte(reqJSON), 0o644); err != nil {
+	reqJSON, err := json.MarshalIndent(v2RequirementsArtifact("06", "test_partial"), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), reqJSON, 0o644); err != nil {
 		t.Fatalf("failed to write requirements.json: %v", err)
 	}
 
@@ -160,7 +152,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # Empty
 `
@@ -218,7 +210,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # Bad JSON
 `
@@ -235,7 +227,7 @@ schema_version: 1
 	tsJSON := `{
 		"spec_id": "06",
 		"spec_name": "bad_json",
-		"schema_version": 1,
+		"schema_version": 2,
 		"test_cases": [],
 		"property_tests": [],
 		"edge_case_tests": [],
@@ -369,7 +361,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # Partial render test
 `
@@ -377,19 +369,11 @@ schema_version: 1
 		t.Fatalf("failed to write prd.md: %v", err)
 	}
 
-	reqJSON := `{
-		"spec_id": "06",
-		"spec_name": "render_partial",
-		"schema_version": 1,
-		"introduction": "Render partial test",
-		"glossary": {},
-		"requirements": [],
-		"correctness_properties": [],
-		"execution_paths": [],
-		"error_handling": [],
-		"external_apis": []
-	}`
-	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), []byte(reqJSON), 0o644); err != nil {
+	reqJSON, err := json.MarshalIndent(v2RequirementsArtifact("06", "render_partial"), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "requirements.json"), reqJSON, 0o644); err != nil {
 		t.Fatalf("failed to write requirements.json: %v", err)
 	}
 
@@ -443,7 +427,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # No artifacts
 `
@@ -500,7 +484,7 @@ created_at: "2024-01-01"
 updated_at: "2024-01-01"
 owner: "test"
 source: "manual"
-schema_version: 1
+schema_version: 2
 ---
 # No artifacts individual
 `
