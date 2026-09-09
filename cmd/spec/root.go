@@ -105,6 +105,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newGenerateCmd())
 	cmd.AddCommand(newRenderCmd())
 	cmd.AddCommand(newValidateCmd())
+	cmd.AddCommand(newMigrateCmd())
 	cmd.AddCommand(newLintCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newCampaignCmd())

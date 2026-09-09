@@ -206,21 +206,22 @@ func isSpecFullyImplemented(info afspec.LintSpecInfo) bool {
 	}
 
 	var tasks struct {
-		TaskGroups []struct {
-			Subtasks []struct {
-				State string `json:"state"`
-			} `json:"subtasks"`
-		} `json:"task_groups"`
+		Tasks []struct {
+			State string `json:"state"`
+		} `json:"tasks"`
 	}
 	if err := json.Unmarshal(data, &tasks); err != nil {
 		return false
 	}
 
-	for _, group := range tasks.TaskGroups {
-		for _, sub := range group.Subtasks {
-			if sub.State != "done" && sub.State != "dropped" {
-				return false
-			}
+	// A spec with no tasks at all is a scaffold, not a finished spec.
+	if len(tasks.Tasks) == 0 {
+		return false
+	}
+
+	for _, task := range tasks.Tasks {
+		if task.State != "done" && task.State != "dropped" {
+			return false
 		}
 	}
 

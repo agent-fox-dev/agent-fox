@@ -96,3 +96,7 @@ func isBrokenPipe(err error) bool {
 	}
 	return false
 }
+
+// jsonUnmarshal is encoding/json's Unmarshal, named so that files which do not
+// otherwise need the import can decode a small document.
+func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }

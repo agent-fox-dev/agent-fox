@@ -605,8 +605,8 @@ func TestTS_NS_2_PrdMdHasValidFrontmatter(t *testing.T) {
 	if spec.Status != "draft" {
 		t.Errorf("spec.Status = %q; want %q", spec.Status, "draft")
 	}
-	if spec.SchemaVersion != 1 {
-		t.Errorf("spec.SchemaVersion = %d; want 1", spec.SchemaVersion)
+	if spec.SchemaVersion != afspec.SchemaVersion {
+		t.Errorf("spec.SchemaVersion = %d; want %d", spec.SchemaVersion, afspec.SchemaVersion)
 	}
 	if spec.SpecID == "" {
 		t.Error("spec.SpecID is empty; want non-empty")
@@ -682,7 +682,7 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read requirements.json: %v", err)
 	}
-	var req afspec.RequirementsV1Json
+	var req afspec.RequirementsV2Json
 	if err := json.Unmarshal(reqData, &req); err != nil {
 		t.Errorf("json.Unmarshal requirements.json failed: %v", err)
 	} else {
@@ -692,8 +692,8 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 		if req.SpecName == "" {
 			t.Error("requirements.json: spec_name is empty")
 		}
-		if req.SchemaVersion != 1 {
-			t.Errorf("requirements.json: schema_version = %d; want 1", req.SchemaVersion)
+		if req.SchemaVersion != afspec.SchemaVersion {
+			t.Errorf("requirements.json: schema_version = %d; want %d", req.SchemaVersion, afspec.SchemaVersion)
 		}
 	}
 
@@ -702,7 +702,7 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read test_spec.json: %v", err)
 	}
-	var ts afspec.TestSpecV1Json
+	var ts afspec.TestSpecV2Json
 	if err := json.Unmarshal(tsData, &ts); err != nil {
 		t.Errorf("json.Unmarshal test_spec.json failed: %v", err)
 	} else {
@@ -712,8 +712,8 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 		if ts.SpecName == "" {
 			t.Error("test_spec.json: spec_name is empty")
 		}
-		if ts.SchemaVersion != 1 {
-			t.Errorf("test_spec.json: schema_version = %d; want 1", ts.SchemaVersion)
+		if ts.SchemaVersion != afspec.SchemaVersion {
+			t.Errorf("test_spec.json: schema_version = %d; want %d", ts.SchemaVersion, afspec.SchemaVersion)
 		}
 	}
 
@@ -722,7 +722,7 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read tasks.json: %v", err)
 	}
-	var tasks afspec.TasksV1Json
+	var tasks afspec.TasksV2Json
 	if err := json.Unmarshal(tasksData, &tasks); err != nil {
 		t.Errorf("json.Unmarshal tasks.json failed: %v", err)
 	} else {
@@ -732,8 +732,8 @@ func TestTS_NS_3_JSONArtifactsValidate(t *testing.T) {
 		if tasks.SpecName == "" {
 			t.Error("tasks.json: spec_name is empty")
 		}
-		if tasks.SchemaVersion != 1 {
-			t.Errorf("tasks.json: schema_version = %d; want 1", tasks.SchemaVersion)
+		if tasks.SchemaVersion != afspec.SchemaVersion {
+			t.Errorf("tasks.json: schema_version = %d; want %d", tasks.SchemaVersion, afspec.SchemaVersion)
 		}
 	}
 
@@ -905,32 +905,36 @@ func TestTS_NS_1_ScaffoldPassesValidation(t *testing.T) {
 		t.Fatal("scaffold spec directory not found after spec new")
 	}
 
-	// Load and fully validate the scaffold spec.
+	// The scaffold must load: `spec status`, `spec list` and `spec generate`
+	// all read it before it has any content.
 	spec, err := afspec.LoadSpec(specPath)
 	if err != nil {
 		t.Fatalf("LoadSpec() failed on scaffold: %v", err)
 	}
+	if !spec.IsScaffold() {
+		t.Error("a freshly created spec is not reported as a scaffold")
+	}
+
+	// Under format v2 an empty artifact list is *incomplete*, not
+	// schema-invalid. Validation says so in one sentence instead of burying
+	// the operator in minItems violations.
 	result := spec.Validate()
-
-	// NS-REQ-1: scaffold must be valid with no errors.
-	if !result.Valid {
-		t.Errorf("scaffold spec is not valid (error_count=%d); want valid=true, error_count=0", len(result.Errors))
-		for i, e := range result.Errors {
-			t.Logf("  error[%d]: category=%s check=%s message=%s", i, e.Category, e.Check, e.Message)
-		}
+	if result.Valid {
+		t.Error("an empty scaffold validated; it has no requirements, tests or tasks yet")
 	}
-	if len(result.Errors) != 0 {
-		t.Errorf("expected 0 errors, got %d", len(result.Errors))
+	if len(result.Errors) != 1 {
+		t.Fatalf("scaffold produced %d errors; want exactly one completeness error: %v",
+			len(result.Errors), result.Errors)
 	}
-
-	// NS-REQ-3: structural check must pass — no task_group_structure errors.
-	for _, e := range result.Errors {
-		if e.Check == "task_group_structure" {
-			t.Errorf("unexpected task_group_structure error: %s", e.Message)
-		}
+	if result.Errors[0].Check != "completeness" {
+		t.Errorf("check = %q; want completeness", result.Errors[0].Check)
+	}
+	if !strings.Contains(result.Errors[0].Message, "spec generate") {
+		t.Errorf("the message does not say what to do next: %q", result.Errors[0].Message)
 	}
 
-	// Verify the spec validate CLI command also exits 0.
+	// The CLI reports the same thing, and exits 1 because the spec is not
+	// yet a complete plan.
 	validateCmd := newRootCmd()
 	stdoutBuf := new(bytes.Buffer)
 	validateCmd.SetOut(stdoutBuf)
@@ -938,19 +942,19 @@ func TestTS_NS_1_ScaffoldPassesValidation(t *testing.T) {
 	specDirName := filepath.Base(specPath)
 	validateCmd.SetArgs([]string{"--spec-dir", specDir, "validate", specDirName})
 
-	if err := validateCmd.Execute(); err != nil {
-		t.Errorf("spec validate on scaffold returned error (want exit 0): %v\noutput: %s", err, stdoutBuf.String())
+	if err := validateCmd.Execute(); err == nil {
+		t.Errorf("spec validate on a scaffold exited 0; want a non-zero exit\noutput: %s", stdoutBuf.String())
 	}
 
 	var parsed map[string]any
-	if jsonErr := json.Unmarshal([]byte(stdoutBuf.String()), &parsed); jsonErr != nil {
+	if jsonErr := json.Unmarshal(stdoutBuf.Bytes(), &parsed); jsonErr != nil {
 		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", jsonErr, stdoutBuf.String())
 	}
-	if valid, _ := parsed["valid"].(bool); !valid {
-		t.Errorf("spec validate: valid=%v, want true\noutput: %s", parsed["valid"], stdoutBuf.String())
+	if valid, _ := parsed["valid"].(bool); valid {
+		t.Errorf("spec validate reported the scaffold as valid\noutput: %s", stdoutBuf.String())
 	}
-	if ec, _ := parsed["error_count"].(float64); ec != 0 {
-		t.Errorf("spec validate: error_count=%v, want 0\noutput: %s", ec, stdoutBuf.String())
+	if ec, _ := parsed["error_count"].(float64); ec != 1 {
+		t.Errorf("spec validate: error_count=%v, want exactly 1\noutput: %s", ec, stdoutBuf.String())
 	}
 }
 
@@ -1027,88 +1031,74 @@ func TestTS_NS_ErrorMessagesPRDFile(t *testing.T) {
 	}
 }
 
-// TestTS_NS_2_WiringChecksEnforcedWithSmokeTests verifies that wiring
-// verification checks A and B are still enforced when the spec has smoke
-// tests but the wiring group lacks proper subtasks referencing them.
+// TestTS_NS_2_IntegrationTaskMustOwnEverySmokeTest replaces the v1
+// wiring-verification word check with rule C9. The v1 check grepped subtask
+// titles for "stub" or "dead"; C9 instead requires the final integration task
+// to own every smoke test, which is a structural fact rather than a phrasing.
 //
-// This ensures the fix does not suppress real validation errors on
-// fully-populated specs.
-//
-// Covers: TS-NS-2, NS-REQ-2, NS-REQ-4
-func TestTS_NS_2_WiringChecksEnforcedWithSmokeTests(t *testing.T) {
+// Covers: NS-REQ-2, NS-REQ-4
+func TestTS_NS_2_IntegrationTaskMustOwnEverySmokeTest(t *testing.T) {
 	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
+	specRoot := filepath.Join(tmpDir, ".specs")
+	specPath := filepath.Join(specRoot, "08_my_spec")
 
-	// Build a fully loadable spec with a smoke test.
-	setupLoadableSpec(t, specDir, "08_my_spec", nil)
-
-	// Overwrite tasks.json to have an empty wiring subtask array
-	// (no test_spec_refs at all), while keeping the smoke test in test_spec.json.
-	specPath := filepath.Join(specDir, "08_my_spec")
+	// A plan whose integration task owns a unit test instead of the smoke
+	// test: everything else about the spec is well formed.
 	tasks := `{
-  "$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
   "spec_id": "08",
   "spec_name": "my_spec",
-  "schema_version": 1,
-  "test_commands": {"spec_tests": "go test", "all_tests": "go test", "linter": "golint"},
+  "schema_version": 2,
+  "test_commands": { "all_tests": "go test ./... -count=1", "linter": "go vet ./..." },
   "dependencies": [],
-  "task_groups": [
+  "tasks": [
     {
       "id": 1,
-      "kind": "tests",
-      "title": "Tests",
-      "subtasks": [{
-        "id": "1.1",
-        "title": "Write tests",
-        "details": ["test details"],
-        "test_spec_refs": ["TS-08-1"],
-        "requirement_refs": ["08-REQ-1.1"],
-        "state": "pending",
-        "optional": false
-      }],
-      "verification": {"id": "1.V", "checks": ["tests pass"]}
+      "kind": "implement",
+      "title": "Store and serve widgets",
+      "criteria": ["08-REQ-1"],
+      "tests": ["TS-08-1", "TS-08-2", "TS-08-3"],
+      "steps": ["Write the tests and confirm they fail", "Implement the store"],
+      "state": "pending"
     },
     {
       "id": 2,
-      "kind": "wiring_verification",
-      "title": "Wiring",
-      "subtasks": [],
-      "verification": {"id": "2.V", "checks": ["smoke tests pass"]}
+      "kind": "integration",
+      "title": "Verify the path end to end",
+      "criteria": [],
+      "tests": ["TS-08-1"],
+      "steps": ["Trace the path through the handler and the store"],
+      "depends_on": [1],
+      "state": "pending"
     }
-  ],
-  "traceability": [{"requirement_id": "08-REQ-1.1", "test_spec_id": "TS-08-1", "task_id": "1.1", "test_path": null}]
+  ]
 }`
-	if err := os.WriteFile(filepath.Join(specPath, "tasks.json"), []byte(tasks), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeSpecFixture(t, specPath, "08", "my_spec", specFixture{TasksOverride: tasks})
 
-	// Use the library directly to validate.
 	spec, err := afspec.LoadSpec(specPath)
 	if err != nil {
 		t.Fatalf("LoadSpec() failed: %v", err)
 	}
-	result := spec.ValidateCrossFile()
 
-	// NS-REQ-2/NS-REQ-4: wiring checks A and B must fire because smoke tests exist.
-	var wiringErrors []afspec.ValidationEntry
+	result := spec.ValidateCrossFile()
+	found := false
 	for _, e := range result.Errors {
-		if e.Check == "wiring_verification" {
-			wiringErrors = append(wiringErrors, e)
+		if e.Check == "C9" && e.EntityID == "TS-08-3" {
+			found = true
 		}
 	}
-	if len(wiringErrors) < 2 {
-		t.Errorf("expected at least 2 wiring_verification errors (checks A and B) when smoke tests exist, got %d; errors: %v",
-			len(wiringErrors), result.Errors)
+	if !found {
+		t.Errorf("no C9 error naming the smoke test the integration task does not own; errors: %v", result.Errors)
 	}
 
-	// Verify the CLI also exits 1 for this spec.
+	// The CLI exits 1 for the same spec.
 	validateCmd := newRootCmd()
 	stdoutBuf := new(bytes.Buffer)
 	validateCmd.SetOut(stdoutBuf)
 	validateCmd.SetErr(new(bytes.Buffer))
-	validateCmd.SetArgs([]string{"--spec-dir", specDir, "validate", "08_my_spec"})
+	validateCmd.SetArgs([]string{"--spec-dir", specRoot, "validate", "08_my_spec"})
 
 	if err := validateCmd.Execute(); err == nil {
-		t.Error("spec validate should exit 1 for spec with smoke tests but empty wiring subtasks")
+		t.Errorf("spec validate exited 0 for a plan whose integration task owns no smoke test\noutput: %s", stdoutBuf.String())
 	}
 }

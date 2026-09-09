@@ -9,681 +9,345 @@ import (
 	"testing"
 )
 
-// setupRenderSpec creates a spec directory with artifact files for render
-// tests. Returns the specDir path.
+// setupRenderSpec writes a complete, valid spec into tmpDir/.specs/08_my_spec
+// and returns the spec root.
 func setupRenderSpec(t *testing.T, tmpDir string) string {
 	t.Helper()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create prd.md.
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("# Test PRD\n\nThis is a test PRD."), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create artifact files with markdown-compatible content.
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": [{"id": "REQ-1", "text": "Do something"}]}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "test_spec.json"),
-		[]byte(`{"tests": [{"id": "TS-1", "name": "Test something"}]}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "tasks.json"),
-		[]byte(`{"tasks": [{"id": "T-1", "name": "Implement something"}]}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	return specDir
+	return newSpecRoot(t, tmpDir, "08", "my_spec", specFixture{})
 }
 
-// --- TS-08-26: Verify that spec render without --json and without --combined
-//     prints raw markdown for each artifact separated by '---' ---
+// runRender executes `spec render` with the given arguments and returns
+// stdout. It fails the test when Execute returns an error.
+func runRender(t *testing.T, specRoot string, args ...string) string {
+	t.Helper()
+	cmd := newRootCmd()
+	stdout := new(bytes.Buffer)
+	cmd.SetOut(stdout)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs(append([]string{"--spec-dir", specRoot, "render"}, args...))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("spec render %v = %v\noutput: %s", args, err, stdout.String())
+	}
+	return stdout.String()
+}
 
-// TestTS08_26_RenderRawMarkdownSeparated verifies that running spec
-// render without --json and without --combined prints raw markdown
-// for each artifact to stdout, separated by '---'. The output should
-// NOT be a JSON envelope.
-// Covers: TS-08-26, Requirement: 08-REQ-10.1
-func TestTS08_26_RenderRawMarkdownSeparated(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
+// TestRenderEmitsMarkdownNotRawJSON is the point of the change: `spec render`
+// prints what the library's renderer produces. Under v1 it printed the raw
+// JSON files, so the Markdown renderer's output never reached an operator.
+func TestRenderEmitsMarkdownNotRawJSON(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
 	t.Setenv("AF_AGENT", "")
 
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec"})
+	output := runRender(t, specRoot, "08_my_spec")
 
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
+	if strings.Contains(output, `"$schema"`) || strings.Contains(output, `"schema_version"`) {
+		t.Errorf("the output contains raw JSON:\n%s", output)
 	}
-
-	output := stdoutBuf.String()
-
-	// Output should NOT start with '{' (not JSON).
-	if strings.HasPrefix(strings.TrimSpace(output), "{") {
-		t.Error("output starts with '{'; want raw markdown, not JSON")
-	}
-
-	// Output should contain '---' separator between artifacts.
-	if !strings.Contains(output, "---") {
-		t.Error("output does not contain '---' separator; want artifacts separated by '---'")
-	}
-
-	// There should be at least 2 sections when split by '---'.
-	sections := strings.Split(output, "---")
-	if len(sections) < 2 {
-		t.Errorf("len(sections split by '---') = %d; want >= 2", len(sections))
-	}
-}
-
-// --- TS-08-27: Verify that spec render --combined without --json prints
-//     a single concatenated markdown document to stdout ---
-
-// TestTS08_27_RenderCombinedMarkdown verifies that running spec render
-// with --combined but without --json prints a single concatenated
-// markdown document to stdout. The output should NOT be a JSON envelope.
-// Covers: TS-08-27, Requirement: 08-REQ-10.2
-func TestTS08_27_RenderCombinedMarkdown(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
-	t.Setenv("AF_AGENT", "")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--combined"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-
-	// Output should NOT start with '{' (not JSON).
-	if strings.HasPrefix(strings.TrimSpace(output), "{") {
-		t.Error("output starts with '{'; want raw markdown, not JSON")
-	}
-
-	// Output should contain content (not empty).
-	if len(strings.TrimSpace(output)) == 0 {
-		t.Error("output is empty; want combined markdown document")
-	}
-}
-
-// --- TS-08-28: Verify that spec render --json --combined emits
-//     {"ok": true, "format": "combined", "content": "<markdown>"} ---
-
-// TestTS08_28_RenderJSONCombined verifies that running spec render with
-// --json and --combined emits a JSON envelope with ok: true, format:
-// "combined", and content containing the combined markdown.
-// Covers: TS-08-28, Requirement: 08-REQ-10.3
-func TestTS08_28_RenderJSONCombined(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--json", "--combined"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, output)
-	}
-
-	if ok, _ := parsed["ok"].(bool); !ok {
-		t.Errorf("parsed.ok = %v; want true", parsed["ok"])
-	}
-	if format, _ := parsed["format"].(string); format != "combined" {
-		t.Errorf("parsed.format = %q; want %q", format, "combined")
-	}
-	content, ok := parsed["content"].(string)
-	if !ok || len(content) == 0 {
-		t.Errorf("parsed.content = %v; want non-empty string", parsed["content"])
-	}
-}
-
-// --- TS-08-29: Verify that spec render --json without --combined emits
-//     {"ok": true, "format": "individual", "artifacts": {...}} ---
-
-// TestTS08_29_RenderJSONIndividual verifies that running spec render
-// with --json but without --combined emits a JSON envelope with ok:
-// true, format: "individual", and an artifacts object keyed by artifact name.
-// Covers: TS-08-29, Requirement: 08-REQ-10.4
-func TestTS08_29_RenderJSONIndividual(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--json"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, output)
-	}
-
-	if ok, _ := parsed["ok"].(bool); !ok {
-		t.Errorf("parsed.ok = %v; want true", parsed["ok"])
-	}
-	if format, _ := parsed["format"].(string); format != "individual" {
-		t.Errorf("parsed.format = %q; want %q", format, "individual")
-	}
-
-	artifacts, ok := parsed["artifacts"].(map[string]any)
-	if !ok {
-		t.Fatal("parsed.artifacts is not an object")
-	}
-	if _, exists := artifacts["requirements"]; !exists {
-		t.Error("parsed.artifacts missing 'requirements' key")
-	}
-}
-
-// --- TS-08-30: Verify that spec render auto-enables --json mode when
-//     AF_AGENT=1 is active ---
-
-// TestTS08_30_RenderAgentModeAutoJSON verifies that when AF_AGENT=1 is
-// set, spec render without --json flag auto-enables JSON mode, producing
-// valid JSON output following the --json contract.
-// Covers: TS-08-30, Requirement: 08-REQ-10.5
-func TestTS08_30_RenderAgentModeAutoJSON(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
-	t.Setenv("AF_AGENT", "1")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	// No --json flag — agent mode should auto-enable it.
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		t.Fatalf("stdout is not valid JSON (agent mode should auto-enable --json): %v\noutput: %s", err, output)
-	}
-
-	if ok, _ := parsed["ok"].(bool); !ok {
-		t.Errorf("parsed.ok = %v; want true", parsed["ok"])
-	}
-
-	format, _ := parsed["format"].(string)
-	if format != "individual" && format != "combined" {
-		t.Errorf("parsed.format = %q; want 'individual' or 'combined'", format)
-	}
-}
-
-// --- TS-08-31: Verify that spec render falls back to rendering only
-//     available artifacts when some artifact files are missing ---
-
-// TestTS08_31_RenderFallbackMissingArtifacts verifies that when some
-// artifact files are missing, spec render falls back to rendering only
-// the available ones. The output includes only existing artifacts.
-// Covers: TS-08-31, Requirement: 08-REQ-10.6
-func TestTS08_31_RenderFallbackMissingArtifacts(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create prd.md.
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("# Test PRD"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Only create requirements.json — leave test_spec.json and tasks.json missing.
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": [{"id": "REQ-1", "text": "Test"}]}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--json"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, output)
-	}
-
-	if ok, _ := parsed["ok"].(bool); !ok {
-		t.Errorf("parsed.ok = %v; want true", parsed["ok"])
-	}
-
-	artifacts, ok := parsed["artifacts"].(map[string]any)
-	if !ok {
-		t.Fatal("parsed.artifacts is not an object")
-	}
-
-	// requirements should be present.
-	if _, exists := artifacts["requirements"]; !exists {
-		t.Error("parsed.artifacts missing 'requirements' key; want it present since file exists")
-	}
-
-	// test_spec should not be present (or empty) since the file is missing.
-	if ts, exists := artifacts["test_spec"]; exists {
-		if s, ok := ts.(string); ok && s != "" {
-			t.Errorf("parsed.artifacts.test_spec = %q; want absent or empty for missing file", s)
+	for _, want := range []string{
+		"# requirements",
+		"### 08-REQ-1: Widget storage",
+		"WHEN a client submits a widget with a name, THE widget service SHALL",
+		"→ HTTP 201 with body {id: string}",
+		"# test_spec",
+		"### TS-08-3 (smoke):",
+		"**Real components (must not be mocked):**",
+		"# tasks",
+		"### [ ] 1. Store and serve widgets (implement, pending)",
+		"**Done when:**",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the render is missing %q\noutput:\n%s", want, output)
 		}
 	}
 }
 
-// --- 08-REQ-10.E1: All artifact files are missing ---
+func TestRenderSeparatesArtifactsWithARule(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "")
 
-// TestTS08_26_RenderAllArtifactsMissing verifies that when ALL artifact
-// files are missing (no requirements.json, test_spec.json, or tasks.json),
-// the render command returns an error indicating no renderable artifacts.
-// Covers: 08-REQ-10.E1
-func TestTS08_26_RenderAllArtifactsMissing(t *testing.T) {
+	output := runRender(t, specRoot, "08_my_spec")
+	if strings.Count(output, "\n---") < 2 {
+		t.Errorf("artifacts are not separated by a rule:\n%s", output)
+	}
+	if strings.HasPrefix(strings.TrimSpace(output), "{") {
+		t.Error("the default render emitted a JSON envelope")
+	}
+}
+
+func TestRenderCombinedFollowsSectionOrder(t *testing.T) {
 	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
+	specRoot := newSpecRoot(t, tmpDir, "08", "my_spec", specFixture{})
+	writeArchitecture(t, filepath.Join(specRoot, "08_my_spec"))
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "--combined", "08_my_spec")
+
+	sections := []string{"# PRD", "# Architecture", "# Requirements", "# Test Specification", "# Tasks"}
+	last := -1
+	for _, section := range sections {
+		i := strings.Index(output, section)
+		if i < 0 {
+			t.Fatalf("section %q is missing from the combined render:\n%s", section, output)
+		}
+		if i < last {
+			t.Errorf("section %q is out of order", section)
+		}
+		last = i
+	}
+	if strings.Contains(output, "schema_version: 2") {
+		t.Error("the combined render leaked the PRD frontmatter")
+	}
+}
+
+func TestRenderCombinedWithoutArchitecture(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "--combined", "08_my_spec")
+	if strings.Contains(output, "# Architecture") {
+		t.Error("an Architecture section appeared for a spec that has no architecture.md")
+	}
+	if !strings.Contains(output, "# Requirements") {
+		t.Error("the combined render is missing its Requirements section")
+	}
+}
+
+func TestRenderJSONCombined(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "--combined", "--json", "08_my_spec")
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if ok, _ := parsed["ok"].(bool); !ok {
+		t.Errorf("ok = %v; want true", parsed["ok"])
+	}
+	if parsed["format"] != "combined" {
+		t.Errorf("format = %v; want combined", parsed["format"])
+	}
+	content, _ := parsed["content"].(string)
+	if !strings.Contains(content, "# Requirements") || !strings.Contains(content, "08-REQ-1.1") {
+		t.Errorf("the envelope carries no Markdown render:\n%s", content)
+	}
+}
+
+func TestRenderJSONIndividual(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "--json", "08_my_spec")
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if parsed["format"] != "individual" {
+		t.Errorf("format = %v; want individual", parsed["format"])
+	}
+	artifacts, ok := parsed["artifacts"].(map[string]any)
+	if !ok {
+		t.Fatalf("artifacts is %T; want an object", parsed["artifacts"])
+	}
+	for _, key := range []string{"prd", "requirements", "test_spec", "tasks"} {
+		content, _ := artifacts[key].(string)
+		if content == "" {
+			t.Errorf("artifact %q is empty", key)
+		}
+	}
+	if strings.Contains(artifacts["requirements"].(string), `"$schema"`) {
+		t.Error("the requirements artifact is raw JSON, not Markdown")
+	}
+}
+
+func TestRenderAgentModeAutoEnablesJSON(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "1")
+
+	output := runRender(t, specRoot, "08_my_spec")
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("agent mode did not emit JSON: %v\noutput: %s", err, output)
+	}
+	if parsed["format"] != "individual" {
+		t.Errorf("format = %v; want individual", parsed["format"])
+	}
+}
+
+// TestRenderScopedToATask covers §11.1: the scoped render is what a coder
+// receives — the task's requirements and tests in full, everything else as one
+// line each.
+func TestRenderScopedToATask(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "--task", "2", "08_my_spec")
+
+	if !strings.Contains(output, "### [ ] 2. Verify the store-and-read path end to end") {
+		t.Errorf("the target task is not rendered in full:\n%s", output)
+	}
+	if !strings.Contains(output, "- [ ] 1. Store and serve widgets") {
+		t.Errorf("the other task is not summarised as one line:\n%s", output)
+	}
+	if strings.Contains(output, "### [ ] 1. Store and serve widgets") {
+		t.Errorf("a task outside the scope was rendered in full:\n%s", output)
+	}
+	if !strings.Contains(output, "TS-08-3") {
+		t.Errorf("the task's own test is missing:\n%s", output)
+	}
+	if strings.Contains(output, "TS-08-1") {
+		t.Errorf("a test belonging to another task was rendered:\n%s", output)
+	}
+	// The smoke test verifies 08-PATH-1, so the path is in scope.
+	if !strings.Contains(output, "### 08-PATH-1:") {
+		t.Errorf("the path the task's smoke test verifies is missing:\n%s", output)
+	}
+}
+
+func TestRenderMaxTokensTruncates(t *testing.T) {
+	tmpDir := t.TempDir()
+	specRoot := newSpecRoot(t, tmpDir, "08", "my_spec", specFixture{})
+	writeArchitecture(t, filepath.Join(specRoot, "08_my_spec"))
+	t.Setenv("AF_AGENT", "")
+
+	full := runRender(t, specRoot, "--combined", "08_my_spec")
+	if !strings.Contains(full, "# Architecture") {
+		t.Fatal("the unbudgeted render has no Architecture section to drop")
 	}
 
-	// Only prd.md — no artifact files.
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("# Test PRD"), 0644); err != nil {
+	truncated := runRender(t, specRoot, "--combined", "--max-tokens", "10", "08_my_spec")
+	if strings.Contains(truncated, "# Architecture") {
+		t.Error("the architecture section survived a budget it cannot fit in")
+	}
+	if len(truncated) >= len(full) {
+		t.Error("the budgeted render is not smaller than the full one")
+	}
+}
+
+// TestRenderFallsBackForAnIncompleteSpec keeps `spec render` useful while a
+// spec is still being generated: the library cannot decode it, so the files
+// that exist are printed as they are.
+func TestRenderFallsBackForAnIncompleteSpec(t *testing.T) {
+	tmpDir := t.TempDir()
+	specRoot := newSpecRoot(t, tmpDir, "08", "my_spec", specFixture{})
+	if err := os.Remove(filepath.Join(specRoot, "08_my_spec", "test_spec.json")); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("AF_AGENT", "")
+
+	output := runRender(t, specRoot, "08_my_spec")
+	if !strings.Contains(output, "# requirements") {
+		t.Errorf("the artifact that is present was not rendered:\n%s", output)
+	}
+	if strings.Contains(output, "# test_spec") {
+		t.Errorf("the missing artifact appeared in the output:\n%s", output)
+	}
+}
+
+func TestRenderFailsWhenNoArtifactExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	specRoot := filepath.Join(tmpDir, ".specs")
+	specPath := filepath.Join(specRoot, "08_my_spec")
+	if err := os.MkdirAll(specPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specPath, "prd.md"), []byte("# Only a PRD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AF_AGENT", "")
 
 	cmd := newRootCmd()
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() with all artifacts missing returned nil; want error")
+	cmd.SetArgs([]string{"--spec-dir", specRoot, "render", "08_my_spec"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("spec render exited 0 for a spec with no JSON artifacts")
 	}
 }
 
-// --- 08-REQ-10.E2: Artifact file permission error ---
-
-// TestTS08_26_RenderPermissionError verifies that when an artifact file
-// exists but cannot be read due to permissions, the render command
-// returns an OS-level error identifying the unreadable file.
-// Covers: 08-REQ-10.E2
-func TestTS08_26_RenderPermissionError(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("skipping permission test when running as root")
-	}
-
+func TestRenderRejectsAScaffold(t *testing.T) {
 	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
+	prdPath := filepath.Join(tmpDir, "prd.md")
+	if err := os.WriteFile(prdPath, []byte("# New Feature\n\n## Intent\n\nSomething.\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	specRoot := filepath.Join(tmpDir, ".specs")
+
+	newCmd := newRootCmd()
+	newCmd.SetOut(new(bytes.Buffer))
+	newCmd.SetErr(new(bytes.Buffer))
+	newCmd.SetArgs([]string{"--spec-dir", specRoot, "new", prdPath, "--name", "fresh"})
+	if err := newCmd.Execute(); err != nil {
+		t.Fatalf("spec new failed: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("# Test PRD"), 0644); err != nil {
-		t.Fatal(err)
+	cmd := newRootCmd()
+	stdout := new(bytes.Buffer)
+	cmd.SetOut(stdout)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"--spec-dir", specRoot, "render", "01_fresh"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("spec render exited 0 for a scaffold\noutput: %s", stdout.String())
 	}
+	if !strings.Contains(err.Error(), "spec generate") {
+		t.Errorf("the error does not say what to do next: %v", err)
+	}
+}
 
-	// Create an unreadable artifact file.
-	reqsPath := filepath.Join(specPath, "requirements.json")
-	if err := os.WriteFile(reqsPath,
-		[]byte(`{"requirements": []}`), 0000); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(reqsPath, 0644)
+func TestRenderRejectsAMissingSpec(t *testing.T) {
+	specRoot := setupRenderSpec(t, t.TempDir())
 
 	cmd := newRootCmd()
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Error("Execute() with unreadable artifact returned nil; want error")
+	cmd.SetArgs([]string{"--spec-dir", specRoot, "render", "99_nonexistent"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("spec render exited 0 for a spec that does not exist")
 	}
 }
 
-// --- Render: missing spec argument ---
-
-// TestTS08_26_RenderMissingSpecArg verifies that spec render requires
-// a positional spec argument.
-// Covers: 08-REQ-10
-func TestTS08_26_RenderMissingSpecArg(t *testing.T) {
+func TestRenderRequiresASpecArgument(t *testing.T) {
 	cmd := newRootCmd()
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
 	cmd.SetArgs([]string{"render"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() with no spec argument returned nil; want error")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("spec render with no SPEC argument exited 0")
 	}
 }
 
-// --- TS-NS-1: Combined render includes PRD body but NOT YAML frontmatter ---
-
-// TestTSNS1_CombinedRenderPRDBodyNoFrontmatter verifies that combined render
-// outputs the PRD body text but strips the YAML frontmatter block.
-// Covers: NS-REQ-1, TS-NS-1
-func TestTSNS1_CombinedRenderPRDBodyNoFrontmatter(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
+func TestStripFrontmatter(t *testing.T) {
+	cases := map[string]struct{ in, want string }{
+		"with frontmatter": {
+			in:   "---\nspec_id: \"01\"\n---\n# Title\n\nBody.\n",
+			want: "# Title\n\nBody.\n",
+		},
+		"without frontmatter": {
+			in:   "# Title\n\nBody.\n",
+			want: "# Title\n\nBody.\n",
+		},
+		"unterminated frontmatter is left alone": {
+			in:   "---\nspec_id: \"01\"\n# Title\n",
+			want: "---\nspec_id: \"01\"\n# Title\n",
+		},
 	}
-
-	// prd.md with YAML frontmatter.
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("---\nspec_id: test-spec\n---\nBody text of the PRD."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Minimal JSON artifact so the command succeeds.
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": []}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("AF_AGENT", "")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--combined"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-
-	// PRD body should be present.
-	if !strings.Contains(output, "Body text of the PRD.") {
-		t.Errorf("output does not contain PRD body text; got:\n%s", output)
-	}
-
-	// YAML frontmatter key should NOT appear.
-	if strings.Contains(output, "spec_id") {
-		t.Errorf("output contains frontmatter key 'spec_id'; want it stripped:\n%s", output)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := stripFrontmatter(tc.in); got != tc.want {
+				t.Errorf("= %q; want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// --- TS-NS-2: Combined render includes architecture.md content when present ---
-
-// TestTSNS2_CombinedRenderIncludesArchitecture verifies that combined render
-// outputs architecture.md content when the file is present, positioned after
-// the PRD body and before JSON artifact sections.
-// Covers: NS-REQ-2, TS-NS-2
-func TestTSNS2_CombinedRenderIncludesArchitecture(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("PRD body content here."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "architecture.md"),
-		[]byte("ARCH_MARKER: unique architecture content."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": []}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("AF_AGENT", "")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--combined"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-
-	// Architecture content must appear.
-	if !strings.Contains(output, "ARCH_MARKER: unique architecture content.") {
-		t.Errorf("output does not contain architecture content; got:\n%s", output)
-	}
-
-	// PRD body must appear before architecture content.
-	prdIdx := strings.Index(output, "PRD body content here.")
-	archIdx := strings.Index(output, "ARCH_MARKER:")
-	reqIdx := strings.Index(output, "# requirements")
-	if prdIdx < 0 {
-		t.Fatalf("output does not contain PRD body")
-	}
-	if archIdx < 0 {
-		t.Fatalf("output does not contain architecture marker")
-	}
-	if reqIdx < 0 {
-		t.Fatalf("output does not contain requirements section")
-	}
-	if prdIdx >= archIdx {
-		t.Errorf("PRD (pos %d) should appear before architecture (pos %d)", prdIdx, archIdx)
-	}
-	if archIdx >= reqIdx {
-		t.Errorf("architecture (pos %d) should appear before requirements (pos %d)", archIdx, reqIdx)
-	}
-}
-
-// --- TS-NS-3: Combined render succeeds without architecture.md ---
-
-// TestTSNS3_CombinedRenderNoArchitecture verifies that combined render
-// succeeds and produces no architecture section when architecture.md is absent.
-// Covers: NS-REQ-3, TS-NS-3
-func TestTSNS3_CombinedRenderNoArchitecture(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("PRD body here."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": []}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// architecture.md is intentionally absent.
-
-	t.Setenv("AF_AGENT", "")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--combined"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() returned error (want nil): %v", err)
-	}
-
-	output := stdoutBuf.String()
-
-	// No architecture section header should appear.
-	if strings.Contains(output, "# architecture") {
-		t.Errorf("output contains '# architecture' section; want absent:\n%s", output)
-	}
-}
-
-// --- TS-NS-4: Combined render includes all three JSON artifact sections ---
-
-// TestTSNS4_CombinedRenderAllJSONArtifacts verifies that combined render
-// includes section headers for all three JSON artifacts in canonical order.
-// Covers: NS-REQ-4, TS-NS-4
-func TestTSNS4_CombinedRenderAllJSONArtifacts(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := setupRenderSpec(t, tmpDir)
-
-	t.Setenv("AF_AGENT", "")
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--combined"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	output := stdoutBuf.String()
-
-	for _, section := range []string{"# requirements", "# test_spec", "# tasks"} {
-		if !strings.Contains(output, section) {
-			t.Errorf("output does not contain section %q; got:\n%s", section, output)
-		}
-	}
-
-	// Verify canonical order: prd → requirements → test_spec → tasks.
-	prdIdx := strings.Index(output, "# prd")
-	reqIdx := strings.Index(output, "# requirements")
-	tsIdx := strings.Index(output, "# test_spec")
-	tasksIdx := strings.Index(output, "# tasks")
-
-	if prdIdx < 0 || reqIdx < 0 || tsIdx < 0 || tasksIdx < 0 {
-		t.Fatalf("one or more section headers missing in output:\n%s", output)
-	}
-	if !(prdIdx < reqIdx && reqIdx < tsIdx && tsIdx < tasksIdx) {
-		t.Errorf("sections are not in canonical order (prd=%d, requirements=%d, test_spec=%d, tasks=%d)",
-			prdIdx, reqIdx, tsIdx, tasksIdx)
-	}
-}
-
-// --- TS-NS-5: --json --combined content includes PRD body and architecture ---
-
-// TestTSNS5_JSONCombinedIncludesPRDAndArchitecture verifies that the JSON
-// combined envelope's content field includes PRD body (without frontmatter)
-// and architecture prose.
-// Covers: NS-REQ-5, TS-NS-5
-func TestTSNS5_JSONCombinedIncludesPRDAndArchitecture(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	specPath := filepath.Join(specDir, "08_my_spec")
-	if err := os.MkdirAll(specPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(specPath, "prd.md"),
-		[]byte("---\nspec_id: unique-fm-key\n---\nUnique PRD body marker."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "architecture.md"),
-		[]byte("Unique architecture marker."), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(specPath, "requirements.json"),
-		[]byte(`{"requirements": []}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newRootCmd()
-	stdoutBuf := new(bytes.Buffer)
-	cmd.SetOut(stdoutBuf)
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "08_my_spec", "--json", "--combined"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() returned error: %v", err)
-	}
-
-	var parsed map[string]any
-	if err := json.Unmarshal(stdoutBuf.Bytes(), &parsed); err != nil {
-		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", err, stdoutBuf.String())
-	}
-
-	content, ok := parsed["content"].(string)
-	if !ok || len(content) == 0 {
-		t.Fatalf("parsed.content is not a non-empty string: %v", parsed["content"])
-	}
-
-	if !strings.Contains(content, "Unique PRD body marker.") {
-		t.Errorf("content does not contain PRD body; got:\n%s", content)
-	}
-	if !strings.Contains(content, "Unique architecture marker.") {
-		t.Errorf("content does not contain architecture content; got:\n%s", content)
-	}
-	if strings.Contains(content, "unique-fm-key") {
-		t.Errorf("content contains frontmatter key 'unique-fm-key'; want it stripped:\n%s", content)
-	}
-}
-
-// --- Render: non-existent spec ---
-
-// TestTS08_26_RenderNonexistentSpec verifies that spec render returns
-// an error when the referenced spec does not exist.
-// Covers: 08-REQ-10
-func TestTS08_26_RenderNonexistentSpec(t *testing.T) {
-	tmpDir := t.TempDir()
-	specDir := filepath.Join(tmpDir, ".specs")
-	if err := os.MkdirAll(specDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newRootCmd()
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetErr(new(bytes.Buffer))
-	cmd.SetArgs([]string{"--spec-dir", specDir, "render", "nonexistent_spec"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() with non-existent spec returned nil; want error")
+// writeArchitecture adds an architecture.md to a spec directory.
+func writeArchitecture(t *testing.T, specPath string) {
+	t.Helper()
+	content := "# Architecture\n\n## Components\n\n- **Store**: persists widgets.\n- **Handler**: serves HTTP.\n"
+	if err := os.WriteFile(filepath.Join(specPath, "architecture.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("cannot write architecture.md: %v", err)
 	}
 }

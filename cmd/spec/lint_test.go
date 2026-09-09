@@ -166,145 +166,31 @@ func TestTS08_36_LintEmitsJSONWithOK(t *testing.T) {
 	}
 }
 
-// writeValidSpecDir creates a complete, valid spec directory that passes
-// library LoadSpec + Validate. The spec uses NN_snake_case naming convention.
-// subtaskStates controls task_groups subtask states; nil means no subtasks.
-// reqSpecIDOverride, if non-empty, replaces spec_id in requirements.json
-// to create a deliberate spec_id mismatch for validation error testing.
-func writeValidSpecDir(t *testing.T, dir, specID, specName string, subtaskStates []string, reqSpecIDOverride string) {
+// writeValidSpecDir writes a complete, valid format v2 spec into dir, which
+// must be named {specID}_{specName}.
+//
+// taskStates sets the state of the two tasks in order; nil leaves both
+// pending. reqSpecIDOverride, when non-empty, replaces the spec_id inside
+// requirements.json to create a deliberate identity mismatch (rule C1).
+func writeValidSpecDir(t *testing.T, dir, specID, specName string, taskStates []string, reqSpecIDOverride string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeSpecFixture(t, dir, specID, specName, specFixture{
+		Glossary:   map[string]string{"widget": "The unit of storage this service manages."},
+		TaskStates: taskStates,
+	})
 
-	effectiveReqSpecID := specID
 	if reqSpecIDOverride != "" {
-		effectiveReqSpecID = reqSpecIDOverride
-	}
-
-	prd := fmt.Sprintf("---\nspec_id: %q\nspec_name: %q\ntitle: %q\nstatus: \"draft\"\n"+
-		"created_at: \"2026-01-01T00:00:00Z\"\nupdated_at: \"2026-01-01T00:00:00Z\"\n"+
-		"owner: \"test\"\nsource: \"test\"\nschema_version: 1\n---\n# %s\n",
-		specID, specName, specName, specName)
-	if err := os.WriteFile(filepath.Join(dir, "prd.md"), []byte(prd), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	req := fmt.Sprintf(
-		`{`+
-			`"$schema":"https://agent-fox.dev/schemas/requirements.v1.json",`+
-			`"spec_id":%q,"spec_name":%q,"schema_version":1,"introduction":"Test",`+
-			`"glossary":{"system":"The test system."},`+
-			`"requirements":[{`+
-			`"id":"%s-REQ-1","title":"Feature",`+
-			`"user_story":{"role":"user","goal":"test","benefit":"testing"},`+
-			`"acceptance_criteria":[{`+
-			`"id":"%s-REQ-1.1","ears_pattern":"event_driven",`+
-			`"trigger":"a request is made","system":"the system",`+
-			`"action":"process it","return_contract":"a result"`+
-			`}],"edge_cases":[{`+
-			`"id":"%s-REQ-1.E1","ears_pattern":"unwanted",`+
-			`"error_condition":"input is invalid","system":"the system",`+
-			`"action":"reject it","return_contract":"raises an error"`+
-			`}]}],`+
-			`"correctness_properties":[{`+
-			`"id":"%s-PROP-1","title":"Idempotency",`+
-			`"for_any":"valid input","invariant":"processing is idempotent",`+
-			`"validates":["%s-REQ-1.1"]}],`+
-			`"execution_paths":[{`+
-			`"id":"%s-PATH-1","title":"Main path",`+
-			`"steps":[{"actor":"user","action":"send request"},`+
-			`{"actor":"system","action":"process request"}]}],`+
-			`"error_handling":[{`+
-			`"id":"%s-ERR-1","condition":"Invalid input",`+
-			`"behavior":"Return error","requirement_id":"%s-REQ-1.E1"}]}`,
-		effectiveReqSpecID, specName,
-		effectiveReqSpecID, effectiveReqSpecID, effectiveReqSpecID,
-		effectiveReqSpecID, effectiveReqSpecID,
-		effectiveReqSpecID,
-		effectiveReqSpecID, effectiveReqSpecID)
-	if err := os.WriteFile(filepath.Join(dir, "requirements.json"), []byte(req), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	ts := fmt.Sprintf(
-		`{`+
-			`"$schema":"https://agent-fox.dev/schemas/test_spec.v1.json",`+
-			`"spec_id":%q,"spec_name":%q,"schema_version":1,`+
-			`"test_cases":[{`+
-			`"id":"TS-%s-1","requirement_id":"%s-REQ-1.1","kind":"unit",`+
-			`"description":"Test feature","preconditions":[],`+
-			`"input":{},"expected":{"ok":true},`+
-			`"assertion_pseudocode":"assert ok"}],`+
-			`"property_tests":[{`+
-			`"id":"TS-%s-P1","property_id":"%s-PROP-1","validates":["%s-REQ-1.1"],`+
-			`"description":"Idempotency","for_any_strategy":"valid input",`+
-			`"invariant_check":"f(f(x)) == f(x)"}],`+
-			`"edge_case_tests":[{`+
-			`"id":"TS-%s-E1","requirement_id":"%s-REQ-1.E1","kind":"unit",`+
-			`"description":"Invalid input","preconditions":[],`+
-			`"input":{},"expected":{"error":true},`+
-			`"assertion_pseudocode":"assert error"}],`+
-			`"smoke_tests":[{`+
-			`"id":"TS-%s-SMOKE-1","execution_path_id":"%s-PATH-1",`+
-			`"description":"End-to-end","trigger":"run",`+
-			`"real_components":["io"],"mockable":[],`+
-			`"expected_effects":["Success"]}],`+
-			`"coverage":{`+
-			`"requirements_covered":["%s-REQ-1.1","%s-REQ-1.E1"],`+
-			`"properties_covered":["%s-PROP-1"],`+
-			`"paths_covered":["%s-PATH-1"],"gaps":[]}}`,
-		specID, specName,
-		specID, specID,
-		specID, specID, specID,
-		specID, specID,
-		specID, specID,
-		specID, specID,
-		specID,
-		specID)
-	if err := os.WriteFile(filepath.Join(dir, "test_spec.json"), []byte(ts), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	taskGroupsJSON := "[]"
-	if subtaskStates != nil {
-		var subtasks []string
-		for i, state := range subtaskStates {
-			subtasks = append(subtasks, fmt.Sprintf(
-				`{"id":"1.%d","title":"Subtask %d","details":["d"],`+
-					`"test_spec_refs":["TS-%s-1"],"requirement_refs":["%s-REQ-1.1"],`+
-					`"state":%q,"optional":false}`,
-				i+1, i+1, specID, specID, state))
+		reqPath := filepath.Join(dir, "requirements.json")
+		data, err := os.ReadFile(reqPath)
+		if err != nil {
+			t.Fatal(err)
 		}
-		// Use proper task group kinds: first group "tests", last group
-		// "wiring_verification" — library validation requires this structure.
-		taskGroupsJSON = fmt.Sprintf(
-			`[{"id":1,"kind":"tests","title":"Write tests","subtasks":[%s],`+
-				`"verification":{"id":"1.V","checks":["All tests pass"]}},`+
-				`{"id":2,"kind":"wiring_verification","title":"Wiring verification","subtasks":[`+
-				`{"id":"2.1","title":"Stub and dead-code audit, trace execution paths end-to-end",`+
-				`"details":["Verify all paths are wired","Confirm no stubs remain"],`+
-				`"test_spec_refs":["TS-%s-SMOKE-1"],"requirement_refs":["%s-REQ-1.1"],`+
-				`"state":%q,"optional":false}],`+
-				`"verification":{"id":"2.V","checks":["All smoke tests pass"]}}]`,
-			strings.Join(subtasks, ","), specID, specID, subtaskStates[0])
-	}
-	tasks := fmt.Sprintf(
-		`{`+
-			`"$schema":"https://agent-fox.dev/schemas/tasks.v1.json",`+
-			`"spec_id":%q,"spec_name":%q,"schema_version":1,`+
-			`"test_commands":{"spec_tests":"go test","all_tests":"go test","linter":"go vet"},`+
-			`"dependencies":[],`+
-			`"task_groups":%s,`+
-			`"traceability":[`+
-			`{"requirement_id":"%s-REQ-1.1","test_spec_id":"TS-%s-1","task_id":"1.1","test_path":null},`+
-			`{"requirement_id":"%s-REQ-1.E1","test_spec_id":"TS-%s-E1","task_id":"1.1","test_path":null}`+
-			`]}`,
-		specID, specName, taskGroupsJSON,
-		specID, specID,
-		specID, specID)
-	if err := os.WriteFile(filepath.Join(dir, "tasks.json"), []byte(tasks), 0644); err != nil {
-		t.Fatal(err)
+		patched := strings.Replace(string(data),
+			fmt.Sprintf(`"spec_id": %q`, specID),
+			fmt.Sprintf(`"spec_id": %q`, reqSpecIDOverride), 1)
+		if err := os.WriteFile(reqPath, []byte(patched), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

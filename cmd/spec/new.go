@@ -88,86 +88,17 @@ func newNewCmd() *cobra.Command {
 				return fmt.Errorf("cannot read PRD file %q: %w", prdPath, err)
 			}
 
-			// Build a minimal valid Spec and save all four required artifacts.
+			// Scaffold the four artifacts. The three JSON files are empty:
+			// under format v2 a spec with no requirements, no tests and no
+			// tasks is *incomplete*, not schema-invalid, and `spec validate`
+			// reports it as such until `spec generate` fills it in.
 			specID := fmt.Sprintf("%02d", prefix)
 			now := time.Now().UTC().Format(time.RFC3339Nano)
 
-			const (
-				reqSchemaURL  = "https://agent-fox.dev/schemas/requirements.v1.json"
-				tsSchemaURL   = "https://agent-fox.dev/schemas/test_spec.v1.json"
-				taskSchemaURL = "https://agent-fox.dev/schemas/tasks.v1.json"
-			)
-
-			spec := &afspec.Spec{
-				SpecID:        specID,
-				SpecName:      name,
-				Title:         "",
-				Status:        "draft",
-				CreatedAt:     now,
-				UpdatedAt:     now,
-				Owner:         "",
-				Source:        "",
-				Supersedes:    []string{},
-				Tags:          []string{},
-				IntentHash:    nil,
-				SchemaVersion: 1,
-				PRDBody:       string(prdContent),
-				Requirements: &afspec.RequirementsV1Json{
-					Schema:                reqSchemaURL,
-					SpecId:                specID,
-					SpecName:              name,
-					SchemaVersion:         1,
-					Introduction:          "",
-					Glossary:              afspec.RequirementsV1JsonGlossary{},
-					Requirements:          []afspec.Requirement{},
-					CorrectnessProperties: []afspec.CorrectnessProperty{},
-					ExecutionPaths:        []afspec.ExecutionPath{},
-					ErrorHandling:         []afspec.ErrorHandlingEntry{},
-				},
-				TestSpec: &afspec.TestSpecV1Json{
-					Schema:        tsSchemaURL,
-					SpecId:        specID,
-					SpecName:      name,
-					SchemaVersion: 1,
-					TestCases:     []afspec.TestCase{},
-					PropertyTests: []afspec.PropertyTest{},
-					EdgeCaseTests: []afspec.EdgeCaseTest{},
-					SmokeTests:    []afspec.SmokeTest{},
-				},
-				Tasks: &afspec.TasksV1Json{
-					Schema:        taskSchemaURL,
-					SpecId:        specID,
-					SpecName:      name,
-					SchemaVersion: 1,
-					TestCommands:  afspec.TestCommands{},
-					Dependencies:  []afspec.TaskDependency{},
-					// task_groups requires minItems:1 per Section 8.3; scaffold with
-					// the mandatory first ("tests") and last ("wiring_verification") groups.
-					TaskGroups: []afspec.TaskGroup{
-						{
-							Id:       1,
-							Kind:     afspec.TaskGroupKindTests,
-							Title:    "Write Tests",
-							Subtasks: []afspec.Subtask{},
-							Verification: afspec.VerificationSubtask{
-								Id:     "1.V",
-								Checks: []string{"all tests pass"},
-							},
-						},
-						{
-							Id:       2,
-							Kind:     afspec.TaskGroupKindWiringVerification,
-							Title:    "Wiring Verification",
-							Subtasks: []afspec.Subtask{},
-							Verification: afspec.VerificationSubtask{
-								Id:     "2.V",
-								Checks: []string{"no stubs remain"},
-							},
-						},
-					},
-					Traceability: []afspec.TraceabilityEntry{},
-				},
-			}
+			spec := afspec.CreateSpec(specID, name)
+			spec.CreatedAt = now
+			spec.UpdatedAt = now
+			spec.PRDBody = string(prdContent)
 
 			if err := spec.Save(specPath); err != nil {
 				os.RemoveAll(specPath)

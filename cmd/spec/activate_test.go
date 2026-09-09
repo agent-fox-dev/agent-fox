@@ -301,8 +301,11 @@ func TestActivate_MissingIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// setupLoadableSpec creates a draft spec with no ## Intent section.
-	setupLoadableSpec(t, specDir, "67_no_intent_spec", nil)
+	// A draft spec whose PRD body has no ## Intent section: activation must
+	// refuse it, because the intent hash is computed at draft -> active.
+	writeSpecFixture(t, filepath.Join(specDir, "67_no_intent_spec"), "67", "no_intent_spec", specFixture{
+		PRDBody: "# Widget Service\n\n## Goals\n\n- Store widgets.\n",
+	})
 
 	cmd := newRootCmd()
 	cmd.SetOut(new(bytes.Buffer))

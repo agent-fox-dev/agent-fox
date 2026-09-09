@@ -33,6 +33,7 @@ type validationResult struct {
 func newValidateCmd() *cobra.Command {
 	var cross bool
 	var short bool
+	var trace bool
 
 	cmd := &cobra.Command{
 		Use:   "validate [SPEC]",
@@ -47,8 +48,14 @@ func newValidateCmd() *cobra.Command {
 			w := cmd.OutOrStdout()
 
 			if len(args) == 1 {
-				// Single-spec mode.
+				if trace {
+					return runValidateTrace(specDir, args[0], w)
+				}
 				return runValidateSingle(specDir, args[0], short, w)
+			}
+
+			if trace {
+				return fmt.Errorf("--trace needs a SPEC argument: the matrix is per spec")
 			}
 
 			// Multi-spec or cross-spec mode.
@@ -61,6 +68,7 @@ func newValidateCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&cross, "cross", false, "run cross-spec interface consistency checks")
 	cmd.Flags().BoolVar(&short, "short", false, "emit condensed output with only valid/error_count/warning_count")
+	cmd.Flags().BoolVar(&trace, "trace", false, "print the derived traceability matrix for one spec instead of validating it")
 
 	return cmd
 }
@@ -74,6 +82,57 @@ func runValidateSingle(specDir, specName string, short bool, w interface{ Write(
 
 	result := validateSpec(specPath)
 	return emitValidationResult(w, result, short)
+}
+
+// runValidateTrace prints the traceability matrix derived from one spec:
+// criterion or path, the tests that verify it, and the tasks that own those
+// tests (§8.5). Nothing is read from or written to a stored traceability
+// array — there is none — so the matrix cannot drift from the artifacts.
+func runValidateTrace(specDir, specName string, w interface{ Write([]byte) (int, error) }) error {
+	specPath, err := resolveSpec(specDir, specName)
+	if err != nil {
+		return err
+	}
+
+	spec, err := afspec.LoadSpec(specPath)
+	if err != nil {
+		return err
+	}
+
+	matrix := spec.ComputeTraceability()
+	rows := make([]map[string]any, 0, len(matrix.Links))
+	uncovered, unowned := 0, 0
+	for _, link := range matrix.Links {
+		tests := link.Tests
+		if tests == nil {
+			tests = []string{}
+		}
+		tasks := link.Tasks
+		if tasks == nil {
+			tasks = []int{}
+		}
+		rows = append(rows, map[string]any{
+			"kind":    link.Kind,
+			"id":      link.ID,
+			"tests":   tests,
+			"tasks":   tasks,
+			"covered": link.Covered,
+			"owned":   link.Owned,
+		})
+		if !link.Covered {
+			uncovered++
+		}
+		if !link.Owned {
+			unowned++
+		}
+	}
+
+	return emitOKTo(w,
+		"spec", filepath.Base(specPath),
+		"trace", rows,
+		"uncovered", uncovered,
+		"unowned", unowned,
+	)
 }
 
 // runValidateAll discovers all specs and validates each, producing
@@ -176,36 +235,43 @@ func runValidateCross(specDir string, short, quiet bool, w interface{ Write([]by
 		graph, _ := afspec.BuildDependencyGraph(metas, specDir)
 		libResult := afspec.ValidateCrossSpec(loadedSpecs, graph)
 
-		// Run CLI-level cross-spec check: duplicate requirement IDs.
-		cliResult := validateCrossSpecs(specPaths)
-
-		// Combine cross-spec errors from library and CLI checks.
-		var crossErrors []validationError
+		// A CLI-level duplicate-requirement-ID check used to run here too. It
+		// is unreachable under format v2: rule C1 ties spec_id to the folder
+		// prefix and rule C2 requires every requirement ID to carry that
+		// prefix, so two valid specs cannot share one — and for a spec that
+		// is invalid, C1 or C2 names the real problem instead.
+		var crossFindings []validationError
 		for _, entry := range libResult.Errors {
-			crossErrors = append(crossErrors, validationError{
+			crossFindings = append(crossFindings, validationError{
 				File:     entry.Artifact,
 				Severity: "error",
 				Message:  entry.Message,
 			})
 		}
-		crossErrors = append(crossErrors, cliResult.Errors...)
+		// Glossary disagreements between specs are warnings (§10.4): they are
+		// worth telling the operator about but must not fail the run.
+		for _, entry := range libResult.Warnings {
+			crossFindings = append(crossFindings, validationError{
+				File:     entry.Artifact,
+				Severity: "warning",
+				Message:  entry.Message,
+			})
+		}
 
-		if len(crossErrors) > 0 {
-			allValid = false
-			if short {
-				specsResults["_cross_spec"] = map[string]any{
-					"valid":         false,
-					"error_count":   len(crossErrors),
-					"warning_count": 0,
-				}
-			} else {
-				specsResults["_cross_spec"] = map[string]any{
-					"valid":         false,
-					"error_count":   len(crossErrors),
-					"warning_count": 0,
-					"errors":        crossErrors,
-				}
+		if len(crossFindings) > 0 {
+			errorCount := len(libResult.Errors)
+			if errorCount > 0 {
+				allValid = false
 			}
+			result := map[string]any{
+				"valid":         errorCount == 0,
+				"error_count":   errorCount,
+				"warning_count": len(libResult.Warnings),
+			}
+			if !short {
+				result["errors"] = crossFindings
+			}
+			specsResults["_cross_spec"] = result
 		}
 	}
 
@@ -320,51 +386,6 @@ func validateSpec(specPath string) *validationResult {
 			Message:  entry.Message,
 		})
 		result.WarningCount++
-	}
-
-	return result
-}
-
-// validateCrossSpecs runs CLI-level cross-spec consistency checks.
-// This is a supplementary check that detects duplicate requirement IDs
-// across specs, complementing the library's ValidateCrossSpec checks.
-func validateCrossSpecs(specPaths []string) *validationResult {
-	result := &validationResult{Valid: true}
-
-	// Cross-spec validation: check for duplicate requirement IDs.
-	seenReqIDs := make(map[string]string) // reqID -> specPath
-	for _, sp := range specPaths {
-		reqPath := filepath.Join(sp, "requirements.json")
-		data, err := os.ReadFile(reqPath)
-		if err != nil {
-			continue
-		}
-
-		var doc struct {
-			Requirements []struct {
-				ID string `json:"id"`
-			} `json:"requirements"`
-		}
-		if err := json.Unmarshal(data, &doc); err != nil {
-			continue
-		}
-
-		for _, req := range doc.Requirements {
-			if req.ID == "" {
-				continue
-			}
-			if prevSpec, exists := seenReqIDs[req.ID]; exists {
-				result.Errors = append(result.Errors, validationError{
-					File:     "requirements.json",
-					Severity: "error",
-					Message:  fmt.Sprintf("duplicate requirement ID %q: found in %s and %s", req.ID, filepath.Base(prevSpec), filepath.Base(sp)),
-				})
-				result.ErrorCount++
-				result.Valid = false
-			} else {
-				seenReqIDs[req.ID] = sp
-			}
-		}
 	}
 
 	return result
