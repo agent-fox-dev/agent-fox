@@ -114,15 +114,17 @@ func parsePRD(data []byte, filePath string) (*prdFrontmatter, string, error) {
 }
 
 // renderPRD renders a Spec back to prd.md format using a hand-written
-// renderer with fixed field order matching Python's _render_prd().
-// This function does NOT use yaml.Marshal to ensure byte-for-byte
-// fidelity with the Python library's output.
+// renderer with a fixed field order. It does not use yaml.Marshal, so the
+// output is byte-stable across runs and across library versions.
+//
+// Format v2 §4.1 makes owner, source, supersedes and tags optional; they are
+// omitted when empty so that a spec that never sets them round-trips without
+// accumulating empty keys.
 func renderPRD(s *Spec) []byte {
 	var b strings.Builder
 
 	b.WriteString("---\n")
 
-	// Fixed field order matching Python's _FRONTMATTER_FIELDS
 	b.WriteString("spec_id: ")
 	b.WriteString(renderYAMLString(s.SpecID))
 	b.WriteByte('\n')
@@ -147,22 +149,6 @@ func renderPRD(s *Spec) []byte {
 	b.WriteString(renderYAMLString(s.UpdatedAt))
 	b.WriteByte('\n')
 
-	b.WriteString("owner: ")
-	b.WriteString(renderYAMLString(s.Owner))
-	b.WriteByte('\n')
-
-	b.WriteString("source: ")
-	b.WriteString(renderYAMLString(s.Source))
-	b.WriteByte('\n')
-
-	b.WriteString("supersedes: ")
-	b.WriteString(renderYAMLList(s.Supersedes))
-	b.WriteByte('\n')
-
-	b.WriteString("tags: ")
-	b.WriteString(renderYAMLList(s.Tags))
-	b.WriteByte('\n')
-
 	b.WriteString("intent_hash: ")
 	b.WriteString(renderYAMLNullableString(s.IntentHash))
 	b.WriteByte('\n')
@@ -170,6 +156,30 @@ func renderPRD(s *Spec) []byte {
 	b.WriteString("schema_version: ")
 	b.WriteString(fmt.Sprintf("%d", s.SchemaVersion))
 	b.WriteByte('\n')
+
+	if s.Owner != "" {
+		b.WriteString("owner: ")
+		b.WriteString(renderYAMLString(s.Owner))
+		b.WriteByte('\n')
+	}
+
+	if s.Source != "" {
+		b.WriteString("source: ")
+		b.WriteString(renderYAMLString(s.Source))
+		b.WriteByte('\n')
+	}
+
+	if len(s.Supersedes) > 0 {
+		b.WriteString("supersedes: ")
+		b.WriteString(renderYAMLList(s.Supersedes))
+		b.WriteByte('\n')
+	}
+
+	if len(s.Tags) > 0 {
+		b.WriteString("tags: ")
+		b.WriteString(renderYAMLList(s.Tags))
+		b.WriteByte('\n')
+	}
 
 	b.WriteString("---\n")
 	b.WriteString(s.PRDBody)

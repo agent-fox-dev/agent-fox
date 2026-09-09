@@ -1,231 +1,136 @@
 package afspec
 
-// CoverageReport represents the result of computing test coverage against
-// requirements. Covered contains IDs that are referenced by at least one
-// test entry; Uncovered contains IDs with no test coverage.
+import "sort"
+
+// CoverageReport lists the criteria and paths that are verified by at least
+// one test (Covered) and those that are not (Uncovered), in artifact order.
+//
+// Format v2 §7.1: coverage is computed, never stored. Nothing here is written
+// back to test_spec.json.
 type CoverageReport struct {
 	Covered   []string
 	Uncovered []string
 }
 
-// ComputeCoverageStruct computes test coverage and returns a Coverage struct
-// suitable for storing in TestSpecV1Json.Coverage. Unlike ComputeCoverage,
-// it preserves the type separation between requirements, correctness
-// properties, and execution paths, and maps each to its own field:
+// ComputeCoverage reports which criteria and execution paths of req are
+// verified by at least one test of ts, via each test's `verifies` list.
 //
-//   - RequirementsCovered: criterion IDs (acceptance criteria and edge case
-//     criteria) that are referenced by at least one test case or edge case test.
-//   - PropertiesCovered: correctness property IDs referenced by at least one
-//     property test.
-//   - PathsCovered: execution path IDs referenced by at least one smoke test.
-//   - Gaps: criterion and other entity IDs from all three categories that have
-//     no test coverage.
-func (ts *TestSpecV1Json) ComputeCoverageStruct(req *RequirementsV1Json) Coverage {
-	// Build an ordered list of all criterion IDs (acceptance criteria + edge
-	// cases) and a fast-lookup set of valid criterion IDs.
-	var allCriteria []string
-	criterionIDs := make(map[string]bool)
-	for _, r := range req.Requirements {
-		for _, ac := range r.AcceptanceCriteria {
-			allCriteria = append(allCriteria, ac.Id)
-			criterionIDs[ac.Id] = true
-		}
-		for _, ec := range r.EdgeCases {
-			allCriteria = append(allCriteria, ec.Id)
-			criterionIDs[ec.Id] = true
+// A criterion is covered by any test that lists it. A path is covered by any
+// test that lists it; rule C5 additionally requires that test to be a smoke
+// test, which is a validation concern rather than a coverage one.
+func (ts *TestSpecV2Json) ComputeCoverage(req *RequirementsV2Json) CoverageReport {
+	verified := make(map[string]bool)
+	for _, t := range ts.Tests {
+		for _, id := range t.Verifies {
+			verified[id] = true
 		}
 	}
 
-	// Track which criterion IDs are covered.
-	coveredCriteria := make(map[string]bool)
-	coveredProps := make(map[string]bool)
-	coveredPaths := make(map[string]bool)
-
-	// Test cases reference criterion IDs directly.
-	for _, tc := range ts.TestCases {
-		if tc.RequirementId != "" && criterionIDs[tc.RequirementId] {
-			coveredCriteria[tc.RequirementId] = true
-		}
-	}
-
-	// Edge case tests also reference criterion IDs directly.
-	for _, ec := range ts.EdgeCaseTests {
-		if ec.RequirementId != "" && criterionIDs[ec.RequirementId] {
-			coveredCriteria[ec.RequirementId] = true
-		}
-	}
-
-	// Property tests cover correctness properties.
-	for _, pt := range ts.PropertyTests {
-		if pt.PropertyId != "" {
-			coveredProps[pt.PropertyId] = true
-		}
-	}
-
-	// Smoke tests cover execution paths.
-	for _, sm := range ts.SmokeTests {
-		if sm.ExecutionPathId != "" {
-			coveredPaths[sm.ExecutionPathId] = true
-		}
-	}
-
-	// Build the Coverage struct preserving the order from Requirements.
-	var reqCovered, propCovered, pathCovered, gaps []string
-
-	for _, id := range allCriteria {
-		if coveredCriteria[id] {
-			reqCovered = append(reqCovered, id)
-		} else {
-			gaps = append(gaps, id)
-		}
-	}
-
-	for _, p := range req.CorrectnessProperties {
-		if coveredProps[p.Id] {
-			propCovered = append(propCovered, p.Id)
-		} else {
-			gaps = append(gaps, p.Id)
-		}
-	}
-
-	for _, p := range req.ExecutionPaths {
-		if coveredPaths[p.Id] {
-			pathCovered = append(pathCovered, p.Id)
-		} else {
-			gaps = append(gaps, p.Id)
-		}
-	}
-
-	// Ensure no nil slices so marshaling produces [] instead of null.
-	if reqCovered == nil {
-		reqCovered = []string{}
-	}
-	if propCovered == nil {
-		propCovered = []string{}
-	}
-	if pathCovered == nil {
-		pathCovered = []string{}
-	}
-	if gaps == nil {
-		gaps = []string{}
-	}
-
-	return Coverage{
-		RequirementsCovered: reqCovered,
-		PropertiesCovered:   propCovered,
-		PathsCovered:        pathCovered,
-		Gaps:                gaps,
-	}
-}
-
-// ComputeCoverage scans all test entries in the TestSpec against criterion IDs,
-// correctness property IDs, and execution path IDs in the Requirements struct.
-// Returns a CoverageReport indicating which entities are covered and which
-// are not.
-//
-// Coverage is computed at three levels:
-//   - Criteria: each acceptance criterion and edge case criterion ID is
-//     individually covered if referenced by a test case or edge case test.
-//   - Properties: a property is covered if it's referenced by a property test.
-//   - Paths: an execution path is covered if it's referenced by a smoke test.
-//
-// If the Requirements struct has no entities to cover, the report indicates
-// 100% coverage (empty Uncovered list). If the TestSpec has no test entries,
-// all criterion/property/path entities appear in the Uncovered list.
-func (ts *TestSpecV1Json) ComputeCoverage(req *RequirementsV1Json) CoverageReport {
-	// Build an ordered list of all criterion IDs and a fast-lookup set.
-	var allCriteria []string
-	criterionIDs := make(map[string]bool)
-	for _, r := range req.Requirements {
-		for _, ac := range r.AcceptanceCriteria {
-			allCriteria = append(allCriteria, ac.Id)
-			criterionIDs[ac.Id] = true
-		}
-		for _, ec := range r.EdgeCases {
-			allCriteria = append(allCriteria, ec.Id)
-			criterionIDs[ec.Id] = true
-		}
-	}
-
-	propIDs := make(map[string]bool)
-	for _, p := range req.CorrectnessProperties {
-		propIDs[p.Id] = true
-	}
-
-	pathIDs := make(map[string]bool)
-	for _, p := range req.ExecutionPaths {
-		pathIDs[p.Id] = true
-	}
-
-	// Track which criterion IDs are covered.
-	coveredCriteria := make(map[string]bool)
-	coveredProps := make(map[string]bool)
-	coveredPaths := make(map[string]bool)
-
-	// Test cases reference criterion IDs directly.
-	for _, tc := range ts.TestCases {
-		if tc.RequirementId != "" && criterionIDs[tc.RequirementId] {
-			coveredCriteria[tc.RequirementId] = true
-		}
-	}
-
-	// Edge case tests also reference criterion IDs directly.
-	for _, ec := range ts.EdgeCaseTests {
-		if ec.RequirementId != "" && criterionIDs[ec.RequirementId] {
-			coveredCriteria[ec.RequirementId] = true
-		}
-	}
-
-	// Property tests cover correctness properties.
-	for _, pt := range ts.PropertyTests {
-		if pt.PropertyId != "" {
-			coveredProps[pt.PropertyId] = true
-		}
-	}
-
-	// Smoke tests cover execution paths.
-	for _, sm := range ts.SmokeTests {
-		if sm.ExecutionPathId != "" {
-			coveredPaths[sm.ExecutionPathId] = true
-		}
-	}
-
-	// Build the coverage report preserving the order from Requirements.
-	var covered, uncovered []string
-
-	for _, id := range allCriteria {
-		if coveredCriteria[id] {
+	covered := []string{}
+	uncovered := []string{}
+	appendID := func(id string) {
+		if verified[id] {
 			covered = append(covered, id)
 		} else {
 			uncovered = append(uncovered, id)
 		}
 	}
 
-	for _, p := range req.CorrectnessProperties {
-		if coveredProps[p.Id] {
-			covered = append(covered, p.Id)
-		} else {
-			uncovered = append(uncovered, p.Id)
+	for _, r := range req.Requirements {
+		for _, c := range r.Criteria {
+			appendID(c.Id)
 		}
 	}
-
 	for _, p := range req.ExecutionPaths {
-		if coveredPaths[p.Id] {
-			covered = append(covered, p.Id)
-		} else {
-			uncovered = append(uncovered, p.Id)
+		appendID(p.Id)
+	}
+
+	return CoverageReport{Covered: covered, Uncovered: uncovered}
+}
+
+// TraceLink is one row of the derived traceability matrix (§8.5):
+//
+//	criterion → tests (from test.verifies) → tasks (from task.tests)
+//	path      → smoke tests               → integration task
+//
+// Kind is "criterion" or "path".
+type TraceLink struct {
+	Kind    string
+	ID      string
+	Tests   []string
+	Tasks   []int
+	Covered bool
+	Owned   bool
+}
+
+// TraceabilityMatrix is the full derived matrix, in artifact order.
+type TraceabilityMatrix struct {
+	Links []TraceLink
+}
+
+// ComputeTraceability derives the traceability matrix from the three
+// artifacts. Nothing is read from disk and nothing is stored, so the matrix
+// cannot drift from the artifacts it describes (§8.5).
+//
+// Covered reports whether at least one test verifies the entity; Owned
+// reports whether at least one of those tests is listed by a task.
+func (s *Spec) ComputeTraceability() TraceabilityMatrix {
+	matrix := TraceabilityMatrix{Links: []TraceLink{}}
+	if s.Requirements == nil {
+		return matrix
+	}
+
+	// entity ID → verifying test IDs, in test order.
+	testsFor := map[string][]string{}
+	if s.TestSpec != nil {
+		for _, t := range s.TestSpec.Tests {
+			for _, id := range t.Verifies {
+				testsFor[id] = append(testsFor[id], t.Id)
+			}
 		}
 	}
 
-	if covered == nil {
-		covered = []string{}
-	}
-	if uncovered == nil {
-		uncovered = []string{}
+	// test ID → owning task IDs, in task order.
+	tasksFor := map[string][]int{}
+	if s.Tasks != nil {
+		for _, task := range s.Tasks.Tasks {
+			for _, testID := range task.Tests {
+				tasksFor[testID] = append(tasksFor[testID], task.Id)
+			}
+		}
 	}
 
-	return CoverageReport{
-		Covered:   covered,
-		Uncovered: uncovered,
+	link := func(kind, id string) TraceLink {
+		tests := testsFor[id]
+		seen := map[int]bool{}
+		var tasks []int
+		for _, testID := range tests {
+			for _, taskID := range tasksFor[testID] {
+				if !seen[taskID] {
+					seen[taskID] = true
+					tasks = append(tasks, taskID)
+				}
+			}
+		}
+		sort.Ints(tasks)
+		return TraceLink{
+			Kind:    kind,
+			ID:      id,
+			Tests:   tests,
+			Tasks:   tasks,
+			Covered: len(tests) > 0,
+			Owned:   len(tasks) > 0,
+		}
 	}
+
+	for _, r := range s.Requirements.Requirements {
+		for _, c := range r.Criteria {
+			matrix.Links = append(matrix.Links, link("criterion", c.Id))
+		}
+	}
+	for _, p := range s.Requirements.ExecutionPaths {
+		matrix.Links = append(matrix.Links, link("path", p.Id))
+	}
+
+	return matrix
 }

@@ -1,244 +1,262 @@
 package afspec
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Subtask 3.1: DiscoverSpecs and LoadSpecLandscape
-// ---------------------------------------------------------------------------
-
-// writeMinimalPRD writes a minimal valid prd.md to dir with the given metadata.
-func writeMinimalPRD(t *testing.T, dir, specID, specName, status string) {
+// specRoot builds a spec root containing the named fixtures, each copied into
+// a properly named {NN}_{snake_case_name} directory.
+func specRoot(t *testing.T, fixtures map[string]string) string {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("failed to create dir %s: %v", dir, err)
+	root := t.TempDir()
+	for dirName, fixture := range fixtures {
+		dst := filepath.Join(root, dirName)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			data, err := os.ReadFile(filepath.Join(fixture, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	prd := "---\n" +
-		"spec_id: \"" + specID + "\"\n" +
-		"spec_name: \"" + specName + "\"\n" +
-		"title: \"" + specName + "\"\n" +
-		"status: \"" + status + "\"\n" +
-		"created_at: \"2026-01-01T00:00:00Z\"\n" +
-		"updated_at: \"2026-01-01T00:00:00Z\"\n" +
-		"owner: \"test\"\n" +
-		"source: \"test\"\n" +
-		"schema_version: 1\n" +
-		"---\n" +
-		"# " + specName + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "prd.md"), []byte(prd), 0o644); err != nil {
-		t.Fatalf("failed to write prd.md in %s: %v", dir, err)
+	return root
+}
+
+func TestIsSpecDirName(t *testing.T) {
+	valid := []string{"01_feature", "99_a", "123_long_feature_name", "01_a1_b2"}
+	for _, name := range valid {
+		if !IsSpecDirName(name) {
+			t.Errorf("%q should be a spec directory name", name)
+		}
+	}
+	invalid := []string{"1_feature", "01feature", "01_Feature", "01_", "_feature", "abc_feature", "01-feature"}
+	for _, name := range invalid {
+		if IsSpecDirName(name) {
+			t.Errorf("%q should not be a spec directory name", name)
+		}
 	}
 }
 
-// TestDiscoverSpecs_ValidWorkspace verifies that DiscoverSpecs scans a root
-// directory for NN_snake_case subdirectories and returns SpecMeta entries
-// with all fields populated.
-// Test Spec: TS-01-23, Requirement: 01-REQ-12.1
-func TestDiscoverSpecs_ValidWorkspace(t *testing.T) {
-	defer requireImplemented(t)
-
-	root := t.TempDir()
-
-	// Create two valid spec directories
-	writeMinimalPRD(t, filepath.Join(root, "01_first_spec"), "01", "first_spec", "draft")
-	writeMinimalPRD(t, filepath.Join(root, "02_second_spec"), "02", "second_spec", "active")
-
-	// Create a non-spec directory that should be ignored
-	if err := os.MkdirAll(filepath.Join(root, "readme"), 0o755); err != nil {
-		t.Fatalf("failed to create non-spec dir: %v", err)
+func TestParseSpecDirName(t *testing.T) {
+	prefix, name, err := ParseSpecDirName("07_agent_mode")
+	if err != nil {
+		t.Fatalf("ParseSpecDirName = %v", err)
 	}
+	if prefix != "07" || name != "agent_mode" {
+		t.Errorf("= %q/%q; want 07/agent_mode", prefix, name)
+	}
+	if _, _, err := ParseSpecDirName("not-a-spec"); err == nil {
+		t.Error("a malformed name was accepted")
+	}
+}
+
+func TestDiscoverSpecs(t *testing.T) {
+	root := specRoot(t, map[string]string{
+		"01_test_feature":  fixtureValidSpec,
+		"02_draft_feature": "../testdata/draft_spec",
+		"not_a_spec_dir":   fixtureValidSpec,
+	})
 
 	metas, err := DiscoverSpecs(root)
 	if err != nil {
-		t.Fatalf("DiscoverSpecs returned unexpected error: %v", err)
+		t.Fatalf("DiscoverSpecs = %v", err)
 	}
 	if len(metas) != 2 {
-		t.Fatalf("len(metas) = %d, want 2", len(metas))
+		t.Fatalf("discovered %d specs; want the two properly named ones", len(metas))
 	}
-
-	// Verify each entry has non-empty fields
-	for _, meta := range metas {
-		if meta.SpecID == "" {
-			t.Errorf("meta.SpecID is empty for dir %s", meta.Dir)
-		}
-		if meta.SpecName == "" {
-			t.Errorf("meta.SpecName is empty for dir %s", meta.Dir)
-		}
-		if meta.Status == "" {
-			t.Errorf("meta.Status is empty for dir %s", meta.Dir)
-		}
-		if meta.Dir == "" {
-			t.Error("meta.Dir is empty")
-		}
+	if metas[0].SpecID != "01" || metas[1].SpecID != "02" {
+		t.Errorf("specs are not in prefix order: %v", metas)
+	}
+	if metas[0].Status != "draft" || metas[0].SpecName != "test_feature" {
+		t.Errorf("metadata for spec 01 is wrong: %+v", metas[0])
 	}
 }
 
-// TestDiscoverSpecs_NoMatchingDirs verifies that DiscoverSpecs returns an
-// empty slice with no error when the root has no NN_snake_case subdirectories.
-// Requirement: 01-REQ-12.E3
-func TestDiscoverSpecs_NoMatchingDirs(t *testing.T) {
-	defer requireImplemented(t)
-
-	root := t.TempDir()
-
-	// Create only non-spec directories
-	if err := os.MkdirAll(filepath.Join(root, "readme"), 0o755); err != nil {
-		t.Fatalf("failed to create non-spec dir: %v", err)
-	}
+func TestBuildDependencyGraph(t *testing.T) {
+	root := specRoot(t, map[string]string{
+		"01_test_feature":  fixtureValidSpec,
+		"02_draft_feature": "../testdata/draft_spec",
+	})
 
 	metas, err := DiscoverSpecs(root)
 	if err != nil {
-		t.Fatalf("DiscoverSpecs returned unexpected error: %v", err)
+		t.Fatal(err)
 	}
-	if len(metas) != 0 {
-		t.Errorf("len(metas) = %d, want 0 for workspace with no spec dirs", len(metas))
+	graph, err := BuildDependencyGraph(metas, root)
+	if err != nil {
+		t.Fatalf("BuildDependencyGraph = %v", err)
+	}
+	if len(graph.Edges) != 1 {
+		t.Fatalf("edges = %v; want the single 02 → 01 dependency", graph.Edges)
+	}
+	edge := graph.Edges[0]
+	if edge.FromSpec != "02" || edge.ToSpec != "01" {
+		t.Errorf("edge = %+v; want 02 depending on 01", edge)
+	}
+	if edge.Reason == "" {
+		t.Error("the edge carries no reason")
+	}
+
+	if deps := graph.Dependencies("02"); len(deps) != 1 {
+		t.Errorf("Dependencies(02) = %v; want one", deps)
+	}
+	if dependents := graph.Dependents("01"); len(dependents) != 1 {
+		t.Errorf("Dependents(01) = %v; want one", dependents)
+	}
+
+	order, err := graph.TopologicalSort()
+	if err != nil {
+		t.Fatalf("TopologicalSort = %v", err)
+	}
+	if len(order) != 2 || order[0] != "01" || order[1] != "02" {
+		t.Errorf("order = %v; want the upstream spec first", order)
 	}
 }
 
-// TestDiscoverSpecs_RootNotExists verifies that DiscoverSpecs returns a
-// LoadError when the root directory does not exist.
-// Requirement: 01-REQ-12.E2
-func TestDiscoverSpecs_RootNotExists(t *testing.T) {
-	defer requireImplemented(t)
-
-	_, err := DiscoverSpecs("/nonexistent/path/that/does/not/exist")
+func TestBuildDependencyGraphReportsUnknownSpecs(t *testing.T) {
+	root := specRoot(t, map[string]string{"02_draft_feature": "../testdata/draft_spec"})
+	metas, err := DiscoverSpecs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, err := BuildDependencyGraph(metas, root)
 	if err == nil {
-		t.Fatal("expected LoadError for non-existent root, got nil")
+		t.Fatal("a dependency on a spec that is not in the root produced no error")
 	}
-
-	var loadErr *LoadError
-	if !errors.As(err, &loadErr) {
-		t.Errorf("errors.As(err, &LoadError{}) = false, want true; err type = %T", err)
+	if !strings.Contains(err.Error(), "01") {
+		t.Errorf("the error does not name the missing spec: %v", err)
 	}
-
-	var specErr *SpecError
-	if !errors.As(err, &specErr) {
-		t.Errorf("errors.As(err, &SpecError{}) = false, want true; err type = %T", err)
+	if graph == nil {
+		t.Error("a partial graph should still be returned")
 	}
 }
 
-// TestDiscoverSpecs_MalformedPRD verifies that DiscoverSpecs skips entries
-// with missing or malformed prd.md and continues scanning.
-// Requirement: 01-REQ-12.E1
-func TestDiscoverSpecs_MalformedPRD(t *testing.T) {
-	defer requireImplemented(t)
+func TestTopologicalSortDetectsCycles(t *testing.T) {
+	graph := &DependencyGraph{Edges: []DependencyEdge{
+		{FromSpec: "01", ToSpec: "02"},
+		{FromSpec: "02", ToSpec: "01"},
+	}}
+	if _, err := graph.TopologicalSort(); err == nil {
+		t.Fatal("a two-spec cycle was not detected")
+	}
+}
 
-	root := t.TempDir()
+func TestLoadDependentInterfaces(t *testing.T) {
+	root := specRoot(t, map[string]string{
+		"01_test_feature":  fixtureValidSpec,
+		"02_draft_feature": "../testdata/draft_spec",
+	})
 
-	// Create one valid spec
-	writeMinimalPRD(t, filepath.Join(root, "01_valid_spec"), "01", "valid_spec", "draft")
-
-	// Create one spec dir without a prd.md (malformed)
-	malformedDir := filepath.Join(root, "02_broken_spec")
-	if err := os.MkdirAll(malformedDir, 0o755); err != nil {
-		t.Fatalf("failed to create malformed dir: %v", err)
+	summaries := LoadDependentInterfaces("02", root)
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %v; want one for the upstream spec", summaries)
+	}
+	if _, ok := summaries[0]["glossary"]; !ok {
+		t.Errorf("the summary carries no glossary: %v", summaries[0])
 	}
 
+	if got := LoadDependentInterfaces("01", root); len(got) != 0 {
+		t.Errorf("a spec with no dependencies returned %v", got)
+	}
+	if got := LoadDependentInterfaces("02", filepath.Join(root, "nope")); got == nil || len(got) != 0 {
+		t.Errorf("an unreadable root should degrade to an empty slice, got %v", got)
+	}
+}
+
+func TestValidateCrossSpec(t *testing.T) {
+	root := specRoot(t, map[string]string{
+		"01_test_feature":  fixtureValidSpec,
+		"02_draft_feature": "../testdata/draft_spec",
+	})
 	metas, err := DiscoverSpecs(root)
-	// Should return the valid entry; err may be non-nil for the skipped entry
-	if len(metas) != 1 {
-		t.Errorf("len(metas) = %d, want 1 (valid spec only); err = %v", len(metas), err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(metas) > 0 && metas[0].SpecID != "01" {
-		t.Errorf("metas[0].SpecID = %q, want %q", metas[0].SpecID, "01")
+	graph, err := BuildDependencyGraph(metas, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	specs := []*Spec{loadFixture(t, metas[0].Dir), loadFixture(t, metas[1].Dir)}
+
+	result := ValidateCrossSpec(specs, graph)
+	if !result.Valid {
+		t.Fatalf("cross-spec validation failed on two consistent specs: %v", result.Errors)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LoadSpecLandscape tests
-// ---------------------------------------------------------------------------
-
-// TestLoadSpecLandscape_IncludeArchive verifies that LoadSpecLandscape with
-// includeArchive=true scans all spec directories including archive/ and
-// excludes the currentSpecID entry.
-// Test Spec: TS-01-30, Requirement: 01-REQ-15.1
-func TestLoadSpecLandscape_IncludeArchive(t *testing.T) {
-	defer requireImplemented(t)
-
-	root := t.TempDir()
-
-	// Create non-archived specs
-	writeMinimalPRD(t, filepath.Join(root, "01_spec_a"), "01", "spec_a", "draft")
-	writeMinimalPRD(t, filepath.Join(root, "02_spec_b"), "02", "spec_b", "active")
-
-	// Create an archived spec
-	writeMinimalPRD(t, filepath.Join(root, "archive", "03_spec_c"), "03", "spec_c", "archived")
-
-	metas, err := LoadSpecLandscape(root, true, "01")
-	if err != nil {
-		t.Fatalf("LoadSpecLandscape returned unexpected error: %v", err)
+func TestValidateCrossSpecRejectsAnUnknownDependency(t *testing.T) {
+	spec := loadFixture(t, "../testdata/draft_spec")
+	result := ValidateCrossSpec([]*Spec{spec}, &DependencyGraph{})
+	if result.Valid {
+		t.Fatal("a dependency on a spec outside the root was accepted")
 	}
-
-	// Should have spec 02 and spec 03 (from archive), but NOT spec 01 (excluded)
-	ids := make(map[string]bool)
-	for _, m := range metas {
-		ids[m.SpecID] = true
-	}
-
-	if ids["01"] {
-		t.Error("currentSpecID '01' should be excluded from results")
-	}
-	if !ids["02"] {
-		t.Error("spec '02' should be in results")
-	}
-	if !ids["03"] {
-		t.Error("archived spec '03' should be in results when includeArchive=true")
+	if result.Errors[0].Check != "cross_spec_unknown_dependency" {
+		t.Errorf("check = %q", result.Errors[0].Check)
 	}
 }
 
-// TestLoadSpecLandscape_ExcludeArchive verifies that LoadSpecLandscape with
-// includeArchive=false returns only non-archived spec directories.
-// Test Spec: TS-01-31, Requirement: 01-REQ-15.2
-func TestLoadSpecLandscape_ExcludeArchive(t *testing.T) {
-	defer requireImplemented(t)
+func TestValidateCrossSpecWarnsOnGlossaryConflicts(t *testing.T) {
+	a := loadFixture(t, fixtureValidSpec)
+	b := loadFixture(t, fixtureValidSpec)
+	b.SpecID = "02"
+	b.Requirements.SpecId = "02"
+	b.Requirements.Glossary["spec"] = "Something else entirely."
+	b.Tasks.Dependencies = nil
 
-	root := t.TempDir()
-
-	// Create non-archived specs
-	writeMinimalPRD(t, filepath.Join(root, "01_spec_a"), "01", "spec_a", "draft")
-	writeMinimalPRD(t, filepath.Join(root, "02_spec_b"), "02", "spec_b", "active")
-
-	// Create an archived spec
-	writeMinimalPRD(t, filepath.Join(root, "archive", "03_spec_c"), "03", "spec_c", "archived")
-
-	metas, err := LoadSpecLandscape(root, false, "")
-	if err != nil {
-		t.Fatalf("LoadSpecLandscape returned unexpected error: %v", err)
+	result := ValidateCrossSpec([]*Spec{a, b}, &DependencyGraph{})
+	if !result.Valid {
+		t.Fatalf("a glossary conflict must warn, not fail: %v", result.Errors)
 	}
-
-	ids := make(map[string]bool)
-	for _, m := range metas {
-		ids[m.SpecID] = true
-	}
-
-	if ids["03"] {
-		t.Error("archived spec '03' should NOT be in results when includeArchive=false")
-	}
-	if !ids["01"] {
-		t.Error("spec '01' should be in results")
-	}
-	if !ids["02"] {
-		t.Error("spec '02' should be in results")
+	if !hasWarningContaining(result, "defined differently") {
+		t.Errorf("no glossary conflict warning: %v", result.Warnings)
 	}
 }
 
-// TestLoadSpecLandscape_EmptyRoot verifies that LoadSpecLandscape returns an
-// empty slice with no error when the root contains no spec directories.
-// Requirement: 01-REQ-15.E1
-func TestLoadSpecLandscape_EmptyRoot(t *testing.T) {
-	defer requireImplemented(t)
-
-	root := t.TempDir()
-
-	metas, err := LoadSpecLandscape(root, true, "")
-	if err != nil {
-		t.Fatalf("LoadSpecLandscape returned unexpected error: %v", err)
+func TestValidateCrossSpecRequiresASharedActor(t *testing.T) {
+	upstream := loadFixture(t, fixtureValidSpec)
+	downstream := loadFixture(t, "../testdata/draft_spec")
+	// Rename every actor so that the two specs share none.
+	for i := range downstream.Requirements.ExecutionPaths {
+		for j := range downstream.Requirements.ExecutionPaths[i].Steps {
+			downstream.Requirements.ExecutionPaths[i].Steps[j].Actor = "unrelated actor"
+		}
 	}
-	if len(metas) != 0 {
-		t.Errorf("len(metas) = %d, want 0 for empty root", len(metas))
+
+	graph := &DependencyGraph{Edges: []DependencyEdge{{FromSpec: "02", ToSpec: "01"}}}
+	result := ValidateCrossSpec([]*Spec{upstream, downstream}, graph)
+	if result.Valid {
+		t.Fatal("a dependency edge with no shared actor was accepted")
+	}
+	if !hasCheck(result, "cross_spec_actor") {
+		t.Errorf("checks = %v; want cross_spec_actor", errorChecks(result))
+	}
+}
+
+func TestValidateCrossSpecDetectsCycles(t *testing.T) {
+	a := loadFixture(t, fixtureValidSpec)
+	b := loadFixture(t, fixtureValidSpec)
+	b.SpecID = "02"
+	a.Tasks.Dependencies = []Dependency{{Spec: "02", Reason: "x"}}
+	b.Tasks.Dependencies = []Dependency{{Spec: "01", Reason: "y"}}
+
+	graph := &DependencyGraph{Edges: []DependencyEdge{
+		{FromSpec: "01", ToSpec: "02"},
+		{FromSpec: "02", ToSpec: "01"},
+	}}
+	result := ValidateCrossSpec([]*Spec{a, b}, graph)
+	if !hasCheck(result, "cross_spec_cycle") {
+		t.Errorf("checks = %v; want cross_spec_cycle", errorChecks(result))
 	}
 }

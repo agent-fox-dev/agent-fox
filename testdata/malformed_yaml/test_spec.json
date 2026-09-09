@@ -1,82 +1,96 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
   "spec_id": "01",
   "spec_name": "test_feature",
-  "schema_version": 1,
-  "test_cases": [
+  "schema_version": 2,
+  "tests": [
     {
       "id": "TS-01-1",
-      "requirement_id": "01-REQ-1.1",
       "kind": "unit",
-      "description": "Spec type exports all four artifacts",
-      "preconditions": [],
-      "input": {},
-      "expected": {
-        "has_prd": true,
-        "has_requirements": true,
-        "has_test_spec": true,
-        "has_tasks": true
-      },
-      "assertion_pseudocode": "spec = load_spec(dir); assert spec.prd is not None"
-    }
-  ],
-  "property_tests": [
-    {
-      "id": "TS-01-P1",
-      "property_id": "01-PROP-1",
-      "validates": [
+      "verifies": [
         "01-REQ-1.1"
       ],
-      "description": "Round-trip idempotency",
-      "for_any_strategy": "valid golden fixture spec folder",
-      "invariant_check": "load(save(load(fixture))) == load(fixture)"
-    }
-  ],
-  "edge_case_tests": [
+      "title": "LoadSpec populates every artifact of a well-formed spec directory",
+      "given": [
+        "a directory holding prd.md and the three JSON artifacts"
+      ],
+      "when": "LoadSpec is called on that directory",
+      "then": [
+        "the error is nil",
+        "Requirements, TestSpec and Tasks are all non-nil"
+      ],
+      "pseudocode": "s, err = LoadSpec(dir); assert err == nil; assert s.Requirements != nil"
+    },
     {
-      "id": "TS-01-E1",
-      "requirement_id": "01-REQ-1.E1",
+      "id": "TS-01-2",
       "kind": "unit",
-      "description": "Missing file raises LoadError",
-      "preconditions": [
-        "directory with missing test_spec.json"
+      "verifies": [
+        "01-REQ-1.2"
       ],
-      "input": {
-        "missing_file": "test_spec.json"
-      },
-      "expected": {
-        "error_type": "LoadError"
-      },
-      "assertion_pseudocode": "with raises(LoadError): load_spec(incomplete_dir)"
-    }
-  ],
-  "smoke_tests": [
+      "title": "LoadSpec returns a LoadError naming the missing artifact",
+      "given": [
+        "a directory with no requirements.json"
+      ],
+      "when": "LoadSpec is called on that directory",
+      "then": [
+        "the returned Spec is nil",
+        "the error is a *LoadError whose File names requirements.json"
+      ],
+      "pseudocode": "s, err = LoadSpec(dir); assert s == nil; assert errors.As(err, &LoadError{})"
+    },
     {
-      "id": "TS-01-SMOKE-1",
-      "execution_path_id": "01-PATH-1",
-      "description": "Load spec from disk end-to-end",
-      "trigger": "load_spec(golden_dir)",
-      "real_components": [
-        "io",
-        "models"
+      "id": "TS-01-3",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-1.3"
       ],
-      "mockable": [],
-      "expected_effects": [
-        "Returns Spec with all four artifacts populated"
+      "title": "Load then save is byte-identical for any well-formed spec",
+      "given": [
+        "a corpus of well-formed spec directories"
+      ],
+      "when": "for any spec in the corpus, it is loaded and saved to a fresh directory",
+      "then": [
+        "each written file is byte-identical to the file it was read from"
+      ],
+      "pseudocode": "for d in corpus: s = LoadSpec(d); s.Save(tmp); assert files_equal(d, tmp)"
+    },
+    {
+      "id": "TS-01-4",
+      "kind": "integration",
+      "verifies": [
+        "01-REQ-2.1"
+      ],
+      "title": "Validate reports uncovered criteria and unowned tests",
+      "given": [
+        "a spec whose second criterion is verified by no test"
+      ],
+      "when": "Validate is called on it",
+      "then": [
+        "Valid is false",
+        "an error names the uncovered criterion"
+      ],
+      "pseudocode": "r = spec.Validate(); assert not r.Valid; assert any(e.Check == 'C4' for e in r.Errors)"
+    },
+    {
+      "id": "TS-01-5",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-1",
+        "01-REQ-1.1"
+      ],
+      "title": "A consumer loads and validates a spec end to end",
+      "given": [
+        "a spec directory on disk"
+      ],
+      "when": "LoadSpec and Validate are called in sequence against the real filesystem",
+      "then": [
+        "LoadSpec returns no error",
+        "Validate reports the spec as valid"
+      ],
+      "real_components": [
+        "afspec library",
+        "spec directory on disk"
       ]
     }
-  ],
-  "coverage": {
-    "requirements_covered": [
-      "01-REQ-1.1",
-      "01-REQ-1.E1"
-    ],
-    "properties_covered": [
-      "01-PROP-1"
-    ],
-    "paths_covered": [
-      "01-PATH-1"
-    ],
-    "gaps": []
-  }
+  ]
 }

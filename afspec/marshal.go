@@ -24,61 +24,60 @@ var omitWhenNilFields map[reflect.Type]map[string]bool
 
 func init() {
 	// Field orderings from JSON Schema properties order.
-	// These MUST match the order in the corresponding .v1.json schema files.
+	// These MUST match the order in the corresponding .v2.json schema files.
 	schemaFieldOrder = map[reflect.Type][]string{
-		// requirements.v1.json
-		reflect.TypeOf(RequirementsV1Json{}):  {"$schema", "spec_id", "spec_name", "schema_version", "introduction", "glossary", "requirements", "correctness_properties", "execution_paths", "error_handling", "external_apis"},
-		reflect.TypeOf(UserStory{}):           {"role", "goal", "benefit"},
-		reflect.TypeOf(Criterion{}):           {"id", "ears_pattern", "trigger", "condition", "error_condition", "state", "feature", "system", "action", "return_contract"},
-		reflect.TypeOf(Requirement{}):         {"id", "title", "user_story", "acceptance_criteria", "edge_cases"},
-		reflect.TypeOf(CorrectnessProperty{}): {"id", "title", "for_any", "invariant", "validates"},
-		reflect.TypeOf(PathStep{}):            {"actor", "action"},
-		reflect.TypeOf(ExecutionPath{}):       {"id", "title", "steps"},
-		reflect.TypeOf(ErrorHandlingEntry{}):  {"id", "condition", "behavior", "requirement_id"},
-		reflect.TypeOf(ExternalApiSymbol{}):   {"name", "import_path", "signature", "notes"},
-		reflect.TypeOf(ExternalApi{}):         {"package", "version", "symbols"},
+		// requirements.v2.json
+		reflect.TypeOf(RequirementsV2Json{}): {"$schema", "spec_id", "spec_name", "schema_version", "introduction", "glossary", "requirements", "execution_paths", "external_apis"},
+		reflect.TypeOf(Requirement{}):        {"id", "title", "rationale", "criteria"},
+		reflect.TypeOf(Criterion{}):          {"id", "pattern", "condition", "guard", "system", "action", "contract"},
+		reflect.TypeOf(PathStep{}):           {"actor", "action"},
+		reflect.TypeOf(ExecutionPath{}):      {"id", "title", "steps"},
+		reflect.TypeOf(ExternalApiSymbol{}):  {"name", "import_path", "signature", "notes"},
+		reflect.TypeOf(ExternalApi{}):        {"package", "version", "verified", "symbols"},
 
-		// test_spec.v1.json
-		reflect.TypeOf(TestSpecV1Json{}): {"$schema", "spec_id", "spec_name", "schema_version", "test_cases", "property_tests", "edge_case_tests", "smoke_tests", "coverage"},
-		reflect.TypeOf(TestCase{}):       {"id", "requirement_id", "kind", "description", "preconditions", "input", "expected", "assertion_pseudocode"},
-		reflect.TypeOf(PropertyTest{}):   {"id", "property_id", "validates", "description", "for_any_strategy", "invariant_check"},
-		reflect.TypeOf(EdgeCaseTest{}):   {"id", "requirement_id", "kind", "description", "preconditions", "input", "expected", "assertion_pseudocode"},
-		reflect.TypeOf(SmokeTest{}):      {"id", "execution_path_id", "description", "trigger", "real_components", "mockable", "expected_effects"},
-		reflect.TypeOf(Coverage{}):       {"requirements_covered", "properties_covered", "paths_covered", "gaps"},
+		// test_spec.v2.json
+		reflect.TypeOf(TestSpecV2Json{}): {"$schema", "spec_id", "spec_name", "schema_version", "tests"},
+		reflect.TypeOf(Test{}):           {"id", "kind", "verifies", "title", "given", "when", "then", "pseudocode", "real_components"},
 
-		// tasks.v1.json
-		reflect.TypeOf(TasksV1Json{}):         {"$schema", "spec_id", "spec_name", "schema_version", "test_commands", "dependencies", "task_groups", "traceability"},
-		reflect.TypeOf(TestCommands{}):        {"spec_tests", "all_tests", "linter"},
-		reflect.TypeOf(TaskDependency{}):      {"depends_on_spec", "from_group", "to_group", "relationship", "sentinel"},
-		reflect.TypeOf(Subtask{}):             {"id", "title", "details", "test_spec_refs", "requirement_refs", "state", "optional"},
-		reflect.TypeOf(VerificationSubtask{}): {"id", "checks"},
-		reflect.TypeOf(TaskGroup{}):           {"id", "kind", "title", "subtasks", "verification"},
-		reflect.TypeOf(TraceabilityEntry{}):   {"requirement_id", "test_spec_id", "task_id", "test_path"},
+		// tasks.v2.json
+		reflect.TypeOf(TasksV2Json{}):  {"$schema", "spec_id", "spec_name", "schema_version", "test_commands", "dependencies", "tasks"},
+		reflect.TypeOf(TestCommands{}): {"all_tests", "linter", "spec_tests"},
+		reflect.TypeOf(Dependency{}):   {"spec", "reason"},
+		reflect.TypeOf(Task{}):         {"id", "kind", "title", "criteria", "tests", "steps", "touches", "depends_on", "done_when", "state", "optional"},
 	}
 
-	// Fields that should be omitted when nil. This matches the Python library's
-	// behavior where these fields either don't exist on the Python model or
-	// are pattern-specific fields on Criterion that use omitempty semantics.
+	// Fields omitted when nil. Everything else is always written, so a nil
+	// value would appear as JSON null — which the v2 schemas reject.
 	omitWhenNilFields = map[reflect.Type]map[string]bool{
 		reflect.TypeOf(Criterion{}): {
-			"trigger":         true,
-			"condition":       true,
-			"error_condition": true,
-			"state":           true,
-			"feature":         true,
+			"condition": true,
+			"guard":     true,
+			"system":    true,
+			"contract":  true,
 		},
-		reflect.TypeOf(RequirementsV1Json{}): {
-			"$schema":       true,
+		reflect.TypeOf(Requirement{}): {
+			"rationale": true,
+		},
+		reflect.TypeOf(RequirementsV2Json{}): {
+			"glossary":      true,
 			"external_apis": true,
-		},
-		reflect.TypeOf(TestSpecV1Json{}): {
-			"$schema": true,
-		},
-		reflect.TypeOf(TasksV1Json{}): {
-			"$schema": true,
 		},
 		reflect.TypeOf(ExternalApiSymbol{}): {
 			"notes": true,
+		},
+		reflect.TypeOf(Test{}): {
+			"pseudocode":      true,
+			"real_components": true,
+		},
+		reflect.TypeOf(TestCommands{}): {
+			"spec_tests": true,
+		},
+		reflect.TypeOf(Task{}): {
+			"criteria":   true,
+			"touches":    true,
+			"depends_on": true,
+			"done_when":  true,
+			"optional":   true,
 		},
 	}
 }
@@ -275,9 +274,20 @@ func (w *jsonWriter) writeValue(v reflect.Value) error {
 }
 
 func (w *jsonWriter) writeString(s string) {
-	// Use encoding/json for proper JSON string escaping
-	data, _ := json.Marshal(s)
-	w.buf.Write(data)
+	// encoding/json's Marshal escapes <, > and & as \u003c, \u003e and \u0026
+	// for safe embedding in HTML. Spec text is full of those characters —
+	// "<message>", "a && b" — and the escaping would make a spec that contains
+	// one fail to round-trip byte-for-byte, so it is turned off here.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		// A Go string always marshals, so this cannot happen in practice.
+		w.buf.WriteString(`""`)
+		return
+	}
+	// Encode appends a newline that the caller does not want.
+	w.buf.Write(bytes.TrimRight(buf.Bytes(), "\n"))
 }
 
 func (w *jsonWriter) writeStruct(v reflect.Value) error {

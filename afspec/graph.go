@@ -35,24 +35,21 @@ func BuildDependencyGraph(metas []SpecMeta, root string) (*DependencyGraph, erro
 			continue
 		}
 
-		var tasks TasksV1Json
+		var tasks TasksV2Json
 		if err := json.Unmarshal(tasksData, &tasks); err != nil {
 			errs = append(errs, fmt.Errorf("cannot parse tasks.json for spec %s: %w", meta.SpecID, err))
 			continue
 		}
 
 		for _, dep := range tasks.Dependencies {
-			edge := DependencyEdge{
-				FromSpec:     meta.SpecID,
-				ToSpec:       dep.DependsOnSpec,
-				FromGroup:    dep.FromGroup,
-				ToGroup:      dep.ToGroup,
-				Relationship: dep.Relationship,
-			}
-			edges = append(edges, edge)
+			edges = append(edges, DependencyEdge{
+				FromSpec: meta.SpecID,
+				ToSpec:   dep.Spec,
+				Reason:   dep.Reason,
+			})
 
-			if !knownSpecs[dep.DependsOnSpec] {
-				errs = append(errs, fmt.Errorf("spec %s references unknown spec %s", meta.SpecID, dep.DependsOnSpec))
+			if !knownSpecs[dep.Spec] {
+				errs = append(errs, fmt.Errorf("spec %s references unknown spec %s", meta.SpecID, dep.Spec))
 			}
 		}
 	}

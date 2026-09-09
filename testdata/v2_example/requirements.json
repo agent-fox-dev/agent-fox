@@ -66,10 +66,22 @@
       "id": "09-PATH-1",
       "title": "Agent lists specs and parses the result",
       "steps": [
-        { "actor": "agent", "action": "runs `spec list` with AF_AGENT=1" },
-        { "actor": "spec binary", "action": "detects agent mode before the banner would print" },
-        { "actor": "spec binary", "action": "scans the spec root and builds the list payload" },
-        { "actor": "spec binary", "action": "writes the payload as one JSON object to stdout and exits 0" }
+        {
+          "actor": "agent",
+          "action": "runs `spec list` with AF_AGENT=1"
+        },
+        {
+          "actor": "spec binary",
+          "action": "detects agent mode before the banner would print"
+        },
+        {
+          "actor": "spec binary",
+          "action": "scans the spec root and builds the list payload"
+        },
+        {
+          "actor": "spec binary",
+          "action": "writes the payload as one JSON object to stdout and exits 0"
+        }
       ]
     }
   ]

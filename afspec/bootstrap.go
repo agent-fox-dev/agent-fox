@@ -1,6 +1,9 @@
 package afspec
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // ValidationError represents a single validation error from BootstrapSpec.Finalize.
 // Rule identifies the type of check that failed (e.g. "bootstrap" for missing
@@ -16,19 +19,28 @@ type ValidationError struct {
 type BootstrapSpec struct {
 	SpecID       string
 	SpecName     string
-	Requirements *RequirementsV1Json
-	TestSpec     *TestSpecV1Json
-	Tasks        *TasksV1Json
+	Title        string
+	CreatedAt    string
+	UpdatedAt    string
+	Requirements *RequirementsV2Json
+	TestSpec     *TestSpecV2Json
+	Tasks        *TasksV2Json
 	PRDBody      string
 	Architecture string
 }
 
 // NewBootstrapSpec creates a BootstrapSpec with the given specID and specName.
-// All artifact fields start as nil/zero values.
+// All artifact fields start as nil/zero values. Title, CreatedAt and UpdatedAt
+// default to values that satisfy the PRD frontmatter schema and should be
+// overwritten with the real ones before Finalize.
 func NewBootstrapSpec(specID, specName string) *BootstrapSpec {
+	now := time.Now().UTC().Format(time.RFC3339)
 	return &BootstrapSpec{
-		SpecID:   specID,
-		SpecName: specName,
+		SpecID:    specID,
+		SpecName:  specName,
+		Title:     specName,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 }
 
@@ -70,9 +82,11 @@ func (b *BootstrapSpec) Finalize() (*Spec, []ValidationError) {
 	spec := &Spec{
 		SpecID:        b.SpecID,
 		SpecName:      b.SpecName,
+		Title:         b.Title,
 		Status:        "draft",
-		SchemaVersion: 1,
-		Supersedes:    []string{},
+		CreatedAt:     b.CreatedAt,
+		UpdatedAt:     b.UpdatedAt,
+		SchemaVersion: SchemaVersion,
 		PRDBody:       b.PRDBody,
 		Requirements:  b.Requirements,
 		TestSpec:      b.TestSpec,

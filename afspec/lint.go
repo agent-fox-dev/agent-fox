@@ -184,30 +184,32 @@ func ComputeExitCode(findings []LintFinding) int {
 // RunLintSpecs — full lint execution (05-REQ-9)
 // ---------------------------------------------------------------------------
 
-// isFullyImplemented checks whether a spec's tasks.json exists and all
-// subtasks across all groups have state 'done' or 'dropped'. Returns false
-// if tasks.json cannot be read, parsed, or has any subtask in another state.
+// isFullyImplemented reports whether a spec's tasks.json exists and every
+// task is in state done or dropped. A spec with no tasks at all is a scaffold,
+// not a finished spec, so it is not fully implemented. Returns false when
+// tasks.json cannot be read or parsed.
 func isFullyImplemented(info LintSpecInfo) bool {
 	if !info.HasTasks {
 		return false
 	}
 
-	tasksPath := filepath.Join(info.Path, "tasks.json")
-	data, err := os.ReadFile(tasksPath)
+	data, err := os.ReadFile(filepath.Join(info.Path, "tasks.json"))
 	if err != nil {
 		return false
 	}
 
-	var tasks TasksV1Json
+	var tasks TasksV2Json
 	if err := json.Unmarshal(data, &tasks); err != nil {
 		return false
 	}
 
-	for _, group := range tasks.TaskGroups {
-		for _, sub := range group.Subtasks {
-			if sub.State != SubtaskStateDone && sub.State != SubtaskStateDropped {
-				return false
-			}
+	if len(tasks.Tasks) == 0 {
+		return false
+	}
+
+	for _, task := range tasks.Tasks {
+		if task.State != TaskStateDone && task.State != TaskStateDropped {
+			return false
 		}
 	}
 
@@ -250,7 +252,8 @@ func RunLintSpecs(specsDir string, lintAll bool) (LintResult, error) {
 	var allFindings []LintFinding
 
 	for _, info := range infos {
-		// Skip fully-implemented specs when lintAll is false.
+		// Skip fully-implemented specs (every task done or dropped) unless
+		// the caller asked for all of them.
 		if !lintAll && isFullyImplemented(info) {
 			continue
 		}
@@ -258,8 +261,8 @@ func RunLintSpecs(specsDir string, lintAll bool) (LintResult, error) {
 		// Load the spec from disk.
 		spec, loadErr := LoadSpec(info.Path)
 		if loadErr != nil {
-			// 05-REQ-9.E2 / 05-ERR-8: record a load-failure finding and
-			// continue processing remaining specs.
+			// Record a load-failure finding and continue with the
+			// remaining specs rather than aborting the whole run.
 			allFindings = append(allFindings, LintFinding{
 				SpecName: info.Name,
 				File:     "requirements.json",

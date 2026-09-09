@@ -1,252 +1,105 @@
 package afspec
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-)
+func TestComputeCoverageOnACompleteSpec(t *testing.T) {
+	spec := loadFixture(t, fixtureValidSpec)
+	report := spec.TestSpec.ComputeCoverage(spec.Requirements)
 
-// makeReqWithCriteria builds a RequirementsV1Json containing a single
-// requirement with the supplied acceptance-criterion IDs and edge-case IDs.
-func makeReqWithCriteria(reqID string, acIDs []string, ecIDs []string) *RequirementsV1Json {
-	criteria := make([]Criterion, len(acIDs))
-	for i, id := range acIDs {
-		criteria[i] = Criterion{
-			Id:          id,
-			EarsPattern: CriterionEarsPatternUbiquitous,
-			System:      "sys",
-			Action:      "act",
-		}
+	if len(report.Uncovered) != 0 {
+		t.Errorf("uncovered = %v; the canonical fixture covers everything", report.Uncovered)
 	}
-	errCond := "some condition"
-	edgeCases := make([]Criterion, len(ecIDs))
-	for i, id := range ecIDs {
-		edgeCases[i] = Criterion{
-			Id:             id,
-			EarsPattern:    CriterionEarsPatternUnwanted,
-			ErrorCondition: &errCond,
-			System:         "sys",
-			Action:         "handle it",
-		}
-	}
-	return &RequirementsV1Json{
-		SchemaVersion: 1,
-		SpecId:        "05",
-		SpecName:      "test",
-		Introduction:  "Test",
-		Glossary:      RequirementsV1JsonGlossary{},
-		Requirements: []Requirement{
-			{
-				Id:    reqID,
-				Title: "Test Requirement",
-				UserStory: UserStory{
-					Role:    "dev",
-					Goal:    "goal",
-					Benefit: "benefit",
-				},
-				AcceptanceCriteria: criteria,
-				EdgeCases:          edgeCases,
-			},
-		},
-		CorrectnessProperties: []CorrectnessProperty{},
-		ExecutionPaths:        []ExecutionPath{},
-		ErrorHandling:         []ErrorHandlingEntry{},
+	// Four criteria plus one path.
+	if len(report.Covered) != 5 {
+		t.Errorf("covered = %v; want the four criteria and the one path", report.Covered)
 	}
 }
 
-// makeTestSpecWithTestCase builds a TestSpecV1Json with a single test case
-// referencing the given criterion ID.
-func makeTestSpecWithTestCase(criterionID string) *TestSpecV1Json {
-	return &TestSpecV1Json{
-		SchemaVersion: 1,
-		SpecId:        "05",
-		SpecName:      "test",
-		TestCases: []TestCase{
-			{
-				Id:                  "TS-05-1",
-				RequirementId:       criterionID,
-				Kind:                TestCaseKindUnit,
-				Description:         "Covers one criterion",
-				Preconditions:       []string{},
-				Expected:            "ok",
-				AssertionPseudocode: "assert true",
-			},
-		},
-		PropertyTests: []PropertyTest{},
-		EdgeCaseTests: []EdgeCaseTest{},
-		SmokeTests:    []SmokeTest{},
-		Coverage:      Coverage{},
+func TestComputeCoverageReportsGaps(t *testing.T) {
+	spec := loadFixture(t, fixtureValidSpec)
+	spec.TestSpec.Tests = spec.TestSpec.Tests[:1] // keep only TS-01-1
+
+	report := spec.TestSpec.ComputeCoverage(spec.Requirements)
+	if len(report.Covered) != 1 || report.Covered[0] != "01-REQ-1.1" {
+		t.Errorf("covered = %v; want just 01-REQ-1.1", report.Covered)
 	}
-}
-
-// makeTestSpecWithEdgeCaseTest builds a TestSpecV1Json with a single edge
-// case test referencing the given criterion ID.
-func makeTestSpecWithEdgeCaseTest(criterionID string) *TestSpecV1Json {
-	return &TestSpecV1Json{
-		SchemaVersion: 1,
-		SpecId:        "05",
-		SpecName:      "test",
-		TestCases:     []TestCase{},
-		PropertyTests: []PropertyTest{},
-		EdgeCaseTests: []EdgeCaseTest{
-			{
-				Id:                  "TS-05-E1",
-				RequirementId:       criterionID,
-				Kind:                EdgeCaseTestKindUnit,
-				Description:         "Covers one edge case criterion",
-				Preconditions:       []string{},
-				Expected:            "ok",
-				AssertionPseudocode: "assert true",
-			},
-		},
-		SmokeTests: []SmokeTest{},
-		Coverage:   Coverage{},
+	want := []string{"01-REQ-1.2", "01-REQ-1.3", "01-REQ-2.1", "01-PATH-1"}
+	if len(report.Uncovered) != len(want) {
+		t.Fatalf("uncovered = %v; want %v", report.Uncovered, want)
 	}
-}
-
-// TestComputeCoverageStruct_PartialCriterion verifies that when a requirement
-// has multiple criteria but only one is tested, only the tested criterion ID
-// appears in RequirementsCovered and the untested criterion IDs appear in Gaps.
-// No parent requirement ID appears in either field.
-// Test Spec: TS-NS-1, Requirement: NS-REQ-1.1
-func TestComputeCoverageStruct_PartialCriterion(t *testing.T) {
-	defer requireImplemented(t)
-
-	req := makeReqWithCriteria("05-REQ-1", []string{"05-REQ-1.1", "05-REQ-1.2", "05-REQ-1.3"}, nil)
-	ts := makeTestSpecWithTestCase("05-REQ-1.1")
-
-	cov := ts.ComputeCoverageStruct(req)
-
-	// Only the tested criterion ID should appear in RequirementsCovered.
-	if diff := cmp.Diff([]string{"05-REQ-1.1"}, cov.RequirementsCovered); diff != "" {
-		t.Errorf("RequirementsCovered mismatch (-want +got):\n%s", diff)
-	}
-
-	// Untested criteria appear in Gaps (order: criteria order in requirements).
-	wantGaps := []string{"05-REQ-1.2", "05-REQ-1.3"}
-	if diff := cmp.Diff(wantGaps, cov.Gaps, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-		t.Errorf("Gaps mismatch (-want +got):\n%s", diff)
-	}
-
-	// Parent requirement ID must NOT appear in either field.
-	for _, id := range append(cov.RequirementsCovered, cov.Gaps...) {
-		if id == "05-REQ-1" {
-			t.Errorf("parent requirement ID %q must not appear in coverage output; only criterion IDs", id)
+	for i, id := range want {
+		if report.Uncovered[i] != id {
+			t.Errorf("uncovered[%d] = %q; want %q (artifact order is preserved)", i, report.Uncovered[i], id)
 		}
 	}
 }
 
-// TestComputeCoverageStruct_EdgeCaseCriterion verifies that when an edge case
-// criterion is referenced by an EdgeCaseTest, its criterion ID appears
-// individually in RequirementsCovered, and the uncovered acceptance criterion
-// appears in Gaps.
-// Test Spec: TS-NS-2, Requirement: NS-REQ-2.1
-func TestComputeCoverageStruct_EdgeCaseCriterion(t *testing.T) {
-	defer requireImplemented(t)
+// TestComputeTraceabilityIsDerived guards §8.5: the matrix comes from
+// test.verifies and task.tests, so it cannot drift from the artifacts.
+func TestComputeTraceabilityIsDerived(t *testing.T) {
+	spec := loadFixture(t, fixtureValidSpec)
+	matrix := spec.ComputeTraceability()
 
-	req := makeReqWithCriteria("05-REQ-1", []string{"05-REQ-1.1"}, []string{"05-REQ-1.E1"})
-	ts := makeTestSpecWithEdgeCaseTest("05-REQ-1.E1")
-
-	cov := ts.ComputeCoverageStruct(req)
-
-	// Edge case criterion ID must appear in RequirementsCovered.
-	if diff := cmp.Diff([]string{"05-REQ-1.E1"}, cov.RequirementsCovered); diff != "" {
-		t.Errorf("RequirementsCovered mismatch (-want +got):\n%s", diff)
+	if len(matrix.Links) != 5 {
+		t.Fatalf("links = %d; want four criteria plus one path", len(matrix.Links))
 	}
 
-	// The uncovered acceptance criterion must appear in Gaps.
-	foundAC := false
-	for _, g := range cov.Gaps {
-		if g == "05-REQ-1.1" {
-			foundAC = true
-		}
-		if g == "05-REQ-1" {
-			t.Errorf("parent requirement ID %q must not appear in Gaps", g)
-		}
-	}
-	if !foundAC {
-		t.Errorf("expected Gaps to contain %q, got %v", "05-REQ-1.1", cov.Gaps)
-	}
-}
-
-// TestComputeCoverageStruct_FullCoverage verifies that when every criterion has
-// a corresponding test, RequirementsCovered contains all criterion IDs and Gaps
-// is empty.
-// Test Spec: TS-NS-3, Requirement: NS-REQ-3.1
-func TestComputeCoverageStruct_FullCoverage(t *testing.T) {
-	defer requireImplemented(t)
-
-	req := makeReqWithCriteria("05-REQ-1", []string{"05-REQ-1.1", "05-REQ-1.2"}, nil)
-
-	ts := &TestSpecV1Json{
-		SchemaVersion: 1,
-		SpecId:        "05",
-		SpecName:      "test",
-		TestCases: []TestCase{
-			{
-				Id:                  "TS-05-1",
-				RequirementId:       "05-REQ-1.1",
-				Kind:                TestCaseKindUnit,
-				Description:         "Covers criterion 1",
-				Preconditions:       []string{},
-				Expected:            "ok",
-				AssertionPseudocode: "assert true",
-			},
-			{
-				Id:                  "TS-05-2",
-				RequirementId:       "05-REQ-1.2",
-				Kind:                TestCaseKindUnit,
-				Description:         "Covers criterion 2",
-				Preconditions:       []string{},
-				Expected:            "ok",
-				AssertionPseudocode: "assert true",
-			},
-		},
-		PropertyTests: []PropertyTest{},
-		EdgeCaseTests: []EdgeCaseTest{},
-		SmokeTests:    []SmokeTest{},
-		Coverage:      Coverage{},
+	byID := map[string]TraceLink{}
+	for _, l := range matrix.Links {
+		byID[l.ID] = l
 	}
 
-	cov := ts.ComputeCoverageStruct(req)
-
-	wantCovered := []string{"05-REQ-1.1", "05-REQ-1.2"}
-	if diff := cmp.Diff(wantCovered, cov.RequirementsCovered); diff != "" {
-		t.Errorf("RequirementsCovered mismatch (-want +got):\n%s", diff)
+	link := byID["01-REQ-1.1"]
+	if link.Kind != "criterion" {
+		t.Errorf("kind = %q; want criterion", link.Kind)
 	}
-	if diff := cmp.Diff([]string{}, cov.Gaps); diff != "" {
-		t.Errorf("Gaps mismatch (-want +got):\n%s", diff)
+	if len(link.Tests) != 2 || link.Tests[0] != "TS-01-1" || link.Tests[1] != "TS-01-5" {
+		t.Errorf("tests = %v; want TS-01-1 and the smoke test that also verifies it", link.Tests)
+	}
+	if len(link.Tasks) != 2 || link.Tasks[0] != 1 || link.Tasks[1] != 3 {
+		t.Errorf("tasks = %v; want the owning implement task and the integration task", link.Tasks)
+	}
+	if !link.Covered || !link.Owned {
+		t.Errorf("covered=%v owned=%v; both should hold", link.Covered, link.Owned)
+	}
+
+	path := byID["01-PATH-1"]
+	if path.Kind != "path" || len(path.Tests) != 1 || path.Tests[0] != "TS-01-5" {
+		t.Errorf("path link = %+v; want the smoke test", path)
+	}
+	if len(path.Tasks) != 1 || path.Tasks[0] != 3 {
+		t.Errorf("path tasks = %v; want the integration task", path.Tasks)
 	}
 }
 
-// TestComputeCoverage_CriterionLevel verifies that ComputeCoverage reports
-// criterion-level IDs in Covered and Uncovered, matching the behavior of
-// ComputeCoverageStruct. Parent requirement IDs must not appear.
-// Test Spec: TS-NS-4, Requirement: NS-REQ-4.1
-func TestComputeCoverage_CriterionLevel(t *testing.T) {
-	defer requireImplemented(t)
+func TestComputeTraceabilityMarksOrphans(t *testing.T) {
+	spec := loadFixture(t, fixtureValidSpec)
+	// Orphan the property test: the criterion stays covered but unowned.
+	spec.Tasks.Tasks[0].Tests = []string{"TS-01-1", "TS-01-2"}
 
-	req := makeReqWithCriteria("05-REQ-1", []string{"05-REQ-1.1", "05-REQ-1.2", "05-REQ-1.3"}, nil)
-	ts := makeTestSpecWithTestCase("05-REQ-1.1")
-
-	report := ts.ComputeCoverage(req)
-
-	// Only the tested criterion ID should be covered.
-	if diff := cmp.Diff([]string{"05-REQ-1.1"}, report.Covered); diff != "" {
-		t.Errorf("Covered mismatch (-want +got):\n%s", diff)
-	}
-
-	// Untested criteria must appear in Uncovered.
-	wantUncovered := []string{"05-REQ-1.2", "05-REQ-1.3"}
-	if diff := cmp.Diff(wantUncovered, report.Uncovered, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-		t.Errorf("Uncovered mismatch (-want +got):\n%s", diff)
-	}
-
-	// Parent requirement ID must NOT appear in either list.
-	for _, id := range append(report.Covered, report.Uncovered...) {
-		if id == "05-REQ-1" {
-			t.Errorf("parent requirement ID %q must not appear in coverage report; only criterion IDs", id)
+	for _, link := range spec.ComputeTraceability().Links {
+		if link.ID != "01-REQ-1.3" {
+			continue
 		}
+		if !link.Covered {
+			t.Error("the criterion is still verified by TS-01-3, so it is covered")
+		}
+		if link.Owned {
+			t.Error("no task owns TS-01-3 any more, so the criterion is not owned")
+		}
+		return
+	}
+	t.Fatal("01-REQ-1.3 is missing from the matrix")
+}
+
+func TestComputeTraceabilityOnAnEmptySpec(t *testing.T) {
+	spec := CreateSpec("05", "empty")
+	if got := len(spec.ComputeTraceability().Links); got != 0 {
+		t.Errorf("links = %d; want none", got)
+	}
+
+	var nilReqs Spec
+	if got := len(nilReqs.ComputeTraceability().Links); got != 0 {
+		t.Errorf("links = %d on a spec with no requirements; want none", got)
 	}
 }

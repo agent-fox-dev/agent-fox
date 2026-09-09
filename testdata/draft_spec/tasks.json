@@ -1,78 +1,56 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
   "spec_id": "02",
   "spec_name": "draft_feature",
-  "schema_version": 1,
+  "schema_version": 2,
   "test_commands": {
-    "spec_tests": "pytest -q tests/",
-    "all_tests": "pytest -q",
-    "linter": "ruff check"
+    "all_tests": "go test ./... -count=1",
+    "linter": "go vet ./..."
   },
-  "dependencies": [],
-  "task_groups": [
+  "dependencies": [
+    {
+      "spec": "01",
+      "reason": "uses the afspec loader and saver"
+    }
+  ],
+  "tasks": [
     {
       "id": 1,
-      "kind": "tests",
-      "title": "Write tests",
-      "subtasks": [
-        {
-          "id": "1.1",
-          "title": "Create lifecycle tests",
-          "details": [
-            "Test all transitions"
-          ],
-          "test_spec_refs": [
-            "TS-02-1"
-          ],
-          "requirement_refs": [
-            "02-REQ-1.1"
-          ],
-          "state": "pending",
-          "optional": false
-        }
+      "kind": "implement",
+      "title": "Draft editing and lifecycle guards",
+      "criteria": [
+        "02-REQ-1"
       ],
-      "verification": {
-        "id": "1.V",
-        "checks": [
-          "All tests exist"
-        ]
-      }
+      "tests": [
+        "TS-02-1",
+        "TS-02-2"
+      ],
+      "steps": [
+        "Write TS-02-1 and TS-02-2 and confirm they fail",
+        "Allow Save on a draft without recomputing the intent hash",
+        "Reject any transition that is not an edge of the lifecycle graph"
+      ],
+      "touches": [
+        "afspec/lifecycle.go"
+      ],
+      "state": "pending"
     },
     {
       "id": 2,
-      "kind": "wiring_verification",
-      "title": "Wiring verification",
-      "subtasks": [
-        {
-          "id": "2.1",
-          "title": "Verify wiring",
-          "details": [
-            "Check all paths"
-          ],
-          "test_spec_refs": [
-            "TS-02-SMOKE-1"
-          ],
-          "requirement_refs": [
-            "02-REQ-1.1"
-          ],
-          "state": "pending",
-          "optional": false
-        }
+      "kind": "integration",
+      "title": "Verify draft editing end to end",
+      "criteria": [],
+      "tests": [
+        "TS-02-3"
       ],
-      "verification": {
-        "id": "2.V",
-        "checks": [
-          "All smoke tests pass"
-        ]
-      }
-    }
-  ],
-  "traceability": [
-    {
-      "requirement_id": "02-REQ-1.1",
-      "test_spec_id": "TS-02-1",
-      "task_id": "1.1",
-      "test_path": null
+      "steps": [
+        "Write TS-02-3 against a real directory and confirm it passes",
+        "Trace 02-PATH-1 from the edit through Save to the reload"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
     }
   ]
 }

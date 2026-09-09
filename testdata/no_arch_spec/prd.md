@@ -5,12 +5,11 @@ title: "Test Feature"
 status: "draft"
 created_at: "2026-01-01T00:00:00Z"
 updated_at: "2026-01-01T00:00:00Z"
+intent_hash: null
+schema_version: 2
 owner: "test-author"
 source: "https://github.com/test/repo/issues/1"
-supersedes: []
 tags: ["test"]
-intent_hash: null
-schema_version: 1
 ---
 # Test Feature
 

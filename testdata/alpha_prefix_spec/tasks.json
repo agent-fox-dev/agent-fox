@@ -1,87 +1,87 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
   "spec_id": "abc",
   "spec_name": "alpha_prefix_feature",
-  "schema_version": 1,
+  "schema_version": 2,
   "test_commands": {
-    "spec_tests": "go test ./...",
-    "all_tests": "go test ./...",
-    "linter": "go vet ./..."
+    "all_tests": "go test ./... -count=1",
+    "linter": "go vet ./...",
+    "spec_tests": "go test ./afspec/... -count=1"
   },
   "dependencies": [],
-  "task_groups": [
+  "tasks": [
     {
       "id": 1,
-      "kind": "tests",
-      "title": "Write failing spec tests",
-      "subtasks": [
-        {
-          "id": "1.1",
-          "title": "Create test infrastructure",
-          "details": [
-            "Set up test files and fixtures"
-          ],
-          "test_spec_refs": [
-            "TS-abc-1"
-          ],
-          "requirement_refs": [
-            "abc-REQ-1.1"
-          ],
-          "state": "pending",
-          "optional": false
-        }
+      "kind": "implement",
+      "title": "Load and save spec artifacts",
+      "criteria": [
+        "abc-REQ-1"
       ],
-      "verification": {
-        "id": "1.V",
-        "checks": [
-          "All spec tests exist and are syntactically valid",
-          "All spec tests FAIL (no implementation yet)"
-        ]
-      }
+      "tests": [
+        "TS-abc-1",
+        "TS-abc-2",
+        "TS-abc-3"
+      ],
+      "steps": [
+        "Write TS-01-1, TS-01-2 and TS-01-3 and confirm they fail",
+        "Decode prd.md and the three JSON artifacts into the Spec struct",
+        "Return a LoadError naming the file whenever one cannot be read or decoded",
+        "Write the artifacts back through the deterministic marshaller"
+      ],
+      "touches": [
+        "afspec/afspec.go",
+        "afspec/prd.go",
+        "afspec/marshal.go"
+      ],
+      "state": "pending"
     },
     {
       "id": 2,
-      "kind": "wiring_verification",
-      "title": "Wiring verification",
-      "subtasks": [
-        {
-          "id": "2.1",
-          "title": "Stub and dead-code audit",
-          "details": [
-            "Verify all paths are wired",
-            "Confirm no stubs remain"
-          ],
-          "test_spec_refs": [
-            "TS-abc-SMOKE-1"
-          ],
-          "requirement_refs": [
-            "abc-REQ-1.1"
-          ],
-          "state": "pending",
-          "optional": false
-        }
+      "kind": "implement",
+      "title": "Cross-file validation",
+      "criteria": [
+        "abc-REQ-2.1"
       ],
-      "verification": {
-        "id": "2.V",
-        "checks": [
-          "All smoke tests pass",
-          "No unjustified stubs remain"
-        ]
-      }
-    }
-  ],
-  "traceability": [
-    {
-      "requirement_id": "abc-REQ-1.1",
-      "test_spec_id": "TS-abc-1",
-      "task_id": "1.1",
-      "test_path": null
+      "tests": [
+        "TS-abc-4"
+      ],
+      "steps": [
+        "Write TS-01-4 and confirm it fails",
+        "Index criteria, paths and tests once per validation run",
+        "Report an error for every criterion no test verifies and every test no task owns"
+      ],
+      "touches": [
+        "afspec/validate.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
     },
     {
-      "requirement_id": "abc-REQ-1.E1",
-      "test_spec_id": "TS-abc-E1",
-      "task_id": "1.1",
-      "test_path": null
+      "id": 3,
+      "kind": "integration",
+      "title": "Verify the load-and-validate path end to end",
+      "criteria": [],
+      "tests": [
+        "TS-abc-5"
+      ],
+      "steps": [
+        "Write TS-01-5 against a real spec directory and confirm it passes",
+        "Trace 01-PATH-1 through LoadSpec and Validate; confirm no stub remains on the path",
+        "Confirm Validate is called from production code, not only from tests"
+      ],
+      "touches": [
+        "afspec/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "`go test ./afspec/... -count=1` passes"
+      ],
+      "state": "pending"
     }
   ]
 }

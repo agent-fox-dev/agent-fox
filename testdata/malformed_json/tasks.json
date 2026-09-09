@@ -1,1 +1,87 @@
-{invalid json content here
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "01",
+  "spec_name": "test_feature",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "go test ./... -count=1",
+    "linter": "go vet ./...",
+    "spec_tests": "go test ./afspec/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Load and save spec artifacts",
+      "criteria": [
+        "01-REQ-1"
+      ],
+      "tests": [
+        "TS-01-1",
+        "TS-01-2",
+        "TS-01-3"
+      ],
+      "steps": [
+        "Write TS-01-1, TS-01-2 and TS-01-3 and confirm they fail",
+        "Decode prd.md and the three JSON artifacts into the Spec struct",
+        "Return a LoadError naming the file whenever one cannot be read or decoded",
+        "Write the artifacts back through the deterministic marshaller"
+      ],
+      "touches": [
+        "afspec/afspec.go",
+        "afspec/prd.go",
+        "afspec/marshal.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Cross-file validation",
+      "criteria": [
+        "01-REQ-2.1"
+      ],
+      "tests": [
+        "TS-01-4"
+      ],
+      "steps": [
+        "Write TS-01-4 and confirm it fails",
+        "Index criteria, paths and tests once per validation run",
+        "Report an error for every criterion no test verifies and every test no task owns"
+      ],
+      "touches": [
+        "afspec/validate.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "integration",
+      "title": "Verify the load-and-validate path end to end",
+      "criteria": [],
+      "tests": [
+        "TS-01-5"
+      ],
+      "steps": [
+        "Write TS-01-5 against a real spec directory and confirm it passes",
+        "Trace 01-PATH-1 through LoadSpec and Validate; confirm no stub remains on the path",
+        "Confirm Validate is called from production code, not only from tests"
+      ],
+      "touches": [
+        "afspec/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "`go test ./afspec/... -count=1` passes"
+      ],
+      "state": "pending"
+    }
+  ]
+}

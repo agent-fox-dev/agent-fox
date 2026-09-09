@@ -1,75 +1,62 @@
 package afspec
 
-// Schema URIs for each artifact type.
+// Schema URIs for each artifact type (format version 2).
 const (
-	requirementsSchemaURI = "https://agent-fox.dev/schemas/requirements.v1.json"
-	testSpecSchemaURI     = "https://agent-fox.dev/schemas/test_spec.v1.json"
-	tasksSchemaURI        = "https://agent-fox.dev/schemas/tasks.v1.json"
+	requirementsSchemaURI = "https://agent-fox.dev/schemas/requirements.v2.json"
+	testSpecSchemaURI     = "https://agent-fox.dev/schemas/test_spec.v2.json"
+	tasksSchemaURI        = "https://agent-fox.dev/schemas/tasks.v2.json"
 )
 
-// CreateSpec creates a new Spec with status set to "draft", all sub-artifacts
-// initialized with valid $schema, spec_id, spec_name, and schema_version
-// fields so that Save + LoadSpec round-trips succeed without error.
-// Validation of specID and specName is deferred to spec.Validate.
+// SchemaVersion is the format version this library reads and writes.
+const SchemaVersion = 2
+
+// CreateSpec creates a new draft Spec whose three artifacts carry a valid
+// $schema, spec_id, spec_name and schema_version so that Save + LoadSpec
+// round-trips. The artifact bodies are empty: a spec with no requirements, no
+// tests and no tasks is *incomplete*, not schema-invalid, and Validate
+// reports it as such (§10, bootstrap mode) until `spec generate` fills it in.
+//
+// Validation of specID and specName is deferred to Spec.Validate.
 func CreateSpec(specID, specName string) *Spec {
 	return &Spec{
 		SpecID:        specID,
 		SpecName:      specName,
 		Status:        "draft",
-		SchemaVersion: 1,
-		Requirements: &RequirementsV1Json{
-			Schema:                requirementsSchemaURI,
-			SpecId:                specID,
-			SpecName:              specName,
-			SchemaVersion:         1,
-			Glossary:              RequirementsV1JsonGlossary{},
-			Requirements:          []Requirement{},
-			CorrectnessProperties: []CorrectnessProperty{},
-			ExecutionPaths:        []ExecutionPath{},
-			ErrorHandling:         []ErrorHandlingEntry{},
+		SchemaVersion: SchemaVersion,
+		Requirements: &RequirementsV2Json{
+			Schema:         requirementsSchemaURI,
+			SpecId:         specID,
+			SpecName:       specName,
+			SchemaVersion:  SchemaVersion,
+			Glossary:       RequirementsV2JsonGlossary{},
+			Requirements:   []Requirement{},
+			ExecutionPaths: []ExecutionPath{},
 		},
-		TestSpec: &TestSpecV1Json{
+		TestSpec: &TestSpecV2Json{
 			Schema:        testSpecSchemaURI,
 			SpecId:        specID,
 			SpecName:      specName,
-			SchemaVersion: 1,
-			TestCases:     []TestCase{},
-			PropertyTests: []PropertyTest{},
-			EdgeCaseTests: []EdgeCaseTest{},
-			SmokeTests:    []SmokeTest{},
+			SchemaVersion: SchemaVersion,
+			Tests:         []Test{},
 		},
-		Tasks: &TasksV1Json{
+		Tasks: &TasksV2Json{
 			Schema:        tasksSchemaURI,
 			SpecId:        specID,
 			SpecName:      specName,
-			SchemaVersion: 1,
+			SchemaVersion: SchemaVersion,
 			TestCommands:  TestCommands{},
-			Dependencies:  []TaskDependency{},
-			// task_groups requires minItems:1 per Section 8.3; scaffold with
-			// the mandatory first ("tests") and last ("wiring_verification") groups.
-			TaskGroups: []TaskGroup{
-				{
-					Id:       1,
-					Kind:     TaskGroupKindTests,
-					Title:    "Write Tests",
-					Subtasks: []Subtask{},
-					Verification: VerificationSubtask{
-						Id:     "1.V",
-						Checks: []string{"all tests pass"},
-					},
-				},
-				{
-					Id:       2,
-					Kind:     TaskGroupKindWiringVerification,
-					Title:    "Wiring Verification",
-					Subtasks: []Subtask{},
-					Verification: VerificationSubtask{
-						Id:     "2.V",
-						Checks: []string{"no stubs remain"},
-					},
-				},
-			},
-			Traceability: []TraceabilityEntry{},
+			Dependencies:  []Dependency{},
+			Tasks:         []Task{},
 		},
 	}
+}
+
+// IsScaffold reports whether the spec is still an empty scaffold: no
+// requirements, no tests and no tasks. A scaffold is incomplete rather than
+// invalid, which is what lets `spec new` write a spec before `spec generate`
+// has produced its content.
+func (s *Spec) IsScaffold() bool {
+	return s.Requirements != nil && len(s.Requirements.Requirements) == 0 &&
+		s.TestSpec != nil && len(s.TestSpec.Tests) == 0 &&
+		s.Tasks != nil && len(s.Tasks.Tasks) == 0
 }

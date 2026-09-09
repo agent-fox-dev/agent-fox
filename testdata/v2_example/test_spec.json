@@ -7,62 +7,114 @@
     {
       "id": "TS-09-1",
       "kind": "unit",
-      "verifies": ["09-REQ-1.1"],
+      "verifies": [
+        "09-REQ-1.1"
+      ],
       "title": "Agent mode suppresses banner and spinner and emits one JSON object",
-      "given": ["AF_AGENT=1 is set", "a spec root with two specs exists"],
+      "given": [
+        "AF_AGENT=1 is set",
+        "a spec root with two specs exists"
+      ],
       "when": "spec list is executed",
-      "then": ["stdout parses as exactly one JSON object", "stdout contains no banner or spinner characters"],
+      "then": [
+        "stdout parses as exactly one JSON object",
+        "stdout contains no banner or spinner characters"
+      ],
       "pseudocode": "r = run(env={AF_AGENT:'1'}, 'spec list'); assert parse_json(r.stdout).ok == true; assert not contains(r.stdout, BANNER_TEXT)"
     },
     {
       "id": "TS-09-2",
       "kind": "unit",
-      "verifies": ["09-REQ-1.2"],
+      "verifies": [
+        "09-REQ-1.2"
+      ],
       "title": "AF_AGENT=1 combined with --quiet behaves like AF_AGENT=1 alone",
-      "given": ["AF_AGENT=1 is set", "a spec root with two specs exists"],
+      "given": [
+        "AF_AGENT=1 is set",
+        "a spec root with two specs exists"
+      ],
       "when": "spec list and spec --quiet list are executed",
-      "then": ["stdout, stderr and exit code are identical for both invocations"],
+      "then": [
+        "stdout, stderr and exit code are identical for both invocations"
+      ],
       "pseudocode": "a = run(env, 'spec list'); b = run(env, 'spec --quiet list'); assert a == b"
     },
     {
       "id": "TS-09-3",
       "kind": "property",
-      "verifies": ["09-REQ-1.3"],
+      "verifies": [
+        "09-REQ-1.3"
+      ],
       "title": "For any command, agent mode never writes non-JSON to stdout",
-      "given": ["AF_AGENT=1 is set", "a temporary spec root"],
+      "given": [
+        "AF_AGENT=1 is set",
+        "a temporary spec root"
+      ],
       "when": "for any command in {list, status, validate, render, lint} with minimal valid arguments",
-      "then": ["stdout parses as JSON", "every diagnostic line appears on stderr only"],
+      "then": [
+        "stdout parses as JSON",
+        "every diagnostic line appears on stderr only"
+      ],
       "pseudocode": "for cmd in COMMANDS: r = run(env, cmd); assert is_json(r.stdout)"
     },
     {
       "id": "TS-09-4",
       "kind": "unit",
-      "verifies": ["09-REQ-2.1"],
+      "verifies": [
+        "09-REQ-2.1"
+      ],
       "title": "Command error in agent mode is reported as a JSON envelope on stdout",
-      "given": ["AF_AGENT=1 is set", "the spec 99_missing does not exist"],
+      "given": [
+        "AF_AGENT=1 is set",
+        "the spec 99_missing does not exist"
+      ],
       "when": "spec status 99_missing is executed",
-      "then": ["exit code is 1", "stdout parses as JSON with ok == false and a non-empty error string", "stderr is empty"],
+      "then": [
+        "exit code is 1",
+        "stdout parses as JSON with ok == false and a non-empty error string",
+        "stderr is empty"
+      ],
       "pseudocode": "r = run(env, 'spec status 99_missing'); assert r.code == 1; j = parse_json(r.stdout); assert j.ok == false and len(j.error) > 0"
     },
     {
       "id": "TS-09-5",
       "kind": "unit",
-      "verifies": ["09-REQ-2.2"],
+      "verifies": [
+        "09-REQ-2.2"
+      ],
       "title": "Closed stdout pipe does not change the exit code",
-      "given": ["AF_AGENT=1 is set", "stdout is connected to a reader that closes before the payload is written"],
+      "given": [
+        "AF_AGENT=1 is set",
+        "stdout is connected to a reader that closes before the payload is written"
+      ],
       "when": "spec list is executed",
-      "then": ["the process exits with code 0", "no panic trace appears on stderr"],
+      "then": [
+        "the process exits with code 0",
+        "no panic trace appears on stderr"
+      ],
       "pseudocode": "r = run_with_closed_stdout(env, 'spec list'); assert r.code == 0; assert not contains(r.stderr, 'panic')"
     },
     {
       "id": "TS-09-6",
       "kind": "smoke",
-      "verifies": ["09-PATH-1", "09-REQ-1.1"],
+      "verifies": [
+        "09-PATH-1",
+        "09-REQ-1.1"
+      ],
       "title": "An agent lists specs end to end through the compiled binary",
-      "given": ["the spec binary is built", "a spec root with one spec exists"],
+      "given": [
+        "the spec binary is built",
+        "a spec root with one spec exists"
+      ],
       "when": "AF_AGENT=1 spec list is executed against the real binary",
-      "then": ["exit code is 0", "stdout is one JSON object whose specs array has one entry"],
-      "real_components": ["spec binary", "spec root on disk"]
+      "then": [
+        "exit code is 0",
+        "stdout is one JSON object whose specs array has one entry"
+      ],
+      "real_components": [
+        "spec binary",
+        "spec root on disk"
+      ]
     }
   ]
 }

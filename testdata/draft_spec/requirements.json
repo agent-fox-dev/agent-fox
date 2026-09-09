@@ -1,59 +1,51 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
   "spec_id": "02",
   "spec_name": "draft_feature",
-  "schema_version": 1,
-  "introduction": "A draft feature for testing.",
+  "schema_version": 2,
+  "introduction": "The draft feature exercises a spec that is still in the draft lifecycle state.",
   "glossary": {
-    "feature": "A capability of the system."
+    "draft": "The lifecycle state a spec is in before its intent is hashed."
   },
   "requirements": [
     {
       "id": "02-REQ-1",
-      "title": "Draft Requirement",
-      "user_story": {
-        "role": "developer",
-        "goal": "test lifecycle transitions",
-        "benefit": "confidence in lifecycle management"
-      },
-      "acceptance_criteria": [
+      "title": "Draft lifecycle",
+      "rationale": "A draft must stay editable until its intent is agreed.",
+      "criteria": [
         {
           "id": "02-REQ-1.1",
-          "ears_pattern": "ubiquitous",
-          "system": "the `feature`",
-          "action": "support lifecycle transitions",
-          "return_contract": null
+          "pattern": "state_driven",
+          "condition": "a spec is in the draft state",
+          "system": "afspec library",
+          "action": "allow every field of the PRD to be edited and saved",
+          "contract": "Save returns a nil error"
+        },
+        {
+          "id": "02-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "a transition to a state outside the lifecycle graph is requested",
+          "system": "afspec library",
+          "action": "reject the transition and leave the spec unchanged",
+          "contract": "a LifecycleError naming the current and target states"
         }
-      ],
-      "edge_cases": []
-    }
-  ],
-  "correctness_properties": [
-    {
-      "id": "02-PROP-1",
-      "title": "Lifecycle transition legality",
-      "for_any": "status pair",
-      "invariant": "transition succeeds iff pair is legal",
-      "validates": [
-        "02-REQ-1.1"
       ]
     }
   ],
   "execution_paths": [
     {
       "id": "02-PATH-1",
-      "title": "Transition draft to active",
+      "title": "An operator edits a draft spec",
       "steps": [
         {
-          "actor": "consumer",
-          "action": "call transition(spec, active, dir)"
+          "actor": "operator",
+          "action": "edits the Intent section of prd.md"
         },
         {
-          "actor": "system",
-          "action": "compute intent hash and update status"
+          "actor": "afspec library",
+          "action": "saves the spec and leaves the intent hash null"
         }
       ]
     }
-  ],
-  "error_handling": []
+  ]
 }

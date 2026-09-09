@@ -1,36 +1,32 @@
 package afspec
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 )
 
-// RenderCombined renders all artifacts (PRD body, requirements, test spec,
-// tasks, architecture if present) as a single concatenated Markdown document.
-// When called with WithMaxTokens(N), it applies progressive truncation to
-// fit the output within N estimated tokens.
+// Rendering is deterministic: same JSON in, same Markdown out (§11).
 //
-// Progressive truncation levels:
-//   - Level 0: full render (returned if within budget)
-//   - Level 1: drop architecture section
-//   - Level 2: re-render test spec in slim mode (architecture already dropped)
+// Two v1 rendering bugs are fixed by construction here: every criterion
+// renders its contract, and every test renders all of its fields whatever its
+// kind. A test rendered as a title alone was a v1 bug, not a feature.
+
+// RenderCombined renders the whole spec as one Markdown document in the order
+// of §11.1: PRD body, architecture if present, requirements, tests, tasks.
+//
+// With WithMaxTokens(N) it applies progressive truncation:
+//   - level 0: full render
+//   - level 1: drop the architecture section
+//   - level 2: additionally render the tests in slim form
 func (s *Spec) RenderCombined(opts ...RenderOption) string {
 	cfg := resolveOpts(opts)
 
-	// Level 0 — full render
 	result := s.renderCombinedFull()
-
-	if !budgetActive(cfg) {
+	if !budgetActive(cfg) || EstimateTokens(result) <= cfg.maxTokens {
 		return result
 	}
 
-	if EstimateTokens(result) <= cfg.maxTokens {
-		return result
-	}
-
-	// Level 1 — drop architecture
 	if s.Architecture != "" {
 		result = s.renderCombinedLevel1()
 		if EstimateTokens(result) <= cfg.maxTokens {
@@ -38,13 +34,9 @@ func (s *Spec) RenderCombined(opts ...RenderOption) string {
 		}
 	}
 
-	// Level 2 — slim test spec (architecture already dropped)
 	return s.renderCombinedSlim()
 }
 
-// renderCombinedFull renders all artifacts including architecture.
-// Section order per spec Section 11.1: PRD → Architecture → Requirements →
-// Test Specification → Tasks.
 func (s *Spec) renderCombinedFull() string {
 	var sb strings.Builder
 
@@ -79,55 +71,35 @@ func (s *Spec) renderCombinedFull() string {
 	return sb.String()
 }
 
-// RenderIndividual renders each artifact separately and returns a map keyed
-// by artifact name (e.g., "prd", "requirements", "test_spec", "tasks",
-// "architecture") to its Markdown string. If architecture is absent, the
-// "architecture" key is omitted from the returned map.
-//
-// When called with WithMaxTokens(N), it applies progressive truncation:
-//   - Level 0: full render (returned if within budget)
-//   - Level 1: drop architecture key
-//   - Level 2: re-render test_spec in slim mode (architecture already dropped)
+// RenderIndividual renders each artifact separately, keyed by "prd",
+// "requirements", "test_spec", "tasks" and — only when present —
+// "architecture". The same truncation levels as RenderCombined apply.
 func (s *Spec) RenderIndividual(opts ...RenderOption) map[string]string {
 	cfg := resolveOpts(opts)
 
-	// Level 0 — full render
-	result := make(map[string]string)
-
-	result["prd"] = s.PRDBody
-
+	result := map[string]string{
+		"prd":          s.PRDBody,
+		"requirements": "",
+		"test_spec":    "",
+		"tasks":        "",
+	}
 	if s.Requirements != nil {
 		result["requirements"] = s.Requirements.Render()
-	} else {
-		result["requirements"] = ""
 	}
-
 	if s.TestSpec != nil {
 		result["test_spec"] = s.TestSpec.Render()
-	} else {
-		result["test_spec"] = ""
 	}
-
 	if s.Tasks != nil {
 		result["tasks"] = s.Tasks.Render()
-	} else {
-		result["tasks"] = ""
 	}
-
 	if s.Architecture != "" {
 		result["architecture"] = s.Architecture
 	}
 
-	if !budgetActive(cfg) {
+	if !budgetActive(cfg) || sumMapTokens(result) <= cfg.maxTokens {
 		return result
 	}
 
-	// Budget evaluation — Level 0
-	if sumMapTokens(result) <= cfg.maxTokens {
-		return result
-	}
-
-	// Level 1 — drop architecture
 	if _, hasArch := result["architecture"]; hasArch {
 		delete(result, "architecture")
 		if sumMapTokens(result) <= cfg.maxTokens {
@@ -135,164 +107,91 @@ func (s *Spec) RenderIndividual(opts ...RenderOption) map[string]string {
 		}
 	}
 
-	// Level 2 — slim test spec
 	if s.TestSpec != nil {
 		result["test_spec"] = renderTestSpecSlim(s.TestSpec)
 	}
 	return result
 }
 
-// RenderIndividualScoped renders each artifact filtered to the refs of a
-// target task group. It collects all requirement_refs and test_spec_refs
-// from every subtask in targetGroup, renders only the referenced
-// requirements and test entries, renders the target group with full subtask
-// detail and all other groups as one-line summaries, and includes PRD body
-// and architecture unfiltered.
+// RenderIndividualScoped renders the spec scoped to one task (§11.1): the PRD
+// body and architecture unfiltered; the requirements that own the task's
+// criteria in full and all others as one line each; the task's tests in full;
+// the paths those tests verify; the task in full and all others as one line.
 //
-// When subtasks have no explicit refs, the inference chain is invoked:
-//  1. Traceability-based inference (inferRefsFromTraceability)
-//  2. Text-based inference (inferRefsFromSubtaskText)
-//  3. Unscoped fallback with scoped tasks
-//
-// Traceability inference supports partial inference: if only one ref type
-// is found, the other type is rendered in full (unscoped for that section).
-// The fallback always scopes tasks via renderScopedTasks.
-//
-// When called with WithMaxTokens(N), it applies progressive truncation:
-//   - Level 0: full scoped render (returned if within budget)
-//   - Level 1: drop architecture key
-//   - Level 2: re-render test_spec in slim mode (scoped or full)
-func (s *Spec) RenderIndividualScoped(targetGroup int, opts ...RenderOption) map[string]string {
+// Because rules C7 and C8 guarantee that every task lists its own tests and
+// criteria, the v1 inference chain (traceability lookup, then text matching,
+// then a full-spec fallback) is not needed and does not exist here. An unknown
+// task ID falls back to the unscoped render.
+func (s *Spec) RenderIndividualScoped(taskID int, opts ...RenderOption) map[string]string {
 	cfg := resolveOpts(opts)
 
-	// Find the target group in tasks
-	var group *TaskGroup
+	var task *Task
 	if s.Tasks != nil {
-		for i := range s.Tasks.TaskGroups {
-			if s.Tasks.TaskGroups[i].Id == targetGroup {
-				group = &s.Tasks.TaskGroups[i]
+		for i := range s.Tasks.Tasks {
+			if s.Tasks.Tasks[i].Id == taskID {
+				task = &s.Tasks.Tasks[i]
 				break
 			}
 		}
 	}
-
-	// If the group doesn't exist, fall back to full rendering
-	if group == nil {
+	if task == nil {
 		return s.RenderIndividual(opts...)
 	}
 
-	// Collect all explicit refs from subtasks in the target group
-	reqRefs := make(map[string]bool)
-	tsRefs := make(map[string]bool)
-	for _, sub := range group.Subtasks {
-		for _, ref := range sub.RequirementRefs {
-			reqRefs[ref] = true
-		}
-		for _, ref := range sub.TestSpecRefs {
-			tsRefs[ref] = true
-		}
+	// Criteria in scope: the task's criterion IDs, plus every criterion of a
+	// requirement the task claims wholesale.
+	criteriaRefs := map[string]bool{}
+	requirementRefs := map[string]bool{}
+	for _, ref := range task.Criteria {
+		criteriaRefs[ref] = true
+		requirementRefs[ref] = true
 	}
 
-	// partialInference tracks whether the inferred refs came from
-	// traceability. When true and one ref type is empty, that section
-	// is rendered in full rather than scoped to an empty set.
-	partialInference := false
+	testRefs := make(map[string]bool, len(task.Tests))
+	for _, ref := range task.Tests {
+		testRefs[ref] = true
+	}
 
-	// If no explicit refs found, run the inference chain
-	if len(reqRefs) == 0 && len(tsRefs) == 0 {
-		// Step 1: traceability-based inference
-		inferredReq, inferredTS := inferRefsFromTraceability(s, targetGroup)
-		if len(inferredReq) > 0 || len(inferredTS) > 0 {
-			// Traceability yielded refs — activate partial inference
-			partialInference = true
-			for _, r := range inferredReq {
-				reqRefs[r] = true
+	// Paths in scope: those verified by the task's tests.
+	pathRefs := map[string]bool{}
+	if s.TestSpec != nil {
+		for _, t := range s.TestSpec.Tests {
+			if !testRefs[t.Id] {
+				continue
 			}
-			for _, r := range inferredTS {
-				tsRefs[r] = true
-			}
-		} else {
-			// Step 2: text-based inference
-			inferredReq, inferredTS = inferRefsFromSubtaskText(s, targetGroup)
-			if len(inferredReq) > 0 || len(inferredTS) > 0 {
-				for _, r := range inferredReq {
-					reqRefs[r] = true
-				}
-				for _, r := range inferredTS {
-					tsRefs[r] = true
-				}
-			} else {
-				// Step 3: both inference strategies returned empty —
-				// full unscoped fallback, but still scope tasks to
-				// the target group (fixes the pre-existing Go bug
-				// where return s.RenderIndividual() was used).
-				result := s.RenderIndividual(opts...)
-				if s.Tasks != nil {
-					result["tasks"] = s.renderScopedTasks(targetGroup)
-				}
-				return result
+			for _, ref := range t.Verifies {
+				pathRefs[ref] = true
 			}
 		}
 	}
 
-	result := make(map[string]string)
-
-	// PRD body and architecture are included unfiltered
-	result["prd"] = s.PRDBody
+	result := map[string]string{"prd": s.PRDBody}
 	if s.Architecture != "" {
 		result["architecture"] = s.Architecture
 	}
 
-	// Render requirements: scoped when refs available, full when partial
-	// inference found no req refs (traceability only).
-	if partialInference && len(reqRefs) == 0 {
-		if s.Requirements != nil {
-			result["requirements"] = s.Requirements.Render()
-		} else {
-			result["requirements"] = ""
-		}
+	if s.Requirements != nil {
+		result["requirements"] = s.renderScopedRequirements(criteriaRefs, requirementRefs, pathRefs)
 	} else {
-		if s.Requirements != nil {
-			result["requirements"] = s.renderScopedRequirements(reqRefs)
-		} else {
-			result["requirements"] = ""
-		}
+		result["requirements"] = ""
 	}
 
-	// Render test spec: scoped when refs available, full when partial
-	// inference found no ts refs (traceability only).
-	if partialInference && len(tsRefs) == 0 {
-		if s.TestSpec != nil {
-			result["test_spec"] = s.TestSpec.Render()
-		} else {
-			result["test_spec"] = ""
-		}
+	if s.TestSpec != nil {
+		result["test_spec"] = renderTestsScoped(s.TestSpec, testRefs, false)
 	} else {
-		if s.TestSpec != nil {
-			result["test_spec"] = s.renderScopedTestSpec(tsRefs)
-		} else {
-			result["test_spec"] = ""
-		}
+		result["test_spec"] = ""
 	}
 
-	// Render scoped tasks — always scoped to the target group
 	if s.Tasks != nil {
-		result["tasks"] = s.renderScopedTasks(targetGroup)
+		result["tasks"] = s.renderScopedTasks(taskID)
 	} else {
 		result["tasks"] = ""
 	}
 
-	// Budget evaluation
-	if !budgetActive(cfg) {
+	if !budgetActive(cfg) || sumMapTokens(result) <= cfg.maxTokens {
 		return result
 	}
 
-	// Budget check — Level 0
-	if sumMapTokens(result) <= cfg.maxTokens {
-		return result
-	}
-
-	// Level 1 — drop architecture
 	if _, hasArch := result["architecture"]; hasArch {
 		delete(result, "architecture")
 		if sumMapTokens(result) <= cfg.maxTokens {
@@ -300,297 +199,111 @@ func (s *Spec) RenderIndividualScoped(targetGroup int, opts ...RenderOption) map
 		}
 	}
 
-	// Level 2 — slim test spec (scoped or full depending on available IDs)
 	if s.TestSpec != nil {
-		if len(tsRefs) > 0 {
-			result["test_spec"] = renderTestSpecScopedSlim(s.TestSpec, tsRefs)
-		} else {
-			result["test_spec"] = renderTestSpecSlim(s.TestSpec)
-		}
+		result["test_spec"] = renderTestsScoped(s.TestSpec, testRefs, true)
 	}
-
 	return result
 }
 
-// renderScopedRequirements renders only the requirements whose IDs (or
-// criteria/edge-case IDs) appear in the refs set, plus a Spec Overview
-// listing all requirements.
-func (s *Spec) renderScopedRequirements(refs map[string]bool) string {
-	var sb strings.Builder
-
-	// Spec Overview listing all requirement IDs and titles
-	sb.WriteString("## Spec Overview\n\n")
-	sb.WriteString("All requirements in this specification (full detail shown only for the active task group):\n\n")
-	for _, req := range s.Requirements.Requirements {
-		sb.WriteString(fmt.Sprintf("- **%s:** %s", req.Id, req.Title))
-		if !isRequirementInScope(req, refs) {
-			sb.WriteString(" (other group)")
-		} else {
-			sb.WriteString(" (included below)")
-		}
-		sb.WriteString("\n")
-	}
-	sb.WriteString("\n")
-
-	// Render only the scoped requirements in full
-	sb.WriteString("## Introduction\n\n")
-	sb.WriteString(s.Requirements.Introduction)
-	sb.WriteString("\n\n")
-
-	if len(s.Requirements.Glossary) > 0 {
-		sb.WriteString("## Glossary\n\n")
-		sb.WriteString("| Term | Definition |\n")
-		sb.WriteString("|------|------------|\n")
-		glossaryTerms := make([]string, 0, len(s.Requirements.Glossary))
-		for term := range s.Requirements.Glossary {
-			glossaryTerms = append(glossaryTerms, term)
-		}
-		sort.Strings(glossaryTerms)
-		for _, term := range glossaryTerms {
-			sb.WriteString(fmt.Sprintf("| %s | %s |\n", term, s.Requirements.Glossary[term]))
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## Requirements\n\n")
-	for _, req := range s.Requirements.Requirements {
-		if !isRequirementInScope(req, refs) {
-			continue
-		}
-		renderRequirement(&sb, req)
-	}
-
-	return sb.String()
-}
-
-// isRequirementInScope checks if a requirement or any of its criteria/edge
-// cases are referenced by the scope refs.
-func isRequirementInScope(req Requirement, refs map[string]bool) bool {
-	if refs[req.Id] {
+// isRequirementInScope reports whether a requirement is claimed by the task,
+// either wholesale by its own ID or through one of its criteria.
+func isRequirementInScope(req Requirement, criteriaRefs, requirementRefs map[string]bool) bool {
+	if requirementRefs[req.Id] {
 		return true
 	}
-	for _, c := range req.AcceptanceCriteria {
-		if refs[c.Id] {
-			return true
-		}
-	}
-	for _, c := range req.EdgeCases {
-		if refs[c.Id] {
+	for _, c := range req.Criteria {
+		if criteriaRefs[c.Id] {
 			return true
 		}
 	}
 	return false
 }
 
-// renderScopedTestSpec renders only the test entries whose IDs appear in the
-// refs set.
-func (s *Spec) renderScopedTestSpec(refs map[string]bool) string {
+// renderScopedRequirements renders the in-scope requirements in full, every
+// other requirement as one line, and the execution paths the task's tests
+// verify.
+func (s *Spec) renderScopedRequirements(criteriaRefs, requirementRefs, pathRefs map[string]bool) string {
 	var sb strings.Builder
-	sb.WriteString("## Test Cases\n\n")
 
-	for _, tc := range s.TestSpec.TestCases {
-		if refs[tc.Id] {
-			renderTestCase(&sb, tc)
+	sb.WriteString("## Spec Overview\n\n")
+	sb.WriteString("All requirements in this specification (full detail shown only for the active task):\n\n")
+	for _, req := range s.Requirements.Requirements {
+		suffix := " (other task)"
+		if isRequirementInScope(req, criteriaRefs, requirementRefs) {
+			suffix = " (included below)"
+		}
+		sb.WriteString(fmt.Sprintf("- **%s:** %s%s\n", req.Id, req.Title, suffix))
+	}
+	sb.WriteString("\n")
+
+	sb.WriteString("## Introduction\n\n")
+	sb.WriteString(s.Requirements.Introduction)
+	sb.WriteString("\n\n")
+
+	renderGlossary(&sb, s.Requirements.Glossary)
+
+	sb.WriteString("## Requirements\n\n")
+	for _, req := range s.Requirements.Requirements {
+		if isRequirementInScope(req, criteriaRefs, requirementRefs) {
+			renderRequirement(&sb, req)
 		}
 	}
 
-	if len(s.TestSpec.PropertyTests) > 0 {
-		hasScoped := false
-		for _, pt := range s.TestSpec.PropertyTests {
-			if refs[pt.Id] {
-				hasScoped = true
-				break
-			}
-		}
-		if hasScoped {
-			sb.WriteString("## Property Tests\n\n")
-			for _, pt := range s.TestSpec.PropertyTests {
-				if refs[pt.Id] {
-					sb.WriteString(fmt.Sprintf("### %s: %s\n\n", pt.Id, pt.Description))
-				}
-			}
+	var scopedPaths []ExecutionPath
+	for _, p := range s.Requirements.ExecutionPaths {
+		if pathRefs[p.Id] {
+			scopedPaths = append(scopedPaths, p)
 		}
 	}
-
-	if len(s.TestSpec.EdgeCaseTests) > 0 {
-		hasScoped := false
-		for _, ect := range s.TestSpec.EdgeCaseTests {
-			if refs[ect.Id] {
-				hasScoped = true
-				break
-			}
-		}
-		if hasScoped {
-			sb.WriteString("## Edge Case Tests\n\n")
-			for _, ect := range s.TestSpec.EdgeCaseTests {
-				if refs[ect.Id] {
-					sb.WriteString(fmt.Sprintf("### %s: %s\n\n", ect.Id, ect.Description))
-				}
-			}
-		}
-	}
-
-	if len(s.TestSpec.SmokeTests) > 0 {
-		hasScoped := false
-		for _, st := range s.TestSpec.SmokeTests {
-			if refs[st.Id] {
-				hasScoped = true
-				break
-			}
-		}
-		if hasScoped {
-			sb.WriteString("## Smoke Tests\n\n")
-			for _, st := range s.TestSpec.SmokeTests {
-				if refs[st.Id] {
-					sb.WriteString(fmt.Sprintf("### %s: %s\n\n", st.Id, st.Description))
-				}
-			}
-		}
-	}
+	renderExecutionPaths(&sb, scopedPaths)
 
 	return sb.String()
 }
 
-// renderScopedTasks renders the target group with full subtask detail and
-// all other groups as one-line completion summaries.
-func (s *Spec) renderScopedTasks(targetGroup int) string {
+// renderScopedTasks renders the target task in full and every other task as a
+// one-line summary.
+func (s *Spec) renderScopedTasks(taskID int) string {
 	var sb strings.Builder
 	sb.WriteString("## Tasks\n\n")
-
-	for _, g := range s.Tasks.TaskGroups {
-		if g.Id == targetGroup {
-			// Full detail for target group
-			renderTaskGroupFull(&sb, g)
+	for _, t := range s.Tasks.Tasks {
+		if t.Id == taskID {
+			renderTaskFull(&sb, t, &s.Tasks.TestCommands)
 		} else {
-			// One-line summary for other groups
-			renderTaskGroupSummary(&sb, g)
+			renderTaskSummary(&sb, t)
 		}
 	}
-
 	return sb.String()
 }
 
-// renderTaskGroupFull renders a task group with full subtask detail.
-func renderTaskGroupFull(sb *strings.Builder, g TaskGroup) {
-	doneCount := 0
-	for _, sub := range g.Subtasks {
-		if sub.State == SubtaskStateDone {
-			doneCount++
-		}
-	}
-	sb.WriteString(fmt.Sprintf("### %d. %s (%d/%d subtasks done)\n\n",
-		g.Id, g.Title, doneCount, len(g.Subtasks)))
+// ---------------------------------------------------------------------------
+// requirements.json
+// ---------------------------------------------------------------------------
 
-	for _, sub := range g.Subtasks {
-		checkbox := "[ ]"
-		if sub.State == SubtaskStateDone {
-			checkbox = "[x]"
-		}
-		sb.WriteString(fmt.Sprintf("- %s %s: %s\n", checkbox, sub.Id, sub.Title))
-		for _, detail := range sub.Details {
-			sb.WriteString(fmt.Sprintf("  - %s\n", detail))
-		}
-		if len(sub.RequirementRefs) > 0 {
-			sb.WriteString(fmt.Sprintf("  - _Requirements: %s_\n", strings.Join(sub.RequirementRefs, ", ")))
-		}
-		if len(sub.TestSpecRefs) > 0 {
-			sb.WriteString(fmt.Sprintf("  - _Test Spec: %s_\n", strings.Join(sub.TestSpecRefs, ", ")))
-		}
-	}
-
-	// Verification subtask
-	if g.Verification.Id != "" {
-		sb.WriteString(fmt.Sprintf("- [ ] %s Verify task group %d\n", g.Verification.Id, g.Id))
-		for _, check := range g.Verification.Checks {
-			sb.WriteString(fmt.Sprintf("  - %s\n", check))
-		}
-	}
-
-	sb.WriteString("\n")
-}
-
-// renderTaskGroupSummary renders a task group as a one-line completion summary.
-func renderTaskGroupSummary(sb *strings.Builder, g TaskGroup) {
-	doneCount := 0
-	for _, sub := range g.Subtasks {
-		if sub.State == SubtaskStateDone {
-			doneCount++
-		}
-	}
-	checkbox := "[ ]"
-	if doneCount == len(g.Subtasks) && len(g.Subtasks) > 0 {
-		checkbox = "[x]"
-	}
-	sb.WriteString(fmt.Sprintf("- %s %d. %s (%d/%d subtasks done)\n\n",
-		checkbox, g.Id, g.Title, doneCount, len(g.Subtasks)))
-}
-
-// Render renders the requirements artifact as a Markdown string.
-func (r *RequirementsV1Json) Render() string {
+// Render renders the requirements artifact as Markdown.
+func (r *RequirementsV2Json) Render() string {
 	var sb strings.Builder
 
 	sb.WriteString("## Introduction\n\n")
 	sb.WriteString(r.Introduction)
 	sb.WriteString("\n\n")
 
-	if len(r.Glossary) > 0 {
-		sb.WriteString("## Glossary\n\n")
-		sb.WriteString("| Term | Definition |\n")
-		sb.WriteString("|------|------------|\n")
-		glossaryTerms := make([]string, 0, len(r.Glossary))
-		for term := range r.Glossary {
-			glossaryTerms = append(glossaryTerms, term)
-		}
-		sort.Strings(glossaryTerms)
-		for _, term := range glossaryTerms {
-			sb.WriteString(fmt.Sprintf("| %s | %s |\n", term, r.Glossary[term]))
-		}
-		sb.WriteString("\n")
-	}
+	renderGlossary(&sb, r.Glossary)
 
 	sb.WriteString("## Requirements\n\n")
 	for _, req := range r.Requirements {
 		renderRequirement(&sb, req)
 	}
 
-	if len(r.CorrectnessProperties) > 0 {
-		sb.WriteString("## Correctness Properties\n\n")
-		for _, prop := range r.CorrectnessProperties {
-			sb.WriteString(fmt.Sprintf("### %s: %s\n\n", prop.Id, prop.Title))
-			sb.WriteString(fmt.Sprintf("**For any:** %s\n\n", prop.ForAny))
-			sb.WriteString(fmt.Sprintf("**Invariant:** %s\n\n", prop.Invariant))
-			if len(prop.Validates) > 0 {
-				sb.WriteString(fmt.Sprintf("**Validates:** %s\n\n", strings.Join(prop.Validates, ", ")))
-			}
-		}
-	}
-
-	if len(r.ExecutionPaths) > 0 {
-		sb.WriteString("## Execution Paths\n\n")
-		for _, path := range r.ExecutionPaths {
-			sb.WriteString(fmt.Sprintf("### %s: %s\n\n", path.Id, path.Title))
-			for i, step := range path.Steps {
-				sb.WriteString(fmt.Sprintf("%d. **%s** %s\n", i+1, step.Actor, step.Action))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	if len(r.ErrorHandling) > 0 {
-		sb.WriteString("## Error Handling\n\n")
-		sb.WriteString("| ID | Condition | Behavior | Requirement |\n")
-		sb.WriteString("|----|-----------|----------|-------------|\n")
-		for _, eh := range r.ErrorHandling {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
-				eh.Id, eh.Condition, eh.Behavior, eh.RequirementId))
-		}
-		sb.WriteString("\n")
-	}
+	renderExecutionPaths(&sb, r.ExecutionPaths)
 
 	if len(r.ExternalApis) > 0 {
 		sb.WriteString("## External APIs\n\n")
 		for _, api := range r.ExternalApis {
-			sb.WriteString(fmt.Sprintf("### `%s` (%s)\n\n", api.Package, api.Version))
+			status := "verified"
+			if !api.Verified {
+				status = "UNVERIFIED — confirm these signatures before use"
+			}
+			sb.WriteString(fmt.Sprintf("### `%s` (%s) — %s\n\n", api.Package, api.Version, status))
 			sb.WriteString("| Symbol | Import Path | Signature | Notes |\n")
 			sb.WriteString("|--------|-------------|-----------|-------|\n")
 			for _, sym := range api.Symbols {
@@ -608,129 +321,191 @@ func (r *RequirementsV1Json) Render() string {
 	return sb.String()
 }
 
-// renderRequirement renders a single requirement as Markdown.
+func renderGlossary(sb *strings.Builder, glossary RequirementsV2JsonGlossary) {
+	if len(glossary) == 0 {
+		return
+	}
+	sb.WriteString("## Glossary\n\n")
+	sb.WriteString("| Term | Definition |\n")
+	sb.WriteString("|------|------------|\n")
+	terms := make([]string, 0, len(glossary))
+	for term := range glossary {
+		terms = append(terms, term)
+	}
+	sort.Strings(terms)
+	for _, term := range terms {
+		sb.WriteString(fmt.Sprintf("| %s | %s |\n", term, glossary[term]))
+	}
+	sb.WriteString("\n")
+}
+
+// renderRequirement renders one requirement with every criterion as its EARS
+// sentence followed by its contract when it has one (§11.2).
 func renderRequirement(sb *strings.Builder, req Requirement) {
 	sb.WriteString(fmt.Sprintf("### %s: %s\n\n", req.Id, req.Title))
 
-	sb.WriteString(fmt.Sprintf("**User Story:** As a %s, I want %s, so that %s.\n\n",
-		req.UserStory.Role, req.UserStory.Goal, req.UserStory.Benefit))
-
-	if len(req.AcceptanceCriteria) > 0 {
-		sb.WriteString("#### Acceptance Criteria\n\n")
-		for _, c := range req.AcceptanceCriteria {
-			sb.WriteString(fmt.Sprintf("1. [%s] %s\n", c.Id, c.RenderEARSSentence()))
-		}
-		sb.WriteString("\n")
+	if req.Rationale != nil && *req.Rationale != "" {
+		sb.WriteString(fmt.Sprintf("**Rationale:** %s\n\n", *req.Rationale))
 	}
 
-	if len(req.EdgeCases) > 0 {
-		sb.WriteString("#### Edge Cases\n\n")
-		for _, c := range req.EdgeCases {
-			sb.WriteString(fmt.Sprintf("1. [%s] %s\n", c.Id, c.RenderEARSSentence()))
+	sb.WriteString("#### Criteria\n\n")
+	for _, c := range req.Criteria {
+		sb.WriteString(fmt.Sprintf("1. [%s] %s\n", c.Id, c.RenderEARSSentence()))
+		if contract := c.ContractText(); contract != "" {
+			sb.WriteString(fmt.Sprintf("   → %s\n", contract))
+		}
+	}
+	sb.WriteString("\n")
+}
+
+func renderExecutionPaths(sb *strings.Builder, paths []ExecutionPath) {
+	if len(paths) == 0 {
+		return
+	}
+	sb.WriteString("## Execution Paths\n\n")
+	for _, path := range paths {
+		sb.WriteString(fmt.Sprintf("### %s: %s\n\n", path.Id, path.Title))
+		for i, step := range path.Steps {
+			sb.WriteString(fmt.Sprintf("%d. **%s** %s\n", i+1, step.Actor, step.Action))
 		}
 		sb.WriteString("\n")
 	}
 }
 
-// Render renders the test spec artifact as a Markdown string.
-func (ts *TestSpecV1Json) Render() string {
+// ---------------------------------------------------------------------------
+// test_spec.json
+// ---------------------------------------------------------------------------
+
+// Render renders the test spec artifact as Markdown. Every test renders all
+// of its fields, whatever its kind.
+func (ts *TestSpecV2Json) Render() string {
+	return renderTestsScoped(ts, nil, false)
+}
+
+// renderTestsScoped renders the tests, optionally filtered to an ID set and
+// optionally in slim form. A nil filter renders every test.
+func renderTestsScoped(ts *TestSpecV2Json, refs map[string]bool, slim bool) string {
 	var sb strings.Builder
-
-	sb.WriteString("## Test Cases\n\n")
-	for _, tc := range ts.TestCases {
-		renderTestCase(&sb, tc)
-	}
-
-	if len(ts.PropertyTests) > 0 {
-		sb.WriteString("## Property Tests\n\n")
-		for _, pt := range ts.PropertyTests {
-			sb.WriteString(fmt.Sprintf("### %s: %s\n\n", pt.Id, pt.Description))
-			sb.WriteString(fmt.Sprintf("**Property:** %s\n\n", pt.PropertyId))
-			sb.WriteString(fmt.Sprintf("**For any:** %s\n\n", pt.ForAnyStrategy))
-			sb.WriteString(fmt.Sprintf("**Invariant:** %s\n\n", pt.InvariantCheck))
-			if len(pt.Validates) > 0 {
-				sb.WriteString(fmt.Sprintf("**Validates:** %s\n\n", strings.Join(pt.Validates, ", ")))
-			}
+	sb.WriteString("## Tests\n\n")
+	for _, t := range ts.Tests {
+		if refs != nil && !refs[t.Id] {
+			continue
+		}
+		if slim {
+			renderTestSlim(&sb, t)
+		} else {
+			renderTest(&sb, t)
 		}
 	}
-
-	if len(ts.EdgeCaseTests) > 0 {
-		sb.WriteString("## Edge Case Tests\n\n")
-		for _, ect := range ts.EdgeCaseTests {
-			sb.WriteString(fmt.Sprintf("### %s: %s\n\n", ect.Id, ect.Description))
-			sb.WriteString(fmt.Sprintf("**Requirement:** %s\n\n", ect.RequirementId))
-			sb.WriteString(fmt.Sprintf("**Type:** %s\n\n", ect.Kind))
-		}
-	}
-
-	if len(ts.SmokeTests) > 0 {
-		sb.WriteString("## Smoke Tests\n\n")
-		for _, st := range ts.SmokeTests {
-			sb.WriteString(fmt.Sprintf("### %s: %s\n\n", st.Id, st.Description))
-			sb.WriteString(fmt.Sprintf("**Execution Path:** %s\n\n", st.ExecutionPathId))
-		}
-	}
-
 	return sb.String()
 }
 
-// renderInterfaceValue converts an interface{} field value to a string
-// suitable for Markdown output.  It returns ("", false) when the value is nil
-// (caller should omit the field), the raw string for string values, and
-// compact JSON for any other type (map, slice, number, bool, …).
-func renderInterfaceValue(v interface{}) (string, bool) {
-	if v == nil {
-		return "", false
-	}
-	if s, ok := v.(string); ok {
-		return s, true
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		// Fallback to fmt if Marshal fails (should not happen in practice).
-		return fmt.Sprintf("%v", v), true
-	}
-	return string(b), true
-}
+// renderTest renders one test with all of its fields.
+func renderTest(sb *strings.Builder, t Test) {
+	sb.WriteString(fmt.Sprintf("### %s (%s): %s\n\n", t.Id, t.Kind, t.Title))
+	sb.WriteString(fmt.Sprintf("**Verifies:** %s\n\n", strings.Join(t.Verifies, ", ")))
 
-// renderTestCase renders a single test case as Markdown.
-func renderTestCase(sb *strings.Builder, tc TestCase) {
-	sb.WriteString(fmt.Sprintf("### %s: %s\n\n", tc.Id, tc.Description))
-	sb.WriteString(fmt.Sprintf("**Requirement:** %s\n", tc.RequirementId))
-	sb.WriteString(fmt.Sprintf("**Type:** %s\n\n", tc.Kind))
-
-	if len(tc.Preconditions) > 0 {
-		sb.WriteString("**Preconditions:**\n\n")
-		for _, p := range tc.Preconditions {
-			sb.WriteString(fmt.Sprintf("- %s\n", p))
+	if len(t.Given) > 0 {
+		sb.WriteString("**Given:**\n\n")
+		for _, g := range t.Given {
+			sb.WriteString(fmt.Sprintf("- %s\n", g))
 		}
 		sb.WriteString("\n")
 	}
 
-	if inputStr, ok := renderInterfaceValue(tc.Input); ok {
-		sb.WriteString(fmt.Sprintf("**Input:** `%s`\n\n", inputStr))
+	sb.WriteString(fmt.Sprintf("**When:** %s\n\n", t.When))
+
+	sb.WriteString("**Then:**\n\n")
+	for _, then := range t.Then {
+		sb.WriteString(fmt.Sprintf("- %s\n", then))
+	}
+	sb.WriteString("\n")
+
+	if len(t.RealComponents) > 0 {
+		sb.WriteString(fmt.Sprintf("**Real components (must not be mocked):** %s\n\n",
+			strings.Join(t.RealComponents, ", ")))
 	}
 
-	if expectedStr, ok := renderInterfaceValue(tc.Expected); ok {
-		sb.WriteString(fmt.Sprintf("**Expected:** %s\n\n", expectedStr))
-	}
-
-	if tc.AssertionPseudocode != "" {
-		sb.WriteString("**Assertion pseudocode:**\n\n")
-		sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", tc.AssertionPseudocode))
+	if t.Pseudocode != nil && *t.Pseudocode != "" {
+		sb.WriteString("**Pseudocode:**\n\n")
+		sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", *t.Pseudocode))
 	}
 }
 
-// Render renders the tasks artifact as a Markdown string with
-// checkbox-formatted subtasks.
-func (t *TasksV1Json) Render() string {
-	var sb strings.Builder
+// ---------------------------------------------------------------------------
+// tasks.json
+// ---------------------------------------------------------------------------
 
+// Render renders the tasks artifact as Markdown.
+func (t *TasksV2Json) Render() string {
+	var sb strings.Builder
 	sb.WriteString("## Tasks\n\n")
+	for _, task := range t.Tasks {
+		renderTaskFull(&sb, task, &t.TestCommands)
+	}
+	return sb.String()
+}
 
-	for _, g := range t.TaskGroups {
-		renderTaskGroupFull(&sb, g)
+// renderTaskFull renders a task with its steps, touches, criteria, tests,
+// done_when and the implicit definition of done (§8.3, §11.2).
+func renderTaskFull(sb *strings.Builder, task Task, commands *TestCommands) {
+	checkbox := "[ ]"
+	if task.State == TaskStateDone {
+		checkbox = "[x]"
+	}
+	optional := ""
+	if task.IsOptional() {
+		optional = " _(optional)_"
+	}
+	sb.WriteString(fmt.Sprintf("### %s %d. %s (%s, %s)%s\n\n",
+		checkbox, task.Id, task.Title, task.Kind, task.State, optional))
+
+	if len(task.Criteria) > 0 {
+		sb.WriteString(fmt.Sprintf("**Criteria:** %s\n\n", strings.Join(task.Criteria, ", ")))
+	}
+	sb.WriteString(fmt.Sprintf("**Tests:** %s\n\n", strings.Join(task.Tests, ", ")))
+
+	if len(task.DependsOn) > 0 {
+		deps := make([]string, len(task.DependsOn))
+		for i, d := range task.DependsOn {
+			deps[i] = fmt.Sprint(d)
+		}
+		sb.WriteString(fmt.Sprintf("**Depends on:** %s\n\n", strings.Join(deps, ", ")))
 	}
 
-	return sb.String()
+	sb.WriteString("**Steps:**\n\n")
+	for _, step := range task.Steps {
+		sb.WriteString(fmt.Sprintf("1. %s\n", step))
+	}
+	sb.WriteString("\n")
+
+	if len(task.Touches) > 0 {
+		sb.WriteString("**Touches:**\n\n")
+		for _, f := range task.Touches {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", f))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("**Done when:**\n\n")
+	sb.WriteString("- the tests listed above exist, are executable and pass\n")
+	if commands != nil && commands.AllTests != "" {
+		sb.WriteString(fmt.Sprintf("- `%s` passes\n", commands.AllTests))
+	}
+	if commands != nil && commands.Linter != "" {
+		sb.WriteString(fmt.Sprintf("- `%s` passes\n", commands.Linter))
+	}
+	for _, d := range task.DoneWhen {
+		sb.WriteString(fmt.Sprintf("- %s\n", d))
+	}
+	sb.WriteString("\n")
+}
+
+// renderTaskSummary renders a task as a one-line summary.
+func renderTaskSummary(sb *strings.Builder, task Task) {
+	checkbox := "[ ]"
+	if task.State == TaskStateDone {
+		checkbox = "[x]"
+	}
+	sb.WriteString(fmt.Sprintf("- %s %d. %s (%s, %s)\n", checkbox, task.Id, task.Title, task.Kind, task.State))
 }

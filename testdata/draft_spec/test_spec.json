@@ -1,62 +1,62 @@
 {
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
   "spec_id": "02",
   "spec_name": "draft_feature",
-  "schema_version": 1,
-  "test_cases": [
+  "schema_version": 2,
+  "tests": [
     {
       "id": "TS-02-1",
-      "requirement_id": "02-REQ-1.1",
       "kind": "unit",
-      "description": "Lifecycle transitions work correctly",
-      "preconditions": [],
-      "input": {},
-      "expected": {
-        "transitions_succeed": true
-      },
-      "assertion_pseudocode": "transition(spec, active, dir); assert spec.status == active"
-    }
-  ],
-  "property_tests": [
-    {
-      "id": "TS-02-P1",
-      "property_id": "02-PROP-1",
-      "validates": [
+      "verifies": [
         "02-REQ-1.1"
       ],
-      "description": "Lifecycle transition legality",
-      "for_any_strategy": "pair of Status values",
-      "invariant_check": "transition succeeds iff pair is in legal set"
-    }
-  ],
-  "edge_case_tests": [],
-  "smoke_tests": [
-    {
-      "id": "TS-02-SMOKE-1",
-      "execution_path_id": "02-PATH-1",
-      "description": "Draft to active transition end-to-end",
-      "trigger": "transition(spec, active, dir)",
-      "real_components": [
-        "lifecycle",
-        "io"
+      "title": "A draft spec can be edited and saved",
+      "given": [
+        "a spec in the draft state"
       ],
-      "mockable": [],
-      "expected_effects": [
-        "Status changes to active",
-        "Intent hash is computed"
+      "when": "the PRD body is changed and Save is called",
+      "then": [
+        "Save returns no error",
+        "the written prd.md carries the new body"
+      ],
+      "pseudocode": "s.PRDBody = new; assert s.Save(dir) == nil"
+    },
+    {
+      "id": "TS-02-2",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-1.2"
+      ],
+      "title": "An unknown lifecycle transition is rejected",
+      "given": [
+        "a spec in the draft state"
+      ],
+      "when": "Transition is called with a state outside the lifecycle graph",
+      "then": [
+        "a LifecycleError is returned",
+        "the spec on disk is unchanged"
+      ],
+      "pseudocode": "_, err = s.Transition('bogus', dir); assert err != nil"
+    },
+    {
+      "id": "TS-02-3",
+      "kind": "smoke",
+      "verifies": [
+        "02-PATH-1"
+      ],
+      "title": "An operator edits a draft spec end to end",
+      "given": [
+        "a draft spec directory on disk"
+      ],
+      "when": "the Intent section is edited and the spec is saved and reloaded",
+      "then": [
+        "the reloaded body carries the edit",
+        "intent_hash is still null"
+      ],
+      "real_components": [
+        "afspec library",
+        "spec directory on disk"
       ]
     }
-  ],
-  "coverage": {
-    "requirements_covered": [
-      "02-REQ-1.1"
-    ],
-    "properties_covered": [
-      "02-PROP-1"
-    ],
-    "paths_covered": [
-      "02-PATH-1"
-    ],
-    "gaps": []
-  }
+  ]
 }

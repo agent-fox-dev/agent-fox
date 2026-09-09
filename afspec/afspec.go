@@ -45,9 +45,9 @@ type Spec struct {
 	Dir string
 
 	// JSON artifacts
-	Requirements *RequirementsV1Json
-	TestSpec     *TestSpecV1Json
-	Tasks        *TasksV1Json
+	Requirements *RequirementsV2Json
+	TestSpec     *TestSpecV2Json
+	Tasks        *TasksV2Json
 
 	// Optional architecture document
 	Architecture string
@@ -95,23 +95,24 @@ func LoadSpec(dir string) (*Spec, error) {
 		return nil, err // parsePRD already returns LoadError
 	}
 
-	// Read and parse requirements.json
+	// Read and parse the three JSON artifacts. Decoding checks JSON syntax and
+	// Go types only: structural rules live in the compiled schemas and run in
+	// Validate. That is what lets an empty scaffold load and be reported as
+	// incomplete rather than failing to decode.
 	reqPath := filepath.Join(dir, "requirements.json")
-	var req RequirementsV1Json
+	var req RequirementsV2Json
 	if err := loadJSONArtifact(reqPath, &req); err != nil {
 		return nil, err
 	}
 
-	// Read and parse test_spec.json
 	tsPath := filepath.Join(dir, "test_spec.json")
-	var ts TestSpecV1Json
+	var ts TestSpecV2Json
 	if err := loadJSONArtifact(tsPath, &ts); err != nil {
 		return nil, err
 	}
 
-	// Read and parse tasks.json
 	tasksPath := filepath.Join(dir, "tasks.json")
-	var tasks TasksV1Json
+	var tasks TasksV2Json
 	if err := loadJSONArtifact(tasksPath, &tasks); err != nil {
 		return nil, err
 	}
@@ -240,11 +241,8 @@ func (s *Spec) Save(dir string) error {
 		}
 	}
 
-	// Spec section 7.6: coverage is computed on every save, not authored.
-	if s.TestSpec != nil && s.Requirements != nil {
-		s.TestSpec.Coverage = s.TestSpec.ComputeCoverageStruct(s.Requirements)
-	}
-
+	// Format v2 §7.1: coverage is derived by the validator, never stored, so
+	// there is nothing to recompute before writing.
 	return s.saveToDisk(dir)
 }
 
