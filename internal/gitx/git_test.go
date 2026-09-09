@@ -270,6 +270,93 @@ func TestBranchName(t *testing.T) {
 	}
 }
 
+func TestPull(t *testing.T) {
+	ctx := context.Background()
+	// Create an origin "remote" bare repo, and two clones: alice and bob.
+	originDir := t.TempDir()
+	for _, argv := range [][]string{
+		{"git", "init", "--bare", "-b", "main", originDir},
+	} {
+		if out, code, err := ExecRunner(ctx, originDir, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+
+	aliceDir := t.TempDir()
+	for _, argv := range [][]string{
+		{"git", "clone", originDir, aliceDir},
+		{"git", "config", "user.email", "alice@example.com"},
+		{"git", "config", "user.name", "Alice"},
+		{"git", "config", "commit.gpgsign", "false"},
+	} {
+		if out, code, err := ExecRunner(ctx, aliceDir, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+
+	bobDir := t.TempDir()
+	for _, argv := range [][]string{
+		{"git", "clone", originDir, bobDir},
+		{"git", "config", "user.email", "bob@example.com"},
+		{"git", "config", "user.name", "Bob"},
+		{"git", "config", "commit.gpgsign", "false"},
+	} {
+		if out, code, err := ExecRunner(ctx, bobDir, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+
+	aliceGit := New(aliceDir, ExecRunner)
+	bobGit := New(bobDir, ExecRunner)
+
+	// Alice creates an initial commit on main and pushes it to origin.
+	if err := os.WriteFile(filepath.Join(aliceDir, "file.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := aliceGit.CommitAll(ctx, "feat: initial commit\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceGit.Push(ctx, "main", 1, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob pulls main from origin.
+	if err := bobGit.Pull(ctx, "main"); err != nil {
+		t.Fatalf("bob Pull main: %v", err)
+	}
+	bobContent, err := os.ReadFile(filepath.Join(bobDir, "file.txt"))
+	if err != nil || string(bobContent) != "hello\n" {
+		t.Fatalf("bob file.txt = %q, %v", string(bobContent), err)
+	}
+
+	// Conflict case: Alice and Bob both edit file.txt differently and commit.
+	if err := os.WriteFile(filepath.Join(aliceDir, "file.txt"), []byte("alice version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := aliceGit.CommitAll(ctx, "feat: alice change\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceGit.Push(ctx, "main", 1, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(bobDir, "file.txt"), []byte("bob version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bobGit.CommitAll(ctx, "feat: bob change\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob pulls and expects a merge conflict error.
+	err = bobGit.Pull(ctx, "main")
+	if err == nil {
+		t.Fatal("expected conflict error when pulling incompatible changes, got nil")
+	}
+	if !strings.Contains(err.Error(), "git pull origin main") {
+		t.Errorf("error = %v, expected git pull origin main context", err)
+	}
+}
+
 func TestResetHardDiscardsAnAttempt(t *testing.T) {
 	g, dir := newRepo(t)
 	ctx := context.Background()

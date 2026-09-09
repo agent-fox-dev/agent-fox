@@ -222,6 +222,17 @@ func nonRetryablePush(out string) bool {
 	return false
 }
 
+// Pull fetches from origin and merges changes into the current branch.
+// An optional branch argument specifies which remote branch to pull from origin.
+func (g *Git) Pull(ctx context.Context, branch ...string) error {
+	args := []string{"pull", "origin"}
+	if len(branch) > 0 && strings.TrimSpace(branch[0]) != "" {
+		args = append(args, strings.TrimSpace(branch[0]))
+	}
+	_, err := g.must(ctx, args...)
+	return err
+}
+
 // ResetHard discards everything back to a commit. It is how a failed attempt
 // on a branch nobody else has written to is thrown away.
 func (g *Git) ResetHard(ctx context.Context, ref string) error {
