@@ -11,8 +11,8 @@ Before making any changes, orient yourself:
 2. **Read `.specs/steering.md`** if it exists — project-level directives that
    apply to all agents and skills. Follow any instructions found there.
 3. **Read ADRs and errata** in `docs/` for architectural context.
-4. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
-   unit, property, and integration tests. Their location is language dependent.
+4. **Explore the codebase:** see the layout below; Go tests sit beside the code
+   they cover.
 5. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
 
 **Important:** Read all documents and code in depth — don't skim.
@@ -25,23 +25,36 @@ Do not implement anything before completing these steps.
 ## Project Structure
 
 ```
-<main_package>/         # Main package
-<test_directory>/       # Tests directory
-docs/                   # Documentation
+afspec/                 # Spec format library (package afspec)
+  legacy/               # Read-only version 1 types, used only by `spec migrate`
+  schemas/              # Bundled JSON Schemas, embedded at compile time
+agentspec/              # LLM-powered spec creation (package agentspec)
+cmd/                    # Executables: af, nightshift, spec
+docs/                   # Documentation, ADRs and PRDs
+testdata/               # Shared test fixtures
 .specs/                 # Specs to be implemented
 .specs/archive/         # Old specs. Ignore for coding tasks, except for reference
 ```
+
+Tests live beside the code they cover, as `*_test.go`.
 
 ## Spec-Driven Workflow
 
 This project uses spec-driven development. Specifications live in
 `.specs/NN_name/` (numbered by creation order) and contain:
 
-- `prd.md` — product requirements, goals, tech stack, high-level design
-- `requirements.json` — EARS-syntax acceptance criteria, execution paths, external API contracts, glossary
-- `test_spec.json` — language-agnostic test contracts
-- `tasks.json` — implementation plan with subtask states and test commands
-- `architecture.md` — (optional) detailed architecture
+- `prd.md` — narrative intent: the "why" and "what"
+- `requirements.json` — EARS criteria and end-to-end execution paths
+- `test_spec.json` — one flat list of tests, each with a `kind` and a `verifies` list
+- `tasks.json` — one flat list of tasks, each owning criteria and tests
+- `architecture.md` — (optional) modules, interfaces, data models, technology choices
+
+The format is version 2, specified in the
+[`spec`](https://github.com/agent-fox-dev/spec) repository
+(`specification/spec-format-v2.md`). A spec is valid only when every criterion
+is verified by a test, every test is owned by a task, every execution path is
+exercised by a smoke test, and the final integration task owns every smoke
+test. Coverage and traceability are derived, never stored.
 
 Cross-reference `external_apis` in `requirements.json` against installed
 libraries — API signatures in specs may be unverified assumptions.
@@ -51,7 +64,8 @@ libraries — API signatures in specs may be unverified assumptions.
 | Command | What it does |
 |---------|-------------|
 | `make check` | Run lint + all tests (use before committing) |
-| `make test` | Run all tests (`uv run pytest -q`) |
+| `make test` | Run all tests (`go test ./... -count=1`) |
+| `make lint` | `gofmt` + `go vet` |
 
 Run the full quality suite before committing:
 

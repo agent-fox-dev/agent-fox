@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "01",
+  "spec_name": "test_feature",
+  "schema_version": 2,
+  "introduction": "Truncated on purpose: this file is not valid JSON.

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "abc",
+  "spec_name": "alpha_prefix_feature",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-abc-1",
+      "kind": "unit",
+      "verifies": [
+        "abc-REQ-1.1"
+      ],
+      "title": "LoadSpec populates every artifact of a well-formed spec directory",
+      "given": [
+        "a directory holding prd.md and the three JSON artifacts"
+      ],
+      "when": "LoadSpec is called on that directory",
+      "then": [
+        "the error is nil",
+        "Requirements, TestSpec and Tasks are all non-nil"
+      ],
+      "pseudocode": "s, err = LoadSpec(dir); assert err == nil; assert s.Requirements != nil"
+    },
+    {
+      "id": "TS-abc-2",
+      "kind": "unit",
+      "verifies": [
+        "abc-REQ-1.2"
+      ],
+      "title": "LoadSpec returns a LoadError naming the missing artifact",
+      "given": [
+        "a directory with no requirements.json"
+      ],
+      "when": "LoadSpec is called on that directory",
+      "then": [
+        "the returned Spec is nil",
+        "the error is a *LoadError whose File names requirements.json"
+      ],
+      "pseudocode": "s, err = LoadSpec(dir); assert s == nil; assert errors.As(err, &LoadError{})"
+    },
+    {
+      "id": "TS-abc-3",
+      "kind": "property",
+      "verifies": [
+        "abc-REQ-1.3"
+      ],
+      "title": "Load then save is byte-identical for any well-formed spec",
+      "given": [
+        "a corpus of well-formed spec directories"
+      ],
+      "when": "for any spec in the corpus, it is loaded and saved to a fresh directory",
+      "then": [
+        "each written file is byte-identical to the file it was read from"
+      ],
+      "pseudocode": "for d in corpus: s = LoadSpec(d); s.Save(tmp); assert files_equal(d, tmp)"
+    },
+    {
+      "id": "TS-abc-4",
+      "kind": "integration",
+      "verifies": [
+        "abc-REQ-2.1"
+      ],
+      "title": "Validate reports uncovered criteria and unowned tests",
+      "given": [
+        "a spec whose second criterion is verified by no test"
+      ],
+      "when": "Validate is called on it",
+      "then": [
+        "Valid is false",
+        "an error names the uncovered criterion"
+      ],
+      "pseudocode": "r = spec.Validate(); assert not r.Valid; assert any(e.Check == 'C4' for e in r.Errors)"
+    },
+    {
+      "id": "TS-abc-5",
+      "kind": "smoke",
+      "verifies": [
+        "abc-PATH-1",
+        "abc-REQ-1.1"
+      ],
+      "title": "A consumer loads and validates a spec end to end",
+      "given": [
+        "a spec directory on disk"
+      ],
+      "when": "LoadSpec and Validate are called in sequence against the real filesystem",
+      "then": [
+        "LoadSpec returns no error",
+        "Validate reports the spec as valid"
+      ],
+      "real_components": [
+        "afspec library",
+        "spec directory on disk"
+      ]
+    }
+  ]
+}

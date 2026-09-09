@@ -1,0 +1,81 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "abc",
+  "spec_name": "alpha_prefix_feature",
+  "schema_version": 2,
+  "introduction": "The test feature validates the spec library.",
+  "glossary": {
+    "spec": "A four-artifact package representing one feature.",
+    "system": "The afspec library."
+  },
+  "requirements": [
+    {
+      "id": "abc-REQ-1",
+      "title": "Data model",
+      "rationale": "Callers need typed models so that a malformed artifact fails at load time, not at use time.",
+      "criteria": [
+        {
+          "id": "abc-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "a spec directory is loaded from disk",
+          "system": "afspec library",
+          "action": "return a Spec whose four artifacts are populated from the files on disk",
+          "contract": "a non-nil *Spec and a nil error"
+        },
+        {
+          "id": "abc-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "a required artifact file is missing from the spec directory",
+          "system": "afspec library",
+          "action": "return a LoadError naming the missing file",
+          "contract": "a nil *Spec and a LoadError whose File field is the missing path"
+        },
+        {
+          "id": "abc-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "afspec library",
+          "action": "for any spec loaded from disk, produce byte-identical files when it is saved again without modification"
+        }
+      ]
+    },
+    {
+      "id": "abc-REQ-2",
+      "title": "Cross-file validation",
+      "rationale": "A spec whose references do not resolve is a plan with holes in it.",
+      "criteria": [
+        {
+          "id": "abc-REQ-2.1",
+          "pattern": "state_driven",
+          "condition": "a loaded spec is validated",
+          "system": "afspec library",
+          "action": "report every criterion that no test verifies and every test that no task owns",
+          "contract": "a ValidationResult whose Errors name the uncovered and unowned entities"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "abc-PATH-1",
+      "title": "A consumer loads and validates a spec",
+      "steps": [
+        {
+          "actor": "consumer",
+          "action": "calls LoadSpec(dir)"
+        },
+        {
+          "actor": "afspec library",
+          "action": "reads and decodes the four artifact files"
+        },
+        {
+          "actor": "afspec library",
+          "action": "returns a populated Spec"
+        },
+        {
+          "actor": "consumer",
+          "action": "calls Validate() and inspects the result"
+        }
+      ]
+    }
+  ]
+}

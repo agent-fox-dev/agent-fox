@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "title": "Test Specification",
+  "description": "Schema for test_spec.json spec artifact (format version 2)",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "spec_id": { "type": "string", "minLength": 1 },
+    "spec_name": { "type": "string", "minLength": 1 },
+    "schema_version": { "type": "integer", "const": 2 },
+    "tests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/test" },
+      "minItems": 1
+    }
+  },
+  "required": ["$schema", "spec_id", "spec_name", "schema_version", "tests"],
+  "additionalProperties": false,
+  "$defs": {
+    "test": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^TS-[A-Za-z0-9_]+-[0-9]+$" },
+        "kind": { "type": "string", "enum": ["unit", "integration", "property", "smoke"] },
+        "verifies": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_]+-(REQ-[0-9]+\\.[0-9]+|PATH-[0-9]+)$" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "given": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "when": { "type": "string", "minLength": 1 },
+        "then": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+        "pseudocode": { "type": "string", "minLength": 1 },
+        "real_components": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+      },
+      "required": ["id", "kind", "verifies", "title", "given", "when", "then"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "smoke" } } },
+          "then": { "required": ["real_components"] },
+          "else": { "not": { "required": ["real_components"] } }
+        }
+      ]
+    }
+  }
+}
