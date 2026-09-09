@@ -47,6 +47,11 @@ type Options struct {
 	AllowPrograms []string
 	// Draft opens the pull request as a draft.
 	Draft bool
+	// Pull checks out and pulls the base branch or PullBranch from origin before branching.
+	Pull bool
+	// PullBranch is the branch to checkout and pull when Pull is enabled.
+	// Empty means the base branch.
+	PullBranch string
 
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
@@ -325,6 +330,19 @@ func preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (g
 	// The base branch is captured HERE, before any checkout. Asked later it
 	// would name the feature branch, and a pull request would target itself.
 	base := git.BaseBranch(ctx)
+	if o.Pull || o.PullBranch != "" {
+		targetBranch := o.PullBranch
+		if targetBranch == "" {
+			targetBranch = base
+		}
+		if err := git.Checkout(ctx, targetBranch); err != nil {
+			return ghapi.Repo{}, "", fail("preflight", CategoryGit, err)
+		}
+		if err := git.Pull(ctx, targetBranch); err != nil {
+			return ghapi.Repo{}, "", fail("preflight", CategoryGit, err)
+		}
+		base = targetBranch
+	}
 
 	target := o.Repo
 	if !target.Valid() && o.Input.Issue != nil {

@@ -199,6 +199,7 @@ comes from git, not from the model.
 
 | Flag | Default | Effect |
 |---|---|---|
+| `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
 | `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
 | `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened |
 | `--dry-run` | off | make no *remote* change: push nothing, open nothing, post nothing. The branch and the commit are still made locally |

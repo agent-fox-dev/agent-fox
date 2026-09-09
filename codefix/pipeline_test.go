@@ -523,3 +523,227 @@ func TestTheAnalysisPhaseDoesNotGetTheBuildPrograms(t *testing.T) {
 		t.Error("the implementation phase was allowed to push")
 	}
 }
+
+func TestPipelinePull(t *testing.T) {
+	ctx := context.Background()
+
+	setupRemotes := func(t *testing.T) (originDir string, ws *tools.Workspace, g *gitx.Git) {
+		t.Helper()
+		originDir = t.TempDir()
+		if out, code, err := gitx.ExecRunner(ctx, originDir, []string{"git", "init", "--bare", "-b", "main"}); err != nil || code != 0 {
+			t.Fatalf("git init bare: %v (%d) %s", err, code, out)
+		}
+
+		seedDir := t.TempDir()
+		for _, argv := range [][]string{
+			{"git", "clone", originDir, seedDir},
+			{"git", "config", "user.email", "seed@example.com"},
+			{"git", "config", "user.name", "Seed"},
+			{"git", "config", "commit.gpgsign", "false"},
+		} {
+			if out, code, err := gitx.ExecRunner(ctx, seedDir, argv); err != nil || code != 0 {
+				t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+			}
+		}
+		write(t, seedDir, "count.go", "package x\n")
+		write(t, seedDir, "Makefile", "test:\n\t@exit 0\n")
+		seedGit := gitx.New(seedDir, gitx.ExecRunner)
+		if _, err := seedGit.CommitAll(ctx, "feat: initial seed\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := seedGit.Push(ctx, "main", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Also create a dev branch on origin
+		if err := seedGit.CreateBranch(ctx, "dev"); err != nil {
+			t.Fatal(err)
+		}
+		write(t, seedDir, "dev.txt", "dev branch file\n")
+		if _, err := seedGit.CommitAll(ctx, "feat: dev file\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := seedGit.Push(ctx, "dev", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Now clone local working dir from origin
+		localDir := t.TempDir()
+		for _, argv := range [][]string{
+			{"git", "clone", originDir, localDir},
+			{"git", "config", "user.email", "test@example.com"},
+			{"git", "config", "user.name", "Test"},
+			{"git", "config", "commit.gpgsign", "false"},
+		} {
+			if out, code, err := gitx.ExecRunner(ctx, localDir, argv); err != nil || code != 0 {
+				t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+			}
+		}
+
+		g = gitx.New(localDir, gitx.ExecRunner)
+		g.SetSleep(func(time.Duration) {})
+		ws, err := tools.NewWorkspace(localDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return originDir, ws, g
+	}
+
+	t.Run("pulls default branch when on another branch", func(t *testing.T) {
+		originDir, ws, g := setupRemotes(t)
+
+		// Create a local feature branch behind main
+		if err := g.CreateBranch(ctx, "feature/old"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Push a new commit to main on origin via another clone
+		otherDir := t.TempDir()
+		for _, argv := range [][]string{
+			{"git", "clone", originDir, otherDir},
+			{"git", "config", "user.email", "other@example.com"},
+			{"git", "config", "user.name", "Other"},
+			{"git", "config", "commit.gpgsign", "false"},
+		} {
+			if out, code, err := gitx.ExecRunner(ctx, otherDir, argv); err != nil || code != 0 {
+				t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+			}
+		}
+		write(t, otherDir, "upstream.txt", "upstream content\n")
+		otherGit := gitx.New(otherDir, gitx.ExecRunner)
+		if _, err := otherGit.CommitAll(ctx, "feat: upstream change\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := otherGit.Push(ctx, "main", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		opts := newOptions(ws, g, defaultBrain())
+		opts.Pull = true
+
+		res, err := Run(ctx, opts)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if res.BaseBranch != "main" {
+			t.Errorf("BaseBranch = %q, want main", res.BaseBranch)
+		}
+
+		// Verify upstream.txt is present in the workspace
+		if _, err := os.Stat(filepath.Join(ws.Root, "upstream.txt")); err != nil {
+			t.Errorf("expected upstream.txt to be present after pull: %v", err)
+		}
+	})
+
+	t.Run("pulls specified branch", func(t *testing.T) {
+		_, ws, g := setupRemotes(t)
+
+		opts := newOptions(ws, g, defaultBrain())
+		opts.Pull = true
+		opts.PullBranch = "dev"
+
+		res, err := Run(ctx, opts)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if res.BaseBranch != "dev" {
+			t.Errorf("BaseBranch = %q, want dev", res.BaseBranch)
+		}
+		if _, err := os.Stat(filepath.Join(ws.Root, "dev.txt")); err != nil {
+			t.Errorf("expected dev.txt to be present after checking out dev: %v", err)
+		}
+	})
+
+	t.Run("fails on merge conflict before baseline or model run", func(t *testing.T) {
+		originDir, ws, g := setupRemotes(t)
+
+		// Create a local commit on main that conflicts with origin/main
+		write(t, ws.Root, "count.go", "package x // local change\n")
+		if _, err := g.CommitAll(ctx, "feat: local commit\n"); err != nil {
+			t.Fatal(err)
+		}
+
+		// In another clone, commit conflicting change to main and push
+		otherDir := t.TempDir()
+		for _, argv := range [][]string{
+			{"git", "clone", originDir, otherDir},
+			{"git", "config", "user.email", "other@example.com"},
+			{"git", "config", "user.name", "Other"},
+			{"git", "config", "commit.gpgsign", "false"},
+		} {
+			if out, code, err := gitx.ExecRunner(ctx, otherDir, argv); err != nil || code != 0 {
+				t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+			}
+		}
+		write(t, otherDir, "count.go", "package x // remote conflicting change\n")
+		otherGit := gitx.New(otherDir, gitx.ExecRunner)
+		if _, err := otherGit.CommitAll(ctx, "feat: remote commit\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := otherGit.Push(ctx, "main", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		brain := defaultBrain()
+		opts := newOptions(ws, g, brain)
+		opts.Pull = true
+
+		res, err := Run(ctx, opts)
+		if err == nil {
+			t.Fatal("expected Run to fail on merge conflict")
+		}
+		var f *Failure
+		if !errors.As(err, &f) || f.Stage != "preflight" || f.Category != CategoryGit {
+			t.Fatalf("expected preflight git failure, got %v (res=%+v)", err, res)
+		}
+		if brain.analyzed != 0 || brain.implemented != 0 {
+			t.Errorf("brain was called: analyzed=%d, implemented=%d", brain.analyzed, brain.implemented)
+		}
+	})
+
+	t.Run("without pull flag does not pull", func(t *testing.T) {
+		originDir, ws, g := setupRemotes(t)
+
+		// Create local branch feature/local
+		if err := g.CreateBranch(ctx, "feature/local"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Push a change to origin/main
+		otherDir := t.TempDir()
+		for _, argv := range [][]string{
+			{"git", "clone", originDir, otherDir},
+			{"git", "config", "user.email", "other@example.com"},
+			{"git", "config", "user.name", "Other"},
+			{"git", "config", "commit.gpgsign", "false"},
+		} {
+			if out, code, err := gitx.ExecRunner(ctx, otherDir, argv); err != nil || code != 0 {
+				t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+			}
+		}
+		write(t, otherDir, "notpulled.txt", "should not be pulled\n")
+		otherGit := gitx.New(otherDir, gitx.ExecRunner)
+		if _, err := otherGit.CommitAll(ctx, "feat: notpulled\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := otherGit.Push(ctx, "main", 1, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		opts := newOptions(ws, g, defaultBrain())
+		opts.Pull = false
+
+		res, err := Run(ctx, opts)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		// BaseBranch should be origin's default branch ("main") or CurrentBranch depending on BaseBranch logic
+		// But it definitely should NOT have pulled notpulled.txt
+		if _, err := os.Stat(filepath.Join(ws.Root, "notpulled.txt")); !os.IsNotExist(err) {
+			t.Errorf("notpulled.txt should not exist in workspace, err=%v", err)
+		}
+		if res.BaseBranch != "main" {
+			t.Errorf("BaseBranch = %q", res.BaseBranch)
+		}
+	})
+}

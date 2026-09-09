@@ -38,11 +38,11 @@ The input is exactly one of:
 
 Output is one JSON object on stdout; progress goes to stderr.
 
-The working tree must be clean. The run branches from the current branch,
-writes the change, runs the project's own checks, and only lands the work if
-they pass — comparing against a baseline taken before anything changed, so a
-repository that was already failing is reported honestly rather than as a
-regression.
+The working tree must be clean. The run branches from the current branch
+(or the branch updated via -pull), writes the change, runs the project's own
+checks, and only lands the work if they pass — comparing against a baseline
+taken before anything changed, so a repository that was already failing is
+reported honestly rather than as a regression.
 
 Exit codes:
   0  fixed, verified, and landed as --land asked
@@ -67,6 +67,7 @@ func main() {
 		pushAttempts  int
 		allow         string
 		draft         bool
+		pull          pullFlag
 	)
 
 	app := toolio.App{
@@ -83,6 +84,7 @@ func main() {
 			fs.IntVar(&pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
 			fs.StringVar(&allow, "allow", "", "comma-separated extra programs the implementation phase's shell may run")
 			fs.BoolVar(&draft, "draft", false, "open the pull request as a draft")
+			fs.Var(&pull, "pull", "checkout and pull origin before branching; optional branch name, default origin's default branch")
 		},
 		// Implementing is the expensive phase: it reads, writes, and runs the
 		// suite repeatedly. Both numbers are ceilings, not targets.
@@ -119,6 +121,8 @@ func main() {
 				PushAttempts:  pushAttempts,
 				AllowPrograms: splitList(allow),
 				Draft:         draft,
+				Pull:          pull.set,
+				PullBranch:    pull.branch,
 				Runner:        d.Runner,
 				GitHub:        d.GitHub,
 				CheckRunner:   gitx.ReducedEnvRunner,
@@ -133,7 +137,141 @@ func main() {
 		},
 	}
 
-	os.Exit(app.Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(app.Main(context.Background(), normalizeArgs(os.Args[1:]), os.Stdin, os.Stdout, os.Stderr))
+}
+
+type pullFlag struct {
+	set    bool
+	branch string
+}
+
+func (p *pullFlag) String() string {
+	if !p.set {
+		return ""
+	}
+	if p.branch != "" {
+		return p.branch
+	}
+	return "true"
+}
+
+func (p *pullFlag) Set(v string) error {
+	p.set = true
+	if v == "" || v == "true" {
+		p.branch = ""
+		return nil
+	}
+	if v == "false" {
+		p.set = false
+		p.branch = ""
+		return nil
+	}
+	p.branch = v
+	return nil
+}
+
+func (p *pullFlag) IsBoolFlag() bool {
+	return true
+}
+
+// knownFixValueFlags lists flags that take a separate value token.
+var knownFixValueFlags = map[string]bool{
+	"repo":           true,
+	"land":           true,
+	"verify":         true,
+	"verify-timeout": true,
+	"push-attempts":  true,
+	"allow":          true,
+	"dir":            true,
+	"model":          true,
+	"vendor":         true,
+	"variant":        true,
+	"max-turns":      true,
+	"budget":         true,
+	"phase-timeout":  true,
+}
+
+// normalizeArgs rewrites argv so that "-pull [branch]" doesn't cause the branch
+// or the input to be parsed incorrectly when -pull is passed without "=".
+// Specifically, if -pull is followed by a non-flag argument and there is at least
+// one subsequent positional argument, the argument immediately following -pull
+// is treated as the branch value and merged into -pull=<branch>.
+func normalizeArgs(argv []string) []string {
+	// First, identify non-flag tokens and where -pull occurs.
+	// We need to know which tokens are values for flags vs actual positional args.
+	var nonFlags []int
+	pullIndices := make(map[int]string) // index of pull token -> flag prefix ("-pull" or "--pull")
+
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--" {
+			for j := i + 1; j < len(argv); j++ {
+				nonFlags = append(nonFlags, j)
+			}
+			break
+		}
+		if a == "-pull" || a == "--pull" {
+			pullIndices[i] = a
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			name := strings.TrimLeft(a, "-")
+			if idx := strings.Index(name, "="); idx != -1 {
+				name = name[:idx]
+			} else if knownFixValueFlags[name] && i+1 < len(argv) {
+				i++ // skip flag's value argument
+			}
+			continue
+		}
+		nonFlags = append(nonFlags, i)
+	}
+
+	if len(pullIndices) == 0 {
+		return argv
+	}
+
+	// For each pull flag without '=', check if the immediately next token is a non-flag,
+	// and if there is at least one OTHER non-flag token (the positional input).
+	pullCombines := make(map[int]int) // pull index -> value index to combine
+	for pIdx, prefix := range pullIndices {
+		_ = prefix
+		valIdx := pIdx + 1
+		if valIdx < len(argv) && !strings.HasPrefix(argv[valIdx], "-") {
+			// Check if valIdx is in nonFlags
+			isNonFlag := false
+			for _, nf := range nonFlags {
+				if nf == valIdx {
+					isNonFlag = true
+					break
+				}
+			}
+			// If it's a non-flag and there are > 1 nonFlags total, this non-flag is the branch!
+			if isNonFlag && len(nonFlags) > 1 {
+				pullCombines[pIdx] = valIdx
+			}
+		}
+	}
+
+	if len(pullCombines) == 0 {
+		return argv
+	}
+
+	out := make([]string, 0, len(argv))
+	skipNext := false
+	for i := 0; i < len(argv); i++ {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if valIdx, ok := pullCombines[i]; ok {
+			prefix := pullIndices[i]
+			out = append(out, prefix+"="+argv[valIdx])
+			skipNext = true
+			continue
+		}
+		out = append(out, argv[i])
+	}
+	return out
 }
 
 func splitList(s string) []string {
