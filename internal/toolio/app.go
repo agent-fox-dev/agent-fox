@@ -16,10 +16,10 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 )
 
-// UsageError is a wrong invocation: no input, a flag combination that cannot
-// hold, a directory that is not one. It is separated from every other failure
-// because it means nothing was fetched and nothing was written, and because
-// it is the one class of error worth printing the flag list for.
+// UsageError is a wrong invocation: no input on stdin, a flag combination
+// that cannot hold, a directory that is not one. It is separated from every
+// other failure because it means nothing was fetched and nothing was
+// written.
 type UsageError struct{ msg string }
 
 func (e *UsageError) Error() string { return e.msg }
@@ -82,8 +82,13 @@ type App struct {
 	Exec func(context.Context, Deps) (int, any, *ErrorInfo)
 }
 
-// Main parses, resolves and runs. It returns the process exit code, and it
-// writes exactly one JSON object to stdout on every path.
+// Main parses, resolves and runs. It returns the process exit code.
+//
+// It writes exactly one JSON object to stdout on every program-driven path.
+// The two human-driven paths — -h/--help, and a bare invocation with no
+// positional argument — print the help text to stderr, write nothing to
+// stdout, and never reach Emit, the same way --version prints a bare
+// sentence and skips it.
 func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var common Common
 	fs := flag.NewFlagSet(a.Name, flag.ContinueOnError)
@@ -101,9 +106,13 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 	input, err := SplitArgs(fs, argv)
 	if err != nil {
-		if !errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintf(stderr, "%s: %v\n", a.Name, err)
+		if errors.Is(err, flag.ErrHelp) {
+			// fs.Parse has already printed the help text to stderr: an
+			// explicit -h/--help is a person asking what the tool does, not
+			// a program handing over work, so there is nothing to Emit.
+			return ExitOK
 		}
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, err)
 		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: err.Error(),
 		}))
@@ -112,11 +121,18 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
 	}
+	if input == "" {
+		// A bare invocation with no positional argument is the same kind of
+		// human path as -h/--help: print what the tool does and say nothing
+		// on stdout, rather than pairing the help text with a JSON envelope
+		// that only restates it.
+		fs.Usage()
+		return ExitUsage
+	}
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	code, result, failure := a.execute(ctx, execArgs{
 		common:   &common,
-		fs:       fs,
 		argument: input,
 		run:      run,
 		progress: progress,
@@ -127,7 +143,6 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 type execArgs struct {
 	common   *Common
-	fs       *flag.FlagSet
 	argument string
 	run      *Run
 	progress *Progress
@@ -140,13 +155,13 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 
 	if a.PreCheck != nil {
 		if err := a.PreCheck(e.common); err != nil {
-			return a.usage(e, err)
+			return a.usage(err)
 		}
 	}
 
 	ws, err := e.common.Workspace()
 	if err != nil {
-		return a.usage(e, err)
+		return a.usage(err)
 	}
 
 	gh := ghapi.New(a.Name + "/" + a.Version)
@@ -154,7 +169,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	in, err := Resolve(ctx, e.argument, e.stdin, gh)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
-			return a.usage(e, Usagef(
+			return a.usage(Usagef(
 				"no input: give a report, a file path, a GitHub URL, or - to read stdin"))
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
@@ -170,7 +185,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 
 	if a.CheckInput != nil {
 		if err := a.CheckInput(in); err != nil {
-			return a.usage(e, err)
+			return a.usage(err)
 		}
 	}
 
@@ -212,8 +227,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	})
 }
 
-func (a App) usage(e execArgs, err error) (int, any, *ErrorInfo) {
-	e.fs.Usage()
+// usage reports a UsageError as the envelope's error object, without
+// printing the flag list a second time: fs.Usage() is reserved for the two
+// paths (a bare invocation, -h/--help) that a person, not a program, hits,
+// and this one keeps stdout parseable for the caller that hit it.
+func (a App) usage(err error) (int, any, *ErrorInfo) {
 	return ExitUsage, nil, &ErrorInfo{Stage: "usage", Category: "usage", Message: err.Error()}
 }
 

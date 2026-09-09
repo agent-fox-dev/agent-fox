@@ -9,8 +9,15 @@ fix   [flags] <input>     a problem           → a verified change on a branch
 ```
 
 Each takes **exactly one positional input** and writes **exactly one JSON
-object** to stdout. Progress goes to stderr, so the two never interleave and a
-caller can pipe stdout straight into a parser.
+object** to stdout, on every program-driven path. Progress goes to stderr, so
+the two never interleave and a caller can pipe stdout straight into a parser.
+
+Two paths are human-driven rather than program-driven, and print text instead:
+`--version` prints the build identity and exits 0, and `-h`/`--help` or a bare
+invocation with no positional argument prints the help text and the flag list
+to stderr and writes nothing to stdout — a person asking what the tool does
+gets an answer they can read, not a JSON object to parse. A bare invocation
+exits 2, since nothing was fetched or written; `-h`/`--help` exits 0.
 
 ## The input
 

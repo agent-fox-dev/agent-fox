@@ -69,16 +69,36 @@ func TestAppEmitsJSONOnEveryPath(t *testing.T) {
 	})
 
 	t.Run("no input", func(t *testing.T) {
+		// A bare invocation with no positional argument is a person asking
+		// what the tool does, not a program handing over work: the help text
+		// goes to stderr and stdout stays empty, rather than pairing it with
+		// a JSON envelope that only restates it.
 		app, _ := newApp(t, nil)
-		env, code, stderr := runApp(t, app, []string{"--dir", dir}, "")
-		if code != ExitUsage || env.OK {
-			t.Fatalf("code=%d env=%+v", code, env)
+		var stdout, stderr bytes.Buffer
+		code := app.Main(context.Background(), []string{"--dir", dir}, strings.NewReader(""), &stdout, &stderr)
+		if code != ExitUsage {
+			t.Fatalf("code=%d", code)
 		}
-		if env.Error == nil || env.Error.Category != "usage" {
-			t.Errorf("Error = %+v", env.Error)
+		if stdout.Len() != 0 {
+			t.Errorf("stdout should be empty for a bare invocation, got %q", stdout.String())
 		}
-		if !strings.Contains(stderr, "usage") {
-			t.Errorf("the flag list should be printed for a usage error:\n%s", stderr)
+		if !strings.Contains(stderr.String(), "usage") {
+			t.Errorf("the flag list should be printed for a bare invocation:\n%s", stderr.String())
+		}
+	})
+
+	t.Run("-h prints help and exits 0 with no envelope", func(t *testing.T) {
+		app, _ := newApp(t, nil)
+		var stdout, stderr bytes.Buffer
+		code := app.Main(context.Background(), []string{"-h"}, strings.NewReader(""), &stdout, &stderr)
+		if code != ExitOK {
+			t.Fatalf("code=%d", code)
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("stdout should be empty for -h, got %q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "usage") {
+			t.Errorf("the help text should be printed for -h:\n%s", stderr.String())
 		}
 	})
 
