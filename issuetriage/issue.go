@@ -165,7 +165,7 @@ func (i Issue) Render(sourceKind, origin string) string {
 	}
 	p("\n## Severity\n\n**%s** — %s\n\n", i.Severity, strings.TrimSpace(i.SeverityRationale))
 
-	p("---\n*Triaged by `issue` from %s: %s.*\n", sourceKind, origin)
+	p("---\n*Triaged by [`issue`](https://github.com/agent-fox-dev/agent-fox) from %s: %s.*\n", sourceKind, origin)
 	return b.String()
 }
 

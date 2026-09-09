@@ -418,7 +418,10 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 	// The rendered comment is a pure function of the result, so it can be
 	// checked without posting it.
 	summary := summaryComment(got)
-	for _, want := range []string{"## Fix implemented", "count.go", "### Verification", "✅"} {
+	for _, want := range []string{
+		"## Fix implemented", "count.go", "### Verification", "✅",
+		"[`fix`](https://github.com/agent-fox-dev/agent-fox)",
+	} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("the summary comment is missing %q:\n%s", want, summary)
 		}
