@@ -10,7 +10,7 @@ import (
 // The footer every comment this tool posts carries. It says what wrote the
 // comment, because a reader deciding how much to trust a diagnosis should not
 // have to work that out from the prose style.
-const footer = "*Written by [`fix`](https://github.com/agent-fox-dev/agent-fox). It is not a substitute for review.*"
+const footer = "*Written by [`fix`](https://github.com/agent-fox-dev/agent-fox). Trust, but verify!*"
 
 // commitMessage is the message of the one commit a successful run makes.
 //
