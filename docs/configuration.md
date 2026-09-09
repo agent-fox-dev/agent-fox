@@ -14,7 +14,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 No configuration file is required. With a key in the environment the tool uses
-the `STANDARD` tier, which resolves to `claude-sonnet-4-6`.
+the `STANDARD` tier, which resolves to `claude-sonnet-5` at high thinking effort.
 
 `spec models` prints what each phase will actually run on, what it costs, and
 whether this shell can authenticate to it:
@@ -77,9 +77,16 @@ does not require knowing which model id is current this month.
 
 | Tier | `anthropic` (default) | `openai` | `google` |
 |---|---|---|---|
-| `SIMPLE` | `claude-haiku-4-5` | `gpt-5.6-luna` | `gemini-3.5-flash-lite` |
-| `STANDARD` | `claude-sonnet-4-6` | `gpt-5.6-terra` | `gemini-3.8-flash` |
-| `ADVANCED` | `claude-opus-4-6` | `gpt-6-astra` | `gemini-3.1-pro-preview` |
+| `SIMPLE` | `claude-sonnet-5` · thinking `medium` | `gpt-5.6-luna` | `gemini-3.5-flash-lite` |
+| `STANDARD` | `claude-sonnet-5` · thinking `high` | `gpt-5.6-terra` | `gemini-3.8-flash` |
+| `ADVANCED` | `claude-opus-5` · thinking `xhigh` | `gpt-6-astra` | `gemini-3.1-pro-preview` |
+
+A tier names a model **and** a reasoning effort. Separating the two lets
+`SIMPLE` and `STANDARD` share a model and run it at different depth, which on
+current Anthropic rows is the cheaper axis to move: effort is what the model
+spends, and the row is what it costs per token. A model named by id instead of
+a tier carries no thinking level — the operator chose the model, so the vendor
+default applies.
 
 The `extended` variant of `ADVANCED` selects a model with a 1 000 000-token
 context window (`claude-fable-5-1` on Anthropic) for a spec too large for the
@@ -92,7 +99,7 @@ Anything that is not a tier name goes to the catalog unchanged, so a
 build was cut all work:
 
 ```sh
-export AF_SPEC_MODEL=anthropic/claude-opus-4-6
+export AF_SPEC_MODEL=anthropic/claude-opus-5
 export AF_SPEC_MODEL=openai/gpt-6-astra
 export AF_SPEC_MODEL=ADVANCED
 ```
@@ -189,7 +196,7 @@ not passed leaves the file's value alone.
 
 1. `AF_SPEC_MODEL` — skips file-based model resolution entirely.
 2. `[model]` in `.specs/config.toml`, else `~/.specs/config.toml`.
-3. `model = "STANDARD"`, resolving to `anthropic/claude-sonnet-4-6`.
+3. `model = "STANDARD"`, resolving to `anthropic/claude-sonnet-5` at high effort.
 
 ## Environment variables
 

@@ -252,7 +252,8 @@ so it always exits 0.
       "phase": "assess",
       "tier": "STANDARD",
       "vendor": "anthropic",
-      "model": "claude-sonnet-4-6",
+      "model": "claude-sonnet-5",
+      "thinking_level": "high",
       "context_window": 1000000,
       "max_tokens": 128000,
       "input_cost_per_mtok": 3,
@@ -462,9 +463,12 @@ spec campaign -p campaigns/q3-auth -n "Q3 Auth Overhaul"
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success (or lint/validate found no errors) |
-| `1` | Error or findings exist (e.g., lint/validate found problems) |
-| `2` | Usage error (invalid arguments or missing required options) |
+| `0` | Success, and lint/validate found no errors |
+| `1` | Anything else: an error, a usage mistake, or findings exist |
+
+There is no third code. `Execute` exits 1 on every error, so a caller cannot
+distinguish a usage mistake from a failed run by status alone — read the
+`error` field of the JSON envelope.
 
 ## Output Format
 
@@ -478,7 +482,7 @@ The `render` command outputs raw markdown by default; use `--json` for JSON outp
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Credential for the AI-powered commands (`refine`, `generate`) when the model resolves to an Anthropic row. Other vendors read their own variables — run `spec models` to see which one the configured model needs. |
 | `<VENDOR>_BASE_URL` | Gateway, proxy or local server for that vendor (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, …). A base URL alone is a valid credential state. |
-| `AF_SPEC_MODEL` | Override the model for every phase. Accepts a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec (`anthropic/claude-opus-4-6`, `openai/gpt-6-astra`). Default: `STANDARD`. |
+| `AF_SPEC_MODEL` | Override the model for every phase. Accepts a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec (`anthropic/claude-opus-5`, `openai/gpt-6-astra`). Default: `STANDARD`. |
 | `AF_AGENT` | Set to `1` to enable agent mode. Suppresses the banner, forces quiet output, disables the `--verbose` event trace, and auto-enables `--json` for `render`. |
 | `SPEC_DIR` | Override the default spec root directory (`.specs`). The `--spec-dir` CLI flag takes precedence over this env var. |
 | `CLAUDE_CODE_USE_VERTEX` | **Refused.** There is no wire for Claude on Vertex; the error names the alternative. See [errata](errata/agentkit_model_resolution.md). |

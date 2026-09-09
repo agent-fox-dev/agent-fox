@@ -73,8 +73,8 @@ json-gen:
 	go-jsonschema --only-models -p afspec $(SCHEMAS_DIR)/prd-frontmatter.v2.json > $(CURDIR)/afspec/prd-frontmatter.v2.go
 
 install-skills:
-	@for skill in $(SKILLS_TEMPLATES_DIR)/*; do \
-		name=$$(basename "$$skill"); \
+	@for skill in $(SKILLS_TEMPLATES_DIR)/*.md; do \
+		name=$$(basename "$$skill" .md); \
 		target="$(CLAUDE_SKILLS_DIR)/$$name"; \
 		mkdir -p "$$target"; \
 		cp "$$skill" "$$target/SKILL.md"; \
@@ -82,8 +82,8 @@ install-skills:
 	done
 
 uninstall-skills:
-	@for skill in $(SKILLS_TEMPLATES_DIR)/*; do \
-		name=$$(basename "$$skill"); \
+	@for skill in $(SKILLS_TEMPLATES_DIR)/*.md; do \
+		name=$$(basename "$$skill" .md); \
 		if [ -d "$(CLAUDE_SKILLS_DIR)/$$name" ]; then \
 			rm -rf "$(CLAUDE_SKILLS_DIR)/$$name"; \
 			echo "removed: $$name"; \
