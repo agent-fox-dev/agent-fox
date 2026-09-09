@@ -92,32 +92,51 @@ func TierVendors() []string {
 // "anthropic/claude-opus-5", a bare unambiguous id, and a model released
 // after this build was cut all work without a code change. A literal model
 // spec returns ThinkingUnset because the operator chose the model, not a tier.
+//
+// Whether name is a tier is decided before vendor is looked at: a
+// vendor absent from the tier table (ollama, an OpenAI-compatible gateway,
+// ...) must not block a model named by id, so vendor is only defaulted and
+// validated once name has already been recognized as a tier name.
 func ModelSpec(name, variant, vendor string) (string, core.ThinkingLevel, error) {
 	if name == "" {
 		return "", core.ThinkingUnset, fmt.Errorf("agentrun: model name must not be empty")
 	}
+
+	tier := ModelTier(strings.ToUpper(name))
+	if !isTierName(tier) {
+		// Not a tier: the catalog is the authority on whether it is a model.
+		// The vendor plays no part in resolving a model named by id.
+		return name, core.ThinkingUnset, nil
+	}
+
 	if vendor == "" {
 		vendor = DefaultVendor
 	}
-
-	tier := ModelTier(strings.ToUpper(name))
 	byTier, known := tierTable[vendor]
 	if !known {
 		return "", core.ThinkingUnset, fmt.Errorf("agentrun: unknown model vendor %q; known vendors: %s",
 			vendor, strings.Join(TierVendors(), ", "))
 	}
-	if byVariant, ok := byTier[tier]; ok {
-		if variant != "" {
-			if entry, ok := byVariant[variant]; ok {
-				return entry.spec, entry.thinking, nil
-			}
+	byVariant := byTier[tier]
+	if variant != "" {
+		if entry, ok := byVariant[variant]; ok {
+			return entry.spec, entry.thinking, nil
 		}
-		entry := byVariant[""]
-		return entry.spec, entry.thinking, nil
 	}
+	entry := byVariant[""]
+	return entry.spec, entry.thinking, nil
+}
 
-	// Not a tier: the catalog is the authority on whether it is a model.
-	return name, core.ThinkingUnset, nil
+// isTierName reports whether tier is one of the declared tiers, independent
+// of any vendor. Membership in Tiers is what makes a name a tier at all; the
+// vendor only selects which table backs the tier once it is recognized.
+func isTierName(tier ModelTier) bool {
+	for _, t := range Tiers {
+		if t == tier {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveModel resolves a tier name or model spec to a catalog model and the
