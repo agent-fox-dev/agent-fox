@@ -1,7 +1,8 @@
 # 01. Adopt spec format v2 to close the plan-completeness gap
 
-Status: proposed
+Status: accepted
 Date: 2026-09-08
+Implemented: 2026-09-09 (see "Implementation notes")
 
 ## Context
 
@@ -297,3 +298,58 @@ If only part of this is done, do Phase 4 items 1 and 2 first: sequential
 generation with full context and inline completeness validation remove the
 orphaned-test problem even on v1, and are a two-file change. The format
 change is what makes that validation cheap and the artifacts small.
+
+## Implementation notes
+
+Phases 1 to 6 are implemented in this repository, which is also where the Go
+code now lives: it moved here from `agent-fox-dev/spec` in the same session.
+Where the implementation diverged from the plan above, this is what it did
+instead and why.
+
+**One v2 library, not two side by side.** The plan generated the v2 types into
+a `v2` sub-package so that v1 and v2 could coexist until Phase 5. This
+repository is new and hosts the new format only, so `afspec` is v2 throughout
+and the v1 types moved to `afspec/legacy` as a read-only package. Nothing but
+`Migrate` depends on it, and the v1 schemas are no longer bundled.
+
+**Generated models only.** The types are generated with go-jsonschema's
+`--only-models`. The generated `UnmarshalJSON` methods duplicated what
+`Validate` already does through the compiled schemas, with worse messages, and
+they rejected the empty scaffold `spec new` has to write and read back before
+`spec generate` fills it in.
+
+**Two bugs surfaced on the way, both pre-existing.** The deterministic
+marshaller used `json.Marshal` for strings, which escapes `<`, `>` and `&`, so
+no spec containing them could round-trip byte-for-byte — the worked example in
+`testdata/v2_example` contains `<message>` and hit it immediately. And the
+schema validator unmarshalled each artifact into an `any` that already held the
+struct pointer, so every artifact failed with "invalid jsonType". The v1 test
+fixtures contained no angle brackets and the second bug was introduced by the
+same change that revealed it.
+
+**Named rules alongside schema conditionals.** Two rules are expressed as
+conditionals in the schemas: an `unwanted` criterion needs a contract (C10) and
+`real_components` appears exactly on smoke tests (C11). Their schema messages
+are "missing property" and "'not' failed", which tell a repairing model
+nothing, so C10 and C11 also run when schema validation fails and contribute a
+message that names the rule.
+
+**Scaffolds report incompleteness, and it is not valid.** `spec validate` on a
+freshly created spec emits a single `completeness` error saying to run `spec
+generate`, and exits non-zero. The spec has no plan yet; saying so is more
+useful than either a wall of `minItems` violations or a green tick.
+
+**Two checks removed as unreachable, not merely unhelpful.** The CLI's
+cross-spec duplicate-requirement-ID check cannot fire on valid specs: C1 ties
+`spec_id` to the folder prefix and C2 requires every requirement ID to carry
+it, so two valid specs cannot share one. Cross-spec glossary conflicts became
+warnings per §10.4 and are now surfaced with `severity: "warning"` rather than
+dropped.
+
+**`spec render` gained two flags.** `--task N` exposes the scoped render of
+§11.1 — the render a coder actually receives — and `--max-tokens N` applies the
+progressive budget. Both existed in the library and had no way to be reached
+from the CLI.
+
+The Python packages were not migrated, as this ADR said. They stayed in
+`agent-fox-dev/spec` and implement format version 1.

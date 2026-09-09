@@ -71,8 +71,8 @@ configuration chain:
    - Otherwise a `ConfigError` is raised (Python) or an error is returned (Go).
 
 Sources: `packages/agentspec/agentspec/client.py:66–84`;
-`golang/agentspec/model_registry.go:60–77`;
-`golang/agentspec/session.go:resolveAgent()`.
+`agentspec/model_registry.go:60–77`;
+`agentspec/session.go:resolveAgent()`.
 
 ## Configuration
 

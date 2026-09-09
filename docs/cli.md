@@ -124,7 +124,7 @@ spec generate --force 01_auth_redesign
 
 Run schema and cross-file checks on specs.
 
-When `SPEC` is given, validates that single spec. When omitted, discovers and validates all specs in the spec directory. Validation checks required file existence (`prd.md`, `requirements.json`, `test_spec.json`, `tasks.json`), JSON well-formedness, and then runs library-level schema and cross-file validation.
+When `SPEC` is given, validates that single spec. When omitted, discovers and validates all specs in the spec directory. Validation checks required file existence (`prd.md`, `requirements.json`, `test_spec.json`, `tasks.json`), JSON well-formedness, then the four JSON Schemas and the cross-file rules C1 to C11.
 
 ```
 spec validate [OPTIONS] [SPEC]
@@ -132,8 +132,15 @@ spec validate [OPTIONS] [SPEC]
 
 | Option | Description |
 |--------|-------------|
-| `--cross` | Run cross-spec interface consistency checks (dependency graph validation and duplicate requirement ID detection) |
+| `--cross` | Run the cross-spec checks: declared dependencies exist, the dependency graph is acyclic, each dependency edge is reflected by a shared execution-path actor, and glossary terms two specs both define agree (a warning) |
+| `--trace` | Print the derived traceability matrix for one spec instead of validating it |
 | `--short` | Condensed output: emit only `valid`, `error_count`, and `warning_count` -- no `errors` array |
+
+Warnings never fail the run: scope limits, vague language, glossary hints and cross-spec glossary conflicts are reported with `severity: "warning"` and leave the exit code at 0.
+
+A spec created by `spec new` but not yet generated is *incomplete*, not invalid in the schema sense: validation reports one `completeness` error saying to run `spec generate`, and exits 1.
+
+`--trace` reports, for every criterion and execution path, the tests that verify it and the tasks that own those tests, together with counts of how many are `uncovered` and `unowned`. The matrix is computed from `test.verifies` and `task.tests`; nothing of the kind is stored on disk, so it cannot drift from the artifacts.
 
 **Example:**
 
@@ -147,6 +154,9 @@ spec validate 01_auth_redesign
 # Include cross-spec checks
 spec validate --cross
 
+# Show what verifies and owns each criterion
+spec validate --trace 01_auth_redesign
+
 # Condensed output
 spec validate --short 01_auth_redesign
 ```
@@ -155,7 +165,7 @@ spec validate --short 01_auth_redesign
 
 Lint specs for validation errors and quality issues.
 
-Discovers all specs in the spec directory and runs structural validation on each. By default, skips fully-implemented specs (all subtasks in `done` or `dropped` state). Also checks for empty JSON artifacts and missing `_session.json`.
+Discovers all specs in the spec directory and runs structural validation on each. By default, skips fully-implemented specs (every task in `done` or `dropped` state). Also checks for empty JSON artifacts and missing `_session.json`.
 
 ```
 spec lint [OPTIONS]
@@ -174,7 +184,7 @@ spec lint --all
 
 ### render
 
-Render a spec's artifacts as markdown or JSON for human review.
+Render a spec as Markdown, or as a JSON envelope carrying that Markdown.
 
 ```
 spec render [OPTIONS] SPEC
@@ -182,17 +192,47 @@ spec render [OPTIONS] SPEC
 
 | Option | Description |
 |--------|-------------|
-| `--combined` | Combine all artifacts into a single document |
-| `--json` | Output as JSON envelope (auto-enabled when `AF_AGENT=1`) |
+| `--combined` | One document: PRD body, architecture if present, requirements, tests, tasks |
+| `--task N` | Scope the render to task N — the render a coder receives |
+| `--max-tokens N` | Cap the estimated size, dropping architecture first and then slimming the tests |
+| `--json` | Output as a JSON envelope (auto-enabled when `AF_AGENT=1`) |
 
-Renders artifacts in canonical order: `requirements.json`, `test_spec.json`, `tasks.json`.
+Every criterion renders as its EARS sentence followed by its contract, and every test renders all of its fields whatever its kind.
+
+The scoped render (`--task N`) shows the requirements owning that task's criteria in full and every other requirement as one line, the task's own tests in full, the execution paths those tests verify, and the task in full with every other task as one line.
+
+A spec too incomplete for the library to load still renders: the artifact files that exist are printed as they are.
 
 **Example:**
 
 ```bash
 spec render 01_auth_redesign
 spec render --combined 01_auth_redesign
+spec render --task 3 01_auth_redesign
 spec render --json 01_auth_redesign
+```
+
+### migrate
+
+Convert a format version 1.3 spec package to version 2, in place.
+
+```
+spec migrate [OPTIONS] SPEC
+```
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Report what the conversion would do without writing anything |
+
+Everything in the version 1 to 2 mapping is mechanical except task ownership of tests: version 1 had no rule that a task owns a test, and in practice no version 1 spec owned its edge-case or property tests. The converter attaches each orphaned test to the task owning its parent requirement and names those tests in `attached_tests`, so the result is a starting point for review rather than a finished plan.
+
+A spec that already declares `schema_version: 2` is refused.
+
+**Example:**
+
+```bash
+spec migrate --dry-run 01_auth_redesign
+spec migrate 01_auth_redesign
 ```
 
 ### status
@@ -449,7 +489,7 @@ Use `spec status <spec>` to query the current state at any time.
 
 ### AI Pipeline: SpecAgent
 
-The `SpecAgent` (in `golang/agentspec/agent.go`) implements the three AI-powered pipeline stages that the session orchestrates:
+The `SpecAgent` (in `agentspec/agent.go`) implements the three AI-powered pipeline stages that the session orchestrates:
 
 **Model tiers.** The agent uses a tiered model system to select the appropriate Claude model:
 
@@ -467,10 +507,12 @@ The tier is configured via `AF_SPEC_MODEL`, `config.toml`, or defaults to `STAND
 
 **Stage 3: GenerateArtifacts.** Sequentially generates three artifacts in order, each building on the prior ones:
 
-1. `requirements.json` -- EARS-patterned requirements with correctness properties and execution paths
-2. `test_spec.json` -- test contracts with full requirement coverage
-3. `tasks.json` -- implementation task groups with traceability
+1. `requirements.json` -- EARS criteria and end-to-end execution paths
+2. `test_spec.json` -- one flat list of tests, each verifying named criteria or a path
+3. `tasks.json` -- one flat list of tasks, each owning named criteria and tests
 
-Each artifact is generated via a dedicated `submit_{artifact}` tool call. After generation, the artifact content is validated for required keys (e.g., `spec_id`, `spec_name`, `requirements` for requirements.json). If validation fails, a **repair loop** sends the validation errors back to Claude for correction, up to 2 repair attempts per artifact. Temperature is set to 0.2 for deterministic output.
+The order is mandatory and the steps are sequential: the tests step receives the complete requirements artifact, and the tasks step receives that plus a table of every test with its id, kind and verifies list. A generator that cannot see a test ID cannot own it, which is how the previous format ended up with specs whose edge-case and property tests belonged to no task at all.
 
-The `OnArtifact` callback writes each artifact to disk as soon as it is generated, enabling partial recovery if a later artifact fails. The session's `Generate` method skips artifacts that already exist on disk, allowing re-runs to resume from the point of failure.
+Each artifact is generated via a dedicated `submit_{artifact}` tool call. After each step the pipeline runs the artifact's JSON Schema plus every cross-file rule decidable so far, and sends any violation back to Claude as a `tool_result` naming the rule that failed — up to three repair attempts per artifact. Temperature is 0.2.
+
+A generation that ends with an invalid spec is a failed generation: `spec generate` exits non-zero, removes the artifacts that run wrote, and reports the violations as errors. Artifacts that already existed on disk are left alone, so a re-run still resumes from the point of failure.

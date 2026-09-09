@@ -1,7 +1,12 @@
 # afspec
 
-Standalone Go library for the agent-fox specification format (v1.3). Load,
-validate, mutate, save, and render specs with byte-for-byte round-trip fidelity.
+Go library for the agent-fox specification format, version 2. Load, validate,
+mutate, save and render specs with byte-for-byte round-trip fidelity.
+
+The format itself is specified in the
+[`spec`](https://github.com/agent-fox-dev/spec) repository
+(`specification/spec-format-v2.md`). The JSON Schemas this library compiles and
+embeds are copies of that repository's, kept in `schemas/`.
 
 ## Installation
 
@@ -9,7 +14,7 @@ validate, mutate, save, and render specs with byte-for-byte round-trip fidelity.
 go get github.com/agent-fox-dev/agentfox
 ```
 
-## Quick Start
+## Quick start
 
 ```go
 package main
@@ -22,156 +27,198 @@ import (
 )
 
 func main() {
-    // Load a spec from disk
     spec, err := afspec.LoadSpec(".specs/01_foundation")
     if err != nil {
         log.Fatal(err)
     }
 
-    fmt.Println(spec.Title)
-    fmt.Println(spec.Status)
+    fmt.Println(spec.Title, spec.Status)
 
-    // Validate (schema + cross-file consistency)
+    // Schema validation plus the cross-file rules C1 to C11.
     result := spec.Validate()
     if !result.Valid {
         for _, e := range result.Errors {
-            fmt.Printf("[%s] %s: %s\n", e.Category, e.Artifact, e.Message)
+            fmt.Printf("[%s] %s: %s\n", e.Check, e.Artifact, e.Message)
         }
     }
 
-    // Render all artifacts as a single Markdown document
-    md := spec.RenderCombined()
-    fmt.Println(md)
+    fmt.Println(spec.RenderCombined())
 }
 ```
 
-## Key Types
+## What version 2 changes
+
+| Area | Version 1.3 | Version 2 |
+|---|---|---|
+| Criteria | `acceptance_criteria` + `edge_cases`, five pattern-specific fields | one `criteria` list; `pattern`, `condition`, `guard`, `action`, `contract` |
+| Properties, error handling | separate sections with their own IDs | folded into criteria (`ubiquitous` + a `property` test; `unwanted` + a `contract`) |
+| Tests | four arrays, four ID families, a stored `coverage` object | one `tests` list with `kind` and `verifies`; coverage computed |
+| Tasks | groups → subtasks → verification, a stored `traceability` array | a flat `tasks` list; traceability computed |
+| Completeness | references must resolve | every test owned by a task, every criterion owned by an implement task, the final integration task owns every smoke test |
+| ID formats | thirteen | five |
+
+## Key types
 
 | Type | Description |
 |------|-------------|
-| `Spec` | Main type holding PRD frontmatter fields, PRD body, and JSON artifacts |
-| `RequirementsV1Json` | Requirements artifact (generated from JSON Schema) |
-| `TestSpecV1Json` | Test specification artifact (generated from JSON Schema) |
-| `TasksV1Json` | Tasks artifact (generated from JSON Schema) |
-| `ValidationResult` | Validation outcome with `Valid` flag, `Errors`, and `Warnings` |
-| `ValidationEntry` | Single validation error or warning with category, artifact, path, etc. |
-| `ValidationError` | Bootstrap validation error with `Rule` and `Message` |
-| `SpecMeta` | Lightweight metadata (SpecID, SpecName, Status, Dir) for discovery |
-| `DependencyGraph` | Inter-spec dependency graph built from tasks.json declarations |
-| `DependencyEdge` | Directed dependency edge between two specs |
-| `CoverageReport` | Test coverage result with `Covered` and `Uncovered` ID lists |
-| `BootstrapSpec` | Incremental spec builder with deferred validation via `Finalize()` |
+| `Spec` | PRD frontmatter fields, PRD body and the three JSON artifacts |
+| `RequirementsV2Json` | Requirements artifact (generated from the JSON Schema) |
+| `TestSpecV2Json` | Test specification artifact (generated from the JSON Schema) |
+| `TasksV2Json` | Tasks artifact (generated from the JSON Schema) |
+| `ValidationResult` | `Valid`, `Errors`, `Warnings` |
+| `ValidationEntry` | One error or warning: category, check, artifact, message, entity |
+| `SpecMeta` | Lightweight metadata for discovery |
+| `DependencyGraph`, `DependencyEdge` | Inter-spec dependency graph from `tasks.json` |
+| `CoverageReport` | Derived coverage: `Covered` and `Uncovered` ID lists |
+| `TraceabilityMatrix`, `TraceLink` | Derived criterion → tests → tasks matrix |
+| `PartialSpec` | The artifacts a generation run has produced so far |
+| `BootstrapSpec` | Incremental builder with deferred validation via `Finalize()` |
 
-## API Overview
+## API overview
 
 ### I/O
 
 | Function | Description |
 |----------|-------------|
 | `LoadSpec(dir) (*Spec, error)` | Load all artifacts from a spec directory |
-| `(*Spec).Save(dir) error` | Atomic save with lifecycle guards (rejects sealed/superseded/archived) |
-| `MarshalJSON(v) ([]byte, error)` | Deterministic JSON serialization with schema-ordered fields |
+| `(*Spec).Save(dir) error` | Atomic save with lifecycle guards |
+| `(*Spec).IsScaffold() bool` | Report whether the spec has no requirements, tests or tasks yet |
+| `CreateSpec(specID, specName) *Spec` | Create a draft scaffold |
+| `MarshalJSON(v) ([]byte, error)` | Deterministic serialization in schema field order |
 
 ### Validation
 
 | Function | Description |
 |----------|-------------|
-| `(*Spec).Validate() ValidationResult` | Full validation (schema + cross-file consistency) |
-| `(*Spec).ValidateSchema() ValidationResult` | Schema-only validation against bundled JSON Schemas |
-| `(*Spec).ValidateCrossFile() ValidationResult` | Cross-file checks: dangling refs, coverage gaps, ID formats |
-| `ValidateCrossSpec(specs, graph) ValidationResult` | Cross-spec checks (glossary conflicts between interacting specs) |
-| `(*Spec).ValidateStructured() map[string]any` | Structured validation output for CLI consumption |
+| `(*Spec).Validate() ValidationResult` | Schema validation, then the cross-file rules |
+| `(*Spec).ValidateSchema() ValidationResult` | The four bundled JSON Schemas |
+| `(*Spec).ValidateCrossFile() ValidationResult` | Rules C1 to C11 plus the never-blocking warnings |
+| `ValidateCrossSpec(specs, graph) ValidationResult` | Dependencies exist, the graph is acyclic, actors are shared, glossaries agree (warning) |
+| `(*Spec).ValidateStructured() map[string]any` | Structured output for CLI consumption |
+| `ValidateArtifactSchema(artifact, schema, name)` | Validate one decoded artifact |
+
+The cross-file rules, all errors:
+
+| Rule | What it requires |
+|---|---|
+| C1 | `spec_id` and `spec_name` agree across the PRD, the three artifacts and the folder name |
+| C2 | Every ID matches its format, carries this spec's prefix, and is unique |
+| C3 | Every `test.verifies` entry resolves to a criterion or a path |
+| C4 | Every criterion is verified by at least one test |
+| C5 | Every path is verified by a smoke test, and every smoke test verifies a path |
+| C6 | Every `task.criteria`, `task.tests` and `depends_on` entry resolves; `depends_on` forms a DAG over lower IDs |
+| C7 | Every test is owned by at least one task |
+| C8 | Every criterion is owned by at least one `implement` task |
+| C9 | Exactly one `integration` task, last, owning every smoke test |
+| C10 | Every `unwanted` criterion has a contract |
+| C11 | `real_components` is present exactly when `kind` is `smoke` |
+
+### Generation
+
+| Function | Description |
+|----------|-------------|
+| `GenerationSteps` | The mandatory order: requirements, test_spec, tasks |
+| `DecodeArtifact(step, content)` | Decode a model's tool input into the typed artifact |
+| `ValidateGenerationStep(step, partial)` | The artifact's schema plus every rule decidable at that step |
+| `FormatValidationEntries(entries) string` | Render violations as repair feedback |
 
 ### Lifecycle
 
 | Function | Description |
 |----------|-------------|
-| `(*Spec).Transition(target, dir) (*Spec, error)` | Transition spec status, persist, return new copy |
-| `(*Spec).Supersede(supersedingSpecID, dir) (*Spec, error)` | Mark sealed spec as superseded with deprecation banner |
-| `ValidTransition(current, target) bool` | Check if a status transition is allowed |
-| `MoveToArchive(specDir, root) error` | Transition to archived and move directory to archive/ |
+| `(*Spec).Transition(target, dir) (*Spec, error)` | Transition status, persist, return a new copy |
+| `(*Spec).Supersede(specID, dir) (*Spec, error)` | Mark a sealed spec superseded with a deprecation banner |
+| `ValidTransition(current, target) bool` | Whether a status transition is allowed |
+| `MoveToArchive(specDir, root) error` | Transition to archived and move under `archive/` |
+| `ComputeIntentHash(body) (string, error)` | SHA-256 of the `## Intent` section |
 
 ### Discovery
 
 | Function | Description |
 |----------|-------------|
-| `DiscoverSpecs(root) ([]SpecMeta, error)` | Scan root for spec directories, parse PRD metadata |
-| `BuildDependencyGraph(metas, root) (*DependencyGraph, error)` | Build dependency graph from tasks.json declarations |
-| `IsSpecDirName(name) bool` | Check if a name matches the NN_snake_case pattern |
-| `ParseSpecDirName(name) (prefix, name, error)` | Parse numeric prefix and name from a spec directory name |
-| `LoadSpecLandscape(root, includeArchive, currentSpecID) ([]SpecMeta, error)` | Collect metadata for landscape views |
+| `DiscoverSpecs(root) ([]SpecMeta, error)` | Scan a root for spec directories |
+| `BuildDependencyGraph(metas, root) (*DependencyGraph, error)` | Build the graph from each `tasks.json` |
+| `IsSpecDirName(name) bool` / `ParseSpecDirName(name)` | The `{NN}_{snake_case_name}` pattern |
+| `LoadSpecLandscape(root, includeArchive, currentSpecID)` | Metadata for landscape views |
 
 ### Rendering
 
 | Function | Description |
 |----------|-------------|
-| `(*Spec).RenderCombined() string` | Single concatenated Markdown document |
-| `(*Spec).RenderIndividual() map[string]string` | Per-artifact Markdown, keyed by artifact name |
-| `(*Spec).RenderIndividualScoped(targetGroup) map[string]string` | Scoped to a task group's refs, others summarized |
-| `(*RequirementsV1Json).Render() string` | Requirements artifact as Markdown |
-| `(*TestSpecV1Json).Render() string` | Test spec artifact as Markdown |
-| `(*TasksV1Json).Render() string` | Tasks artifact as Markdown |
-| `(Criterion).RenderEARSSentence() string` | Render criterion as an EARS natural-language sentence |
+| `(*Spec).RenderCombined(opts…) string` | One concatenated Markdown document |
+| `(*Spec).RenderIndividual(opts…) map[string]string` | Per-artifact Markdown |
+| `(*Spec).RenderIndividualScoped(taskID, opts…)` | Scoped to one task; what a coder receives |
+| `WithMaxTokens(n) RenderOption` | Cap the estimated size, truncating progressively |
+| `(Criterion).RenderEARSSentence() string` | The EARS sentence |
+| `(Criterion).RenderEARS() string` | The sentence plus `→ contract` when there is one |
 
-### EARS Criterion Builders
-
-| Function | Description |
-|----------|-------------|
-| `UbiquitousCriterion(id, system, action)` | "THE system SHALL action" |
-| `EventDrivenCriterion(id, trigger, system, action)` | "WHEN trigger, THE system SHALL action" |
-| `ComplexEventCriterion(id, trigger, condition, system, action)` | "WHEN trigger IF condition, THE system SHALL action" |
-| `StateDrivenCriterion(id, state, system, action)` | "WHILE state, THE system SHALL action" |
-| `UnwantedCriterion(id, errorCondition, system, action)` | "IF errorCondition, THEN THE system SHALL action" |
-| `OptionalCriterion(id, feature, system, action)` | "WHERE feature, THE system SHALL action" |
-
-### Subtask Mutation
+### Derivation
 
 | Function | Description |
 |----------|-------------|
-| `(*TasksV1Json).TransitionSubtask(subtaskID, target) (*TasksV1Json, error)` | Transition subtask state via state machine, return new copy |
-| `(*TasksV1Json).CompleteSubtaskStates(groupIDs) (*TasksV1Json, error)` | Set all subtasks in groups to done (bypasses state machine) |
-| `(*TasksV1Json).ResetSubtaskStates(groupIDs) (*TasksV1Json, error)` | Reset all subtasks in groups to pending (bypasses state machine) |
+| `(*TestSpecV2Json).ComputeCoverage(req) CoverageReport` | Which criteria and paths are verified |
+| `(*Spec).ComputeTraceability() TraceabilityMatrix` | criterion → tests → tasks |
 
-### Other
+Neither is stored: format v2 §7.1 and §8.5 make both derived.
+
+### Criterion builders
+
+| Function | Sentence |
+|----------|----------|
+| `UbiquitousCriterion(id, system, action)` | THE system SHALL action |
+| `EventDrivenCriterion(id, condition, system, action)` | WHEN condition, THE system SHALL action |
+| `ComplexEventCriterion(id, condition, guard, system, action)` | WHEN condition AND guard, THE system SHALL action |
+| `StateDrivenCriterion(id, condition, system, action)` | WHILE condition, THE system SHALL action |
+| `UnwantedCriterion(id, condition, system, action, contract)` | IF condition, THEN THE system SHALL action |
+| `OptionalCriterion(id, condition, system, action)` | WHERE condition, THE system SHALL action |
+
+### Tasks
 
 | Function | Description |
 |----------|-------------|
-| `CreateSpec(specID, specName) *Spec` | Create a new draft spec with empty artifacts |
-| `NewBootstrapSpec(specID, specName) *BootstrapSpec` | Create incremental builder for deferred validation |
-| `(*BootstrapSpec).Finalize() (*Spec, []ValidationError)` | Validate completeness and assemble final Spec |
-| `ComputeIntentHash(body) (string, error)` | SHA-256 hash of the `## Intent` section in a PRD body |
-| `(*TestSpecV1Json).ComputeCoverage(req) CoverageReport` | Compute test coverage against requirements |
-| `Schemas() map[string][]byte` | Bundled JSON Schema files (embedded at compile time) |
-| `(*DependencyGraph).TopologicalSort() ([]string, error)` | Topological ordering of specs (Kahn's algorithm) |
-| `(*DependencyGraph).Dependencies(specID) []DependencyEdge` | Edges where specID is the dependent |
-| `(*DependencyGraph).Dependents(specID) []DependencyEdge` | Edges where other specs depend on specID |
+| `(*TasksV2Json).TransitionTask(id, target) (*TasksV2Json, error)` | Move one task through the state machine of §8.3.1 |
+| `(*TasksV2Json).CompleteTaskStates(ids)` / `ResetTaskStates(ids)` | Set states directly, bypassing the machine |
+| `(*TasksV2Json).GetTask(id) (*Task, bool)` | A copy of one task |
+| `ValidTaskTransition(current, target) bool` | Whether a task transition is allowed |
 
-### Error Types
+### Migration
+
+| Function | Description |
+|----------|-------------|
+| `Migrate(src, specID, specName)` | Convert version 1.3 artifacts to version 2, with a report |
+
+The `afspec/legacy` sub-package holds the version 1.3 types and a read-only
+loader. Nothing else in the module depends on them; they exist so that
+`spec migrate` can read a spec written under the old format.
+
+### Error types
 
 | Type | When returned |
 |------|---------------|
-| `SpecError` | Base error; all afspec errors unwrap to this via `errors.As` |
-| `LoadError` | Missing or malformed spec files (includes `File` field) |
+| `SpecError` | Base error; every afspec error unwraps to it via `errors.As` |
+| `LoadError` | Missing or malformed spec files (carries `File`) |
 | `SaveError` | Disk write failures |
-| `LifecycleError` | Invalid spec or subtask state transitions |
-| `IntentError` | Missing `## Intent` section in PRD body |
-| `BootstrapError` | BootstrapSpec.Finalize failures |
+| `LifecycleError` | Invalid spec or task state transitions |
+| `IntentError` | Missing `## Intent` section, or intent drift on an active spec |
+| `BootstrapError` | `BootstrapSpec.Finalize` failures |
 
 ## Concurrency
 
 This package provides no goroutine-safety guarantees. `Spec` instances are not
-safe for concurrent use by multiple goroutines. Callers must synchronize access
-externally (e.g. with `sync.Mutex` or by confining each Spec to a single
-goroutine).
+safe for concurrent use. Synchronize externally, or confine each `Spec` to one
+goroutine.
 
-## Code Generation
+## Code generation
 
-Types like `RequirementsV1Json`, `TestSpecV1Json`, `TasksV1Json`, and
-`PrdFrontmatterV1Json` are generated from JSON Schemas in
-`afspec/schemas/` via
-[go-jsonschema](https://github.com/atombender/go-jsonschema). After changing
-any schema, regenerate the Go types:
+`RequirementsV2Json`, `TestSpecV2Json`, `TasksV2Json` and
+`PrdFrontmatterV2Json` are generated from the schemas in `schemas/` with
+[go-jsonschema](https://github.com/atombender/go-jsonschema):
 
 ```bash
 make json-gen
 ```
+
+They are generated with `--only-models`. Structural checking belongs to
+`Validate`, which runs the compiled schemas and reports violations with the
+rule that failed; generated `UnmarshalJSON` methods would duplicate that and
+would also reject the empty scaffold `spec new` has to write and read back.

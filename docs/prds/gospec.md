@@ -226,7 +226,7 @@ This PRD defines the work to port the `agentspec` Python package and the `spec` 
 
 ## Dependencies
 
-- **afspec (Go, in-repo)**: the existing Go format library at `golang/`. Provides spec loading, saving, validation, rendering, lifecycle, discovery. This PRD includes completing its gaps.
+- **afspec (Go, in-repo)**: the Go format library, now at `afspec/` in the agent-fox repository. Provides spec loading, saving, validation, rendering, lifecycle, discovery. This PRD includes completing its gaps.
 - **Anthropic Go SDK**: provides API client with streaming, tool use, retry. Must support Vertex AI and Bedrock auth via environment variables.
 - **cobra**: CLI framework for subcommands, flags, and help generation.
 - **go-yaml (goccy)**: already in go.mod for YAML parsing.

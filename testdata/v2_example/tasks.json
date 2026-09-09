@@ -34,9 +34,9 @@
         "Make emit() the only writer to stdout; route every other message to stderr"
       ],
       "touches": [
-        "golang/cmd/spec/root.go",
-        "golang/cmd/spec/banner.go",
-        "golang/cmd/spec/spinner.go"
+        "cmd/spec/root.go",
+        "cmd/spec/banner.go",
+        "cmd/spec/spinner.go"
       ],
       "state": "pending"
     },
@@ -58,8 +58,8 @@
         "In emit(), treat EPIPE and io.ErrClosedPipe as success so the command's exit code is preserved"
       ],
       "touches": [
-        "golang/cmd/spec/root.go",
-        "golang/cmd/spec/emit.go"
+        "cmd/spec/root.go",
+        "cmd/spec/emit.go"
       ],
       "depends_on": [
         1
@@ -81,7 +81,7 @@
         "Grep golang/cmd/spec for TODO and panic(\"not implemented\") and remove any that remain"
       ],
       "touches": [
-        "golang/cmd/spec/smoke_test.go"
+        "cmd/spec/smoke_test.go"
       ],
       "depends_on": [
         1,
