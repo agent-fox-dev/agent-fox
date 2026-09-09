@@ -78,7 +78,7 @@
         "Write TS-09-6 against the compiled binary and confirm it passes",
         "Trace 09-PATH-1 from main() through PersistentPreRun to emit(); confirm no stub remains on the path",
         "Confirm isAgentMode() is consumed by root.go in production code, not only by tests",
-        "Grep golang/cmd/spec for TODO and panic(\"not implemented\") and remove any that remain"
+        "Grep cmd/spec for TODO and panic(\"not implemented\") and remove any that remain"
       ],
       "touches": [
         "cmd/spec/smoke_test.go"

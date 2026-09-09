@@ -225,6 +225,20 @@ type prdFrontmatterForSchema struct {
 	Tags          []string `json:"tags,omitempty"`
 }
 
+// legacyVersionEntry describes a spec still written in an older format
+// version. Validating it against the v2 schemas produces a schema error per
+// artifact plus every shape difference underneath; one sentence naming the
+// version and the command that converts it is more use than that list.
+func legacyVersionEntry(version int) ValidationEntry {
+	return ValidationEntry{
+		Category: "integrity",
+		Check:    "schema_version",
+		Artifact: "prd.md",
+		Message: fmt.Sprintf("spec declares schema_version %d; this library reads version %d — run `spec migrate` to convert it",
+			version, SchemaVersion),
+	}
+}
+
 // scaffoldEntry describes a spec that has been created but not yet generated.
 // An empty artifact list violates the schemas' minItems, which would bury the
 // operator in schema noise; §10 treats this as incompleteness instead.
@@ -241,6 +255,9 @@ func scaffoldEntry() ValidationEntry {
 // expressed as conditionals inside requirements.v2.json, so there is no
 // separate EARS check.
 func (s *Spec) ValidateSchema() ValidationResult {
+	if s.SchemaVersion != 0 && s.SchemaVersion != SchemaVersion {
+		return ValidationResult{Valid: false, Errors: []ValidationEntry{legacyVersionEntry(s.SchemaVersion)}}
+	}
 	if s.IsScaffold() {
 		return ValidationResult{Valid: false, Errors: []ValidationEntry{scaffoldEntry()}}
 	}
@@ -423,6 +440,9 @@ func (s *Spec) buildIndex() specIndex {
 // plus the warnings listed there. All rules are errors unless stated
 // otherwise.
 func (s *Spec) ValidateCrossFile() ValidationResult {
+	if s.SchemaVersion != 0 && s.SchemaVersion != SchemaVersion {
+		return ValidationResult{Valid: false, Errors: []ValidationEntry{legacyVersionEntry(s.SchemaVersion)}}
+	}
 	if s.IsScaffold() {
 		return ValidationResult{Valid: false, Errors: []ValidationEntry{scaffoldEntry()}}
 	}

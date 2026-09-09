@@ -449,3 +449,26 @@ func messages(result ValidationResult) []string {
 	}
 	return out
 }
+
+// TestLegacySpecIsReportedAsAVersionMismatch guards the operator experience of
+// the migration this format change requires: a version 1 spec produces one
+// sentence naming the version and the command that converts it, not a schema
+// error per artifact plus every shape difference underneath.
+func TestLegacySpecIsReportedAsAVersionMismatch(t *testing.T) {
+	spec := loadFixture(t, fixtureValidSpec)
+	spec.SchemaVersion = 1
+
+	result := spec.Validate()
+	if result.Valid {
+		t.Fatal("a version 1 spec validated against the version 2 rules")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("want a single version error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Check != "schema_version" {
+		t.Errorf("check = %q; want schema_version", result.Errors[0].Check)
+	}
+	if !strings.Contains(result.Errors[0].Message, "spec migrate") {
+		t.Errorf("the message does not name the command that converts it: %q", result.Errors[0].Message)
+	}
+}
