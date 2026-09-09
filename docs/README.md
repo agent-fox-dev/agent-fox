@@ -2,9 +2,9 @@
 
 | Document | What it covers |
 |---|---|
-| [Spec CLI Reference](cli.md) | Every `spec` command, its flags, its JSON envelope and its exit codes |
-| [Configuration](configuration.md) | Credentials, model selection, source access and the config file |
-| [Model Usage](model-usage.md) | What each pipeline phase sends, and what happens when the answer is wrong |
+| [Tool Reference](cli.md) | `spec`, `issue` and `fix`: the shared interface, every flag, the JSON envelope and the exit codes |
+| [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
+| [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |
 | [Go Library API](../afspec/README.md) | The `afspec` spec-format library |
 
@@ -14,6 +14,7 @@
 |---|---|
 | [01](adr/01-adopt-spec-format-v2.md) | Adopt spec format version 2 |
 | [02](adr/02-build-the-spec-pipeline-on-agentkit.md) | Build the spec pipeline on AgentKit |
+| [03](adr/03-rebuild-the-skills-as-tools.md) | Rebuild the three skills as tools |
 
 ## Errata
 

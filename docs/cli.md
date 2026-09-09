@@ -1,622 +1,344 @@
-# spec CLI Reference
+# Tool reference
 
-The `spec` command is the CLI entry point for AI-powered spec creation. It manages the full lifecycle of creating, refining, generating, validating, and rendering specs. The binary is called `spec` and is installed via `install.sh` or built from `cmd/spec`.
-
-## Global Options
-
-| Option | Description |
-|--------|-------------|
-| `-d, --spec-dir PATH` | Spec directory (default: `.specs`). Can also be set via `SPEC_DIR` env var; CLI flag takes precedence. |
-| `-s, --source PATH` | Source code directory for AI context during spec creation. Default: `.`. The path must exist on the filesystem. |
-| `-q, --quiet` | Suppress progress output |
-| `--version` | Show the version and exit |
-| `--help` | Show help and exit |
+Three tools, one interface.
 
 ```
-spec [OPTIONS] [COMMAND] [ARGS]...
+spec  [flags] <input>     a product idea      → a validated specification package
+issue [flags] <input>     a problem report    → a structured GitHub issue
+fix   [flags] <input>     a problem           → a verified change on a branch
 ```
 
-## Commands
+Each takes **exactly one positional input** and writes **exactly one JSON
+object** to stdout. Progress goes to stderr, so the two never interleave and a
+caller can pipe stdout straight into a parser.
 
-### new
+## The input
 
-Create a new spec from a PRD file. Auto-initializes the spec root directory and a default `campaign.yaml` if they do not already exist.
+The single argument is classified in Go, before anything else happens. There is
+no flag that selects the kind; the argument's shape decides.
 
-```
-spec new [OPTIONS] PRD_FILE
-```
+| The argument is | Then it is | What is used |
+|---|---|---|
+| a GitHub issue or pull-request URL | `github` | the issue, its body, and its comments |
+| a path to a readable regular file | `file` | the file's contents |
+| `-` | `stdin` | everything piped in |
+| anything else | `text` | the text itself |
 
-| Argument / Option | Description |
-|-------------------|-------------|
-| `PRD_FILE` | Path to an existing PRD file (required positional argument). The file must exist and must not be a directory. |
-| `--name TEXT` | Snake-case spec name. When omitted, derived automatically from the PRD filename (CamelCase is converted to snake_case). Must match `[a-z][a-z0-9_]*`. |
+Two consequences worth stating. A path that does **not** exist is text, not an
+error — "the `widget/` package panics" is a plausible report. And a directory
+is text too, for the same reason.
 
-**Example:**
+Input is bounded at 256 KB, cut at a line boundary, with the cut marked in the
+text and reported as `input.truncated` in the envelope. An input that ends
+mid-stack-trace with no marker reads to a model as a complete stack trace that
+simply had no more frames.
 
-```bash
-spec new docs/my-feature.md
-spec new docs/my-feature.md --name my_feature
-```
+Flags may come before or after the input:
 
-### list
-
-List all specs in the spec root with their session states. Outputs a JSON object containing `spec_dir` and a `specs` array. Each entry has the directory name and the session state (or `"no_session"` if `_session.json` is absent or malformed). Always exits with status 0.
-
-```
-spec list
-```
-
-No additional options.
-
-**Example:**
-
-```bash
-spec list
-spec --spec-dir /path/to/specs list
+```sh
+issue --dry-run ./crash.log
+issue ./crash.log --dry-run
+kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
 ```
 
-**Output format:**
+## The output
 
-```json
+```jsonc
 {
+  "tool": "fix",
+  "version": "0.4.0",
   "ok": true,
-  "spec_dir": ".specs",
-  "specs": [
-    {"name": "01_my_feature", "state": "generated"},
-    {"name": "02_auth_flow", "state": "assessing"}
-  ]
+  "exit_code": 0,
+  "input":  { "kind": "github", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
+  "model":  { "spec": "STANDARD", "id": "claude-sonnet-5", "vendor": "anthropic",
+              "api": "anthropic-messages", "thinking": "high" },
+  "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cost_usd": 0.19, "turns": 23,
+              "phases": [ { "name": "analyse", "turns": 9, "stop_reason": "tool_terminate", … } ] },
+  "result": { /* tool-specific; see below */ },
+  "warnings": [ "the summary comment could not be posted on acme/widgets#42: 403" ],
+  "duration_ms": 214003,
+  "started_at": "2026-09-09T13:20:30Z"
 }
 ```
 
-### refine
+`ok` is the one field a caller has to read. It is true only when the tool did
+the whole job it was asked to do, and it is never true alongside a non-zero
+`exit_code` or an `error` object.
 
-Assess a PRD for quality and completeness, then iteratively refine it by answering questions.
+`error` is present exactly when `ok` is false:
 
-Without `--answers`, runs the initial assessment and outputs pending questions as JSON. With `--answers`, submits answers, updates the PRD, and outputs the new assessment as JSON. Loop until the assessment quality reaches "ready", then run `generate`.
-
-```
-spec refine [OPTIONS] SPEC
-```
-
-| Option | Description |
-|--------|-------------|
-| `--answers TEXT` | Path to answers JSON file, or `-` to read from stdin. If the JSON has an `"answers"` key containing a map, the inner map is unwrapped automatically. |
-| `--force` | Reset session to initial state, discarding all assessments, answers, and generated artifacts |
-| `--read-source` | Let the model read the source tree at `--source` while it works. Read-only: the mutating tools are excluded from the resolved set and the run refuses to start if one survives |
-| `--trust-project` | Admit skills and context files authored in the source tree — `AGENTS.md`, `CLAUDE.md`, `.specs/steering.md` — into the system prompt |
-| `--max-turns N` | Maximum turns for the phase (0: the default, 40). This is also the repair budget |
-| `--max-budget USD` | Maximum spend for the phase (0: the default, 5.00) |
-| `-v, --verbose` | Report what the model reads and submits, on stderr. Replaces the spinner |
-
-**Example:**
-
-```bash
-# Run initial assessment
-spec refine 01_auth_redesign
-
-# Submit answers from a file
-spec refine --answers answers.json 01_auth_redesign
-
-# Submit answers from stdin
-echo '{"q1": "Yes, OAuth2 only"}' | spec refine --answers - 01_auth_redesign
-
-# Force a fresh assessment
-spec refine --force 01_auth_redesign
+```jsonc
+"error": { "stage": "verify", "category": "unverified",
+           "message": "`make check` did not pass after the change (regressed); the work is on fix/issue-42-… and was not landed" }
 ```
 
-### generate
-
-Generate JSON artifacts (`requirements.json`, `test_spec.json`, `tasks.json`) from an accepted PRD.
-
-If the session state is `assessing` or `refining`, the PRD is auto-accepted before generation proceeds.
-
-```
-spec generate [OPTIONS] SPEC
-```
-
-| Option | Description |
-|--------|-------------|
-| `--force` | Delete existing artifacts and regenerate from scratch |
-| `--read-source` | Let the model read the source tree at `--source` while it works (read-only) |
-| `--trust-project` | Admit skills and context files authored in the source tree into the system prompt |
-| `--max-turns N` | Maximum turns per artifact (0: the default, 40). This is also the repair budget |
-| `--max-budget USD` | Maximum spend per artifact (0: the default, 5.00) |
-| `-v, --verbose` | Report what the model reads and submits, on stderr |
-
-**Example:**
-
-```bash
-spec generate 01_auth_redesign
-spec generate --force 01_auth_redesign
-```
-
-### validate
-
-Run schema and cross-file checks on specs.
-
-When `SPEC` is given, validates that single spec. When omitted, discovers and validates all specs in the spec directory. Validation checks required file existence (`prd.md`, `requirements.json`, `test_spec.json`, `tasks.json`), JSON well-formedness, then the four JSON Schemas and the cross-file rules C1 to C11.
-
-```
-spec validate [OPTIONS] [SPEC]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--cross` | Run the cross-spec checks: declared dependencies exist, the dependency graph is acyclic, each dependency edge is reflected by a shared execution-path actor, and glossary terms two specs both define agree (a warning) |
-| `--trace` | Print the derived traceability matrix for one spec instead of validating it |
-| `--short` | Condensed output: emit only `valid`, `error_count`, and `warning_count` -- no `errors` array |
-
-Warnings never fail the run: scope limits, vague language, glossary hints and cross-spec glossary conflicts are reported with `severity: "warning"` and leave the exit code at 0.
-
-A spec created by `spec new` but not yet generated is *incomplete*, not invalid in the schema sense: validation reports one `completeness` error saying to run `spec generate`, and exits 1.
-
-`--trace` reports, for every criterion and execution path, the tests that verify it and the tasks that own those tests, together with counts of how many are `uncovered` and `unowned`. The matrix is computed from `test.verifies` and `task.tests`; nothing of the kind is stored on disk, so it cannot drift from the artifacts.
-
-**Example:**
-
-```bash
-# Validate all specs
-spec validate
-
-# Validate a single spec
-spec validate 01_auth_redesign
-
-# Include cross-spec checks
-spec validate --cross
-
-# Show what verifies and owns each criterion
-spec validate --trace 01_auth_redesign
-
-# Condensed output
-spec validate --short 01_auth_redesign
-```
-
-### lint
-
-Lint specs for validation errors and quality issues.
-
-Discovers all specs in the spec directory and runs structural validation on each. By default, skips fully-implemented specs (every task in `done` or `dropped` state). Also checks for empty JSON artifacts and missing `_session.json`.
-
-```
-spec lint [OPTIONS]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--all` | Include fully-implemented specs in the lint run |
-
-**Example:**
-
-```bash
-spec lint
-spec lint --all
-```
-
-### render
-
-Render a spec as Markdown, or as a JSON envelope carrying that Markdown.
-
-```
-spec render [OPTIONS] SPEC
-```
-
-| Option | Description |
-|--------|-------------|
-| `--combined` | One document: PRD body, architecture if present, requirements, tests, tasks |
-| `--task N` | Scope the render to task N — the render a coder receives |
-| `--max-tokens N` | Cap the estimated size, dropping architecture first and then slimming the tests |
-| `--json` | Output as a JSON envelope (auto-enabled when `AF_AGENT=1`) |
-
-Every criterion renders as its EARS sentence followed by its contract, and every test renders all of its fields whatever its kind.
-
-The scoped render (`--task N`) shows the requirements owning that task's criteria in full and every other requirement as one line, the task's own tests in full, the execution paths those tests verify, and the task in full with every other task as one line.
-
-A spec too incomplete for the library to load still renders: the artifact files that exist are printed as they are.
-
-**Example:**
-
-```bash
-spec render 01_auth_redesign
-spec render --combined 01_auth_redesign
-spec render --task 3 01_auth_redesign
-spec render --json 01_auth_redesign
-```
-
-### models
-
-Show the model each phase will run on, what it costs, and whether this shell
-can authenticate to it.
-
-```
-spec models [OPTIONS]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--all` | Also list every tier of every vendor |
-
-The model surface is a catalog spanning several vendors, each with its own
-credential variables, so "which model will `spec generate` use and can I reach
-it" is worth being able to ask before running one. The command reports rather
-than fails: an unconfigured vendor is exactly what it exists to tell you about,
-so it always exits 0.
-
-**Output format:**
-
-```json
-{
-  "ok": true,
-  "vendor": "anthropic",
-  "models": [
-    {
-      "phase": "assess",
-      "tier": "STANDARD",
-      "vendor": "anthropic",
-      "model": "claude-sonnet-5",
-      "thinking_level": "high",
-      "context_window": 1000000,
-      "max_tokens": 128000,
-      "input_cost_per_mtok": 3,
-      "output_cost_per_mtok": 15,
-      "credential": "ok"
-    }
-  ]
-}
-```
-
-`credential` is `ok` or `missing`. A gateway that authenticates by URL, or an
-instance role, reports `ok` with no key in the environment — that is the
-`ambient` state, and refusing it would reject every such deployment for a key
-it was never going to have.
-
-A model spec that names nothing the catalog knows is reported as
-`"unresolved: …"` in the row rather than failing the command.
-
-**Example:**
-
-```bash
-spec models
-spec models --all
-```
-
-### migrate
-
-Convert a format version 1.3 spec package to version 2, in place.
-
-```
-spec migrate [OPTIONS] SPEC
-```
-
-| Option | Description |
-|--------|-------------|
-| `--dry-run` | Report what the conversion would do without writing anything |
-
-Everything in the version 1 to 2 mapping is mechanical except task ownership of tests: version 1 had no rule that a task owns a test, and in practice no version 1 spec owned its edge-case or property tests. The converter attaches each orphaned test to the task owning its parent requirement and names those tests in `attached_tests`, so the result is a starting point for review rather than a finished plan.
-
-A spec that already declares `schema_version: 2` is refused.
-
-**Example:**
-
-```bash
-spec migrate --dry-run 01_auth_redesign
-spec migrate 01_auth_redesign
-```
-
-### status
-
-Query session state for a spec (read-only). Reports the current lifecycle state, whether an assessment exists, and which artifacts have been generated.
-
-```
-spec status SPEC
-```
-
-No additional options.
-
-**Output fields:** `ok`, `state`, `has_assessment`, `generated_artifacts`. Optional fields `last_error` and `quality` are included when present in the session.
-
-**Example:**
-
-```bash
-spec status 01_auth_redesign
-```
-
-### activate
-
-Transition a draft spec to the active state. Activation computes and stores the `intent_hash` from the `## Intent` section of the PRD, and captures immutable fields (`spec_id`, `spec_name`, `created_at`).
-
-```
-spec activate SPEC
-```
-
-No additional options.
-
-**Output format:**
-
-```json
-{
-  "ok": true,
-  "spec": "my_feature",
-  "status": "active"
-}
-```
-
-**Example:**
-
-```bash
-spec activate 01_auth_redesign
-spec --spec-dir /path/to/specs activate 01
-```
-
-**Errors:** Returns exit code 1 if the transition is invalid (e.g., the spec is already active, sealed, archived, or superseded). Returns exit code 1 with an `IntentError` if the PRD body does not contain a `## Intent` section — the spec remains in `draft` state. In agent mode (`AF_AGENT=1`), errors are emitted as `{"ok": false, "error": "..."}` to stdout.
-
-### seal
-
-Transition an active spec to the sealed state. Sealing marks a spec as finalized — no further edits are permitted.
-
-```
-spec seal SPEC
-```
-
-No additional options.
-
-**Output format:**
-
-```json
-{
-  "ok": true,
-  "spec": "my_feature",
-  "status": "sealed"
-}
-```
-
-**Example:**
-
-```bash
-spec seal 01_auth_redesign
-spec --spec-dir /path/to/specs seal 01
-```
-
-**Errors:** Returns exit code 1 if the transition is invalid (e.g., sealing a draft spec). In agent mode (`AF_AGENT=1`), errors are emitted as `{"ok": false, "error": "..."}`.
-
-### archive
-
-Move a spec directory to the `archive/` subdirectory inside the spec root. The original directory is removed and replaced by `<spec-dir>/archive/<name>/`. Creates the archive directory if it does not exist.
-
-```
-spec archive SPEC
-```
-
-No additional options.
-
-**Output format:**
-
-```json
-{
-  "ok": true,
-  "archived": "01_auth_redesign"
-}
-```
-
-**Example:**
-
-```bash
-spec archive 01_auth_redesign
-spec --spec-dir /path/to/specs archive 01
-```
-
-**Errors:** Returns exit code 1 if the spec cannot be found or if an archive conflict exists (a directory with the same name already exists in `archive/`).
-
-### supersede
-
-Transition a sealed spec to the superseded state, prepending a deprecation banner to the PRD body that references the superseding spec.
-
-```
-spec supersede [OPTIONS] SPEC
-```
-
-| Option | Description |
-|--------|-------------|
-| `--by TEXT` | ID of the superseding spec (required) |
-
-**Output format:**
-
-```json
-{
-  "ok": true,
-  "spec": "my_feature",
-  "status": "superseded",
-  "superseded_by": "02_auth_v2"
-}
-```
-
-**Example:**
-
-```bash
-spec supersede 01_auth_redesign --by 02_auth_v2
-spec --spec-dir /path/to/specs supersede 01 --by 02_auth_v2
-```
-
-**Errors:** Returns exit code 1 if `--by` is omitted, if the spec does not exist, or if the spec is not in the sealed state (only sealed specs can be superseded).
-
-### campaign
-
-Create a new campaign directory at the specified path, independent of the global `--spec-dir` option. Fails if `campaign.yaml` already exists at the target path.
-
-```
-spec campaign [OPTIONS]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-p, --path PATH` | Campaign directory path (required) |
-| `-n, --name TEXT` | Campaign name (required) |
-| `--description TEXT` | Campaign description |
-
-**Example:**
-
-```bash
-spec campaign --path campaigns/q3-auth --name "Q3 Auth Overhaul" --description "Auth system redesign"
-spec campaign -p campaigns/q3-auth -n "Q3 Auth Overhaul"
-```
-
-## Exit Codes
+`stage` names the pipeline step in the tool's own vocabulary. `category` says
+whether re-running could help:
+
+| Category | Means |
+|---|---|
+| `usage` | the invocation was wrong; nothing was fetched or written |
+| `input` | the input could not be read (a private issue, an unreadable file) |
+| `auth` | no credential for the model's vendor, or for GitHub |
+| `model` | the model spec could not be resolved |
+| `api` | a provider or transport failure |
+| `budget`, `max_turns` | a phase hit its ceiling; raising it may help |
+| `no_result` | the model finished without calling its terminating tool |
+| `git`, `github` | an external system refused |
+| `ambiguous` | (`fix`) the input reads two ways; a question was posted |
+| `unverified` | (`fix`) code was written and the checks do not pass |
+| `empty_change` | (`fix`) a fix was reported and no file differs |
+| `invalid_spec` | (`spec`) the package was written and does not validate |
+| `internal` | a bug in the tool |
+
+### Exit codes
 
 | Code | Meaning |
-|------|---------|
-| `0` | Success, and lint/validate found no errors |
-| `1` | Anything else: an error, a usage mistake, or findings exist |
+|---|---|
+| `0` | done |
+| `1` | failed; the stage is named in the JSON |
+| `2` | usage error — nothing was fetched, nothing was written |
+| `3` | stopped on purpose: a person has to answer something (`fix` only) |
+| `4` | work exists but the checks do not pass (`fix` only) |
 
-There is no third code. `Execute` exits 1 on every error, so a caller cannot
-distinguish a usage mistake from a failed run by status alone — read the
-`error` field of the JSON envelope.
+## Shared flags
 
-## Output Format
+| Flag | Default | Effect |
+|---|---|---|
+| `--dir` | `.` | the repository to work in; the file tools cannot reach outside it |
+| `--model` | `$AF_MODEL`, else `STANDARD` | a tier (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec |
+| `--vendor` | `$AF_MODEL_VENDOR`, else `anthropic` | which tier table the tier names resolve against |
+| `--variant` | — | tier variant, e.g. `extended` for the long-context row |
+| `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
+| `--budget` | per tool | per-phase spend ceiling, in dollars |
+| `--phase-timeout` | — | wall-clock ceiling on one phase |
+| `--trust-project` | off | admit `AGENTS.md`, `CLAUDE.md` and `.specs/steering.md` into the system prompt |
+| `--verbose` | off | trace tool calls and timings on stderr |
+| `--quiet` | off | print nothing on stderr |
+| `--show-text` | off | stream the model's own prose to stderr |
+| `--version` | — | print the build identity and exit |
 
-All commands emit JSON to stdout. Successful operations include `"ok": true` in the output. In agent mode (`AF_AGENT=1`), errors are wrapped as `{"ok": false, "error": "..."}` on stdout. Outside agent mode, errors are printed to stderr.
+---
 
-The `render` command outputs raw markdown by default; use `--json` for JSON output.
+## `issue`
 
-## Environment Variables
+Reads a problem report, traces it through the codebase, and files a structured
+GitHub issue with every claim cited to a file it actually read.
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Credential for the AI-powered commands (`refine`, `generate`) when the model resolves to an Anthropic row. Other vendors read their own variables — run `spec models` to see which one the configured model needs. |
-| `<VENDOR>_BASE_URL` | Gateway, proxy or local server for that vendor (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, …). A base URL alone is a valid credential state. |
-| `AF_SPEC_MODEL` | Override the model for every phase. Accepts a tier name (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec (`anthropic/claude-opus-5`, `openai/gpt-6-astra`). Default: `STANDARD`. |
-| `AF_AGENT` | Set to `1` to enable agent mode. Suppresses the banner, forces quiet output, disables the `--verbose` event trace, and auto-enables `--json` for `render`. |
-| `SPEC_DIR` | Override the default spec root directory (`.specs`). The `--spec-dir` CLI flag takes precedence over this env var. |
-| `CLAUDE_CODE_USE_VERTEX` | **Refused.** There is no wire for Claude on Vertex; the error names the alternative. See [errata](errata/agentkit_model_resolution.md). |
-| `CLAUDE_CODE_USE_BEDROCK` | **Refused.** There is no wire for Bedrock; the error names the alternative. |
-
-### Configuration File
-
-The `spec` CLI loads configuration from `config.toml`, searching in order:
-
-1. `.specs/config.toml` (project-local)
-2. `~/.specs/config.toml` (user-global)
-
-The first file found is used. Symlinked config files are rejected for security.
-
-```toml
-[model]
-model = "STANDARD"     # tier name or catalog model spec
-vendor = "anthropic"   # which tier table SIMPLE/STANDARD/ADVANCED resolve against
-model_variant = ""     # "extended" for the long-context row of a tier
-
-[agent]
-read_source = false    # let the model read the source tree
-trust_project = false  # admit project skills and context files
-max_turns = 40         # per phase; also the repair budget
-max_budget_usd = 5.0   # per phase
-max_attempts = 3       # retries of one model call
-
-[provider]
-auth_method = ""       # read, not used
-vertex_project = ""    # read, not used
-vertex_region = ""     # read, not used
+```sh
+issue "panic: assignment to entry in nil map in loop.go, after an abort"
+issue ./crash.log --dir ./service --label af:fix
+issue https://github.com/acme/widgets/issues/42 --overwrite
+issue ./crash.log --dry-run
 ```
 
-The `AF_SPEC_MODEL` environment variable overrides the `[model].model` value.
-Command-line flags win over the file for the fields they set; a flag that was
-not passed leaves the file's value alone.
+The analysis is read-only, and that is a mechanism rather than a promise: the
+mutating tools are excluded from the resolved set, there is no shell and no
+network tool, and the issue is created by a `net/http` call after the run.
+**No sequence of model outputs can cause this tool to write to GitHub.**
 
-## Agent and Skill Workflow
+Every path in `affected_files` is resolved against the workspace before the
+diagnosis is accepted; one that is not there comes back to the model as an
+error naming the missing path, and the run continues. The count of refusals is
+reported as `result.rejected_path_calls` — a nonzero count is the check
+working, and a large one means the model was writing from the report rather
+than from the code.
 
-The `spec` CLI is designed to be driven by AI agents. Two Claude Code skills orchestrate the spec creation workflow:
+| Flag | Default | Effect |
+|---|---|---|
+| `--repo owner/repo` | the input issue's, else the `origin` remote of `--dir` | where the issue is filed |
+| `--label a,b` | — | labels for the created issue, e.g. `af:fix` |
+| `--dry-run` | off | make no change on GitHub; report the diagnosis only |
+| `--overwrite` | off | rewrite the input issue in place instead of creating a new one; needs an issue URL, and cannot be combined with `--repo` or `--label` |
 
-### PRD Authoring: the af-prd Skill
+Bounds: 100 turns, $2.00 per phase.
 
-The `af-prd` skill (`/af-prd`) guides the user through creating a well-structured Product Requirements Document via an iterative interview. It operates as a Product Manager collaborator:
+`result` carries `action` (`created` · `updated` · `none`), `url`, `number`,
+the rendered `body`, and the diagnosis as fields: `severity`, `confidence`,
+`root_cause`, `affected_files`, `suggested_fix`, `acceptance_criteria`.
 
-1. **Assess input maturity** -- classifies the starting material as Seed (vague idea), Sketch (rough bullets), or Draft (mostly complete).
-2. **Analyze the codebase** -- reads project structure, README, existing specs, and steering directives to understand context.
-3. **Draft an initial PRD** -- produces a first pass following the standard PRD structure (Intent, Goals, Non-goals, Functional Requirements, etc.), marking gaps with `[GAP]` placeholders.
-4. **Interview loop** -- asks 3-5 questions per round across categories (intent, user stories, core behaviors, edge cases, error handling, technical boundaries). Maximum 5 rounds.
-5. **Save the PRD** -- writes the finalized markdown file, ready to be passed to `spec new` or `/af-spec`.
+---
 
-The output is a raw markdown file (no YAML frontmatter) suitable as input to `spec new <path>`.
+## `fix`
 
-### Full Spec Workflow: the af-spec Skill
+Diagnoses a problem, writes the change on a branch, verifies it with the
+project's own checks, and lands it.
 
-The `af-spec` skill (`/af-spec`) orchestrates the complete spec creation pipeline using the `spec` CLI:
-
-1. **Understand the PRD** (Step 1) -- reads the PRD from a file path, GitHub issue URL, or user prompt. Identifies ambiguities, inconsistencies, and gaps, then resolves them with the user. Verifies external API assumptions against installed libraries.
-2. **Learn the context** (Step 2) -- analyzes the codebase, existing specs, and cross-spec dependencies.
-3. **Create the spec** (Step 3) -- runs `spec new <prd_path> --name <name>` to create the spec directory with a numbered prefix and initial `_session.json`.
-4. **Refine the PRD** (Step 4) -- runs `spec refine <spec>` to get AI assessment, then iterates with `spec refine --answers <file> <spec>` until quality reaches "ready" (max 5 iterations).
-5. **Generate artifacts** (Step 5) -- runs `spec generate <spec>` to produce `requirements.json`, `test_spec.json`, and `tasks.json`. Performs a post-generation language audit to ensure artifacts match the project's tooling.
-6. **Architecture document** (Step 6) -- optionally creates `architecture.md` for complex designs.
-7. **Validate and finish** (Step 7) -- runs `spec validate <spec>` (and `--cross` for multi-spec projects), fixes any issues, and reviews generated artifacts for quality.
-
-### Session State Machine
-
-Each spec maintains a `_session.json` file that tracks its lifecycle state. The state machine transitions are:
-
-```
-init --> assessing --> refining --> prd_accepted --> generating --> generated
+```sh
+fix https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
+fix ./bug-report.md --land branch
+fix "the counter double-counts on retry" --dry-run
 ```
 
-| State | Description |
-|-------|-------------|
-| `init` | Spec created, PRD copied, no assessment yet |
-| `assessing` | AI assessment of PRD quality in progress |
-| `refining` | PRD is being refined through Q&A exchanges |
-| `prd_accepted` | PRD quality accepted, ready for artifact generation |
-| `generating` | Artifact generation in progress |
-| `generated` | All artifacts generated and written to disk |
+The working tree must be clean. The run branches from the branch checked out
+now, and every check that can refuse the run happens **before** the model is
+called and before anything is posted.
 
-The session persists assessment history, QA exchanges, generated artifact names, and any last error. State transitions are written atomically using temp-file-and-rename.
+Verification is measured, not asserted. The project's checks run once before
+any change and once after, and the two are compared:
 
-Use `spec status <spec>` to query the current state at any time.
+| Verdict | Means | Landed |
+|---|---|---|
+| `pass` | green before, green after | yes |
+| `pass_was_already_failing` | red before, green after | yes, and the report says so |
+| `regressed` | green before, red after | no |
+| `still_failing` | red before, red after | no |
+| `unverified` | nothing ran | only with `--no-verify` |
 
-### AI Pipeline: SpecAgent
+A run that does not land parks the work as a `wip:` commit on its branch,
+returns the checkout to the base branch, and exits 4. A run that reports a fix
+and changed no file exits 1 rather than committing an empty tree — the diff
+comes from git, not from the model.
 
-The `SpecAgent` (in `agentspec/agent.go`) implements the three AI-powered
-stages the session orchestrates. It runs on
-[AgentKit](https://github.com/agent-fox-dev/coder): each stage builds its own
-agent — its own model, tool set, turn budget and cost cap — and drives it to a
-result.
+| Flag | Default | Effect |
+|---|---|---|
+| `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
+| `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened |
+| `--dry-run` | off | make no *remote* change: push nothing, open nothing, post nothing. The branch and the commit are still made locally |
+| `--verify` | detected | the command that decides success |
+| `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
+| `--verify-timeout` | `10m` | timeout for one verification run |
+| `--push-attempts` | `4` | push retries, with exponential backoff |
+| `--allow a,b` | — | extra programs the implementation phase's shell may run |
+| `--draft` | off | open the pull request as a draft |
 
-**Model tiers.** `SIMPLE`, `STANDARD` and `ADVANCED` are aliases over the
-AgentKit catalog, per vendor, so a tier still means what a spec author chooses
-between while any catalog model spec also works. See
-[Configuration](configuration.md#model-selection) for the table and
-[Model Usage](model-usage.md) for what each stage sends.
+Bounds: 150 turns, $5.00 per phase.
 
-**Stage 1: AssessPRD.** Sends the PRD with the assessment system prompt and a
-`submit_assessment` tool. The spec landscape (sibling specs) is included so the
-model can see what already exists.
+Detection order for `--verify`: `make check`, `make test`, `go test ./...`,
+`npm test`, `pytest`, `cargo test`. When nothing can be detected the run says
+so and reports `unverified` rather than inventing a command.
 
-**Stage 2: RefinePRD.** Sends the PRD, the author's answers and the previous
-assessment, with a `submit_prd_update` tool whose arguments carry the rewritten
-PRD *and* a fresh assessment of it. Both used to have to appear in one response
-with a hand-written check enforcing it; making them two fields of one call
-means the schema says so.
+The verification command runs with the model vendors' keys and every `*_TOKEN`,
+`*_SECRET`, `*_API_KEY` and `*_PASSWORD` variable stripped from its
+environment: a test suite is repository code, and a repository being fixed on a
+stranger's report is not something to hand an API key to.
 
-**Stage 3: GenerateArtifacts.** Generates three artifacts in the order format
-v2 §12.1 mandates, each step receiving the complete artifacts before it:
+`result` carries `stage`, `branch`, `base_branch`, `commit`, `changed_files`
+(from git), `baseline`, `verification`, `verdict`, `pull_request_url`, the
+`comments` posted, and the model's own `implementation` report kept separate
+from the facts.
+
+### What the model may and may not do
+
+The implementation phase has the file tools and a shell. On top of AgentKit's
+program allowlist:
+
+- **git is read-only.** `status`, `log`, `diff`, `show`, `blame`, `rev-parse`,
+  `ls-files`, `grep`, `cat-file`, `describe`, `branch --list`, `remote -v`,
+  `config --get` and a few more. The branch, the commit and the push belong to
+  the tool, so "committed as `abc123`" means one thing.
+- **`gh` is refused outright**, so every write to the issue goes through the
+  audited path.
+- **`find -exec` and `-delete` are refused**, because they turn `find` into a
+  write tool.
+- Every simple command on a line is checked, not only the first: `ls; git push`
+  is two commands, and `GIT_AUTHOR_NAME=x git push` does not hide the program.
+
+A refusal is a blocked tool result, so the model adapts rather than dying, and
+the count is reported per phase.
+
+This is a classifier over shell syntax, not a sandbox. `go`, `make` and `uv`
+can run arbitrary code from the repository. Anything genuinely untrusted
+belongs in a container.
+
+---
+
+## `spec`
+
+Turns a product idea into a complete, validated version 2 specification
+package under `.specs/NN_name/`.
+
+```sh
+spec "a cache in front of the widget catalog, with a TTL"
+spec ./docs/prds/widget-cache.md --architecture
+spec https://github.com/acme/widgets/issues/42 --comment
+spec ./idea.md --dry-run
+```
+
+The run is unattended, and the design follows from that. Nobody is waiting to
+answer questions, so the PRD phase resolves every open question itself, records
+each in a `## Design Decisions` section, and reports the ones it is least sure
+of as `result.open_questions`. A caller that wants a human in the loop reads
+that array; a caller that does not gets a finished spec.
+
+Then three phases, in the order the format fixes:
 
 1. `requirements.json` — EARS criteria and end-to-end execution paths
-2. `test_spec.json` — one flat list of tests, each verifying named criteria or a path
-3. `tasks.json` — one flat list of tasks, each owning named criteria and tests
+2. `test_spec.json` — one flat list of tests
+3. `tasks.json` — one flat list of tasks
+
+Each artifact is submitted through a tool whose schema is the format's own JSON
+Schema, and whose handler runs every cross-file rule decidable at that point. A
+violation comes back to the model naming the rule, and it corrects itself — the
+repair loop is the loop, and the turn ceiling is the repair budget.
 
 The order is the rule and the reason is concrete: a generator that cannot see a
-test ID cannot own it, which is how the previous format ended up with specs
-whose edge-case and property tests belonged to no task at all.
+test id cannot own it, which is how the previous format produced specs whose
+edge-case tests belonged to no task at all.
 
-**Repair.** The artifact's schema and every cross-file rule decidable so far
-run *inside* the submit tool's handler. A violation is returned as a tool error
-naming the rule that failed, and the loop appends it to the transcript the
-model is already holding — so the system prompt and the tool schemas stay
-byte-identical across the repair and the provider's cache prefix survives it.
-The turn budget (`--max-turns`, default 40) is the repair budget.
+| Flag | Default | Effect |
+|---|---|---|
+| `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
+| `--name` | the model's choice | override the spec name; must match `[a-z][a-z0-9_]*` |
+| `--architecture` | off | also write the optional `architecture.md` |
+| `--no-activate` | off | leave a valid package in `draft` instead of activating it |
+| `--comment` | off | post the finished PRD back to the issue the input came from |
+| `--dry-run` | off | write nothing to disk or GitHub; report the package that would be written |
 
-A generation that ends with an invalid spec is a failed generation: `spec
-generate` exits non-zero, removes the artifacts that run wrote, and reports the
-violations. Artifacts that already existed on disk are left alone, so a re-run
-resumes from the point of failure.
+Bounds: 60 turns, $5.00 per phase.
 
-**Reading the codebase.** With `--read-source` a stage additionally gets
-AgentKit's non-mutating built-in tools rooted at `--source`, so a spec can be
-written against the code it describes. The read-only mandate is the tool list
-plus an invariant checked before the first request, not a sentence in a prompt.
+### The project audit
+
+The skill this replaces asks a human to read `tasks.json` afterwards and check
+that `test_commands` names the project's real runner, because a model planning
+work in a repository it did not look at reaches for whichever ecosystem its
+training favours. Here the project's language is detected from its manifest and
+a plan naming another ecosystem's runner is **refused** before the file is
+written, with the real commands in the message:
+
+```
+this project is go (detected from go.mod), but test_commands.all_tests is
+"pytest -q", which is a python command.
+Use the project's real commands: all_tests "go test ./... -count=1",
+linter "go vet ./...". Check task.steps, task.touches and task.done_when for
+the same mistake — steps must use go constructs, touches must name paths that
+fit this project's layout, and a stub marker here is `panic("not implemented")`.
+```
+
+The check is narrow on purpose: `go test` in a Python project is unambiguously
+wrong, while `./scripts/ci.sh` is legitimate and a stricter check would reject
+it.
+
+### The result
+
+`result` carries `spec_dir`, `spec_id`, `spec_name`, `title`, `status`,
+`source`, the `artifacts` written, the counts, and:
+
+- `validation` — the format's verdict, with every error naming its rule
+  (`C1`…`C11`, `json_schema`, `completeness`)
+- `traceability` — derived, never stored: `criteria_covered`,
+  `criteria_uncovered`, `paths_covered`, `paths_uncovered`, `tests_unowned`
+- `open_questions` — the decisions made under uncertainty
+- `recommended_split` — non-empty when the input was more than one spec's worth
+  of work; the package then covers the first scope only
+
+A package that does not validate is still written, and the run exits 1 with
+`category: "invalid_spec"`. A spec you can read and fix is worth more than no
+spec at all, and the errors name the rules that broke. It is not activated.
+
+## Environment
+
+| Variable | Purpose |
+|---|---|
+| `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
+| `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
+| `AF_SPEC_DIR` | the spec root (`spec` only); `--specs-dir` wins |
+| `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
+| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for `origin` |
+| vendor keys and base URLs | see [Configuration](configuration.md) |
+
+## See also
+
+- [Configuration](configuration.md) — credentials, model selection, bounds
+- [Model Usage](model-usage.md) — what each phase sends, and how a failure is repaired
+- [ADR 03](adr/03-rebuild-the-skills-as-tools.md) — why the tools are shaped this way

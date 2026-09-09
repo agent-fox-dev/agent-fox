@@ -176,3 +176,31 @@ func TestSplitArgsHonoursDoubleDash(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A pipeline that fails before it has a result returns a typed nil pointer,
+// and an interface holding one is not nil: without care the envelope grows a
+// "result": null that a caller has to handle as a third case.
+func TestEnvelopeDropsATypedNilResult(t *testing.T) {
+	type result struct {
+		Stage string `json:"stage"`
+	}
+	var missing *result
+
+	r := NewRun("spec", "v1")
+	env := r.Envelope(ExitFailed, missing, &ErrorInfo{Stage: "prd", Category: "api", Message: "boom"})
+	if env.Result != nil {
+		t.Errorf("Result = %#v, want it dropped", env.Result)
+	}
+
+	var buf bytes.Buffer
+	Emit(&buf, env)
+	if strings.Contains(buf.String(), `"result"`) {
+		t.Errorf("the envelope carries a null result:\n%s", buf.String())
+	}
+
+	// A real result still survives.
+	env = r.Envelope(ExitOK, &result{Stage: "landed"}, nil)
+	if env.Result == nil {
+		t.Error("a present result was dropped")
+	}
+}

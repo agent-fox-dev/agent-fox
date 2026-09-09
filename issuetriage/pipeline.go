@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/agentfox/agentkit-go/tools"
 
@@ -265,21 +266,12 @@ func write(ctx context.Context, o Options, target ghapi.Repo, out *Result) *Fail
 	return nil
 }
 
+// joinLimited renders a bounded list of paths for a warning. A run that
+// refused twenty citations should say so without printing twenty paths.
 func joinLimited(ss []string, n int) string {
 	ss = toolio.SortedUnique(ss)
 	if len(ss) <= n {
-		return join(ss)
+		return strings.Join(ss, ", ")
 	}
-	return join(ss[:n]) + fmt.Sprintf(" (and %d more)", len(ss)-n)
-}
-
-func join(ss []string) string {
-	out := ""
-	for i, s := range ss {
-		if i > 0 {
-			out += ", "
-		}
-		out += s
-	}
-	return out
+	return strings.Join(ss[:n], ", ") + fmt.Sprintf(" (and %d more)", len(ss)-n)
 }

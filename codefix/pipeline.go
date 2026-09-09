@@ -283,7 +283,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Land == LandPR && result.Pushed && target.Valid() {
 		openPullRequest(ctx, o, target, result, analysis, impl, base, branch)
 	}
-	if verdict.Landable() {
+
+	// "landed" means what --land asked for actually happened, so it is not set
+	// for a mode that stopped earlier by design: --land=none ends at
+	// "committed" and --land=branch at "pushed". A stage that always said
+	// "landed" would be a template rather than a report.
+	switch {
+	case o.Land == LandPR && result.PullRequestURL != "":
+		result.Stage = "landed"
+	case o.Land == LandBranch && result.Pushed:
+		result.Stage = "landed"
+	case o.Land == LandNone && result.Commit != "":
 		result.Stage = "landed"
 	}
 

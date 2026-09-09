@@ -128,8 +128,8 @@ func priorArtifactsBlock(partial afspec.PartialSpec, step afspec.GenerationStep)
 //
 // Without it a spec is written as though the repository had none, which is
 // how two specs end up owning the same behaviour under different names. It is
-// metadata only — titles and statuses — because the full text of every spec
-// is more than a prompt can carry and more than this decision needs.
+// metadata only — a name and a status — because the full text of every spec is
+// more than a prompt can carry and more than this decision needs.
 func landscapeBlock(metas []afspec.SpecMeta) string {
 	if len(metas) == 0 {
 		return ""

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -146,6 +147,9 @@ func NewRun(tool, version string) *Run {
 
 // SetInput records the classified input.
 func (r *Run) SetInput(in Input) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.input = &InputInfo{
@@ -158,7 +162,7 @@ func (r *Run) SetInput(in Input) {
 
 // SetModel records the resolved model.
 func (r *Run) SetModel(m *core.Model, thinking core.ThinkingLevel, spec string) {
-	if m == nil {
+	if r == nil || m == nil {
 		return
 	}
 	r.mu.Lock()
@@ -173,6 +177,9 @@ func (r *Run) SetModel(m *core.Model, thinking core.ThinkingLevel, spec string) 
 // Warn records a non-fatal problem. Duplicates are kept: two failed comment
 // posts are two facts, not one.
 func (r *Run) Warn(format string, args ...any) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.warnings = append(r.warnings, strings.TrimSpace(fmt.Sprintf(format, args...)))
@@ -180,6 +187,9 @@ func (r *Run) Warn(format string, args ...any) {
 
 // AddPhase records one model-facing step's cost.
 func (r *Run) AddPhase(p PhaseInfo) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.phases = append(r.phases, p)
@@ -187,6 +197,9 @@ func (r *Run) AddPhase(p PhaseInfo) {
 
 // Warnings returns a copy of the warnings recorded so far.
 func (r *Run) Warnings() []string {
+	if r == nil {
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.warnings...)
@@ -205,7 +218,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		ExitCode:   code,
 		Input:      r.input,
 		Model:      r.model,
-		Result:     result,
+		Result:     presentOrNil(result),
 		Warnings:   append([]string(nil), r.warnings...),
 		Error:      failure,
 		DurationMS: time.Since(r.started).Milliseconds(),
@@ -252,6 +265,26 @@ func Emit(w io.Writer, env Envelope) int {
 	}
 	_, _ = w.Write(append(b, '\n'))
 	return env.ExitCode
+}
+
+// presentOrNil drops a typed nil pointer.
+//
+// A pipeline that fails before it has a result returns (*Result)(nil), and an
+// interface holding a typed nil is not nil — `omitempty` keeps it and the
+// envelope grows a `"result": null` that a caller then has to handle as a
+// third case beside present and absent.
+func presentOrNil(v any) any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface:
+		if rv.IsNil() {
+			return nil
+		}
+	}
+	return v
 }
 
 // SortedUnique is a small helper for result fields that are sets rendered as
