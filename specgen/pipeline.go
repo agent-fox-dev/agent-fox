@@ -315,9 +315,28 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Artifacts = append([]string{"prd.md"}, result.Artifacts...)
 
 	// --------------------------------------------------------- validate --
-	report := reportOf(spec.Validate())
+	//
+	// What is validated is what was WRITTEN, re-read from disk, not the value
+	// in memory. Save renders prd.md from the frontmatter fields and the body
+	// and encodes the three artifacts canonically; validating the in-memory
+	// spec would check the pipeline's intention rather than the package a
+	// coder will open. A dry run has nothing on disk, so it validates the
+	// value it would have written, with the directory name it would have used
+	// — which is what makes the C1 folder check apply to both paths.
+	validated := spec
+	validated.Dir = specPath
+	if !o.DryRun {
+		loaded, err := afspec.LoadSpec(specPath)
+		if err != nil {
+			return result, fail("validate", CategoryDisk,
+				fmt.Errorf("the package was written to %s and cannot be read back: %w", specPath, err))
+		}
+		validated = loaded
+	}
+
+	report := reportOf(validated.Validate())
 	result.Validation = report
-	result.Traceability = traceOf(spec)
+	result.Traceability = traceOf(validated)
 
 	if !report.Valid {
 		o.Progress.Step("the package does not validate: %d error(s)", report.ErrorCount)
@@ -330,7 +349,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// --------------------------------------------------------- activate --
 	if o.Activate && !o.DryRun {
-		activated, err := spec.Transition("active", specPath)
+		activated, err := validated.Transition("active", specPath)
 		if err != nil {
 			o.Run.Warn("the spec validates but could not be activated: %v", err)
 		} else {
@@ -341,7 +360,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// ---------------------------------------------------------- comment --
 	if o.Comment && !o.DryRun {
-		body := prdComment(spec, result)
+		body := prdComment(validated, result)
 		url, err := o.GitHub.AddComment(ctx, *o.Input.Issue, body)
 		if err != nil {
 			o.Run.Warn("the PRD could not be posted on %s: %v", o.Input.Issue, err)

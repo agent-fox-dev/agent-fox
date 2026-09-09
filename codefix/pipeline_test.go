@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -472,5 +473,37 @@ func TestStageNamesWhatTheModeActuallyDid(t *testing.T) {
 	}
 	if got2.Stage != "committed" {
 		t.Errorf("Stage = %q, want committed", got2.Stage)
+	}
+}
+
+// The analysis phase is read-only, so it does not get the build toolchain the
+// implementation phase needs — those programs compile and write.
+func TestTheAnalysisPhaseDoesNotGetTheBuildPrograms(t *testing.T) {
+	b := &agentBrain{extraPrograms: []string{"make", "custom-runner"}}
+
+	guard := agentrun.Guard(agentrun.GuardOptions{
+		Programs: readOnlyPrograms, AllowOperators: false, ReadOnlyFiles: true,
+	})
+	ctx := context.Background()
+	call := func(cmd string) core.BeforeToolCallContext {
+		return core.BeforeToolCallContext{ToolName: "execute", Arguments: map[string]any{"command": cmd}}
+	}
+	if d := guard(ctx, call("make test")); !d.Block {
+		t.Error("the analysis phase's allowlist admitted make")
+	}
+	if d := guard(ctx, call("git log --oneline -20")); d.Block {
+		t.Errorf("the analysis phase cannot read history: %s", d.Reason)
+	}
+
+	// The implementation phase gets them.
+	implPrograms := append(append(append([]string(nil), readOnlyPrograms...), buildPrograms...), b.extraPrograms...)
+	implGuard := agentrun.Guard(agentrun.GuardOptions{Programs: implPrograms, AllowOperators: true})
+	for _, cmd := range []string{"make test", "custom-runner --all", "go build ./..."} {
+		if d := implGuard(ctx, call(cmd)); d.Block {
+			t.Errorf("the implementation phase cannot run %q: %s", cmd, d.Reason)
+		}
+	}
+	if d := implGuard(ctx, call("git push")); !d.Block {
+		t.Error("the implementation phase was allowed to push")
 	}
 }

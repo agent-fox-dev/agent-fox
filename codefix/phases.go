@@ -211,13 +211,17 @@ type implementInput struct {
 
 // agentBrain runs both phases against the configured model.
 type agentBrain struct {
-	runner        *agentrun.Runner
+	runner *agentrun.Runner
+	// extraPrograms widens the IMPLEMENTATION phase's shell allowlist: the
+	// verification command's own program, plus whatever --allow adds. It is
+	// not offered to the analysis phase, because that phase is read-only and
+	// the programs in question — go, make, npm — compile and write.
 	extraPrograms []string
 }
 
 func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
 	var out analysis
-	programs := append(append([]string(nil), readOnlyPrograms...), b.extraPrograms...)
+	programs := append([]string(nil), readOnlyPrograms...)
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
 		Name:               "analyse",

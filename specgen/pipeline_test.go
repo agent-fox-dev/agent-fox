@@ -433,3 +433,51 @@ func TestNormalizeBodyStripsFrontmatterAndSettlesWhitespace(t *testing.T) {
 		t.Errorf("normalizeBody = %q", got)
 	}
 }
+
+// What is validated is what was written, re-read from disk. Validating the
+// in-memory value would check the pipeline's intention rather than the package
+// a coder will open.
+func TestValidationReadsThePackageBackFromDisk(t *testing.T) {
+	ws := newWorkspace(t)
+	got, err := Run(context.Background(), newOptions(ws, newAuthor(t, "01", "test_feature")))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	dir := filepath.Join(ws.Root, got.SpecDir)
+
+	// The round trip is the claim: what validated is what LoadSpec returns.
+	loaded, err := afspec.LoadSpec(dir)
+	if err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	if loaded.Dir == "" {
+		t.Fatal("the loaded spec has no directory, so the C1 folder check is vacuous")
+	}
+	res := loaded.Validate()
+	if res.Valid != got.Validation.Valid {
+		t.Errorf("the reported verdict (%v) disagrees with the package on disk (%v)",
+			got.Validation.Valid, res.Valid)
+	}
+	if len(res.Errors) != got.Validation.ErrorCount {
+		t.Errorf("error counts disagree: %d reported, %d on disk", got.Validation.ErrorCount, len(res.Errors))
+	}
+}
+
+// A dry run has nothing on disk, so it validates the value it would have
+// written — including the directory name it would have used.
+func TestDryRunStillValidatesAgainstTheDirectoryName(t *testing.T) {
+	ws := newWorkspace(t)
+	o := newOptions(ws, newAuthor(t, "01", "test_feature"))
+	o.DryRun = true
+
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !got.Validation.Valid {
+		t.Errorf("validation = %+v", got.Validation.Errors)
+	}
+	if got.Traceability.CriteriaCovered == 0 {
+		t.Error("the traceability report should be derived under --dry-run too")
+	}
+}
