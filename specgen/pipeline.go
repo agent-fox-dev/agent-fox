@@ -274,7 +274,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.Run.Warn("could not read the existing specs in %s: %v", specsDir, err)
 	}
 	env.landscape = landscape
-	env.profile = DetectProfile(root)
+	env.profile = project.DetectProfile(root)
 	if env.profile.Known() {
 		o.Progress.Detail("project: %s (from %s), tests %q, linter %q",
 			env.profile.Language, env.profile.Manifest, env.profile.AllTests, env.profile.Linter)
@@ -431,7 +431,7 @@ type runEnv struct {
 	root      string
 	specsDir  string
 	author    author
-	profile   Profile
+	profile   project.Profile
 	landscape []afspec.SpecMeta
 	// lastID is the highest numeric prefix this run has assigned, so a dry
 	// run — which leaves nothing on disk to count — still numbers its
