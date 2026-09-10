@@ -26,18 +26,36 @@ import (
 // with the model half replaced by a scripted brain. The split that makes
 // the program trustworthy is the same split that makes it testable.
 
-// scriptedBrain stands in for the two phases.
+// scriptedBrain stands in for the three phases.
 type scriptedBrain struct {
 	survey    Survey
 	surveyErr error
 	// implement decides what one attempt does, given the task and the
 	// attempt number: it edits the tree and returns the report.
 	implement func(root string, task afspec.Task, attempt int) (Submission, error)
+	// repair decides what one repair attempt does. Nil means the phase is
+	// never expected and fails the test if it runs.
+	repair func(root string, attempt int) (RepairSubmission, error)
 
-	surveys  int
-	inputs   []taskInput
-	surveyIn surveyInput
+	surveys   int
+	inputs    []taskInput
+	repairIns []repairInput
+	surveyIn  surveyInput
 }
+
+func (b *scriptedBrain) Repair(_ context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
+	b.repairIns = append(b.repairIns, in)
+	_ = repairPrompt(in) // every prompt must render
+	res := agentrun.Result{Name: PhaseRepair, Turns: 5}
+	if b.repair == nil {
+		return RepairSubmission{}, res, errors.New("the repair phase ran and the test did not script it")
+	}
+	sub, err := b.repair(in.Root, in.Attempt)
+	return sub, res, err
+}
+
+// RepairModel is what the report names; the scripted brain has none.
+func (b *scriptedBrain) RepairModel() string { return "scripted-repair" }
 
 func (b *scriptedBrain) Survey(_ context.Context, in surveyInput) (Survey, agentrun.Result, error) {
 	b.surveys++
@@ -723,4 +741,224 @@ func (b *costlyBrain) Implement(ctx context.Context, in taskInput) (Submission, 
 	sub, res, err := b.scriptedBrain.Implement(ctx, in)
 	res.Usage.CostUSD = b.cost
 	return sub, res, err
+}
+
+// --repair on a red baseline: the repair phase runs once, before the first
+// task, its commit is the first on the branch, and the tasks are then
+// compared against the green gate it produced.
+func TestRepairFixesARedBaselineBeforeTheFirstTask(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	write(t, ws.Root, "FAIL", "the suite is red")
+	if _, err := g.CommitAll(context.Background(), "chore: break the build\n"); err != nil {
+		t.Fatal(err)
+	}
+	b := &scriptedBrain{}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		return RepairSubmission{
+			Cause:         "A FAIL marker was committed, and the test target refuses to run while it exists.",
+			Summary:       "Removed the marker.",
+			CommitSubject: "remove the FAIL marker the test target trips on.",
+			Changes:       []FileChange{{Path: "FAIL", Change: "deleted"}},
+		}, nil
+	}
+	o := newOptions(ws, g, b)
+	o.RepairBaseline = true
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Stage != "landed" || got.TasksDone != 3 {
+		t.Errorf("Stage=%q done=%d", got.Stage, got.TasksDone)
+	}
+	if len(b.repairIns) != 1 || len(b.inputs) != 3 {
+		t.Fatalf("%d repair phases and %d task phases", len(b.repairIns), len(b.inputs))
+	}
+	in := b.repairIns[0]
+	if in.Attempt != 1 || in.Previous != nil || in.Survey == nil || in.Branch != got.Branch {
+		t.Errorf("repair input: %+v", in)
+	}
+	if len(in.Failing.failing()) != 1 || in.Failing.failing()[0].Command != "make test" {
+		t.Errorf("the repair was not told what failed: %+v", in.Failing)
+	}
+	if !b.surveyIn.Repair || !strings.Contains(surveyPrompt(b.surveyIn), "will repair the failing checks") {
+		t.Error("the survey was not told the checks will be repaired")
+	}
+
+	r := got.Repair
+	if r == nil || r.Outcome != OutcomeDone || r.Attempts != 1 || r.Commit == "" || r.Model != "scripted-repair" {
+		t.Fatalf("Repair = %+v", r)
+	}
+	if len(r.ChangedFiles) != 1 || r.ChangedFiles[0] != "FAIL" || r.Verification == nil || !r.Verification.OK() {
+		t.Errorf("Repair facts = %+v", r)
+	}
+	// The run's baseline is still the red one — the truth about where the
+	// branch started — and the first task was judged against green.
+	if got.Baseline.OK() {
+		t.Error("the result's baseline was overwritten by the repaired gate")
+	}
+	if !b.inputs[0].Baseline.OK() {
+		t.Error("task 1 was not compared with the repaired gate")
+	}
+	if got.Tasks[0].Verdict != string(checks.VerdictPass) {
+		t.Errorf("task 1 verdict = %q, want pass against the repaired baseline", got.Tasks[0].Verdict)
+	}
+
+	log := gitOut(t, ws.Root, "log", "--format=%s", "main..HEAD")
+	want := "feat: implemented task 3\nfeat: implemented task 2\nfeat: implemented task 1\n" +
+		"fix: remove the FAIL marker the test target trips on"
+	if log != want {
+		t.Errorf("log =\n%s\nwant\n%s", log, want)
+	}
+	body := gitOut(t, ws.Root, "log", "-1", "--format=%B", "HEAD~3")
+	if !strings.Contains(body, "A FAIL marker was committed") || !strings.Contains(body, "Spec: 09_agent_mode, repair") {
+		t.Errorf("the repair commit lacks the cause or the trailer:\n%s", body)
+	}
+	if !strings.Contains(pullRequestBody(got), "## The checks were repaired first") {
+		t.Error("the pull request body does not mention the repair")
+	}
+}
+
+// A repair that never makes the checks pass is retried with the failure
+// in its prompt, then parked, and no task is implemented.
+func TestRepairThatCannotFixTheChecksParksAndStops(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	write(t, ws.Root, "FAIL", "")
+	if _, err := g.CommitAll(context.Background(), "chore: break the build\n"); err != nil {
+		t.Fatal(err)
+	}
+	b := &scriptedBrain{}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		write(t, root, "attempt"+itoa(attempt)+".go", "package x\n")
+		return RepairSubmission{Cause: "no idea", Summary: "tried something", CommitSubject: "try something",
+			Changes: []FileChange{{Path: "attempt.go", Change: "added"}}}, nil
+	}
+	o := newOptions(ws, g, b)
+	o.RepairBaseline = true
+	o.RepairAttempts = 2
+	got, err := Run(context.Background(), o)
+	f := failureOf(t, err)
+	if f.Category != CategoryUnverified || f.Stage != PhaseRepair {
+		t.Errorf("failure = %s/%s: %v", f.Stage, f.Category, err)
+	}
+	if !strings.Contains(err.Error(), "no task was implemented") {
+		t.Errorf("the error does not say the tasks were not started: %v", err)
+	}
+	if got.Stage != "parked" || got.TasksDone != 0 || len(b.inputs) != 0 {
+		t.Errorf("Stage=%q done=%d task phases=%d", got.Stage, got.TasksDone, len(b.inputs))
+	}
+	if len(b.repairIns) != 2 {
+		t.Fatalf("%d repair phases, want 2", len(b.repairIns))
+	}
+	second := b.repairIns[1]
+	if second.Attempt != 2 || second.Previous == nil || second.Previous.Gate == nil {
+		t.Fatalf("the second attempt did not get the first one's failure: %+v", second.Previous)
+	}
+	if p := repairPrompt(second); !strings.Contains(p, "The previous attempt at the repair") ||
+		!strings.Contains(p, "the checks still do not pass (still_failing)") {
+		t.Error("the retry prompt does not carry the first attempt's failure")
+	}
+	if _, err := os.Stat(filepath.Join(ws.Root, "attempt1.go")); !os.IsNotExist(err) {
+		t.Error("the first attempt's file survived into the second attempt's tree")
+	}
+	r := got.Repair
+	if r == nil || r.Outcome != OutcomeUnverified || r.Attempts != 2 || r.Commit == "" {
+		t.Fatalf("Repair = %+v", r)
+	}
+	if cur := gitOut(t, ws.Root, "rev-parse", "--abbrev-ref", "HEAD"); cur != "main" {
+		t.Errorf("checked out %q, want main", cur)
+	}
+	subject := gitOut(t, ws.Root, "log", "-1", "--format=%s", got.Branch)
+	if !strings.HasPrefix(subject, "wip: the repair of the checks before 09_agent_mode did not land") {
+		t.Errorf("parked commit subject = %q", subject)
+	}
+
+	// A second run discards the parked repair and starts it again.
+	b2 := &scriptedBrain{}
+	b2.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if _, err := os.Stat(filepath.Join(root, "attempt2.go")); err == nil {
+			t.Error("the parked attempt was not discarded before the second run")
+		}
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		return RepairSubmission{Cause: "the marker", Summary: "removed it", CommitSubject: "remove the marker",
+			Changes: []FileChange{{Path: "FAIL", Change: "deleted"}}}, nil
+	}
+	o2 := newOptions(ws, g, b2)
+	o2.RepairBaseline = true
+	got2, err := Run(context.Background(), o2)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if !got2.Resumed || got2.TasksDone != 3 || got2.Repair == nil || got2.Repair.Outcome != OutcomeDone {
+		t.Errorf("second run: resumed=%v done=%d repair=%+v", got2.Resumed, got2.TasksDone, got2.Repair)
+	}
+	if log := gitOut(t, ws.Root, "log", "--format=%s", "main..HEAD"); strings.Contains(log, "wip:") {
+		t.Errorf("the parked repair is still on the branch:\n%s", log)
+	}
+}
+
+// A repair blocker — the failure is not in the code — parks the attempt
+// and exits as blocked, not as unverified.
+func TestRepairBlockerAsksAPerson(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	write(t, ws.Root, "FAIL", "")
+	if _, err := g.CommitAll(context.Background(), "chore: break the build\n"); err != nil {
+		t.Fatal(err)
+	}
+	b := &scriptedBrain{}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		return RepairSubmission{Blocker: &Blocker{Reason: "the suite needs a running Postgres", Needed: "start one"}}, nil
+	}
+	o := newOptions(ws, g, b)
+	o.RepairBaseline = true
+	got, err := Run(context.Background(), o)
+	if f := failureOf(t, err); f.Category != CategoryBlocked {
+		t.Errorf("category = %s: %v", f.Category, err)
+	}
+	if got.Blocker == nil || got.Repair == nil || got.Repair.Outcome != OutcomeBlocked || len(b.repairIns) != 1 {
+		t.Errorf("Blocker=%v Repair=%+v phases=%d", got.Blocker, got.Repair, len(b.repairIns))
+	}
+	if len(b.inputs) != 0 {
+		t.Error("a task was implemented after the repair blocked")
+	}
+}
+
+// A green baseline has nothing to repair: the flag is a no-op and the
+// phase never runs. Without the flag a red baseline is not repaired either.
+func TestRepairRunsOnlyOnARedBaselineWithTheFlag(t *testing.T) {
+	t.Run("green baseline", func(t *testing.T) {
+		ws, g, _ := newSpecRepo(t)
+		b := &scriptedBrain{} // repair unscripted: it fails the run if it runs
+		o := newOptions(ws, g, b)
+		o.RepairBaseline = true
+		got, err := Run(context.Background(), o)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if got.Repair != nil || len(b.repairIns) != 0 || got.TasksDone != 3 {
+			t.Errorf("Repair=%+v phases=%d done=%d", got.Repair, len(b.repairIns), got.TasksDone)
+		}
+	})
+	t.Run("red baseline without the flag", func(t *testing.T) {
+		ws, g, _ := newSpecRepo(t)
+		write(t, ws.Root, "FAIL", "")
+		if _, err := g.CommitAll(context.Background(), "chore: break the build\n"); err != nil {
+			t.Fatal(err)
+		}
+		b := &scriptedBrain{}
+		got, err := Run(context.Background(), newOptions(ws, g, b))
+		// The marker persists, so make test fails before and after task 1:
+		// still_failing, which is not landable. The run parks, and never
+		// tried to repair.
+		if err == nil {
+			t.Fatal("a red-before-and-after task landed")
+		}
+		if got.Repair != nil || len(b.repairIns) != 0 {
+			t.Errorf("the repair ran without the flag: %+v", got.Repair)
+		}
+	})
 }

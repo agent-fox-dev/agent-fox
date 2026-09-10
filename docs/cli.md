@@ -382,6 +382,7 @@ impl 09 --dir ~/src/widgets
 impl .specs/09_agent_mode --land branch
 impl agent_mode --task 2 --no-survey
 impl 09_agent_mode --dry-run --total-budget 20
+impl 09 --repair --repair-model ADVANCED
 ```
 
 The input names a spec package rather than describing a problem: a directory,
@@ -436,6 +437,43 @@ broke it".
 | `unverified` | nothing ran | only with `--no-verify` |
 
 `--verify` replaces the pair with one command; `--no-verify` runs nothing.
+
+### Repairing a red baseline
+
+A repository whose checks fail before any change is not refused: the run
+records the red baseline and judges every task by comparison, so a task that
+leaves the failure exactly as it found it lands as `pass_was_already_failing`
+once it is green, and one that keeps it red is `still_failing`. That is the
+right default for a suite with one known-broken test, and the wrong one for a
+suite whose failure hides every regression the tasks might introduce.
+
+`--repair` makes the red baseline a phase of its own, run **once, before the
+first task** and only when the baseline is red — on a green one the flag does
+nothing. The `repair` phase gets the failing commands and their output, the
+survey brief, and the spec for orientation only; it has the same tools as the
+implementation phase and the same refusal of the spec package. After it, the
+gate runs again, and the bar is green, not "no worse than before":
+
+- Green: the change is committed as `fix: <subject>` with a `Spec: <dir>,
+  repair` trailer, the first commit on the branch, and the green gate is the
+  baseline the first task is compared with. The result's `baseline` still
+  records the red one — that is the truth about where the branch started —
+  and the pull request says the checks were repaired first, with the cause.
+- Still red: the attempt is discarded and tried again with the failing output
+  and its diff stat in the prompt, up to `--repair-attempts` (default 3).
+  The last failure parks the attempt as a `wip:` commit, returns the checkout
+  to the base branch, and exits 4 with **no task implemented**. A second run
+  discards the parked repair and starts it again.
+- A `blocker` — the checks need a credential, a service or a tool the
+  machine does not have, so no change to the code could fix them — exits 3
+  with the question.
+
+`--repair-model` runs that one phase on another model — a tier such as
+`ADVANCED`, or a catalog spec — resolved against the same `--vendor` and
+`--variant` as the run's model and checked for its credential before anything
+runs. It implies `--repair`. The rest of the run stays on `--model`. It is
+for the repository whose failure needs more reading than the model chosen for
+the tasks would do; the tasks themselves are not made cheaper or dearer by it.
 
 ### One task
 
@@ -501,6 +539,9 @@ it, for a driver that runs one task at a time.
 | `--no-survey` | off | skip the survey phase |
 | `--task-attempts` | `2` | implementation attempts per task before the run parks |
 | `--total-budget` | none | spend ceiling for the whole run; a run that reaches it stops between tasks, with everything landed so far committed |
+| `--repair` | off | repair a red baseline once, before the first task; the run stops if it cannot |
+| `--repair-attempts` | `3` | repair attempts before the run gives up |
+| `--repair-model` | the run's model | model tier or catalog spec for the repair phase alone; implies `--repair` |
 
 Bounds: 150 turns, $5.00 per phase — and there is one phase per task, so a
 twelve-task spec can cost twelve times what a `fix` does. `--total-budget`
@@ -514,12 +555,15 @@ per task under `tasks`, in the plan's order — its `outcome` (`pending`,
 `diff_stat` from git, its `verification` gate and `verdict`, `tests_outcome`,
 and the model's own `submission` kept separate — plus `gate`, `baseline`,
 `verification`, `verdict`, `pushed`, `pull_request_url`, the `survey`, any
-`blocker`, and `cost_usd`.
+`blocker`, and `cost_usd`. With `--repair` on a red baseline, `repair` reports
+that phase the same way: `outcome`, `attempts`, `model` when it differed,
+`commit`, `changed_files`, `diff_stat`, `verification`, and the model's
+`submission` with its `cause`.
 
 ### What the model may and may not do
 
 The survey phase is read-only, with `execute` under the reporting allowlist.
-The implementation phase has the file tools and a shell under the same guard
+The implementation and repair phases have the file tools and a shell under the same guard
 as `fix`'s — `git` read-only, `gh` refused, `find -exec` refused — with one
 addition: `write_file` and `edit_file` refuse any path under the spec package,
 so "do not modify the spec" is a refusal rather than a request. The task's

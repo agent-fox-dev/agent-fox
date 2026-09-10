@@ -152,6 +152,42 @@ by the task that made it green. `--verify` replaces the pair with one command
 for a project whose `tasks.json` is wrong about itself; `--no-verify` runs
 nothing and the run is reported as unverified.
 
+#### Repairing a red baseline, on request
+
+The comparison is the right default and the wrong tool for one case: a suite
+that is red for a reason nobody has fixed hides every regression the tasks
+might introduce, because `still_failing` and `regressed` look the same to a
+check that was never green. `--repair` is the operator saying "make it green
+first". It adds one phase, `repair`, that runs once, before the first task,
+and only when the baseline has a failing check — on a green baseline the flag
+is a no-op, so it can be left on in a driver.
+
+The phase has the implementation phase's tools and refusals, the failing
+commands with their output, and the survey brief; the spec is in its prompt
+for orientation and it is told not to implement any of it. Its bar is the
+one the tasks do not have: green, not "no worse than before". A green gate
+is committed as `fix:` with a `Spec: <dir>, repair` trailer — the first
+commit on the branch, reviewable on its own, its body opening with the cause
+the model reports — and becomes the baseline the first task is compared
+with. The result keeps the red gate as the run's baseline, because that is
+where the branch started, and the pull request says so. A red gate is a
+failed attempt: discarded, and tried again with the output in its prompt,
+`--repair-attempts` times (default three, one more than a task gets, because
+a suite that fails for two reasons is fixed one reason at a time). The last
+failure parks the attempt as a `wip:` commit, which the next run discards,
+and exits 4 with no task implemented. A blocker — the failure is not in the
+code — exits 3.
+
+The repair phase may run on a different model than the tasks
+(`--repair-model`), because the case it exists for is a failure that needs
+more reading than the model chosen for the tasks would do, and a tier change
+for one phase is cheaper than a tier change for the run. The second model is
+resolved by the same rules as the first, and its credential is checked
+before anything runs. The survey still runs before the repair, so the repair
+has the conventions brief and the survey's blocker still costs nothing on
+the branch; it is told that the checks will be repaired so it does not
+resolve the failure as drift.
+
 ### 4. One branch, tasks in order, a commit per task
 
 The branch is `impl/<NN>-<slug>`, unique the way `fix`'s is. Tasks run in

@@ -300,3 +300,57 @@ func TestSteeringIgnoresThePlaceholder(t *testing.T) {
 		t.Errorf("real directives = %q", s)
 	}
 }
+
+func TestParkedRepairIsRecognizedByItsTrailer(t *testing.T) {
+	spec := &afspec.Spec{Dir: "/r/.specs/09_agent_mode", SpecID: "09", Title: "T"}
+	msg := wipRepairMessage(spec, "the checks still do not pass (still_failing)")
+	if !parkedRepair(msg) {
+		t.Errorf("parkedRepair = false from:\n%s", msg)
+	}
+	if _, ok := parkedTask(msg); ok {
+		t.Error("a parked repair was mistaken for a parked task")
+	}
+	if parkedRepair(wipCommitMessage(spec, afspec.Task{Id: 2}, "x")) {
+		t.Error("a parked task was mistaken for a parked repair")
+	}
+	got := repairCommitMessage(spec, RepairSubmission{
+		CommitSubject: "update the fixture.", Cause: "The fixture was stale.", Summary: "Regenerated it."})
+	if parkedRepair(got) {
+		t.Error("a landed repair was mistaken for a parked one")
+	}
+	if want := "fix: update the fixture\n\nThe fixture was stale.\n\nRegenerated it.\n\nSpec: 09_agent_mode, repair\n"; got != want {
+		t.Errorf("repair commit message =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSubmitRepairToolRefusesAnEmptyReport(t *testing.T) {
+	var out sink[RepairSubmission]
+	tool := submitRepairTool(&out)
+	ctx := context.Background()
+	for name, in := range map[string]string{
+		"no cause":      `{"summary":"s","commit_subject":"x","changes":[{"path":"a","change":"b"}]}`,
+		"no subject":    `{"cause":"c","summary":"s","changes":[{"path":"a","change":"b"}]}`,
+		"no changes":    `{"cause":"c","summary":"s","commit_subject":"x","changes":[]}`,
+		"empty blocker": `{"blocker":{"reason":"  ","needed":"x"}}`,
+	} {
+		if res := tool.Execute(ctx, json.RawMessage(in)); res.OK {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, ok := out.get(); ok {
+		t.Fatal("a refused report reached the sink")
+	}
+	res := tool.Execute(ctx, json.RawMessage(
+		`{"cause":"c","summary":"s","commit_subject":"x","changes":[{"path":"a","change":"b"}]}`))
+	if !res.OK || !res.Terminate {
+		t.Errorf("a complete report was refused: %s", res.Detail)
+	}
+	if got, ok := out.get(); !ok || got.Cause != "c" {
+		t.Errorf("submission = %+v", got)
+	}
+	var blocked sink[RepairSubmission]
+	res = submitRepairTool(&blocked).Execute(ctx, json.RawMessage(`{"blocker":{"reason":"needs Postgres","needed":"start one"}}`))
+	if !res.OK || !res.Terminate {
+		t.Errorf("a blocker was refused: %s", res.Detail)
+	}
+}

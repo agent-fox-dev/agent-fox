@@ -53,6 +53,9 @@ type runState struct {
 //	baseline     the spec's own checks, once, so "the checks pass" later
 //	             has something to mean
 //	survey       model, read-only. The one place the run may stop to ask.
+//	repair       only when asked for and the baseline is red: model, with
+//	             write tools, until the gate is green or the attempts are
+//	             spent. Its commit is the first on the branch.
 //	tasks        for each task the plan has not done: model, then git's
 //	             account of the change, then the checks again, then — only
 //	             on a landable comparison — the state write and the commit
@@ -76,6 +79,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.TaskAttempts <= 0 {
 		o.TaskAttempts = DefaultTaskAttempts
 	}
+	if o.RepairAttempts <= 0 {
+		o.RepairAttempts = DefaultRepairAttempts
+	}
 
 	result := &Result{Stage: "preflight", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}
 	st, pfErr := preflight(ctx, o, result)
@@ -96,9 +102,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				programs = append(programs, p)
 			}
 		}
-		b = &agentBrain{runner: o.Runner, extraPrograms: programs, protected: st.specDir}
+		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir}
 	}
 	st.brain = b
+	repair := o.RepairBaseline && len(st.baseline.failing()) > 0
 
 	// ----------------------------------------------------------- survey --
 	if !o.NoSurvey {
@@ -108,7 +115,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		done := o.Progress.Begin("surveying %s against %s", filepath.Base(st.specDir), st.root)
 		survey, stats, err := b.Survey(ctx, surveyInput{
 			Spec: st.spec, Root: st.root, Profile: st.profile, Gate: st.gate,
-			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo),
+			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo), Repair: repair,
 		})
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))
@@ -133,6 +140,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			return result, fail("branch", CategoryGit, err)
 		}
 		o.Progress.Step("branched %s from %s", st.branch, st.base)
+	}
+
+	// ----------------------------------------------------------- repair --
+	// Once, before the first task, and only on a red baseline: a green one
+	// has nothing to repair, and a run without the flag is judged by
+	// comparison instead.
+	if repair {
+		result.Stage = "repairing"
+		if err := runRepair(ctx, o, st, result); err != nil {
+			return result, err
+		}
+		result.Stage = "repaired"
 	}
 	result.Stage = "implementing"
 
@@ -295,7 +314,13 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 		result.Resumed = true
 		o.Progress.Step("continuing on %s", st.branch)
 		if msg, err := git.HeadMessage(ctx); err == nil {
+			what := ""
 			if n, parked := parkedTask(msg); parked {
+				what = fmt.Sprintf("task %d", n)
+			} else if parkedRepair(msg) {
+				what = "repairing the checks"
+			}
+			if what != "" {
 				head, _ := git.Head(ctx)
 				if err := git.ResetHard(ctx, "HEAD~1"); err != nil {
 					return nil, fail("preflight", CategoryGit, err)
@@ -303,8 +328,8 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 				if err := git.Clean(ctx); err != nil {
 					return nil, fail("preflight", CategoryGit, err)
 				}
-				o.Run.Warn("discarded the parked attempt at task %d (%s); the task starts again "+
-					"from the last landed commit", n, head)
+				o.Run.Warn("discarded the parked attempt at %s (%s); the work starts again "+
+					"from the last landed commit", what, head)
 			}
 		}
 	}
@@ -486,6 +511,141 @@ func pendingTasks(spec *afspec.Spec, todo []int) []afspec.Task {
 		}
 	}
 	return out
+}
+
+// runRepair drives the baseline repair to a green gate or to a parked
+// attempt. It is runTask's shape with a different bar: not "no worse than
+// before" but green, because "before" is what it exists to replace.
+func runRepair(ctx context.Context, o Options, st *runState, result *Result) error {
+	report := &RepairReport{Outcome: OutcomePending}
+	if m, ok := st.brain.(interface{ RepairModel() string }); ok {
+		report.Model = m.RepairModel()
+	}
+	result.Repair = report
+	var previous *attemptFailure
+
+	for attempt := 1; attempt <= o.RepairAttempts; attempt++ {
+		report.Attempts = attempt
+		if stop := overBudget(o, st); stop != nil {
+			_, err := stopped(ctx, o, st, result, stop)
+			return err
+		}
+		head, err := st.git.Head(ctx)
+		if err != nil {
+			return fail(PhaseRepair, CategoryGit, err)
+		}
+
+		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
+		sub, stats, err := st.brain.Repair(ctx, repairInput{
+			Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
+			Failing: st.baseline, Survey: st.survey,
+			Attempt: attempt, Attempts: o.RepairAttempts, Previous: previous,
+			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
+			Profile: st.profile,
+		})
+		recordPhase(o.Run, st, stats)
+		done(phaseSummary(stats))
+		result.CostUSD = st.cost
+		revertSpecDir(ctx, o, st, head)
+
+		if err != nil {
+			cat := agentrun.CategoryOf(err)
+			switch cat {
+			case agentrun.CategoryNoResult, agentrun.CategoryMaxTurns:
+				failure := &attemptFailure{Reason: "the phase ended without submitting a report: " + err.Error()}
+				if stat, e := st.git.DiffStat(ctx, head); e == nil {
+					failure.DiffStat = stat
+				}
+				if attempt < o.RepairAttempts {
+					previous = failure
+					if err := discard(ctx, st, head); err != nil {
+						return fail(PhaseRepair, CategoryGit, err)
+					}
+					continue
+				}
+				return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeFailed, cat)
+			case agentrun.CategoryAborted:
+				return parkRepair(ctx, o, st, result, report, err.Error(), OutcomeAborted, cat)
+			default:
+				return parkRepair(ctx, o, st, result, report, err.Error(), OutcomeFailed, cat)
+			}
+		}
+		report.Submission = &sub
+
+		if sub.Blocker != nil {
+			result.Blocker = sub.Blocker
+			o.Progress.Step("stopped: the checks cannot be repaired in code")
+			return parkRepair(ctx, o, st, result, report,
+				"the checks cannot be repaired in code: "+strings.TrimSpace(sub.Blocker.Reason),
+				OutcomeBlocked, CategoryBlocked)
+		}
+
+		changed, err := st.git.ChangedFiles(ctx, head)
+		if err != nil {
+			return fail(PhaseRepair, CategoryGit, err)
+		}
+		if len(changed) == 0 {
+			failure := &attemptFailure{Reason: "the phase reported a repair and no file differs from the commit it started from"}
+			if attempt < o.RepairAttempts {
+				previous = failure
+				continue
+			}
+			return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeFailed, CategoryEmpty)
+		}
+		report.ChangedFiles = changed
+		if stat, err := st.git.DiffStat(ctx, head); err == nil {
+			report.DiffStat = stat
+		}
+
+		// The gate, held to green rather than compared: the comparison is
+		// what the repair exists to make unnecessary.
+		after := runGate(ctx, o, st.root, st.gate, "repair verification")
+		verdict := compareGate(st.baseline, after)
+		report.Verification = &after
+		result.Verification = after
+		result.Verdict = verdict
+
+		if r, bad := after.couldNotRun(); bad {
+			return parkRepair(ctx, o, st, result, report,
+				fmt.Sprintf("`%s` could not run after the repair (%s), so the work was never measured", r.Command, runFailure(r)),
+				OutcomeUnverified, CategoryUnverified)
+		}
+		if !after.OK() {
+			failure := &attemptFailure{Reason: fmt.Sprintf("the checks still do not pass (%s)", verdict), Gate: &after}
+			if stat, e := st.git.DiffStat(ctx, head); e == nil {
+				failure.DiffStat = stat
+			}
+			if attempt < o.RepairAttempts {
+				previous = failure
+				o.Progress.Step("repair attempt %d did not make the checks pass (%s); discarding it", attempt, verdict)
+				if err := discard(ctx, st, head); err != nil {
+					return fail(PhaseRepair, CategoryGit, err)
+				}
+				continue
+			}
+			return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeUnverified, CategoryUnverified)
+		}
+
+		// ---------------------------------------------------------- land --
+		commit, err := st.git.CommitAll(ctx, repairCommitMessage(st.spec, sub))
+		if err != nil {
+			return fail("commit", CategoryGit, err)
+		}
+		if dirty, err := st.git.DirtyFiles(ctx); err == nil && len(dirty) > 0 {
+			return failf("commit", CategoryGit,
+				"the tree is dirty after committing the repair — a hook changed files the commit does "+
+					"not carry:\n%s", strings.Join(dirty, "\n"))
+		}
+		report.Commit = commit
+		report.Outcome = OutcomeDone
+		// The green gate is what the first task is compared with. The result
+		// keeps the red one as the run's baseline, which is the truth about
+		// where the branch started.
+		st.baseline = after
+		o.Progress.Step("the checks were repaired and committed as %s (%s)", commit, verdict)
+		return nil
+	}
+	return failf(PhaseRepair, agentrun.CategoryInternal, "the repair ended without an outcome")
 }
 
 // runTask drives one task to a landed commit or to a parked attempt.
@@ -689,32 +849,60 @@ func revertSpecDir(ctx context.Context, o Options, st *runState, head string) {
 func park(ctx context.Context, o Options, st *runState, result *Result, report TaskReport,
 	task afspec.Task, reason, outcome, category, stage string) (TaskReport, error) {
 
-	bg, cancel := background(ctx)
-	defer cancel()
-
 	report.Outcome = outcome
 	report.Error = reason
-	result.Stage = "parked"
 
 	if err := saveTasks(st.spec, st.specDir); err != nil {
 		o.Run.Warn("the task state could not be written before parking: %v", err)
 	}
-	commit, err := st.git.CommitAllNoVerify(bg, wipCommitMessage(st.spec, task, reason))
+	commit, err := parkWork(ctx, o, st, result, wipCommitMessage(st.spec, task, reason))
 	if err != nil {
-		// Nothing more can be done safely: the tree stays as it is, on the
-		// work branch, and the report says so.
-		o.Run.Warn("the attempt could not be parked as a commit on %s; the tree is left as the "+
-			"phase left it: %v", st.branch, err)
 		return report, failf(stage, category, "task %d did not land: %s. The work is loose on %s "+
 			"and could not be committed", task.Id, reason, st.branch)
 	}
 	report.Commit = commit
-	if err := st.git.Checkout(bg, st.base); err != nil {
-		o.Run.Warn("could not return to %s: %v", st.base, err)
-	}
 	o.Progress.Step("task %d parked on %s as %s; the checkout is back on %s", task.Id, st.branch, commit, st.base)
 	return report, failf(stage, category, "task %d did not land: %s. The work is parked on %s (%s) "+
 		"and the checkout is back on %s", task.Id, reason, st.branch, commit, st.base)
+}
+
+// parkRepair is park for the repair: the same wip: commit and the same
+// return to the base branch, with no task state to record.
+func parkRepair(ctx context.Context, o Options, st *runState, result *Result, report *RepairReport,
+	reason, outcome, category string) error {
+
+	report.Outcome = outcome
+	report.Error = reason
+	commit, err := parkWork(ctx, o, st, result, wipRepairMessage(st.spec, reason))
+	if err != nil {
+		return failf(PhaseRepair, category, "the checks could not be repaired: %s. The attempt is loose on %s "+
+			"and could not be committed", reason, st.branch)
+	}
+	report.Commit = commit
+	o.Progress.Step("the repair is parked on %s as %s; the checkout is back on %s", st.branch, commit, st.base)
+	return failf(PhaseRepair, category, "the checks could not be repaired: %s. The last attempt is parked on "+
+		"%s (%s) and the checkout is back on %s; no task was implemented", reason, st.branch, commit, st.base)
+}
+
+// parkWork commits whatever the phase left as a wip: commit and returns
+// the checkout to the base branch. It is the half of parking that does not
+// know what was being attempted. On a commit that fails the tree is left as
+// the phase left it, on the work branch, and the warning says so.
+func parkWork(ctx context.Context, o Options, st *runState, result *Result, message string) (string, error) {
+	bg, cancel := background(ctx)
+	defer cancel()
+	result.Stage = "parked"
+
+	commit, err := st.git.CommitAllNoVerify(bg, message)
+	if err != nil {
+		o.Run.Warn("the attempt could not be parked as a commit on %s; the tree is left as the "+
+			"phase left it: %v", st.branch, err)
+		return "", err
+	}
+	if err := st.git.Checkout(bg, st.base); err != nil {
+		o.Run.Warn("could not return to %s: %v", st.base, err)
+	}
+	return commit, nil
 }
 
 // stopped ends a run before or between tasks, with a clean tree: nothing to

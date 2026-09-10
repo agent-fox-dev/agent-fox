@@ -171,6 +171,9 @@ boundary rather than aborting mid-call.
 `impl` runs one phase per task, so its per-phase ceilings multiply by the
 number of tasks. `--total-budget` caps the whole run; a run that reaches it
 stops between tasks with everything landed so far committed on the branch.
+Its `--repair` phase, when it runs, is bounded like any other phase and
+counts toward the total; `--repair-model` changes its model and nothing
+else about its bounds.
 
 The turn budget is also the repair budget: a validation failure returns to the
 model as a tool error and costs a turn, so a model that cannot satisfy a rule

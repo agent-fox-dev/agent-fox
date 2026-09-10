@@ -20,6 +20,39 @@ func specRef(spec *afspec.Spec, task afspec.Task) string {
 	return fmt.Sprintf("%s %s, task %d", specTrailer, filepath.Base(spec.Dir), task.Id)
 }
 
+// repairRef is the trailer of the repair commit: the same shape as a
+// task's, with "repair" where the task number goes, so that a later run
+// recognizes a parked repair the way it recognizes a parked task.
+func repairRef(spec *afspec.Spec) string {
+	return fmt.Sprintf("%s %s, %s", specTrailer, filepath.Base(spec.Dir), repairMarker)
+}
+
+// repairCommitMessage is the message of the commit a landed repair makes.
+// It is a fix:, not a feat:, and its body opens with the cause, because the
+// commit is reviewed on its own and "why" is the review.
+func repairCommitMessage(spec *afspec.Spec, sub RepairSubmission) string {
+	subject := strings.TrimSuffix(strings.TrimSpace(sub.CommitSubject), ".")
+	msg := "fix: " + subject
+	var body []string
+	if c := strings.TrimSpace(sub.Cause); c != "" {
+		body = append(body, c)
+	}
+	if s := strings.TrimSpace(sub.Summary); s != "" {
+		body = append(body, s)
+	}
+	if len(body) > 0 {
+		msg += "\n\n" + strings.Join(body, "\n\n")
+	}
+	return msg + "\n\n" + repairRef(spec) + "\n"
+}
+
+// wipRepairMessage is what a repair that did not make the checks pass is
+// parked as.
+func wipRepairMessage(spec *afspec.Spec, reason string) string {
+	return fmt.Sprintf("%s the repair of the checks before %s did not land\n\n%s\n\n%s\n",
+		wipPrefix, filepath.Base(spec.Dir), strings.TrimSpace(reason), repairRef(spec))
+}
+
 // commitMessage is the message of the one commit a landed task makes.
 //
 // The subject comes from the model; the type prefix and the trailer do not,
@@ -77,6 +110,19 @@ func pullRequestBody(r *Result) string {
 			orDash(t.Verdict), orDash(t.TestsOutcome))
 	}
 	p("\n")
+
+	if r.Repair != nil && r.Repair.Outcome == OutcomeDone && r.Repair.Submission != nil {
+		p("## The checks were repaired first\n\n")
+		p("They failed before any change, and `%s` restores them", r.Repair.Commit)
+		if r.Repair.Model != "" {
+			p(" (repaired on %s)", r.Repair.Model)
+		}
+		p(". **Cause:** %s\n\n%s\n\n", strings.TrimSpace(r.Repair.Submission.Cause),
+			strings.TrimSpace(r.Repair.Submission.Summary))
+		if strings.TrimSpace(r.Repair.Submission.Notes) != "" {
+			p("**Notes:** %s\n\n", strings.TrimSpace(r.Repair.Submission.Notes))
+		}
+	}
 
 	if r.Survey != nil && len(r.Survey.Drift) > 0 {
 		p("## Where the spec and the code disagreed\n\n")
