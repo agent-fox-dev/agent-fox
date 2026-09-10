@@ -38,3 +38,8 @@ type Client interface {
 
 // ForgeClient is an alias for Client.
 type ForgeClient = Client
+
+// New creates a Client with default options and the specified user agent.
+func New(userAgent string) (Client, error) {
+	return NewWithOptions(Options{UserAgent: userAgent})
+}
