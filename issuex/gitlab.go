@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -320,8 +321,79 @@ func parseGitLabErrorMessage(body []byte, defaultMsg string) string {
 
 // Client interface method stubs (implemented in subsequent tasks)
 
+// projectPath formats a Repo into a URL-encoded project path with slashes replaced by %2F.
+func projectPath(repo Repo) string {
+	escaped := url.PathEscape(repo.String())
+	return strings.ReplaceAll(escaped, "/", "%2F")
+}
+
+type gitlabProjectPermissions struct {
+	ProjectAccess *gitlabAccessLevel `json:"project_access"`
+	GroupAccess   *gitlabAccessLevel `json:"group_access"`
+}
+
+type gitlabAccessLevel struct {
+	AccessLevel int `json:"access_level"`
+}
+
+type gitlabProjectResponse struct {
+	PathWithNamespace string                    `json:"path_with_namespace"`
+	DefaultBranch     string                    `json:"default_branch"`
+	Visibility        string                    `json:"visibility"`
+	Archived          bool                      `json:"archived"`
+	Permissions       *gitlabProjectPermissions `json:"permissions"`
+	MergeMethod       string                    `json:"merge_method"`
+	SquashOption      string                    `json:"squash_option"`
+}
+
 func (c *gitlabClient) GetRepository(ctx context.Context, repo Repo) (Repository, error) {
-	panic("not implemented")
+	if !repo.Valid() && c.repo.Valid() {
+		repo = c.repo
+	}
+
+	path := fmt.Sprintf("/projects/%s", projectPath(repo))
+	var project gitlabProjectResponse
+	_, err := c.do(ctx, http.MethodGet, path, nil, &project)
+	if err != nil {
+		if IsNotFound(err) && !c.Authenticated() {
+			return Repository{}, fmt.Errorf("%w: repository may be private and require setting GITLAB_TOKEN: %w", ErrNotFound, err)
+		}
+		return Repository{}, err
+	}
+
+	isPrivate := project.Visibility == "private" || project.Visibility == "internal"
+
+	var effectiveLevel int
+	if project.Permissions != nil {
+		if project.Permissions.ProjectAccess != nil && project.Permissions.ProjectAccess.AccessLevel > effectiveLevel {
+			effectiveLevel = project.Permissions.ProjectAccess.AccessLevel
+		}
+		if project.Permissions.GroupAccess != nil && project.Permissions.GroupAccess.AccessLevel > effectiveLevel {
+			effectiveLevel = project.Permissions.GroupAccess.AccessLevel
+		}
+	}
+
+	pull := effectiveLevel >= 20 || !isPrivate
+	push := effectiveLevel >= 30
+	admin := effectiveLevel >= 40
+
+	c.mergeMethod = project.MergeMethod
+	c.squashOption = project.SquashOption
+
+	return Repository{
+		FullName:      project.PathWithNamespace,
+		DefaultBranch: project.DefaultBranch,
+		Private:       isPrivate,
+		Archived:      project.Archived,
+		Permissions: RepoPermissions{
+			Push:  push,
+			Pull:  pull,
+			Admin: admin,
+		},
+		AllowMergeCommit: project.MergeMethod == "" || project.MergeMethod == "merge",
+		AllowSquashMerge: project.SquashOption != "never",
+		AllowRebaseMerge: project.MergeMethod == "rebase_merge" || project.MergeMethod == "ff",
+	}, nil
 }
 
 func (c *gitlabClient) CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error) {

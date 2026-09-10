@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -439,5 +440,189 @@ func TestGitLab_Transport_SentinelErrors_TS_03_28(t *testing.T) {
 	_, err409 := c.do(context.Background(), "GET", "/409", nil, nil)
 	if !IsConflict(err409) {
 		t.Errorf("expected IsConflict(err409) == true, got %v", err409)
+	}
+}
+
+// TestGitLab_Path_Property_TS_03_6 verifies TS-03-6:
+// Project-scoped REST endpoints format project path as url.PathEscape(repo.String()) with slashes replaced by %2F.
+// Verifies: 03-REQ-2.1
+func TestGitLab_Path_Property_TS_03_6(t *testing.T) {
+	f := func(owner, name string) bool {
+		r := Repo{Owner: owner, Name: name}
+		expected := url.PathEscape(r.String())
+		expected = strings.ReplaceAll(expected, "/", "%2F")
+		return projectPath(r) == expected && !strings.Contains(projectPath(r), "/")
+	}
+	if err := quick.Check(f, nil); err != nil {
+		t.Fatalf("projectPath property failed: %v", err)
+	}
+
+	// Specific test cases for nested paths and special characters
+	cases := []struct {
+		repo Repo
+		want string
+	}{
+		{Repo{Owner: "group", Name: "project"}, "group%2Fproject"},
+		{Repo{Owner: "group/subgroup", Name: "project"}, "group%2Fsubgroup%2Fproject"},
+		{Repo{Owner: "a/b/c", Name: "d"}, "a%2Fb%2Fc%2Fd"},
+	}
+	for _, tc := range cases {
+		if got := projectPath(tc.repo); got != tc.want {
+			t.Errorf("projectPath(%+v) = %q, want %q", tc.repo, got, tc.want)
+		}
+	}
+}
+
+// TestGitLab_GetRepository_TS_03_7 verifies TS-03-7:
+// GetRepository retrieves project metadata, calculates permissions from effective access level, and records merge policy settings.
+// Verifies: 03-REQ-2.2, 03-REQ-2.3
+func TestGitLab_GetRepository_TS_03_7(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.EscapedPath() != "/api/v4/projects/group%2Fproject" {
+			t.Errorf("escaped path = %s, want /api/v4/projects/group%%2Fproject", r.URL.EscapedPath())
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"path_with_namespace": "group/project",
+			"default_branch": "main",
+			"visibility": "private",
+			"archived": false,
+			"permissions": {
+				"project_access": {"access_level": 30},
+				"group_access": {"access_level": 20}
+			},
+			"merge_method": "merge",
+			"squash_option": "default_on"
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestGitLabClient(Options{BaseURL: srv.URL, Token: "glpat-tok"})
+	repo, err := c.GetRepository(context.Background(), Repo{Owner: "group", Name: "project"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.FullName != "group/project" {
+		t.Errorf("FullName = %q, want %q", repo.FullName, "group/project")
+	}
+	if repo.DefaultBranch != "main" {
+		t.Errorf("DefaultBranch = %q, want %q", repo.DefaultBranch, "main")
+	}
+	if !repo.Private {
+		t.Errorf("Private = %v, want true", repo.Private)
+	}
+	if repo.Archived {
+		t.Errorf("Archived = %v, want false", repo.Archived)
+	}
+	if !repo.Permissions.Push || !repo.Permissions.Pull || repo.Permissions.Admin {
+		t.Errorf("Permissions = %+v, want Push=true, Pull=true, Admin=false", repo.Permissions)
+	}
+	if c.mergeMethod != "merge" || c.squashOption != "default_on" {
+		t.Errorf("mergeMethod = %q, squashOption = %q, want merge / default_on", c.mergeMethod, c.squashOption)
+	}
+
+	// Test fallback to c.repo when called with empty Repo{}
+	cWithRepo := newTestGitLabClient(Options{
+		BaseURL: srv.URL,
+		Token:   "glpat-tok",
+		Repo:    Repo{Owner: "group", Name: "project"},
+	})
+	repo2, err2 := cWithRepo.GetRepository(context.Background(), Repo{})
+	if err2 != nil {
+		t.Fatalf("unexpected error on fallback repo: %v", err2)
+	}
+	if repo2.FullName != "group/project" {
+		t.Errorf("repo2.FullName = %q, want group/project", repo2.FullName)
+	}
+
+	// Test permissions calculation: public project with no explicit access level
+	srvPublic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"path_with_namespace": "open/repo",
+			"default_branch": "master",
+			"visibility": "public",
+			"archived": true,
+			"permissions": null,
+			"merge_method": "rebase_merge",
+			"squash_option": "never"
+		}`))
+	}))
+	defer srvPublic.Close()
+
+	cPub := newTestGitLabClient(Options{BaseURL: srvPublic.URL})
+	repoPub, errPub := cPub.GetRepository(context.Background(), Repo{Owner: "open", Name: "repo"})
+	if errPub != nil {
+		t.Fatalf("unexpected error: %v", errPub)
+	}
+	if repoPub.Private {
+		t.Errorf("expected Private == false for public project")
+	}
+	if !repoPub.Archived {
+		t.Errorf("expected Archived == true")
+	}
+	if !repoPub.Permissions.Pull {
+		t.Errorf("expected Pull == true for public project")
+	}
+	if repoPub.Permissions.Push || repoPub.Permissions.Admin {
+		t.Errorf("expected Push == false, Admin == false for unauthenticated public project, got %+v", repoPub.Permissions)
+	}
+	if cPub.mergeMethod != "rebase_merge" || cPub.squashOption != "never" {
+		t.Errorf("cPub.mergeMethod = %q, squashOption = %q", cPub.mergeMethod, cPub.squashOption)
+	}
+
+	// Test admin permissions calculation (access_level >= 40)
+	srvAdmin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"path_with_namespace": "corp/admin-proj",
+			"default_branch": "main",
+			"visibility": "internal",
+			"permissions": {
+				"group_access": {"access_level": 40}
+			}
+		}`))
+	}))
+	defer srvAdmin.Close()
+
+	cAdmin := newTestGitLabClient(Options{BaseURL: srvAdmin.URL, Token: "glpat-tok"})
+	repoAdmin, errAdmin := cAdmin.GetRepository(context.Background(), Repo{Owner: "corp", Name: "admin-proj"})
+	if errAdmin != nil {
+		t.Fatalf("unexpected error: %v", errAdmin)
+	}
+	if !repoAdmin.Private {
+		t.Errorf("expected Private == true for internal project")
+	}
+	if !repoAdmin.Permissions.Pull || !repoAdmin.Permissions.Push || !repoAdmin.Permissions.Admin {
+		t.Errorf("expected Pull, Push, Admin all true for access_level 40, got %+v", repoAdmin.Permissions)
+	}
+}
+
+// TestGitLab_GetRepository_NotFound_TS_03_8 verifies TS-03-8:
+// GetRepository maps HTTP 404 to ErrNotFound, adding private project guidance when unauthenticated.
+// Verifies: 03-REQ-2.4, 03-REQ-2.5
+func TestGitLab_GetRepository_NotFound_TS_03_8(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message": "404 Project Not Found"}`))
+	}))
+	defer srv.Close()
+
+	unauth := newTestGitLabClient(Options{BaseURL: srv.URL})
+	_, err1 := unauth.GetRepository(context.Background(), Repo{Owner: "org", Name: "secret"})
+	if !IsNotFound(err1) {
+		t.Errorf("expected IsNotFound(err1) == true, got %v", err1)
+	}
+	if !strings.Contains(err1.Error(), "GITLAB_TOKEN") {
+		t.Errorf("expected guidance mentioning GITLAB_TOKEN, got %q", err1.Error())
+	}
+
+	auth := newTestGitLabClient(Options{BaseURL: srv.URL, Token: "glpat-tok"})
+	_, err2 := auth.GetRepository(context.Background(), Repo{Owner: "org", Name: "missing"})
+	if !IsNotFound(err2) {
+		t.Errorf("expected IsNotFound(err2) == true, got %v", err2)
 	}
 }
