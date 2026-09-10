@@ -59,7 +59,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: clone agentkit-go dependency
-        run: git clone https://github.com/agent-fox-dev/agentkit-go.git ../coder
+        run: git clone https://github.com/agent-fox-dev/coder.git ../coder
 
       - name: login to RH registry
         uses: docker/login-action@v3
