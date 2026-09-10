@@ -129,8 +129,9 @@ A spec whose `dependencies` name an upstream spec that is not sealed and
 whose tasks are not all done is not refused but stopped, with exit 3: the
 format says every task of this spec runs after the upstream one (§8.2), and
 the person or program driving `impl` is the one that can run the upstream
-first. A dependency that names no spec in the root is a validation error
-already.
+first. A dependency that names no package in the spec root cannot be checked
+and is reported as a warning; `Validate` does not cross specs, and a package
+copied out of its repository should still be implementable.
 
 ### 3. The gate is the spec's, not a guess
 
