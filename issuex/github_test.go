@@ -38,6 +38,8 @@ func TestGitHub_Client_TS_02_1(t *testing.T) {
 		t.Errorf("expected Close() == nil, got %v", err)
 	}
 
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	unauth := newTestGitHubClient(Options{})
 	if unauth.Authenticated() {
 		t.Errorf("expected Authenticated() == false, got true")
@@ -132,6 +134,9 @@ func TestGitHub_Headers_TS_02_4(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	}))
 	defer srv.Close()
+
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 
 	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 	f := func(methodIdx uint8, pathSeed uint16, rawToken string, body []byte) bool {
@@ -419,6 +424,8 @@ func TestGitHub_GetRepository_TS_02_6(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	unauth := newTestGitHubClient(Options{BaseURL: srv.URL})
 	_, errUnauth := unauth.GetRepository(context.Background(), Repo{Owner: "owner", Name: "priv-repo"})
 	if !IsNotFound(errUnauth) {

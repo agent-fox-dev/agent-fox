@@ -84,6 +84,8 @@ func TestGitHub_Issue_Unauthenticated_ErrNoToken_TS_02_8(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	c := newTestGitHubClient(Options{BaseURL: srv.URL, Token: ""})
 	ctx := context.Background()
 	ref := IssueRef{Repo: Repo{Owner: "o", Name: "r"}, Number: 1}
@@ -222,6 +224,8 @@ func TestGitHub_Issue_ReadUnauthenticatedNotFound_TS_02_10(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	unauth := newTestGitHubClient(Options{BaseURL: srv.URL})
 	_, err := unauth.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: "o", Name: "r"}, Number: 999})
 	if !IsNotFound(err) {

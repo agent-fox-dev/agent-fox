@@ -96,6 +96,8 @@ func TestGitHub_PR_Read_UnauthenticatedNotFound_TS_02_17(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	unauth := newTestGitHubClient(Options{BaseURL: srv.URL})
 	_, err := unauth.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: "o", Name: "r"}, Number: 99})
 	if !IsNotFound(err) {
@@ -325,6 +327,8 @@ func TestGitHub_PR_Merge_TS_02_20(t *testing.T) {
 // TestGitHub_PR_Unauthenticated verifies 02-REQ-5.7 and 02-REQ-6.7:
 // Mutating PR operations reject unauthenticated calls immediately with ErrNoToken.
 func TestGitHub_PR_Unauthenticated(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 	unauth := newTestGitHubClient(Options{})
 	ref := IssueRef{Repo: Repo{Owner: "o", Name: "r"}, Number: 1}
 
