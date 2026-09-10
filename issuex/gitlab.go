@@ -100,6 +100,11 @@ func SetGitLabSleep(c Client, fn func(time.Duration)) {
 }
 
 func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, respTarget any) ([]byte, error) {
+	_, body, err := c.doWithResponse(ctx, method, path, reqBody, respTarget)
+	return body, err
+}
+
+func (c *gitlabClient) doWithResponse(ctx context.Context, method, path string, reqBody, respTarget any) (*http.Response, []byte, error) {
 	var bodyBytes []byte
 	if reqBody != nil {
 		switch v := reqBody.(type) {
@@ -114,7 +119,7 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 		case io.Reader:
 			b, err := io.ReadAll(v)
 			if err != nil {
-				return nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
+				return nil, nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
 			}
 			if len(b) > 0 {
 				bodyBytes = b
@@ -122,7 +127,7 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 		default:
 			b, err := json.Marshal(v)
 			if err != nil {
-				return nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
+				return nil, nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
 			}
 			bodyBytes = b
 		}
@@ -145,7 +150,7 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 
 		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", method, path, err)
+			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
 
 		req.Header.Set("Accept", "application/json")
@@ -159,13 +164,13 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", method, path, err)
+			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
 
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodyBytes))
 		_ = resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
+			return nil, nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
 		}
 
 		// 2xx response
@@ -173,15 +178,15 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 			if respTarget != nil {
 				if w, ok := respTarget.(io.Writer); ok {
 					if _, err := w.Write(raw); err != nil {
-						return nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
+						return nil, nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
 					}
 				} else {
 					if err := json.Unmarshal(raw, respTarget); err != nil {
-						return nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
+						return nil, nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
 					}
 				}
 			}
-			return raw, nil
+			return resp, raw, nil
 		}
 
 		httpErr := newGitLabHTTPError(method, path, resp, raw)
@@ -192,35 +197,35 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 			if attempt == 0 && wait <= 120*time.Second {
 				select {
 				case <-ctx.Done():
-					return nil, ctx.Err()
+					return nil, nil, ctx.Err()
 				default:
 				}
 				c.sleep(wait)
 				select {
 				case <-ctx.Done():
-					return nil, ctx.Err()
+					return nil, nil, ctx.Err()
 				default:
 				}
 				continue
 			}
-			return nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
+			return nil, nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
 		}
 
 		// Map status codes to sentinels
 		if resp.StatusCode == http.StatusNotFound {
 			if !c.Authenticated() {
-				return nil, fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
+				return nil, nil, fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
 			}
-			return nil, fmt.Errorf("%w: %w", ErrNotFound, httpErr)
+			return nil, nil, fmt.Errorf("%w: %w", ErrNotFound, httpErr)
 		}
 		if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotAcceptable || resp.StatusCode == http.StatusConflict {
-			return nil, fmt.Errorf("%w: %w", ErrConflict, httpErr)
+			return nil, nil, fmt.Errorf("%w: %w", ErrConflict, httpErr)
 		}
 
-		return nil, httpErr
+		return nil, nil, httpErr
 	}
 
-	return nil, nil
+	return nil, nil, nil
 }
 
 func newGitLabHTTPError(method, path string, resp *http.Response, body []byte) *HTTPError {
@@ -394,46 +399,6 @@ func (c *gitlabClient) GetRepository(ctx context.Context, repo Repo) (Repository
 		AllowSquashMerge: project.SquashOption != "never",
 		AllowRebaseMerge: project.MergeMethod == "rebase_merge" || project.MergeMethod == "ff",
 	}, nil
-}
-
-func (c *gitlabClient) CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) CloseIssue(ctx context.Context, ref IssueRef, comment string) error {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ListIssues(ctx context.Context, repo Repo, filter IssueFilter) (IssueList, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) AddComment(ctx context.Context, ref IssueRef, body string) (string, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ListComments(ctx context.Context, ref IssueRef) (CommentList, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) AddLabels(ctx context.Context, ref IssueRef, labels []string) error {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) RemoveLabel(ctx context.Context, ref IssueRef, label string) error {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) CreateLabel(ctx context.Context, repo Repo, label Label) error {
-	panic("not implemented")
 }
 
 func (c *gitlabClient) CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error) {
