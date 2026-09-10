@@ -81,6 +81,24 @@ func (c *githubClient) Close() error {
 	return nil
 }
 
+// SetSleep sets the rate-limit backoff sleep function on the client.
+// If fn is nil, time.Sleep is used.
+func (c *githubClient) SetSleep(fn func(time.Duration)) {
+	if fn == nil {
+		c.sleep = time.Sleep
+	} else {
+		c.sleep = fn
+	}
+}
+
+// SetGitHubSleep sets the rate-limit sleep function on a GitHub Client.
+// It is intended for deterministic testing of rate-limit backoff without delays.
+func SetGitHubSleep(c Client, fn func(time.Duration)) {
+	if gc, ok := c.(*githubClient); ok {
+		gc.SetSleep(fn)
+	}
+}
+
 func (c *githubClient) do(ctx context.Context, method, path string, reqBody, respTarget any) error {
 	var bodyBytes []byte
 	if reqBody != nil {

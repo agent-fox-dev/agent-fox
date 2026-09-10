@@ -56,6 +56,36 @@ func detectForge(o Options) (ForgeType, Options, error) {
 		if hasGL && !hasGH {
 			return ForgeTypeGitLab, opts, nil
 		}
+		if hasGH && hasGL {
+			return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot determine forge from base URL %q", ErrAmbiguousForge, opts.BaseURL)
+		}
+		// BaseURL contains neither "github" nor "gitlab" (e.g. test mock server or GHE custom domain)
+		if opts.RemoteURL != "" {
+			if repo, ok := ParseRemote(opts.RemoteURL); ok {
+				host := strings.ToLower(repo.Host)
+				if strings.Contains(host, "github") && !strings.Contains(host, "gitlab") {
+					if !opts.Repo.Valid() {
+						opts.Repo = repo
+					}
+					return ForgeTypeGitHub, opts, nil
+				}
+				if strings.Contains(host, "gitlab") && !strings.Contains(host, "github") {
+					if !opts.Repo.Valid() {
+						opts.Repo = repo
+					}
+					return ForgeTypeGitLab, opts, nil
+				}
+			}
+		}
+		if opts.Repo.Valid() {
+			host := strings.ToLower(opts.Repo.Host)
+			if strings.Contains(host, "github") && !strings.Contains(host, "gitlab") {
+				return ForgeTypeGitHub, opts, nil
+			}
+			if strings.Contains(host, "gitlab") && !strings.Contains(host, "github") {
+				return ForgeTypeGitLab, opts, nil
+			}
+		}
 		return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot determine forge from base URL %q", ErrAmbiguousForge, opts.BaseURL)
 	}
 
