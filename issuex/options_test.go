@@ -3,7 +3,6 @@ package issuex_test
 import (
 	"errors"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -53,12 +52,12 @@ func TestNewWithOptions_ExplicitBaseURL_TS_01_15(t *testing.T) {
 	}
 
 	// BaseURL containing gitlab
-	_, err2 := issuex.NewWithOptions(issuex.Options{BaseURL: "https://gitlab.example.com/api/v4"})
-	if !errors.Is(err2, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for GitLab BaseURL, got %v", err2)
+	c2, err2 := issuex.NewWithOptions(issuex.Options{BaseURL: "https://gitlab.example.com/api/v4"})
+	if err2 != nil {
+		t.Errorf("expected nil error for GitLab BaseURL, got %v", err2)
 	}
-	if err2 == nil || !strings.Contains(strings.ToLower(err2.Error()), "gitlab") {
-		t.Errorf("expected error message to contain 'gitlab', got %v", err2)
+	if c2 == nil {
+		t.Errorf("expected non-nil client for GitLab BaseURL")
 	}
 
 	// Ambiguous BaseURL containing neither
@@ -103,12 +102,12 @@ func TestNewWithOptions_EnvironmentVariables_TS_01_16(t *testing.T) {
 	// GitLab only
 	clearForgeEnv(t)
 	t.Setenv("GITLAB_TOKEN", "gl-tok")
-	_, err2 := issuex.NewWithOptions(issuex.Options{})
-	if !errors.Is(err2, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for GitLab env, got %v", err2)
+	c2, err2 := issuex.NewWithOptions(issuex.Options{})
+	if err2 != nil {
+		t.Errorf("expected nil error for GitLab env, got %v", err2)
 	}
-	if err2 == nil || !strings.Contains(strings.ToLower(err2.Error()), "gitlab") {
-		t.Errorf("expected error message to contain 'gitlab', got %v", err2)
+	if c2 == nil || !c2.Authenticated() {
+		t.Errorf("expected authenticated client for GitLab env")
 	}
 }
 
@@ -129,12 +128,12 @@ func TestNewWithOptions_GitOriginFallback_TS_01_17(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(origDir) }()
 
-	_, errGL := issuex.NewWithOptions(issuex.Options{})
-	if !errors.Is(errGL, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for gitlab origin remote fallback, got %v", errGL)
+	cGL, errGL := issuex.NewWithOptions(issuex.Options{})
+	if errGL != nil {
+		t.Errorf("expected nil error for gitlab origin remote fallback, got %v", errGL)
 	}
-	if errGL == nil || !strings.Contains(strings.ToLower(errGL.Error()), "gitlab") {
-		t.Errorf("expected error message to contain 'gitlab', got %v", errGL)
+	if cGL == nil {
+		t.Errorf("expected non-nil client for gitlab origin remote")
 	}
 
 	// GitHub remote fallback with both env vars present
@@ -185,7 +184,7 @@ func TestNewWithOptions_AmbiguousForge_TS_01_18(t *testing.T) {
 func TestNewWithOptions_UnsupportedForge_TS_01_19(t *testing.T) {
 	clearForgeEnv(t)
 
-	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: "https://gitlab.example.com/api/v4", Token: "fake"})
+	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: "https://bitbucket.example.com", Token: "fake"})
 	if client != nil {
 		t.Errorf("expected nil client, got %v", client)
 	}

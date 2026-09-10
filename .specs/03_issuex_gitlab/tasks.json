@@ -65,7 +65,7 @@
         "issuex/factory.go",
         "issuex/gitlab_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -99,7 +99,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -155,7 +155,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -207,7 +207,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -246,7 +246,7 @@
         "`make test` passes with zero failures across all packages",
         "`make lint` passes with no formatting or vet discrepancies"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
