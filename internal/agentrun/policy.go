@@ -33,6 +33,24 @@ var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "searc
 // WriteFileTools are what an implementing phase gets on top of them.
 var WriteFileTools = []string{"write_file", "edit_file"}
 
+// ReadOnlyPrograms is a read-only phase's shell allowlist: programs that
+// report and do not change anything.
+//
+// `find` is not here on purpose — its -exec and -delete make it a write tool,
+// and find_files covers the reading half. The guard refuses those flags
+// anyway, for a phase that adds find back through --allow.
+var ReadOnlyPrograms = []string{"git", "ls", "cat", "head", "tail", "wc", "rg", "grep", "file"}
+
+// BuildPrograms is what an implementing phase needs on top of that: the
+// toolchains that compile, format and test. The verification command's own
+// program is appended by the pipeline at run time, because a phase that
+// cannot run the suite it will be judged by is a phase set up to fail.
+var BuildPrograms = []string{
+	"go", "gofmt", "goimports", "make", "npm", "npx", "node", "yarn", "pnpm",
+	"python", "python3", "pytest", "uv", "pip", "cargo", "rustfmt",
+	"mkdir", "cp", "mv", "sed", "awk", "diff", "sort", "uniq", "touch",
+}
+
 // ErrNotReadOnly is returned when a mutating tool reaches a read-only phase's
 // resolved set.
 var ErrNotReadOnly = errors.New("read-only invariant violated")

@@ -14,6 +14,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // The tests here drive the REAL generation phase — the agent loop, the tool
@@ -168,7 +169,7 @@ func TestTheTasksStepRefusesAnotherEcosystemsCommands(t *testing.T) {
 	if _, _, err := a.GenerateArtifact(context.Background(), artifactRequest{
 		Step: afspec.StepTasks, SpecID: "01", SpecName: "test_feature",
 		Root: ws.Root, PRD: "## Intent\n\nx\n",
-		Profile: DetectProfile(ws.Root), Partial: &partial,
+		Profile: project.DetectProfile(ws.Root), Partial: &partial,
 	}); err != nil {
 		t.Fatalf("GenerateArtifact: %v", err)
 	}

@@ -498,7 +498,7 @@ func TestTheAnalysisPhaseDoesNotGetTheBuildPrograms(t *testing.T) {
 	b := &agentBrain{extraPrograms: []string{"make", "custom-runner"}}
 
 	guard := agentrun.Guard(agentrun.GuardOptions{
-		Programs: readOnlyPrograms, AllowOperators: false, ReadOnlyFiles: true,
+		Programs: agentrun.ReadOnlyPrograms, AllowOperators: false, ReadOnlyFiles: true,
 	})
 	ctx := context.Background()
 	call := func(cmd string) core.BeforeToolCallContext {
@@ -512,7 +512,7 @@ func TestTheAnalysisPhaseDoesNotGetTheBuildPrograms(t *testing.T) {
 	}
 
 	// The implementation phase gets them.
-	implPrograms := append(append(append([]string(nil), readOnlyPrograms...), buildPrograms...), b.extraPrograms...)
+	implPrograms := append(append(append([]string(nil), agentrun.ReadOnlyPrograms...), agentrun.BuildPrograms...), b.extraPrograms...)
 	implGuard := agentrun.Guard(agentrun.GuardOptions{Programs: implPrograms, AllowOperators: true})
 	for _, cmd := range []string{"make test", "custom-runner --all", "go build ./..."} {
 		if d := implGuard(ctx, call(cmd)); d.Block {

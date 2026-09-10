@@ -391,3 +391,61 @@ func TestRunnerSeparatesExitCodesFromExecFailures(t *testing.T) {
 		t.Error("an empty command should be an error")
 	}
 }
+
+func TestCleanRemovesUntrackedFiles(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(dir, "new", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new", "deep", "junk.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Clean(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new")); !os.IsNotExist(err) {
+		t.Error("the untracked directory survived Clean")
+	}
+	if dirty, _ := g.DirtyFiles(ctx); len(dirty) != 0 {
+		t.Errorf("tree is dirty after Clean: %v", dirty)
+	}
+}
+
+// Restore takes back one directory and leaves the rest of the tree alone:
+// the edit outside it is what the next step commits, the edits inside it are
+// the pipeline's to make.
+func TestRestoreRevertsOnePathOnly(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(dir, "owned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "owned", "state.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAll(ctx, "chore: add state\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "owned", "state.json"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "owned", "extra.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Restore(ctx, "owned"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "owned", "state.json")); string(b) != "{}" {
+		t.Errorf("state.json = %q, want the committed content", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "owned", "extra.txt")); !os.IsNotExist(err) {
+		t.Error("the untracked file under the restored path survived")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "README.md")); string(b) != "# changed\n" {
+		t.Error("Restore touched a file outside the path it was given")
+	}
+}

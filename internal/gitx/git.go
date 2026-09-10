@@ -255,3 +255,29 @@ func nonEmptyLines(s string) []string {
 	}
 	return out
 }
+
+// Clean removes every untracked file and directory, honouring .gitignore.
+//
+// It is the second half of discarding an attempt: ResetHard restores the
+// tracked files, and a new file the attempt created is untracked and would
+// otherwise survive into the next attempt — and into its commit, since
+// CommitAll stages everything.
+func (g *Git) Clean(ctx context.Context) error {
+	_, err := g.must(ctx, "clean", "-fdq")
+	return err
+}
+
+// Restore returns one path — a file or a whole directory — to its state at
+// HEAD: tracked files are checked out again and untracked ones under it are
+// removed.
+//
+// It is how a pipeline takes back a directory it owns after a phase that had
+// write access to the whole tree. The path is git's to interpret, relative to
+// the repository root.
+func (g *Git) Restore(ctx context.Context, path string) error {
+	if _, err := g.must(ctx, "checkout", "--", path); err != nil {
+		return err
+	}
+	_, err := g.must(ctx, "clean", "-fdq", "--", path)
+	return err
+}

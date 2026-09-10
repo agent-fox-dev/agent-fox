@@ -261,7 +261,7 @@ func ExitCodeFor(category string) int {
 	switch category {
 	case "usage":
 		return ExitUsage
-	case "ambiguous":
+	case "ambiguous", "blocked":
 		return ExitNeedsHuman
 	case "unverified":
 		return ExitUnverified
