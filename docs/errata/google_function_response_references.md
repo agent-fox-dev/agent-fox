@@ -50,6 +50,15 @@ plain text, where it is a string the model reads and nothing Gemini resolves.
 Every other object still passes through verbatim. Rebuild the tools against a
 `coder` checkout carrying that change.
 
+The change is beside this file as
+[`google_function_response_references.patch`](google_function_response_references.patch),
+a `git format-patch` mailbox, until it lands upstream:
+
+```sh
+cd ../coder
+git am ../agent-fox/docs/errata/google_function_response_references.patch
+```
+
 ## Until then
 
 The run is resumable. `spec` recorded the split in
