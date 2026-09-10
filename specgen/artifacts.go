@@ -37,8 +37,21 @@ var artifactSchemas sync.Map // afspec.GenerationStep -> *artifactSchemaEntry
 type artifactSchemaEntry struct {
 	once   sync.Once
 	schema *schema.Schema
+	uri    string
 	err    error
 }
+
+// schemaProperty is the artifact's own `$schema` field: the URI of the schema
+// the file is validated against.
+//
+// It is the one property of a v2 artifact the model is never asked for. A
+// tool schema cannot even declare a property by that name — the vendors
+// restrict property names to `^[a-zA-Z0-9_.-]{1,64}$`, and Anthropic rejects
+// the whole request over it — and asking a model to reproduce a URL from
+// memory was never the right shape anyway. The converter drops it and the
+// submit handler writes it, from the schema document's own `$id`, so the
+// value cannot drift from the schema it names.
+const schemaProperty = "$schema"
 
 // ArtifactSchema returns the tool schema for one generation step, converted
 // from the JSON Schema afspec embeds.
@@ -61,9 +74,56 @@ func ArtifactSchema(step afspec.GenerationStep) (*schema.Schema, error) {
 			entry.err = fmt.Errorf("specgen: schema %q is not embedded", name)
 			return
 		}
-		entry.schema, entry.err = ToolSchema(raw)
+		s, dropped, err := ToolSchema(raw)
+		if err != nil {
+			entry.err = err
+			return
+		}
+		// The only property this package can supply for the model is the
+		// artifact's own $schema. Anything else the converter had to drop is
+		// a field the model would be asked for by the format and never shown
+		// by the tool — an unwinnable repair loop — so it is a refusal here,
+		// in a message that names the property, rather than a run that fails
+		// three phases later without saying why.
+		for _, name := range dropped {
+			if name != schemaProperty {
+				entry.err = fmt.Errorf("specgen: the %s schema declares a property named %q, "+
+					"which a tool schema cannot carry (the vendors require "+
+					"^[a-zA-Z0-9_.-]{1,64}$) and this package has no value for", step, name)
+				return
+			}
+		}
+		uri := schemaID(raw)
+		if uri == "" && len(dropped) > 0 {
+			entry.err = fmt.Errorf("specgen: the %s schema has no $id, so the %s field of the "+
+				"artifact cannot be filled in", step, schemaProperty)
+			return
+		}
+		entry.schema, entry.uri = s, uri
 	})
 	return entry.schema, entry.err
+}
+
+// artifactSchemaURI is the value the submit handler writes into the
+// artifact's $schema field: the $id of the schema it will be validated
+// against, read from the same embedded document.
+func artifactSchemaURI(step afspec.GenerationStep) string {
+	if _, err := ArtifactSchema(step); err != nil {
+		return ""
+	}
+	v, _ := artifactSchemas.Load(step)
+	return v.(*artifactSchemaEntry).uri
+}
+
+// schemaID reads a schema document's $id.
+func schemaID(raw []byte) string {
+	var doc struct {
+		ID string `json:"$id"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return ""
+	}
+	return doc.ID
 }
 
 // artifactSink is the guarded destination one generation step writes into.
@@ -117,6 +177,16 @@ func submitArtifactTool(step afspec.GenerationStep, s *schema.Schema,
 			if err := json.Unmarshal(in, &content); err != nil {
 				return core.ErrResult("invalid_json", fmt.Sprintf(
 					"the %s arguments are not a JSON object: %v", step, err))
+			}
+			// The artifact's $schema is a fact about the format rather than a
+			// judgement about this spec, so it is written here rather than
+			// asked for: the model is not shown the field, and what it would
+			// have typed cannot be wrong.
+			if uri := artifactSchemaURI(step); uri != "" {
+				if content == nil {
+					content = map[string]any{}
+				}
+				content[schemaProperty] = uri
 			}
 			if err := validateArtifactContent(content, step, partial); err != nil {
 				return core.ErrResult("validation_failed", err.Error())

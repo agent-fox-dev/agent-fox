@@ -24,11 +24,14 @@ N and C are sequential positive integers starting at 1. C restarts within each r
 
 ## Required top-level structures
 
+The `$schema` field of each file is written by the tool, from the schema the
+artifact is validated against. It is not part of what you submit, and the
+shapes below leave it out for that reason.
+
 ### requirements.json
 
 ```json
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
   "spec_id": "05",
   "spec_name": "my_feature",
   "schema_version": 2,
@@ -45,7 +48,6 @@ N and C are sequential positive integers starting at 1. C restarts within each r
 
 ```json
 {
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
   "spec_id": "05",
   "spec_name": "my_feature",
   "schema_version": 2,
@@ -59,7 +61,6 @@ One flat list. The `kind` field carries the distinction between `unit`, `integra
 
 ```json
 {
-  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
   "spec_id": "05",
   "spec_name": "my_feature",
   "schema_version": 2,

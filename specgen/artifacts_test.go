@@ -257,3 +257,46 @@ func blocksText(blocks []core.ContentBlock) string {
 	}
 	return b.String()
 }
+
+// The model is never asked for the artifact's $schema — a tool schema cannot
+// declare a property by that name — so the submit handler writes it, and a
+// submission that leaves it out is accepted and stored with the right URI.
+func TestTheSubmitHandlerWritesTheArtifactsSchemaField(t *testing.T) {
+	ws := goWorkspace(t)
+	artifacts, _ := loadFixture(t, "01", "test_feature")
+
+	// What the model can actually submit: the fixture without the one field
+	// the tool schema does not declare.
+	submitted := deepCopy(t, artifacts[afspec.StepRequirements])
+	delete(submitted, "$schema")
+
+	runner, _ := fauxRunner(t, ws,
+		toolCall("c1", ArtifactToolName(afspec.StepRequirements), submitted))
+
+	partial := afspec.PartialSpec{SpecID: "01", SpecName: "test_feature"}
+	a := &agentAuthor{runner: runner}
+	got, _, err := a.GenerateArtifact(context.Background(), artifactRequest{
+		Step: afspec.StepRequirements, SpecID: "01", SpecName: "test_feature",
+		Root: ws.Root, PRD: "## Intent\n\nx\n", Partial: &partial,
+	})
+	if err != nil {
+		t.Fatalf("GenerateArtifact: %v", err)
+	}
+	want := "https://agent-fox.dev/schemas/requirements.v2.json"
+	if got["$schema"] != want {
+		t.Errorf("the submitted content carries $schema = %v, want %q", got["$schema"], want)
+	}
+	if partial.Requirements == nil || partial.Requirements.Schema != want {
+		t.Errorf("the recorded artifact carries $schema = %+v", partial.Requirements)
+	}
+
+	// The tool the model was shown does not declare the field at all, so
+	// there is nothing for it to get wrong.
+	s, err := ArtifactSchema(afspec.StepRequirements)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Properties["$schema"] != nil {
+		t.Error("the tool schema declares $schema; a vendor rejects the whole request over it")
+	}
+}
