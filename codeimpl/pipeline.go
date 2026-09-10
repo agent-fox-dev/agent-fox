@@ -435,10 +435,12 @@ func selectTasks(o Options, st *runState, result *Result) *Failure {
 	}
 	tasks = st.spec.Tasks.Tasks
 	for _, t := range tasks {
+		r := TaskReport{ID: t.Id, Kind: string(t.Kind), Title: t.Title, Outcome: OutcomePending}
 		if t.State == afspec.TaskStateDone || t.State == afspec.TaskStateDropped {
 			result.TasksSkipped++
-			result.Tasks = append(result.Tasks, TaskReport{ID: t.Id, Kind: string(t.Kind), Title: t.Title, Outcome: OutcomeSkipped})
+			r.Outcome = OutcomeSkipped
 		}
+		result.Tasks = append(result.Tasks, r)
 	}
 
 	if o.Task > 0 {

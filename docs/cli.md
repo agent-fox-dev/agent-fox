@@ -509,8 +509,8 @@ caps the run.
 `result` carries `stage`, the package (`spec_dir`, `spec_id`, `spec_name`,
 `title`, `status`), `branch`, `base_branch`, `resumed`, the counts
 (`tasks_total`, `tasks_done`, `tasks_skipped`, `tasks_remaining`), one entry
-per task under `tasks` — its `outcome` (`done`, `skipped`, `unverified`,
-`blocked`, `failed`, `aborted`), `attempts`, `commit`, `changed_files` and
+per task under `tasks`, in the plan's order — its `outcome` (`pending`,
+`done`, `skipped`, `unverified`, `blocked`, `failed`, `aborted`), `attempts`, `commit`, `changed_files` and
 `diff_stat` from git, its `verification` gate and `verdict`, `tests_outcome`,
 and the model's own `submission` kept separate — plus `gate`, `baseline`,
 `verification`, `verdict`, `pushed`, `pull_request_url`, the `survey`, any

@@ -271,8 +271,10 @@ type GateResult struct {
 	Checks []checks.Result `json:"checks"`
 }
 
-// Outcomes a task can end the run with.
+// Outcomes a task can end the run with. A task the run never reached stays
+// pending.
 const (
+	OutcomePending    = "pending"
 	OutcomeDone       = "done"
 	OutcomeSkipped    = "skipped"
 	OutcomeUnverified = "unverified"
@@ -286,8 +288,9 @@ type TaskReport struct {
 	ID    int    `json:"id"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	// Outcome is done, skipped (already done or dropped before the run),
-	// unverified, blocked, failed or aborted.
+	// Outcome is pending (the run never reached it), done, skipped (already
+	// done or dropped before the run), unverified, blocked, failed or
+	// aborted.
 	Outcome  string `json:"outcome"`
 	Attempts int    `json:"attempts,omitempty"`
 	// Commit is the task's commit on the branch.
