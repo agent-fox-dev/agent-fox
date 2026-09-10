@@ -25,6 +25,11 @@
 //     refused with the detected commands in the message.
 //   - The spec is validated, and activated only if it validates. The
 //     traceability matrix in the result is derived, never stored.
+//   - An input that is more than one spec's worth of work is written as
+//     every spec it divides into, not the first one plus a recommendation.
+//     The split is decided once, recorded in the spec root while unfinished,
+//     and followed to the last package — by this run, or by the next run on
+//     the same input if this one stops early.
 //
 // The three generation phases are separate agents rather than one
 // conversation, because sharing a transcript would carry the requirements

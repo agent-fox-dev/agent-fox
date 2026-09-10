@@ -150,6 +150,9 @@ func submitPRDTool(sink *prdSink) core.Tool {
 					"the body starts with YAML frontmatter. Submit the Markdown body only — the "+
 						"frontmatter is written by the tool.")
 			}
+			if err := checkSplit(prd.SpecName, prd.RecommendedSplit); err != nil {
+				return core.ErrResult("invalid_split", err.Error())
+			}
 
 			sink.set(prd)
 			res := core.OKResult(map[string]any{"accepted": true, "spec_name": prd.SpecName})
@@ -157,6 +160,47 @@ func submitPRDTool(sink *prdSink) core.Tool {
 			return res
 		},
 	}
+}
+
+// checkSplit is the split's own contract, checked where the model can still
+// correct it.
+//
+// The pipeline writes every scope of a split, naming each package after its
+// scope, so a scope name the format cannot use would fail three phases later
+// at the scaffold; a split of one scope is a claim that the work is too big
+// with no smaller pieces to write; and a first scope named differently from
+// the PRD being submitted leaves the pipeline to guess which name the
+// package gets. Each is one turn to fix here.
+func checkSplit(specName string, split []SplitScope) error {
+	if len(split) == 0 {
+		return nil
+	}
+	if len(split) == 1 {
+		return fmt.Errorf("recommended_split has one scope. A split lists EVERY scope the work " +
+			"divides into, first one first, so it has at least two entries; omit it when the " +
+			"input is one spec's worth of work.")
+	}
+	seen := map[string]bool{}
+	for i, s := range split {
+		name := strings.TrimSpace(s.Name)
+		if !specNameRE.MatchString(name) {
+			return fmt.Errorf("recommended_split[%d].name %q must match [a-z][a-z0-9_]*: it becomes "+
+				"that spec's directory name.", i, s.Name)
+		}
+		if seen[name] {
+			return fmt.Errorf("recommended_split names %q twice; every scope needs its own name.", name)
+		}
+		seen[name] = true
+		if strings.TrimSpace(s.Scope) == "" {
+			return fmt.Errorf("recommended_split[%d] (%s) has an empty scope; say in one or two "+
+				"sentences what that spec covers.", i, name)
+		}
+	}
+	if first := strings.TrimSpace(split[0].Name); first != specName {
+		return fmt.Errorf("recommended_split[0].name is %q and spec_name is %q. The PRD you submit "+
+			"covers the first scope, so the two must be the same name.", first, specName)
+	}
+	return nil
 }
 
 // intentRE matches the `## Intent` heading, in the spellings a model

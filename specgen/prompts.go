@@ -46,7 +46,11 @@ func fill(tmpl string, vars map[string]string) string {
 func prdSystemPrompt() string { return template("prd_system.md") }
 
 // prdUserPrompt is the PRD phase's task.
-func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscapeBlock string) string {
+//
+// splitBlock is empty for an undivided input. For one scope of a split it
+// carries the decided plan, so the same phase writes a follow-on PRD without
+// a second template.
+func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscapeBlock, splitBlock string) string {
 	return fill(template("prd_user.md"), map[string]string{
 		"root":            root,
 		"source_kind":     sourceKind,
@@ -54,6 +58,7 @@ func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscap
 		"input":           strings.TrimSpace(input),
 		"project_block":   projectBlock,
 		"landscape_block": landscapeBlock,
+		"split_block":     splitBlock,
 	})
 }
 
