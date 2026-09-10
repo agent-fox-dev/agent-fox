@@ -2,7 +2,7 @@
 
 | Document | What it covers |
 |---|---|
-| [Tool Reference](cli.md) | `spec`, `issue` and `fix`: the shared interface, every flag, the JSON envelope and the exit codes |
+| [Tool Reference](cli.md) | `spec`, `issue`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |
@@ -15,6 +15,7 @@
 | [01](adr/01-adopt-spec-format-v2.md) | Adopt spec format version 2 |
 | [02](adr/02-build-the-spec-pipeline-on-agentkit.md) | Build the spec pipeline on AgentKit |
 | [03](adr/03-rebuild-the-skills-as-tools.md) | Rebuild the three skills as tools |
+| [04](adr/04-implement-a-spec-as-a-tool.md) | Implement a spec as a tool |
 
 ## Errata
 

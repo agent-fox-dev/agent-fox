@@ -3,10 +3,10 @@
 set -eu
 
 REPO="agent-fox-dev/agent-fox"
-# The three tools share one release, one interface and one version. Installing
+# The tools share one release, one interface and one version. Installing
 # one of them and not the others leaves a shell where `fix` cannot be reached
 # from the issue `issue` just filed.
-TOOLS="${TOOLS:-spec issue fix}"
+TOOLS="${TOOLS:-spec issue fix impl}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"

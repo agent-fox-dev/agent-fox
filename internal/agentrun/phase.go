@@ -149,6 +149,9 @@ type Phase struct {
 	// Programs is the shell allowlist, used only when BuiltinTools includes
 	// a shell tool.
 	Programs []string
+	// ProtectedPaths are directories the file tools may not write under
+	// even though the phase writes elsewhere. See GuardOptions.
+	ProtectedPaths []string
 	// MaxTokens caps one response. Zero leaves the provider's default.
 	MaxTokens int
 	// Temperature is low for every phase in these tools, because each one
@@ -306,6 +309,8 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			Programs:       p.Programs,
 			AllowOperators: !p.ReadOnly,
 			ReadOnlyFiles:  p.ReadOnly,
+			ProtectedPaths: p.ProtectedPaths,
+			ResolvePath:    r.cfg.Workspace.Resolve,
 			OnBlock: func(msg string) {
 				counter.inc()
 				r.detail("blocked %s", msg)

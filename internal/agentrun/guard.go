@@ -2,6 +2,8 @@ package agentrun
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 
 	agentkit "github.com/agentfox/agentkit-go"
@@ -20,6 +22,17 @@ type GuardOptions struct {
 	// ReadOnlyFiles refuses write_file and edit_file outright. It is the
 	// second check on a phase that also excludes them by policy.
 	ReadOnlyFiles bool
+	// ProtectedPaths are directories the file tools may not write under,
+	// even in a phase that writes everywhere else. A pipeline names the
+	// directory it owns — the spec package whose state it maintains — so
+	// that "do not modify the spec" is a refusal rather than a request.
+	// Entries are absolute paths; a relative one is resolved through
+	// ResolvePath like the model's own arguments are.
+	ProtectedPaths []string
+	// ResolvePath turns a model-supplied path into the absolute path the
+	// workspace would write to, symlinks included. Nil means filepath.Abs,
+	// which is right for a test and wrong for a workspace under a symlink.
+	ResolvePath func(string) (string, error)
 	// OnBlock is called with the reason for each refusal.
 	OnBlock func(string)
 }
@@ -68,6 +81,14 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 				return block(in.ToolName,
 					"this phase is read-only: read the code and report, do not change it")
 			}
+			if p, _ := in.Arguments["path"].(string); p != "" {
+				if dir, hit := o.protectedDir(p); hit {
+					return block(in.ToolName, fmt.Sprintf(
+						"%s is under %s, which the tool maintains itself: the spec package is "+
+							"not yours to edit. Implement what it says; if the implementation has "+
+							"to diverge from it, say so in your report.", p, dir))
+				}
+			}
 			return base(ctx, in)
 
 		case "execute", "run_command", "powershell":
@@ -98,6 +119,35 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 		}
 		return base(ctx, in)
 	}
+}
+
+// protectedDir reports whether p resolves to a file under one of the
+// protected directories, and which.
+func (o GuardOptions) protectedDir(p string) (string, bool) {
+	if len(o.ProtectedPaths) == 0 {
+		return "", false
+	}
+	resolve := o.ResolvePath
+	if resolve == nil {
+		resolve = filepath.Abs
+	}
+	abs, err := resolve(p)
+	if err != nil {
+		// A path the workspace cannot resolve is refused by the tool itself;
+		// there is nothing here to protect it from.
+		return "", false
+	}
+	for _, dir := range o.ProtectedPaths {
+		d, err := resolve(dir)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(d, abs); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return dir, true
+		}
+	}
+	return "", false
 }
 
 // guardProgram applies this repository's rules to one argument vector.

@@ -1,4 +1,7 @@
-package specgen
+// Package project detects what a repository is written in and how it is
+// checked, so that a plan naming another ecosystem's tooling can be refused
+// in code rather than found in review.
+package project
 
 import (
 	"fmt"
@@ -7,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 // Profile is what this repository is written in and how it is checked.
@@ -163,6 +168,43 @@ func (p Profile) AuditTasks(content map[string]any) error {
 			"layout, and a stub marker here is %s.",
 		p.Language, p.Manifest, strings.Join(problems, "; "),
 		p.AllTests, p.Linter, p.Language, p.StubMarker)
+}
+
+// AuditTestCommands is the typed form of AuditTasks, for a package that has
+// already been loaded rather than one being submitted by a model.
+//
+// The message is written for an operator rather than for a repairing model:
+// the plan is on disk, and the person who can fix it is the one reading the
+// envelope.
+func (p Profile) AuditTestCommands(tc afspec.TestCommands) error {
+	if !p.Known() {
+		return nil
+	}
+	fields := []struct{ name, cmd string }{
+		{"all_tests", tc.AllTests}, {"linter", tc.Linter},
+	}
+	if tc.SpecTests != nil {
+		fields = append(fields, struct{ name, cmd string }{"spec_tests", *tc.SpecTests})
+	}
+	var problems []string
+	for _, f := range fields {
+		if strings.TrimSpace(f.cmd) == "" {
+			continue
+		}
+		family, known := runnerFamilies[firstWord(f.cmd)]
+		if !known || family == p.Language {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"test_commands.%s is %q, which is a %s command", f.name, f.cmd, family))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	sort.Strings(problems)
+	return fmt.Errorf("this project is %s (detected from %s), but %s; the project's real "+
+		"commands are all_tests %q and linter %q — fix tasks.json before implementing it",
+		p.Language, p.Manifest, strings.Join(problems, "; "), p.AllTests, p.Linter)
 }
 
 // LanguageBlock is the section of a generation prompt that tells the model

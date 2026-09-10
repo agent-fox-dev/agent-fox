@@ -45,9 +45,10 @@ build:
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/spec
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/issue
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/fix
+	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/impl
 
-# Cross-platform static builds of the three tools
-TOOLS := spec issue fix
+# Cross-platform static builds of the tools
+TOOLS := spec issue fix impl
 
 build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
 

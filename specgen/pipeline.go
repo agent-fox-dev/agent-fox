@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -207,7 +208,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		o.Run.Warn("could not read the existing specs in %s: %v", specsDir, err)
 	}
-	profile := DetectProfile(root)
+	profile := project.DetectProfile(root)
 	if profile.Known() {
 		o.Progress.Detail("project: %s (from %s), tests %q, linter %q",
 			profile.Language, profile.Manifest, profile.AllTests, profile.Linter)
