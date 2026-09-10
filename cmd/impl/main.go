@@ -38,7 +38,8 @@ $AF_SPEC_DIR, else <dir>/.specs). It is exactly one of:
 
 Output is one JSON object on stdout; progress goes to stderr.
 
-The working tree must be clean and the package must validate and be active.
+The working tree must be clean and the package must validate; a draft is
+implemented with a warning, a sealed one is refused.
 The run works on impl/<NN>-<slug> — continuing it when it already exists —
 surveys the repository against the spec once, then implements every task
 that is not done, in the plan's order: one model phase per task, the spec's
