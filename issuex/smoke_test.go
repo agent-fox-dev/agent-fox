@@ -2,11 +2,15 @@ package issuex_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -318,4 +322,509 @@ func TestSmoke_RateLimitErrorBackoffCalculation_TS_01_32(t *testing.T) {
 			t.Errorf("unexpected RetryAfter() duration on 403: %v", d)
 		}
 	})
+}
+
+// TestSmoke_GitHubIssueLifecycle_TS_02_25 verifies TS-02-25:
+// GitHub issue creation, reading with comments, and closing with comment end-to-end flow.
+// Verifies: 02-PATH-1
+// Given: an authenticated GitHub client connected to a mock GitHub REST server
+// When: creating an issue, reading the issue thread with comments, and closing the issue with a comment
+// Then: the issue is created with expected number, read back with comment thread, and closed with the closing comment persisted
+func TestSmoke_GitHubIssueLifecycle_TS_02_25(t *testing.T) {
+	type issueRecord struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		State   string `json:"state"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+
+	type commentRecord struct {
+		ID   int    `json:"id"`
+		Body string `json:"body"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		CreatedAt time.Time `json:"created_at"`
+		HTMLURL   string    `json:"html_url"`
+	}
+
+	var mu sync.Mutex
+	issues := make(map[int]*issueRecord)
+	comments := make(map[int][]*commentRecord)
+	nextCommentID := 1
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		// Create issue: POST /repos/agentfox/agent-fox/issues
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/agentfox/agent-fox/issues" {
+			var req struct {
+				Title  string   `json:"title"`
+				Body   string   `json:"body"`
+				Labels []string `json:"labels"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			var lbls []struct {
+				Name string `json:"name"`
+			}
+			for _, l := range req.Labels {
+				lbls = append(lbls, struct {
+					Name string `json:"name"`
+				}{Name: l})
+			}
+			rec := &issueRecord{
+				Number:  42,
+				Title:   req.Title,
+				Body:    req.Body,
+				State:   "open",
+				HTMLURL: "https://github.com/agentfox/agent-fox/issues/42",
+				User: struct {
+					Login string `json:"login"`
+				}{Login: "smoke-author"},
+				Labels:    lbls,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}
+			issues[42] = rec
+			comments[42] = []*commentRecord{
+				{
+					ID:   1,
+					Body: "Initial diagnostic comment",
+					User: struct {
+						Login string `json:"login"`
+					}{Login: "smoke-author"},
+					CreatedAt: time.Now(),
+					HTMLURL:   "https://github.com/agentfox/agent-fox/issues/42#issuecomment-1",
+				},
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(rec)
+			return
+		}
+
+		// Read issue: GET /repos/agentfox/agent-fox/issues/42
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/agentfox/agent-fox/issues/42" {
+			rec, ok := issues[42]
+			if !ok {
+				http.Error(w, `{"message": "Not Found"}`, http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(rec)
+			return
+		}
+
+		// Patch issue (Close): PATCH /repos/agentfox/agent-fox/issues/42
+		if r.Method == http.MethodPatch && r.URL.Path == "/repos/agentfox/agent-fox/issues/42" {
+			rec, ok := issues[42]
+			if !ok {
+				http.Error(w, `{"message": "Not Found"}`, http.StatusNotFound)
+				return
+			}
+			var req struct {
+				State string `json:"state"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if req.State != "" {
+				rec.State = req.State
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(rec)
+			return
+		}
+
+		// List comments: GET /repos/agentfox/agent-fox/issues/42/comments
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/agentfox/agent-fox/issues/42/comments" {
+			cmts := comments[42]
+			if cmts == nil {
+				cmts = []*commentRecord{}
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(cmts)
+			return
+		}
+
+		// Add comment: POST /repos/agentfox/agent-fox/issues/42/comments
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/agentfox/agent-fox/issues/42/comments" {
+			var req struct {
+				Body string `json:"body"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			nextCommentID++
+			c := &commentRecord{
+				ID:   nextCommentID,
+				Body: req.Body,
+				User: struct {
+					Login string `json:"login"`
+				}{Login: "smoke-author"},
+				CreatedAt: time.Now(),
+				HTMLURL:   fmt.Sprintf("https://github.com/agentfox/agent-fox/issues/42#issuecomment-%d", nextCommentID),
+			}
+			comments[42] = append(comments[42], c)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(c)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+
+	// 1. Construct authenticated client targeting mock server
+	c, err := issuex.NewGitHub(issuex.Options{
+		BaseURL: srv.URL,
+		Token:   "ghp_mocktoken",
+	})
+	if err != nil {
+		t.Fatalf("NewGitHub failed: %v", err)
+	}
+	if !c.Authenticated() {
+		t.Fatal("expected authenticated client")
+	}
+
+	repo := issuex.Repo{Owner: "agentfox", Name: "agent-fox"}
+
+	// 2. Create issue
+	issue, err := c.CreateIssue(ctx, repo, issuex.CreateIssueRequest{
+		Title:  "Smoke issue",
+		Body:   "Issue body",
+		Labels: []string{"smoke"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue failed: %v", err)
+	}
+	if issue.Number != 42 {
+		t.Errorf("issue.Number = %d, want 42", issue.Number)
+	}
+	if issue.Title != "Smoke issue" {
+		t.Errorf("issue.Title = %q, want 'Smoke issue'", issue.Title)
+	}
+	if issue.Body != "Issue body" {
+		t.Errorf("issue.Body = %q, want 'Issue body'", issue.Body)
+	}
+	if issue.State != "open" {
+		t.Errorf("issue.State = %q, want 'open'", issue.State)
+	}
+	if issue.IsPR {
+		t.Errorf("expected issue.IsPR to be false")
+	}
+
+	ref := issuex.IssueRef{Repo: repo, Number: issue.Number}
+
+	// 3. Read issue with comments
+	thread, err := c.ReadIssue(ctx, ref)
+	if err != nil {
+		t.Fatalf("ReadIssue failed: %v", err)
+	}
+	if thread.Issue.Number != issue.Number {
+		t.Errorf("thread.Issue.Number = %d, want %d", thread.Issue.Number, issue.Number)
+	}
+	if thread.CommentsErr != nil {
+		t.Errorf("unexpected CommentsErr: %v", thread.CommentsErr)
+	}
+	if len(thread.Comments) != 1 {
+		t.Errorf("len(thread.Comments) = %d, want 1", len(thread.Comments))
+	}
+
+	// 4. Close issue with comment
+	err = c.CloseIssue(ctx, ref, "Completed smoke test")
+	if err != nil {
+		t.Fatalf("CloseIssue failed: %v", err)
+	}
+
+	// Verify the closing comment was added and the state updated to closed
+	threadClosed, err := c.ReadIssue(ctx, ref)
+	if err != nil {
+		t.Fatalf("ReadIssue after close failed: %v", err)
+	}
+	if threadClosed.Issue.State != "closed" {
+		t.Errorf("threadClosed.Issue.State = %q, want 'closed'", threadClosed.Issue.State)
+	}
+	if len(threadClosed.Comments) != 2 {
+		t.Fatalf("len(threadClosed.Comments) = %d, want 2", len(threadClosed.Comments))
+	}
+	if threadClosed.Comments[1].Body != "Completed smoke test" {
+		t.Errorf("unexpected closing comment: %q", threadClosed.Comments[1].Body)
+	}
+}
+
+// TestSmoke_PullRequestWorkflowAndDefaultMerge_TS_02_26 verifies TS-02-26:
+// Pull request check runs inspection, review commenting, and repository-policy merge end-to-end flow.
+// Verifies: 02-PATH-2
+// Given: an authenticated GitHub client configured via NewWithOptions targeting a repository with merge commit policy
+// When: reading a pull request, inspecting CI check runs, submitting a review comment, and executing repository default merge
+// Then:
+// - PR metadata and head SHA are resolved
+// - CI check runs are returned
+// - review comment is submitted
+// - PR is merged successfully using repository allowed strategy
+func TestSmoke_PullRequestWorkflowAndDefaultMerge_TS_02_26(t *testing.T) {
+	var mu sync.Mutex
+	var reviewCommentReceived string
+	var mergeMethodReceived string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		// 1. Read PR: GET /repos/agentfox/agent-fox/pulls/10
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/agentfox/agent-fox/pulls/10" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"number": 10,
+				"title": "Smoke pull request",
+				"body": "PR description",
+				"state": "open",
+				"html_url": "https://github.com/agentfox/agent-fox/pull/10",
+				"draft": false,
+				"merged": false,
+				"user": {"login": "smoke-developer"},
+				"head": {"ref": "feat/smoke-test", "sha": "c0ffee1234567890abcdef1234567890abcdef12"},
+				"base": {"ref": "main", "sha": "1234567890abcdef1234567890abcdef12345678"},
+				"created_at": "2026-09-10T20:00:00Z",
+				"updated_at": "2026-09-10T20:00:00Z"
+			}`))
+			return
+		}
+
+		// 2. Get CI checks: GET /repos/agentfox/agent-fox/commits/{head_sha}/check-runs
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/agentfox/agent-fox/commits/c0ffee1234567890abcdef1234567890abcdef12/check-runs" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"name": "continuous-integration",
+						"status": "completed",
+						"conclusion": "success",
+						"html_url": "https://github.com/agentfox/agent-fox/runs/99",
+						"output": {
+							"title": "Build & Lint Passed",
+							"summary": "All tests passed cleanly"
+						}
+					}
+				]
+			}`))
+			return
+		}
+
+		// 3. Post review comment: POST /repos/agentfox/agent-fox/pulls/10/reviews
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/agentfox/agent-fox/pulls/10/reviews" {
+			var req struct {
+				Body  string `json:"body"`
+				Event string `json:"event"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			reviewCommentReceived = req.Body
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"id": 888,
+				"user": {"login": "smoke-reviewer"},
+				"state": "COMMENTED",
+				"body": "` + req.Body + `",
+				"submitted_at": "2026-09-10T20:10:00Z"
+			}`))
+			return
+		}
+
+		// 4. Repository metadata (for MergeMethodDefault): GET /repos/agentfox/agent-fox
+		if r.Method == http.MethodGet && r.URL.Path == "/repos/agentfox/agent-fox" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"full_name": "agentfox/agent-fox",
+				"default_branch": "main",
+				"private": false,
+				"archived": false,
+				"permissions": {"push": true, "pull": true, "admin": true},
+				"allow_merge_commit": true,
+				"allow_squash_merge": true,
+				"allow_rebase_merge": true
+			}`))
+			return
+		}
+
+		// 5. Merge PR: PUT /repos/agentfox/agent-fox/pulls/10/merge
+		if r.Method == http.MethodPut && r.URL.Path == "/repos/agentfox/agent-fox/pulls/10/merge" {
+			var req struct {
+				MergeMethod string `json:"merge_method"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mergeMethodReceived = req.MergeMethod
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"sha": "merge_commit_sha_c0ffee",
+				"merged": true,
+				"message": "Pull Request successfully merged"
+			}`))
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+
+	// 1. Invoke NewWithOptions targeting GitHub repository
+	c, err := issuex.NewWithOptions(issuex.Options{
+		Repo:      issuex.Repo{Owner: "agentfox", Name: "agent-fox"},
+		RemoteURL: "https://github.com/agentfox/agent-fox.git",
+		Token:     "ghp_mocktoken",
+		BaseURL:   srv.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewWithOptions failed: %v", err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil Client from NewWithOptions")
+	}
+
+	ref := issuex.IssueRef{Repo: issuex.Repo{Owner: "agentfox", Name: "agent-fox"}, Number: 10}
+
+	// 2. Read PR and assert HeadSHA is resolved
+	pr, err := c.ReadPullRequest(ctx, ref)
+	if err != nil {
+		t.Fatalf("ReadPullRequest failed: %v", err)
+	}
+	if pr.HeadSHA == "" {
+		t.Fatalf("expected non-empty pr.HeadSHA")
+	}
+	if pr.HeadSHA != "c0ffee1234567890abcdef1234567890abcdef12" {
+		t.Errorf("pr.HeadSHA = %q, want 'c0ffee1234567890abcdef1234567890abcdef12'", pr.HeadSHA)
+	}
+
+	// 3. Get CI check runs
+	checks, err := c.GetCIChecks(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetCIChecks failed: %v", err)
+	}
+	if len(checks) == 0 {
+		t.Fatalf("expected at least 1 check run, got 0")
+	}
+	if checks[0].Name != "continuous-integration" {
+		t.Errorf("checks[0].Name = %q, want 'continuous-integration'", checks[0].Name)
+	}
+	if checks[0].Conclusion != "success" {
+		t.Errorf("checks[0].Conclusion = %q, want 'success'", checks[0].Conclusion)
+	}
+
+	// 4. Post review comment
+	err = c.PostReviewComment(ctx, ref, "Smoke review approved")
+	if err != nil {
+		t.Fatalf("PostReviewComment failed: %v", err)
+	}
+	if reviewCommentReceived != "Smoke review approved" {
+		t.Errorf("reviewCommentReceived = %q, want 'Smoke review approved'", reviewCommentReceived)
+	}
+
+	// 5. Merge PR with repository default merge policy
+	res, err := c.MergePullRequest(ctx, ref, issuex.MergeOptions{Method: issuex.MergeMethodDefault})
+	if err != nil {
+		t.Fatalf("MergePullRequest failed: %v", err)
+	}
+	if !res.Merged {
+		t.Errorf("expected res.Merged == true")
+	}
+	if res.SHA != "merge_commit_sha_c0ffee" {
+		t.Errorf("res.SHA = %q, want 'merge_commit_sha_c0ffee'", res.SHA)
+	}
+	if mergeMethodReceived != "merge" {
+		t.Errorf("mergeMethodReceived = %q, want 'merge'", mergeMethodReceived)
+	}
+}
+
+// TestSmoke_RateLimitBackoffAndRetry_TS_02_27 verifies TS-02-27:
+// Rate-limit backoff and retry recovery on GitHub REST request end-to-end flow.
+// Verifies: 02-PATH-3
+// Given: an authenticated GitHub client with an injected zero-delay sleep function and mock server simulating 403 quota exhaustion on first attempt
+// When: calling GetRepository on the client encountering an initial rate limit response with 2 second backoff
+// Then: injected sleep function is invoked with 2 seconds, the request is retried once, and the repository metadata is successfully returned
+func TestSmoke_RateLimitBackoffAndRetry_TS_02_27(t *testing.T) {
+	var slept time.Duration
+	var sleepCalls int
+
+	var attempts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		att := atomic.AddInt32(&attempts, 1)
+		if att == 1 {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message": "API rate limit exceeded"}`))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"full_name": "agentfox/agent-fox",
+			"default_branch": "main",
+			"private": false,
+			"archived": false,
+			"permissions": {"push": true, "pull": true, "admin": true}
+		}`))
+	}))
+	defer srv.Close()
+
+	c, err := issuex.NewGitHub(issuex.Options{
+		BaseURL: srv.URL,
+		Token:   "ghp_mocktoken",
+	})
+	if err != nil {
+		t.Fatalf("NewGitHub failed: %v", err)
+	}
+
+	issuex.SetGitHubSleep(c, func(d time.Duration) {
+		slept = d
+		sleepCalls++
+	})
+
+	ctx := context.Background()
+	repo, err := c.GetRepository(ctx, issuex.Repo{Owner: "agentfox", Name: "agent-fox"})
+	if err != nil {
+		t.Fatalf("GetRepository failed: %v", err)
+	}
+	if repo.FullName != "agentfox/agent-fox" {
+		t.Errorf("repo.FullName = %q, want 'agentfox/agent-fox'", repo.FullName)
+	}
+	if sleepCalls != 1 {
+		t.Errorf("expected 1 sleep call, got %d", sleepCalls)
+	}
+	if slept != 2*time.Second {
+		t.Errorf("slept = %v, want %v", slept, 2*time.Second)
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Errorf("expected 2 server attempts, got %d", atomic.LoadInt32(&attempts))
+	}
 }

@@ -44,12 +44,12 @@ func TestNewWithOptions_ExplicitBaseURL_TS_01_15(t *testing.T) {
 	clearForgeEnv(t)
 
 	// BaseURL containing api.github.com / github
-	_, err1 := issuex.NewWithOptions(issuex.Options{BaseURL: "https://api.github.com"})
-	if !errors.Is(err1, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for GitHub BaseURL, got %v", err1)
+	c1, err1 := issuex.NewWithOptions(issuex.Options{BaseURL: "https://api.github.com"})
+	if err1 != nil {
+		t.Errorf("expected nil error for GitHub BaseURL, got %v", err1)
 	}
-	if err1 == nil || !strings.Contains(strings.ToLower(err1.Error()), "github") {
-		t.Errorf("expected error message to contain 'github', got %v", err1)
+	if c1 == nil {
+		t.Errorf("expected non-nil client for GitHub BaseURL")
 	}
 
 	// BaseURL containing gitlab
@@ -81,23 +81,23 @@ func TestNewWithOptions_EnvironmentVariables_TS_01_16(t *testing.T) {
 	// GitHub only
 	clearForgeEnv(t)
 	t.Setenv("GITHUB_TOKEN", "gh-tok")
-	_, err1 := issuex.NewWithOptions(issuex.Options{})
-	if !errors.Is(err1, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for GitHub env, got %v", err1)
+	c1, err1 := issuex.NewWithOptions(issuex.Options{})
+	if err1 != nil {
+		t.Errorf("expected nil error for GitHub env, got %v", err1)
 	}
-	if err1 == nil || !strings.Contains(strings.ToLower(err1.Error()), "github") {
-		t.Errorf("expected error message to contain 'github', got %v", err1)
+	if c1 == nil || !c1.Authenticated() {
+		t.Errorf("expected authenticated client for GitHub env")
 	}
 
 	// GitHub with GH_TOKEN
 	clearForgeEnv(t)
 	t.Setenv("GH_TOKEN", "gh-fallback-tok")
-	_, errGH := issuex.NewWithOptions(issuex.Options{})
-	if !errors.Is(errGH, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for GH_TOKEN, got %v", errGH)
+	cGH, errGH := issuex.NewWithOptions(issuex.Options{})
+	if errGH != nil {
+		t.Errorf("expected nil error for GH_TOKEN, got %v", errGH)
 	}
-	if errGH == nil || !strings.Contains(strings.ToLower(errGH.Error()), "github") {
-		t.Errorf("expected error message to contain 'github', got %v", errGH)
+	if cGH == nil || !cGH.Authenticated() {
+		t.Errorf("expected authenticated client for GH_TOKEN")
 	}
 
 	// GitLab only
@@ -145,12 +145,12 @@ func TestNewWithOptions_GitOriginFallback_TS_01_17(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "gh-tok")
 	t.Setenv("GITLAB_TOKEN", "gl-tok")
 
-	_, errGH := issuex.NewWithOptions(issuex.Options{})
-	if !errors.Is(errGH, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected ErrUnsupportedForge for github origin remote with both env vars, got %v", errGH)
+	cGH, errGH := issuex.NewWithOptions(issuex.Options{})
+	if errGH != nil {
+		t.Errorf("expected nil error for github origin remote with both env vars, got %v", errGH)
 	}
-	if errGH == nil || !strings.Contains(strings.ToLower(errGH.Error()), "github") {
-		t.Errorf("expected error message to contain 'github', got %v", errGH)
+	if cGH == nil || !cGH.Authenticated() {
+		t.Errorf("expected authenticated client for github origin remote")
 	}
 }
 
@@ -185,7 +185,7 @@ func TestNewWithOptions_AmbiguousForge_TS_01_18(t *testing.T) {
 func TestNewWithOptions_UnsupportedForge_TS_01_19(t *testing.T) {
 	clearForgeEnv(t)
 
-	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: "https://api.github.com", Token: "fake"})
+	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: "https://gitlab.example.com/api/v4", Token: "fake"})
 	if client != nil {
 		t.Errorf("expected nil client, got %v", client)
 	}
