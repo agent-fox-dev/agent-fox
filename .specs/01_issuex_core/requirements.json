@@ -1,0 +1,459 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "01",
+  "spec_name": "issuex_core",
+  "schema_version": 2,
+  "introduction": "The issuex package provides a forge-neutral Go client interface, canonical domain models, git remote and issue URL detection, a standardized error hierarchy, transport safety utilities, and a no-op implementation for GitHub and GitLab operations.",
+  "glossary": {
+    "Forge": "A web-based service hosting Git repositories, issue tracking, and code review workflows, such as GitHub or GitLab.",
+    "ForgeClient": "The unified Go interface declaring forge-neutral repository, issue, and pull request operations.",
+    "IssueRef": "A reference identifying an issue or pull request within a repository by number.",
+    "NoOpClient": "A client implementation that returns zero-values for reads, performs silent no-ops for issue writes, and returns explicit errors for pull request operations.",
+    "Repo": "A repository identifier containing owner, name, and optional host segments, supporting nested group paths."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Forge Client Interface Contract",
+      "rationale": "A unified interface allows ecosystem tools to interact with multiple git forges using identical method signatures.",
+      "criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "declare the Client interface and ForgeClient type alias with Authenticated() bool and Close() error lifecycle methods"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "Client interface",
+          "action": "declare repository and issue management methods GetRepository, CreateIssue, ReadIssue, UpdateIssue, CloseIssue, ListIssues, AddComment, ListComments, AddLabels, RemoveLabel, and CreateLabel accepting context.Context as first parameter and returning value types"
+        },
+        {
+          "id": "01-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "Client interface",
+          "action": "declare pull request management methods CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, and ClosePullRequest accepting context.Context as first parameter and returning value types"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Domain Data Models",
+      "rationale": "Domain data structures normalize differences between GitHub and GitLab entities into consistent value types.",
+      "criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define the Repo struct with Owner, Name, and Host string fields, where Repo.Valid() reports whether Owner and Name are non-empty"
+        },
+        {
+          "id": "01-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "for any Repo instance with non-empty Owner and Name, return fmt.Sprintf(\"%s/%s\", r.Owner, r.Name) from Repo.String()"
+        },
+        {
+          "id": "01-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "for any IssueRef instance with valid Repo and positive Number, return fmt.Sprintf(\"%s#%d\", ref.Repo.String(), ref.Number) from IssueRef.String()"
+        },
+        {
+          "id": "01-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define the Issue, IssueThread, Comment, and User structs representing issue metadata and comments using value fields and error tracking"
+        },
+        {
+          "id": "01-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define the PullRequest, ChangedFile, PRState, CheckRun, and Review structs representing pull request metadata, changed files, checks, and reviews"
+        },
+        {
+          "id": "01-REQ-2.6",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define the Repository, RepoPermissions, Label, IssueFilter, IssueList, and CommentList structs with filtering and pagination limits"
+        },
+        {
+          "id": "01-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define CreateIssueRequest, UpdateIssueRequest, CreatePullRequestRequest, MergeOptions, MergeMethod enum constants, and MergeResult structs"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "Git Remote and URL Parsing",
+      "rationale": "Detecting repository references and web URLs simplifies command-line invocations across diverse git configurations.",
+      "criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "ParseRepo is called with a path string containing one or more slash delimiters and non-empty segments",
+          "system": "repo parser",
+          "action": "parse the string into a Repo whose Name is the last path segment and Owner is all preceding segments joined by slash, returning the Repo and true"
+        },
+        {
+          "id": "01-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "ParseRepo is called with an empty string or a string without slash delimiters",
+          "system": "repo parser",
+          "action": "reject the input and return a zero-value Repo with false",
+          "contract": "(Repo{}, false)"
+        },
+        {
+          "id": "01-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "ParseRemote is called with an HTTPS, SSH, or SCP-style git remote URL matching a supported forge host",
+          "system": "remote parser",
+          "action": "parse the remote URL into a Repo containing Host, Owner with multi-segment support, and Name without .git suffix, returning the Repo and true"
+        },
+        {
+          "id": "01-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "ParseRemote is called with an invalid remote URL, missing host, or unsupported format",
+          "system": "remote parser",
+          "action": "reject the remote URL and return a zero-value Repo with false",
+          "contract": "(Repo{}, false)"
+        },
+        {
+          "id": "01-REQ-3.5",
+          "pattern": "event_driven",
+          "condition": "DetectRepo is called with a directory path whose git origin remote is configured and readable",
+          "system": "repo detector",
+          "action": "execute git remote get-url origin in the target directory, pass the output to ParseRemote, and return the resulting Repo with true"
+        },
+        {
+          "id": "01-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "DetectRepo is called on a directory that is not a git repository or has no origin remote configured",
+          "system": "repo detector",
+          "action": "return a zero-value Repo with false without returning an error",
+          "contract": "(Repo{}, false)"
+        },
+        {
+          "id": "01-REQ-3.7",
+          "pattern": "event_driven",
+          "condition": "ParseIssueURL is called with a valid GitHub or GitLab web issue or pull request URL",
+          "system": "issue URL parser",
+          "action": "parse the URL into an IssueRef with Repo, Number, and IsPullRequest set to true for PR and MR URLs, returning the IssueRef and true"
+        },
+        {
+          "id": "01-REQ-3.8",
+          "pattern": "unwanted",
+          "condition": "ParseIssueURL is called with an invalid URL, a non-issue path, or a non-numeric identifier",
+          "system": "issue URL parser",
+          "action": "reject the URL and return a zero-value IssueRef with false",
+          "contract": "(IssueRef{}, false)"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "Forge Detection and Options Configuration",
+      "rationale": "Automatic forge detection selects the target platform from configuration, environment variables, or local git remotes.",
+      "criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with Options having NoOp set to true",
+          "system": "client factory",
+          "action": "instantiate and return a NoOpClient instance and nil error"
+        },
+        {
+          "id": "01-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with BaseURL containing github or api.github.com",
+          "system": "client factory",
+          "action": "resolve the forge type to ForgeTypeGitHub"
+        },
+        {
+          "id": "01-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with BaseURL containing gitlab",
+          "system": "client factory",
+          "action": "resolve the forge type to ForgeTypeGitLab"
+        },
+        {
+          "id": "01-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with empty BaseURL and GitHub environment variables are present while GitLab environment variables are absent",
+          "system": "client factory",
+          "action": "resolve the forge type to ForgeTypeGitHub with default endpoint https://api.github.com and credentials from GITHUB_TOKEN or GH_TOKEN"
+        },
+        {
+          "id": "01-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with empty BaseURL and GitLab environment variables are present while GitHub environment variables are absent",
+          "system": "client factory",
+          "action": "resolve the forge type to ForgeTypeGitLab with default endpoint https://gitlab.com/api/v4 and credentials from GITLAB_TOKEN"
+        },
+        {
+          "id": "01-REQ-4.6",
+          "pattern": "complex_event",
+          "condition": "NewWithOptions is called with empty BaseURL and forge environment variables are either both present or both absent",
+          "guard": "the git origin remote in the working directory matches a recognized forge host",
+          "system": "client factory",
+          "action": "resolve the forge type corresponding to the git origin remote host"
+        },
+        {
+          "id": "01-REQ-4.7",
+          "pattern": "unwanted",
+          "condition": "NewWithOptions cannot determine the forge type from BaseURL, environment variables, or git origin remote",
+          "system": "client factory",
+          "action": "reject client construction and return a nil Client and an error wrapping ErrAmbiguousForge",
+          "contract": "(nil, err) where errors.Is(err, ErrAmbiguousForge) is true"
+        },
+        {
+          "id": "01-REQ-4.8",
+          "pattern": "unwanted",
+          "condition": "NewWithOptions resolves a forge type to ForgeTypeGitHub or ForgeTypeGitLab prior to provider adapter registration",
+          "system": "client factory",
+          "action": "reject client construction and return a nil Client and an error wrapping ErrUnsupportedForge indicating the provider adapter is not registered",
+          "contract": "(nil, err) where errors.Is(err, ErrUnsupportedForge) is true"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "Standardized Error Types and Classification",
+      "rationale": "Standardized error types allow consumers to distinguish and handle distinct forge failure modes cleanly.",
+      "criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define sentinel errors ErrNoToken, ErrNotFound, ErrConflict, ErrRateLimited, ErrUnsupportedForge, and ErrAmbiguousForge"
+        },
+        {
+          "id": "01-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "define HTTPError carrying Method, Path, Status, Message, RetryAfterHeader, RateLimitReset, and RateLimitRemaining, formatted by Error() as fmt.Sprintf(\"%s %s: %d %s\", e.Method, e.Path, e.Status, e.Message)"
+        },
+        {
+          "id": "01-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "RetryAfter is called on an HTTPError with status 429 or status 403 with RateLimitRemaining 0 and a valid Retry-After or X-RateLimit-Reset header",
+          "system": "HTTPError",
+          "action": "calculate the backoff duration from the header value plus a 1-second buffer and return the duration with true"
+        },
+        {
+          "id": "01-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "RetryAfter is called on an HTTPError with non-rate-limit status or missing rate-limit headers",
+          "system": "HTTPError",
+          "action": "return zero duration and false",
+          "contract": "(0, false)"
+        },
+        {
+          "id": "01-REQ-5.5",
+          "pattern": "event_driven",
+          "condition": "IsNotFound is called with an error",
+          "system": "error classifier",
+          "action": "return true if the error wraps ErrNotFound or is an HTTPError with status 404, and false otherwise"
+        },
+        {
+          "id": "01-REQ-5.6",
+          "pattern": "event_driven",
+          "condition": "IsConflict is called with an error",
+          "system": "error classifier",
+          "action": "return true if the error wraps ErrConflict or is an HTTPError with status 409, and false otherwise"
+        },
+        {
+          "id": "01-REQ-5.7",
+          "pattern": "event_driven",
+          "condition": "IsRateLimited is called with an error",
+          "system": "error classifier",
+          "action": "return true if the error wraps ErrRateLimited or is an HTTPError with status 429 or status 403 with RateLimitRemaining 0, and false otherwise"
+        },
+        {
+          "id": "01-REQ-5.8",
+          "pattern": "event_driven",
+          "condition": "IsNoToken is called with an error",
+          "system": "error classifier",
+          "action": "return true if the error wraps ErrNoToken, and false otherwise"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "Shared Transport Foundation",
+      "rationale": "Centralized transport safety prevents out-of-memory errors on large payloads and manages rate-limit backoff consistently.",
+      "criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "shared transport",
+          "action": "bound HTTP response body reads using io.LimitReader to a maximum of 8 MB (8388608 bytes)"
+        },
+        {
+          "id": "01-REQ-6.2",
+          "pattern": "complex_event",
+          "condition": "an HTTP response status is rate-limited",
+          "guard": "the calculated RetryAfter duration is less than or equal to 120 seconds",
+          "system": "shared transport",
+          "action": "invoke the injectable sleep function for the duration and retry the request once"
+        },
+        {
+          "id": "01-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "an HTTP response status is rate-limited and the calculated RetryAfter duration exceeds 120 seconds",
+          "system": "shared transport",
+          "action": "abort the request and return an error wrapping ErrRateLimited without retrying",
+          "contract": "returns an error wrapping ErrRateLimited without issuing a retry request"
+        },
+        {
+          "id": "01-REQ-6.4",
+          "pattern": "unwanted",
+          "condition": "an unauthenticated request receives an HTTP 404 status",
+          "system": "shared transport",
+          "action": "return an error wrapping ErrNotFound and containing guidance that the target resource may be private and require credentials",
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing \"resource may be private\""
+        },
+        {
+          "id": "01-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "a custom sleep function is configured on the transport",
+          "system": "shared transport",
+          "action": "invoke the custom sleep function instead of time.Sleep during retry backoff"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "No-Op Client Implementation",
+      "rationale": "A no-op client allows tools to operate in offline or forge-disabled environments with predictable issue defaults and failing PR safety.",
+      "criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "Authenticated is called on NoOpClient",
+          "system": "no-op client",
+          "action": "return false"
+        },
+        {
+          "id": "01-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "Close is called on NoOpClient",
+          "system": "no-op client",
+          "action": "return nil"
+        },
+        {
+          "id": "01-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "GetRepository is called on NoOpClient",
+          "system": "no-op client",
+          "action": "return a zero-value Repository and nil"
+        },
+        {
+          "id": "01-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "any issue read method (ReadIssue, ListIssues, ListComments) is called on NoOpClient",
+          "system": "no-op client",
+          "action": "return a zero-value result struct and nil error"
+        },
+        {
+          "id": "01-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "any issue write method (CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel) is called on NoOpClient",
+          "system": "no-op client",
+          "action": "perform no remote operation and return zero values with nil error"
+        },
+        {
+          "id": "01-REQ-7.6",
+          "pattern": "unwanted",
+          "condition": "any pull request method (CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, ClosePullRequest) is called on NoOpClient",
+          "system": "no-op client",
+          "action": "return an error indicating that pull request operations require an active forge client",
+          "contract": "non-nil error containing \"pull request operations require an active forge client\""
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "No-Op client initialization and silent issue creation",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes NewWithOptions with Options{NoOp: true}"
+        },
+        {
+          "actor": "client factory",
+          "action": "instantiates and returns a NoOpClient instance"
+        },
+        {
+          "actor": "caller",
+          "action": "invokes Authenticated() on the returned client"
+        },
+        {
+          "actor": "no-op client",
+          "action": "returns false indicating unauthenticated mode"
+        },
+        {
+          "actor": "caller",
+          "action": "invokes CreateIssue with target repo and CreateIssueRequest data"
+        },
+        {
+          "actor": "no-op client",
+          "action": "completes silently and returns a zero-value Issue struct with nil error"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "Git remote and web issue URL parsing to domain models",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "provides a git remote URL string and a web issue URL string"
+        },
+        {
+          "actor": "remote parser",
+          "action": "parses the remote URL into a Repo struct containing host, owner, and name"
+        },
+        {
+          "actor": "issue URL parser",
+          "action": "parses the web issue URL into an IssueRef struct containing Repo, issue number, and pull request flag"
+        },
+        {
+          "actor": "caller",
+          "action": "invokes String() and URL() on the parsed IssueRef to format identifiers"
+        },
+        {
+          "actor": "domain model",
+          "action": "returns canonical string owner/repo#number and formatted canonical web URL"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "Rate-limit HTTP error inspection and backoff duration calculation",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "receives an HTTP response with status 429 and Retry-After header"
+        },
+        {
+          "actor": "transport",
+          "action": "parses the response status and headers into an HTTPError struct"
+        },
+        {
+          "actor": "caller",
+          "action": "invokes IsRateLimited(err) and err.RetryAfter() to inspect the error"
+        },
+        {
+          "actor": "error classifier",
+          "action": "reports true for IsRateLimited and returns the backoff duration with a 1-second buffer"
+        }
+      ]
+    }
+  ]
+}

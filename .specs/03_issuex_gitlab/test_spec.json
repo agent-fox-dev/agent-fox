@@ -1,0 +1,612 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "03",
+  "spec_name": "issuex_gitlab",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-03-1",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-1.1",
+        "03-REQ-1.5"
+      ],
+      "title": "GitLab client adapter implements Client interface, handles authentication state, and closes idle transport connections",
+      "given": [
+        "the issuex package and GitLab client adapter implementation"
+      ],
+      "when": "inspecting interface conformance, Authenticated(), and Close() on the GitLab adapter",
+      "then": [
+        "gitlabClient implements the issuex.Client interface completely",
+        "Authenticated() returns true when holding a non-empty token and false otherwise",
+        "Close() closes idle transport connections and returns nil"
+      ],
+      "pseudocode": "var _ issuex.Client = (*gitlabClient)(nil)\nc := newTestGitLabClient(Options{Token: \"glpat_secret\"})\nassert c.Authenticated() == true\nassert c.Close() == nil\n\nunauth := newTestGitLabClient(Options{})\nassert unauth.Authenticated() == false"
+    },
+    {
+      "id": "TS-03-2",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-1.2"
+      ],
+      "title": "NewGitLab constructor resolves base URL, token, HTTP client, and user agent from options and environment variables",
+      "given": [
+        "custom Options and process environment variable combinations"
+      ],
+      "when": "NewGitLab is called with explicit options or fallback environment variables",
+      "then": [
+        "BaseURL resolves from Options or GITLAB_API_URL or defaults to https://gitlab.com/api/v4 with trailing slashes trimmed and /api/v4 appended when absent",
+        "Token resolves from Options or GITLAB_TOKEN",
+        "default HTTPClient has a 30-second timeout if unspecified",
+        "default UserAgent is agent-fox if unspecified"
+      ],
+      "pseudocode": "c1, _ := NewGitLab(Options{BaseURL: \"https://gitlab.example.com/subpath/\", Token: \"tok1\", UserAgent: \"custom-ua\"})\nassert c1.(*gitlabClient).baseURL == \"https://gitlab.example.com/subpath/api/v4\"\nassert c1.(*gitlabClient).token == \"tok1\"\nassert c1.(*gitlabClient).userAgent == \"custom-ua\"\n\nt.Setenv(\"GITLAB_API_URL\", \"https://gl.corp/api/v4/\")\nt.Setenv(\"GITLAB_TOKEN\", \"tok2\")\nc2, _ := NewGitLab(Options{})\nassert c2.(*gitlabClient).baseURL == \"https://gl.corp/api/v4\"\nassert c2.(*gitlabClient).token == \"tok2\"\nassert c2.(*gitlabClient).userAgent == \"agent-fox\"\nassert c2.(*gitlabClient).httpClient.Timeout == 30*time.Second"
+    },
+    {
+      "id": "TS-03-3",
+      "kind": "integration",
+      "verifies": [
+        "03-REQ-1.3"
+      ],
+      "title": "NewWithOptions factory constructs and returns GitLab client when forge type resolves to GitLab",
+      "given": [
+        "Options with remote URL pointing to gitlab.com and NoOp false"
+      ],
+      "when": "NewWithOptions is called with NoOp false for a GitLab repository remote URL",
+      "then": [
+        "NewWithOptions detects ForgeTypeGitLab and returns an active GitLab client adapter rather than ErrUnsupportedForge"
+      ],
+      "pseudocode": "client, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"group/subgroup\", Name: \"project\"},\n    RemoteURL: \"https://gitlab.com/group/subgroup/project.git\",\n    Token: \"glpat-token\",\n})\nassert err == nil\nassert client != nil\nassert client.Authenticated() == true\nassert client.(*gitlabClient).repo.String() == \"group/subgroup/project\""
+    },
+    {
+      "id": "TS-03-4",
+      "kind": "integration",
+      "verifies": [
+        "03-REQ-1.4"
+      ],
+      "title": "NewWithOptions probes ambiguous hosts with GET /api/v4/version to detect self-hosted GitLab instances before returning ErrAmbiguousForge",
+      "given": [
+        "an ambiguous host URL that does not match github or gitlab domain strings"
+      ],
+      "when": "NewWithOptions is called with an ambiguous remote URL",
+      "then": [
+        "NewWithOptions issues GET /api/v4/version to probe the host, constructing a GitLab client if successful or returning ErrAmbiguousForge if the probe fails"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.URL.Path == \"/api/v4/version\" {\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(`{\"version\": \"16.8.0-ee\", \"revision\": \"abc123\"}`))\n        return\n    }\n    http.NotFound(w, r)\n}))\ndefer srv.Close()\n\nclient, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"corp\", Name: \"app\"},\n    RemoteURL: srv.URL + \"/corp/app.git\",\n    Token: \"glpat-token\",\n})\nassert err == nil\nassert client != nil\nassert client.(*gitlabClient).baseURL == srv.URL + \"/api/v4\""
+    },
+    {
+      "id": "TS-03-5",
+      "kind": "property",
+      "verifies": [
+        "03-REQ-1.6"
+      ],
+      "title": "Outgoing HTTP requests consistently format GitLab API headers and authentication tokens",
+      "given": [
+        "a quickcheck generator for HTTP methods, paths, authentication tokens, and request payloads"
+      ],
+      "when": "for any outgoing HTTP request executed through the GitLab client adapter",
+      "then": [
+        "Accept header is always application/json",
+        "User-Agent is always populated",
+        "PRIVATE-TOKEN header is set when authenticated and omitted when unauthenticated",
+        "Content-Type is application/json when request body is present"
+      ],
+      "pseudocode": "forAll(genMethod, genPath, genToken, genPayload, func(method, path, token string, body []byte) bool {\n    var captured *http.Request\n    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        captured = r\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(\"{}\"))\n    }))\n    defer srv.Close()\n    c := newTestGitLabClient(Options{BaseURL: srv.URL, Token: token})\n    _ = c.do(context.Background(), method, path, body, nil)\n    ok := captured.Header.Get(\"Accept\") == \"application/json\" &&\n          captured.Header.Get(\"User-Agent\") != \"\"\n    if token != \"\" {\n        ok = ok && captured.Header.Get(\"PRIVATE-TOKEN\") == token\n    } else {\n        ok = ok && captured.Header.Get(\"PRIVATE-TOKEN\") == \"\"\n    }\n    if len(body) > 0 {\n        ok = ok && captured.Header.Get(\"Content-Type\") == \"application/json\"\n    }\n    return ok\n})"
+    },
+    {
+      "id": "TS-03-6",
+      "kind": "property",
+      "verifies": [
+        "03-REQ-2.1"
+      ],
+      "title": "Project-scoped REST endpoints format project path as url.PathEscape(repo.String()) with slashes replaced by %2F",
+      "given": [
+        "a quickcheck generator for Repo instances with single-level or nested group owner paths"
+      ],
+      "when": "for any project-scoped REST endpoint formatted for a valid Repo",
+      "then": [
+        "the project path segment in the URL is url.PathEscape(repo.String()) with all slashes converted to %2F without executing numeric project ID lookups"
+      ],
+      "pseudocode": "forAll(genOwner, genRepoName, func(owner, name string) bool {\n    r := Repo{Owner: owner, Name: name}\n    expected := url.PathEscape(r.String())\n    expected = strings.ReplaceAll(expected, \"/\", \"%2F\")\n    return projectPath(r) == expected && !strings.Contains(projectPath(r), \"/\")\n})"
+    },
+    {
+      "id": "TS-03-7",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-2.2",
+        "03-REQ-2.3"
+      ],
+      "title": "GetRepository retrieves project metadata, calculates permissions from effective access level, and records merge policy settings",
+      "given": [
+        "a mock server returning GitLab project JSON with visibility, access levels, and merge settings"
+      ],
+      "when": "calling GetRepository with a valid Repo on an authenticated client",
+      "then": [
+        "FullName, DefaultBranch, Private based on visibility, Archived, and Permissions computed from effective access level are returned",
+        "merge settings merge_method and squash_option are recorded in the client"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"GET\"\n    assert r.URL.Path == \"/api/v4/projects/group%2Fproject\"\n    w.Write([]byte(`{\n        \"path_with_namespace\": \"group/project\",\n        \"default_branch\": \"main\",\n        \"visibility\": \"private\",\n        \"archived\": false,\n        \"permissions\": {\n            \"project_access\": {\"access_level\": 30},\n            \"group_access\": {\"access_level\": 20}\n        },\n        \"merge_method\": \"merge\",\n        \"squash_option\": \"default_on\"\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"glpat-tok\"})\nrepo, err := c.GetRepository(context.Background(), Repo{Owner: \"group\", Name: \"project\"})\nassert err == nil\nassert repo.FullName == \"group/project\"\nassert repo.DefaultBranch == \"main\"\nassert repo.Private == true\nassert repo.Archived == false\nassert repo.Permissions.Push == true && repo.Permissions.Pull == true && repo.Permissions.Admin == false\nassert c.mergeMethod == \"merge\" && c.squashOption == \"default_on\""
+    },
+    {
+      "id": "TS-03-8",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-2.4",
+        "03-REQ-2.5"
+      ],
+      "title": "GetRepository maps HTTP 404 to ErrNotFound, adding private project guidance when unauthenticated",
+      "given": [
+        "a mock server returning HTTP 404 for project endpoints"
+      ],
+      "when": "calling GetRepository on unauthenticated and authenticated clients",
+      "then": [
+        "unauthenticated call returns an error satisfying IsNotFound(err) == true with explanatory guidance to set GITLAB_TOKEN",
+        "authenticated call returns an error satisfying IsNotFound(err) == true"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"404 Project Not Found\"}`))\n}))\ndefer srv.Close()\n\nunauth := newTestGitLabClient(Options{BaseURL: srv.URL})\n_, err1 := unauth.GetRepository(context.Background(), Repo{Owner: \"org\", Name: \"secret\"})\nassert IsNotFound(err1) == true\nassert strings.Contains(err1.Error(), \"GITLAB_TOKEN\")\n\nauth := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"glpat-tok\"})\n_, err2 := auth.GetRepository(context.Background(), Repo{Owner: \"org\", Name: \"missing\"})\nassert IsNotFound(err2) == true"
+    },
+    {
+      "id": "TS-03-9",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.1"
+      ],
+      "title": "CreateIssue posts issue metadata and returns created Issue with normalized open state",
+      "given": [
+        "a mock server returning GitLab issue JSON with opened state and iid"
+      ],
+      "when": "CreateIssue is called with a Repo and CreateIssueRequest on an authenticated client",
+      "then": [
+        "POST /projects/{project_path}/issues is executed with title, description, and labels",
+        "created Issue is returned with Number set to iid, State normalized to open, and IsPR set to false"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"POST\"\n    assert r.URL.Path == \"/api/v4/projects/org%2Frepo/issues\"\n    var req map[string]any\n    json.NewDecoder(r.Body).Decode(&req)\n    assert req[\"title\"] == \"Bug title\"\n    assert req[\"description\"] == \"Bug description\"\n    assert req[\"labels\"] == \"bug,triage\"\n    w.WriteHeader(http.StatusCreated)\n    w.Write([]byte(`{\n        \"iid\": 42,\n        \"title\": \"Bug title\",\n        \"description\": \"Bug description\",\n        \"state\": \"opened\",\n        \"web_url\": \"https://gitlab.com/org/repo/-/issues/42\",\n        \"author\": {\"username\": \"alice\"},\n        \"labels\": [\"bug\", \"triage\"],\n        \"created_at\": \"2025-01-01T00:00:00Z\",\n        \"updated_at\": \"2025-01-01T00:00:00Z\"\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"glpat-tok\"})\niss, err := c.CreateIssue(context.Background(), Repo{Owner: \"org\", Name: \"repo\"}, CreateIssueRequest{\n    Title: \"Bug title\", Body: \"Bug description\", Labels: []string{\"bug\", \"triage\"},\n})\nassert err == nil\nassert iss.Number == 42\nassert iss.State == \"open\"\nassert iss.IsPR == false\nassert iss.Author.Login == \"alice\""
+    },
+    {
+      "id": "TS-03-10",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.2",
+        "03-REQ-4.7"
+      ],
+      "title": "Issue lifecycle and label mutations without token are rejected with ErrNoToken",
+      "given": [
+        "an unauthenticated GitLab client instance"
+      ],
+      "when": "CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, or CreateLabel is called without an authentication token",
+      "then": [
+        "every issue and label mutation call returns an error satisfying IsNoToken(err) == true without executing network requests"
+      ],
+      "pseudocode": "c := newTestGitLabClient(Options{})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1}\n\n_, err1 := c.CreateIssue(context.Background(), ref.Repo, CreateIssueRequest{Title: \"T\"})\nassert IsNoToken(err1) == true\n\n_, err2 := c.UpdateIssue(context.Background(), ref, UpdateIssueRequest{})\nassert IsNoToken(err2) == true\n\nerr3 := c.CloseIssue(context.Background(), ref, \"\")\nassert IsNoToken(err3) == true\n\n_, err4 := c.AddComment(context.Background(), ref, \"hello\")\nassert IsNoToken(err4) == true\n\nerr5 := c.AddLabels(context.Background(), ref, []string{\"bug\"})\nassert IsNoToken(err5) == true\n\nerr6 := c.RemoveLabel(context.Background(), ref, \"bug\")\nassert IsNoToken(err6) == true\n\nerr7 := c.CreateLabel(context.Background(), ref.Repo, Label{Name: \"bug\"})\nassert IsNoToken(err7) == true"
+    },
+    {
+      "id": "TS-03-11",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.3"
+      ],
+      "title": "ReadIssue fetches issue details and chronologically appends discussion comments",
+      "given": [
+        "a mock server returning issue details and a list of comments"
+      ],
+      "when": "ReadIssue is called with an IssueRef",
+      "then": [
+        "GET /projects/{project_path}/issues/{number} is executed and state is normalized from opened to open",
+        "IsPR is set to false",
+        "comments are fetched chronologically into IssueThread.Comments with system notes filtered out"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.URL.Path == \"/api/v4/projects/org%2Frepo/issues/5\" {\n        w.Write([]byte(`{\n            \"iid\": 5, \"title\": \"Title\", \"description\": \"Desc\", \"state\": \"opened\",\n            \"author\": {\"username\": \"bob\"}, \"web_url\": \"https://gitlab.com/org/repo/-/issues/5\"\n        }`))\n        return\n    }\n    if r.URL.Path == \"/api/v4/projects/org%2Frepo/issues/5/notes\" {\n        w.Write([]byte(`[\n            {\"id\": 1, \"body\": \"Comment 1\", \"system\": false, \"author\": {\"username\": \"carol\"}},\n            {\"id\": 2, \"body\": \"system note\", \"system\": true, \"author\": {\"username\": \"gitlab-bot\"}}\n        ]`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nthread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 5})\nassert err == nil\nassert thread.Issue.Number == 5\nassert thread.Issue.State == \"open\"\nassert thread.Issue.IsPR == false\nassert len(thread.Comments) == 1\nassert thread.Comments[0].Body == \"Comment 1\""
+    },
+    {
+      "id": "TS-03-12",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.4",
+        "03-REQ-3.5"
+      ],
+      "title": "ReadIssue handles comment fetch failure gracefully and annotates unauthenticated 404 errors",
+      "given": [
+        "a mock server returning issue metadata but failing comment fetch, or returning 404"
+      ],
+      "when": "ReadIssue encounters comment fetch failure or unauthenticated 404 response",
+      "then": [
+        "when comment fetch fails, ReadIssue returns IssueThread with populated Issue, non-nil CommentsErr, and nil top-level error",
+        "when unauthenticated client receives HTTP 404, it returns an error satisfying IsNotFound(err) == true containing private issue guidance"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.URL.Path == \"/api/v4/projects/org%2Frepo/issues/7\" {\n        w.Write([]byte(`{\"iid\": 7, \"title\": \"Issue 7\", \"state\": \"opened\", \"author\": {\"username\": \"u\"}}`))\n        return\n    }\n    if r.URL.Path == \"/api/v4/projects/org%2Frepo/issues/7/notes\" {\n        w.WriteHeader(http.StatusInternalServerError)\n        w.Write([]byte(`{\"message\": \"notes service unavailable\"}`))\n        return\n    }\n    if r.URL.Path == \"/api/v4/projects/org%2Frepo/issues/99\" {\n        w.WriteHeader(http.StatusNotFound)\n        w.Write([]byte(`{\"message\": \"404 Not Found\"}`))\n        return\n    }\n}))\ndefer srv.Close()\n\ncAuth := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nthread, err := cAuth.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 7})\nassert err == nil\nassert thread.Issue.Number == 7\nassert thread.CommentsErr != nil\n\ncUnauth := newTestGitLabClient(Options{BaseURL: srv.URL})\n_, errNotFound := cUnauth.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 99})\nassert IsNotFound(errNotFound) == true\nassert strings.Contains(errNotFound.Error(), \"GITLAB_TOKEN\")"
+    },
+    {
+      "id": "TS-03-13",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.6",
+        "03-REQ-3.7"
+      ],
+      "title": "UpdateIssue modifies issue attributes and CloseIssue posts closing comment before closing issue",
+      "given": [
+        "a mock server handling issue PUT requests and comment creation"
+      ],
+      "when": "UpdateIssue is called with modified fields and CloseIssue is called with an optional comment",
+      "then": [
+        "UpdateIssue executes PUT /projects/{project_path}/issues/{number} returning the updated Issue",
+        "CloseIssue calls AddComment first if comment is non-empty and executes PUT with state_event close"
+      ],
+      "pseudocode": "var updatedBody string\nvar stateEvent string\nvar postedComment string\n\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" && strings.HasSuffix(r.URL.Path, \"/notes\") {\n        var req map[string]any\n        json.NewDecoder(r.Body).Decode(&req)\n        postedComment = req[\"body\"].(string)\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"id\": 10, \"web_url\": \"https://gitlab.com/n/10\"}`))\n        return\n    }\n    if r.Method == \"PUT\" && strings.HasSuffix(r.URL.Path, \"/issues/12\") {\n        var req map[string]any\n        json.NewDecoder(r.Body).Decode(&req)\n        if desc, ok := req[\"description\"].(string); ok { updatedBody = desc }\n        if se, ok := req[\"state_event\"].(string); ok { stateEvent = se }\n        w.Write([]byte(`{\"iid\": 12, \"title\": \"T\", \"description\": \"new body\", \"state\": \"closed\", \"author\": {\"username\": \"u\"}}`))\n        return\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 12}\nnewBody := \"new body\"\niss, err := c.UpdateIssue(context.Background(), ref, UpdateIssueRequest{Body: &newBody})\nassert err == nil\nassert iss.Body == \"new body\"\n\nerrClose := c.CloseIssue(context.Background(), ref, \"resolved in v2\")\nassert errClose == nil\nassert postedComment == \"resolved in v2\"\nassert stateEvent == \"close\""
+    },
+    {
+      "id": "TS-03-14",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-3.8"
+      ],
+      "title": "ListIssues paginates issues matching filters and flags incomplete results when limit is reached",
+      "given": [
+        "a mock server returning paginated issue lists"
+      ],
+      "when": "ListIssues is called with Repo and IssueFilter specifying state, labels, assignee, sort, and limit",
+      "then": [
+        "GET /projects/{project_path}/issues is paginated with state mapped to opened or closed and filter parameters applied",
+        "IssueList.Incomplete is set to true if limit is reached with more items available on the server"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"GET\"\n    assert r.URL.Query().Get(\"state\") == \"opened\"\n    assert r.URL.Query().Get(\"labels\") == \"feature,v1\"\n    assert r.URL.Query().Get(\"assignee_username\") == \"alice\"\n    assert r.URL.Query().Get(\"order_by\") == \"created_at\"\n    assert r.URL.Query().Get(\"sort\") == \"desc\"\n    w.Header().Set(\"X-Next-Page\", \"2\")\n    w.Write([]byte(`[{\"iid\": 1, \"title\": \"Issue 1\", \"state\": \"opened\", \"author\": {\"username\": \"a\"}}]`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nlist, err := c.ListIssues(context.Background(), Repo{Owner: \"org\", Name: \"repo\"}, IssueFilter{\n    State: \"open\", Labels: []string{\"feature\", \"v1\"}, Assignee: \"alice\", Sort: \"created\", Direction: \"desc\", Limit: 1,\n})\nassert err == nil\nassert len(list.Issues) == 1\nassert list.Incomplete == true"
+    },
+    {
+      "id": "TS-03-15",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-4.1",
+        "03-REQ-4.2"
+      ],
+      "title": "AddComment posts a note and ListComments paginates user notes up to 500 cap filtering system notes",
+      "given": [
+        "a mock server returning note creation responses and paginated issue notes containing user and system notes"
+      ],
+      "when": "AddComment and ListComments are called for an IssueRef",
+      "then": [
+        "AddComment executes POST /notes returning the note web URL",
+        "ListComments paginates up to 500 notes, filters out notes where system is true, and sets CommentList.Truncated to true if 500 cap is reached with more items remaining"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" && strings.HasSuffix(r.URL.Path, \"/notes\") {\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"id\": 42, \"body\": \"a note\", \"web_url\": \"https://gitlab.com/note/42\"}`))\n        return\n    }\n    if r.Method == \"GET\" && strings.HasSuffix(r.URL.Path, \"/notes\") {\n        page := r.URL.Query().Get(\"page\")\n        if page == \"1\" {\n            w.Header().Set(\"X-Next-Page\", \"2\")\n            w.Write([]byte(`[{\"id\": 1, \"body\": \"user note\", \"system\": false, \"author\": {\"username\": \"u\"}}, {\"id\": 2, \"body\": \"audit\", \"system\": true, \"author\": {\"username\": \"bot\"}}]`))\n        } else {\n            w.Write([]byte(`[]`))\n        }\n        return\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1}\nurl, err := c.AddComment(context.Background(), ref, \"a note\")\nassert err == nil\nassert url == \"https://gitlab.com/note/42\"\n\ncomments, errList := c.ListComments(context.Background(), ref)\nassert errList == nil\nassert len(comments.Comments) == 1\nassert comments.Comments[0].Body == \"user note\"\nassert comments.Truncated == false"
+    },
+    {
+      "id": "TS-03-16",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-4.3",
+        "03-REQ-4.4",
+        "03-REQ-4.5"
+      ],
+      "title": "AddLabels and RemoveLabel manage issue labels with no-op on empty labels and idempotent removal",
+      "given": [
+        "a mock server handling issue label updates"
+      ],
+      "when": "AddLabels is called with empty or non-empty labels, and RemoveLabel is called for an issue",
+      "then": [
+        "AddLabels with empty slice returns nil immediately without network calls",
+        "AddLabels with non-empty labels sends add_labels parameter to update issue",
+        "RemoveLabel sends remove_labels parameter and succeeds silently even if label was absent"
+      ],
+      "pseudocode": "var addedLabels string\nvar removedLabels string\n\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    var req map[string]any\n    json.NewDecoder(r.Body).Decode(&req)\n    if al, ok := req[\"add_labels\"].(string); ok { addedLabels = al }\n    if rl, ok := req[\"remove_labels\"].(string); ok { removedLabels = rl }\n    w.Write([]byte(`{\"iid\": 1, \"labels\": [\"bug\"]}`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1}\n\nassert c.AddLabels(context.Background(), ref, nil) == nil\nassert addedLabels == \"\"\n\nassert c.AddLabels(context.Background(), ref, []string{\"bug\", \"ui\"}) == nil\nassert addedLabels == \"bug,ui\"\n\nassert c.RemoveLabel(context.Background(), ref, \"bug\") == nil\nassert removedLabels == \"bug\""
+    },
+    {
+      "id": "TS-03-17",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-4.6"
+      ],
+      "title": "CreateLabel formats hex color with leading hash and succeeds idempotently on existing labels",
+      "given": [
+        "a mock server returning HTTP 201, HTTP 409, or HTTP 400 with 'already exists' message"
+      ],
+      "when": "CreateLabel is called with a Label struct on an authenticated client",
+      "then": [
+        "POST /projects/{project_path}/labels is executed with leading hash on color",
+        "returns nil for HTTP 201, HTTP 409, and HTTP 400 already exists responses"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    var req map[string]any\n    json.NewDecoder(r.Body).Decode(&req)\n    assert strings.HasPrefix(req[\"color\"].(string), \"#\")\n    name := req[\"name\"].(string)\n    if name == \"existing-409\" {\n        w.WriteHeader(http.StatusConflict)\n        w.Write([]byte(`{\"message\": \"Label already exists\"}`))\n        return\n    }\n    if name == \"existing-400\" {\n        w.WriteHeader(http.StatusBadRequest)\n        w.Write([]byte(`{\"message\": \"Label already exists\"}`))\n        return\n    }\n    w.WriteHeader(http.StatusCreated)\n    w.Write([]byte(`{\"id\": 100, \"name\": \"new-label\", \"color\": \"#FF0000\"}`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nrepo := Repo{Owner: \"org\", Name: \"repo\"}\n\nassert c.CreateLabel(context.Background(), repo, Label{Name: \"new-label\", Color: \"FF0000\"}) == nil\nassert c.CreateLabel(context.Background(), repo, Label{Name: \"existing-409\", Color: \"#FF0000\"}) == nil\nassert c.CreateLabel(context.Background(), repo, Label{Name: \"existing-400\", Color: \"#FF0000\"}) == nil"
+    },
+    {
+      "id": "TS-03-18",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-5.1",
+        "03-REQ-5.7"
+      ],
+      "title": "CreatePullRequest formats draft title prefix and rejects unauthenticated callers with ErrNoToken",
+      "given": [
+        "a mock server handling merge request creation, and an unauthenticated client"
+      ],
+      "when": "CreatePullRequest is called with CreatePullRequestRequest or ClosePullRequest is called unauthenticated",
+      "then": [
+        "CreatePullRequest prefixes title with Draft: when req.Draft is true, sets source_branch, target_branch, and returns PullRequest with Merged false",
+        "unauthenticated calls to CreatePullRequest or ClosePullRequest return an error satisfying IsNoToken(err) == true"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    var req map[string]any\n    json.NewDecoder(r.Body).Decode(&req)\n    assert strings.HasPrefix(req[\"title\"].(string), \"Draft: \")\n    assert req[\"source_branch\"] == \"feature\"\n    assert req[\"target_branch\"] == \"main\"\n    w.WriteHeader(http.StatusCreated)\n    w.Write([]byte(`{\n        \"iid\": 10, \"title\": \"Draft: new feature\", \"description\": \"body\",\n        \"state\": \"opened\", \"draft\": true, \"source_branch\": \"feature\", \"target_branch\": \"main\",\n        \"sha\": \"abc1234\", \"author\": {\"username\": \"dev\"}, \"web_url\": \"https://gitlab.com/org/repo/-/merge_requests/10\"\n    }`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\npr, err := c.CreatePullRequest(context.Background(), Repo{Owner: \"org\", Name: \"repo\"}, CreatePullRequestRequest{\n    Title: \"new feature\", Body: \"body\", Head: \"feature\", Base: \"main\", Draft: true,\n})\nassert err == nil\nassert pr.Number == 10\nassert pr.Draft == true\nassert pr.Merged == false\n\ncUnauth := newTestGitLabClient(Options{})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 10}\n_, errCreate := cUnauth.CreatePullRequest(context.Background(), ref.Repo, CreatePullRequestRequest{})\nassert IsNoToken(errCreate) == true\n\nerrClose := cUnauth.ClosePullRequest(context.Background(), ref)\nassert IsNoToken(errClose) == true"
+    },
+    {
+      "id": "TS-03-19",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-5.2",
+        "03-REQ-5.3"
+      ],
+      "title": "ReadPullRequest normalizes MR state, parses branch metadata, and annotates unauthenticated 404",
+      "given": [
+        "a mock server returning merge request JSON or HTTP 404"
+      ],
+      "when": "ReadPullRequest is called on authenticated and unauthenticated clients",
+      "then": [
+        "parsed PullRequest has normalized state, Draft reflecting draft or work_in_progress, HeadBranch, BaseBranch, HeadSHA, and merge status",
+        "unauthenticated 404 returns an error satisfying IsNotFound(err) == true containing private project guidance"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/merge_requests/15\") {\n        w.Write([]byte(`{\n            \"iid\": 15, \"title\": \"MR 15\", \"description\": \"desc\", \"state\": \"opened\",\n            \"draft\": false, \"work_in_progress\": true, \"source_branch\": \"patch\", \"target_branch\": \"main\",\n            \"sha\": \"def5678\", \"author\": {\"username\": \"alice\"}, \"web_url\": \"https://gitlab.com/org/repo/-/merge_requests/15\"\n        }`))\n        return\n    }\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"404 Not Found\"}`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\npr, err := c.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 15})\nassert err == nil\nassert pr.Number == 15\nassert pr.State == \"open\"\nassert pr.Draft == true\nassert pr.HeadBranch == \"patch\"\nassert pr.BaseBranch == \"main\"\nassert pr.HeadSHA == \"def5678\"\n\ncUnauth := newTestGitLabClient(Options{BaseURL: srv.URL})\n_, errNotFound := cUnauth.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 99})\nassert IsNotFound(errNotFound) == true\nassert strings.Contains(errNotFound.Error(), \"GITLAB_TOKEN\")"
+    },
+    {
+      "id": "TS-03-20",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-5.4"
+      ],
+      "title": "ReadChangedFiles parses file changes and computes additions and deletions from unified diff chunks",
+      "given": [
+        "a mock server returning merge request /changes JSON with file change entries and diff chunks"
+      ],
+      "when": "ReadChangedFiles is called for an IssueRef",
+      "then": [
+        "returns ChangedFile structs with status added, deleted, or modified",
+        "additions and deletions are correctly calculated by parsing diff lines starting with + and - excluding headers"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.Write([]byte(`{\n        \"changes\": [\n            {\n                \"old_path\": \"old.go\", \"new_path\": \"new.go\", \"new_file\": true, \"deleted_file\": false,\n                \"diff\": \"@@ -0,0 +1,5 @@\\n+line1\\n+line2\\n+line3\"\n            },\n            {\n                \"old_path\": \"deleted.go\", \"new_path\": \"deleted.go\", \"new_file\": false, \"deleted_file\": true,\n                \"diff\": \"@@ -1,3 +0,0 @@\\n-line1\\n-line2\"\n            },\n            {\n                \"old_path\": \"mod.go\", \"new_path\": \"mod.go\", \"new_file\": false, \"deleted_file\": false,\n                \"diff\": \"--- a/mod.go\\n+++ b/mod.go\\n@@ -1,2 +1,3 @@\\n-old\\n+new1\\n+new2\"\n            }\n        ]\n    }`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nfiles, err := c.ReadChangedFiles(context.Background(), IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1})\nassert err == nil\nassert len(files) == 3\nassert files[0].Status == \"added\" && files[0].Additions == 3 && files[0].Deletions == 0\nassert files[1].Status == \"deleted\" && files[1].Additions == 0 && files[1].Deletions == 2\nassert files[2].Status == \"modified\" && files[2].Additions == 2 && files[2].Deletions == 1"
+    },
+    {
+      "id": "TS-03-21",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-5.5",
+        "03-REQ-5.6"
+      ],
+      "title": "GetPRState retrieves merge request state and ClosePullRequest closes the merge request",
+      "given": [
+        "a mock server returning merge request state JSON and accepting state_event close"
+      ],
+      "when": "GetPRState and ClosePullRequest are called on an authenticated client",
+      "then": [
+        "GetPRState returns PRState with Number, State, Merged boolean, and HeadSHA",
+        "ClosePullRequest executes PUT with state_event close"
+      ],
+      "pseudocode": "var closedMR bool\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"GET\" && strings.HasSuffix(r.URL.Path, \"/merge_requests/20\") {\n        w.Write([]byte(`{\"iid\": 20, \"state\": \"merged\", \"sha\": \"headsha123\"}`))\n        return\n    }\n    if r.Method == \"PUT\" && strings.HasSuffix(r.URL.Path, \"/merge_requests/20\") {\n        var req map[string]any\n        json.NewDecoder(r.Body).Decode(&req)\n        if req[\"state_event\"] == \"close\" { closedMR = true }\n        w.Write([]byte(`{\"iid\": 20, \"state\": \"closed\"}`))\n        return\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 20}\nstate, errState := c.GetPRState(context.Background(), ref)\nassert errState == nil\nassert state.Number == 20\nassert state.State == \"merged\"\nassert state.Merged == true\nassert state.HeadSHA == \"headsha123\"\n\nerrClose := c.ClosePullRequest(context.Background(), ref)\nassert errClose == nil\nassert closedMR == true"
+    },
+    {
+      "id": "TS-03-22",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-6.1",
+        "03-REQ-6.2"
+      ],
+      "title": "GetCIChecks maps latest pipeline jobs to CheckRun records and returns empty slice when no pipelines exist",
+      "given": [
+        "a mock server returning latest pipeline and constituent jobs, or empty pipeline list"
+      ],
+      "when": "GetCIChecks is called for an IssueRef",
+      "then": [
+        "when pipeline exists, jobs are mapped to CheckRun with name, status, conclusion, summary, and URL",
+        "when no pipeline exists, returns empty slice []CheckRun{} and nil error"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/pipelines\") {\n        mrID := r.URL.Path\n        if strings.Contains(mrID, \"merge_requests/1/\") {\n            w.Write([]byte(`[{\"id\": 101, \"status\": \"running\"}]`))\n            return\n        }\n        w.Write([]byte(`[]`))\n        return\n    }\n    if strings.HasSuffix(r.URL.Path, \"/pipelines/101/jobs\") {\n        w.Write([]byte(`[\n            {\"id\": 1, \"name\": \"lint\", \"stage\": \"test\", \"status\": \"success\", \"web_url\": \"https://gitlab.com/job/1\"},\n            {\"id\": 2, \"name\": \"test\", \"stage\": \"test\", \"status\": \"running\", \"web_url\": \"https://gitlab.com/job/2\"},\n            {\"id\": 3, \"name\": \"deploy\", \"stage\": \"deploy\", \"status\": \"failed\", \"failure_reason\": \"script_failure\", \"web_url\": \"https://gitlab.com/job/3\"}\n        ]`))\n        return\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nrepo := Repo{Owner: \"org\", Name: \"repo\"}\nchecks, err1 := c.GetCIChecks(context.Background(), IssueRef{Repo: repo, Number: 1})\nassert err1 == nil\nassert len(checks) == 3\nassert checks[0].Name == \"lint\" && checks[0].Status == \"completed\" && checks[0].Conclusion == \"success\"\nassert checks[1].Name == \"test\" && checks[1].Status == \"in_progress\"\nassert checks[2].Name == \"deploy\" && checks[2].Status == \"completed\" && checks[2].Conclusion == \"failure\"\nassert strings.Contains(checks[2].Summary, \"script_failure\")\n\nemptyChecks, err2 := c.GetCIChecks(context.Background(), IssueRef{Repo: repo, Number: 2})\nassert err2 == nil\nassert len(emptyChecks) == 0"
+    },
+    {
+      "id": "TS-03-23",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-6.3",
+        "03-REQ-6.4"
+      ],
+      "title": "GetPRReviews aggregates approvals and non-system notes chronologically and PostReviewComment records a review note",
+      "given": [
+        "a mock server returning MR approvals, discussion notes with system notes, and accepting review comments"
+      ],
+      "when": "GetPRReviews and PostReviewComment are called for an IssueRef on an authenticated client",
+      "then": [
+        "GetPRReviews maps approvals to approved reviews and non-system notes to commented reviews sorted chronologically",
+        "PostReviewComment executes POST /notes with the comment body"
+      ],
+      "pseudocode": "var postedReview string\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"GET\" && strings.HasSuffix(r.URL.Path, \"/approvals\") {\n        w.Write([]byte(`{\"approved_by\": [{\"user\": {\"username\": \"reviewer1\"}}]}`))\n        return\n    }\n    if r.Method == \"GET\" && strings.HasSuffix(r.URL.Path, \"/notes\") {\n        w.Write([]byte(`[\n            {\"id\": 1, \"body\": \"Looks good\", \"system\": false, \"author\": {\"username\": \"reviewer2\"}, \"created_at\": \"2025-01-02T00:00:00Z\"},\n            {\"id\": 2, \"body\": \"audit event\", \"system\": true, \"author\": {\"username\": \"bot\"}, \"created_at\": \"2025-01-01T00:00:00Z\"}\n        ]`))\n        return\n    }\n    if r.Method == \"POST\" && strings.HasSuffix(r.URL.Path, \"/notes\") {\n        var req map[string]any\n        json.NewDecoder(r.Body).Decode(&req)\n        postedReview = req[\"body\"].(string)\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"id\": 3}`))\n        return\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1}\nreviews, err := c.GetPRReviews(context.Background(), ref)\nassert err == nil\nassert len(reviews) == 2\nassert reviews[0].State == \"approved\" && reviews[0].Author.Login == \"reviewer1\"\nassert reviews[1].State == \"commented\" && reviews[1].Author.Login == \"reviewer2\"\n\nerrPost := c.PostReviewComment(context.Background(), ref, \"LGTM\")\nassert errPost == nil\nassert postedReview == \"LGTM\""
+    },
+    {
+      "id": "TS-03-24",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-6.5",
+        "03-REQ-6.6",
+        "03-REQ-6.7"
+      ],
+      "title": "MergePullRequest executes merge with method strategy, wraps conflicts in ErrConflict, and rejects unauthenticated callers",
+      "given": [
+        "a mock server handling merge PUT requests returning 200, 405, 406, or 409"
+      ],
+      "when": "MergePullRequest or PostReviewComment is called",
+      "then": [
+        "merge payload includes commit_message, sha, and squash flag governed by MergeMethod or omitted for MergeMethodDefault",
+        "HTTP 405, 406, and 409 responses return an error satisfying IsConflict(err) == true",
+        "unauthenticated calls return an error satisfying IsNoToken(err) == true"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    var req map[string]any\n    json.NewDecoder(r.Body).Decode(&req)\n    if req[\"commit_message\"] == \"conflict\" {\n        w.WriteHeader(http.StatusConflict)\n        w.Write([]byte(`{\"message\": \"Branch cannot be merged\"}`))\n        return\n    }\n    if req[\"commit_message\"] == \"method_not_allowed\" {\n        w.WriteHeader(http.StatusMethodNotAllowed)\n        w.Write([]byte(`{\"message\": \"405 Method Not Allowed\"}`))\n        return\n    }\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`{\"sha\": \"mergesha999\", \"merge_commit_sha\": \"mergesha999\"}`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"org\", Name: \"repo\"}, Number: 1}\n\nres, err := c.MergePullRequest(context.Background(), ref, MergeOptions{\n    Method: MergeMethodSquash, CommitMessage: \"merge commit\", SHA: \"head123\",\n})\nassert err == nil\nassert res.Merged == true\nassert res.SHA == \"mergesha999\"\n\n_, errConflict := c.MergePullRequest(context.Background(), ref, MergeOptions{CommitMessage: \"conflict\"})\nassert IsConflict(errConflict) == true\n\n_, err405 := c.MergePullRequest(context.Background(), ref, MergeOptions{CommitMessage: \"method_not_allowed\"})\nassert IsConflict(err405) == true\n\ncUnauth := newTestGitLabClient(Options{})\n_, errUnauth := cUnauth.MergePullRequest(context.Background(), ref, MergeOptions{})\nassert IsNoToken(errUnauth) == true\nerrPostUnauth := cUnauth.PostReviewComment(context.Background(), ref, \"body\")\nassert IsNoToken(errPostUnauth) == true"
+    },
+    {
+      "id": "TS-03-25",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-7.1"
+      ],
+      "title": "Transport limits response body reading to 8 MB via io.LimitReader",
+      "given": [
+        "a mock server returning an HTTP response body exceeding 8 MB (8,388,608 bytes)"
+      ],
+      "when": "executing an HTTP request that receives a response exceeding 8 MB",
+      "then": [
+        "response body reading is capped at exactly 8 MB (8388608 bytes) preventing out-of-memory exhaustion"
+      ],
+      "pseudocode": "bigPayload := strings.Repeat(\"A\", 9*1024*1024)\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.Write([]byte(bigPayload))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nbody, err := c.do(context.Background(), \"GET\", \"/test\", nil, nil)\nassert err == nil\nassert len(body) == 8*1024*1024"
+    },
+    {
+      "id": "TS-03-26",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-7.2",
+        "03-REQ-7.3",
+        "03-REQ-7.6"
+      ],
+      "title": "Rate-limit backoff sleeps via injectable function and retries once, failing with ErrRateLimited if duration exceeds 120s or retry fails",
+      "given": [
+        "a mock server returning HTTP 429 with Retry-After header and a client configured with custom sleep function"
+      ],
+      "when": "executing a request receiving HTTP 429",
+      "then": [
+        "when Retry-After <= 120s, custom sleep function is invoked with backoff duration and request is retried once",
+        "when Retry-After > 120s or retried request fails, returns an error satisfying IsRateLimited(err) == true"
+      ],
+      "pseudocode": "var sleepDurations []time.Duration\nmockSleep := func(d time.Duration) {\n    sleepDurations = append(sleepDurations, d)\n}\n\ncalls := 0\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    calls++\n    if r.URL.Path == \"/retry-ok\" && calls == 1 {\n        w.Header().Set(\"Retry-After\", \"10\")\n        w.WriteHeader(http.StatusTooManyRequests)\n        w.Write([]byte(`{\"message\": \"Rate limit exceeded\"}`))\n        return\n    }\n    if r.URL.Path == \"/retry-fail\" {\n        w.Header().Set(\"Retry-After\", \"5\")\n        w.WriteHeader(http.StatusTooManyRequests)\n        w.Write([]byte(`{\"message\": \"Rate limit exceeded\"}`))\n        return\n    }\n    if r.URL.Path == \"/retry-excessive\" {\n        w.Header().Set(\"Retry-After\", \"125\")\n        w.WriteHeader(http.StatusTooManyRequests)\n        w.Write([]byte(`{\"message\": \"Rate limit exceeded\"}`))\n        return\n    }\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`{\"status\": \"ok\"}`))\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nc.sleep = mockSleep\n\ncalls = 0\n_, err1 := c.do(context.Background(), \"GET\", \"/retry-ok\", nil, nil)\nassert err1 == nil\nassert len(sleepDurations) == 1 && sleepDurations[0] == 10*time.Second\n\n_, err2 := c.do(context.Background(), \"GET\", \"/retry-excessive\", nil, nil)\nassert IsRateLimited(err2) == true\n\n_, err3 := c.do(context.Background(), \"GET\", \"/retry-fail\", nil, nil)\nassert IsRateLimited(err3) == true"
+    },
+    {
+      "id": "TS-03-27",
+      "kind": "property",
+      "verifies": [
+        "03-REQ-7.4"
+      ],
+      "title": "Error response payloads format HTTPError message from string, validation object, or error description",
+      "given": [
+        "a quickcheck generator for GitLab error response bodies (plain string message, nested object field validation arrays, error and error_description fields)"
+      ],
+      "when": "for any GitLab REST error response payload",
+      "then": [
+        "HTTPError message correctly formats plain string message, field: error for validation object arrays, or <error>: <error_description>"
+      ],
+      "pseudocode": "forAll(genErrorMessagePayload, func(payload []byte, expectedMessage string) bool {\n    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        w.WriteHeader(http.StatusBadRequest)\n        w.Write(payload)\n    }))\n    defer srv.Close()\n    c := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n    _, err := c.do(context.Background(), \"GET\", \"/err\", nil, nil)\n    return err != nil && strings.Contains(err.Error(), expectedMessage)\n})"
+    },
+    {
+      "id": "TS-03-28",
+      "kind": "unit",
+      "verifies": [
+        "03-REQ-7.5"
+      ],
+      "title": "HTTP transport wraps sentinel errors ErrNotFound for 404 and ErrConflict for 405, 406, and 409",
+      "given": [
+        "a mock server returning HTTP status codes 404, 405, 406, and 409"
+      ],
+      "when": "executing requests resulting in HTTP 404, 405, 406, or 409 responses",
+      "then": [
+        "HTTP 404 response returns an error satisfying IsNotFound(err) == true",
+        "HTTP 405, 406, and 409 responses return errors satisfying IsConflict(err) == true"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    switch r.URL.Path {\n    case \"/404\": w.WriteHeader(http.StatusNotFound); w.Write([]byte(`{\"message\": \"not found\"}`))\n    case \"/405\": w.WriteHeader(http.StatusMethodNotAllowed); w.Write([]byte(`{\"message\": \"method not allowed\"}`))\n    case \"/406\": w.WriteHeader(http.StatusNotAcceptable); w.Write([]byte(`{\"message\": \"not acceptable\"}`))\n    case \"/409\": w.WriteHeader(http.StatusConflict); w.Write([]byte(`{\"message\": \"conflict\"}`))\n    }\n}))\ndefer srv.Close()\n\nc := newTestGitLabClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n_, err404 := c.do(context.Background(), \"GET\", \"/404\", nil, nil)\nassert IsNotFound(err404) == true\n\n_, err405 := c.do(context.Background(), \"GET\", \"/405\", nil, nil)\nassert IsConflict(err405) == true\n\n_, err406 := c.do(context.Background(), \"GET\", \"/406\", nil, nil)\nassert IsConflict(err406) == true\n\n_, err409 := c.do(context.Background(), \"GET\", \"/409\", nil, nil)\nassert IsConflict(err409) == true"
+    },
+    {
+      "id": "TS-03-29",
+      "kind": "smoke",
+      "verifies": [
+        "03-PATH-1",
+        "03-REQ-3.1",
+        "03-REQ-3.7"
+      ],
+      "title": "Full issue lifecycle creates an issue, reads it with discussion comments, and closes it with an explanatory comment",
+      "given": [
+        "an authenticated GitLab client configured with a test repository"
+      ],
+      "when": "executing execution path 03-PATH-1 to create an issue, read the issue thread with comments, and close it with a comment",
+      "then": [
+        "issue is created with open state",
+        "read retrieves issue metadata and comment history",
+        "closing comment is added and issue state transitions to closed"
+      ],
+      "pseudocode": "c, _ := issuex.NewGitLab(issuex.Options{BaseURL: srv.URL, Token: \"glpat-secret\"})\nrepo := issuex.Repo{Owner: \"group/subgroup\", Name: \"project\"}\niss, err := c.CreateIssue(context.Background(), repo, issuex.CreateIssueRequest{Title: \"Smoke Issue\", Body: \"Initial body\"})\nassert err == nil\nref := issuex.IssueRef{Repo: repo, Number: iss.Number}\nthread, err := c.ReadIssue(context.Background(), ref)\nassert err == nil && thread.Issue.State == \"open\"\nerr = c.CloseIssue(context.Background(), ref, \"closing comment\")\nassert err == nil",
+      "real_components": [
+        "issuex.NewGitLab",
+        "issuex.gitlabClient",
+        "http.Client",
+        "http.Transport",
+        "issuex.IssueThread"
+      ]
+    },
+    {
+      "id": "TS-03-30",
+      "kind": "smoke",
+      "verifies": [
+        "03-PATH-2",
+        "03-REQ-6.1",
+        "03-REQ-6.5"
+      ],
+      "title": "Full merge request lifecycle inspects CI pipeline jobs, posts review comment, and executes repository-default merge",
+      "given": [
+        "an authenticated GitLab client configured with a repository containing an active merge request"
+      ],
+      "when": "executing execution path 03-PATH-2 to inspect MR metadata, retrieve CI pipeline job checks, post review comment, and execute merge",
+      "then": [
+        "MR state and head SHA are verified",
+        "CI pipeline checks are retrieved",
+        "review note is posted",
+        "merge completes with MergeResult Merged set to true"
+      ],
+      "pseudocode": "c, _ := issuex.NewWithOptions(issuex.Options{Repo: issuex.Repo{Owner: \"group/subgroup\", Name: \"project\"}, RemoteURL: srv.URL + \"/group/subgroup/project.git\", Token: \"glpat-tok\"})\nref := issuex.IssueRef{Repo: issuex.Repo{Owner: \"group/subgroup\", Name: \"project\"}, Number: 10}\npr, err := c.ReadPullRequest(context.Background(), ref)\nassert err == nil && pr.HeadSHA != \"\"\nchecks, err := c.GetCIChecks(context.Background(), ref)\nassert err == nil\nerr = c.PostReviewComment(context.Background(), ref, \"Looks great to me\")\nassert err == nil\nres, err := c.MergePullRequest(context.Background(), ref, issuex.MergeOptions{Method: issuex.MergeMethodDefault})\nassert err == nil && res.Merged == true",
+      "real_components": [
+        "issuex.NewWithOptions",
+        "issuex.gitlabClient",
+        "http.Client",
+        "http.Transport",
+        "issuex.CheckRun",
+        "issuex.MergeResult"
+      ]
+    },
+    {
+      "id": "TS-03-31",
+      "kind": "smoke",
+      "verifies": [
+        "03-PATH-3",
+        "03-REQ-7.2"
+      ],
+      "title": "Rate-limited request invokes injected sleep function and transparently succeeds on retry",
+      "given": [
+        "an authenticated GitLab client configured with a mock server returning HTTP 429 followed by HTTP 200 and an injected sleep function"
+      ],
+      "when": "executing execution path 03-PATH-3 where GetRepository encounters HTTP 429 with 2-second Retry-After",
+      "then": [
+        "injected sleep function is invoked with 2 seconds",
+        "request is retried once",
+        "GetRepository returns the populated Repository struct without error"
+      ],
+      "pseudocode": "var slept time.Duration\nc, _ := issuex.NewGitLab(issuex.Options{BaseURL: srv.URL, Token: \"glpat-tok\"})\nc.(*gitlabClient).sleep = func(d time.Duration) { slept = d }\nrepo, err := c.GetRepository(context.Background(), issuex.Repo{Owner: \"group\", Name: \"project\"})\nassert err == nil\nassert slept == 2*time.Second\nassert repo.FullName == \"group/project\"",
+      "real_components": [
+        "issuex.gitlabClient",
+        "http.Client",
+        "http.Transport",
+        "issuex.Repository"
+      ]
+    },
+    {
+      "id": "TS-03-32",
+      "kind": "smoke",
+      "verifies": [
+        "03-PATH-4",
+        "03-REQ-1.4",
+        "03-REQ-2.1"
+      ],
+      "title": "Ambiguous host probe detects self-hosted GitLab instance and fetches repository metadata",
+      "given": [
+        "a mock self-hosted server responding to GET /api/v4/version with GitLab version payload and returning project metadata at URL-encoded project path"
+      ],
+      "when": "executing execution path 03-PATH-4 where NewWithOptions encounters an ambiguous host URL and subsequently calls GetRepository",
+      "then": [
+        "NewWithOptions probes the host via GET /api/v4/version",
+        "constructs a GitLab client adapter for the self-hosted base URL",
+        "GetRepository fetches project metadata using URL-encoded path"
+      ],
+      "pseudocode": "c, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"selfhosted/sub\", Name: \"app\"},\n    RemoteURL: srv.URL + \"/selfhosted/sub/app.git\",\n    Token: \"glpat-tok\",\n})\nassert err == nil\nrepo, err := c.GetRepository(context.Background(), issuex.Repo{Owner: \"selfhosted/sub\", Name: \"app\"})\nassert err == nil\nassert repo.FullName == \"selfhosted/sub/app\"",
+      "real_components": [
+        "issuex.NewWithOptions",
+        "issuex.gitlabClient",
+        "http.Client",
+        "http.Transport",
+        "issuex.Repository"
+      ]
+    }
+  ]
+}

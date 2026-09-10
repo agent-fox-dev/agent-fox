@@ -1,0 +1,244 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "01",
+  "spec_name": "issuex_core",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./issuex/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Define client interfaces and canonical domain models",
+      "criteria": [
+        "01-REQ-1",
+        "01-REQ-2"
+      ],
+      "tests": [
+        "TS-01-1",
+        "TS-01-2",
+        "TS-01-3",
+        "TS-01-4",
+        "TS-01-5",
+        "TS-01-6"
+      ],
+      "steps": [
+        "Write unit tests TS-01-1, TS-01-2, TS-01-5, TS-01-6 and property tests TS-01-3, TS-01-4 in issuex/client_test.go and issuex/types_test.go; verify they fail.",
+        "In issuex/client.go, declare Client interface and ForgeClient type alias with context-first repository, issue, pull request, and lifecycle methods (Authenticated, Close).",
+        "In issuex/types.go, define Repo struct with Owner, Name, Host fields, implementing Valid() bool (requiring non-empty Owner and Name) and String() string returning \"Owner/Name\".",
+        "In issuex/types.go, define IssueRef with Repo, Number, IsPullRequest fields, implementing String() returning \"owner/repo#number\" and URL() returning canonical web URL.",
+        "In issuex/types.go, define Issue, IssueThread (with CommentsErr error tracking), Comment, User, PullRequest, ChangedFile, PRState, CheckRun, Review, Repository, RepoPermissions, and Label structs.",
+        "In issuex/types.go, define operation request parameter structs CreateIssueRequest, UpdateIssueRequest, CreatePullRequestRequest, IssueFilter, IssueList, CommentList, MergeOptions with MergeMethod enum constants, and MergeResult.",
+        "Run go test ./issuex/... to verify all types, methods, and property tests compile and pass."
+      ],
+      "touches": [
+        "issuex/client.go",
+        "issuex/types.go",
+        "issuex/client_test.go",
+        "issuex/types_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement git remote, repository path, and issue URL parsing",
+      "criteria": [
+        "01-REQ-3"
+      ],
+      "tests": [
+        "TS-01-7",
+        "TS-01-8",
+        "TS-01-9",
+        "TS-01-10",
+        "TS-01-11",
+        "TS-01-12",
+        "TS-01-13"
+      ],
+      "steps": [
+        "Write tests TS-01-7 through TS-01-13 covering ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL in issuex/parse_test.go; verify they fail.",
+        "Implement ParseRepo(s string) (Repo, bool) to parse slash-delimited paths into Repo where Name is the last segment and Owner is preceding segments joined by slash, returning (Repo{}, false) for empty or slash-less input.",
+        "Implement ParseRemote(remote string) (Repo, bool) supporting HTTPS, SSH, and SCP syntax with multi-segment GitLab owners, stripping .git suffix and returning (Repo{}, false) on malformed URLs.",
+        "Implement DetectRepo(dir string) (Repo, bool) executing `git -C <dir> remote get-url origin` via os/exec, feeding stdout to ParseRemote, and returning (Repo{}, false) without error on command failure.",
+        "Implement ParseIssueURL(s string) (IssueRef, bool) parsing GitHub issues (/issues/{id}) and PRs (/pull/{id}), and GitLab issues (/-/issues/{id}) and MRs (/-/merge_requests/{id}) into IssueRef with IsPullRequest populated, rejecting invalid paths with (IssueRef{}, false).",
+        "Run go test ./issuex/... to verify all parsing and detection tests pass."
+      ],
+      "touches": [
+        "issuex/parse.go",
+        "issuex/parse_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement standardized error hierarchy and rate-limit calculation",
+      "criteria": [
+        "01-REQ-5"
+      ],
+      "tests": [
+        "TS-01-20",
+        "TS-01-21",
+        "TS-01-22"
+      ],
+      "steps": [
+        "Write unit tests TS-01-20, TS-01-21, and TS-01-22 in issuex/errors_test.go covering sentinel errors, HTTPError formatting, RetryAfter calculation, and error classifiers; verify they fail.",
+        "Define sentinel errors ErrNoToken, ErrNotFound, ErrConflict, ErrRateLimited, ErrUnsupportedForge, and ErrAmbiguousForge in issuex/errors.go.",
+        "Implement HTTPError struct storing Method, Path, Status, Message, RetryAfterHeader, RateLimitReset, and RateLimitRemaining, with Error() returning \"<Method> <Path>: <Status> <Message>\".",
+        "Implement (*HTTPError).RetryAfter() (time.Duration, bool) parsing numeric seconds from RetryAfterHeader or epoch seconds from RateLimitReset on HTTP 429 or 403 (with RateLimitRemaining == \"0\"), adding a 1-second buffer and returning (0, false) otherwise.",
+        "Implement error inspection helpers IsNotFound(err), IsConflict(err), IsRateLimited(err), and IsNoToken(err) using errors.Is and errors.As to inspect sentinels and HTTPError status codes.",
+        "Run go test ./issuex/... to verify all error definitions and inspection functions pass."
+      ],
+      "touches": [
+        "issuex/errors.go",
+        "issuex/errors_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement shared transport safety utilities and retry backoff",
+      "criteria": [
+        "01-REQ-6"
+      ],
+      "tests": [
+        "TS-01-23",
+        "TS-01-24",
+        "TS-01-25",
+        "TS-01-26"
+      ],
+      "steps": [
+        "Write unit tests TS-01-23 through TS-01-26 in issuex/transport_test.go covering body size limits, rate-limit retries, 120-second backoff ceilings, unauthenticated 404 annotations, and custom sleep functions; verify they fail.",
+        "Implement response body reading utility wrapping response streams in io.LimitReader capped at 8 MB (8388608 bytes) to guard against unbounded memory allocation.",
+        "Implement transport execution helper with configurable sleep func(time.Duration) defaulting to time.Sleep.",
+        "Implement rate-limit backoff handler that inspects HTTP 429/403 responses via RetryAfter(): if backoff <= 120 seconds, sleep and retry the HTTP request once; if > 120 seconds, immediately return an error wrapping ErrRateLimited without retrying.",
+        "Implement response error handler that wraps HTTP 404 responses on unauthenticated clients (Authenticated() == false) with an explanatory message indicating the resource may be private and require authentication.",
+        "Run go test ./issuex/... to verify all transport safety and retry behaviors pass."
+      ],
+      "touches": [
+        "issuex/transport.go",
+        "issuex/transport_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Implement NoOpClient for offline and forge-disabled operations",
+      "criteria": [
+        "01-REQ-7"
+      ],
+      "tests": [
+        "TS-01-27",
+        "TS-01-28",
+        "TS-01-29"
+      ],
+      "steps": [
+        "Write unit tests TS-01-27, TS-01-28, and TS-01-29 in issuex/noop_test.go checking NoOpClient lifecycle, issue reads/writes, and PR operation rejections; verify they fail.",
+        "Implement NewNoOp() Client returning a NoOpClient struct satisfying the Client interface.",
+        "Implement Authenticated() returning false, Close() returning nil, and GetRepository() returning zero Repository and nil.",
+        "Implement issue read methods (ReadIssue, ListIssues, ListComments) returning zero-value structs and nil.",
+        "Implement issue write methods (CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel) returning zero values and nil without remote side effects.",
+        "Implement pull request methods (CreatePullRequest, ReadPullRequest, ReadChangedFiles, GetPRState, GetCIChecks, GetPRReviews, PostReviewComment, MergePullRequest, ClosePullRequest) returning non-nil errors containing \"pull request operations require an active forge client\".",
+        "Run go test ./issuex/... to verify NoOpClient satisfies Client and passes all test assertions."
+      ],
+      "touches": [
+        "issuex/noop.go",
+        "issuex/noop_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Implement forge type detection and client options configuration",
+      "criteria": [
+        "01-REQ-4"
+      ],
+      "tests": [
+        "TS-01-14",
+        "TS-01-15",
+        "TS-01-16",
+        "TS-01-17",
+        "TS-01-18",
+        "TS-01-19"
+      ],
+      "steps": [
+        "Write tests TS-01-14 through TS-01-19 in issuex/options_test.go covering NoOp option dispatch, BaseURL detection, environment variable precedence, git origin fallback, ErrAmbiguousForge, and ErrUnsupportedForge; verify they fail.",
+        "Define Options struct with BaseURL, Token, HTTPClient (*http.Client), UserAgent, and NoOp fields, applying default timeout of 30 seconds and default UserAgent \"agent-fox\".",
+        "Define ForgeType enum constants (ForgeTypeGitHub, ForgeTypeGitLab).",
+        "In NewWithOptions(o Options) (Client, error), return NewNoOp() immediately if o.NoOp is true.",
+        "Implement BaseURL forge detection matching \"github\" / \"api.github.com\" to ForgeTypeGitHub and \"gitlab\" to ForgeTypeGitLab.",
+        "When BaseURL is empty, inspect GITHUB_API_URL, GITHUB_TOKEN, GH_TOKEN vs GITLAB_API_URL, GITLAB_TOKEN, resolving default endpoints (https://api.github.com, https://gitlab.com/api/v4) and credentials when unambiguous.",
+        "When environment variables are both present or both absent, invoke DetectRepo(\".\") to detect forge from git origin remote host; return an error wrapping ErrAmbiguousForge if still unresolved.",
+        "For resolved ForgeTypeGitHub and ForgeTypeGitLab prior to adapter registration in issuex_core, return nil and an error wrapping ErrUnsupportedForge indicating the provider adapter is not registered.",
+        "Add New(userAgent string) (Client, error) shorthand calling NewWithOptions with default options.",
+        "Run go test ./issuex/... to verify options configuration and detection logic pass."
+      ],
+      "touches": [
+        "issuex/client.go",
+        "issuex/options.go",
+        "issuex/detect.go",
+        "issuex/options_test.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "integration",
+      "title": "Verify end-to-end execution paths and production wiring",
+      "tests": [
+        "TS-01-30",
+        "TS-01-31",
+        "TS-01-32"
+      ],
+      "steps": [
+        "Implement smoke test TS-01-30 in issuex/smoke_test.go verifying execution path 01-PATH-1 (NewWithOptions with NoOp: true, Authenticated() check, silent CreateIssue execution).",
+        "Implement smoke test TS-01-31 in issuex/smoke_test.go verifying execution path 01-PATH-2 (ParseRemote with git remote URLs, ParseIssueURL with web URLs, String() and URL() formatting).",
+        "Implement smoke test TS-01-32 in issuex/smoke_test.go verifying execution path 01-PATH-3 (HTTPError response creation, IsRateLimited classification, RetryAfter backoff duration calculation with buffer).",
+        "Trace execution paths 01-PATH-1, 01-PATH-2, and 01-PATH-3 through production code in issuex/; confirm each step calls the next and no stub remains.",
+        "For every criterion with a contract (01-REQ-3.2, 01-REQ-3.4, 01-REQ-3.6, 01-REQ-3.8, 01-REQ-4.7, 01-REQ-4.8, 01-REQ-5.4, 01-REQ-6.3, 01-REQ-6.4, 01-REQ-7.6), confirm the contract result is produced and handled properly in production code.",
+        "Search all files under issuex/ for stub markers (panic(\"not implemented\"), TODO, NotImplementedError, bare return nil on non-trivial paths) and verify none remain.",
+        "Confirm that issuex package entry points are callable from external packages without import cycle or internal visibility restrictions.",
+        "Run `make check` (gofmt, go vet, and all tests) to verify clean repository state."
+      ],
+      "touches": [
+        "issuex/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "done_when": [
+        "`make check` passes with all tests and linters clean"
+      ],
+      "state": "pending"
+    }
+  ]
+}
