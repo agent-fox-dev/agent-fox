@@ -238,7 +238,7 @@
       "done_when": [
         "`make check` passes with all tests and linters clean"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
