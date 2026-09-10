@@ -1,0 +1,1115 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "01",
+  "spec_name": "issuex_core",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-01-1",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-1.1",
+        "01-REQ-1.7"
+      ],
+      "title": "The nested module declares the repository's real path with no requirements, and the root module is untouched",
+      "given": [
+        "a checkout containing issuex/go.mod",
+        "the root go.mod declaring github.com/agent-fox-dev/agentfox"
+      ],
+      "when": "issuex/go.mod is read and the rest of the repository is searched for references to the new module path",
+      "then": [
+        "`cd issuex && go list -m` prints github.com/agent-fox-dev/agent-fox/issuex",
+        "issuex/go.mod holds the module directive and `go 1.22` and no third directive: no require block and no replace directive",
+        "the root go.mod and go.sum contain no line mentioning issuex",
+        "no .go file outside issuex/ imports github.com/agent-fox-dev/agent-fox/issuex, and internal/ghapi's client.go, ref.go, doc.go and both test files are byte-identical to their pre-spec content"
+      ],
+      "pseudocode": "mod = read('issuex/go.mod'); assert 'module github.com/agent-fox-dev/agent-fox/issuex' in mod; assert 'go 1.22' in mod; assert 'require' not in mod and 'replace' not in mod; assert run('cd issuex && go list -m').stdout.strip() == 'github.com/agent-fox-dev/agent-fox/issuex'; assert 'issuex' not in read('go.mod') + read('go.sum'); for f in glob('**/*.go') excluding 'issuex/**': assert 'agent-fox/issuex' not in read(f); assert git_diff('internal/ghapi') == ''"
+    },
+    {
+      "id": "TS-01-2",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-1.2"
+      ],
+      "title": "Every Go file in the module imports only the standard library and nothing that spawns a subprocess",
+      "given": [
+        "the issuex module source tree, including its test files"
+      ],
+      "when": "for any .go file under issuex/, its import declarations are parsed with go/parser and each path is classified against the standard library list",
+      "then": [
+        "the number of import paths that are not standard-library packages is zero",
+        "no file imports os/exec, and no file references syscall.Exec, syscall.ForkExec or any other subprocess primitive",
+        "the invariant holds for test files as well as non-test files"
+      ],
+      "pseudocode": "std = set(run('go list std').lines); bad = []\nfor f in glob('issuex/**/*.go'):\n  for imp in parse_file(f).Imports:\n    p = unquote(imp.Path.Value)\n    if p not in std: bad.append((f, p))\n    assert p != 'os/exec'\nassert bad == []; assert grep('issuex/**/*.go', 'ForkExec|syscall.Exec|exec.Command') == []"
+    },
+    {
+      "id": "TS-01-3",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-1.3",
+        "01-REQ-1.4"
+      ],
+      "title": "The Makefile's test, test-fast and lint targets enter the nested module after running the root module",
+      "given": [
+        "the repository Makefile"
+      ],
+      "when": "the recipes of the test, test-fast and lint targets are read line by line",
+      "then": [
+        "the test recipe contains `cd issuex && go test ./... -count=1` on a line after the root `go test ./... -count=1`",
+        "the test-fast recipe contains the same nested command with -short after the root -short run",
+        "the lint recipe contains `cd issuex && go vet ./...` after the root `go vet ./...`",
+        "the gofmt line is byte-identical to the current `test -z \"$$(gofmt -l .)\"`, so its walk already covers files under issuex/"
+      ],
+      "pseudocode": "mk = parse_make_targets('Makefile')\nassert index(mk.test, 'cd issuex && go test ./... -count=1') > index(mk.test, 'go test ./... -count=1')\nassert 'cd issuex && go test ./... -short -count=1' in mk['test-fast'] or 'cd issuex && go test ./... -count=1 -short' in mk['test-fast']\nassert index(mk.lint, 'cd issuex && go vet ./...') > index(mk.lint, 'go vet ./...')\nassert mk.lint.lines[0] == 'test -z \"$$(gofmt -l .)\"'"
+    },
+    {
+      "id": "TS-01-4",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-1.5"
+      ],
+      "title": "The module's whole test suite passes offline with no forge credentials in the environment",
+      "given": [
+        "a machine with no outbound network route (or a proxy that refuses every dial)",
+        "an environment stripped of GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL and GITLAB_API_URL"
+      ],
+      "when": "for any run of `cd issuex && go test ./... -count=1` under that environment, and for any *_test.go file in the module inspected for environment mutation",
+      "then": [
+        "the test run exits 0 and reports no skipped-because-offline tests",
+        "no test file calls os.Setenv or os.Unsetenv; every environment-dependent test uses t.Setenv",
+        "no test dials a non-loopback address, and repeating the run yields the same result"
+      ],
+      "pseudocode": "env = strip(os.environ, ['GITHUB_TOKEN','GH_TOKEN','GITLAB_TOKEN','GITHUB_API_URL','GITLAB_API_URL'])\nr = run('cd issuex && go test ./... -count=1', env=env, network=blocked)\nassert r.exit == 0\nfor f in glob('issuex/**/*_test.go'):\n  assert 'os.Setenv' not in read(f) and 'os.Unsetenv' not in read(f)\nassert r == run(same, env=env, network=blocked)"
+    },
+    {
+      "id": "TS-01-5",
+      "kind": "integration",
+      "verifies": [
+        "01-REQ-1.6"
+      ],
+      "title": "make check fails and shows the nested command's output when the issuex module breaks",
+      "given": [
+        "a scratch copy of the repository whose root module builds, vets and tests cleanly"
+      ],
+      "when": "make check runs three times, once with a gofmt-clean vet failure injected into issuex/ (an unused result of fmt.Sprintf assigned nowhere / a Printf verb mismatch), once with a deliberately failing test in issuex/, and once with a file in issuex/ that does not compile",
+      "then": [
+        "make check exits non-zero in all three runs",
+        "the captured output contains the diagnostic emitted by the failing `cd issuex && go vet ./...` or `cd issuex && go test ./... -count=1` command, naming the issuex file and line",
+        "removing the injected breakage makes make check exit 0 again"
+      ],
+      "pseudocode": "for injection in [vet_failure, failing_test, syntax_error]:\n  apply(injection, into='issuex/')\n  r = run('make check', cwd=copy)\n  assert r.exit != 0\n  assert 'issuex/' in r.combined_output\n  revert(injection)\nassert run('make check', cwd=copy).exit == 0"
+    },
+    {
+      "id": "TS-01-6",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-2.1"
+      ],
+      "title": "ForgeClient declares exactly the 23 named methods with the PRD's signatures",
+      "given": [
+        "the compiled issuex package"
+      ],
+      "when": "reflect.TypeOf((*ForgeClient)(nil)).Elem() is walked and each method's name and signature is compared against the PRD table",
+      "then": [
+        "NumMethod() is 23 and the name set equals {Forge, Authenticated, Close, GetRepository, CreateIssue, GetIssue, UpdateIssue, CloseIssue, ListIssues, AddComment, ListComments, AddLabels, RemoveLabel, CreateLabel, CreatePullRequest, GetPullRequest, ListChangedFiles, GetPullRequestState, ListChecks, ListReviews, AddReviewComment, MergePullRequest, ClosePullRequest}",
+        "each method's parameter and result types match the PRD exactly, e.g. UpdateIssue is (context.Context, IssueRef, IssueUpdate) (Issue, error) and MergePullRequest is (context.Context, IssueRef, MergeOptions) (MergeResult, error)",
+        "the package compiles with the assertion `var _ ForgeClient = NewNull()`"
+      ],
+      "pseudocode": "t = reflect.TypeOf((*ForgeClient)(nil)).Elem(); assert t.NumMethod() == 23\nwant = {'GetIssue': '(context.Context, IssueRef) (Issue, error)', ...}\nfor name, sig in want: m = t.MethodByName(name); assert exists and signature_string(m.Type) == sig\nassert names(t) == set(want.keys())"
+    },
+    {
+      "id": "TS-01-7",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-2.2"
+      ],
+      "title": "Every I/O method takes a context first and no method returns a pointer or a map",
+      "given": [
+        "the ForgeClient interface type obtained by reflection"
+      ],
+      "when": "for any of the 23 methods, In(0) is inspected on the 20 methods that perform forge I/O and every Out(i) other than error is inspected on all of them",
+      "then": [
+        "all 20 I/O methods declare context.Context as their first parameter",
+        "Forge, Authenticated and Close take no context and no other parameter",
+        "no result type has Kind reflect.Ptr or reflect.Map, and every non-error result is a struct, a slice of structs, or a named string, int or bool type"
+      ],
+      "pseudocode": "io_methods = all methods except {Forge, Authenticated, Close}; assert len(io_methods) == 20\nfor m in io_methods: assert m.Type.In(0) == reflect.TypeOf((*context.Context)(nil)).Elem()\nfor m in all_methods:\n  for i in range(m.Type.NumOut()):\n    o = m.Type.Out(i)\n    if o == error_type: continue\n    assert o.Kind() not in (reflect.Ptr, reflect.Map)\n    if o.Kind() == reflect.Slice: assert o.Elem().Kind() == reflect.Struct\n    else: assert o.Kind() in (reflect.Struct, reflect.String, reflect.Int, reflect.Bool)"
+    },
+    {
+      "id": "TS-01-8",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-2.3"
+      ],
+      "title": "Every ForgeClient method carries a doc comment stating the contract implementations honour",
+      "given": [
+        "the issuex package parsed with go/parser and go/doc"
+      ],
+      "when": "the doc comment of each of the 23 method declarations in the ForgeClient interface is read",
+      "then": [
+        "all 23 methods have a non-empty doc comment",
+        "CloseIssue's comment states the comment is posted before closing when non-empty; AddLabels' states it is additive; RemoveLabel's and CreateLabel's state they are idempotent and report success when the label is already absent or already present",
+        "ListIssues' and ListComments' comments state they page internally and set Truncated at the cap; AddReviewComment's states the comment is top-level and not inline; MergePullRequest's states it returns an error satisfying errors.Is(err, ErrNotMergeable) when the forge refuses the merge"
+      ],
+      "pseudocode": "iface = find_interface(parse_dir('issuex'), 'ForgeClient')\nfor m in iface.Methods: assert m.Doc.Text().strip() != ''\nassert 'before closing' in doc('CloseIssue') and 'non-empty' in doc('CloseIssue')\nassert 'additive' in doc('AddLabels')\nfor n in ['RemoveLabel','CreateLabel']: assert 'idempotent' in doc(n)\nfor n in ['ListIssues','ListComments']: assert 'Truncated' in doc(n) and 'page' in doc(n)\nassert 'top-level' in doc('AddReviewComment') and 'inline' in doc('AddReviewComment')\nassert 'ErrNotMergeable' in doc('MergePullRequest')"
+    },
+    {
+      "id": "TS-01-9",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-2.4"
+      ],
+      "title": "Close is idempotent, returns nil when there is nothing to release, and leaves the client usable",
+      "given": [
+        "a client from NewNull() and a client from New(Options{Forge: ForgeNone})"
+      ],
+      "when": "GetIssue is called, then Close is called three times in a row, then GetIssue is called again with the same reference",
+      "then": [
+        "all three Close calls return nil",
+        "the GetIssue result after the Close calls equals the result before them, value for value, with a nil error",
+        "no method panics after Close"
+      ],
+      "pseudocode": "for c in [NewNull(), must(New(Options{Forge: ForgeNone}))]:\n  ref = IssueRef{Repo: Repo{'o','r'}, Number: 42}\n  before, err0 = c.GetIssue(ctx, ref); assert err0 == nil\n  for i in 1..3: assert c.Close() == nil\n  after, err1 = c.GetIssue(ctx, ref)\n  assert after == before and err1 == nil"
+    },
+    {
+      "id": "TS-01-10",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-2.5"
+      ],
+      "title": "Forge and Authenticated answer without a context and without touching the transport",
+      "given": [
+        "an http.Client whose RoundTripper counts calls and fails every request",
+        "a client from New(Options{Forge: ForgeNone, HTTPClient: that client})"
+      ],
+      "when": "Forge() and Authenticated() are called, each with no arguments",
+      "then": [
+        "Forge() returns the Forge constant ForgeNone and Authenticated() returns false",
+        "the counting RoundTripper records zero round trips",
+        "neither method's declared signature takes a context.Context"
+      ],
+      "pseudocode": "rt = &countingTripper{err: errors.New('no network')}\nc = must(New(Options{Forge: ForgeNone, HTTPClient: &http.Client{Transport: rt}}))\nassert c.Forge() == ForgeNone; assert c.Authenticated() == false\nassert rt.calls == 0\nassert reflect.TypeOf(c).Method('Forge').Type.NumIn() == 1  // receiver only"
+    },
+    {
+      "id": "TS-01-11",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-2.6"
+      ],
+      "title": "A client tolerates concurrent calls across its whole method set with no data race",
+      "given": [
+        "a client from NewNull() and one from New(Options{Forge: ForgeNone})",
+        "the single-goroutine result of every method recorded first"
+      ],
+      "when": "for any interleaving produced by at least 8 goroutines each calling a randomly ordered subset of the 23 methods 50 times, under `go test -race`",
+      "then": [
+        "the race detector reports no data race",
+        "each call returns a result equal to the recorded single-goroutine result for that method, including the ErrNoForge errors from the pull-request methods",
+        "no goroutine panics and the test completes without deadlock"
+      ],
+      "pseudocode": "baseline = {name: call(c, name) for name in methods}\nrun_with_race_detector:\n  wg; for g in 1..8: go func(){ for i in 1..50: name = pick(methods); assert equal(call(c, name), baseline[name]) }()\n  wg.Wait()\nassert no_race_reported and no_panic"
+    },
+    {
+      "id": "TS-01-12",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-3.1"
+      ],
+      "title": "The 22 value types carry the PRD's fields, no struct tags and no pointers outside IssueUpdate",
+      "given": [
+        "the compiled issuex package"
+      ],
+      "when": "reflection walks Repo, IssueRef, Remote, Repository, Permissions, User, Label, Issue, Comment, PullRequest, PullRequestState, ChangedFile, Check, Review, IssueDraft, IssueUpdate, IssueFilter, PullRequestDraft, MergeOptions, MergeResult, IssueList and CommentList",
+      "then": [
+        "each type's exported field name and type set equals the PRD's exactly, e.g. Issue has Number int, Title, Body, State, URL string, Author User, Labels []string, CreatedAt and UpdatedAt time.Time",
+        "StructTag is the empty string on every field of every type",
+        "the only fields whose Kind is reflect.Ptr are IssueUpdate.Title and IssueUpdate.Body, and no field is a map"
+      ],
+      "pseudocode": "want = {'Repo': [('Owner','string'),('Name','string')], 'MergeResult': [('Merged','bool'),('SHA','string'),('Message','string')], ...}\nassert len(want) == 22\nptrs = []\nfor name, fields in want:\n  t = type_of(name); assert field_list(t) == fields\n  for f in t.Fields: assert string(f.Tag) == '' ; assert f.Type.Kind() != reflect.Map\n    if f.Type.Kind() == reflect.Ptr: ptrs.append(name + '.' + f.Name)\nassert ptrs == ['IssueUpdate.Title','IssueUpdate.Body']"
+    },
+    {
+      "id": "TS-01-13",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-3.2"
+      ],
+      "title": "Repo renders a nested group path and reports validity only when both halves are present",
+      "given": [
+        "Repo values with a plain owner, a nested group owner and each half empty"
+      ],
+      "when": "Path(), String() and Valid() are called on each",
+      "then": [
+        "Repo{\"group/subgroup\",\"project\"}.Path() is \"group/subgroup/project\" and String() returns the same string",
+        "Repo{\"acme\",\"widgets\"}.Path() is \"acme/widgets\"",
+        "Valid() is true for Repo{\"acme\",\"widgets\"} and false for Repo{\"\",\"x\"}, Repo{\"x\",\"\"} and Repo{}"
+      ],
+      "pseudocode": "r = Repo{'group/subgroup','project'}; assert r.Path() == 'group/subgroup/project'; assert r.String() == r.Path()\nassert Repo{'acme','widgets'}.Valid() == true\nfor bad in [Repo{'','x'}, Repo{'x',''}, Repo{}]: assert bad.Valid() == false"
+    },
+    {
+      "id": "TS-01-14",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-3.3",
+        "01-REQ-3.4"
+      ],
+      "title": "IssueRef renders the canonical web URL per forge and falls back to the public host and GitHub",
+      "given": [
+        "IssueRef values covering both forges, both IsPullRequest values, a nested GitLab path, an empty Host and a zero Forge"
+      ],
+      "when": "String() and URL() are called on each",
+      "then": [
+        "IssueRef{Repo{\"o\",\"r\"},42,true,ForgeGitHub,\"github.com\"}.URL() is \"https://github.com/o/r/pull/42\" and the issue form is \"https://github.com/o/r/issues/42\"",
+        "IssueRef{Repo{\"group/sub\",\"p\"},42,true,ForgeGitLab,\"gitlab.com\"}.URL() is \"https://gitlab.com/group/sub/p/-/merge_requests/42\" and the issue form is \".../-/issues/42\"",
+        "with an empty Host, ForgeGitHub yields github.com and ForgeGitLab yields gitlab.com: IssueRef{Repo{\"o\",\"r\"},7,false,\"\",\"\"}.URL() is \"https://github.com/o/r/issues/7\", matching ghapi.IssueRef.URL() today, and the same ref with ForgeGitLab is \"https://gitlab.com/o/r/-/issues/7\"",
+        "String() renders \"o/r#42\" and \"group/sub/p#42\""
+      ],
+      "pseudocode": "cases = [\n (IssueRef{Repo{'o','r'},42,true,ForgeGitHub,'github.com'}, 'https://github.com/o/r/pull/42'),\n (IssueRef{Repo{'o','r'},42,false,ForgeGitHub,'github.com'}, 'https://github.com/o/r/issues/42'),\n (IssueRef{Repo{'group/sub','p'},42,true,ForgeGitLab,'gitlab.com'}, 'https://gitlab.com/group/sub/p/-/merge_requests/42'),\n (IssueRef{Repo{'group/sub','p'},7,false,ForgeGitLab,''}, 'https://gitlab.com/group/sub/p/-/issues/7'),\n (IssueRef{Repo{'o','r'},7,false,'',''}, 'https://github.com/o/r/issues/7')]\nfor ref, want in cases: assert ref.URL() == want\nassert IssueRef{Repo{'o','r'},42,true,ForgeGitHub,'github.com'}.String() == 'o/r#42'"
+    },
+    {
+      "id": "TS-01-15",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-3.5"
+      ],
+      "title": "Forge, State and MergeMethod are string types whose constants are distinct, non-empty and distinct from the zero value",
+      "given": [
+        "the exported constants of the issuex package"
+      ],
+      "when": "each constant's underlying string and pairwise equality are examined",
+      "then": [
+        "Forge, State and MergeMethod each have Kind reflect.String",
+        "ForgeNone, ForgeGitHub and ForgeGitLab are pairwise distinct, non-empty, and ForgeNone != Forge(\"\") so the zero Forge still means not-yet-resolved",
+        "StateOpen, StateClosed and StateAll are pairwise distinct and non-empty, as are MergeMethodMerge, MergeMethodSquash and MergeMethodRebase, and the zero State and zero MergeMethod are distinct from all of them"
+      ],
+      "pseudocode": "for group in [[ForgeNone,ForgeGitHub,ForgeGitLab],[StateOpen,StateClosed,StateAll],[MergeMethodMerge,MergeMethodSquash,MergeMethodRebase]]:\n  for v in group: assert string(v) != ''\n  assert len(set(group)) == 3\nassert ForgeNone != Forge(''); assert State('') not in [StateOpen,StateClosed,StateAll]; assert MergeMethod('') not in [MergeMethodMerge,MergeMethodSquash,MergeMethodRebase]\nassert reflect.TypeOf(ForgeNone).Kind() == reflect.String"
+    },
+    {
+      "id": "TS-01-16",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-3.6",
+        "01-REQ-3.7"
+      ],
+      "title": "IssueUpdate's optional fields and the list-result structs are declared and documented as the PRD states",
+      "given": [
+        "the issuex package parsed with go/doc and inspected by reflection"
+      ],
+      "when": "IssueUpdate's fields and doc comment, IssueFilter's doc comment, and the result types of ListIssues and ListComments are read",
+      "then": [
+        "IssueUpdate.Title and IssueUpdate.Body are both *string and the type's doc comment states that a nil field leaves the value unchanged and a pointer to the empty string clears it",
+        "ListIssues returns exactly (IssueList, error) and ListComments exactly (CommentList, error) — never a bare bool — with IssueList{Issues []Issue; Truncated bool} and CommentList{Comments []Comment; Truncated bool}",
+        "IssueFilter's doc comment states that every field is optional, that set fields combine with AND, and that a Limit greater than zero overrides Options.IssueListCap for that call"
+      ],
+      "pseudocode": "u = reflect.TypeOf(IssueUpdate{}); assert u.Field('Title').Type.String() == '*string' and u.Field('Body').Type.String() == '*string'\nd = doc_of('IssueUpdate'); assert 'nil' in d and 'unchanged' in d and 'clears' in d\nassert out_types('ListIssues') == ['IssueList','error'] and out_types('ListComments') == ['CommentList','error']\nf = doc_of('IssueFilter'); assert 'optional' in f and 'AND' in f and 'IssueListCap' in f"
+    },
+    {
+      "id": "TS-01-17",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.1"
+      ],
+      "title": "Options declares exactly eight fields and the seven defaults hold the PRD's values",
+      "given": [
+        "the compiled issuex package"
+      ],
+      "when": "reflection walks Options and each exported Default* constant is read",
+      "then": [
+        "Options has exactly the fields Forge Forge, Endpoint string, Token string, HTTPClient *http.Client, UserAgent string, MaxResponseBytes int, IssueListCap int and CommentCap int",
+        "DefaultUserAgent == \"agent-fox\", DefaultHTTPTimeout == 30*time.Second, DefaultMaxResponseBytes == 8<<20, DefaultIssueListCap == 100, DefaultCommentCap == 500",
+        "DefaultGitHubEndpoint == \"https://api.github.com\" (the value ghapi.DefaultBaseURL holds) and DefaultGitLabEndpoint == \"https://gitlab.com/api/v4\""
+      ],
+      "pseudocode": "t = reflect.TypeOf(Options{})\nassert field_list(t) == [('Forge','issuex.Forge'),('Endpoint','string'),('Token','string'),('HTTPClient','*http.Client'),('UserAgent','string'),('MaxResponseBytes','int'),('IssueListCap','int'),('CommentCap','int')]\nassert DefaultUserAgent == 'agent-fox'; assert DefaultHTTPTimeout == 30*time.Second\nassert DefaultMaxResponseBytes == 8<<20; assert DefaultIssueListCap == 100; assert DefaultCommentCap == 500\nassert DefaultGitHubEndpoint == 'https://api.github.com'; assert DefaultGitLabEndpoint == 'https://gitlab.com/api/v4'"
+    },
+    {
+      "id": "TS-01-18",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.2"
+      ],
+      "title": "Unset options are filled with their named defaults and the endpoint loses every trailing slash",
+      "given": [
+        "an environment with no forge variables set (t.Setenv clears them)"
+      ],
+      "when": "the option resolver runs on Options{Forge: ForgeGitLab, Endpoint: \"https://gl.example.com/api/v4//\"} with an empty UserAgent, a nil HTTPClient and zero MaxResponseBytes, IssueListCap and CommentCap",
+      "then": [
+        "the resolved UserAgent is DefaultUserAgent and the resolved HTTPClient is non-nil with Timeout == DefaultHTTPTimeout",
+        "MaxResponseBytes, IssueListCap and CommentCap are DefaultMaxResponseBytes, DefaultIssueListCap and DefaultCommentCap",
+        "the resolved Endpoint is \"https://gl.example.com/api/v4\" with no trailing '/'",
+        "a caller-supplied HTTPClient, UserAgent or positive cap is preserved unchanged"
+      ],
+      "pseudocode": "got = resolveOptions(Options{Forge: ForgeGitLab, Endpoint: 'https://gl.example.com/api/v4//'})\nassert got.UserAgent == DefaultUserAgent\nassert got.HTTPClient != nil and got.HTTPClient.Timeout == DefaultHTTPTimeout\nassert (got.MaxResponseBytes, got.IssueListCap, got.CommentCap) == (DefaultMaxResponseBytes, DefaultIssueListCap, DefaultCommentCap)\nassert got.Endpoint == 'https://gl.example.com/api/v4'\nmine = &http.Client{Timeout: time.Second}\nkept = resolveOptions(Options{Forge: ForgeNone, HTTPClient: mine, UserAgent: 'x', CommentCap: 7})\nassert kept.HTTPClient == mine and kept.UserAgent == 'x' and kept.CommentCap == 7"
+    },
+    {
+      "id": "TS-01-19",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.3"
+      ],
+      "title": "A negative cap is a usage error naming the field, and no client is constructed",
+      "given": [
+        "an environment with GITHUB_API_URL and GITLAB_API_URL both set, so a resolution that continued would be observable"
+      ],
+      "when": "New is called three times with MaxResponseBytes: -1, then IssueListCap: -1, then CommentCap: -5, each otherwise valid with Forge: ForgeNone",
+      "then": [
+        "each call returns a nil ForgeClient and a non-nil error",
+        "each error message begins with \"issuex: \" and contains the offending field name (MaxResponseBytes, IssueListCap, CommentCap respectively)",
+        "no default is substituted for the negative value, and the ambiguity of the two API URL variables is never reached — the error is the usage error, not ErrAmbiguousForge"
+      ],
+      "pseudocode": "t.Setenv('GITHUB_API_URL','https://ghe.example.com/api/v3'); t.Setenv('GITLAB_API_URL','https://gl.example.com/api/v4')\nfor field, opts in [('MaxResponseBytes', Options{Forge: ForgeNone, MaxResponseBytes: -1}), ('IssueListCap', Options{Forge: ForgeNone, IssueListCap: -1}), ('CommentCap', Options{Forge: ForgeNone, CommentCap: -5})]:\n  c, err = New(opts)\n  assert c == nil and err != nil\n  assert strings.HasPrefix(err.Error(), 'issuex: ') and field in err.Error()\n  assert errors.Is(err, ErrAmbiguousForge) == false"
+    },
+    {
+      "id": "TS-01-20",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.4",
+        "01-REQ-4.7"
+      ],
+      "title": "A resolved ForgeNone yields the null client, and NewNull ignores the environment entirely",
+      "given": [
+        "an environment where GITHUB_TOKEN, GITLAB_TOKEN and GITHUB_API_URL are all set with t.Setenv"
+      ],
+      "when": "New(Options{Forge: ForgeNone}) and NewNull() are each called",
+      "then": [
+        "New returns a non-nil ForgeClient and a nil error, with Forge() == ForgeNone and Authenticated() == false",
+        "NewNull() returns a non-nil ForgeClient with Forge() == ForgeNone, Authenticated() == false and Close() == nil, despite the tokens and API URL in the environment",
+        "NewNull needs no Options value and reads no environment variable — the two clients behave identically"
+      ],
+      "pseudocode": "t.Setenv('GITHUB_TOKEN','x'); t.Setenv('GITLAB_TOKEN','y'); t.Setenv('GITHUB_API_URL','https://ghe.example.com/api/v3')\nc, err = New(Options{Forge: ForgeNone}); assert err == nil and c != nil\nassert c.Forge() == ForgeNone and c.Authenticated() == false\nn = NewNull(); assert n.Forge() == ForgeNone and n.Authenticated() == false and n.Close() == nil\nassert reflect.TypeOf(n) == reflect.TypeOf(c)"
+    },
+    {
+      "id": "TS-01-21",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.5"
+      ],
+      "title": "A resolved GitHub or GitLab forge is refused with ErrForgeUnsupported and nothing is stubbed with a panic",
+      "given": [
+        "an environment with no forge variables set",
+        "the issuex package source tree"
+      ],
+      "when": "New(Options{Forge: ForgeGitHub}) and New(Options{Forge: ForgeGitLab}) are called, and every .go file in the module is searched for stub markers",
+      "then": [
+        "both calls return a nil ForgeClient and a non-nil error with errors.Is(err, ErrForgeUnsupported) true",
+        "each error message contains the forge value it refused (github, gitlab) and the \"issuex: \" prefix",
+        "no file in issuex/ contains the text panic(\"not implemented\"), and no call panics"
+      ],
+      "pseudocode": "for f in [ForgeGitHub, ForgeGitLab]:\n  c, err = New(Options{Forge: f})\n  assert c == nil and errors.Is(err, ErrForgeUnsupported)\n  assert string(f) in err.Error() and strings.HasPrefix(err.Error(), 'issuex: ')\nfor file in glob('issuex/**/*.go'): assert 'panic(\"not implemented\")' not in read(file)"
+    },
+    {
+      "id": "TS-01-22",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-4.6"
+      ],
+      "title": "New always returns exactly one of a client or an error, of the interface type, and never terminates the program",
+      "given": [
+        "a table of at least 12 Options values: the zero value, each Forge constant, negative MaxResponseBytes/IssueListCap/CommentCap, an unclassifiable endpoint, a GitLab api/v4 endpoint, a GHE api/v3 endpoint, a nil and a supplied HTTPClient, and a set Token",
+        "each crossed with environments set by t.Setenv: empty, GITHUB_API_URL only, GITLAB_API_URL only, both, tokens only"
+      ],
+      "when": "for any (options, environment) pair in that cross product, New is called with the panic recovered and os.Exit/log.Fatal instrumented",
+      "then": [
+        "every call returns either a non-nil ForgeClient with a nil error or a nil ForgeClient with a non-nil error — never both non-nil and never both nil",
+        "no call panics, no call reaches os.Exit or log.Fatal, and no goroutine is left running",
+        "New's declared result type is the interface ForgeClient, and any non-nil client's dynamic type is unexported"
+      ],
+      "pseudocode": "for o in options_table (>=12): for env in env_table:\n  apply(env)\n  c, err = recover_wrap(func(){ return New(o) })\n  assert not panicked\n  assert (c != nil) != (err != nil)\n  if c != nil: assert !isExported(reflect.TypeOf(c).Elem().Name())\nassert result_type_of(New)[0] == 'issuex.ForgeClient'\nassert grep('issuex/**/*.go', 'os.Exit|log.Fatal') == []"
+    },
+    {
+      "id": "TS-01-23",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-4.8"
+      ],
+      "title": "The token is resolved after the forge and never from the other forge's variables",
+      "given": [
+        "a resolved forge and an environment controlled with t.Setenv"
+      ],
+      "when": "options with an empty Token are resolved under: GITHUB_TOKEN only, GH_TOKEN only, both GITHUB_TOKEN and GH_TOKEN, GITLAB_TOKEN only with forge GitLab, GITHUB_TOKEN only with forge GitLab, and no variable at all",
+      "then": [
+        "for ForgeGitHub the resolved token is GITHUB_TOKEN when set, otherwise GH_TOKEN; with both set GITHUB_TOKEN wins",
+        "for ForgeGitLab the resolved token is GITLAB_TOKEN, and with only GITHUB_TOKEN set the resolved token is empty",
+        "a non-empty Options.Token is used unchanged and no variable is read",
+        "with no credential at all, construction returns no error and Authenticated() reports false"
+      ],
+      "pseudocode": "cases = [\n (ForgeGitHub, {'GITHUB_TOKEN':'a'}, 'a'), (ForgeGitHub, {'GH_TOKEN':'b'}, 'b'),\n (ForgeGitHub, {'GITHUB_TOKEN':'a','GH_TOKEN':'b'}, 'a'),\n (ForgeGitLab, {'GITLAB_TOKEN':'g'}, 'g'), (ForgeGitLab, {'GITHUB_TOKEN':'a'}, ''),\n (ForgeGitHub, {}, '')]\nfor forge, env, want in cases: setenv(env); assert resolveOptions(Options{Forge: forge}).Token == want\nassert resolveOptions(Options{Forge: ForgeGitLab, Token: 'explicit'}).Token == 'explicit'\nc, err = New(Options{Forge: ForgeNone}); assert err == nil and c.Authenticated() == false"
+    },
+    {
+      "id": "TS-01-24",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.1"
+      ],
+      "title": "DetectForge classifies an endpoint offline in the PRD's order and refuses everything else",
+      "given": [
+        "an http.RoundTripper installed as the package's only transport that fails and counts any request"
+      ],
+      "when": "DetectForge is called over a table covering https://gitlab.example.com/api/v4, https://ghe.example.com/api/v3, https://api.github.com, https://github.com, https://mygitlab.corp.example/x, https://mygithub.corp.example/x, https://git.example.com, \"::not a url::\" and \"\"",
+      "then": [
+        "/api/v4 yields (ForgeGitLab, true) even on a host containing neither name, and /api/v3 or a host of api.github.com or github.com yields (ForgeGitHub, true)",
+        "a host merely containing \"gitlab\" yields ForgeGitLab and one containing \"github\" yields ForgeGitHub, and the /api/v4 rule wins over a host containing \"github\"",
+        "anything unclassifiable, including the empty string and an unparsable URL, yields (ForgeNone, false)",
+        "the counting RoundTripper records zero round trips"
+      ],
+      "pseudocode": "cases = [('https://gitlab.example.com/api/v4',ForgeGitLab,true),('https://mygithub.corp.example/api/v4',ForgeGitLab,true),\n ('https://ghe.example.com/api/v3',ForgeGitHub,true),('https://api.github.com',ForgeGitHub,true),('https://github.com',ForgeGitHub,true),\n ('https://mygitlab.corp.example/x',ForgeGitLab,true),('https://mygithub.corp.example/x',ForgeGitHub,true),\n ('https://git.example.com',ForgeNone,false),('::not a url::',ForgeNone,false),('',ForgeNone,false)]\nfor in_, f, ok in cases: assert DetectForge(in_) == (f, ok)\nassert transport.calls == 0"
+    },
+    {
+      "id": "TS-01-25",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.2"
+      ],
+      "title": "An explicit Options.Forge is used as given, skipping detection and defaulting the endpoint",
+      "given": [
+        "GITHUB_API_URL set to a GHE root with t.Setenv, and a DetectForge spy that records every call"
+      ],
+      "when": "options are resolved for Options{Forge: ForgeGitLab}, Options{Forge: ForgeGitHub} and Options{Forge: ForgeNone}, each with an empty Endpoint",
+      "then": [
+        "ForgeGitLab resolves to ForgeGitLab at DefaultGitLabEndpoint and ForgeGitHub to ForgeGitHub at DefaultGitHubEndpoint, ignoring GITHUB_API_URL",
+        "ForgeNone resolves to ForgeNone with an empty endpoint and New returns the null client with a nil error",
+        "the DetectForge spy records zero calls in all three cases"
+      ],
+      "pseudocode": "t.Setenv('GITHUB_API_URL','https://ghe.example.com/api/v3')\nassert resolve(Options{Forge: ForgeGitLab}) == (ForgeGitLab, DefaultGitLabEndpoint)\nassert resolve(Options{Forge: ForgeGitHub}) == (ForgeGitHub, DefaultGitHubEndpoint)\nassert resolve(Options{Forge: ForgeNone}) == (ForgeNone, '')\nc, err = New(Options{Forge: ForgeNone}); assert err == nil and c.Forge() == ForgeNone\nassert detectSpy.calls == 0"
+    },
+    {
+      "id": "TS-01-26",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.3"
+      ],
+      "title": "A classifiable Options.Endpoint decides the forge and the API URL variables are ignored",
+      "given": [
+        "GITHUB_API_URL set to https://ghe.example.com/api/v3 and GITLAB_API_URL unset (then both set)"
+      ],
+      "when": "options are resolved for Options{Endpoint: \"https://gitlab.example.com/api/v4\"} with the zero Forge",
+      "then": [
+        "the resolved forge is ForgeGitLab and the resolved endpoint is https://gitlab.example.com/api/v4",
+        "the result is identical whether GITHUB_API_URL alone or both API URL variables are set — no ErrAmbiguousForge is produced",
+        "the reverse case, Options{Endpoint: \"https://ghe.example.com/api/v3\"} with GITLAB_API_URL set, resolves to ForgeGitHub at that endpoint"
+      ],
+      "pseudocode": "t.Setenv('GITHUB_API_URL','https://ghe.example.com/api/v3')\nf, ep, err = resolve(Options{Endpoint: 'https://gitlab.example.com/api/v4'})\nassert err == nil and f == ForgeGitLab and ep == 'https://gitlab.example.com/api/v4'\nt.Setenv('GITLAB_API_URL','https://gl.other.example/api/v4')\nassert resolve(Options{Endpoint: 'https://gitlab.example.com/api/v4'}) == (ForgeGitLab, 'https://gitlab.example.com/api/v4', nil)\nassert resolve(Options{Endpoint: 'https://ghe.example.com/api/v3'}) == (ForgeGitHub, 'https://ghe.example.com/api/v3', nil)"
+    },
+    {
+      "id": "TS-01-27",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.4"
+      ],
+      "title": "An unclassifiable endpoint is refused with ErrAmbiguousForge quoting the endpoint and naming Options.Forge",
+      "given": [
+        "an environment with no forge variables set"
+      ],
+      "when": "New(Options{Endpoint: \"https://git.example.com/api\"}) is called with the zero Forge",
+      "then": [
+        "a nil ForgeClient and a non-nil error are returned",
+        "errors.Is(err, ErrAmbiguousForge) is true and errors.Is(err, ErrForgeUnsupported) is false",
+        "err.Error() begins with \"issuex: \", contains the endpoint in double quotes and contains the text \"Options.Forge\"",
+        "the same input with Options.Forge set instead resolves without error, showing the message names a real remedy"
+      ],
+      "pseudocode": "c, err = New(Options{Endpoint: 'https://git.example.com/api'})\nassert c == nil and errors.Is(err, ErrAmbiguousForge)\nassert '\"https://git.example.com/api\"' in err.Error() and 'Options.Forge' in err.Error()\nassert strings.HasPrefix(err.Error(), 'issuex: ')\n_, err2 = New(Options{Forge: ForgeNone, Endpoint: 'https://git.example.com/api'}); assert err2 == nil"
+    },
+    {
+      "id": "TS-01-28",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.5"
+      ],
+      "title": "Both API URL variables set is refused with ErrAmbiguousForge naming both",
+      "given": [
+        "GITLAB_API_URL=https://gl.example.com/api/v4 and GITHUB_API_URL=https://ghe.example.com/api/v3 set with t.Setenv"
+      ],
+      "when": "New(Options{}) is called with neither Forge nor Endpoint set",
+      "then": [
+        "a nil ForgeClient and a non-nil error are returned",
+        "errors.Is(err, ErrAmbiguousForge) is true",
+        "err.Error() contains both \"GITLAB_API_URL\" and \"GITHUB_API_URL\" and begins with \"issuex: \"",
+        "clearing either variable makes the same call resolve without error"
+      ],
+      "pseudocode": "t.Setenv('GITLAB_API_URL','https://gl.example.com/api/v4'); t.Setenv('GITHUB_API_URL','https://ghe.example.com/api/v3')\nc, err = New(Options{})\nassert c == nil and errors.Is(err, ErrAmbiguousForge)\nassert 'GITLAB_API_URL' in err.Error() and 'GITHUB_API_URL' in err.Error()\nt.Setenv('GITLAB_API_URL',''); _, err2 = New(Options{}); assert errors.Is(err2, ErrForgeUnsupported)"
+    },
+    {
+      "id": "TS-01-29",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-5.6",
+        "01-REQ-5.7",
+        "01-REQ-5.8"
+      ],
+      "title": "With no options set, the environment resolves the forge by API URL, then by token, with GitHub as the tiebreak",
+      "given": [
+        "Options{} with the zero Forge and an empty Endpoint",
+        "an environment controlled entirely with t.Setenv"
+      ],
+      "when": "resolution runs over: GITHUB_API_URL only; GITLAB_API_URL only (with a trailing slash); GITLAB_TOKEN only; GITLAB_TOKEN with GITHUB_TOKEN; GITLAB_TOKEN with GH_TOKEN; and no variable at all",
+      "then": [
+        "exactly one API URL variable set gives that variable's forge with that variable's value as the endpoint, trailing slashes trimmed",
+        "GITLAB_TOKEN alone gives ForgeGitLab at \"https://gitlab.com/api/v4\"",
+        "GITLAB_TOKEN together with GITHUB_TOKEN or GH_TOKEN gives ForgeGitHub at \"https://api.github.com\", the documented tiebreak, and so does an environment with no token at all — with no error for the missing credential"
+      ],
+      "pseudocode": "cases = [\n ({'GITHUB_API_URL':'https://ghe.example.com/api/v3'}, ForgeGitHub, 'https://ghe.example.com/api/v3'),\n ({'GITLAB_API_URL':'https://gl.example.com/api/v4/'}, ForgeGitLab, 'https://gl.example.com/api/v4'),\n ({'GITLAB_TOKEN':'g'}, ForgeGitLab, 'https://gitlab.com/api/v4'),\n ({'GITLAB_TOKEN':'g','GITHUB_TOKEN':'h'}, ForgeGitHub, 'https://api.github.com'),\n ({'GITLAB_TOKEN':'g','GH_TOKEN':'h'}, ForgeGitHub, 'https://api.github.com'),\n ({}, ForgeGitHub, 'https://api.github.com')]\nfor env, forge, ep in cases:\n  clear_all(); setenv(env)\n  f, e, err = resolve(Options{}); assert err == nil and f == forge and e == ep"
+    },
+    {
+      "id": "TS-01-30",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.1"
+      ],
+      "title": "ParseRepo accepts two or more segments and folds all but the last into Owner",
+      "given": [
+        "repository strings as a caller would type them on a command line"
+      ],
+      "when": "ParseRepo is called on \"acme/widgets\", \" owner/repo.git/ \", \"/acme/widgets/\", \"group/subgroup/project\" and \"a/b/c/d.git\"",
+      "then": [
+        "ParseRepo(\"acme/widgets\") is (Repo{\"acme\",\"widgets\"}, true)",
+        "ParseRepo(\" owner/repo.git/ \") is (Repo{\"owner\",\"repo\"}, true) — surrounding whitespace and slashes trimmed and one trailing .git stripped",
+        "ParseRepo(\"group/subgroup/project\") is (Repo{\"group/subgroup\",\"project\"}, true) and ParseRepo(\"a/b/c/d.git\") is (Repo{\"a/b/c\",\"d\"}, true)",
+        "the returned Repo is Valid() in every accepted case"
+      ],
+      "pseudocode": "cases = [('acme/widgets', Repo{'acme','widgets'}), (' owner/repo.git/ ', Repo{'owner','repo'}), ('/acme/widgets/', Repo{'acme','widgets'}), ('group/subgroup/project', Repo{'group/subgroup','project'}), ('a/b/c/d.git', Repo{'a/b/c','d'})]\nfor in_, want in cases:\n  got, ok = ParseRepo(in_); assert ok and got == want and got.Valid()"
+    },
+    {
+      "id": "TS-01-31",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.2"
+      ],
+      "title": "ParseRepo rejects empty, single-segment and URL-like or shell-unsafe input without an error value",
+      "given": [
+        "the rejection table from the criterion's contract"
+      ],
+      "when": "ParseRepo is called on \"\", \"owner\", \"owner/\", \"/repo\", \"a b/c\", \"a/../b\", \"host:owner/repo\", \"git@host/o/r\" and \"https://host/o/r\"",
+      "then": [
+        "every call returns exactly (Repo{}, false) — the zero Repo and the false flag",
+        "the function's signature returns no error value, so nothing but the bool reports the rejection",
+        "no call panics, including on the empty string and on input made only of slashes"
+      ],
+      "pseudocode": "for bad in ['', 'owner', 'owner/', '/repo', 'a b/c', 'a/../b', 'host:owner/repo', 'git@host/o/r', 'https://host/o/r', '///']:\n  got, ok = ParseRepo(bad)\n  assert ok == false and got == Repo{}\nassert out_types('ParseRepo') == ['Repo','bool']"
+    },
+    {
+      "id": "TS-01-32",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.3"
+      ],
+      "title": "ParseRemote reads the three git spellings for both forges and normalises the host",
+      "given": [
+        "the default host sets for GitHub and GitLab"
+      ],
+      "when": "ParseRemote is called on git@gitlab.com:group/subgroup/project.git, https://gitlab.com/group/subgroup/project.git, ssh://git@gitlab.com/group/subgroup/project.git, git@github.com:acme/widgets.git, https://www.github.com:443/acme/widgets and https://user:token@github.com/acme/widgets.git",
+      "then": [
+        "the three GitLab spellings all return the identical Remote{Repo{\"group/subgroup\",\"project\"}, ForgeGitLab, \"gitlab.com\"} with true",
+        "the GitHub spellings return Remote{Repo{\"acme\",\"widgets\"}, ForgeGitHub, \"github.com\"} with true, with the www. prefix, the port and the userinfo removed and the host lowercased",
+        "Forge is inferred from the host in every case and the returned Repo is Valid()"
+      ],
+      "pseudocode": "gl = Remote{Repo{'group/subgroup','project'}, ForgeGitLab, 'gitlab.com'}\nfor in_ in ['git@gitlab.com:group/subgroup/project.git','https://gitlab.com/group/subgroup/project.git','ssh://git@gitlab.com/group/subgroup/project.git']:\n  got, ok = ParseRemote(in_); assert ok and got == gl\ngh = Remote{Repo{'acme','widgets'}, ForgeGitHub, 'github.com'}\nfor in_ in ['git@github.com:acme/widgets.git','https://WWW.GitHub.com:443/acme/widgets','https://user:token@github.com/acme/widgets.git']:\n  got, ok = ParseRemote(in_); assert ok and got == gh"
+    },
+    {
+      "id": "TS-01-33",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.4"
+      ],
+      "title": "ParseRemote rejects an unrecognised host or a too-short path and executes no process",
+      "given": [
+        "the default host sets, and a test that fails if any subprocess is started"
+      ],
+      "when": "ParseRemote is called on git@bitbucket.org:o/r.git, https://example.com/o/r, /srv/git/widgets.git, \"origin\" and \"\"",
+      "then": [
+        "every call returns exactly (Remote{}, false), so no repository is derived from an unrelated forge",
+        "no process is executed to obtain or resolve the remote — the issuex package contains no exec.Command call site",
+        "no call panics and no environment variable other than GITHUB_API_URL and GITLAB_API_URL is read"
+      ],
+      "pseudocode": "for bad in ['git@bitbucket.org:o/r.git', 'https://example.com/o/r', '/srv/git/widgets.git', 'origin', '']:\n  got, ok = ParseRemote(bad); assert ok == false and got == Remote{}\nassert grep('issuex/**/*.go', 'exec.Command|exec.CommandContext') == []"
+    },
+    {
+      "id": "TS-01-34",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.5"
+      ],
+      "title": "ParseIssueURL recognises the GitHub and GitLab issue and pull/merge-request forms",
+      "given": [
+        "the default host sets for both forges"
+      ],
+      "when": "ParseIssueURL is called on https://github.com/o/r/issues/42, https://github.com/o/r/pull/42, https://www.github.com/o/r/issues/1#issuecomment-9, https://gitlab.com/group/sub/p/-/issues/7 and https://gitlab.com/group/sub/p/-/merge_requests/7",
+      "then": [
+        "ParseIssueURL(\"https://github.com/o/r/pull/42\") yields IssueRef{Repo{\"o\",\"r\"},42,true,ForgeGitHub,\"github.com\"} and the issues form the same ref with IsPullRequest false",
+        "ParseIssueURL(\"https://gitlab.com/group/sub/p/-/issues/7\") yields IssueRef{Repo{\"group/sub\",\"p\"},7,false,ForgeGitLab,\"gitlab.com\"} and the merge_requests form the same ref with IsPullRequest true",
+        "a fragment or query string does not prevent recognition, and the returned ref's URL() round-trips to the canonical form of the input"
+      ],
+      "pseudocode": "cases = [('https://github.com/o/r/issues/42', IssueRef{Repo{'o','r'},42,false,ForgeGitHub,'github.com'}),\n ('https://github.com/o/r/pull/42', IssueRef{Repo{'o','r'},42,true,ForgeGitHub,'github.com'}),\n ('https://www.github.com/o/r/issues/1#issuecomment-9', IssueRef{Repo{'o','r'},1,false,ForgeGitHub,'github.com'}),\n ('https://gitlab.com/group/sub/p/-/issues/7', IssueRef{Repo{'group/sub','p'},7,false,ForgeGitLab,'gitlab.com'}),\n ('https://gitlab.com/group/sub/p/-/merge_requests/7', IssueRef{Repo{'group/sub','p'},7,true,ForgeGitLab,'gitlab.com'})]\nfor in_, want in cases:\n  got, ok = ParseIssueURL(in_); assert ok and got == want\nassert ParseIssueURL('https://gitlab.com/group/sub/p/-/merge_requests/7')[0].URL() == 'https://gitlab.com/group/sub/p/-/merge_requests/7'"
+    },
+    {
+      "id": "TS-01-35",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.6"
+      ],
+      "title": "ParseIssueURL rejects a foreign host, a bad scheme, a bad number and a non-issue path",
+      "given": [
+        "the default host sets, with no GITHUB_API_URL or GITLAB_API_URL set"
+      ],
+      "when": "ParseIssueURL is called on ftp://github.com/o/r/issues/1, https://example.com/o/r/issues/1, https://github.com/o/r/issues/0, https://github.com/o/r/issues/-3, https://github.com/o/r/issues/abc, https://github.com/o/r/issues, https://github.com/o/r, https://github.com/o/r/blob/main/f.go, https://gitlab.com/group/p/-/commit/deadbeef and \"the widget/ package panics\"",
+      "then": [
+        "every call returns exactly (IssueRef{}, false) — no reference is produced for any of them",
+        "a URL on a recognised host that points at a file, a commit, a tree or a repository root is rejected as firmly as one on an unknown host",
+        "a number that is absent, zero, negative or not an integer is rejected, and no call panics"
+      ],
+      "pseudocode": "for bad in ['ftp://github.com/o/r/issues/1','https://example.com/o/r/issues/1','https://github.com/o/r/issues/0','https://github.com/o/r/issues/-3','https://github.com/o/r/issues/abc','https://github.com/o/r/issues','https://github.com/o/r','https://github.com/o/r/blob/main/f.go','https://gitlab.com/group/p/-/commit/deadbeef','https://gitlab.com/group/p/-/tree/main','the widget/ package panics','']:\n  got, ok = ParseIssueURL(bad)\n  assert ok == false and got == IssueRef{}"
+    },
+    {
+      "id": "TS-01-36",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.7"
+      ],
+      "title": "GitHubHosts and GitLabHosts return the public host plus the Enterprise host with and without its api. prefix",
+      "given": [
+        "API URL strings covering an api.-prefixed enterprise root, a bare enterprise root, an empty string, an unparsable string, a host-less string and each forge's public API host"
+      ],
+      "when": "GitHubHosts(apiURL) and GitLabHosts(apiURL) are called on each",
+      "then": [
+        "GitHubHosts(\"https://api.ghe.example.com\") is exactly {github.com, api.ghe.example.com, ghe.example.com}",
+        "GitHubHosts(\"\") and GitHubHosts(\"https://api.github.com\") are both exactly {github.com}; GitHubHosts of an unparsable or host-less string is also {github.com}",
+        "GitLabHosts(\"https://gl.example.com/api/v4\") is exactly {gitlab.com, gl.example.com}, and GitLabHosts(\"\") and GitLabHosts(\"https://gitlab.com/api/v4\") are exactly {gitlab.com}"
+      ],
+      "pseudocode": "assert keys(GitHubHosts('https://api.ghe.example.com')) == {'github.com','api.ghe.example.com','ghe.example.com'}\nfor a in ['', 'https://api.github.com', '::bad::', '/no/host']: assert keys(GitHubHosts(a)) == {'github.com'}\nassert keys(GitLabHosts('https://gl.example.com/api/v4')) == {'gitlab.com','gl.example.com'}\nfor a in ['', 'https://gitlab.com/api/v4']: assert keys(GitLabHosts(a)) == {'gitlab.com'}"
+    },
+    {
+      "id": "TS-01-37",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-6.8"
+      ],
+      "title": "The exported parsers read the API URL variables and delegate to unexported host-set variants the tests drive",
+      "given": [
+        "GITLAB_API_URL and GITHUB_API_URL controlled with t.Setenv"
+      ],
+      "when": "ParseIssueURL and ParseRemote are called on enterprise-host inputs with and without the variables set, and the unexported variants are called with explicit host sets",
+      "then": [
+        "with GITLAB_API_URL=https://gl.example.com/api/v4, ParseIssueURL(\"https://gl.example.com/g/p/-/issues/3\") succeeds with Host gl.example.com and Forge ForgeGitLab, and ParseRemote(\"git@gl.example.com:g/p.git\") succeeds",
+        "with the variable unset, both of those inputs are rejected",
+        "the unexported variants accept the same URL when handed the enterprise host set and reject it when handed the default set, so host recognition is testable without the process environment"
+      ],
+      "pseudocode": "t.Setenv('GITLAB_API_URL','https://gl.example.com/api/v4')\nref, ok = ParseIssueURL('https://gl.example.com/g/p/-/issues/3'); assert ok and ref.Host == 'gl.example.com' and ref.Forge == ForgeGitLab\n_, ok2 = ParseRemote('git@gl.example.com:g/p.git'); assert ok2\nt.Setenv('GITLAB_API_URL','')\nassert ParseIssueURL('https://gl.example.com/g/p/-/issues/3')[1] == false\n_, ok3 = parseIssueURL('https://gl.example.com/g/p/-/issues/3', GitHubHosts(''), GitLabHosts('https://gl.example.com/api/v4')); assert ok3\n_, ok4 = parseIssueURL('https://gl.example.com/g/p/-/issues/3', GitHubHosts(''), GitLabHosts('')); assert ok4 == false"
+    },
+    {
+      "id": "TS-01-38",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.1"
+      ],
+      "title": "The seven sentinels are distinct, non-nil and prefixed issuex:",
+      "given": [
+        "the exported error values of the package"
+      ],
+      "when": "each of ErrNotAuthenticated, ErrNotFound, ErrRateLimited, ErrNotMergeable, ErrNoForge, ErrAmbiguousForge and ErrForgeUnsupported is inspected and every ordered pair of distinct sentinels is tested with errors.Is",
+      "then": [
+        "all seven values are non-nil and their messages begin with \"issuex: \"",
+        "errors.Is(a, b) is false for all 42 ordered pairs of distinct sentinels, so no sentinel matches another",
+        "errors.Is(a, a) is true for each, and each message is distinct"
+      ],
+      "pseudocode": "s = [ErrNotAuthenticated, ErrNotFound, ErrRateLimited, ErrNotMergeable, ErrNoForge, ErrAmbiguousForge, ErrForgeUnsupported]\nassert len(s) == 7\nfor e in s: assert e != nil and strings.HasPrefix(e.Error(), 'issuex: ') and errors.Is(e, e)\nassert len(set(e.Error() for e in s)) == 7\nfor a in s: for b in s: if a != b: assert errors.Is(a, b) == false  # 42 pairs"
+    },
+    {
+      "id": "TS-01-39",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.2"
+      ],
+      "title": "HTTPError carries the eight documented fields and renders method, path, status and message",
+      "given": [
+        "the HTTPError type"
+      ],
+      "when": "reflection walks its fields and Error() is called on a populated value",
+      "then": [
+        "the type has exactly Forge Forge, Method string, Path string, Status int, Message string, RetryAfterHeader string, RateLimitReset string and RateLimitRemaining string",
+        "(&HTTPError{Method: \"GET\", Path: \"/repos/o/r\", Status: 404, Message: \"Not Found\"}).Error() == \"GET /repos/o/r: 404 Not Found\"",
+        "an HTTPError with an empty Message still renders the method, path and status without panicking, and *HTTPError satisfies error"
+      ],
+      "pseudocode": "t = reflect.TypeOf(HTTPError{})\nassert field_list(t) == [('Forge','issuex.Forge'),('Method','string'),('Path','string'),('Status','int'),('Message','string'),('RetryAfterHeader','string'),('RateLimitReset','string'),('RateLimitRemaining','string')]\ne = &HTTPError{Method:'GET', Path:'/repos/o/r', Status:404, Message:'Not Found'}\nassert e.Error() == 'GET /repos/o/r: 404 Not Found'\nvar _ error = e\nassert (&HTTPError{Method:'POST', Path:'/x', Status:500}).Error() == 'POST /x: 500 '"
+    },
+    {
+      "id": "TS-01-40",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.3"
+      ],
+      "title": "Unwrap maps 404, 401, 429 and a rate-limited 403 onto their sentinels",
+      "given": [
+        "HTTPError values for status 404, 401, 429 and 403 with RateLimitRemaining \"0\""
+      ],
+      "when": "errors.Is is called against the sentinels without the caller reading Status",
+      "then": [
+        "errors.Is(err404, ErrNotFound) is true and errors.Is(err404, ErrNotAuthenticated) is false",
+        "errors.Is(err401, ErrNotAuthenticated) is true",
+        "errors.Is(err429, ErrRateLimited) and errors.Is(err403rl, ErrRateLimited) are both true",
+        "a wrapped error, fmt.Errorf(\"read issue: %w\", err404), still satisfies errors.Is(..., ErrNotFound)"
+      ],
+      "pseudocode": "e404 = &HTTPError{Status:404}; e401 = &HTTPError{Status:401}; e429 = &HTTPError{Status:429}; e403 = &HTTPError{Status:403, RateLimitRemaining:'0'}\nassert errors.Is(e404, ErrNotFound) and not errors.Is(e404, ErrNotAuthenticated)\nassert errors.Is(e401, ErrNotAuthenticated)\nassert errors.Is(e429, ErrRateLimited) and errors.Is(e403, ErrRateLimited)\nassert errors.Is(fmt.Errorf('read issue: %w', e404), ErrNotFound)"
+    },
+    {
+      "id": "TS-01-41",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.4"
+      ],
+      "title": "An unmapped status unwraps to nil but stays recoverable with errors.As",
+      "given": [
+        "HTTPError values for 403 with RateLimitRemaining \"57\", 403 with no rate-limit headers, 422 and 500"
+      ],
+      "when": "Unwrap() is called and errors.Is is tried against all seven sentinels, then errors.As is used",
+      "then": [
+        "Unwrap() returns nil for each of the four values",
+        "errors.Is(err, s) is false for every one of the seven sentinels",
+        "errors.As(err, &he) is true and he.Status carries the original number (403, 403, 422, 500) and he.Message the original message"
+      ],
+      "pseudocode": "for e in [&HTTPError{Status:403, RateLimitRemaining:'57', Message:'forbidden'}, &HTTPError{Status:403, Message:'forbidden'}, &HTTPError{Status:422, Message:'unprocessable'}, &HTTPError{Status:500, Message:'boom'}]:\n  assert e.Unwrap() == nil\n  for s in seven_sentinels: assert errors.Is(e, s) == false\n  var he *HTTPError; assert errors.As(e, &he) and he.Status == e.Status and he.Message == e.Message"
+    },
+    {
+      "id": "TS-01-42",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.5"
+      ],
+      "title": "RetryAfter reads Retry-After first, then a reset timestamp, adding one second in each case",
+      "given": [
+        "a rate-limited HTTPError (429, and 403 with RateLimitRemaining \"0\")",
+        "a clock reading roughly now"
+      ],
+      "when": "RetryAfter() is called with Retry-After \"30\"; with RateLimitReset 45 seconds in the future; with a RateLimitReset already in the past; and with both Retry-After \"30\" and a reset 600 seconds away",
+      "then": [
+        "Retry-After \"30\" yields (31s, true)",
+        "a reset 45 seconds ahead yields a duration of 46s within one second, and true",
+        "a reset in the past yields (1s, true) rather than a negative or zero duration",
+        "with both present Retry-After wins: the result is 31s, not 601s — and no two-minute ceiling is applied (a Retry-After of 300 yields 301s, true)"
+      ],
+      "pseudocode": "e = func(h map) *HTTPError { return &HTTPError{Status:429, RetryAfterHeader:h.ra, RateLimitReset:h.reset} }\nd, ok = e({ra:'30'}).RetryAfter(); assert ok and d == 31*time.Second\nd, ok = e({reset: str(now+45)}).RetryAfter(); assert ok and abs(d - 46*time.Second) <= time.Second\nd, ok = e({reset: str(now-120)}).RetryAfter(); assert ok and d == 1*time.Second\nd, ok = e({ra:'30', reset: str(now+600)}).RetryAfter(); assert ok and d == 31*time.Second\nd, ok = e({ra:'300'}).RetryAfter(); assert ok and d == 301*time.Second\nd, ok = (&HTTPError{Status:403, RateLimitRemaining:'0', RetryAfterHeader:'30'}).RetryAfter(); assert ok and d == 31*time.Second"
+    },
+    {
+      "id": "TS-01-43",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-7.6"
+      ],
+      "title": "A rate-limited error with no usable header says it cannot tell rather than guessing",
+      "given": [
+        "HTTPError values with status 429 and with 403 plus RateLimitRemaining \"0\""
+      ],
+      "when": "RetryAfter() is called with both header fields absent, both empty, a non-numeric Retry-After (\"soon\"), a non-numeric reset (\"later\") and a negative Retry-After (\"-5\")",
+      "then": [
+        "every call returns exactly (0, false)",
+        "no duration is invented, so the caller falls through to its own policy",
+        "the same values still satisfy errors.Is(err, ErrRateLimited), so classification and timing are independent"
+      ],
+      "pseudocode": "for h in [{}, {ra:'', reset:''}, {ra:'soon'}, {reset:'later'}, {ra:'-5'}, {ra:'-5', reset:'-1'}]:\n  for status, rem in [(429, ''), (403, '0')]:\n    e = &HTTPError{Status: status, RateLimitRemaining: rem, RetryAfterHeader: h.ra, RateLimitReset: h.reset}\n    d, ok = e.RetryAfter()\n    assert d == 0 and ok == false\n    assert errors.Is(e, ErrRateLimited)"
+    },
+    {
+      "id": "TS-01-44",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-7.7"
+      ],
+      "title": "HTTPError's three methods are pure functions of its fields for every status",
+      "given": [
+        "a counting http.RoundTripper installed to detect any network use"
+      ],
+      "when": "for any status in 100–599 crossed with populated headers (Retry-After 0/30/\"x\", RateLimitReset past/future/\"x\", RateLimitRemaining \"\"/\"0\"/\"57\"), Error(), Unwrap() and RetryAfter() are each called twice",
+      "then": [
+        "RetryAfter() returns (0, false) for every status that is not 429 and not a 403 with RateLimitRemaining \"0\", whatever the headers hold",
+        "no returned duration ever exceeds what the headers imply — no two-minute ceiling and no retry count is applied by the type",
+        "both calls of each method return identical results, Error() never panics, and the counting RoundTripper records zero round trips"
+      ],
+      "pseudocode": "for status in 100..599:\n  for ra in ['', '0', '30', 'x']: for reset in ['', past, future, 'x']: for rem in ['', '0', '57']:\n    e = &HTTPError{Status:status, RetryAfterHeader:ra, RateLimitReset:reset, RateLimitRemaining:rem, Method:'GET', Path:'/p'}\n    limited = status == 429 or (status == 403 and rem == '0')\n    d1, ok1 = e.RetryAfter(); d2, ok2 = e.RetryAfter()\n    assert (d1, ok1) == (d2, ok2)\n    if not limited: assert (d1, ok1) == (0, false)\n    assert e.Error() == e.Error() and e.Unwrap() == e.Unwrap()\nassert tripper.calls == 0"
+    },
+    {
+      "id": "TS-01-45",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-8.1"
+      ],
+      "title": "The null client is one unexported type reachable only through NewNull and New(ForgeNone)",
+      "given": [
+        "clients from NewNull() and from New(Options{Forge: ForgeNone})"
+      ],
+      "when": "the dynamic type is inspected and Forge, Authenticated and three successive Close calls are made",
+      "then": [
+        "the dynamic type's name is unexported (starts with a lower-case letter) and the two constructors return the same dynamic type",
+        "the package compiles with `var _ ForgeClient = (*nullClient)(nil)`, so the type satisfies the interface at compile time",
+        "Forge() is ForgeNone, Authenticated() is false, and each of three Close() calls returns nil",
+        "no exported symbol in the package is a concrete client struct implementing ForgeClient"
+      ],
+      "pseudocode": "n = NewNull(); c = must(New(Options{Forge: ForgeNone}))\nname = concrete_type_name(n); assert name[0] is lower-case\nassert concrete_type_name(c) == name\nassert n.Forge() == ForgeNone and n.Authenticated() == false\nfor i in 1..3: assert n.Close() == nil\nassert exported_types_implementing(ForgeClient) == []"
+    },
+    {
+      "id": "TS-01-46",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-8.2"
+      ],
+      "title": "Null-client repository and issue reads return zero values with nil errors and no allocated slices",
+      "given": [
+        "a client from NewNull()"
+      ],
+      "when": "GetRepository, GetIssue, ListIssues and ListComments are called with a live context and ordinary arguments",
+      "then": [
+        "GetIssue returns Issue{} and a nil error; GetRepository returns Repository{} and a nil error",
+        "ListIssues returns IssueList{} whose Issues slice is nil (not an empty allocated slice) and whose Truncated is false, with a nil error",
+        "ListComments returns CommentList{} whose Comments slice is nil and whose Truncated is false, with a nil error",
+        "the results are identical whatever Repo, IssueRef or IssueFilter is supplied"
+      ],
+      "pseudocode": "c = NewNull(); ref = IssueRef{Repo: Repo{'o','r'}, Number: 42}\nrepo, err = c.GetRepository(ctx, Repo{'o','r'}); assert err == nil and repo == Repository{}\niss, err = c.GetIssue(ctx, ref); assert err == nil and iss == Issue{}\nlist, err = c.ListIssues(ctx, Repo{'o','r'}, IssueFilter{State: StateOpen, Limit: 10})\nassert err == nil and list.Issues == nil and list.Truncated == false\ncl, err = c.ListComments(ctx, ref); assert err == nil and cl.Comments == nil and cl.Truncated == false"
+    },
+    {
+      "id": "TS-01-47",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-8.3"
+      ],
+      "title": "Null-client issue writes are silent no-ops returning zero values and nil errors",
+      "given": [
+        "a client from NewNull()",
+        "captured stdout and stderr"
+      ],
+      "when": "CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel and CreateLabel are called with realistic arguments",
+      "then": [
+        "AddComment returns (\"\", nil) — an empty URL and no error",
+        "CreateIssue and UpdateIssue return (Issue{}, nil)",
+        "CloseIssue, AddLabels, RemoveLabel and CreateLabel each return nil",
+        "nothing is written to stdout or stderr, no file is created, and a following GetIssue still returns Issue{} — the writes changed no state"
+      ],
+      "pseudocode": "c = NewNull(); ref = IssueRef{Repo{'o','r'}, 42, false, ForgeNone, ''}\nurl, err = c.AddComment(ctx, ref, 'report body'); assert url == '' and err == nil\ni, err = c.CreateIssue(ctx, Repo{'o','r'}, IssueDraft{Title:'t', Body:'b', Labels:['bug']}); assert i == Issue{} and err == nil\ni, err = c.UpdateIssue(ctx, ref, IssueUpdate{Title: ptr('t2')}); assert i == Issue{} and err == nil\nassert c.CloseIssue(ctx, ref, 'done') == nil\nassert c.AddLabels(ctx, ref, ['a','b']) == nil and c.RemoveLabel(ctx, ref, 'a') == nil\nassert c.CreateLabel(ctx, Repo{'o','r'}, Label{Name:'a'}) == nil\nassert captured_stdout == '' and captured_stderr == ''"
+    },
+    {
+      "id": "TS-01-48",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-8.4"
+      ],
+      "title": "No repository or issue method on the null client ever returns an error, least of all ErrNotAuthenticated",
+      "given": [
+        "a client from NewNull() and one from New(Options{Forge: ForgeNone})"
+      ],
+      "when": "for any of the 11 repository and issue methods crossed with degenerate arguments — an empty Repo, a zero IssueRef, a nil label slice, an empty string body, an IssueUpdate with both fields nil and an IssueFilter with a negative Limit",
+      "then": [
+        "every call returns a nil error, for every method and every argument combination",
+        "errors.Is(err, ErrNotAuthenticated) is never satisfiable from any of these calls, because the null client is the absence of a client rather than an unauthenticated one",
+        "no call panics on a nil slice or a nil pointer field"
+      ],
+      "pseudocode": "methods = [GetRepository, CreateIssue, GetIssue, UpdateIssue, CloseIssue, ListIssues, AddComment, ListComments, AddLabels, RemoveLabel, CreateLabel]\nassert len(methods) == 11\nargsets = [zero_args, empty_repo, nil_labels, empty_body, IssueUpdate{}, IssueFilter{Limit:-1}]\nfor c in [NewNull(), must(New(Options{Forge: ForgeNone}))]:\n  for m in methods: for a in applicable(argsets, m):\n    err = last_error(call(c, m, ctx, a))\n    assert err == nil and errors.Is(err, ErrNotAuthenticated) == false"
+    },
+    {
+      "id": "TS-01-49",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-8.5"
+      ],
+      "title": "Every pull-request method on the null client fails loudly with ErrNoForge naming the method",
+      "given": [
+        "a client from NewNull()"
+      ],
+      "when": "CreatePullRequest, GetPullRequest, ListChangedFiles, GetPullRequestState, ListChecks, ListReviews, AddReviewComment, MergePullRequest and ClosePullRequest are each called",
+      "then": [
+        "each of the nine returns a non-nil error with errors.Is(err, ErrNoForge) true",
+        "each error message contains the called method's name and the \"issuex: \" prefix",
+        "each returns the zero value of its result type alongside the error: PullRequest{}, nil []ChangedFile, PullRequestState{}, nil []Check, nil []Review, \"\" and MergeResult{}",
+        "none of the errors satisfies errors.Is(err, ErrNotMergeable) or errors.Is(err, ErrNotAuthenticated)"
+      ],
+      "pseudocode": "c = NewNull(); ref = IssueRef{Repo{'o','r'}, 7, true, ForgeNone, ''}\ncases = {'CreatePullRequest': c.CreatePullRequest(ctx, Repo{'o','r'}, PullRequestDraft{}), 'GetPullRequest': c.GetPullRequest(ctx, ref), 'ListChangedFiles': ..., 'GetPullRequestState': ..., 'ListChecks': ..., 'ListReviews': ..., 'AddReviewComment': c.AddReviewComment(ctx, ref, 'b'), 'MergePullRequest': c.MergePullRequest(ctx, ref, MergeOptions{}), 'ClosePullRequest': c.ClosePullRequest(ctx, ref)}\nassert len(cases) == 9\nfor name, (result, err) in cases:\n  assert errors.Is(err, ErrNoForge) and name in err.Error() and strings.HasPrefix(err.Error(), 'issuex: ')\n  assert result == zero_of(type(result))\n  assert not errors.Is(err, ErrNotMergeable) and not errors.Is(err, ErrNotAuthenticated)"
+    },
+    {
+      "id": "TS-01-50",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-8.6"
+      ],
+      "title": "A cancelled or expired context changes nothing for the null client",
+      "given": [
+        "a context cancelled before the call and a context whose deadline has already passed"
+      ],
+      "when": "GetIssue, ListComments, AddComment, AddLabels and MergePullRequest are called on NewNull() with each dead context",
+      "then": [
+        "GetIssue returns (Issue{}, nil) and ListComments returns (CommentList{}, nil) — the same as with a live context",
+        "AddComment returns (\"\", nil) and AddLabels returns nil",
+        "MergePullRequest returns MergeResult{} and an error satisfying errors.Is(err, ErrNoForge)",
+        "context.Canceled and context.DeadlineExceeded are never returned by any of these calls"
+      ],
+      "pseudocode": "cancelled, cancel = context.WithCancel(context.Background()); cancel()\nexpired, _ = context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))\nfor ctx in [cancelled, expired]:\n  i, err = c.GetIssue(ctx, ref); assert i == Issue{} and err == nil\n  cl, err = c.ListComments(ctx, ref); assert cl == CommentList{} and err == nil\n  u, err = c.AddComment(ctx, ref, 'x'); assert u == '' and err == nil\n  assert c.AddLabels(ctx, ref, ['a']) == nil\n  m, err = c.MergePullRequest(ctx, ref, MergeOptions{})\n  assert m == MergeResult{} and errors.Is(err, ErrNoForge)\n  assert not errors.Is(err, context.Canceled) and not errors.Is(err, context.DeadlineExceeded)"
+    },
+    {
+      "id": "TS-01-51",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-9.1",
+        "01-REQ-9.2"
+      ],
+      "title": "The module's package doc and README state the module, its separateness, the invariant and the consumer contract",
+      "given": [
+        "issuex/doc.go and issuex/README.md in the checkout"
+      ],
+      "when": "doc.go is parsed for its package comment, `cd issuex && go doc .` is run, and README.md is read",
+      "then": [
+        "issuex/doc.go begins with a comment block immediately followed by `package issuex`, and go doc prints what the module is, why it is a separate module rather than a package of the root module, and the invariant that no model is given a tool that reaches it",
+        "issuex/README.md has a section for each of the ForgeClient interface, the Options fields with their defaults, the environment variables GITHUB_TOKEN, GH_TOKEN, GITHUB_API_URL, GITLAB_TOKEN and GITLAB_API_URL, and the error taxonomy naming the seven sentinels and HTTPError",
+        "README.md contains the literal module path github.com/agent-fox-dev/agent-fox/issuex and the literal tag form issuex/vX.Y.Z"
+      ],
+      "pseudocode": "src = read('issuex/doc.go'); assert src.startswith('//') and re.search(r'\\n\\s*package issuex', src)\nd = run('cd issuex && go doc .').stdout\nassert 'separate module' in d and 'no model' in d and 'issuex' in d\nr = read('issuex/README.md')\nfor s in ['ForgeClient','Options','GITHUB_TOKEN','GH_TOKEN','GITHUB_API_URL','GITLAB_TOKEN','GITLAB_API_URL','HTTPError','ErrNotAuthenticated','ErrNotFound','ErrRateLimited','ErrNotMergeable','ErrNoForge','ErrAmbiguousForge','ErrForgeUnsupported','github.com/agent-fox-dev/agent-fox/issuex','issuex/vX.Y.Z']: assert s in r"
+    },
+    {
+      "id": "TS-01-52",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-9.3",
+        "01-REQ-9.4"
+      ],
+      "title": "The docs directory points at the new module and records its environment variables and the nested build",
+      "given": [
+        "docs/README.md, docs/development.md, docs/configuration.md and docs/cli.md"
+      ],
+      "when": "each file is read and searched for the new rows and entries",
+      "then": [
+        "docs/README.md contains a table row whose link target is ../issuex/README.md, beside the existing afspec row",
+        "docs/development.md contains \"issuex/\" in the repository layout block, an issuex bullet in the Go package structure list, and text naming `cd issuex && go test` and `cd issuex && go vet`",
+        "docs/configuration.md and docs/cli.md each contain a GITLAB_TOKEN row and a GITLAB_API_URL row whose description names issuex as their only reader",
+        "both files state that spec, issue and fix still use internal/ghapi and are GitHub-only until the adoption spec lands"
+      ],
+      "pseudocode": "readme = read('docs/README.md'); assert '../issuex/README.md' in readme and '../afspec/README.md' in readme\ndev = read('docs/development.md'); assert 'issuex/' in layout_block(dev) and 'issuex' in package_structure_list(dev)\nassert 'cd issuex && go test' in dev and 'cd issuex && go vet' in dev\nfor f in ['docs/configuration.md','docs/cli.md']:\n  t = read(f)\n  assert row(t,'GITLAB_TOKEN') and row(t,'GITLAB_API_URL')\n  assert 'issuex' in row(t,'GITLAB_TOKEN') and 'issuex' in row(t,'GITLAB_API_URL')\n  assert 'GitHub-only' in t and 'internal/ghapi' in t"
+    },
+    {
+      "id": "TS-01-53",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-1",
+        "01-REQ-4.4",
+        "01-REQ-8.2",
+        "01-REQ-8.3"
+      ],
+      "title": "A pipeline with no forge configured runs an issue workflow to completion through the null client",
+      "given": [
+        "an environment with GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL and GITLAB_API_URL all cleared with t.Setenv",
+        "no network route and no HTTP stub of any kind installed"
+      ],
+      "when": "a caller calls issuex.New(Options{Forge: ForgeNone}), then Authenticated(), then GetIssue for owner/repo#42, then AddComment with a report body and AddLabels with two labels, and finally Close",
+      "then": [
+        "New returns a non-nil ForgeClient with a nil error and Forge() == ForgeNone",
+        "Authenticated() is false, GetIssue returns Issue{} with a nil error, and ListIssues/ListComments would return zero lists with nil slices",
+        "AddComment returns an empty URL and a nil error and AddLabels returns nil — nothing is posted anywhere",
+        "Close returns nil and the workflow finishes having produced no error and no output on stdout or stderr"
+      ],
+      "real_components": [
+        "issuex.New and its option resolver",
+        "the forge resolution path",
+        "the null ForgeClient implementation",
+        "the issuex value types (Repo, IssueRef, Issue)"
+      ]
+    },
+    {
+      "id": "TS-01-54",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-2",
+        "01-REQ-4.5",
+        "01-REQ-5.5"
+      ],
+      "title": "A caller building from the environment is told the forge is unsupported, then that it is ambiguous",
+      "given": [
+        "a test process with all forge variables cleared, then GITHUB_API_URL set to https://ghe.example.com/api/v3 and GITHUB_TOKEN set with t.Setenv",
+        "a transport that fails and counts any HTTP request"
+      ],
+      "when": "issuex.New(Options{}) is called, then GITLAB_API_URL=https://gl.example.com/api/v4 is added and issuex.New(Options{}) is called again",
+      "then": [
+        "the first call returns a nil ForgeClient and an error satisfying errors.Is(err, ErrForgeUnsupported) whose message names github, after resolving ForgeGitHub at the GHE endpoint and the token from GITHUB_TOKEN",
+        "the second call returns a nil ForgeClient and an error satisfying errors.Is(err, ErrAmbiguousForge) whose message contains both GITHUB_API_URL and GITLAB_API_URL",
+        "neither call panics, neither reaches os.Exit, and the counting transport records zero round trips"
+      ],
+      "real_components": [
+        "issuex.New",
+        "the option resolver and token resolution",
+        "DetectForge",
+        "the process environment via t.Setenv",
+        "the sentinel error values"
+      ]
+    },
+    {
+      "id": "TS-01-55",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-3",
+        "01-REQ-6.3",
+        "01-REQ-6.5",
+        "01-REQ-3.3"
+      ],
+      "title": "A reference travels from a git remote string to a canonical web URL without running git",
+      "given": [
+        "the remote string git@gitlab.com:group/subgroup/project.git, obtained elsewhere",
+        "no GITHUB_API_URL or GITLAB_API_URL set, and a test that fails if any subprocess starts"
+      ],
+      "when": "ParseRemote is called on that string, then ParseIssueURL on https://gitlab.com/group/subgroup/project/-/merge_requests/7, then URL() and String() on the resulting reference",
+      "then": [
+        "ParseRemote returns Remote{Repo{Owner: \"group/subgroup\", Name: \"project\"}, ForgeGitLab, \"gitlab.com\"} and true",
+        "ParseIssueURL returns an IssueRef with Repo{\"group/subgroup\",\"project\"}, Number 7, IsPullRequest true, Forge ForgeGitLab and Host gitlab.com, whose Repo equals the one ParseRemote produced",
+        "ref.URL() returns the original https://gitlab.com/group/subgroup/project/-/merge_requests/7 and ref.String() returns group/subgroup/project#7",
+        "no process was executed at any point in the chain"
+      ],
+      "real_components": [
+        "ParseRemote and its host-set resolution",
+        "ParseIssueURL",
+        "GitHubHosts and GitLabHosts",
+        "Repo and IssueRef rendering"
+      ]
+    },
+    {
+      "id": "TS-01-56",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-4",
+        "01-REQ-7.3",
+        "01-REQ-7.5"
+      ],
+      "title": "A caller classifies a rate-limited and then a missing-resource forge response through HTTPError alone",
+      "given": [
+        "a 403 response record carrying X-RateLimit-Remaining: 0 and X-RateLimit-Reset 30 seconds in the future",
+        "a 404 response record with no rate-limit headers"
+      ],
+      "when": "the caller builds *HTTPError values from those records and asks errors.Is and RetryAfter about them",
+      "then": [
+        "errors.Is(err403, ErrRateLimited) is true without the caller reading Status, and err403.Error() renders \"{method} {path}: 403 {message}\"",
+        "err403.RetryAfter() reports approximately 31 seconds and true (the reset plus one second), with no ceiling applied",
+        "errors.Is(err404, ErrNotFound) is true, err404.RetryAfter() is (0, false), and the caller stops retrying",
+        "errors.As recovers the *HTTPError from both and its Status carries 403 and 404"
+      ],
+      "real_components": [
+        "the HTTPError type with Error, Unwrap and RetryAfter",
+        "the sentinel error values",
+        "the standard errors package (Is/As)"
+      ]
+    },
+    {
+      "id": "TS-01-57",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-5",
+        "01-REQ-1.3",
+        "01-REQ-1.4",
+        "01-REQ-1.5"
+      ],
+      "title": "make check builds, vets and tests the nested module offline and fails when it breaks",
+      "given": [
+        "a checkout with the module cache warm, no outbound network route, and GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN, GITHUB_API_URL and GITLAB_API_URL absent from the environment"
+      ],
+      "when": "make check is run to completion, and then run again with a failing test injected into issuex/",
+      "then": [
+        "the first run executes gofmt -l . and go vet ./... at the root, then cd issuex && go vet ./..., then go test ./... -count=1 at the root, then cd issuex && go test ./... -count=1, and exits 0",
+        "the issuex test binary's output shows its tests ran (not skipped) with no network and no credentials",
+        "the second run exits non-zero and its output names the failing `cd issuex && go test ./... -count=1` command and the failing test",
+        "make test-fast on the clean checkout also enters the module with -short and exits 0"
+      ],
+      "real_components": [
+        "the repository Makefile",
+        "the Go toolchain (go vet, go test, gofmt)",
+        "the root module's test suite",
+        "the issuex module's test suite"
+      ]
+    }
+  ]
+}
