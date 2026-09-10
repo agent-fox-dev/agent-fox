@@ -1,0 +1,121 @@
+From 211b99bd3db3e444d2af319ce921c9e62e31b545 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 16:07:41 +0000
+Subject: [PATCH] fix(google): wrap a tool result carrying a $-prefixed key
+ instead of passing it through
+
+functionResponse.response is not an opaque payload on the Gemini wire: a
+{"$ref": name} object inside it is Gemini's own syntax for a reference to a
+functionResponse.parts entry by display_name, and a name that matches no
+part is a 400 for the whole request. A tool result whose text is a JSON
+object was passed through verbatim, so a JSON Schema read from the
+workspace with read_file reached the wire as a live reference:
+
+  HTTP 400: INVALID_ARGUMENT: The referenced name `#/$defs/test` in
+  function_response.response does not match to a display_name in the
+  function_response.parts.
+
+An object with a $-prefixed key at any depth is now wrapped under "output"
+like plain text. Every other object still passes through verbatim.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01YFJ5kGiEnzxBfmZBKoNV4v
+---
+ provider/google/google.go      | 42 ++++++++++++++++++++++++++++++++--
+ provider/google/google_test.go | 13 +++++++++++
+ 2 files changed, 53 insertions(+), 2 deletions(-)
+
+diff --git a/provider/google/google.go b/provider/google/google.go
+index 52864de..511a914 100644
+--- a/provider/google/google.go
++++ b/provider/google/google.go
+@@ -748,7 +748,7 @@ func encodeParts(c core.Content, nameByID map[string]string) []part {
+ // 400s on every tool call — the single easiest way to get this provider wrong.
+ // A result whose text is already a JSON object is passed through VERBATIM,
+ // which keeps the tool's own key order intact rather than re-wrapping and
+-// re-sorting it.
++// re-sorting it — unless the object carries a key Gemini reads as its own.
+ func responseObject(v core.ToolResultMessage) json.RawMessage {
+ 	return responseBytes(v.Content, v.IsError)
+ }
+@@ -759,7 +759,7 @@ func responseBytes(c core.Content, isErr bool) json.RawMessage {
+ 		b, _ := json.Marshal(map[string]string{"error": text})
+ 		return b
+ 	}
+-	if obj := objectBytes(text); obj != nil {
++	if obj := objectBytes(text); obj != nil && !hasReservedKey(obj) {
+ 		return obj
+ 	}
+ 	b, _ := json.Marshal(map[string]string{"output": text})
+@@ -774,6 +774,44 @@ func objectBytes(s string) json.RawMessage {
+ 	return json.RawMessage(t)
+ }
+ 
++// hasReservedKey reports whether a JSON object carries, at any depth, a key
++// Gemini interprets rather than passes to the model.
++//
++// functionResponse.response is not an opaque payload on this wire: a
++// `{"$ref": name}` object inside it is Gemini's own syntax for pointing at a
++// functionResponse.parts entry by display_name, and a name that matches no
++// part is a 400 for the whole request. The text of a tool result is whatever
++// the tool produced — read_file hands back a file verbatim — so a JSON Schema
++// read from the workspace, with its `{"$ref": "#/$defs/test"}`, was reaching
++// the wire as a live reference. An object with a `$`-prefixed key anywhere is
++// therefore wrapped under "output" like plain text, where it is a string the
++// model reads and nothing Gemini resolves.
++func hasReservedKey(obj json.RawMessage) bool {
++	var v any
++	if err := json.Unmarshal(obj, &v); err != nil {
++		return true
++	}
++	return walkForReservedKey(v)
++}
++
++func walkForReservedKey(v any) bool {
++	switch x := v.(type) {
++	case map[string]any:
++		for k, child := range x {
++			if strings.HasPrefix(k, "$") || walkForReservedKey(child) {
++				return true
++			}
++		}
++	case []any:
++		for _, child := range x {
++			if walkForReservedKey(child) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
+ // ------------------------------------------------------------- schema dialect
+ 
+ // geminiStripped are the JSON Schema keywords Gemini's dialect does not accept.
+diff --git a/provider/google/google_test.go b/provider/google/google_test.go
+index 9f5edb6..0321950 100644
+--- a/provider/google/google_test.go
++++ b/provider/google/google_test.go
+@@ -295,6 +295,19 @@ func TestFunctionResponseIsAlwaysAJSONObject(t *testing.T) {
+ 			core.ToolResultMessage{ToolUseID: "c1", ToolName: "t",
+ 				Content: core.Content{core.TextBlock{Text: `{"zeta":1,"alpha":2}`}}},
+ 			`{"zeta":1,"alpha":2}`},
++		// A JSON Schema read from the workspace is a JSON object whose
++		// `{"$ref": ...}` Gemini reads as a reference to a response part,
++		// and "The referenced name `#/$defs/test` ... does not match to a
++		// display_name" is a 400 for the whole request. It goes under
++		// "output" as text, like any other file.
++		{"an object with a $ref key at any depth is wrapped as text",
++			core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file",
++				Content: core.Content{core.TextBlock{Text: `{"items":{"$ref":"#/$defs/test"}}`}}},
++			`{"output":"{\"items\":{\"$ref\":\"#/$defs/test\"}}"}`},
++		{"an object with a $-prefixed key in an array is wrapped as text",
++			core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file",
++				Content: core.Content{core.TextBlock{Text: `{"allOf":[{"$ref":"#/a"}]}`}}},
++			`{"output":"{\"allOf\":[{\"$ref\":\"#/a\"}]}"}`},
+ 	}
+ 	for _, c := range cases {
+ 		t.Run(c.name, func(t *testing.T) {
+-- 
+2.43.0
+
