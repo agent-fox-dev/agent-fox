@@ -400,39 +400,3 @@ func (c *gitlabClient) GetRepository(ctx context.Context, repo Repo) (Repository
 		AllowRebaseMerge: project.MergeMethod == "rebase_merge" || project.MergeMethod == "ff",
 	}, nil
 }
-
-func (c *gitlabClient) CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ReadChangedFiles(ctx context.Context, ref IssueRef) ([]ChangedFile, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) GetPRState(ctx context.Context, ref IssueRef) (PRState, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) GetCIChecks(ctx context.Context, ref IssueRef) ([]CheckRun, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) GetPRReviews(ctx context.Context, ref IssueRef) ([]Review, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) PostReviewComment(ctx context.Context, ref IssueRef, body string) error {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) MergePullRequest(ctx context.Context, ref IssueRef, opts MergeOptions) (MergeResult, error) {
-	panic("not implemented")
-}
-
-func (c *gitlabClient) ClosePullRequest(ctx context.Context, ref IssueRef) error {
-	panic("not implemented")
-}
