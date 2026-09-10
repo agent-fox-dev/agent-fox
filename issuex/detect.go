@@ -59,6 +59,86 @@ func detectForge(o Options) (ForgeType, Options, error) {
 		return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot determine forge from base URL %q", ErrAmbiguousForge, opts.BaseURL)
 	}
 
+	if opts.RemoteURL != "" {
+		if repo, ok := ParseRemote(opts.RemoteURL); ok {
+			host := strings.ToLower(repo.Host)
+			hasHostGH := strings.Contains(host, "github")
+			hasHostGL := strings.Contains(host, "gitlab")
+			if hasHostGH && !hasHostGL {
+				if opts.BaseURL == "" {
+					if apiURL := os.Getenv("GITHUB_API_URL"); apiURL != "" {
+						opts.BaseURL = apiURL
+					} else {
+						opts.BaseURL = "https://api.github.com"
+					}
+				}
+				if opts.Token == "" {
+					if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+						opts.Token = tok
+					} else {
+						opts.Token = os.Getenv("GH_TOKEN")
+					}
+				}
+				if !opts.Repo.Valid() {
+					opts.Repo = repo
+				}
+				return ForgeTypeGitHub, opts, nil
+			}
+			if hasHostGL && !hasHostGH {
+				if opts.BaseURL == "" {
+					if apiURL := os.Getenv("GITLAB_API_URL"); apiURL != "" {
+						opts.BaseURL = apiURL
+					} else {
+						opts.BaseURL = "https://gitlab.com/api/v4"
+					}
+				}
+				if opts.Token == "" {
+					opts.Token = os.Getenv("GITLAB_TOKEN")
+				}
+				if !opts.Repo.Valid() {
+					opts.Repo = repo
+				}
+				return ForgeTypeGitLab, opts, nil
+			}
+		}
+	}
+
+	if opts.Repo.Host != "" {
+		host := strings.ToLower(opts.Repo.Host)
+		hasHostGH := strings.Contains(host, "github")
+		hasHostGL := strings.Contains(host, "gitlab")
+		if hasHostGH && !hasHostGL {
+			if opts.BaseURL == "" {
+				if apiURL := os.Getenv("GITHUB_API_URL"); apiURL != "" {
+					opts.BaseURL = apiURL
+				} else {
+					opts.BaseURL = "https://api.github.com"
+				}
+			}
+			if opts.Token == "" {
+				if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+					opts.Token = tok
+				} else {
+					opts.Token = os.Getenv("GH_TOKEN")
+				}
+			}
+			return ForgeTypeGitHub, opts, nil
+		}
+		if hasHostGL && !hasHostGH {
+			if opts.BaseURL == "" {
+				if apiURL := os.Getenv("GITLAB_API_URL"); apiURL != "" {
+					opts.BaseURL = apiURL
+				} else {
+					opts.BaseURL = "https://gitlab.com/api/v4"
+				}
+			}
+			if opts.Token == "" {
+				opts.Token = os.Getenv("GITLAB_TOKEN")
+			}
+			return ForgeTypeGitLab, opts, nil
+		}
+	}
+
 	ghEnv := os.Getenv("GITHUB_API_URL") != "" || os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != ""
 	glEnv := os.Getenv("GITLAB_API_URL") != "" || os.Getenv("GITLAB_TOKEN") != ""
 
