@@ -276,9 +276,18 @@ func parseErrorMessage(body []byte, defaultMsg string) string {
 // Repository operations
 
 func (c *githubClient) GetRepository(ctx context.Context, repo Repo) (Repository, error) {
+	if !repo.Valid() && c.repo.Valid() {
+		repo = c.repo
+	}
 	var out Repository
 	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s", repo.Owner, repo.Name), nil, &out)
-	return out, err
+	if err != nil {
+		return Repository{}, err
+	}
+	c.allowMergeCommit = out.AllowMergeCommit
+	c.allowSquashMerge = out.AllowSquashMerge
+	c.allowRebaseMerge = out.AllowRebaseMerge
+	return out, nil
 }
 
 // Issue operations (stubs for task 3)

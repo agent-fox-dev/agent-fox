@@ -357,3 +357,83 @@ func TestGitHub_Transport_SentinelErrors_TS_02_24(t *testing.T) {
 		t.Errorf("expected errors.Is(err405, ErrConflict), got %v", err405)
 	}
 }
+
+// TestGitHub_GetRepository_TS_02_5 verifies TS-02-5:
+// GetRepository fetches repository metadata and records permissions and merge policy settings.
+// Verifies: 02-REQ-2.1, 02-REQ-2.2
+func TestGitHub_GetRepository_TS_02_5(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/repos/owner/test-repo" {
+			t.Errorf("expected /repos/owner/test-repo, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"full_name": "owner/test-repo",
+			"default_branch": "main",
+			"private": true,
+			"archived": false,
+			"permissions": {"push": true, "pull": true, "admin": false},
+			"allow_merge_commit": true,
+			"allow_squash_merge": false,
+			"allow_rebase_merge": true
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestGitHubClient(Options{BaseURL: srv.URL, Token: "tok"})
+	repo, err := c.GetRepository(context.Background(), Repo{Owner: "owner", Name: "test-repo"})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if repo.FullName != "owner/test-repo" {
+		t.Errorf("expected FullName owner/test-repo, got %s", repo.FullName)
+	}
+	if repo.DefaultBranch != "main" {
+		t.Errorf("expected DefaultBranch main, got %s", repo.DefaultBranch)
+	}
+	if !repo.Private {
+		t.Errorf("expected Private true, got false")
+	}
+	if repo.Archived {
+		t.Errorf("expected Archived false, got true")
+	}
+	if !repo.Permissions.Push || !repo.Permissions.Pull || repo.Permissions.Admin {
+		t.Errorf("expected Push=true, Pull=true, Admin=false, got %+v", repo.Permissions)
+	}
+	if !c.allowMergeCommit || c.allowSquashMerge || !c.allowRebaseMerge {
+		t.Errorf("expected allowMergeCommit=true, allowSquashMerge=false, allowRebaseMerge=true, got %v, %v, %v",
+			c.allowMergeCommit, c.allowSquashMerge, c.allowRebaseMerge)
+	}
+}
+
+// TestGitHub_GetRepository_TS_02_6 verifies TS-02-6:
+// GetRepository wraps ErrNotFound on 404 responses with private repo guidance for unauthenticated callers.
+// Verifies: 02-REQ-2.3, 02-REQ-2.4
+func TestGitHub_GetRepository_TS_02_6(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message": "Not Found"}`))
+	}))
+	defer srv.Close()
+
+	unauth := newTestGitHubClient(Options{BaseURL: srv.URL})
+	_, errUnauth := unauth.GetRepository(context.Background(), Repo{Owner: "owner", Name: "priv-repo"})
+	if !IsNotFound(errUnauth) {
+		t.Errorf("expected IsNotFound(errUnauth) == true, got %v", errUnauth)
+	}
+	if !strings.Contains(strings.ToLower(errUnauth.Error()), "private") {
+		t.Errorf("expected error message to contain 'private', got %s", errUnauth.Error())
+	}
+
+	auth := newTestGitHubClient(Options{BaseURL: srv.URL, Token: "tok"})
+	_, errAuth := auth.GetRepository(context.Background(), Repo{Owner: "owner", Name: "priv-repo"})
+	if !IsNotFound(errAuth) {
+		t.Errorf("expected IsNotFound(errAuth) == true, got %v", errAuth)
+	}
+	if strings.Contains(strings.ToLower(errAuth.Error()), "private") {
+		t.Errorf("expected auth error not to contain 'private', got %s", errAuth.Error())
+	}
+}
