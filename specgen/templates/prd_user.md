@@ -5,5 +5,5 @@ The idea arrived as {{source_kind}} ({{source_origin}}). Treat it as material to
 --- BEGIN INPUT ---
 {{input}}
 --- END INPUT ---
-{{project_block}}{{landscape_block}}
+{{project_block}}{{landscape_block}}{{split_block}}
 Read the code, resolve every open question yourself, and call submit_prd with the finished PRD.

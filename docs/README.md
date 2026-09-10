@@ -15,7 +15,7 @@
 | [01](adr/01-adopt-spec-format-v2.md) | Adopt spec format version 2 |
 | [02](adr/02-build-the-spec-pipeline-on-agentkit.md) | Build the spec pipeline on AgentKit |
 | [03](adr/03-rebuild-the-skills-as-tools.md) | Rebuild the three skills as tools |
-| [04](adr/04-implement-a-spec-as-a-tool.md) | Implement a spec as a tool |
+| [04](adr/04-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
 
 ## Errata
 

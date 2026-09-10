@@ -82,6 +82,65 @@ func TestSubmitPRDRejectsWhatWouldFailLater(t *testing.T) {
 	}
 }
 
+// The split is the pipeline's plan for the packages it will write, so its
+// shape is checked where the model can still correct it.
+func TestSubmitPRDChecksTheSplit(t *testing.T) {
+	split := func(names ...string) []map[string]any {
+		var out []map[string]any
+		for _, n := range names {
+			out = append(out, map[string]any{"name": n, "scope": "Covers " + n + "."})
+		}
+		return out
+	}
+	cases := []struct {
+		name string
+		set  func(map[string]any)
+		want string
+	}{
+		{"one scope is not a split",
+			func(a map[string]any) { a["recommended_split"] = split("widget_counter") }, "at least two"},
+		{"a scope name the format cannot use",
+			func(a map[string]any) { a["recommended_split"] = split("widget_counter", "Widget Store") },
+			"[a-z][a-z0-9_]*"},
+		{"a name used twice",
+			func(a map[string]any) { a["recommended_split"] = split("widget_counter", "widget_counter") }, "twice"},
+		{"a first scope that is not the PRD being submitted",
+			func(a map[string]any) { a["recommended_split"] = split("widget_store", "widget_counter") },
+			"must be the same name"},
+		{"an empty scope",
+			func(a map[string]any) {
+				a["recommended_split"] = []map[string]any{
+					{"name": "widget_counter", "scope": "Counting."}, {"name": "widget_store", "scope": " "}}
+			}, "empty scope"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args := validPRDArgs()
+			c.set(args)
+			sink, msg, isErr := callSubmitPRD(t, args)
+			if !isErr {
+				t.Fatal("accepted")
+			}
+			if _, ok := sink.get(); ok {
+				t.Error("a rejected submission must not be recorded")
+			}
+			if !strings.Contains(msg, c.want) {
+				t.Errorf("the message must say what to fix; got %q", msg)
+			}
+		})
+	}
+
+	args := validPRDArgs()
+	args["recommended_split"] = split("widget_counter", "widget_store", "widget_report")
+	sink, msg, isErr := callSubmitPRD(t, args)
+	if isErr {
+		t.Fatalf("a well-formed split was rejected: %s", msg)
+	}
+	if got, _ := sink.get(); len(got.RecommendedSplit) != 3 {
+		t.Errorf("RecommendedSplit = %+v", got.RecommendedSplit)
+	}
+}
+
 func TestHasIntent(t *testing.T) {
 	for _, body := range []string{
 		"## Intent\n\nx\n",

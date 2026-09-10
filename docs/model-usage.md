@@ -81,7 +81,7 @@ What each handler rejects, and what the rejection says:
 | `submit_analysis` | an empty title, an unknown classification, an ambiguity with no question | which field, and what it is for |
 | `submit_implementation` | an empty commit subject | that it is the subject of the commit this run makes |
 | `submit_implementation` | `criteria_verdicts` that skips an acceptance criterion the report defined, names one it did not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence | which ids are missing or unknown, and what a piece of evidence has to name |
-| `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent` | each of the three would otherwise fail later and more expensively |
+| `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent`; a `recommended_split` of one scope, with a name the format cannot use or used twice, or whose first scope is not the PRD being submitted | each would otherwise fail later and more expensively — the split's names become directory names, three phases on |
 | `submit_{artifact}` | the artifact's v2 schema, plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`) |
 | `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
 | `submit_survey` | an empty summary, a blocker with no reason | which field, and what it is for |
@@ -95,6 +95,19 @@ shown the field and the submit handler writes its value from the schema
 document's own `$id`. See
 [the erratum](errata/tool_schema_property_names.md). Any other name a tool
 schema cannot carry fails the run in pre-flight, naming the property.
+
+## A split is decided once, and every scope gets its own PRD phase
+
+An input the PRD phase reports as several specs' worth of work is written as
+several packages. The first comes from the PRD just written. Each later scope
+is a fresh `prd` phase with the same system prompt and the same tool, plus a
+block in the task stating the decided split as a fact: every scope in order,
+which are written, which this one is, and that its `spec_name` is fixed. The
+model's job narrows to writing one PRD well against the packages that exist —
+which it can read under the spec root — rather than re-deciding the shape of
+the work. A `recommended_split` it reports anyway is a warning, not a second
+split: the plan was recorded before the first package was written, and the
+plan is what a later run resumes from.
 
 ## Generation is sequential, and each step sees everything before it
 

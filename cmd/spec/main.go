@@ -39,13 +39,20 @@ that order — each validated against the format's schema and its cross-file
 rules before it is written — writes the package under .specs/NN_name/, and
 activates it if it validates.
 
+An input that is more than one spec's worth of work is split: the PRD phase
+reports every scope, and spec writes all of them, one package per scope, each
+built on the ones before it. The split is recorded in the spec root as
+<first_scope>.split.json until the last package is written; a run that stops
+early is resumed by running spec on the same input again.
+
 Everything the model does here is read-only. The only thing written is the
 spec package itself, by this program, after the run.
 
 Exit codes:
   0  a valid package was written
   1  failed; the stage is named in the JSON. An 'invalid_spec' failure still
-     leaves the package on disk with the broken rules named.
+     leaves the package on disk with the broken rules named. A split that
+     stopped early names the scope, and the plan remains to resume from.
   2  usage error — nothing was fetched, nothing was written
 
 Flags:

@@ -55,6 +55,9 @@ type prdRequest struct {
 	Input        string
 	Profile      project.Profile
 	Landscape    []afspec.SpecMeta
+	// Split is set when the PRD is one scope of a decided split: the plan
+	// and the index of the scope to write. Nil for an undivided input.
+	Split *splitContext
 }
 
 type artifactRequest struct {
@@ -89,7 +92,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		Name:   "prd",
 		System: prdSystemPrompt(),
 		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input,
-			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape)),
+			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape), splitBlock(req.Split)),
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,

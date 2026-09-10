@@ -63,21 +63,50 @@ func loadFixture(t *testing.T, specID, specName string) (map[afspec.GenerationSt
 
 // scriptedAuthor stands in for the four model phases.
 type scriptedAuthor struct {
+	t         *testing.T
 	prd       PRD
 	artifacts map[afspec.GenerationStep]map[string]any
-	arch      string
+	// primary is the "NN_name" the artifacts above were relabelled for. A
+	// package with another id or name — a later scope of a split — gets the
+	// fixture relabelled for it on demand.
+	primary string
+	arch    string
 
 	prdErr      error
 	artifactErr map[afspec.GenerationStep]error
 	// skipStepValidation submits an artifact without the per-step check,
 	// standing in for a violation that only whole-package validation can see.
 	skipStepValidation bool
+	// breakScope names the split scope whose tasks artifact is submitted
+	// with one test unowned, so that package does not validate.
+	breakScope string
 
-	steps []afspec.GenerationStep
+	// followOn scripts the PRD phase for one scope of a split, by scope
+	// name. A scope with no script gets the fixture PRD under the planned
+	// name; one in followOnErr fails instead.
+	followOn    map[string]PRD
+	followOnErr map[string]error
+
+	steps       []afspec.GenerationStep
+	prdRequests []prdRequest
 }
 
-func (a *scriptedAuthor) WritePRD(context.Context, prdRequest) (PRD, agentrun.Result, error) {
-	return a.prd, agentrun.Result{Name: "prd", Turns: 3}, a.prdErr
+func (a *scriptedAuthor) WritePRD(_ context.Context, req prdRequest) (PRD, agentrun.Result, error) {
+	a.prdRequests = append(a.prdRequests, req)
+	res := agentrun.Result{Name: "prd", Turns: 3}
+	if req.Split == nil {
+		return a.prd, res, a.prdErr
+	}
+	name := req.Split.Scope().Name
+	if err := a.followOnErr[name]; err != nil {
+		return PRD{}, res, err
+	}
+	if prd, ok := a.followOn[name]; ok {
+		return prd, res, nil
+	}
+	prd := a.prd
+	prd.SpecName, prd.Title, prd.RecommendedSplit = name, "Scope "+name, nil
+	return prd, res, nil
 }
 
 func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest) (map[string]any, agentrun.Result, error) {
@@ -87,9 +116,18 @@ func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest
 		return nil, res, err
 	}
 	content := a.artifacts[req.Step]
+	if req.SpecID+"_"+req.SpecName != a.primary {
+		fixtures, _ := loadFixture(a.t, req.SpecID, req.SpecName)
+		content = fixtures[req.Step]
+	}
+	skip := a.skipStepValidation
+	if a.breakScope != "" && req.SpecName == a.breakScope && req.Step == afspec.StepTasks {
+		dropOneOwnedTest(content)
+		skip = true
+	}
 	// The pipeline validates through the same handler the tool uses, so the
 	// scripted author goes through it too rather than around it.
-	if a.skipStepValidation {
+	if skip {
 		decoded, err := afspec.DecodeArtifact(req.Step, content)
 		if err != nil {
 			return nil, res, err
@@ -110,6 +148,15 @@ func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest
 	return content, res, nil
 }
 
+// dropOneOwnedTest breaks rule C7 in a tasks artifact: task 1 owns
+// TS-NN-1..3, and dropping one leaves that test owned by nothing.
+func dropOneOwnedTest(tasksContent map[string]any) {
+	tasks := tasksContent["tasks"].([]any)
+	first := tasks[0].(map[string]any)
+	tests := first["tests"].([]any)
+	first["tests"] = tests[:len(tests)-1]
+}
+
 func (a *scriptedAuthor) WriteArchitecture(context.Context, architectureRequest) (string, agentrun.Result, error) {
 	if a.arch == "" {
 		return "", agentrun.Result{Name: "architecture"}, errors.New("no architecture scripted")
@@ -121,6 +168,7 @@ func newAuthor(t *testing.T, specID, specName string) *scriptedAuthor {
 	t.Helper()
 	artifacts, body := loadFixture(t, specID, specName)
 	return &scriptedAuthor{
+		t: t,
 		prd: PRD{
 			SpecName: specName,
 			Title:    "Test Feature",
@@ -132,7 +180,10 @@ func newAuthor(t *testing.T, specID, specName string) *scriptedAuthor {
 			}},
 		},
 		artifacts:   artifacts,
+		primary:     specID + "_" + specName,
 		artifactErr: map[afspec.GenerationStep]error{},
+		followOn:    map[string]PRD{},
+		followOnErr: map[string]error{},
 	}
 }
 
@@ -265,11 +316,7 @@ func TestAnInvalidPackageIsWrittenAndReported(t *testing.T) {
 	a := newAuthor(t, "01", "test_feature")
 	a.skipStepValidation = true
 
-	// Task 1 owns TS-01-1..3; dropping one leaves that test owned by nothing.
-	tasks := a.artifacts[afspec.StepTasks]["tasks"].([]any)
-	first := tasks[0].(map[string]any)
-	tests := first["tests"].([]any)
-	first["tests"] = tests[:len(tests)-1]
+	dropOneOwnedTest(a.artifacts[afspec.StepTasks])
 
 	got, err := Run(context.Background(), newOptions(ws, a))
 	if err == nil {
