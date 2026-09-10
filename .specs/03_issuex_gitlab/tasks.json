@@ -65,7 +65,7 @@
         "issuex/factory.go",
         "issuex/gitlab_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

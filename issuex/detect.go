@@ -18,6 +18,8 @@ const (
 	ForgeTypeGitHub ForgeType = "github"
 	// ForgeTypeGitLab represents the GitLab platform.
 	ForgeTypeGitLab ForgeType = "gitlab"
+	// ForgeTypeBitbucket represents the Bitbucket platform.
+	ForgeTypeBitbucket ForgeType = "bitbucket"
 )
 
 var (
@@ -50,13 +52,17 @@ func detectForge(o Options) (ForgeType, Options, error) {
 		u := strings.ToLower(opts.BaseURL)
 		hasGH := strings.Contains(u, "github")
 		hasGL := strings.Contains(u, "gitlab")
-		if hasGH && !hasGL {
+		hasBB := strings.Contains(u, "bitbucket")
+		if hasGH && !hasGL && !hasBB {
 			return ForgeTypeGitHub, opts, nil
 		}
-		if hasGL && !hasGH {
+		if hasGL && !hasGH && !hasBB {
 			return ForgeTypeGitLab, opts, nil
 		}
-		if hasGH && hasGL {
+		if hasBB && !hasGH && !hasGL {
+			return ForgeTypeBitbucket, opts, nil
+		}
+		if (hasGH && hasGL) || (hasGH && hasBB) || (hasGL && hasBB) {
 			return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot determine forge from base URL %q", ErrAmbiguousForge, opts.BaseURL)
 		}
 		// BaseURL contains neither "github" nor "gitlab" (e.g. test mock server or GHE custom domain)
@@ -129,6 +135,14 @@ func detectForge(o Options) (ForgeType, Options, error) {
 					opts.Repo = repo
 				}
 				return ForgeTypeGitLab, opts, nil
+			}
+		} else {
+			if host := extractHostFromRemote(opts.RemoteURL); host != "" {
+				hasHostGH := strings.Contains(host, "github")
+				hasHostGL := strings.Contains(host, "gitlab")
+				if !hasHostGH && !hasHostGL {
+					return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from remote URL host %q", ErrAmbiguousForge, host)
+				}
 			}
 		}
 	}
@@ -267,4 +281,29 @@ func detectForge(o Options) (ForgeType, Options, error) {
 	}
 
 	return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from git remote host %q", ErrAmbiguousForge, repo.Host)
+}
+
+func extractHostFromRemote(remote string) string {
+	s := strings.TrimSpace(remote)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "://") {
+		if u, err := url.Parse(s); err == nil {
+			return strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
+		}
+	} else if strings.Contains(s, ":") {
+		userHost, _, found := strings.Cut(s, ":")
+		if found {
+			if at := strings.Index(userHost, "@"); at >= 0 {
+				userHost = userHost[at+1:]
+			}
+			h := strings.ToLower(strings.TrimPrefix(userHost, "www."))
+			if i := strings.IndexByte(h, ':'); i >= 0 {
+				h = h[:i]
+			}
+			return h
+		}
+	}
+	return ""
 }
