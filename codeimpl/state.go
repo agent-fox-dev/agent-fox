@@ -109,28 +109,53 @@ func notReady(spec *afspec.Spec, i int) (int, afspec.TaskState, bool) {
 // The commit trailer this tool writes, and the prefix of a parked commit.
 // Together they are how a later run recognizes its own work on a branch.
 const (
-	specTrailer = "Spec:"
-	wipPrefix   = "wip:"
+	specTrailer  = "Spec:"
+	wipPrefix    = "wip:"
+	repairMarker = "repair"
 )
 
 // parkedTask reports whether a commit message is this tool's parked
-// attempt, and for which task.
+// attempt at a task, and which task.
 func parkedTask(message string) (int, bool) {
-	if !strings.HasPrefix(message, wipPrefix) {
+	what, ok := parked(message)
+	if !ok || what == repairMarker {
 		return 0, false
+	}
+	n, err := strconv.Atoi(what)
+	return n, err == nil
+}
+
+// parkedRepair reports whether a commit message is this tool's parked
+// attempt at repairing the checks.
+func parkedRepair(message string) bool {
+	what, ok := parked(message)
+	return ok && what == repairMarker
+}
+
+// parked reads the trailer of a wip: commit: "task N" gives "N", "repair"
+// gives repairMarker.
+func parked(message string) (string, bool) {
+	if !strings.HasPrefix(message, wipPrefix) {
+		return "", false
 	}
 	for _, line := range strings.Split(message, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, specTrailer) {
 			continue
 		}
-		// "Spec: 09_agent_mode, task 2"
-		_, after, ok := strings.Cut(line, ", task ")
+		// "Spec: 09_agent_mode, task 2" or "Spec: 09_agent_mode, repair"
+		_, after, ok := strings.Cut(line, ", ")
 		if !ok {
-			return 0, false
+			return "", false
 		}
-		n, err := strconv.Atoi(strings.TrimSpace(after))
-		return n, err == nil
+		after = strings.TrimSpace(after)
+		if after == repairMarker {
+			return repairMarker, true
+		}
+		if n, ok := strings.CutPrefix(after, "task "); ok {
+			return strings.TrimSpace(n), true
+		}
+		return "", false
 	}
-	return 0, false
+	return "", false
 }

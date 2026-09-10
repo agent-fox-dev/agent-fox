@@ -49,15 +49,23 @@ tried once more from the last commit; a second failure parks the work as a
 wip: commit and returns the checkout to the base branch. A second run
 continues from the last landed task.
 
+Checks that fail before any change are recorded and every task is judged by
+comparison. --repair makes them a phase of their own instead, once, before
+the first task: the model fixes what fails, the checks run again, and the
+tasks start from green — or, after --repair-attempts, the last attempt is
+parked and the run exits 4 without implementing anything. --repair-model
+runs that one phase on another model, for a repository whose failure needs
+more than the run's model.
+
 Exit codes:
   0  every task landed, and the branch was landed as --land asked
   1  failed; the stage is named in the JSON
   2  usage error — nothing was fetched, nothing was written
   3  stopped on purpose: the spec cannot be implemented as written, or an
      upstream spec is not done. The question is in the JSON.
-  4  a task was implemented and its checks do not pass. The work is parked
-     on the branch as a wip: commit and the checkout is back on the base
-     branch.
+  4  a task was implemented and its checks do not pass — or, with --repair,
+     the checks could not be repaired. The work is parked on the branch as
+     a wip: commit and the checkout is back on the base branch.
 
 Flags:
 `
@@ -80,6 +88,9 @@ func main() {
 		noSurvey      bool
 		attempts      int
 		totalBudget   float64
+		repair        bool
+		repairTries   int
+		repairModel   string
 	)
 
 	app := toolio.App{
@@ -103,6 +114,9 @@ func main() {
 			fs.BoolVar(&noSurvey, "no-survey", false, "skip the read-only survey phase")
 			fs.IntVar(&attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
 			fs.Float64Var(&totalBudget, "total-budget", 0, "spend ceiling for the whole run, in dollars; 0 means only the per-phase bound")
+			fs.BoolVar(&repair, "repair", false, "repair checks that fail before any change, once, before the first task; the run stops if they cannot be repaired")
+			fs.IntVar(&repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
+			fs.StringVar(&repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
 		},
 		// A task is roughly a fix's worth of work, and there are several of
 		// them: the per-phase ceilings are fix's, and --total-budget caps the
@@ -130,6 +144,15 @@ func main() {
 			if totalBudget < 0 {
 				return toolio.Usagef("--total-budget cannot be negative")
 			}
+			if repairModel != "" {
+				repair = true
+			}
+			if repair && noVerify {
+				return toolio.Usagef("--repair and --no-verify cannot both be given: nothing runs, so nothing can be repaired")
+			}
+			if repairTries < 1 {
+				return toolio.Usagef("--repair-attempts must be at least 1")
+			}
 			return nil
 		},
 		CheckInput: func(in toolio.Input) error {
@@ -142,6 +165,20 @@ func main() {
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			mode, _ := codeimpl.ParseLandMode(land)
 			target, _ := ghapi.ParseRepo(repo)
+
+			// The repair model is resolved — and its credential checked —
+			// before anything runs, the way the run's own model is.
+			var repairRunner *agentrun.Runner
+			if repairModel != "" {
+				r, choice, err := d.RunnerFor(repairModel)
+				if err != nil {
+					return toolio.ExitFailed, nil, &toolio.ErrorInfo{
+						Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
+					}
+				}
+				repairRunner = r
+				d.Progress.Detail("repair model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+			}
 
 			result, err := codeimpl.Run(ctx, codeimpl.Options{
 				Input:          d.Input,
@@ -162,6 +199,9 @@ func main() {
 				NoSurvey:       noSurvey,
 				TaskAttempts:   attempts,
 				TotalBudgetUSD: totalBudget,
+				RepairBaseline: repair,
+				RepairAttempts: repairTries,
+				RepairRunner:   repairRunner,
 				Runner:         d.Runner,
 				GitHub:         d.GitHub,
 				CheckRunner:    gitx.ReducedEnvRunner,

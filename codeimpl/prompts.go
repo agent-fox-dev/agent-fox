@@ -103,6 +103,57 @@ If the task cannot be implemented as specified and reading the code cannot
 settle how to proceed, set blocker instead of guessing; that stops the run
 and asks a person. Small doubts are resolved and recorded in notes.`
 
+// repairSystemPrompt is the mandate of the phase that runs only when the
+// operator asked for it and the checks were red before any change.
+//
+// It is narrower than the implementation mandate on purpose: the phase
+// exists to make the spec's own checks pass, and nothing it could do toward
+// the spec is worth the confusion of a commit that does both. The one
+// temptation it names — a failing test made to pass by deleting it — is
+// named because it is the shortest route to green and the wrong one.
+const repairSystemPrompt = `You are a senior engineer restoring a repository's own checks to green before a specification is implemented in it.
+
+The checks below failed before any change was made. Your job is to find out
+why and fix the cause, so that the tasks implemented after you start from a
+repository whose checks pass. You are not implementing the specification;
+it is given to you only so you know what is about to be built on your fix.
+
+Method:
+
+1. Run the failing command yourself and read the whole output, not the last
+   line. Find the first real error; later ones are often its consequences.
+2. Find the cause. A stale fixture, a test that depends on the environment,
+   a dependency that moved, a lint rule that tightened, a real bug the tests
+   are right about. Read the code the failure points at and its history.
+3. Fix the cause, not the symptom. A test that fails because the code is
+   wrong is fixed in the code. A test that fails because it is wrong about
+   the code is fixed in the test, and your report says why the code is
+   right. Never delete, skip or weaken a test to make the run green unless
+   the test is genuinely obsolete — and then say so, with the reason, in
+   your report.
+4. Keep the change to what the checks need. This commit is reviewed on its
+   own, before the spec's work, and a reader has to be able to see that it
+   only repairs.
+5. Run the checks again — every command, in the order listed — and see them
+   pass. You are judged by them afterwards, so there is no benefit in
+   submitting before they do.
+
+Constraints that are mechanical, not advisory:
+
+- git is limited to its read-only subcommands. The branch already exists and
+  you are on it; the commit is made by the program after this phase, from
+  what you submit. Do not try to commit.
+- The spec package is read-only to you: writes under it are refused.
+- gh is not available. Your file tools cannot reach outside the repository.
+
+When the checks pass, call submit_repair exactly once with an honest report:
+what was wrong, what you changed, and anything a reviewer should know.
+
+If the failure is not in the code — the checks need a credential, a service,
+or a tool this machine does not have, and no change to the repository could
+make them pass — set blocker instead of working around it; that stops the
+run and asks a person.`
+
 // maxInstructionBytes bounds what a project's own instruction file may
 // contribute to a prompt.
 const maxInstructionBytes = 24 << 10
@@ -201,8 +252,85 @@ func surveyPrompt(in surveyInput) string {
 	}
 	b.WriteString("\n## Verification\n\n")
 	b.WriteString(gateBlock(in.Gate, in.Baseline))
+	if in.Repair {
+		b.WriteString("\nThe run will repair the failing checks in a phase of its own before the first " +
+			"task. If you see the cause while reading, record it in the summary; do not resolve it " +
+			"as drift.\n")
+	}
 	b.WriteString("\nRead the code, locate what the spec names, record the conventions and the drift, " +
 		"and call " + ToolSubmitSurvey + ".")
+	return b.String()
+}
+
+func repairPrompt(in repairInput) string {
+	var b strings.Builder
+	spec := in.Spec
+	fmt.Fprintf(&b, "Repair the checks of the repository in %s, so that specification %s (\"%s\") "+
+		"can be implemented on a green baseline. You are on branch `%s`, created for that work.",
+		in.Root, filepath.Base(spec.Dir), spec.Title, in.Branch)
+	if in.Attempts > 1 {
+		fmt.Fprintf(&b, " This is attempt %d of %d.", in.Attempt, in.Attempts)
+	}
+	b.WriteString("\n\n")
+	b.WriteString(languageBlock(in.Profile))
+
+	b.WriteString("## What failed\n\n")
+	b.WriteString("The program ran these commands, in this order, before any change:\n\n")
+	for i, cmd := range in.Gate {
+		fmt.Fprintf(&b, "%d. `%s`", i+1, cmd)
+		if i < len(in.Failing.Checks) {
+			r := in.Failing.Checks[i]
+			switch {
+			case !r.Ran():
+				b.WriteString(" — not run")
+			case r.OK:
+				b.WriteString(" — passed")
+			case r.TimedOut:
+				b.WriteString(" — TIMED OUT")
+			default:
+				fmt.Fprintf(&b, " — FAILED (exit %d)", r.ExitCode)
+			}
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	for _, r := range in.Failing.failing() {
+		if strings.TrimSpace(r.Output) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "The output of `%s` ended:\n\n```\n%s\n```\n\n", r.Command, checks.Tail(r.Output, 80))
+	}
+	b.WriteString("The repair lands only if every command above passes afterwards, run by the program " +
+		"in the same order. Every command has to pass, including any that passed before.\n\n")
+
+	if in.Survey != nil {
+		b.WriteString(surveyBlock(*in.Survey))
+	}
+	if in.Previous != nil {
+		b.WriteString(previousAttemptBlock(*in.Previous, "the repair"))
+	}
+
+	b.WriteString("## The specification that will be implemented afterwards\n\n")
+	b.WriteString("For orientation only: do not implement any of it.\n\n")
+	b.WriteString(strings.TrimSpace(spec.RenderCombined()))
+	b.WriteString("\n\n")
+
+	if in.Instructions != "" {
+		b.WriteString("## Project instructions\n\n")
+		b.WriteString("The repository ships these. Follow them where they apply.\n\n")
+		b.WriteString("--- BEGIN PROJECT INSTRUCTIONS ---\n")
+		b.WriteString(strings.TrimSpace(in.Instructions))
+		b.WriteString("\n--- END PROJECT INSTRUCTIONS ---\n\n")
+	}
+	if in.Steering != "" {
+		b.WriteString("## Steering\n\n")
+		b.WriteString("The project's own directives to every agent working on it.\n\n")
+		b.WriteString("--- BEGIN STEERING ---\n")
+		b.WriteString(strings.TrimSpace(in.Steering))
+		b.WriteString("\n--- END STEERING ---\n\n")
+	}
+	b.WriteString("Run the failing command, find the cause, fix it, run every check and see it pass, " +
+		"then call " + ToolSubmitRepair + ".")
 	return b.String()
 }
 
@@ -272,7 +400,7 @@ func taskPrompt(in taskInput) string {
 		}
 	}
 	if in.Previous != nil {
-		b.WriteString(previousAttemptBlock(*in.Previous))
+		b.WriteString(previousAttemptBlock(*in.Previous, "this task"))
 	}
 	if in.Instructions != "" {
 		b.WriteString("## Project instructions\n\n")
@@ -365,10 +493,12 @@ func surveyBlock(s Survey) string {
 	return b.String()
 }
 
-func previousAttemptBlock(f attemptFailure) string {
+// previousAttemptBlock tells an attempt what the one before it did and why
+// it was thrown away. subject is "this task" or "the repair".
+func previousAttemptBlock(f attemptFailure, subject string) string {
 	var b strings.Builder
-	b.WriteString("## The previous attempt at this task\n\n")
-	b.WriteString("It was discarded: the branch is back at the last landed commit and nothing of it " +
+	fmt.Fprintf(&b, "## The previous attempt at %s\n\n", subject)
+	b.WriteString("It was discarded: the branch is back at the commit it started from and nothing of it " +
 		"remains in the tree. ")
 	fmt.Fprintf(&b, "It did not land because %s\n\n", strings.TrimSpace(f.Reason))
 	if f.Gate != nil {

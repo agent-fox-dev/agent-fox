@@ -49,6 +49,32 @@ type Deps struct {
 	Progress *Progress
 	// Model is the resolved model and the spec that produced it.
 	Model *ModelChoice
+
+	// runner is the configuration Runner was built from, kept so that a
+	// second runner on another model shares everything else.
+	runner agentrun.Config
+}
+
+// RunnerFor builds a second runner on another model — a tier name or a
+// catalog spec — with the same workspace, bounds, observer and trust as the
+// run's own. It is for a tool that runs one phase on a different model than
+// the rest; the model is resolved and its credential checked here, before
+// any phase runs.
+func (d Deps) RunnerFor(modelSpec string) (*agentrun.Runner, *ModelChoice, error) {
+	if d.Common == nil || d.runner.Workspace == nil {
+		return nil, nil, fmt.Errorf("no runner configuration to derive from")
+	}
+	choice, err := d.Common.ResolveModelNamed(modelSpec)
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg := d.runner
+	cfg.Model, cfg.Thinking = choice.Model, choice.Thinking
+	r, err := agentrun.NewRunner(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return r, choice, nil
 }
 
 // App is one agent-fox tool.
@@ -198,7 +224,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
 	e.progress.Detail("model: %s (%s)", choice.Model.ID, choice.Model.Provider)
 
-	runner, err := agentrun.NewRunner(agentrun.Config{
+	cfg := agentrun.Config{
 		Model:         choice.Model,
 		Thinking:      choice.Thinking,
 		Providers:     agentrun.DefaultProviders(),
@@ -208,7 +234,8 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Observer:      e.progress,
 		ShowText:      e.common.ShowText,
 		SessionPrefix: a.Name,
-	})
+	}
+	runner, err := agentrun.NewRunner(cfg)
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
 			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
@@ -224,6 +251,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Run:       e.run,
 		Progress:  e.progress,
 		Model:     choice,
+		runner:    cfg,
 	})
 }
 

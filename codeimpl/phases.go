@@ -15,17 +15,19 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
-// The two terminating tools.
+// The three terminating tools.
 const (
 	ToolSubmitSurvey = "submit_survey"
+	ToolSubmitRepair = "submit_repair"
 	ToolSubmitTask   = "submit_task"
 )
 
-// The two phase names. They are stable across tasks and runs on purpose:
+// The three phase names. They are stable across tasks and runs on purpose:
 // the phase name is the provider's cache key, and every task's system prompt
 // and tool schema are the same — the task itself is in the user prompt.
 const (
 	PhaseSurvey    = "survey"
+	PhaseRepair    = "repair"
 	PhaseImplement = "implement"
 )
 
@@ -51,6 +53,29 @@ type surveyInput struct {
 	Baseline GateResult
 	// Pending are the tasks this run will implement, in order.
 	Pending []afspec.Task
+	// Repair says the red baseline will be repaired before the first task.
+	Repair bool
+}
+
+// repairInput is what one baseline repair phase is given.
+type repairInput struct {
+	Spec   *afspec.Spec
+	Root   string
+	Branch string
+	Gate   []string
+	// Failing is the gate as it stands: the one the phase has to make green.
+	Failing GateResult
+	Survey  *Survey
+	// Attempt is 1 for the first attempt; Previous describes the attempt
+	// before it when there was one.
+	Attempt  int
+	Attempts int
+	Previous *attemptFailure
+	// Instructions and Steering are the repository's own files, rendered as
+	// labelled material.
+	Instructions string
+	Steering     string
+	Profile      project.Profile
 }
 
 // taskInput is what one implementation phase is given.
@@ -98,9 +123,12 @@ type attemptFailure struct {
 	DiffStat string
 }
 
-// agentBrain runs both phases against the configured model.
+// agentBrain runs the phases against the configured model.
 type agentBrain struct {
 	runner *agentrun.Runner
+	// repairRunner drives the repair phase. It is the same runner unless the
+	// operator asked for the repair to run on another model.
+	repairRunner *agentrun.Runner
 	// extraPrograms widens the implementation phase's shell allowlist: the
 	// gate's programs, plus whatever --allow adds. The survey phase does not
 	// get them, because it is read-only and those programs write.
@@ -133,12 +161,58 @@ func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentr
 	return got, res, nil
 }
 
+// writingPhase is the tool grant the two phases that edit code share: the
+// file tools, and a shell that can build and run the gate's programs, with
+// the spec package refused.
+func (b *agentBrain) writingPhase() (programs, tools []string) {
+	programs = append(append([]string(nil), agentrun.ReadOnlyPrograms...), agentrun.BuildPrograms...)
+	programs = append(programs, b.extraPrograms...)
+	tools = append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
+	tools = append(tools, "execute")
+	return programs, tools
+}
+
+func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
+	var out sink[RepairSubmission]
+	programs, tools := b.writingPhase()
+	runner := b.repairRunner
+	if runner == nil {
+		runner = b.runner
+	}
+	res, err := runner.Run(ctx, agentrun.Phase{
+		Name:               PhaseRepair,
+		System:             repairSystemPrompt,
+		User:               repairPrompt(in),
+		Terminator:         ToolSubmitRepair,
+		Custom:             []core.Tool{submitRepairTool(&out)},
+		BuiltinTools:       tools,
+		ReadOnly:           false,
+		Programs:           programs,
+		ProtectedPaths:     []string{b.protected},
+		Temperature:        0.2,
+		LoadProjectContext: true,
+	})
+	if err != nil {
+		return RepairSubmission{}, res, err
+	}
+	got, ok := out.get()
+	if !ok {
+		return RepairSubmission{}, res, agentrun.NoResultError(PhaseRepair, ToolSubmitRepair, res)
+	}
+	return got, res, nil
+}
+
+// RepairModel names the model the repair phase runs on.
+func (b *agentBrain) RepairModel() string {
+	if b.repairRunner != nil && b.repairRunner.Model() != nil {
+		return b.repairRunner.Model().ID
+	}
+	return ""
+}
+
 func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, agentrun.Result, error) {
 	var out sink[Submission]
-	programs := append(append([]string(nil), agentrun.ReadOnlyPrograms...), agentrun.BuildPrograms...)
-	programs = append(programs, b.extraPrograms...)
-	tools := append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
-	tools = append(tools, "execute")
+	programs, tools := b.writingPhase()
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
 		Name:               PhaseImplement,
@@ -221,6 +295,34 @@ func surveySchema() *schema.Schema {
 	)
 }
 
+func repairSchema() *schema.Schema {
+	fileChange := schema.Object(
+		schema.Prop("path", schema.String("Repository-relative path you changed")),
+		schema.Prop("change", schema.String("One line: what you changed in it")),
+	)
+	return schema.Object(
+		schema.Prop("cause", schema.String(
+			"1-3 sentences: what was actually wrong before your change — the failing test or "+
+				"lint finding and its root cause, not its symptom")),
+		schema.Prop("summary", schema.String("1-3 sentences: what you changed to fix it")),
+		schema.Prop("commit_subject", schema.String(
+			"A conventional-commit subject line under 72 characters, WITHOUT the type prefix — "+
+				"it is added by the program. Example: 'update the fixture the parser test reads'")),
+		schema.Prop("changes", schema.Array(fileChange, "Every file you changed").MinItemsN(1)),
+		schema.Opt("notes", schema.String(
+			"Anything a reviewer should know: a test you judged obsolete and why, a fix that "+
+				"papers over something deeper, a failure you could not reproduce")),
+		schema.Opt("blocker", schema.Object(
+			schema.Prop("reason", schema.String(
+				"Why the checks cannot be made to pass by changing code: the credential, service, "+
+					"tool or environment they need and how you established that")),
+			schema.Prop("needed", schema.String("What a person has to provide or change first")),
+		).Describe("Set ONLY when the failure is not in the code — a missing tool, credential or "+
+			"service — so no change to the repository could fix it. Setting it stops the run and "+
+			"asks a person.")),
+	)
+}
+
 func submissionSchema(task afspec.Task) *schema.Schema {
 	fileChange := schema.Object(
 		schema.Prop("path", schema.String("Repository-relative path you changed")),
@@ -294,6 +396,57 @@ func submitSurveyTool(dest *sink[Survey]) core.Tool {
 				return core.ErrResult("empty_blocker",
 					"blocker was set with no reason. Either say what cannot be implemented and "+
 						"what a person has to decide, or omit blocker and record the decision as drift.")
+			}
+			dest.set(s)
+			res := core.OKResult(map[string]any{"accepted": true})
+			res.Terminate = true
+			return res
+		},
+	}
+}
+
+// submitRepairTool ends a repair phase. It asks less than submit_task —
+// there is no test list to answer for — and the report it accepts is judged
+// afterwards by the only evidence that counts, the gate running green.
+func submitRepairTool(dest *sink[RepairSubmission]) core.Tool {
+	return core.Tool{
+		Name: ToolSubmitRepair,
+		Description: "Submit a report of the repair and end this phase. Call it once, after " +
+			"the checks pass when you run them.",
+		InputSchema:         repairSchema(),
+		ConstrainedSampling: constrainedJSON,
+		PromptGuidelines: []string{
+			"Report the repair by calling " + ToolSubmitRepair + "; do not write it as prose.",
+			"The commit is made by the program from what you submit, after it has run the checks itself.",
+		},
+		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
+			var s RepairSubmission
+			if err := json.Unmarshal(in, &s); err != nil {
+				return core.ErrResult("invalid_arguments", err.Error())
+			}
+			if s.Blocker != nil {
+				if strings.TrimSpace(s.Blocker.Reason) == "" {
+					return core.ErrResult("empty_blocker",
+						"blocker was set with no reason. Either say what the checks need that the code "+
+							"cannot give them and what a person has to provide, or omit blocker.")
+				}
+				dest.set(s)
+				res := core.OKResult(map[string]any{"accepted": true, "blocked": true})
+				res.Terminate = true
+				return res
+			}
+			if strings.TrimSpace(s.Cause) == "" {
+				return core.ErrResult("missing_cause",
+					"cause is empty; say what was wrong before the change, so a reviewer can judge the fix")
+			}
+			if strings.TrimSpace(s.CommitSubject) == "" {
+				return core.ErrResult("missing_commit_subject",
+					"commit_subject is empty; it is the subject line of the commit this repair becomes")
+			}
+			if len(s.Changes) == 0 {
+				return core.ErrResult("missing_changes",
+					"changes is empty; a repair that changed nothing has nothing to submit — if the "+
+						"checks pass without a change, say so in notes and list what you verified")
 			}
 			dest.set(s)
 			res := core.OKResult(map[string]any{"accepted": true})

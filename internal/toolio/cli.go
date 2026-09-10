@@ -135,10 +135,17 @@ func (c *Common) Workspace() (*tools.Workspace, error) {
 // platform variable, an unknown model or a missing key in the first second,
 // rather than in the tenth minute of a run they are paying for.
 func (c *Common) ResolveModel() (*ModelChoice, error) {
+	return c.ResolveModelNamed(c.ModelSpec())
+}
+
+// ResolveModelNamed resolves one model by tier name or catalog spec, against
+// the run's vendor and variant, and checks its credential. It is what a tool
+// that runs one phase on another model than the rest resolves that model
+// with, so the second choice obeys the same rules as the first.
+func (c *Common) ResolveModelNamed(spec string) (*ModelChoice, error) {
 	if err := agentrun.CheckRetiredPlatformVars(); err != nil {
 		return nil, err
 	}
-	spec := c.ModelSpec()
 	m, thinking, err := agentrun.ResolveModel(spec, c.Variant, c.VendorName())
 	if err != nil {
 		return nil, err

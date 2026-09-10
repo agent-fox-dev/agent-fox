@@ -84,6 +84,17 @@ type Options struct {
 	// TotalBudgetUSD caps the spend of the whole run, across every phase.
 	// Zero means no cap beyond the per-phase bounds.
 	TotalBudgetUSD float64
+	// RepairBaseline makes a red baseline a phase of its own, run once
+	// before the first task: the model fixes what fails, the gate runs again,
+	// and the tasks start from a green baseline or the run stops. Without
+	// it a red baseline is recorded and the tasks are judged by comparison.
+	RepairBaseline bool
+	// RepairAttempts is how many repair attempts the baseline gets before
+	// the run gives up. Zero means DefaultRepairAttempts.
+	RepairAttempts int
+	// RepairRunner drives the repair phase, when it should run on another
+	// model than the tasks. Nil means Runner.
+	RepairRunner *agentrun.Runner
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
@@ -109,6 +120,13 @@ type Options struct {
 // its prompt; there is no third, because a task that fails the same way
 // twice is a task the spec or the code is wrong about.
 const DefaultTaskAttempts = 2
+
+// DefaultRepairAttempts is how many times a red baseline is repaired before
+// the run gives up. It is one more than a task gets because every attempt
+// starts from the same failing tree with the previous attempt's failure in
+// its prompt, and a suite that fails for two reasons is often fixed one
+// reason at a time.
+const DefaultRepairAttempts = 3
 
 // LandMode is what happens once every task is done and verified.
 type LandMode string
@@ -266,6 +284,45 @@ type Submission struct {
 	Blocker *Blocker `json:"blocker,omitempty"`
 }
 
+// RepairSubmission is the model's report of a baseline repair.
+//
+// Like a task's submission it is the model's account and never the evidence:
+// the evidence is the gate running green afterwards.
+type RepairSubmission struct {
+	// Cause is what was wrong before the change, in the model's reading.
+	Cause         string       `json:"cause"`
+	Summary       string       `json:"summary"`
+	CommitSubject string       `json:"commit_subject"`
+	Changes       []FileChange `json:"changes"`
+	Notes         string       `json:"notes,omitempty"`
+	// Blocker is set when the failure cannot be repaired in code: a
+	// credential, a service, a tool the machine lacks.
+	Blocker *Blocker `json:"blocker,omitempty"`
+}
+
+// RepairReport is what happened to the baseline repair.
+type RepairReport struct {
+	// Outcome is done, unverified (the checks still fail after the last
+	// attempt), blocked, failed or aborted.
+	Outcome  string `json:"outcome"`
+	Attempts int    `json:"attempts,omitempty"`
+	// Model is the model the repair phase ran on, when it differs from the
+	// run's.
+	Model string `json:"model,omitempty"`
+	// Commit is the repair's commit on the branch: the fix when it landed,
+	// the parked attempt when it did not.
+	Commit string `json:"commit,omitempty"`
+	// ChangedFiles and DiffStat come from git, not from the model.
+	ChangedFiles []string `json:"changed_files,omitempty"`
+	DiffStat     string   `json:"diff_stat,omitempty"`
+	// Verification is the gate after the last attempt.
+	Verification *GateResult `json:"verification,omitempty"`
+	// Submission is the model's report, kept separate from the facts above.
+	Submission *RepairSubmission `json:"submission,omitempty"`
+	// Error says why the repair did not land.
+	Error string `json:"error,omitempty"`
+}
+
 // GateResult is one run of the spec's check commands, in order.
 type GateResult struct {
 	Checks []checks.Result `json:"checks"`
@@ -314,8 +371,9 @@ type TaskReport struct {
 
 // Result is what the tool reports as JSON.
 type Result struct {
-	// Stage is how far the run got: preflight, surveyed, implementing,
-	// complete, parked, stopped, committed, pushed or landed.
+	// Stage is how far the run got: preflight, surveyed, repairing,
+	// repaired, implementing, complete, parked, stopped, committed, pushed
+	// or landed.
 	Stage string `json:"stage"`
 
 	SpecDir  string `json:"spec_dir"`
@@ -348,6 +406,10 @@ type Result struct {
 	PullRequestURL    string `json:"pull_request_url,omitempty"`
 	PullRequestNumber int    `json:"pull_request_number,omitempty"`
 
+	// Repair is the baseline repair, when the run was asked for one and
+	// the baseline was red.
+	Repair *RepairReport `json:"repair,omitempty"`
+
 	// Survey and Blocker are the model's.
 	Survey  *Survey  `json:"survey,omitempty"`
 	Blocker *Blocker `json:"blocker,omitempty"`
@@ -358,9 +420,10 @@ type Result struct {
 	DryRun bool `json:"dry_run,omitempty"`
 }
 
-// brain is the model-driven half: the survey and the per-task
-// implementation, and nothing else.
+// brain is the model-driven half: the survey, the baseline repair and the
+// per-task implementation, and nothing else.
 type brain interface {
 	Survey(context.Context, surveyInput) (Survey, agentrun.Result, error)
+	Repair(context.Context, repairInput) (RepairSubmission, agentrun.Result, error)
 	Implement(context.Context, taskInput) (Submission, agentrun.Result, error)
 }
