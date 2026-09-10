@@ -24,6 +24,7 @@ of the previous version would expect.
 | Erratum | Subject |
 |---|---|
 | [agentkit_model_resolution](errata/agentkit_model_resolution.md) | Vertex and Bedrock refusal, the extended-variant model, cache policy, forced tool calls |
+| [tool_schema_property_names](errata/tool_schema_property_names.md) | Why the generation tools do not declare the artifact's `$schema`, and who writes it |
 
 ## PRDs
 

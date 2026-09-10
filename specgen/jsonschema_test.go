@@ -132,7 +132,10 @@ func TestPropertyOrderFollowsTheDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"$schema", "spec_id", "spec_name", "schema_version", "tests"}
+	// The document's order, minus the one property a tool schema cannot
+	// declare: $schema is dropped by the converter and written by the submit
+	// handler.
+	want := []string{"spec_id", "spec_name", "schema_version", "tests"}
 	if !slices.Equal(s.PropertyOrder, want) {
 		t.Errorf("PropertyOrder = %v, want %v", s.PropertyOrder, want)
 	}
@@ -176,7 +179,7 @@ func TestDescriptionsSurviveTheConversion(t *testing.T) {
 }
 
 func TestAnUnmodelledKeywordRidesThrough(t *testing.T) {
-	s, err := ToolSchema([]byte(`{"type":"object","x-vendor-hint":"keep me",
+	s, _, err := ToolSchema([]byte(`{"type":"object","x-vendor-hint":"keep me",
 		"properties":{"a":{"type":"string"}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +191,7 @@ func TestAnUnmodelledKeywordRidesThrough(t *testing.T) {
 }
 
 func TestATypeArrayWithNullBecomesNullable(t *testing.T) {
-	s, err := ToolSchema([]byte(`{"type":["string","null"]}`))
+	s, _, err := ToolSchema([]byte(`{"type":["string","null"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +201,7 @@ func TestATypeArrayWithNullBecomesNullable(t *testing.T) {
 }
 
 func TestACircularRefIsBrokenRatherThanFollowed(t *testing.T) {
-	s, err := ToolSchema([]byte(`{"type":"object","properties":{"node":{"$ref":"#/$defs/n"}},
+	s, _, err := ToolSchema([]byte(`{"type":"object","properties":{"node":{"$ref":"#/$defs/n"}},
 		"$defs":{"n":{"type":"object","properties":{"child":{"$ref":"#/$defs/n"}}}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -213,10 +216,10 @@ func TestACircularRefIsBrokenRatherThanFollowed(t *testing.T) {
 }
 
 func TestMalformedSchemaBytesAreAnError(t *testing.T) {
-	if _, err := ToolSchema([]byte(`{"type":`)); err == nil {
+	if _, _, err := ToolSchema([]byte(`{"type":`)); err == nil {
 		t.Error("expected an error for truncated JSON")
 	}
-	if _, err := ToolSchema([]byte(`[1,2,3]`)); err == nil {
+	if _, _, err := ToolSchema([]byte(`[1,2,3]`)); err == nil {
 		t.Error("expected an error for a non-object root")
 	}
 }
@@ -271,4 +274,106 @@ func walkSchema(s *schema.Schema, fn func(path string, node *schema.Schema)) {
 		}
 	}
 	walk("", s)
+}
+
+// The regression this converter's second bug produced: a property name a
+// vendor will not accept.
+//
+// Anthropic rejects a tool whose input schema declares a property outside
+// `^[a-zA-Z0-9_.-]{1,64}$`, and the v2 artifacts declare `$schema`. The whole
+// request fails — HTTP 400, before the model reads a word — so every
+// generation step of every `spec` run died on the first phase after the PRD.
+func TestNoPropertyNameTheVendorsRejectSurvives(t *testing.T) {
+	for _, step := range afspec.GenerationSteps {
+		s, err := ArtifactSchema(step)
+		if err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+		for _, name := range propertyNames(marshalSchema(t, s)) {
+			if !undeclarableName.MatchString(name) {
+				t.Errorf("%s declares a property named %q, which no tool schema may carry",
+					step, name)
+			}
+		}
+	}
+}
+
+// propertyNames collects every property name in a marshalled schema, at every
+// depth — the same walk a vendor's validator does.
+func propertyNames(node any) []string {
+	var out []string
+	switch v := node.(type) {
+	case map[string]any:
+		for key, val := range v {
+			if key == "properties" {
+				if props, ok := val.(map[string]any); ok {
+					for name, sub := range props {
+						out = append(out, name)
+						out = append(out, propertyNames(sub)...)
+					}
+					continue
+				}
+			}
+			out = append(out, propertyNames(val)...)
+		}
+	case []any:
+		for _, e := range v {
+			out = append(out, propertyNames(e)...)
+		}
+	}
+	return out
+}
+
+// A dropped property is reported by name and taken out of `required` with it.
+// Leaving it in `required` would produce the unsatisfiable schema this
+// converter was written to prevent.
+func TestAnUndeclarablePropertyIsDroppedAndReported(t *testing.T) {
+	s, dropped, err := ToolSchema([]byte(`{"type":"object",
+		"properties":{"$schema":{"type":"string"},"spec_id":{"type":"string"},
+			"rows":{"type":"array","items":{"type":"object",
+				"properties":{"$ref_id":{"type":"string"},"n":{"type":"integer"}},
+				"required":["$ref_id","n"]}}},
+		"required":["$schema","spec_id","rows"],"additionalProperties":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Properties["$schema"] != nil {
+		t.Error("a property no tool schema can declare survived the conversion")
+	}
+	if s.Properties["spec_id"] == nil {
+		t.Error("a declarable property was dropped with it")
+	}
+	if slices.Contains(s.Required, "$schema") {
+		t.Errorf("required = %v, want the dropped property gone from it", s.Required)
+	}
+	row := s.Properties["rows"].Items
+	if row.Properties["$ref_id"] != nil || slices.Contains(row.Required, "$ref_id") {
+		t.Errorf("the nested property survived: %+v", row)
+	}
+	want := []string{"$schema", "rows[].$ref_id"}
+	if !slices.Equal(dropped, want) {
+		t.Errorf("dropped = %v, want %v — the caller has to know what to fill in", dropped, want)
+	}
+}
+
+// The artifact's $schema is the one such property this package has a value
+// for. Any other one is a field the format requires and the model is never
+// shown, so it is refused with a message naming it rather than left to fail
+// as a validation loop the model cannot get out of.
+func TestArtifactSchemaRefusesAPropertyItCannotFillIn(t *testing.T) {
+	if _, _, err := ToolSchema([]byte(`{"type":"object","properties":{"$other":{"type":"string"}}}`)); err != nil {
+		t.Fatalf("the converter itself must not fail: %v", err)
+	}
+	// The refusal lives in ArtifactSchema, which knows what it can supply.
+	// Exercised through the real schemas: every one of them drops exactly
+	// $schema, and the URI it is filled in with is the schema's own $id.
+	for _, step := range afspec.GenerationSteps {
+		if _, err := ArtifactSchema(step); err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+		uri := artifactSchemaURI(step)
+		if !strings.HasPrefix(uri, "https://") || !strings.Contains(uri, string(step)) {
+			t.Errorf("%s: $schema would be filled in with %q", step, uri)
+		}
+	}
 }
