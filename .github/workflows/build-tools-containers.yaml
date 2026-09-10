@@ -1,0 +1,22 @@
+name: agentfox tools container build
+
+on:
+  #pull_request:
+  #  branches:
+  #    - 'main'
+  #push:
+  #  branches:
+  #    - 'main'
+  workflow_dispatch:
+
+jobs:
+  build-tools-container:
+    uses: ./.github/workflows/inc-build-tools.yaml
+    with:
+      container_name: tools
+    secrets: inherit
+    permissions:
+      packages: write
+      contents: read
+      id-token: write
+      attestations: write

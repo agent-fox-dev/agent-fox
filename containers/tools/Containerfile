@@ -1,0 +1,102 @@
+FROM registry.redhat.io/ubi10/go-toolset:latest AS build
+
+ARG VERSION=dev
+ARG BUILD=dev
+ARG BUILD_TIME=
+
+USER root
+WORKDIR /build
+
+COPY --from=agentkit-go . /build/coder
+
+WORKDIR /build/agent-fox
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# build the af tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o af ./cmd/af
+
+# build the nightshift tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o nightshift ./cmd/nightshift
+
+# build the spec tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o spec ./cmd/spec
+
+# build the issue tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o issue ./cmd/issue
+
+# build the fix tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o fix ./cmd/fix
+
+# ---------- runtime ----------
+#https://catalog.redhat.com/en/software/containers/rhel10/s2i-core/677cf8035fdd0fab2f79e70a#overview
+FROM quay.io/agentfox/sandbox:latest
+
+USER root
+
+ARG TARGETARCH
+
+ENV ARCH=${TARGETARCH:-arm64} \
+    APP_ROOT=/opt/app-root \
+    HOME=/opt/app-root/src \
+    WORKSPACE=/opt/app-root/workspace \
+    XDG_CONFIG_HOME=${APP_ROOT}/.config \
+    PATH=${HOME}/.local/bin:${PATH}
+
+# set the virtual environment
+ENV UV_PYTHON=python3.14 VIRTUAL_ENV=/venv
+
+# install tools
+COPY --from=build /build/agent-fox/af /usr/bin/af
+COPY --from=build /build/agent-fox/nightshift /usr/bin/nightshift
+COPY --from=build /build/agent-fox/spec /usr/bin/spec
+COPY --from=build /build/agent-fox/issue /usr/bin/issue
+COPY --from=build /build/agent-fox/fix /usr/bin/fix
+
+RUN chmod +x /usr/bin/af /usr/bin/nightshift /usr/bin/spec /usr/bin/issue /usr/bin/fix
+
+# install pi agent
+RUN curl -fsSL https://pi.dev/install.sh | sh
+
+# install claude code agent
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# clean up
+RUN dnf -y clean all --enablerepo='*' && \
+    rm -rf /var/cache/dnf
+
+# Reset permissions of modified directories
+RUN rpm-file-permissions && chown -R 1001:0 ${APP_ROOT}
+
+USER 1001
+
+# Directory with the sources is set as the working directory so all STI scripts
+# can execute relative to this path.
+WORKDIR ${WORKSPACE}

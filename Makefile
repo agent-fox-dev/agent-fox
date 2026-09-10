@@ -11,6 +11,11 @@ LDFLAGS := -ldflags "\
 
 CONTAINER_REGISTRY ?= quay.io/agentfox
 
+SANDBOX_IMAGE ?= sandbox
+SANDBOX_IMAGE_TAG ?= $(VERSION)
+TOOLS_IMAGE ?= tools
+TOOLS_IMAGE_TAG ?= $(VERSION)
+
 SCHEMAS_DIR := $(CURDIR)/afspec/schemas
 DIST_DIR    := $(CURDIR)/dist
 
@@ -61,8 +66,31 @@ build-linux-amd64:
 		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/$$tool-linux-amd64 ./cmd/$$tool; \
 	done
 
+build-containers: build-sandbox-container build-tools-container
+
+# Build the sandbox container locally.
+build-sandbox-container:
+	podman build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(CONTAINER_REGISTRY)/$(SANDBOX_IMAGE):$(SANDBOX_IMAGE_TAG) \
+		-t $(CONTAINER_REGISTRY)/$(SANDBOX_IMAGE):latest \
+		-f containers/sandbox/Containerfile .
+
+build-tools-container:
+	podman build \
+		--build-context agentkit-go=../coder \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(CONTAINER_REGISTRY)/$(TOOLS_IMAGE):$(TOOLS_IMAGE_TAG) \
+		-t $(CONTAINER_REGISTRY)/$(TOOLS_IMAGE):latest \
+		-f containers/tools/Containerfile .
+
 clean:
-	rm -rf $(DIST_DIR) bin/af bin/nightshift bin/spec bin/issue bin/fix
+	rm -rf bin/af bin/nightshift
+	rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
 
 # Regenerate the Go artifact types from the bundled JSON Schemas.
 # The canonical schemas live in the agent-fox-dev/spec repository; the copies
