@@ -41,7 +41,7 @@
         "issuex/client_test.go",
         "issuex/types_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -74,7 +74,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -103,7 +103,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -133,7 +133,7 @@
       "depends_on": [
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -163,7 +163,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -203,7 +203,7 @@
         3,
         5
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -238,7 +238,7 @@
       "done_when": [
         "`make check` passes with all tests and linters clean"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
