@@ -126,6 +126,12 @@ type Implementation struct {
 	Changes       []FileChange `json:"changes"`
 	Tests         []string     `json:"tests,omitempty"`
 	Notes         string       `json:"notes,omitempty"`
+
+	// CriteriaVerdicts answers the acceptance criteria the report stated,
+	// one verdict and one piece of evidence each. It is empty when the
+	// report stated none, and it cannot be partial when it stated some: the
+	// submit tool refuses a submission that skips a criterion.
+	CriteriaVerdicts []CriterionVerdict `json:"criteria_verdicts,omitempty"`
 }
 
 // LandMode is what happens once a change is written and verified.
@@ -180,6 +186,16 @@ type Result struct {
 	RootCause      string   `json:"root_cause,omitempty"`
 	Approach       string   `json:"approach,omitempty"`
 	Assumptions    []string `json:"assumptions,omitempty"`
+
+	// AcceptanceCriteria is what the report asked the change to satisfy,
+	// extracted from its own text by this package. It is a fact about the
+	// input, so it is here rather than under Implementation; the verdicts on
+	// it are the model's and live there.
+	AcceptanceCriteria []Criterion `json:"acceptance_criteria,omitempty"`
+	// CriteriaOutcome is "pass" when every criterion was answered pass,
+	// "fail" when any was not, and empty when the report stated none. It is
+	// derived from the verdicts, never stored alongside them.
+	CriteriaOutcome string `json:"criteria_outcome,omitempty"`
 
 	// Branch, BaseBranch and Commit are what the run produced in git.
 	Branch     string `json:"branch,omitempty"`

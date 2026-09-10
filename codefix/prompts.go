@@ -52,11 +52,61 @@ func baselineBlock(command string, baseline checks.Result) string {
 	}
 }
 
+// criteriaBlock states the acceptance criteria the report defined, and what
+// the phase reading it has to do about them.
+//
+// The two phases are told different things on purpose. The analysis phase is
+// asked to plan for every criterion, because a plan that covers three of four
+// is a change that fails the fourth. The implementation phase is asked for a
+// verdict on every criterion, because that is what it is going to be held to
+// when it submits: the submit tool rejects a report that leaves one
+// unanswered, so saying so up front saves it a turn discovering the rule.
+func criteriaBlock(criteria []Criterion, forImplementation bool) string {
+	if len(criteria) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Acceptance criteria\n\n")
+	if len(criteria) == 1 {
+		b.WriteString("The report defines one acceptance criterion. It is the definition of " +
+			"done for this change.\n\n")
+	} else {
+		fmt.Fprintf(&b, "The report defines %d acceptance criteria. Together they are the "+
+			"definition of done for this change, and each is addressed on its own.\n\n",
+			len(criteria))
+	}
+	for _, c := range criteria {
+		fmt.Fprintf(&b, "- **%s:** %s\n", c.ID, c.Text)
+	}
+	b.WriteString("\n")
+	if forImplementation {
+		b.WriteString("Every one of them must be explicitly addressed by the change, and each " +
+			"needs a test that exercises it where the project's test framework can express one. " +
+			"When you submit, give a verdict and the evidence for it per criterion, by id:\n\n" +
+			"- `pass` — the change satisfies it. The evidence names the file and the symbol that " +
+			"implement it, the test that covers it, and the result you actually observed when " +
+			"you ran that test.\n" +
+			"- `fail` — it does not, or you could not establish that it does. The evidence says " +
+			"why, and what would be needed.\n\n" +
+			"There is no third verdict and no way to leave one out: the submission is rejected " +
+			"until every id has an answer. Report a `fail` honestly — a criterion recorded as " +
+			"failed with its reason is worth more to the reader than one claimed passed on a " +
+			"test that was never run.\n\n")
+	} else {
+		b.WriteString("Plan for all of them. Your approach must say how each is satisfied and " +
+			"what test proves it; a plan that covers some of them is a change that fails the " +
+			"rest. If one cannot be satisfied by the change you are proposing, say so in your " +
+			"assumptions rather than passing over it in silence.\n\n")
+	}
+	return b.String()
+}
+
 func analysisPrompt(in analysisInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diagnose the problem below against the code in %s.\n\n", in.Root)
 	b.WriteString(reportBlock(in.Input))
 	b.WriteString("\n")
+	b.WriteString(criteriaBlock(in.Criteria, false))
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))
 	b.WriteString("\nRead the code, decide the smallest correct change, and call " +
 		ToolSubmitAnalysis + ".")
@@ -92,6 +142,8 @@ func implementPrompt(in implementInput) string {
 	}
 	b.WriteString("The plan is a plan, not a contract. If reading the code shows it is wrong, " +
 		"do the right thing instead and say so in your report.\n\n")
+
+	b.WriteString(criteriaBlock(in.Criteria, true))
 
 	b.WriteString("## Verification\n\n")
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))

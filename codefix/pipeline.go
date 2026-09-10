@@ -177,6 +177,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	baseline := runChecks(ctx, o, root, command, "baseline")
 	result.Baseline = baseline
 
+	// The acceptance criteria are read out of the report before the model
+	// sees it, so that what the change is measured against is fixed by the
+	// input rather than by what the model chose to notice in it.
+	criteria := ParseCriteria(o.Input.Body)
+	result.AcceptanceCriteria = criteria
+	if len(criteria) > 0 {
+		o.Progress.Detail("acceptance criteria in the report: %s",
+			strings.Join(criteriaIDs(criteria), ", "))
+	}
+
 	b := o.brain
 	if b == nil {
 		programs := append([]string(nil), o.AllowPrograms...)
@@ -190,6 +200,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
 	analysis, stats, err := b.Analyze(ctx, analysisInput{
 		Input: o.Input, Baseline: baseline, VerifyCommand: command, Root: root,
+		Criteria: criteria,
 	})
 	recordPhase(o.Run, stats)
 	done(phaseSummary(stats))
@@ -220,13 +231,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// The analysis comment goes up now: the run is known to be able to
 	// start, a branch exists, and the comment can name it.
-	postComment(ctx, o, result, analysisComment(analysis, branch, command, baseline), "analysis")
+	postComment(ctx, o, result, analysisComment(analysis, criteria, branch, command, baseline),
+		"analysis")
 
 	// -------------------------------------------------------- implement --
 	done = o.Progress.Begin("implementing")
 	impl, stats, err := b.Implement(ctx, implementInput{
 		Input: o.Input, Analysis: analysis, Baseline: baseline, VerifyCommand: command,
 		Branch: branch, Root: root, Instructions: projectInstructions(root),
+		Criteria: criteria,
 	})
 	recordPhase(o.Run, stats)
 	done(phaseSummary(stats))
@@ -237,6 +250,22 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Implementation = &impl
 	if strings.TrimSpace(impl.Summary) != "" {
 		result.Summary = impl.Summary
+	}
+
+	// The outcome is derived from the verdicts here rather than taken from
+	// the model, and a criterion that was not met is a warning on the run
+	// even when the project's checks are green. It does not by itself stop
+	// the change from landing: the criteria verdicts are the model's own
+	// account of its work, and a run that refused to land on a self-reported
+	// failure would be a run that taught the model not to report one. What
+	// the reader gets instead is both facts, side by side and unmistakable —
+	// a measured verification result, and a criterion-by-criterion answer
+	// that says which parts of the ask are still open.
+	result.CriteriaOutcome = criteriaOutcome(criteria, impl.CriteriaVerdicts)
+	if result.CriteriaOutcome == CriterionFail {
+		unmet := unmetCriteriaWarning(criteria, impl.CriteriaVerdicts)
+		o.Run.Warn("%s", unmet)
+		o.Progress.Step("%s", unmet)
 	}
 
 	// A run that reports a fix and changed nothing is a failed run, not an
@@ -507,4 +536,18 @@ func phaseSummary(res agentrun.Result) string {
 		s += fmt.Sprintf(" · %d tools blocked", res.Blocked)
 	}
 	return s
+}
+
+// unmetCriteriaWarning names the criteria that were not met.
+func unmetCriteriaWarning(criteria []Criterion, verdicts []CriterionVerdict) string {
+	byID := verdictsByID(verdicts)
+	var unmet []string
+	for _, c := range criteria {
+		if v, ok := byID[c.ID]; !ok || !v.Passed() {
+			unmet = append(unmet, c.ID)
+		}
+	}
+	return fmt.Sprintf("acceptance criteria reported as not met: %s (%d of %d); the change is "+
+		"reported with the verdict and the evidence for each",
+		strings.Join(unmet, ", "), len(unmet), len(criteria))
 }
