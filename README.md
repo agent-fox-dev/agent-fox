@@ -14,12 +14,13 @@ service.
 
 ## The tools
 
-Three programs, one interface: **one input, one JSON object out.**
+Four programs, one interface: **one input, one JSON object out.**
 
 ```
 spec  [flags] <input>     a product idea      → a validated specification package
 issue [flags] <input>     a problem report    → a structured GitHub issue
 fix   [flags] <input>     a problem           → a verified change on a branch
+impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
 ```
 
 The input is exactly one of: a GitHub issue or pull-request URL, a path to a
@@ -33,6 +34,7 @@ export GITHUB_TOKEN=ghp_...
 issue "panic: assignment to entry in nil map in loop.go, after an abort"
 fix   https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
 spec  ./docs/prds/widget-cache.md --architecture
+impl  09 --dir ~/src/widgets --land branch
 
 kubectl logs deploy/api --since 1h | issue - --repo acme/widgets --dry-run
 ```
@@ -73,7 +75,8 @@ whole argument for embedding an agent in a program rather than writing a longer
 prompt: **the parts you cannot afford to have wrong stop being prompt.**
 
 [ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) records the reasoning and
-the errors the rewrite found.
+the errors the rewrite found; [ADR 04](docs/adr/04-implement-a-spec-as-a-tool.md)
+applies it to the legacy orchestrator that `impl` replaces.
 
 ## Modules
 
@@ -83,11 +86,13 @@ the errors the rewrite found.
 | `specgen/` | `specgen` | The spec pipeline: the PRD phase, the three generation phases, and the project audit. |
 | `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
 | `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
-| `internal/toolio/` | `toolio` | Input classification, the JSON envelope, exit codes, and the shell the three commands share. |
+| `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
+| `internal/toolio/` | `toolio` | Input classification, the JSON envelope, exit codes, and the shell the commands share. |
 | `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
 | `internal/ghapi/` | `ghapi` | A dependency-free GitHub REST client. |
 | `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
-| `cmd/spec/`, `cmd/issue/`, `cmd/fix/` | `main` | The three tools. |
+| `internal/project/` | `project` | What a repository is written in, and the audit that refuses a plan naming another ecosystem's tooling. |
+| `cmd/spec/`, `cmd/issue/`, `cmd/fix/`, `cmd/impl/` | `main` | The four tools. |
 
 The spec format itself is specified in the
 [`spec`](https://github.com/agent-fox-dev/spec) repository
@@ -117,7 +122,7 @@ and git against real temporary repositories.
 
 ## Documentation
 
-- [Tool Reference](docs/cli.md) — the three tools, their flags, their JSON
+- [Tool Reference](docs/cli.md) — the tools, their flags, their JSON
 - [Configuration](docs/configuration.md) — credentials, model selection, what the model is allowed to read
 - [Model Usage](docs/model-usage.md) — what each phase sends, and how a failure is repaired
 - [Go Library API](afspec/README.md) — the `afspec` library

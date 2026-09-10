@@ -35,7 +35,7 @@ const DefaultModel = "STANDARD"
 //
 // The tools take exactly one positional argument — text, a file path, a
 // GitHub URL, or "-" for stdin — and everything else is a flag. Keeping the
-// flags identical across the three is deliberate: a caller that can drive one
+// flags identical across the tools is deliberate: a caller that can drive one
 // can drive all of them.
 type Common struct {
 	Dir          string

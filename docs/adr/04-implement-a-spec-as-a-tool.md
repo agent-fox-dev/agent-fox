@@ -192,8 +192,22 @@ For each task, in this order:
    resets the branch to the last commit and cleans the tree; the last
    attempt's failure parks the work as a `wip:` commit — with `tasks.json`
    recording the task as `in_progress`, so the branch says where it stopped —
-   returns the checkout to the base branch, and exits 4. A cancelled run
-   (Ctrl-C, a phase timeout) is parked the same way, with its own category.
+   returns the checkout to the base branch, and exits 4.
+
+A phase that ends without a report is an attempt outcome too, by category:
+`no_result` and `max_turns` are the model's, so they get the second attempt
+with the stop reason and the discarded diff's stat in the prompt;
+`budget`, `api`, `auth` and `aborted` are not, so the work is parked at once
+under that category. The git steps that land or park — the state write, the
+commit, the checkout of the base branch, the reset and clean of a discarded
+attempt, the revert of the spec package — run under a context detached from
+the run's cancellation with its own short ceiling, because the case parking
+exists for most is Ctrl-C, and a park the cancelled context killed mid-commit
+would leave the tree dirty on the work branch, which is what parking is
+meant to prevent. The parked commit is made with the repository's hooks
+skipped: its point is that the work is unverified. A landed commit is not,
+and a hook that leaves the tree dirty after it fails the run naming the
+files rather than attributing them to the next task.
 
 Between tasks the run checks two ceilings that the legacy circuit breaker
 also had: `--total-budget`, the spend across every phase of the run, and the

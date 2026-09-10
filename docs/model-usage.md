@@ -1,6 +1,6 @@
 # Model Usage
 
-How the three tools invoke a model, what each phase sends, and what happens
+How the tools invoke a model, what each phase sends, and what happens
 when the answer is wrong.
 
 For credentials, model selection and bounds, see
@@ -22,6 +22,8 @@ one's *conclusion* rather than from how it got there.
 | `spec` | `prd` | the four read tools | 32 768 | `submit_prd` |
 | `spec` | `generate:{artifact}` | the four read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
 | `spec` | `architecture` (opt-in) | the four read tools | 32 768 | `submit_architecture` |
+| `impl` | `survey` | the four read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
+| `impl` | `implement` (once per task) | the read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
 
 `max_tokens` is an upper bound, clamped to the resolved model's own ceiling.
 Temperature is 0.2 everywhere, because every phase produces a structured
@@ -82,6 +84,8 @@ What each handler rejects, and what the rejection says:
 | `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent` | each of the three would otherwise fail later and more expensively |
 | `submit_{artifact}` | the artifact's v2 schema, plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`) |
 | `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
+| `submit_survey` | an empty summary, a blocker with no reason | which field, and what it is for |
+| `submit_task` | an empty commit subject; `test_verdicts` that skips a test the task owns, names one it does not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence; the same for `done_when_verdicts` | which ids are missing or unknown, and what a piece of evidence has to name |
 
 The three `submit_{artifact}` schemas are converted from the format's own JSON
 Schemas rather than re-authored, with one omission: the artifact's `$schema`
@@ -134,8 +138,8 @@ excluded from the resolved set, an invariant checks that set before the first
 request, and AgentKit's unguarded-shell guard fails any run where one survived.
 `fetch_url` is never registered by any tool, so no phase has outbound network.
 
-`fix`'s implementation phase is the one that writes, and it runs under a guard
-that narrows AgentKit's own restricted policy. See the
+`fix`'s and `impl`'s implementation phases are the ones that write, and they
+run under a guard that narrows AgentKit's own restricted policy. See the
 [tool reference](cli.md#what-the-model-may-and-may-not-do).
 
 ## Compaction
@@ -171,9 +175,13 @@ generation_user_requirements   generation_user_test_spec   generation_user_tasks
 architecture_user
 ```
 
-`issue`'s and `fix`'s prompts are Go string constants, because they are short
-and assembled with the run's own facts — the baseline verification result, the
-branch name, the diagnosis.
+`issue`'s, `fix`'s and `impl`'s prompts are Go string constants, because they
+are short and assembled with the run's own facts — the baseline verification
+result, the branch name, the diagnosis, the spec rendered scoped to one task.
+
+`impl`'s two phase names are the same for every task and every run: the task
+is in the user prompt, so `impl/implement` is one cache key across a whole
+spec rather than one per task.
 
 Per-project prompt overrides are not supported. The previous CLI read them from
 `<project>/.spec/prompts/`; a repository that can rewrite the system prompt of

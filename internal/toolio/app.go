@@ -53,7 +53,7 @@ type Deps struct {
 
 // App is one agent-fox tool.
 //
-// The three tools share this shell rather than each writing their own,
+// The tools share this shell rather than each writing their own,
 // because the shape of the interface is the product decision: one positional
 // input, one JSON object out, the same flags, the same exit codes. A shared
 // shell is what keeps that true as the tools change.

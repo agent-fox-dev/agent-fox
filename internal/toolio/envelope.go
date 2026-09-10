@@ -13,7 +13,7 @@ import (
 	"github.com/agentfox/agentkit-go/core"
 )
 
-// Exit codes. All three tools use the same table, because something other
+// Exit codes. Every tool uses the same table, because something other
 // than a human reads them.
 const (
 	// ExitOK means the tool did what it was asked.

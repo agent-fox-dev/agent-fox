@@ -1,11 +1,12 @@
 # Tool reference
 
-Three tools, one interface.
+Four tools, one interface.
 
 ```
 spec  [flags] <input>     a product idea      → a validated specification package
 issue [flags] <input>     a problem report    → a structured GitHub issue
 fix   [flags] <input>     a problem           → a verified change on a branch
+impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
 ```
 
 Each takes **exactly one positional input** and writes **exactly one JSON
@@ -93,9 +94,10 @@ whether re-running could help:
 | `no_result` | the model finished without calling its terminating tool |
 | `git`, `github` | an external system refused |
 | `ambiguous` | (`fix`) the input reads two ways; a question was posted |
-| `unverified` | (`fix`) code was written and the checks do not pass |
-| `empty_change` | (`fix`) a fix was reported and no file differs |
-| `invalid_spec` | (`spec`) the package was written and does not validate |
+| `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done |
+| `unverified` | (`fix`, `impl`) code was written and the checks do not pass |
+| `empty_change` | (`fix`, `impl`) work was reported and no file differs |
+| `invalid_spec` | (`spec`) the package was written and does not validate; (`impl`) the package does not validate and was not implemented |
 | `internal` | a bug in the tool |
 
 ### Exit codes
@@ -105,8 +107,8 @@ whether re-running could help:
 | `0` | done |
 | `1` | failed; the stage is named in the JSON |
 | `2` | usage error — nothing was fetched, nothing was written |
-| `3` | stopped on purpose: a person has to answer something (`fix` only) |
-| `4` | work exists but the checks do not pass (`fix` only) |
+| `3` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
+| `4` | work exists but the checks do not pass (`fix`, `impl`) |
 
 ## Shared flags
 
@@ -367,13 +369,169 @@ A package that does not validate is still written, and the run exits 1 with
 `category: "invalid_spec"`. A spec you can read and fix is worth more than no
 spec at all, and the errors name the rules that broke. It is not activated.
 
+---
+
+## `impl`
+
+Implements a version 2 specification package in a repository: one model phase
+per task, in the plan's order, each verified by the spec's own checks before
+it is committed, on one branch that is then landed the way `fix` lands.
+
+```sh
+impl 09 --dir ~/src/widgets
+impl .specs/09_agent_mode --land branch
+impl agent_mode --task 2 --no-survey
+impl 09_agent_mode --dry-run --total-budget 20
+```
+
+The input names a spec package rather than describing a problem: a directory,
+a spec id, a spec name, a directory name, or a file inside the package. It is
+resolved against the spec root (`--specs-dir`, else `$AF_SPEC_DIR`, else
+`<dir>/.specs`). A GitHub URL is refused: it is the one input shape the other
+tools accept that has no meaning here. Note that a directory argument is
+classified as `text` by the shared input rules, which is expected — `impl`
+reads the text as a reference, not as a document.
+
+Pre-flight refuses, before a token is spent: a dirty tree; a package that does
+not validate (`invalid_spec`, with the rules named); a `sealed`, `superseded`
+or `archived` package; a `test_commands` entry that needs a shell or belongs
+to another ecosystem than the project's; a check that cannot run before any
+change; and, for `--land=pr`, a missing credential or target repository. A
+`draft` package is implemented with a warning. A package whose `dependencies`
+name an upstream spec that is neither sealed nor done stops the run with exit
+3; an upstream that is not in the spec root is a warning.
+
+### The branch
+
+The run works on `impl/<NN>-<slug>`. When that branch already exists it is
+checked out and **continued**: tasks marked `done` are skipped, a task a
+parked run left `in_progress` is reopened, and a parked `wip:` commit at the
+tip is discarded so the task starts again from the last landed commit. That
+is what makes a second run of `impl` on a half-implemented spec finish it
+rather than start over. `--branch` names the branch explicitly, with the same
+continue-or-create rule.
+
+The branch is chosen and checked out before the package is read and before
+the checks run, so the state a second run reads is the state the first one
+committed.
+
+### The gate
+
+The format's implicit definition of done has four clauses: the task's own
+tests exist and pass, `all_tests` passes, `linter` passes, and every
+`done_when` entry holds. `impl` measures the two it can — `test_commands.linter`
+then `test_commands.all_tests`, run before any change and after every task,
+and compared pair by pair as `fix` compares its single command — and holds
+the model to the other two at the tool boundary. The gate that passed after
+task N is the baseline for task N+1, so `regressed` always means "this task
+broke it".
+
+| Verdict | Means | Landed |
+|---|---|---|
+| `pass` | green before, green after | yes |
+| `pass_was_already_failing` | red before, green after | yes, and the report says so |
+| `regressed` | green before, red after | no |
+| `still_failing` | red before, red after | no |
+| `gate_failed` | a check could not run after the task | no, and no retry: the work was never measured |
+| `unverified` | nothing ran | only with `--no-verify` |
+
+`--verify` replaces the pair with one command; `--no-verify` runs nothing.
+
+### One task
+
+For each task that is not done, in array order:
+
+1. The task moves `pending → in_progress`, in memory.
+2. The `implement` phase runs with the spec rendered scoped to the task
+   (§11.1 of the format), the survey brief, the reports of the tasks before
+   it, the gate and its baseline, the project's `AGENTS.md` and
+   `.specs/steering.md` as labelled material, and — on a second attempt —
+   why the first one did not land.
+3. Any change under the spec package is reverted and reported as a warning:
+   the state file is the program's.
+4. `git` lists what differs. A task that changed nothing is a failed attempt.
+5. The gate runs and is compared with the baseline.
+6. A landable verdict, with a report that answers `pass` for every test the
+   task owns and every `done_when` entry, marks the task `done`, writes
+   `tasks.json`, and commits everything as `feat: <subject>` with a `Spec:`
+   trailer naming the package and the task.
+
+Anything else is a failed attempt. The first one is discarded — the branch is
+reset to the last commit and the tree cleaned — and the task is tried once
+more with the failure in its prompt (`--task-attempts`, default 2). The last
+failure parks the work as a `wip:` commit with the task recorded as
+`in_progress`, returns the checkout to the base branch, and exits 4. A run
+cancelled mid-task is parked the same way, under a context the cancellation
+does not reach, so Ctrl-C never leaves a dirty tree on the branch.
+
+`submit_task` refuses a report that skips a test the task owns, names one it
+does not, answers with a bare word, or has no commit subject — the phase
+cannot end without an answer for every test. A report that answers `fail`
+is accepted: it is an honest account of a task that is not done, and it is
+treated as a failed attempt rather than refused, so the model is not taught
+to hide a failure.
+
+### The survey
+
+Before the branch is created, one read-only phase reads the whole spec and
+the repository and submits a brief: where the things the spec names actually
+live, the conventions a coder must follow, and every place the spec's
+assumptions and the code disagree, each with a resolution. The brief goes
+into every task prompt. It is also the one place the run may stop to ask: a
+spec that cannot be implemented as written is reported as a `blocker`, the
+run exits 3 with the question, and no branch exists. A task phase may raise
+the same blocker; the work so far stays on the branch. `--no-survey` skips
+it, for a driver that runs one task at a time.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
+| `--task N` | every task not done | implement only task `N`; its dependencies must be done |
+| `--branch` | `impl/<NN>-<slug>` | the branch to work on, created if missing and continued if present |
+| `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
+| `--repo owner/repo` | the `origin` remote | where the pull request is opened |
+| `--dry-run` | off | make no *remote* change: push nothing, open nothing. The branch and the commits are still made |
+| `--verify` | the spec's `linter` and `all_tests` | one command that decides success instead |
+| `--no-verify` | off | run nothing; every task is then `unverified`, not a pass |
+| `--verify-timeout` | `10m` | timeout for one check command |
+| `--push-attempts` | `4` | push retries, with exponential backoff |
+| `--allow a,b` | — | extra programs the implementation phases' shell may run |
+| `--draft` | off | open the pull request as a draft |
+| `--pull` | off | checkout and pull the base branch from `origin` first |
+| `--no-survey` | off | skip the survey phase |
+| `--task-attempts` | `2` | implementation attempts per task before the run parks |
+| `--total-budget` | none | spend ceiling for the whole run; a run that reaches it stops between tasks, with everything landed so far committed |
+
+Bounds: 150 turns, $5.00 per phase — and there is one phase per task, so a
+twelve-task spec can cost twelve times what a `fix` does. `--total-budget`
+caps the run.
+
+`result` carries `stage`, the package (`spec_dir`, `spec_id`, `spec_name`,
+`title`, `status`), `branch`, `base_branch`, `resumed`, the counts
+(`tasks_total`, `tasks_done`, `tasks_skipped`, `tasks_remaining`), one entry
+per task under `tasks` — its `outcome` (`done`, `skipped`, `unverified`,
+`blocked`, `failed`, `aborted`), `attempts`, `commit`, `changed_files` and
+`diff_stat` from git, its `verification` gate and `verdict`, `tests_outcome`,
+and the model's own `submission` kept separate — plus `gate`, `baseline`,
+`verification`, `verdict`, `pushed`, `pull_request_url`, the `survey`, any
+`blocker`, and `cost_usd`.
+
+### What the model may and may not do
+
+The survey phase is read-only, with `execute` under the reporting allowlist.
+The implementation phase has the file tools and a shell under the same guard
+as `fix`'s — `git` read-only, `gh` refused, `find -exec` refused — with one
+addition: `write_file` and `edit_file` refuse any path under the spec package,
+so "do not modify the spec" is a refusal rather than a request. The task's
+state, the commit, the push and the pull request are the program's.
+
 ## Environment
 
 | Variable | Purpose |
 |---|---|
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
-| `AF_SPEC_DIR` | the spec root (`spec` only); `--specs-dir` wins |
+| `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for `origin` |
 | vendor keys and base URLs | see [Configuration](configuration.md) |
@@ -383,3 +541,4 @@ spec at all, and the errors name the rules that broke. It is not activated.
 - [Configuration](configuration.md) — credentials, model selection, bounds
 - [Model Usage](model-usage.md) — what each phase sends, and how a failure is repaired
 - [ADR 03](adr/03-rebuild-the-skills-as-tools.md) — why the tools are shaped this way
+- [ADR 04](adr/04-implement-a-spec-as-a-tool.md) — how `impl` differs from the orchestrator it replaces
