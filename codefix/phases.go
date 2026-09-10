@@ -30,24 +30,6 @@ var constrainedJSON = &core.ConstrainedSampling{
 	Type: core.ConstrainJSONSchema, Strict: core.StrictPrefer,
 }
 
-// readOnlyPrograms is the analysis phase's shell allowlist: programs that
-// report and do not change anything.
-//
-// `find` is not here on purpose — its -exec and -delete make it a write tool,
-// and find_files covers the reading half. The guard refuses those flags
-// anyway, for a phase that adds find back through --allow.
-var readOnlyPrograms = []string{"git", "ls", "cat", "head", "tail", "wc", "rg", "grep", "file"}
-
-// buildPrograms is what an implementation phase needs on top of that: the
-// toolchains that compile, format and test. The verification command's own
-// program is appended at run time, because a phase that cannot run the suite
-// it will be judged by is a phase set up to fail.
-var buildPrograms = []string{
-	"go", "gofmt", "goimports", "make", "npm", "npx", "node", "yarn", "pnpm",
-	"python", "python3", "pytest", "uv", "pip", "cargo", "rustfmt",
-	"mkdir", "cp", "mv", "sed", "awk", "diff", "sort", "uniq", "touch",
-}
-
 // analysisSystemPrompt is the diagnosis mandate.
 //
 // It is short because most of af-fix's step 4 is control flow — classify the
@@ -242,7 +224,7 @@ type agentBrain struct {
 
 func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
 	var out analysis
-	programs := append([]string(nil), readOnlyPrograms...)
+	programs := append([]string(nil), agentrun.ReadOnlyPrograms...)
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
 		Name:               "analyse",
@@ -268,7 +250,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 
 func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implementation, agentrun.Result, error) {
 	var out implementation
-	programs := append(append([]string(nil), readOnlyPrograms...), buildPrograms...)
+	programs := append(append([]string(nil), agentrun.ReadOnlyPrograms...), agentrun.BuildPrograms...)
 	programs = append(programs, b.extraPrograms...)
 
 	tools := append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)

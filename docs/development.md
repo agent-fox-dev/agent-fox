@@ -5,7 +5,7 @@
 - Go 1.26.5 or later
 - A sibling checkout of [`coder`](https://github.com/agent-fox-dev/coder)
 
-`coder` ships the AgentKit agent SDK the three tools run on. Its module path
+`coder` ships the AgentKit agent SDK the tools run on. Its module path
 is `github.com/agentfox/agentkit-go` while its repository is
 `agent-fox-dev/coder`, so the module proxy cannot serve it and it is consumed
 through a `replace` to a checkout beside this one:
@@ -32,14 +32,16 @@ specgen/                  # The spec pipeline
   templates/              # Prompt templates, embedded at compile time
 issuetriage/              # The triage pipeline
 codefix/                  # The fix pipeline
+codeimpl/                 # The implementation pipeline
 internal/
   toolio/                 # Input classification, the JSON envelope, the shared CLI shell
   agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
+  project/                # Language detection and the test-command audit
   ghapi/                  # GitHub REST client
   gitx/                   # git, and the process runner
   checks/                 # Detecting and running a project's own quality command
 cmd/
-  spec/  issue/  fix/     # The three tools
+  spec/  issue/  fix/  impl/   # The four tools
   af/  nightshift/        # Stubs
 docs/                     # Documentation, ADRs and PRDs
 skills/                   # The markdown skills the tools replaced, kept for reference
@@ -91,14 +93,19 @@ go mod download
   the detection and execution of the command that decides whether a change is
   correct.
 
-- **specgen**, **issuetriage**, **codefix** — one package per tool. Each holds
-  its schemas, its prompts, its terminating tools and its pipeline. In `specgen`
-  and `codefix` the model half is an interface (`author`, `brain`) so a test can
-  drive the real pipeline with a scripted one; `issuetriage` has a single phase
+- **internal/project** — what a repository is written in, and the audit that
+  refuses a plan whose test commands belong to another ecosystem. `spec`
+  applies it to a plan being generated, `impl` to one being implemented.
+
+- **specgen**, **issuetriage**, **codefix**, **codeimpl** — one package per
+  tool. Each holds its schemas, its prompts, its terminating tools and its
+  pipeline. In `specgen`, `codefix` and `codeimpl` the model half is an
+  interface (`author`, `brain`) so a test can drive the real pipeline with a
+  scripted one; `issuetriage` has a single phase
   and is tested through the real agent loop against a scripted provider instead.
 
-- **cmd/spec**, **cmd/issue**, **cmd/fix** — each is a `toolio.App` value and
-  an `os.Exit`. See [ADR 03](adr/03-rebuild-the-skills-as-tools.md).
+- **cmd/spec**, **cmd/issue**, **cmd/fix**, **cmd/impl** — each is a
+  `toolio.App` value and an `os.Exit`. See [ADR 03](adr/03-rebuild-the-skills-as-tools.md).
 
 ## Common tasks
 
@@ -111,7 +118,7 @@ All tasks are driven through `make`. Run from the repository root.
 | `make lint`         | Lint Go source: `gofmt` + `go vet`                     |
 | `make format`       | Auto-format Go source: `gofmt -w`                      |
 | `make build`        | Build every CLI into `bin/`                            |
-| `make build-all`    | Cross-compile `spec`, `issue` and `fix` into `dist/`   |
+| `make build-all`    | Cross-compile `spec`, `issue`, `fix` and `impl` into `dist/` |
 | `make clean`        | Remove build artifacts                                 |
 | `make json-gen`     | Regenerate Go artifact types from the schemas          |
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // ToolSubmitArchitecture is the terminating tool of the optional
@@ -52,7 +53,7 @@ type prdRequest struct {
 	SourceKind   string
 	SourceOrigin string
 	Input        string
-	Profile      Profile
+	Profile      project.Profile
 	Landscape    []afspec.SpecMeta
 	// Split is set when the PRD is one scope of a decided split: the plan
 	// and the index of the scope to write. Nil for an undivided input.
@@ -65,7 +66,7 @@ type artifactRequest struct {
 	SpecName  string
 	Root      string
 	PRD       string
-	Profile   Profile
+	Profile   project.Profile
 	Landscape []afspec.SpecMeta
 	// Partial carries the artifacts produced so far. The submit handler
 	// validates against it and writes the accepted artifact back into it.

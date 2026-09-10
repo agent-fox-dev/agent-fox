@@ -31,12 +31,14 @@ afspec/                 # Spec format library (package afspec)
 specgen/                # The spec pipeline: PRD, three generation phases, project audit
 issuetriage/            # The issue triage pipeline
 codefix/                # The fix pipeline
+codeimpl/               # The implementation pipeline: a spec, task by task, on a branch
 internal/               # Shared, not importable from outside this repo
   toolio/               # Input classification, the JSON envelope, the shared CLI shell
   agentrun/             # Model resolution, the phase runner, the read-only invariant, the shell guard
+  project/              # What the repository is written in, and the test-command audit
   ghapi/                # GitHub REST client
   gitx/  checks/        # git, and the command that decides whether a change is correct
-cmd/                    # Executables: spec, issue, fix (plus af and nightshift stubs)
+cmd/                    # Executables: spec, issue, fix, impl (plus af and nightshift stubs)
 docs/                   # Documentation, ADRs and PRDs
 skills/                 # The markdown skills the tools replaced, kept for reference
 testdata/               # Shared test fixtures
@@ -44,7 +46,7 @@ testdata/               # Shared test fixtures
 .specs/archive/         # Old specs. Ignore for coding tasks, except for reference
 ```
 
-The three tools share one interface: one positional input (text, a file path, a
+The four tools share one interface: one positional input (text, a file path, a
 GitHub URL, or `-`), one JSON object on stdout, progress on stderr, one
 exit-code table. Adding a subcommand to any of them is a change to that
 interface — see [ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) before

@@ -55,6 +55,14 @@ RUN CGO_ENABLED=1 go build \
       -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
     -o fix ./cmd/fix
 
+# build the impl tool
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-s -w \
+      -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
+      -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
+      -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
+    -o impl ./cmd/impl
+
 # ---------- runtime ----------
 #https://catalog.redhat.com/en/software/containers/rhel10/s2i-core/677cf8035fdd0fab2f79e70a#overview
 FROM quay.io/agentfox/sandbox:latest
@@ -79,8 +87,9 @@ COPY --from=build /build/agent-fox/nightshift /usr/bin/nightshift
 COPY --from=build /build/agent-fox/spec /usr/bin/spec
 COPY --from=build /build/agent-fox/issue /usr/bin/issue
 COPY --from=build /build/agent-fox/fix /usr/bin/fix
+COPY --from=build /build/agent-fox/impl /usr/bin/impl
 
-RUN chmod +x /usr/bin/af /usr/bin/nightshift /usr/bin/spec /usr/bin/issue /usr/bin/fix
+RUN chmod +x /usr/bin/af /usr/bin/nightshift /usr/bin/spec /usr/bin/issue /usr/bin/fix /usr/bin/impl
 
 # install pi agent
 RUN curl -fsSL https://pi.dev/install.sh | sh

@@ -16,6 +16,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 

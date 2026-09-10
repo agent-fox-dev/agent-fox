@@ -1,10 +1,12 @@
-package specgen
+package project
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 func projectDir(t *testing.T, files map[string]string) string {
@@ -138,5 +140,31 @@ func TestLanguageBlockNamesTheCommands(t *testing.T) {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block is missing %q:\n%s", want, block)
 		}
+	}
+}
+
+func TestAuditTestCommandsRefusesAnotherEcosystem(t *testing.T) {
+	profile := DetectProfile(projectDir(t, map[string]string{"go.mod": "module x\n"}))
+	spec := "pytest tests/"
+	err := profile.AuditTestCommands(afspec.TestCommands{
+		AllTests: "pytest -q", Linter: "go vet ./...", SpecTests: &spec,
+	})
+	if err == nil {
+		t.Fatal("a python runner in a Go project was accepted")
+	}
+	for _, want := range []string{"test_commands.all_tests", "test_commands.spec_tests", "python", "go.mod", "fix tasks.json"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message lacks %q: %s", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "test_commands.linter") {
+		t.Error("the linter matched the project and was still reported")
+	}
+	if err := profile.AuditTestCommands(afspec.TestCommands{AllTests: "make test", Linter: "./scripts/lint.sh"}); err != nil {
+		t.Errorf("unknown programs must pass: %v", err)
+	}
+	var none Profile
+	if err := none.AuditTestCommands(afspec.TestCommands{AllTests: "pytest -q", Linter: "ruff check ."}); err != nil {
+		t.Errorf("without a profile the audit must be inert: %v", err)
 	}
 }

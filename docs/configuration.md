@@ -1,6 +1,6 @@
 # Configuration
 
-The three tools — `spec`, `issue` and `fix` — reach a model through
+The tools — `spec`, `issue`, `fix` and `impl` — reach a model through
 [AgentKit](https://github.com/agent-fox-dev/coder)
 (module `github.com/agentfox/agentkit-go`), so it speaks every wire API that
 library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
@@ -139,16 +139,17 @@ written against a repository it never looked at names components that already
 exist under other names. `--dir` defaults to `.`.
 
 The read-only mandate is a mechanism rather than a prompt instruction. In every
-phase but `fix`'s implementation phase, the mutating tools (`write_file`,
+phase but `fix`'s and `impl`'s implementation phases, the mutating tools (`write_file`,
 `edit_file`, `execute`, `run_command`, `powershell`) are excluded from the
 resolved set, an invariant checks that set before the first request, and
 AgentKit's own unguarded-shell guard fails any run where a shell survived.
 `fetch_url` is never registered by any tool, so no phase has outbound network
 of any kind.
 
-`fix`'s implementation phase is the one exception, and it runs under a second
-guard: `git` is limited to its read-only subcommands, `gh` is refused outright,
-and `find -exec`/`-delete` are refused. See the
+`fix`'s and `impl`'s implementation phases are the exceptions, and they run
+under a second guard: `git` is limited to its read-only subcommands, `gh` is
+refused outright, `find -exec`/`-delete` are refused, and `impl` additionally
+refuses every write under the spec package it is implementing. See the
 [tool reference](cli.md#what-the-model-may-and-may-not-do).
 
 Project trust defaults to off because a repository that is merely the current
@@ -160,12 +161,16 @@ clone, cd, run.
 One phase is bounded by turns and by spend. Both stop the run cleanly at a turn
 boundary rather than aborting mid-call.
 
-| Setting | Flag | `issue` | `fix` | `spec` |
-|---|---|---|---|---|
-| Turns per phase | `--max-turns` | 100 | 150 | 60 |
-| Spend per phase | `--budget` | $2.00 | $5.00 | $5.00 |
-| Wall clock per phase | `--phase-timeout` | none | none | none |
-| Attempts per model call | — | 3 | 3 | 3 |
+| Setting | Flag | `issue` | `fix` | `spec` | `impl` |
+|---|---|---|---|---|---|
+| Turns per phase | `--max-turns` | 100 | 150 | 60 | 150 |
+| Spend per phase | `--budget` | $2.00 | $5.00 | $5.00 | $5.00 |
+| Wall clock per phase | `--phase-timeout` | none | none | none | none |
+| Attempts per model call | — | 3 | 3 | 3 | 3 |
+
+`impl` runs one phase per task, so its per-phase ceilings multiply by the
+number of tasks. `--total-budget` caps the whole run; a run that reaches it
+stops between tasks with everything landed so far committed on the branch.
 
 The turn budget is also the repair budget: a validation failure returns to the
 model as a tool error and costs a turn, so a model that cannot satisfy a rule
@@ -194,7 +199,7 @@ directories up that changes what the same command does.
 | `<VENDOR>_BASE_URL` | gateway, proxy or local server for that vendor |
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
-| `AF_SPEC_DIR` | the spec root (`spec` only); `--specs-dir` wins |
+| `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote |
 | `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
@@ -202,6 +207,6 @@ directories up that changes what the same command does.
 ## See also
 
 - [Model Usage](model-usage.md) — what each phase sends and how a failure is repaired
-- [Tool Reference](cli.md) — the three tools, their flags, their JSON
+- [Tool Reference](cli.md) — the tools, their flags, their JSON
 - [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md) — why the pipeline runs on AgentKit
 - [ADR 03](adr/03-rebuild-the-skills-as-tools.md) — why the tools are shaped this way

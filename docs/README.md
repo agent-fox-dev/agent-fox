@@ -2,7 +2,7 @@
 
 | Document | What it covers |
 |---|---|
-| [Tool Reference](cli.md) | `spec`, `issue` and `fix`: the shared interface, every flag, the JSON envelope and the exit codes |
+| [Tool Reference](cli.md) | `spec`, `issue`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |

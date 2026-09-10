@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -201,5 +202,52 @@ func TestCommandVectorsDropsEnvironmentAssignments(t *testing.T) {
 	got = CommandVectors("execute", map[string]any{"command": "./scripts/x=y.sh"})
 	if len(got) != 1 || got[0][0] != "./scripts/x=y.sh" {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// A protected directory is refused to the file tools whatever spelling the
+// model uses for the path, and the rest of the tree stays writable.
+func TestGuardRefusesWritesUnderProtectedPaths(t *testing.T) {
+	root := t.TempDir()
+	g := Guard(GuardOptions{
+		Programs:       []string{"git"},
+		AllowOperators: true,
+		ProtectedPaths: []string{filepath.Join(root, ".specs", "09_agent_mode")},
+		ResolvePath: func(p string) (string, error) {
+			if filepath.IsAbs(p) {
+				return filepath.Clean(p), nil
+			}
+			return filepath.Join(root, p), nil
+		},
+	})
+	ctx := context.Background()
+	write := func(p string) core.BeforeToolCallContext {
+		return core.BeforeToolCallContext{ToolName: "write_file", Arguments: map[string]any{"path": p, "content": "x"}}
+	}
+	for _, p := range []string{
+		".specs/09_agent_mode/tasks.json",
+		".specs/09_agent_mode/../09_agent_mode/prd.md",
+		filepath.Join(root, ".specs", "09_agent_mode", "test_spec.json"),
+	} {
+		d := g(ctx, write(p))
+		if !d.Block {
+			t.Errorf("write to %s was allowed", p)
+		}
+		if !strings.Contains(d.Reason, "not yours to edit") {
+			t.Errorf("reason for %s = %q", p, d.Reason)
+		}
+	}
+	for _, p := range []string{
+		"cmd/spec/root.go",
+		".specs/09_agent_mode_notes.md", // a sibling that merely shares the prefix
+		".specs/steering.md",
+	} {
+		if d := g(ctx, write(p)); d.Block {
+			t.Errorf("write to %s was refused: %s", p, d.Reason)
+		}
+	}
+	if d := g(ctx, core.BeforeToolCallContext{ToolName: "edit_file",
+		Arguments: map[string]any{"path": ".specs/09_agent_mode/tasks.json"}}); !d.Block {
+		t.Error("edit_file reached the protected directory")
 	}
 }
