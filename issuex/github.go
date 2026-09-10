@@ -290,51 +290,12 @@ func (c *githubClient) GetRepository(ctx context.Context, repo Repo) (Repository
 	return out, nil
 }
 
-// Issue operations (stubs for task 3)
-
-func (c *githubClient) CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) CloseIssue(ctx context.Context, ref IssueRef, comment string) error {
-	panic("not implemented")
-}
-
-func (c *githubClient) ListIssues(ctx context.Context, repo Repo, filter IssueFilter) (IssueList, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) AddComment(ctx context.Context, ref IssueRef, body string) (string, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) ListComments(ctx context.Context, ref IssueRef) (CommentList, error) {
-	panic("not implemented")
-}
-
-func (c *githubClient) AddLabels(ctx context.Context, ref IssueRef, labels []string) error {
-	panic("not implemented")
-}
-
-func (c *githubClient) RemoveLabel(ctx context.Context, ref IssueRef, label string) error {
-	panic("not implemented")
-}
-
-func (c *githubClient) CreateLabel(ctx context.Context, repo Repo, label Label) error {
-	panic("not implemented")
-}
-
 // Pull request operations (stubs for task 4)
 
 func (c *githubClient) CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error) {
+	if !c.Authenticated() {
+		return PullRequest{}, ErrNoToken
+	}
 	panic("not implemented")
 }
 
@@ -359,13 +320,22 @@ func (c *githubClient) GetPRReviews(ctx context.Context, ref IssueRef) ([]Review
 }
 
 func (c *githubClient) PostReviewComment(ctx context.Context, ref IssueRef, body string) error {
+	if !c.Authenticated() {
+		return ErrNoToken
+	}
 	panic("not implemented")
 }
 
 func (c *githubClient) MergePullRequest(ctx context.Context, ref IssueRef, opts MergeOptions) (MergeResult, error) {
+	if !c.Authenticated() {
+		return MergeResult{}, ErrNoToken
+	}
 	panic("not implemented")
 }
 
 func (c *githubClient) ClosePullRequest(ctx context.Context, ref IssueRef) error {
+	if !c.Authenticated() {
+		return ErrNoToken
+	}
 	panic("not implemented")
 }
