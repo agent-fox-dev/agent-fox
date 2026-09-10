@@ -161,6 +161,17 @@ func implementationSchema() *schema.Schema {
 		schema.Prop("path", schema.String("Repository-relative path you changed")),
 		schema.Prop("change", schema.String("One line: what you changed in it")),
 	)
+	verdict := schema.Object(
+		schema.Prop("id", schema.String(
+			"The criterion's id, exactly as the task listed it (for example AC-1)")),
+		schema.Prop("verdict", schema.Enum(
+			"pass: the change satisfies this criterion. fail: it does not, or you could "+
+				"not establish that it does.", CriterionVerdicts...)),
+		schema.Prop("evidence", schema.String(
+			"Why the verdict is what it is, in specifics: the file and symbol that implement "+
+				"the criterion, the test that covers it, and the result you observed when you "+
+				"ran that test. A verdict without a test that exercises the criterion says so.")),
+	)
 	return schema.Object(
 		schema.Prop("summary", schema.String("1-3 sentences: what you did")),
 		schema.Prop("commit_subject", schema.String(
@@ -173,6 +184,9 @@ func implementationSchema() *schema.Schema {
 			"The tests you added or changed, as 'file: what it asserts'")),
 		schema.Opt("notes", schema.String(
 			"Anything a reviewer should know: a trade-off, something left undone and why")),
+		schema.Opt("criteria_verdicts", schema.Array(verdict,
+			"One entry per acceptance criterion listed in your task, by id — all of them, "+
+				"including any the change does not meet. Omit only when the task listed none.")),
 	)
 }
 
@@ -193,6 +207,9 @@ type analysisInput struct {
 	Baseline      checks.Result
 	VerifyCommand string
 	Root          string
+	// Criteria is what the report defined as done, extracted from its own
+	// text. Empty for the common case of a report that defined nothing.
+	Criteria []Criterion
 }
 
 type implementInput struct {
@@ -202,6 +219,10 @@ type implementInput struct {
 	VerifyCommand string
 	Branch        string
 	Root          string
+	// Criteria is what this phase must answer for, one verdict each. The
+	// submit tool is built from it, so the requirement is enforced at the
+	// tool boundary rather than asked for in the prompt.
+	Criteria []Criterion
 	// Instructions is the project's AGENTS.md or CLAUDE.md when one exists
 	// and is small enough to inline. It is rendered into the task prompt for
 	// the phase that writes code, because an AgentKit agent has no implicit
@@ -258,7 +279,7 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 		System:             implementSystemPrompt,
 		User:               implementPrompt(in),
 		Terminator:         ToolSubmitImplementation,
-		Custom:             []core.Tool{submitImplementationTool(&out)},
+		Custom:             []core.Tool{submitImplementationTool(&out, in.Criteria)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
@@ -363,17 +384,23 @@ func submitAnalysisTool(dest *analysis) core.Tool {
 }
 
 // submitImplementationTool ends the implementation phase.
-func submitImplementationTool(dest *implementation) core.Tool {
+//
+// It takes the acceptance criteria because they are what the phase is
+// answerable for: a report that skips one, invents one, or answers with a
+// word is refused here, with the ids named, and the model gets to correct it.
+// The requirement is therefore a property of the tool rather than a sentence
+// in a prompt — the phase cannot end without an answer for every criterion.
+func submitImplementationTool(dest *implementation, criteria []Criterion) core.Tool {
 	return core.Tool{
 		Name: ToolSubmitImplementation,
 		Description: "Submit a report of the work and end this phase. Call this once, " +
 			"after the change is written and the project's checks pass.",
 		InputSchema:         implementationSchema(),
 		ConstrainedSampling: constrainedJSON,
-		PromptGuidelines: []string{
+		PromptGuidelines: append([]string{
 			"Report the work by calling " + ToolSubmitImplementation + "; do not write it as prose.",
 			"The commit, the push and the pull request are made by the program from what you submit.",
-		},
+		}, criteriaGuideline(criteria)...),
 		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
 			var impl Implementation
 			if err := json.Unmarshal(in, &impl); err != nil {
@@ -383,10 +410,27 @@ func submitImplementationTool(dest *implementation) core.Tool {
 				return core.ErrResult("missing_commit_subject",
 					"commit_subject is empty; it is the subject line of the commit this run makes")
 			}
+			if err := checkVerdicts(criteria, impl.CriteriaVerdicts); err != nil {
+				return core.ErrResult("incomplete_criteria_verdicts", err.Error())
+			}
+			impl.CriteriaVerdicts = normalizeVerdicts(criteria, impl.CriteriaVerdicts)
 			dest.set(impl)
 			res := core.OKResult(map[string]any{"accepted": true})
 			res.Terminate = true
 			return res
 		},
 	}
+}
+
+// criteriaGuideline reminds the phase of the one rule the submit tool
+// enforces, and says nothing at all when there are no criteria to enforce it
+// over.
+func criteriaGuideline(criteria []Criterion) []string {
+	if len(criteria) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"criteria_verdicts must answer every acceptance criterion (%s), each with a verdict "+
+			"and the evidence for it; the submission is refused until it does.",
+		strings.Join(criteriaIDs(criteria), ", "))}
 }

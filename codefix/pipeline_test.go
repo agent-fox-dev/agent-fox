@@ -747,3 +747,122 @@ func TestPipelinePull(t *testing.T) {
 		}
 	})
 }
+
+// A report that defines acceptance criteria is answered criterion by
+// criterion: the ids come from the report, the verdicts from the model, and
+// the section that pairs them is rendered by this package — so "Fix
+// implemented" can never be a claim about the criteria in general.
+func TestCriteriaAreAnsweredOneByOneInTheSummary(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	b := defaultBrain()
+	b.impl.CriteriaVerdicts = []CriterionVerdict{
+		{ID: "AC-1", Verdict: CriterionPass, Evidence: "count.go increments inside the retry " +
+			"guard; count_test.go TestRetryIncrementsOnce passes"},
+		{ID: "AC-2", Verdict: CriterionPass, Evidence: "count.go emits the metric after the " +
+			"guard; count_test.go TestRetryEmitsOneMetric passes"},
+	}
+	o := newOptions(ws, g, b)
+	o.Input.Body = issueWithCriteria
+
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(got.AcceptanceCriteria) != 2 {
+		t.Fatalf("AcceptanceCriteria = %+v", got.AcceptanceCriteria)
+	}
+	if got.CriteriaOutcome != CriterionPass {
+		t.Errorf("CriteriaOutcome = %q", got.CriteriaOutcome)
+	}
+	// Both phases were told what the change is measured against.
+	if !strings.Contains(b.implementPrompt, "AC-2") {
+		t.Error("the implementation prompt does not carry the criteria")
+	}
+
+	summary := summaryComment(got)
+	for _, want := range []string{
+		"### Per-criterion verdicts",
+		"- ✅ **AC-1**: PASS",
+		"  - Evidence: count.go increments inside the retry guard;",
+		"- ✅ **AC-2**: PASS",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary comment is missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "Not every acceptance criterion is met") {
+		t.Error("every criterion passed and the comment says otherwise")
+	}
+	// The pull request carries the same answers, one heading level up.
+	if !strings.Contains(pullRequestBody(got), "## Per-criterion verdicts") {
+		t.Error("the pull-request body does not carry the verdicts")
+	}
+	// The analysis comment, posted before any code, names what the work is
+	// measured against.
+	analysis := analysisComment(b.analysis, got.AcceptanceCriteria, got.Branch, "make test",
+		got.Baseline)
+	if !strings.Contains(analysis, "### Acceptance criteria") ||
+		!strings.Contains(analysis, "**AC-1:**") {
+		t.Errorf("the analysis comment does not list the criteria:\n%s", analysis)
+	}
+}
+
+// A criterion the change does not meet is reported as unmet — in the result,
+// in the run's warnings and in the comment — even when the project's checks
+// are green. The two are different questions and the report answers both.
+func TestAnUnmetCriterionIsReportedEvenWhenTheChecksPass(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	b := defaultBrain()
+	b.impl.CriteriaVerdicts = []CriterionVerdict{
+		{ID: "AC-1", Verdict: CriterionPass, Evidence: "count.go increments inside the retry " +
+			"guard; count_test.go TestRetryIncrementsOnce passes"},
+		{ID: "AC-2", Verdict: CriterionFail, Evidence: "the metric is still emitted twice; the " +
+			"emitter is in another package and was left alone"},
+	}
+	o := newOptions(ws, g, b)
+	o.Input.Body = issueWithCriteria
+
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Verdict != string(checks.VerdictPass) {
+		t.Fatalf("the checks passed; Verdict = %q", got.Verdict)
+	}
+	if got.CriteriaOutcome != CriterionFail {
+		t.Errorf("CriteriaOutcome = %q, want the unmet criterion named", got.CriteriaOutcome)
+	}
+	summary := summaryComment(got)
+	if !strings.Contains(summary, "- ❌ **AC-2**: FAIL") {
+		t.Errorf("the summary comment does not report the failure:\n%s", summary)
+	}
+	if !strings.Contains(summary, "Not every acceptance criterion is met") {
+		t.Error("a green check run must not stand in for an unmet criterion")
+	}
+	var warned bool
+	for _, w := range o.Run.Warnings() {
+		if strings.Contains(w, "AC-2") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("the run does not warn about the unmet criterion: %v", o.Run.Warnings())
+	}
+}
+
+// A criterion that reached the renderer with no verdict is rendered as
+// unanswered rather than dropped. The submit tool refuses that submission, so
+// this is the belt to its braces: a comment cannot quietly lose a criterion.
+func TestAMissingVerdictIsRenderedAsMissing(t *testing.T) {
+	criteria := ParseCriteria(issueWithCriteria)
+	section := criteriaVerdictSection("###", criteria, &Implementation{
+		CriteriaVerdicts: []CriterionVerdict{{ID: "AC-1", Verdict: CriterionPass,
+			Evidence: "count.go increments inside the retry guard; the test passes"}},
+	})
+	if !strings.Contains(section, "- ⚠️ **AC-2**: NOT REPORTED") {
+		t.Errorf("section:\n%s", section)
+	}
+	if criteriaVerdictSection("###", nil, nil) != "" {
+		t.Error("a report with no criteria gets no section")
+	}
+}

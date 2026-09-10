@@ -197,6 +197,36 @@ returns the checkout to the base branch, and exits 4. A run that reports a fix
 and changed no file exits 1 rather than committing an empty tree — the diff
 comes from git, not from the model.
 
+### Acceptance criteria
+
+When the report defines acceptance criteria — the `## Acceptance Criteria`
+section `issue` writes, or the same section written by hand — they are
+extracted before the model is called and become what the change is measured
+against:
+
+- both phases are given them: the analysis phase plans for every one, the
+  implementation phase answers for every one;
+- `submit_implementation` refuses a report that skips a criterion, names one
+  the report did not define, or answers with a bare word, and says which — so
+  the phase cannot end with a criterion unanswered;
+- the summary comment, the failure comment and the pull-request body carry a
+  **Per-criterion verdicts** section: one line per criterion, `PASS` or `FAIL`,
+  each with the evidence given for it.
+
+The verdicts are the model's judgement and are labelled as such. The list of
+criteria, the pairing and the outcome are not: a criterion the report stated
+appears in the section whatever the run did about it. A criterion reported as
+unmet does not by itself stop a change from landing — the project's checks
+decide that — but it is a warning on the run, and the comment says plainly
+that the work is unfinished.
+
+A report that defines no criteria is unaffected: no section is rendered, and
+nothing extra is asked of the model.
+
+Labels are taken from the report (`AC-1`, `NS-REQ-2`) and are `AC-n` by
+position when the report used none. Bullets, ordered items, checkboxes and
+wrapped items are all read; at most 30 criteria are taken.
+
 | Flag | Default | Effect |
 |---|---|---|
 | `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
@@ -224,7 +254,10 @@ stranger's report is not something to hand an API key to.
 `result` carries `stage`, `branch`, `base_branch`, `commit`, `changed_files`
 (from git), `baseline`, `verification`, `verdict`, `pull_request_url`, the
 `comments` posted, and the model's own `implementation` report kept separate
-from the facts.
+from the facts. When the report defined acceptance criteria it also carries
+`acceptance_criteria` (the criteria, as extracted), `criteria_outcome`
+(`pass` when every one was met, `fail` otherwise), and the verdict and
+evidence for each under `implementation.criteria_verdicts`.
 
 ### What the model may and may not do
 

@@ -55,7 +55,8 @@ func wipCommitMessage(impl Implementation, issue issueRef, verdict checks.Verdic
 // posts it in step 5 and checks for a dirty working tree in step 6.1, so its
 // most common failure leaves a public comment describing work that never
 // began.
-func analysisComment(a Analysis, branch, verifyCommand string, baseline checks.Result) string {
+func analysisComment(a Analysis, criteria []Criterion, branch, verifyCommand string,
+	baseline checks.Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
@@ -78,6 +79,8 @@ func analysisComment(a Analysis, branch, verifyCommand string, baseline checks.R
 		}
 		p("\n")
 	}
+
+	b.WriteString(criteriaList(criteria))
 
 	p("### Before the change\n\n")
 	p("%s\n\n", baselineLine(verifyCommand, baseline))
@@ -105,6 +108,65 @@ Answer in a comment and re-run, and I will implement the one you name.
 %s
 `, strings.TrimSpace(a.Question), strings.TrimSpace(a.InterpretationA),
 		strings.TrimSpace(a.InterpretationB), footer)
+}
+
+// criteriaList names what the report asked the change to satisfy, before any
+// of it is written. It goes in the analysis comment so that a reader can see,
+// while the work is still in progress, that the criteria were read at all.
+func criteriaList(criteria []Criterion) string {
+	if len(criteria) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Acceptance criteria\n\n")
+	for _, c := range criteria {
+		fmt.Fprintf(&b, "- **%s:** %s\n", c.ID, c.Text)
+	}
+	b.WriteString("\nEach is answered individually, with its evidence, when the work is " +
+		"reported.\n\n")
+	return b.String()
+}
+
+// criteriaVerdictSection answers the report's acceptance criteria one by one.
+//
+// The verdict and the evidence are the model's; the list of criteria and the
+// pairing are not. That is what the section is for: a criterion the report
+// stated appears here whatever the run did about it, so "Fix implemented"
+// cannot be a claim about the criteria in general. A criterion left
+// unanswered is rendered as unanswered rather than dropped — the submit tool
+// refuses that submission, so it should not be reachable, and a report that
+// silently omitted a criterion would be exactly the failure this section
+// exists to make impossible.
+func criteriaVerdictSection(level string, criteria []Criterion, impl *Implementation) string {
+	if len(criteria) == 0 {
+		return ""
+	}
+	var verdicts []CriterionVerdict
+	if impl != nil {
+		verdicts = impl.CriteriaVerdicts
+	}
+	byID := verdictsByID(verdicts)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s Per-criterion verdicts\n\n", level)
+	for _, c := range criteria {
+		v, ok := byID[c.ID]
+		if !ok {
+			fmt.Fprintf(&b, "- ⚠️ **%s**: NOT REPORTED\n", c.ID)
+			fmt.Fprintf(&b, "  - Criterion: %s\n", c.Text)
+			b.WriteString("  - Evidence: none — the implementation phase submitted no verdict " +
+				"for this criterion.\n")
+			continue
+		}
+		fmt.Fprintf(&b, "- %s **%s**: %s\n", v.Mark(), c.ID, v.Label())
+		fmt.Fprintf(&b, "  - Evidence: %s\n", strings.TrimSpace(v.Evidence))
+	}
+	if criteriaOutcome(criteria, verdicts) != CriterionPass {
+		b.WriteString("\n⚠️ Not every acceptance criterion is met. The ones above that are not " +
+			"a PASS are unfinished work, whatever the verification run says.\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // summaryComment is posted after the work is done and landed.
@@ -141,6 +203,8 @@ func summaryComment(r *Result) string {
 		}
 		p("\n")
 	}
+
+	b.WriteString(criteriaVerdictSection("###", r.AcceptanceCriteria, r.Implementation))
 
 	p("### Verification\n\n%s\n\n", verificationLines(r.Baseline, r.Verification))
 
@@ -180,6 +244,8 @@ func failureComment(r *Result) string {
 		p(" (`%s`)", r.Commit)
 	}
 	p(", and the checkout is back on `%s`.\n\n", r.BaseBranch)
+
+	b.WriteString(criteriaVerdictSection("###", r.AcceptanceCriteria, r.Implementation))
 
 	p("### Verification\n\n%s\n\n", verificationLines(r.Baseline, r.Verification))
 	if out := strings.TrimSpace(r.Verification.Output); out != "" {
@@ -229,6 +295,10 @@ func pullRequestBody(r *Result) string {
 		}
 		p("\n")
 	}
+	// The same section as the issue comment, one heading level up: a reviewer
+	// looking at the pull request should not have to open the issue to find
+	// out which criteria the change claims to meet.
+	b.WriteString(criteriaVerdictSection("##", r.AcceptanceCriteria, r.Implementation))
 	p("## Verification\n\n%s\n\n", verificationLines(r.Baseline, r.Verification))
 	if r.Implementation != nil && strings.TrimSpace(r.Implementation.Notes) != "" {
 		p("## Notes\n\n%s\n\n", strings.TrimSpace(r.Implementation.Notes))

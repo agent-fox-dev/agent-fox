@@ -78,6 +78,7 @@ What each handler rejects, and what the rejection says:
 | `file_issue` | a `suggested_fix.files` path outside the workspace | a proposed *new* file is fine; an escape is not |
 | `submit_analysis` | an empty title, an unknown classification, an ambiguity with no question | which field, and what it is for |
 | `submit_implementation` | an empty commit subject | that it is the subject of the commit this run makes |
+| `submit_implementation` | `criteria_verdicts` that skips an acceptance criterion the report defined, names one it did not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence | which ids are missing or unknown, and what a piece of evidence has to name |
 | `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent` | each of the three would otherwise fail later and more expensively |
 | `submit_{artifact}` | the artifact's v2 schema, plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`) |
 | `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
