@@ -30,7 +30,6 @@ The complete requirements artifact is above. Use its real IDs. Do not invent one
 
 ```json
 {
-  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
   "spec_id": "07",
   "spec_name": "recipe_manager",
   "schema_version": 2,

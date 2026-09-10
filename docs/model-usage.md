@@ -83,6 +83,15 @@ What each handler rejects, and what the rejection says:
 | `submit_{artifact}` | the artifact's v2 schema, plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`) |
 | `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
 
+The three `submit_{artifact}` schemas are converted from the format's own JSON
+Schemas rather than re-authored, with one omission: the artifact's `$schema`
+field. A tool schema may not declare a property by that name — the vendors
+restrict property names to `^[a-zA-Z0-9_.-]{1,64}$` — so the model is not
+shown the field and the submit handler writes its value from the schema
+document's own `$id`. See
+[the erratum](errata/tool_schema_property_names.md). Any other name a tool
+schema cannot carry fails the run in pre-flight, naming the property.
+
 ## Generation is sequential, and each step sees everything before it
 
 Format v2 §12.1 fixes the order: `requirements`, then `test_spec`, then

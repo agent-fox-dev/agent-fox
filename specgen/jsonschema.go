@@ -3,6 +3,7 @@ package specgen
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -29,13 +30,13 @@ import (
 // model-visible: it is the order the model is shown the fields and, through
 // the request body, part of the provider's cache prefix. schema.Schema carries
 // PropertyOrder for exactly this reason, and a map cannot carry it.
-func ToolSchema(raw []byte) (*schema.Schema, error) {
+func ToolSchema(raw []byte) (*schema.Schema, []string, error) {
 	v, err := jsonx.DecodeOrdered(raw)
 	if err != nil {
-		return nil, fmt.Errorf("specgen: decoding schema: %w", err)
+		return nil, nil, fmt.Errorf("specgen: decoding schema: %w", err)
 	}
 	if v.Kind != jsonx.KindObject {
-		return nil, fmt.Errorf("specgen: schema root is not an object")
+		return nil, nil, fmt.Errorf("specgen: schema root is not an object")
 	}
 
 	defs := map[string]jsonx.OrderedValue{}
@@ -46,12 +47,33 @@ func ToolSchema(raw []byte) (*schema.Schema, error) {
 	}
 
 	c := &schemaConv{defs: defs}
-	s := c.object(v.Object, nil)
+	s := c.object(v.Object, "", nil)
 	if s == nil {
-		return nil, fmt.Errorf("specgen: schema converted to nothing")
+		return nil, nil, fmt.Errorf("specgen: schema converted to nothing")
 	}
-	return s, nil
+	return s, c.dropped, nil
 }
+
+// undeclarableName is the pattern a property name in a tool schema must
+// match. It is the vendors' rule, not this format's: Anthropic's Messages API
+// rejects the whole request with
+//
+//	tools.0.custom.input_schema.properties: Property keys should match
+//	pattern '^[a-zA-Z0-9_.-]{1,64}$'
+//
+// and a document written as a JSON Schema is entitled to property names it
+// forbids. The v2 artifacts have exactly one — the artifact's own `$schema`
+// field — and the fix is not to rename it in a format other tools read, but
+// to leave it out of what the model is asked for and have the program fill it
+// in, which is where a constant belongs anyway.
+//
+// A name that cannot be declared is therefore dropped from the tool schema
+// and reported to the caller, so that the caller decides whether it has a
+// value to supply. Silence would be the dangerous option: a required property
+// missing from a submission fails validation in a loop the model cannot get
+// out of, because nothing it can say will produce a field the schema never
+// showed it.
+var undeclarableName = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,64}$`)
 
 // droppedKeywords are removed wherever a schema keyword is being read.
 //
@@ -85,13 +107,16 @@ var droppedKeywords = map[string]bool{
 
 type schemaConv struct {
 	defs map[string]jsonx.OrderedValue
+	// dropped names the properties left out because a tool schema cannot
+	// carry them, by path from the root ("$schema", "requirements[].$x").
+	dropped []string
 }
 
 // schema converts one value in SCHEMA position.
-func (c *schemaConv) schema(v jsonx.OrderedValue, resolving []string) *schema.Schema {
+func (c *schemaConv) schema(v jsonx.OrderedValue, path string, resolving []string) *schema.Schema {
 	switch v.Kind {
 	case jsonx.KindObject:
-		return c.object(v.Object, resolving)
+		return c.object(v.Object, path, resolving)
 	case jsonx.KindBool:
 		// `true` accepts anything, `false` accepts nothing. Neither is
 		// expressible as a typed Schema and neither appears in the v2
@@ -102,7 +127,7 @@ func (c *schemaConv) schema(v jsonx.OrderedValue, resolving []string) *schema.Sc
 	}
 }
 
-func (c *schemaConv) object(o jsonx.OrderedObject, resolving []string) *schema.Schema {
+func (c *schemaConv) object(o jsonx.OrderedObject, path string, resolving []string) *schema.Schema {
 	// A lone $ref is replaced by what it names. A cycle is broken by leaving
 	// an untyped schema behind rather than recursing forever; the v2 schemas
 	// have no cycles, and an untyped node is a description the model can still
@@ -114,7 +139,7 @@ func (c *schemaConv) object(o jsonx.OrderedObject, resolving []string) *schema.S
 				return &schema.Schema{}
 			}
 			if def, exists := c.defs[name]; exists {
-				return c.schema(def, append(resolving, name))
+				return c.schema(def, path, append(resolving, name))
 			}
 		}
 		// A $ref this document cannot resolve is dropped rather than
@@ -128,12 +153,24 @@ func (c *schemaConv) object(o jsonx.OrderedObject, resolving []string) *schema.S
 		if droppedKeywords[m.Key] {
 			continue
 		}
-		c.keyword(s, m.Key, m.Value, resolving)
+		c.keyword(s, m.Key, m.Value, path, resolving)
+	}
+	// A property this schema cannot declare has been left out above; take it
+	// out of `required` as well. A schema that requires a field it does not
+	// describe, with additionalProperties false, is one no argument object
+	// can satisfy — the same shape of bug this converter was written to fix.
+	if props, ok := o.Get("properties"); ok && props.Kind == jsonx.KindObject {
+		for _, p := range props.Object {
+			if !undeclarableName.MatchString(p.Key) {
+				s.Required = withoutString(s.Required, p.Key)
+			}
+		}
 	}
 	return s
 }
 
-func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue, resolving []string) {
+func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue, path string,
+	resolving []string) {
 	switch key {
 	case "type":
 		if v.Kind == jsonx.KindString {
@@ -157,11 +194,16 @@ func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue,
 		if v.Kind != jsonx.KindObject {
 			return
 		}
-		// Property NAMES, not keywords: nothing is dropped by name here.
+		// Property NAMES, not keywords: nothing is dropped by name here
+		// except a name the vendors will not accept as one.
 		s.Properties = make(map[string]*schema.Schema, len(v.Object))
 		s.PropertyOrder = make([]string, 0, len(v.Object))
 		for _, p := range v.Object {
-			sub := c.schema(p.Value, resolving)
+			if !undeclarableName.MatchString(p.Key) {
+				c.dropped = append(c.dropped, joinPath(path, p.Key))
+				continue
+			}
+			sub := c.schema(p.Value, joinPath(path, p.Key), resolving)
 			if sub == nil {
 				continue
 			}
@@ -171,13 +213,14 @@ func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue,
 	case "required":
 		s.Required = stringArray(v)
 	case "items":
-		s.Items = c.schema(v, resolving)
+		s.Items = c.schema(v, path+"[]", resolving)
 	case "additionalProperties":
 		switch v.Kind {
 		case jsonx.KindBool:
 			s.AdditionalProperties = &schema.AdditionalProperties{Allowed: scalarString(v) == "true"}
 		case jsonx.KindObject:
-			s.AdditionalProperties = &schema.AdditionalProperties{Allowed: true, Schema: c.schema(v, resolving)}
+			s.AdditionalProperties = &schema.AdditionalProperties{Allowed: true,
+				Schema: c.schema(v, path+"{}", resolving)}
 		}
 	case "enum":
 		if v.Kind != jsonx.KindArray {
@@ -195,9 +238,9 @@ func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue,
 			s.Const, s.HasConst = json.RawMessage(b), true
 		}
 	case "anyOf":
-		s.AnyOf = c.schemaArray(v, resolving)
+		s.AnyOf = c.schemaArray(v, path, resolving)
 	case "oneOf":
-		s.OneOf = c.schemaArray(v, resolving)
+		s.OneOf = c.schemaArray(v, path, resolving)
 	case "pattern":
 		s.Pattern = scalarString(v)
 	case "format":
@@ -233,13 +276,13 @@ func (c *schemaConv) keyword(s *schema.Schema, key string, v jsonx.OrderedValue,
 	}
 }
 
-func (c *schemaConv) schemaArray(v jsonx.OrderedValue, resolving []string) []*schema.Schema {
+func (c *schemaConv) schemaArray(v jsonx.OrderedValue, path string, resolving []string) []*schema.Schema {
 	if v.Kind != jsonx.KindArray {
 		return nil
 	}
 	out := make([]*schema.Schema, 0, len(v.Array))
 	for _, alt := range v.Array {
-		if sub := c.schema(alt, resolving); sub != nil {
+		if sub := c.schema(alt, path, resolving); sub != nil {
 			out = append(out, sub)
 		}
 	}
@@ -308,4 +351,23 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// joinPath names a property's position from the root, for a message a person
+// has to act on.
+func joinPath(parent, name string) string {
+	if parent == "" {
+		return name
+	}
+	return parent + "." + name
+}
+
+func withoutString(ss []string, drop string) []string {
+	out := ss[:0]
+	for _, s := range ss {
+		if s != drop {
+			out = append(out, s)
+		}
+	}
+	return out
 }

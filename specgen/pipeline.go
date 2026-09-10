@@ -191,6 +191,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
+	// The three tool schemas are converted here, before a token is spent.
+	// They are derived from the format's own JSON Schemas, so a schema no
+	// provider will accept is an internal error rather than a usage one — and
+	// meeting it after the PRD phase, as a vendor's 400 on the first
+	// generation step, costs the PRD phase to learn something that was
+	// knowable at the start.
+	for _, step := range afspec.GenerationSteps {
+		if _, err := ArtifactSchema(step); err != nil {
+			return nil, fail("preflight", agentrun.CategoryInternal, err)
+		}
+	}
+
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {
 		o.Run.Warn("could not read the existing specs in %s: %v", specsDir, err)

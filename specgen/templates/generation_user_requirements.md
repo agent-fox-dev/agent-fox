@@ -60,7 +60,6 @@ The fragment below is structurally correct for a recipe-manager system. Use your
 
 ```json
 {
-  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
   "spec_id": "07",
   "spec_name": "recipe_manager",
   "schema_version": 2,
