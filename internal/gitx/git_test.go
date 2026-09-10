@@ -449,3 +449,28 @@ func TestRestoreRevertsOnePathOnly(t *testing.T) {
 		t.Error("Restore touched a file outside the path it was given")
 	}
 }
+
+func TestCommitAllNoVerifySkipsAFailingHook(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAll(ctx, "chore: hooked\n"); err == nil {
+		t.Fatal("the hook did not refuse the ordinary commit")
+	}
+	if _, err := g.CommitAllNoVerify(ctx, "wip: parked\n\nSpec: 09_x, task 1\n"); err != nil {
+		t.Fatalf("CommitAllNoVerify: %v", err)
+	}
+	msg, err := g.HeadMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(msg, "wip: parked") || !strings.Contains(msg, "Spec: 09_x, task 1") {
+		t.Errorf("HeadMessage = %q", msg)
+	}
+}

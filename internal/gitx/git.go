@@ -157,10 +157,28 @@ func (g *Git) DiffStat(ctx context.Context, since string) (string, error) {
 // multi-paragraph body survives intact and nothing in it is interpreted as a
 // flag.
 func (g *Git) CommitAll(ctx context.Context, message string) (string, error) {
+	return g.commitAll(ctx, message, false)
+}
+
+// CommitAllNoVerify is CommitAll with the repository's hooks skipped.
+//
+// It exists for exactly one commit: the one that parks work the checks did
+// not pass. A pre-commit hook that lints would refuse that commit by
+// construction — the work is unverified, which is the point — and a park
+// that cannot commit leaves the model's files loose on the wrong branch.
+func (g *Git) CommitAllNoVerify(ctx context.Context, message string) (string, error) {
+	return g.commitAll(ctx, message, true)
+}
+
+func (g *Git) commitAll(ctx context.Context, message string, noVerify bool) (string, error) {
 	if _, err := g.must(ctx, "add", "-A"); err != nil {
 		return "", err
 	}
-	out, code, err := g.run(ctx, g.Dir, []string{"git", "commit", "-F", "-"}, message)
+	argv := []string{"git", "commit", "-F", "-"}
+	if noVerify {
+		argv = append(argv, "--no-verify")
+	}
+	out, code, err := g.run(ctx, g.Dir, argv, message)
 	if err != nil {
 		return "", fmt.Errorf("git commit: %w", err)
 	}
@@ -168,6 +186,13 @@ func (g *Git) CommitAll(ctx context.Context, message string) (string, error) {
 		return "", fmt.Errorf("git commit exited %d: %s", code, strings.TrimSpace(out))
 	}
 	return g.Head(ctx)
+}
+
+// HeadMessage is the full message of the current commit. A pipeline reads it
+// to recognize a commit it made itself — a parked attempt it may discard —
+// from a commit a person made, which it may not.
+func (g *Git) HeadMessage(ctx context.Context) (string, error) {
+	return g.must(ctx, "log", "-1", "--format=%B")
 }
 
 // Push publishes a branch, retrying the transient half of the failure space.

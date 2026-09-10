@@ -125,19 +125,24 @@ a compound shell command (`internal/checks` runs a program, not a shell, so
 project's — the audit `spec` runs at generation time, applied to a package
 that may have been written by hand.
 
-A spec whose `dependencies` name an upstream spec that is not sealed and
-whose tasks are not all done is not refused but stopped, with exit 3: the
-format says every task of this spec runs after the upstream one (§8.2), and
-the person or program driving `impl` is the one that can run the upstream
-first. A dependency that names no package in the spec root cannot be checked
+A spec whose `dependencies` name an upstream spec that is neither sealed
+nor fully done is not refused but stopped, with exit 3: the format says
+every task of this spec runs after the upstream spec is sealed or its
+integration task is done (§8.2), and the person or program driving `impl`
+is the one that can run the upstream first. A `draft` package is
+implemented with a warning: it validates, and activation freezes the intent
+rather than the plan. A dependency that names no package in the spec root cannot be checked
 and is reported as a warning; `Validate` does not cross specs, and a package
 copied out of its repository should still be implementable.
 
 ### 3. The gate is the spec's, not a guess
 
-`fix` detects a verification command. `impl` has one written down:
-`test_commands.linter` and `test_commands.all_tests` are the format's implicit
-definition of done for every task (§8.3). Both run, in that order, once before
+`fix` detects a verification command. `impl` has one written down. The
+format's implicit definition of done (§8.3) has four clauses: the task's
+own tests exist and pass, `test_commands.all_tests` passes,
+`test_commands.linter` passes, and every `done_when` entry holds. The
+program measures the two it can — the commands — and holds the model to the
+other two at the tool boundary (§6). Both run, in that order, once before
 any change and once after each task, through `internal/checks`, and each
 before/after pair is compared with `checks.Compare`. The task's verdict is the
 worst of the two. The gate that passed after task N is the baseline for task
@@ -169,12 +174,21 @@ For each task, in this order:
 3. Any change under the spec directory is reverted and recorded as a
    warning; the state file is the program's.
 4. The change is measured: `git` lists what differs, and a task that changed
-   nothing is a failed task, except the integration task, which may find
-   nothing to wire and says so.
+   nothing is a failed attempt — every task, the integration task included,
+   owns tests it has to write.
 5. The gate runs and is compared with the baseline.
-6. A landable verdict marks the task `done`, saves `tasks.json`, and commits
-   everything as `feat: <subject>` with a `Spec:` trailer naming the package
-   and the task. A verdict that is not landable and an attempt to spare
+6. A landable verdict — and a report that answers `pass` for every test the
+   task owns and every `done_when` entry — marks the task `done`, writes
+   `tasks.json`, and commits everything as `feat: <subject>` with a `Spec:`
+   trailer naming the package and the task. A report that answers `fail`
+   for one of them is an honest report of a task that is not done: it is
+   accepted at the tool boundary and treated like a failed gate. The state
+   write is `tasks.json` alone, through the library's own encoder and a
+   temp-and-rename; `afspec.Save` would rewrite every artifact from memory
+   and refuse an active spec whose intent drifted, both of which are right
+   for a tool that owns the package and wrong for one that only records
+   progress in it. The PRD's `updated_at` is therefore not touched by a
+   task landing. A verdict that is not landable and an attempt to spare
    resets the branch to the last commit and cleans the tree; the last
    attempt's failure parks the work as a `wip:` commit — with `tasks.json`
    recording the task as `in_progress`, so the branch says where it stopped —
