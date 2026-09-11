@@ -41,8 +41,12 @@ type Deps struct {
 	Workspace *tools.Workspace
 	// Runner drives the model phases.
 	Runner *agentrun.Runner
+	// Forge is the REST client, always non-nil.
+	Forge issuex.Client
 	// GitHub is the REST client, always non-nil. Whether it can write is
 	// GitHub.Authenticated().
+	// Deprecated: use Forge instead. Kept for backwards compatibility until
+	// commands and pipeline runners migrate.
 	GitHub *ghapi.Client
 	// Run accumulates warnings and per-phase cost for the envelope.
 	Run *Run
@@ -262,6 +266,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Input:     in,
 		Workspace: ws,
 		Runner:    runner,
+		Forge:     forge,
 		GitHub:    gh,
 		Run:       e.run,
 		Progress:  e.progress,

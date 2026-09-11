@@ -4,10 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // newApp builds an App whose Exec records what it was handed, so a test can
@@ -63,7 +69,7 @@ func TestAppEmitsJSONOnEveryPath(t *testing.T) {
 		if env.Model == nil || env.Model.Spec == "" {
 			t.Errorf("Model = %+v", env.Model)
 		}
-		if seen.Runner == nil || seen.Workspace == nil || seen.GitHub == nil {
+		if seen.Runner == nil || seen.Workspace == nil || seen.GitHub == nil || seen.Forge == nil {
 			t.Error("Exec was called with an incomplete Deps")
 		}
 	})
@@ -240,6 +246,177 @@ func TestStdinIsReadThroughTheSharedShell(t *testing.T) {
 	}
 	if seen.Input.Kind != KindStdin || seen.Input.Body != "piped problem report\n" {
 		t.Errorf("Input = %+v", seen.Input)
+	}
+}
+
+// roundTripFunc implements http.RoundTripper for tests.
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+// TS-04-9: Deps struct defines Forge field of type issuex.Client (04-REQ-3.1).
+func TestDeps_ForgeField_TS_04_9(t *testing.T) {
+	var d Deps
+	var _ issuex.Client = d.Forge
+}
+
+// TS-04-10: App.execute instantiates host-specific forge client for recognized issue URLs (04-REQ-3.2, 04-REQ-3.5).
+func TestApp_Execute_HostSpecificForgeClient_TS_04_10(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	dir := t.TempDir()
+
+	oldTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	var interceptedHost string
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		interceptedHost = req.URL.Host
+		if strings.Contains(req.URL.Path, "/issues/42/notes") {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`[]`)),
+			}, nil
+		}
+		respJSON := `{
+			"id": 42,
+			"iid": 42,
+			"title": "GitLab Test Issue",
+			"description": "issue description",
+			"state": "opened",
+			"web_url": "https://gitlab.com/group/project/-/issues/42",
+			"author": {"username": "alice"}
+		}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(respJSON)),
+		}, nil
+	})
+
+	var receivedForge issuex.Client
+	app := &App{
+		Name:    "testapp",
+		Version: "1.0",
+		Usage:   "usage\n",
+		Exec: func(ctx context.Context, d Deps) (int, any, *ErrorInfo) {
+			receivedForge = d.Forge
+			return ExitOK, map[string]string{"stage": "done"}, nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir, "https://gitlab.com/group/project/-/issues/42"}, strings.NewReader(""), &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("code = %d stderr = %s", code, stderr.String())
+	}
+	if receivedForge == nil {
+		t.Fatal("expected receivedForge to be non-nil in Deps.Forge")
+	}
+	if interceptedHost != "gitlab.com" {
+		t.Errorf("expected request host to be gitlab.com, got %q", interceptedHost)
+	}
+	if !strings.Contains(fmt.Sprintf("%+v", receivedForge), "gitlab.com") {
+		t.Errorf("expected forge client to target gitlab.com, got %+v", receivedForge)
+	}
+}
+
+// TS-04-11: App.execute falls back to NoOpClient when forge client creation fails for non-issue input (04-REQ-3.3).
+func TestApp_Execute_FallbackNoOp_TS_04_11(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITLAB_TOKEN", "")
+	dir := t.TempDir()
+
+	var receivedForge issuex.Client
+	app := &App{
+		Name:    "testapp",
+		Version: "1.0",
+		Usage:   "usage\n",
+		Exec: func(ctx context.Context, d Deps) (int, any, *ErrorInfo) {
+			receivedForge = d.Forge
+			return ExitOK, map[string]string{"stage": "done"}, nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir, "plain text bug report"}, strings.NewReader(""), &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("expected ExitOK, got %d (stderr: %s)", code, stderr.String())
+	}
+	if receivedForge == nil {
+		t.Fatal("expected non-nil Deps.Forge")
+	}
+	if receivedForge.Authenticated() {
+		t.Errorf("expected NoOpClient fallback to be unauthenticated")
+	}
+}
+
+// TS-04-12: App.execute records warning when issue comments could not be read (04-REQ-3.4).
+func TestApp_Execute_CommentsWarning_TS_04_12(t *testing.T) {
+	// Unit verification per pseudocode
+	mockRun := NewRun("test", "1.0")
+	thread := issuex.IssueThread{CommentsErr: errors.New("rate limited")}
+	in := Input{Kind: KindIssue, Thread: &thread}
+	if in.Thread != nil && in.Thread.CommentsErr != nil {
+		mockRun.Warn("the issue's comments could not be read: %v", in.Thread.CommentsErr)
+	}
+	warns := mockRun.Warnings()
+	if len(warns) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(warns))
+	}
+	if !strings.Contains(warns[0], "the issue's comments could not be read: rate limited") {
+		t.Errorf("unexpected warning message: %s", warns[0])
+	}
+
+	// Integration verification through App.execute
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	dir := t.TempDir()
+
+	oldTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.Path, "/issues/42/notes") {
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"message": "rate limited"}`)),
+			}, nil
+		}
+		respJSON := `{
+			"id": 42,
+			"iid": 42,
+			"title": "GitLab Test Issue",
+			"description": "issue description",
+			"state": "opened",
+			"web_url": "https://gitlab.com/group/project/-/issues/42",
+			"author": {"username": "alice"}
+		}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(respJSON)),
+		}, nil
+	})
+
+	app, _ := newApp(t, nil)
+	env, code, _ := runApp(t, app, []string{"--dir", dir, "https://gitlab.com/group/project/-/issues/42"}, "")
+	if code != ExitOK {
+		t.Fatalf("code = %d", code)
+	}
+	var foundWarning bool
+	for _, w := range env.Warnings {
+		if strings.Contains(w, "the issue's comments could not be read:") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected warning about unreadable comments, got warnings: %v", env.Warnings)
 	}
 }
 
