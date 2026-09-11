@@ -13,6 +13,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // Options configure one fix run.
@@ -25,7 +26,7 @@ type Options struct {
 	Workspace *tools.Workspace
 	// Repo is the target repository for the pull request. Zero means the
 	// input issue's, else the origin remote.
-	Repo ghapi.Repo
+	Repo issuex.Repo
 	// Land decides what happens once the change is verified.
 	Land LandMode
 	// DryRun makes no REMOTE change: nothing is pushed, no pull request is
@@ -55,7 +56,9 @@ type Options struct {
 
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
-	// GitHub is the REST client.
+	// Forge is the forge client.
+	Forge issuex.Client
+	// GitHub is deprecated: use Forge instead.
 	GitHub *ghapi.Client
 	// Git is the repository wrapper. Nil means one rooted at the workspace.
 	Git *gitx.Git
@@ -99,9 +102,8 @@ const (
 	CategoryAmbiguous = "ambiguous"
 	// CategoryUnverified means code was written and the checks do not pass.
 	CategoryUnverified = "unverified"
-	// CategoryGit and CategoryGitHub are the two external systems.
-	CategoryGit    = "git"
-	CategoryGitHub = "github"
+	// CategoryGit is the git external system.
+	CategoryGit = "git"
 	// CategoryEmpty means the model reported a fix and changed nothing.
 	CategoryEmpty = "empty_change"
 )
@@ -335,23 +337,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	return result, nil
 }
 
-// preflight is every check that can refuse the run.
+// Preflight runs every check that can refuse the run.
 //
 // It happens before the model is called and before anything is posted, which
 // is the ordering fix that matters most: discovering a dirty working tree
 // after a ten-minute analysis costs the analysis, and discovering it after
 // the analysis comment was posted costs the issue's readability too.
-func preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (ghapi.Repo, string, *Failure) {
+func Preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (issuex.Repo, string, *Failure) {
 	if !git.IsRepo(ctx) {
-		return ghapi.Repo{}, "", failf("preflight", "usage",
+		return issuex.Repo{}, "", failf("preflight", "usage",
 			"%s is not a git repository; pass --dir", o.Workspace.Root)
 	}
 	dirty, err := git.DirtyFiles(ctx)
 	if err != nil {
-		return ghapi.Repo{}, "", fail("preflight", CategoryGit, err)
+		return issuex.Repo{}, "", fail("preflight", CategoryGit, err)
 	}
 	if len(dirty) > 0 {
-		return ghapi.Repo{}, "", failf("preflight", "usage",
+		return issuex.Repo{}, "", failf("preflight", "usage",
 			"the working tree in %s has %d uncommitted change(s); commit or stash them first:\n%s",
 			o.Workspace.Root, len(dirty), strings.Join(dirty, "\n"))
 	}
@@ -365,50 +367,54 @@ func preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (g
 			targetBranch = base
 		}
 		if err := git.Checkout(ctx, targetBranch); err != nil {
-			return ghapi.Repo{}, "", fail("preflight", CategoryGit, err)
+			return issuex.Repo{}, "", fail("preflight", CategoryGit, err)
 		}
 		if err := git.Pull(ctx, targetBranch); err != nil {
-			return ghapi.Repo{}, "", fail("preflight", CategoryGit, err)
+			return issuex.Repo{}, "", fail("preflight", CategoryGit, err)
 		}
 		base = targetBranch
 	}
 
 	target := o.Repo
-	if !target.Valid() && o.Input.Issue != nil {
-		target = o.Input.Issue.Repo
-	}
 	if !target.Valid() {
-		if r, ok := ghapi.DetectRepo(o.Workspace.Root); ok {
+		if r, ok := issuex.DetectRepo(o.Workspace.Root); ok {
 			target = r
 		}
 	}
+	if !target.Valid() && o.Input.Issue != nil {
+		target = o.Input.Issue.Repo
+	}
 
-	// A run that will write to GitHub checks that it can before it spends
+	// A run that will write to the forge checks that it can before it spends
 	// money on a model.
 	needsToken := !o.DryRun && (o.Input.Issue != nil || o.Land == LandPR)
-	if needsToken && !o.GitHub.Authenticated() {
+	if needsToken && (o.Forge == nil || !o.Forge.Authenticated()) {
 		if o.Land == LandPR && o.Input.Issue == nil {
-			return ghapi.Repo{}, "", failf("preflight", "auth",
-				"opening a pull request needs a credential: set GITHUB_TOKEN or GH_TOKEN, "+
+			return issuex.Repo{}, "", failf("preflight", "auth",
+				"opening a pull request needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, "+
 					"or pass --land=branch, --land=none or --dry-run")
 		}
-		return ghapi.Repo{}, "", failf("preflight", "auth",
-			"commenting on %s needs a credential: set GITHUB_TOKEN or GH_TOKEN, or pass --dry-run",
+		return issuex.Repo{}, "", failf("preflight", "auth",
+			"commenting on %s needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run",
 			o.Input.Issue)
 	}
 	if o.Land == LandPR && !o.DryRun && !target.Valid() {
-		return ghapi.Repo{}, "", failf("preflight", "usage",
-			"--land=pr needs a target repository: %s has no GitHub origin remote and the input "+
+		return issuex.Repo{}, "", failf("preflight", "usage",
+			"--land=pr needs a target repository: %s has no origin remote on a recognized forge and the input "+
 				"is not an issue URL — pass --repo owner/repo, or --land=branch",
 			o.Workspace.Root)
 	}
 	if o.Land.Pushes() && !o.DryRun && !git.HasRemote(ctx) {
-		return ghapi.Repo{}, "", failf("preflight", "usage",
+		return issuex.Repo{}, "", failf("preflight", "usage",
 			"--land=%s pushes, and %s has no origin remote; pass --land=none",
 			o.Land, o.Workspace.Root)
 	}
 	result.Stage = "preflight"
 	return target, base, nil
+}
+
+func preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (issuex.Repo, string, *Failure) {
+	return Preflight(ctx, o, git, result)
 }
 
 // stopOnAmbiguity ends the run with a question rather than a change.
@@ -452,6 +458,13 @@ func parkUnverified(ctx context.Context, o Options, git *gitx.Git, result *Resul
 		result.Verification.Command, verdict, result.Branch)
 }
 
+// OpenPullRequest opens the pull request and degrades to a warning when it
+// cannot.
+func OpenPullRequest(ctx context.Context, o Options, target issuex.Repo, result *Result,
+	analysis Analysis, impl Implementation, base, branch string) {
+	openPullRequest(ctx, o, target, result, analysis, impl, base, branch)
+}
+
 // openPullRequest opens the pull request and degrades to a warning when it
 // cannot.
 //
@@ -459,20 +472,35 @@ func parkUnverified(ctx context.Context, o Options, git *gitx.Git, result *Resul
 // change is verified, so the work is safe and a person can open the PR by
 // hand. Failing the run here would throw away a successful fix over a
 // permissions error.
-func openPullRequest(ctx context.Context, o Options, target ghapi.Repo, result *Result,
+func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result *Result,
 	analysis Analysis, impl Implementation, base, branch string) {
 
-	pr, err := o.GitHub.CreatePullRequest(ctx, target,
-		pullRequestTitle(analysis.Classification, impl, o.Input.Issue),
-		pullRequestBody(result), branch, base, o.Draft)
+	if o.Forge == nil {
+		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+			"hand from %s into %s): no forge client configured", branch, base)
+		return
+	}
+	pr, err := o.Forge.CreatePullRequest(ctx, target, issuex.CreatePullRequestRequest{
+		Title: pullRequestTitle(analysis.Classification, impl, o.Input.Issue),
+		Body:  pullRequestBody(result),
+		Head:  branch,
+		Base:  base,
+		Draft: o.Draft,
+	})
 	if err != nil {
 		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", branch, base, err)
 		return
 	}
-	result.PullRequestURL = pr.HTMLURL
+	result.PullRequestURL = pr.URL
 	result.PullRequestNumber = pr.Number
-	o.Progress.Step("opened %s", pr.HTMLURL)
+	o.Progress.Step("opened %s", pr.URL)
+}
+
+// PostComment writes one comment to the issue, or reports what it would have
+// written under a dry run.
+func PostComment(ctx context.Context, o Options, result *Result, body, kind string) {
+	postComment(ctx, o, result, body, kind)
 }
 
 // postComment writes one comment to the issue, or reports what it would have
@@ -489,7 +517,11 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 		o.Progress.Detail("dry run: the %s comment was not posted", kind)
 		return
 	}
-	url, err := o.GitHub.AddComment(ctx, *o.Input.Issue, body)
+	if o.Forge == nil {
+		o.Run.Warn("the %s comment could not be posted on %s: no forge client configured", kind, o.Input.Issue)
+		return
+	}
+	url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 	if err != nil {
 		o.Run.Warn("the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
 		return

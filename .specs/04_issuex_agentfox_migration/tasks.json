@@ -1,0 +1,383 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "04",
+  "spec_name": "issuex_agentfox_migration",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./codefix/... ./codeimpl/... ./issuetriage/... ./specgen/... ./cmd/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "01_issuex_core",
+      "reason": "Foundational forge client interface, domain data models, URL and git remote parsing, error taxonomy, and NoOpClient."
+    },
+    {
+      "spec": "02_issuex_github",
+      "reason": "GitHub REST client adapter implementing issuex.Client for GitHub and GitHub Enterprise instances."
+    },
+    {
+      "spec": "03_issuex_gitlab",
+      "reason": "GitLab REST client adapter implementing issuex.Client for GitLab and self-hosted GitLab instances."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Deprecate internal/ghapi and provide compatibility forwarding layer to issuex",
+      "criteria": [
+        "04-REQ-9.1",
+        "04-REQ-9.2",
+        "04-REQ-9.3",
+        "04-REQ-9.4"
+      ],
+      "tests": [
+        "TS-04-34"
+      ],
+      "steps": [
+        "Write TS-04-34 in internal/ghapi/ref_test.go verifying type aliases, forwarding functions, and deprecation documentation",
+        "Add package deprecation doc comments referencing issuex in internal/ghapi/doc.go and internal/ghapi/client.go",
+        "Update internal/ghapi/ref.go to alias Repo and IssueRef to issuex.Repo and issuex.IssueRef with deprecation comments",
+        "Forward ParseRepo, ParseRemote, DetectRepo, and ParseIssueURL in internal/ghapi/ref.go to issuex package functions with deprecation comments",
+        "Annotate existing methods in internal/ghapi/client.go with deprecation notices while preserving backwards compatibility",
+        "Run go test ./internal/ghapi/... -count=1 to confirm TS-04-34 passes"
+      ],
+      "touches": [
+        "internal/ghapi/doc.go",
+        "internal/ghapi/ref.go",
+        "internal/ghapi/client.go",
+        "internal/ghapi/ref_test.go"
+      ],
+      "state": "done"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Migrate toolio input resolution and thread rendering to issuex",
+      "criteria": [
+        "04-REQ-1.1",
+        "04-REQ-1.2",
+        "04-REQ-1.3",
+        "04-REQ-1.4",
+        "04-REQ-1.5",
+        "04-REQ-2.1",
+        "04-REQ-2.2",
+        "04-REQ-2.3",
+        "04-REQ-2.4",
+        "04-REQ-2.5",
+        "04-REQ-10.1",
+        "04-REQ-10.2"
+      ],
+      "tests": [
+        "TS-04-1",
+        "TS-04-2",
+        "TS-04-3",
+        "TS-04-4",
+        "TS-04-5",
+        "TS-04-6",
+        "TS-04-7",
+        "TS-04-8"
+      ],
+      "steps": [
+        "Write TS-04-1 through TS-04-8 in internal/toolio/input_test.go for input resolution and deterministic thread rendering",
+        "Update KindIssue constant to \\\"issue\\\" and update Input struct fields to reference *issuex.IssueRef and *issuex.IssueThread in internal/toolio/input.go",
+        "Update Resolve signature in internal/toolio/input.go to accept forge issuex.Client instead of *ghapi.Client",
+        "Implement issue URL resolution via issuex.ParseIssueURL, rejecting with error when forge is nil",
+        "In resolveIssue, call forge.ReadIssue and annotate 404 errors with private repository credential notice when forge.Authenticated() is false",
+        "Update resolved Input with IsPullRequest flags, thread truncation marker, and issuex metadata",
+        "Update RenderThread signature to accept issuex.IssueRef and issuex.IssueThread, formatting platform branding header by inspecting ref.Repo.Host (GitLab, GitHub, or Forge)",
+        "Implement deterministic thread rendering of title, author, labels, trimmed body, sequential comment blocks, and comments truncation marker",
+        "Run go test ./internal/toolio/... -run \"TestInput|TestRenderThread\" -count=1 to confirm TS-04-1 through TS-04-8 pass"
+      ],
+      "touches": [
+        "internal/toolio/input.go",
+        "internal/toolio/input_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Migrate toolio App shell and client factory integration",
+      "criteria": [
+        "04-REQ-3.1",
+        "04-REQ-3.2",
+        "04-REQ-3.3",
+        "04-REQ-3.4",
+        "04-REQ-3.5"
+      ],
+      "tests": [
+        "TS-04-9",
+        "TS-04-10",
+        "TS-04-11",
+        "TS-04-12"
+      ],
+      "steps": [
+        "Write TS-04-9, TS-04-10, TS-04-11, and TS-04-12 in internal/toolio/app_test.go verifying Deps.Forge and client construction logic",
+        "In internal/toolio/app.go, replace GitHub *ghapi.Client with Forge issuex.Client on the Deps struct",
+        "In App.execute, check if argument matches issuex.ParseIssueURL and instantiate issuex.NewWithOptions targeting the parsed host URL and user agent",
+        "If argument is not an issue URL or host creation fails, construct issuex.New falling back to issuex.NewNoOp() on error",
+        "Pass the constructed forge client to Resolve and log a warning on e.run if in.Thread.CommentsErr is non-nil",
+        "Pass Forge: forge into Deps when invoking a.Exec in internal/toolio/app.go",
+        "Run go test ./internal/toolio/... -run \"TestApp\" -count=1 to confirm TS-04-9 through TS-04-12 pass"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "done"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Migrate codefix pipeline runner to issuex",
+      "criteria": [
+        "04-REQ-4.1",
+        "04-REQ-4.2",
+        "04-REQ-4.3",
+        "04-REQ-4.4",
+        "04-REQ-4.5",
+        "04-REQ-4.6",
+        "04-REQ-10.3"
+      ],
+      "tests": [
+        "TS-04-13",
+        "TS-04-14",
+        "TS-04-15",
+        "TS-04-16",
+        "TS-04-17"
+      ],
+      "steps": [
+        "Write TS-04-13 through TS-04-17 in codefix/pipeline_test.go using mock issuex.Client and httptest.Server",
+        "Update codefix/types.go: alias issueRef to *issuex.IssueRef, define CategoryForge = \\\"forge\\\", and alias CategoryGitHub = CategoryForge",
+        "Update codefix/pipeline.go Options struct to replace ghapi.Repo with issuex.Repo and ghapi.Client with issuex.Client Forge",
+        "In codefix.Preflight, resolve target repository via issuex.DetectRepo(o.Workspace.Root) falling back to o.Input.Issue.Repo",
+        "Add preflight auth validation requiring GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN when unauthenticated for LandPR or issue input",
+        "Add preflight usage validation when target repository is invalid for LandPR",
+        "Update openPullRequest to invoke o.Forge.CreatePullRequest with title, body, head branch, base branch, and draft flag",
+        "Update postComment to invoke o.Forge.AddComment and append returned comment URL to result.Comments",
+        "Run go test ./codefix/... -count=1 to confirm TS-04-13 through TS-04-17 pass"
+      ],
+      "touches": [
+        "codefix/types.go",
+        "codefix/pipeline.go",
+        "codefix/pipeline_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "done"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Migrate codeimpl pipeline runner to issuex",
+      "criteria": [
+        "04-REQ-5.1",
+        "04-REQ-5.2",
+        "04-REQ-5.3",
+        "04-REQ-5.4",
+        "04-REQ-5.5"
+      ],
+      "tests": [
+        "TS-04-18",
+        "TS-04-19",
+        "TS-04-20",
+        "TS-04-21",
+        "TS-04-22"
+      ],
+      "steps": [
+        "Write TS-04-18 through TS-04-22 in codeimpl/pipeline_test.go using mock issuex.Client",
+        "Update codeimpl/types.go: replace ghapi.Repo with issuex.Repo, ghapi.Client with issuex.Client Forge, and define CategoryForge and CategoryGitHub alias",
+        "In codeimpl.Preflight, resolve target repository using issuex.DetectRepo(st.root) when unspecified",
+        "In preflight, return auth failure naming GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN when unauthenticated for LandPR",
+        "In preflight, return usage failure when target repository cannot be resolved for LandPR",
+        "In codeimpl landing phase, call o.Forge.CreatePullRequest with target repo, title, body, head, base, and draft flag, populating result pull request fields",
+        "Run go test ./codeimpl/... -count=1 to confirm TS-04-18 through TS-04-22 pass"
+      ],
+      "touches": [
+        "codeimpl/types.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/pipeline_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "done"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Migrate issuetriage pipeline runner to issuex",
+      "criteria": [
+        "04-REQ-6.1",
+        "04-REQ-6.2",
+        "04-REQ-6.3",
+        "04-REQ-6.4",
+        "04-REQ-6.5",
+        "04-REQ-6.6",
+        "04-REQ-6.7",
+        "04-REQ-10.4"
+      ],
+      "tests": [
+        "TS-04-23",
+        "TS-04-24",
+        "TS-04-25",
+        "TS-04-26",
+        "TS-04-27",
+        "TS-04-28"
+      ],
+      "steps": [
+        "Write TS-04-23 through TS-04-28 in issuetriage/triage_test.go using mock issuex.Client and httptest.Server",
+        "Update issuetriage/pipeline.go Options struct to replace ghapi.Repo with issuex.Repo and ghapi.Client with Forge issuex.Client, defining CategoryForge and CategoryGitHub alias",
+        "In resolveTarget, detect repository via issuex.DetectRepo(o.Workspace.Root) when o.Repo and o.Input.Issue are unset, returning usage error if unresolvable on non-dry-run",
+        "In checkWriteCredential, return internal failure if o.Forge is nil, and auth failure naming GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN if unauthenticated on non-dry-run",
+        "In write, call o.Forge.UpdateIssue when o.Overwrite is true or o.Forge.CreateIssue when o.Overwrite is false",
+        "In write, classify forge errors using issuex.IsNoToken, returning auth failure if true or CategoryForge failure otherwise",
+        "Run go test ./issuetriage/... -count=1 to confirm TS-04-23 through TS-04-28 pass"
+      ],
+      "touches": [
+        "issuetriage/pipeline.go",
+        "issuetriage/issue.go",
+        "issuetriage/triage.go",
+        "issuetriage/triage_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "done"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Migrate specgen pipeline runner to issuex",
+      "criteria": [
+        "04-REQ-7.1",
+        "04-REQ-7.2",
+        "04-REQ-7.3",
+        "04-REQ-7.4"
+      ],
+      "tests": [
+        "TS-04-29",
+        "TS-04-30",
+        "TS-04-31"
+      ],
+      "steps": [
+        "Write TS-04-29, TS-04-30, and TS-04-31 in specgen/pipeline_test.go using mock issuex.Client",
+        "Update specgen/pipeline.go Options struct to replace GitHub *ghapi.Client with Forge issuex.Client",
+        "In specgen preflight, return auth failure naming GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN when o.Comment is true, o.DryRun is false, and o.Forge is unauthenticated or nil",
+        "In PRD generation phase, call o.Forge.AddComment when o.Comment is true, o.DryRun is false, and o.Input.Issue is non-nil",
+        "If o.Forge.AddComment returns an error, record a warning on o.Run without failing the pipeline run",
+        "Run go test ./specgen/... -count=1 to confirm TS-04-29 through TS-04-31 pass"
+      ],
+      "touches": [
+        "specgen/pipeline.go",
+        "specgen/pipeline_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "done"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Migrate CLI commands (fix, impl, issue, spec) to issuex",
+      "criteria": [
+        "04-REQ-8.1",
+        "04-REQ-8.2",
+        "04-REQ-8.3",
+        "04-REQ-8.4",
+        "04-REQ-8.5"
+      ],
+      "tests": [
+        "TS-04-32",
+        "TS-04-33"
+      ],
+      "steps": [
+        "Write TS-04-32 and TS-04-33 in cmd/fix/main_test.go and CLI test helpers",
+        "In cmd/fix/main.go: parse --repo using issuex.ParseRepo, pass Forge: d.Forge to codefix.Options, and update usage text for GitHub and GitLab issue and pull/merge-request URLs",
+        "In cmd/impl/main.go: parse --repo using issuex.ParseRepo, pass Forge: d.Forge to codeimpl.Options, and update usage text for GitHub and GitLab options",
+        "In cmd/issue/main.go: parse --repo using issuex.ParseRepo, pass Forge: d.Forge to issuetriage.Options, and update usage text for forge issue URLs",
+        "In cmd/spec/main.go: pass Forge: d.Forge to specgen.Options, and update usage text for GitHub and GitLab issue URLs",
+        "Reject malformed --repo inputs with usage error across all CLI commands",
+        "Run go test ./cmd/... -count=1 to confirm TS-04-32 and TS-04-33 pass"
+      ],
+      "touches": [
+        "cmd/fix/main.go",
+        "cmd/fix/main_test.go",
+        "cmd/impl/main.go",
+        "cmd/issue/main.go",
+        "cmd/spec/main.go"
+      ],
+      "depends_on": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "state": "done"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Verify repository test suite and linter across migrated packages",
+      "criteria": [
+        "04-REQ-10.5"
+      ],
+      "tests": [
+        "TS-04-35"
+      ],
+      "steps": [
+        "Write TS-04-35 in a top-level verification test or package test confirming clean build and test status",
+        "Run make test to execute all unit and integration tests across all packages",
+        "Run make lint to confirm gofmt formatting and go vet pass without errors or deprecation breakages",
+        "Verify clean compilation of all CLI binaries via make build"
+      ],
+      "touches": [
+        "Makefile"
+      ],
+      "depends_on": [
+        8
+      ],
+      "state": "done"
+    },
+    {
+      "id": 10,
+      "kind": "integration",
+      "title": "End-to-end integration and smoke verification across GitHub and GitLab execution paths",
+      "tests": [
+        "TS-04-36",
+        "TS-04-37",
+        "TS-04-38",
+        "TS-04-39"
+      ],
+      "steps": [
+        "Write smoke tests TS-04-36, TS-04-37, TS-04-38, and TS-04-39 in internal/toolio/smoke_test.go exercising 04-PATH-1 through 04-PATH-4 against mock GitHub and GitLab servers",
+        "Trace 04-PATH-1 (GitLab issue triage) from cmd/issue through toolio.Resolve, toolio.RenderThread, and issuetriage.Run to verify live execution across real components",
+        "Trace 04-PATH-2 (GitHub bugfix PR) from cmd/fix through toolio.Resolve, codefix.Preflight, codefix.Run, and forge client PR creation and commenting",
+        "Trace 04-PATH-3 (GitLab spec PRD comment) from cmd/spec through toolio.Resolve, specgen.Run, and forge client issue commenting",
+        "Trace 04-PATH-4 (nested GitLab project implementation) from cmd/impl through issuex.ParseRepo, codeimpl.Preflight, and codeimpl.Run PR creation",
+        "Verify that all contract error outputs (04-REQ-1.3, 04-REQ-1.4, 04-REQ-4.3, 04-REQ-4.4, 04-REQ-5.3, 04-REQ-5.4, 04-REQ-6.2, 04-REQ-6.3, 04-REQ-6.4, 04-REQ-6.7, 04-REQ-7.2, 04-REQ-7.4, 04-REQ-8.5) are consumed by CLI envelopes and error handlers in production code",
+        "Confirm that issuex factory entry points from specs 01_issuex_core, 02_issuex_github, and 03_issuex_gitlab are invoked from production code in toolio and CLI packages",
+        "Search all touched files in internal/toolio, codefix, codeimpl, issuetriage, specgen, cmd, and internal/ghapi for stub markers (panic(\"not implemented\"), TODO, bare return nil) and resolve any that remain",
+        "Execute make check (lint and test) to ensure complete repository integrity and clean passing builds"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        9
+      ],
+      "state": "done"
+    }
+  ]
+}

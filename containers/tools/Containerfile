@@ -7,7 +7,7 @@ ARG BUILD_TIME=
 USER root
 WORKDIR /build
 
-COPY --from=agentkit-go . /build/coder
+COPY --from=agentkit-go . /build/agentkit-go
 
 WORKDIR /build/agent-fox
 COPY go.mod go.sum ./

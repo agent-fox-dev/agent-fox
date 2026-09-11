@@ -1,0 +1,238 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "02",
+  "spec_name": "issuex_github",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./issuex/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "01_issuex_core",
+      "reason": "Supplies Client interface, domain data models, options configuration, forge detection, error hierarchy, and shared transport foundation that this adapter implements."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Implement GitHub client constructor, transport, error handling, and factory wiring",
+      "criteria": [
+        "02-REQ-1.1",
+        "02-REQ-1.2",
+        "02-REQ-1.3",
+        "02-REQ-1.4",
+        "02-REQ-1.5",
+        "02-REQ-7.1",
+        "02-REQ-7.2",
+        "02-REQ-7.3",
+        "02-REQ-7.4",
+        "02-REQ-7.5",
+        "02-REQ-7.6"
+      ],
+      "tests": [
+        "TS-02-1",
+        "TS-02-2",
+        "TS-02-3",
+        "TS-02-4",
+        "TS-02-21",
+        "TS-02-22",
+        "TS-02-23",
+        "TS-02-24"
+      ],
+      "steps": [
+        "Write unit tests TS-02-1, TS-02-2, TS-02-21, TS-02-22, TS-02-24, property tests TS-02-4, TS-02-23, and factory integration test TS-02-3 in issuex/github_test.go; verify they fail.",
+        "In issuex/github.go, define the unexported githubClient struct implementing issuex.Client with fields baseURL, token, userAgent, httpClient, repo, sleep func(time.Duration), allowMergeCommit bool, allowSquashMerge bool, allowRebaseMerge bool.",
+        "Implement NewGitHub(o Options) (Client, error): trim trailing slashes from o.BaseURL or fallback to GITHUB_API_URL or https://api.github.com; resolve token from o.Token, GITHUB_TOKEN, or GH_TOKEN; set default 30s timeout client and userAgent 'agent-fox'; initialize sleep to time.Sleep.",
+        "Implement Authenticated() bool returning token != '', and Close() error closing idle connections via CloseIdleConnections() on httpClient.Transport if supported and returning nil.",
+        "Update issuex.NewWithOptions in issuex/factory.go so that when o.NoOp is false and forge type is ForgeTypeGitHub, it calls NewGitHub(o) instead of returning ErrUnsupportedForge.",
+        "Implement (*githubClient).do(ctx, method, path, reqBody, respTarget) with standard headers (Accept, X-GitHub-Api-Version: 2022-11-28, User-Agent, Authorization Bearer, Content-Type). Enforce 8 MB bounded reading via io.LimitReader.",
+        "Implement GitHub error payload parsing formatting message plus errors array details into HTTPError, wrapping ErrNotFound on 404 and ErrConflict on 405/409.",
+        "Implement rate-limit backoff retry in do(): on 429 or 403 with X-RateLimit-Remaining: 0, compute backoff via RetryAfter(); if <= 120s invoke sleep and retry once; if > 120s or retry fails, wrap ErrRateLimited.",
+        "Run go test ./issuex/... -run 'TestGitHub_Client|TestGitHub_Constructor|TestGitHub_Factory|TestGitHub_Headers|TestGitHub_Transport' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/github.go",
+        "issuex/factory.go",
+        "issuex/github_test.go"
+      ],
+      "state": "done"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement repository metadata inspection and merge policy caching",
+      "criteria": [
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-2.3",
+        "02-REQ-2.4"
+      ],
+      "tests": [
+        "TS-02-5",
+        "TS-02-6"
+      ],
+      "steps": [
+        "Write unit tests TS-02-5 and TS-02-6 in issuex/github_test.go covering GetRepository success with permissions, merge strategies, and authenticated vs unauthenticated 404 responses; verify they fail.",
+        "In issuex/github.go, implement GetRepository(ctx context.Context, repo Repo) (Repository, error) executing GET /repos/{owner}/{name}.",
+        "Populate Repository fields FullName, DefaultBranch, Private, Archived, and Permissions booleans (Push, Pull, Admin) from GitHub repository response JSON.",
+        "Cache repository merge strategy flags allow_merge_commit, allow_squash_merge, and allow_rebase_merge on githubClient for pull request merge method resolution.",
+        "If GET /repos/{owner}/{name} returns HTTP 404, wrap ErrNotFound in HTTPError. If unauthenticated, wrap with an explanatory hint indicating the repository may be private and require authentication.",
+        "Run go test ./issuex/... -run 'TestGitHub_GetRepository' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/github.go",
+        "issuex/github_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement issue lifecycle, comment handling, and label operations",
+      "criteria": [
+        "02-REQ-3.1",
+        "02-REQ-3.2",
+        "02-REQ-3.3",
+        "02-REQ-3.4",
+        "02-REQ-3.5",
+        "02-REQ-3.6",
+        "02-REQ-3.7",
+        "02-REQ-3.8",
+        "02-REQ-4.1",
+        "02-REQ-4.2",
+        "02-REQ-4.3",
+        "02-REQ-4.4",
+        "02-REQ-4.5",
+        "02-REQ-4.6",
+        "02-REQ-4.7"
+      ],
+      "tests": [
+        "TS-02-7",
+        "TS-02-8",
+        "TS-02-9",
+        "TS-02-10",
+        "TS-02-11",
+        "TS-02-12",
+        "TS-02-13",
+        "TS-02-14",
+        "TS-02-15"
+      ],
+      "steps": [
+        "Write unit tests TS-02-7, TS-02-8, TS-02-9, TS-02-10, TS-02-11, TS-02-12, TS-02-13, TS-02-14, and TS-02-15 in issuex/github_issues_test.go; verify they fail.",
+        "In issuex/github_issues.go, implement unauthenticated checks returning ErrNoToken for mutation operations: CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, and CreateLabel.",
+        "Implement CreateIssue(ctx, repo, req) executing POST /repos/{owner}/{name}/issues and returning Issue with IsPR set to false.",
+        "Implement ReadIssue(ctx, ref) executing GET /repos/{owner}/{name}/issues/{number}, setting Issue.IsPR true if pull_request key exists, and calling ListComments; if comment fetch fails, populate IssueThread.CommentsErr without failing ReadIssue. On unauthenticated 404, annotate error with private issue guidance.",
+        "Implement UpdateIssue(ctx, ref, req) executing PATCH /repos/{owner}/{name}/issues/{number} with specified fields and returning updated Issue.",
+        "Implement CloseIssue(ctx, ref, comment): if comment is non-empty, call AddComment first; then PATCH issue state to closed.",
+        "Implement ListIssues(ctx, repo, filter) paginating GET /repos/{owner}/{name}/issues with state, labels, assignee, sort, direction, per_page=100; exclude items with pull_request key, and set IssueList.Incomplete = true if limit is reached with more items available.",
+        "Implement AddComment(ctx, ref, body) executing POST /repos/{owner}/{name}/issues/{number}/comments and returning comment html_url.",
+        "Implement ListComments(ctx, ref) paginating GET /repos/{owner}/{name}/issues/{number}/comments?per_page=100 up to 5 pages (500 items cap), setting CommentList.Truncated to true if page 5 returns 100 items.",
+        "Implement AddLabels(ctx, ref, labels) executing POST /repos/{owner}/{name}/issues/{number}/labels (returning nil immediately when labels slice is empty).",
+        "Implement RemoveLabel(ctx, ref, label) executing DELETE /repos/{owner}/{name}/issues/{number}/labels/{label} with URL escaping, treating HTTP 404 as nil success.",
+        "Implement CreateLabel(ctx, repo, label) executing POST /repos/{owner}/{name}/labels stripping leading # from color, treating HTTP 422 already_exists as nil success.",
+        "Run go test ./issuex/... -run 'TestGitHub_Issue.*|TestGitHub_Comment.*|TestGitHub_Label.*' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/github_issues.go",
+        "issuex/github_issues_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement pull request lifecycle, reviews, CI checks, and merge resolution",
+      "criteria": [
+        "02-REQ-5.1",
+        "02-REQ-5.2",
+        "02-REQ-5.3",
+        "02-REQ-5.4",
+        "02-REQ-5.5",
+        "02-REQ-5.6",
+        "02-REQ-5.7",
+        "02-REQ-6.1",
+        "02-REQ-6.2",
+        "02-REQ-6.3",
+        "02-REQ-6.4",
+        "02-REQ-6.5",
+        "02-REQ-6.6",
+        "02-REQ-6.7"
+      ],
+      "tests": [
+        "TS-02-16",
+        "TS-02-17",
+        "TS-02-18",
+        "TS-02-19",
+        "TS-02-20"
+      ],
+      "steps": [
+        "Write unit tests TS-02-16, TS-02-17, TS-02-18, TS-02-19, and TS-02-20 in issuex/github_pr_test.go; verify they fail.",
+        "In issuex/github_pr.go, implement unauthenticated checks returning ErrNoToken for CreatePullRequest, ClosePullRequest, PostReviewComment, and MergePullRequest.",
+        "Implement CreatePullRequest(ctx, repo, req) executing POST /repos/{owner}/{name}/pulls with title, body, head, base, draft flag, returning PullRequest with Merged: false.",
+        "Implement ReadPullRequest(ctx, ref) executing GET /repos/{owner}/{name}/pulls/{number}, parsing head branch, base branch, head SHA, draft, merged status; on unauthenticated 404, annotate error with private repository guidance.",
+        "Implement ReadChangedFiles(ctx, ref) executing GET /repos/{owner}/{name}/pulls/{number}/files?per_page=100 and normalizing statuses to added, modified, or deleted.",
+        "Implement GetPRState(ctx, ref) executing GET /repos/{owner}/{name}/pulls/{number} mapping to PRState (state=merged when merged is true, closed when state is closed, open otherwise).",
+        "Implement ClosePullRequest(ctx, ref) executing PATCH /repos/{owner}/{name}/pulls/{number} with state closed.",
+        "Implement GetCIChecks(ctx, ref): retrieve head commit SHA via ReadPullRequest, execute GET /repos/{owner}/{name}/commits/{head_sha}/check-runs?per_page=100, and map to CheckRun structs.",
+        "Implement GetPRReviews(ctx, ref) executing GET /repos/{owner}/{name}/pulls/{number}/reviews?per_page=100 and normalizing review states to lowercase approved, changes_requested, commented, or dismissed.",
+        "Implement PostReviewComment(ctx, ref, body) executing POST /repos/{owner}/{name}/pulls/{number}/reviews with event COMMENT and body.",
+        "Implement MergePullRequest(ctx, ref, opts): map MergeMethod explicit options (merge, squash, rebase); if MergeMethodDefault, inspect repository merge policy (merge > squash > rebase) via GetRepository; execute PUT /repos/{owner}/{name}/pulls/{number}/merge; map HTTP 405 and 409 to ErrConflict; return MergeResult on HTTP 200.",
+        "Run go test ./issuex/... -run 'TestGitHub_PR.*|TestGitHub_Merge.*|TestGitHub_CI.*' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/github_pr.go",
+        "issuex/github_pr_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "done"
+    },
+    {
+      "id": 5,
+      "kind": "integration",
+      "title": "Verify GitHub adapter execution paths and factory integration end-to-end",
+      "tests": [
+        "TS-02-25",
+        "TS-02-26",
+        "TS-02-27"
+      ],
+      "steps": [
+        "Write smoke tests TS-02-25, TS-02-26, and TS-02-27 in issuex/smoke_test.go exercising the complete live flows against mock HTTP server environments.",
+        "Trace 02-PATH-1 through NewGitHub, CreateIssue, ReadIssue (verifying issue thread and comments), and CloseIssue (verifying comment posting and closed state); confirm each call transitions to the next with zero stubs.",
+        "Trace 02-PATH-2 through NewWithOptions with ForgeTypeGitHub detection, ReadPullRequest, GetCIChecks, PostReviewComment, and MergePullRequest with MergeMethodDefault selecting repo-configured merge strategy; confirm each call transitions to the next with zero stubs.",
+        "Trace 02-PATH-3 through rate-limit backoff retry with injected sleep function verifying that 403 quota exhaustion with 2-second backoff sleeps and retries successfully; confirm execution flow.",
+        "Confirm every unwanted criterion contract is satisfied in production code: IsNotFound on 404 with private hints, IsNoToken on unauthenticated writes, IsConflict on merge 405/409, IsRateLimited on excessive backoff or retry failure, and partial comment error preservation in IssueThread.CommentsErr.",
+        "Search all touched files (issuex/github.go, issuex/factory.go, issuex/github_issues.go, issuex/github_pr.go, issuex/github_test.go, issuex/github_issues_test.go, issuex/github_pr_test.go, issuex/smoke_test.go) for stub markers like panic(\"not implemented\"), TODO, or unimplemented return values, and ensure none remain.",
+        "Run make test and make lint to verify full repository build, lint, and test suite pass cleanly."
+      ],
+      "touches": [
+        "issuex/github.go",
+        "issuex/factory.go",
+        "issuex/github_issues.go",
+        "issuex/github_pr.go",
+        "issuex/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "done_when": [
+        "`make test` passes with zero failures across all packages",
+        "`make lint` passes with no formatting or vet discrepancies"
+      ],
+      "state": "done"
+    }
+  ]
+}

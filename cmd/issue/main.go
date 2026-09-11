@@ -16,18 +16,19 @@ import (
 
 	"github.com/agent-fox-dev/agentfox"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
-const usage = `issue — triage a problem report and file a GitHub issue
+const usage = `issue — triage a problem report and file an issue on GitHub or GitLab
 
 Usage:
   issue [flags] <input>
 
 The input is exactly one of:
-  a GitHub issue or pull-request URL   the issue and its comments are the report
+  a GitHub or GitLab issue or pull/merge-request URL
+                                       the issue and its comments are the report
   a path to a readable file            the file's contents are the report
   any other text                       the text is the report
   -                                    the report is read from stdin
@@ -35,8 +36,8 @@ The input is exactly one of:
 Output is one JSON object on stdout; progress goes to stderr.
 
 The analysis is read-only: the tools it has cannot write a file, run a
-command, or reach the network. The issue is filed by this program after the
-run, and --dry-run suppresses that.
+command, or reach the network. The issue is filed on GitHub or GitLab by this
+program after the run, and --dry-run suppresses that.
 
 Exit codes:
   0  triaged, and filed unless --dry-run
@@ -59,9 +60,9 @@ func main() {
 		Version: agentfox.Version,
 		Usage:   usage,
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo; default the input issue's, else the origin remote of --dir")
+			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&labels, "label", "", "comma-separated labels for the created issue, e.g. af:fix")
-			fs.BoolVar(&dryRun, "dry-run", false, "make no change on GitHub; report the diagnosis only")
+			fs.BoolVar(&dryRun, "dry-run", false, "make no change on GitHub or GitLab; report the diagnosis only")
 			fs.BoolVar(&overwrite, "overwrite", false, "rewrite the input issue in place instead of creating a new one")
 		},
 		// A triage reads: 100 turns is a lot of files, and $2 is more than
@@ -74,22 +75,22 @@ func main() {
 					"cannot be combined with --repo or --label")
 			}
 			if repo != "" {
-				if _, ok := ghapi.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q is not owner/repo", repo)
+				if _, ok := issuex.ParseRepo(repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
 				}
 			}
 			return nil
 		},
 		CheckInput: func(in toolio.Input) error {
 			if overwrite && in.Issue == nil {
-				return toolio.Usagef("--overwrite needs a GitHub issue URL as the input; "+
+				return toolio.Usagef("--overwrite needs a forge issue URL (GitHub or GitLab) as the input; "+
 					"%s is %s", in.Origin, in.Kind)
 			}
 			return nil
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			target, _ := ghapi.ParseRepo(repo)
+			target, _ := issuex.ParseRepo(repo)
 			result, err := issuetriage.Run(ctx, issuetriage.Options{
 				Input:     d.Input,
 				Workspace: d.Workspace,
@@ -98,7 +99,7 @@ func main() {
 				DryRun:    dryRun,
 				Overwrite: overwrite,
 				Runner:    d.Runner,
-				GitHub:    d.GitHub,
+				Forge:     d.Forge,
 				Run:       d.Run,
 				Progress:  d.Progress,
 			})

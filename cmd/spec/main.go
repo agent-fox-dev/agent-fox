@@ -24,7 +24,8 @@ Usage:
   spec [flags] <input>
 
 The input is exactly one of:
-  a GitHub issue or pull-request URL   the issue and its comments are the idea
+  a GitHub or GitLab issue or pull/merge-request URL
+                                       the issue and its comments are the idea
   a path to a readable file            the file's contents are the idea
   any other text                       the text is the idea
   -                                    the idea is read from stdin
@@ -39,13 +40,20 @@ that order — each validated against the format's schema and its cross-file
 rules before it is written — writes the package under .specs/NN_name/, and
 activates it if it validates.
 
+An input that is more than one spec's worth of work is split: the PRD phase
+reports every scope, and spec writes all of them, one package per scope, each
+built on the ones before it. The split is recorded in the spec root as
+<first_scope>.split.json until the last package is written; a run that stops
+early is resumed by running spec on the same input again.
+
 Everything the model does here is read-only. The only thing written is the
 spec package itself, by this program, after the run.
 
 Exit codes:
   0  a valid package was written
   1  failed; the stage is named in the JSON. An 'invalid_spec' failure still
-     leaves the package on disk with the broken rules named.
+     leaves the package on disk with the broken rules named. A split that
+     stopped early names the scope, and the plan remains to resume from.
   2  usage error — nothing was fetched, nothing was written
 
 Flags:
@@ -71,7 +79,7 @@ func main() {
 			fs.BoolVar(&architecture, "architecture", false, "also write the optional architecture.md")
 			fs.BoolVar(&noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
 			fs.BoolVar(&comment, "comment", false, "post the finished PRD back to the issue the input came from")
-			fs.BoolVar(&dryRun, "dry-run", false, "write nothing to disk or GitHub; report the package that would be written")
+			fs.BoolVar(&dryRun, "dry-run", false, "write nothing to disk or forge (GitHub or GitLab); report the package that would be written")
 		},
 		// Generating an artifact is one long structured answer plus however
 		// many repairs the rules demand. The turn ceiling is the repair
@@ -87,7 +95,7 @@ func main() {
 		},
 		CheckInput: func(in toolio.Input) error {
 			if comment && !dryRun && in.Issue == nil {
-				return toolio.Usagef("--comment posts the PRD back to the issue it came from, "+
+				return toolio.Usagef("--comment posts the PRD back to the forge issue it came from (GitHub or GitLab), "+
 					"and %s is %s", in.Origin, in.Kind)
 			}
 			return nil
@@ -104,7 +112,7 @@ func main() {
 				Comment:      comment,
 				DryRun:       dryRun,
 				Runner:       d.Runner,
-				GitHub:       d.GitHub,
+				Forge:        d.Forge,
 				Run:          d.Run,
 				Progress:     d.Progress,
 			})

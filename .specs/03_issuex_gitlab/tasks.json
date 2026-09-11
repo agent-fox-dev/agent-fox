@@ -1,0 +1,252 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "03",
+  "spec_name": "issuex_gitlab",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./issuex/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "01_issuex_core",
+      "reason": "Supplies Client interface, domain data models, options configuration, forge detection, error hierarchy, and shared transport foundation that this adapter implements."
+    },
+    {
+      "spec": "02_issuex_github",
+      "reason": "Shares the issuex package and NewWithOptions client factory dispatch logic, where NewGitLab is registered alongside NewGitHub."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Implement GitLab client constructor, transport, rate-limiting, error handling, and factory wiring",
+      "criteria": [
+        "03-REQ-1.1",
+        "03-REQ-1.2",
+        "03-REQ-1.3",
+        "03-REQ-1.4",
+        "03-REQ-1.5",
+        "03-REQ-1.6",
+        "03-REQ-7.1",
+        "03-REQ-7.2",
+        "03-REQ-7.3",
+        "03-REQ-7.4",
+        "03-REQ-7.5",
+        "03-REQ-7.6"
+      ],
+      "tests": [
+        "TS-03-1",
+        "TS-03-2",
+        "TS-03-3",
+        "TS-03-4",
+        "TS-03-5",
+        "TS-03-25",
+        "TS-03-26",
+        "TS-03-27",
+        "TS-03-28"
+      ],
+      "steps": [
+        "Write unit tests TS-03-1, TS-03-2, TS-03-25, TS-03-26, TS-03-28, property tests TS-03-5, TS-03-27, and integration tests TS-03-3, TS-03-4 in issuex/gitlab_test.go; verify they fail.",
+        "In issuex/gitlab.go, define the unexported gitlabClient struct implementing issuex.Client with fields baseURL, token, userAgent, httpClient, repo, sleep func(time.Duration), mergeMethod string, and squashOption string.",
+        "Implement NewGitLab(o Options) (Client, error): resolve baseURL from o.BaseURL, GITLAB_API_URL, or default to https://gitlab.com/api/v4, trimming trailing slashes and appending /api/v4 when absent; resolve token from o.Token or GITLAB_TOKEN; set default 30-second timeout httpClient and userAgent to agent-fox; initialize sleep to time.Sleep.",
+        "Implement Authenticated() bool returning token != \\\"\\\" and Close() error calling CloseIdleConnections() on httpClient.Transport if supported and returning nil.",
+        "Implement host probe in issuex/factory.go: when NewWithOptions encounters an ambiguous host URL that does not match github or gitlab, issue GET /api/v4/version; if probe returns HTTP 200 with GitLab version payload, construct and return a GitLab client for that host.",
+        "Update NewWithOptions in issuex/factory.go: when o.NoOp is false and forge type is ForgeTypeGitLab, call NewGitLab(o) instead of returning ErrUnsupportedForge.",
+        "Implement (*gitlabClient).do(ctx, method, path, reqBody, respTarget): send Accept: application/json and User-Agent, append PRIVATE-TOKEN: <Token> when authenticated, and Content-Type: application/json when body is present. Read response body through io.LimitReader bounded to 8 MB.",
+        "Implement GitLab error payload parsing formatting message string, nested field validation object arrays (\\\"field: error\\\"), or error and error_description into HTTPError, wrapping ErrNotFound on 404 and ErrConflict on 405, 406, and 409.",
+        "Implement rate-limit backoff retry in do(): on HTTP 429, parse backoff via RetryAfter(); if <= 120s, invoke sleep and retry request once; if > 120s or retry fails, return error wrapping ErrRateLimited.",
+        "Run go test ./issuex/... -run 'TestGitLab_Client|TestGitLab_Constructor|TestGitLab_Factory|TestGitLab_Headers|TestGitLab_Transport' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/gitlab.go",
+        "issuex/factory.go",
+        "issuex/gitlab_test.go"
+      ],
+      "state": "done"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement URL-encoded project path routing, repository metadata inspection, and merge policy caching",
+      "criteria": [
+        "03-REQ-2.1",
+        "03-REQ-2.2",
+        "03-REQ-2.3",
+        "03-REQ-2.4",
+        "03-REQ-2.5"
+      ],
+      "tests": [
+        "TS-03-6",
+        "TS-03-7",
+        "TS-03-8"
+      ],
+      "steps": [
+        "Write unit tests TS-03-7 and TS-03-8, and property test TS-03-6 in issuex/gitlab_test.go covering URL-encoded project paths, repository metadata, permissions calculation, merge settings, and authenticated vs unauthenticated 404 responses; verify they fail.",
+        "In issuex/gitlab.go, implement helper projectPath(repo Repo) string formatting url.PathEscape(repo.String()) with slashes replaced by %2F.",
+        "Implement GetRepository(ctx context.Context, repo Repo) (Repository, error) executing GET /projects/{project_path} using URL-encoded path.",
+        "Populate Repository struct with FullName from path_with_namespace, DefaultBranch, Private (true when visibility is private or internal), Archived, and Permissions calculated from effective access level: Pull if >= 20 or not private, Push if >= 30, and Admin if >= 40.",
+        "Record project merge settings merge_method and squash_option from the GitLab project response onto gitlabClient.",
+        "If GetRepository receives HTTP 404 on an unauthenticated client, wrap ErrNotFound with guidance indicating the project may be private and require GITLAB_TOKEN; if authenticated, return ErrNotFound.",
+        "Run go test ./issuex/... -run 'TestGitLab_Path|TestGitLab_GetRepository' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/gitlab.go",
+        "issuex/gitlab_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement issue lifecycle, comment handling, and label operations",
+      "criteria": [
+        "03-REQ-3.1",
+        "03-REQ-3.2",
+        "03-REQ-3.3",
+        "03-REQ-3.4",
+        "03-REQ-3.5",
+        "03-REQ-3.6",
+        "03-REQ-3.7",
+        "03-REQ-3.8",
+        "03-REQ-4.1",
+        "03-REQ-4.2",
+        "03-REQ-4.3",
+        "03-REQ-4.4",
+        "03-REQ-4.5",
+        "03-REQ-4.6",
+        "03-REQ-4.7"
+      ],
+      "tests": [
+        "TS-03-9",
+        "TS-03-10",
+        "TS-03-11",
+        "TS-03-12",
+        "TS-03-13",
+        "TS-03-14",
+        "TS-03-15",
+        "TS-03-16",
+        "TS-03-17"
+      ],
+      "steps": [
+        "Write unit tests TS-03-9, TS-03-10, TS-03-11, TS-03-12, TS-03-13, TS-03-14, TS-03-15, TS-03-16, and TS-03-17 in issuex/gitlab_issues_test.go; verify they fail.",
+        "In issuex/gitlab_issues.go, enforce unauthenticated mutation checks returning ErrNoToken for CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, and CreateLabel.",
+        "Implement CreateIssue(ctx, repo, req) executing POST /projects/{project_path}/issues with title, description, and comma-separated labels; return created Issue with Number: iid, normalized state open, and IsPR: false.",
+        "Implement ReadIssue(ctx, ref) executing GET /projects/{project_path}/issues/{number} using ref.Number as iid; normalize state opened to open; set IsPR: false; call ListComments(ctx, ref). If comment fetching fails, record in IssueThread.CommentsErr without failing ReadIssue. On unauthenticated 404, annotate error with private issue guidance.",
+        "Implement UpdateIssue(ctx, ref, req) executing PUT /projects/{project_path}/issues/{number} with non-empty fields and state_event (close or reopen), returning updated Issue.",
+        "Implement CloseIssue(ctx, ref, comment): if comment is non-empty, call AddComment first; then execute PUT /projects/{project_path}/issues/{number} with state_event close.",
+        "Implement ListIssues(ctx, repo, filter) paginating GET /projects/{project_path}/issues with query parameters state (opened, closed, all), labels, assignee_username, order_by, sort, and per_page=100; set IssueList.Incomplete = true if limit is reached while additional issues remain.",
+        "Implement AddComment(ctx, ref, body) executing POST /projects/{project_path}/issues/{number}/notes with the comment body, returning note web_url or issue comment anchor URL.",
+        "Implement ListComments(ctx, ref) paginating GET /projects/{project_path}/issues/{number}/notes?per_page=100&page={page}&sort=asc&order_by=created_at, filtering out notes where system == true, iterating up to 5 pages (500 notes max), and setting CommentList.Truncated = true if cap is reached and more notes exist.",
+        "Implement AddLabels(ctx, ref, labels): if labels is empty, return nil immediately; otherwise execute PUT /projects/{project_path}/issues/{number} with add_labels containing comma-separated label names.",
+        "Implement RemoveLabel(ctx, ref, label) executing PUT /projects/{project_path}/issues/{number} with remove_labels, succeeding idempotently if label was not present.",
+        "Implement CreateLabel(ctx, repo, label) executing POST /projects/{project_path}/labels formatting color with leading #, treating HTTP 409 or HTTP 400 with already exists as nil success.",
+        "Run go test ./issuex/... -run 'TestGitLab_Issue.*|TestGitLab_Comment.*|TestGitLab_Label.*' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/gitlab_issues.go",
+        "issuex/gitlab_issues_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement merge request lifecycle, diff inspection, CI checks, reviews, and merge execution",
+      "criteria": [
+        "03-REQ-5.1",
+        "03-REQ-5.2",
+        "03-REQ-5.3",
+        "03-REQ-5.4",
+        "03-REQ-5.5",
+        "03-REQ-5.6",
+        "03-REQ-5.7",
+        "03-REQ-6.1",
+        "03-REQ-6.2",
+        "03-REQ-6.3",
+        "03-REQ-6.4",
+        "03-REQ-6.5",
+        "03-REQ-6.6",
+        "03-REQ-6.7"
+      ],
+      "tests": [
+        "TS-03-18",
+        "TS-03-19",
+        "TS-03-20",
+        "TS-03-21",
+        "TS-03-22",
+        "TS-03-23",
+        "TS-03-24"
+      ],
+      "steps": [
+        "Write unit tests TS-03-18, TS-03-19, TS-03-20, TS-03-21, TS-03-22, TS-03-23, and TS-03-24 in issuex/gitlab_mr_test.go; verify they fail.",
+        "In issuex/gitlab_mr.go, enforce unauthenticated mutation checks returning ErrNoToken for CreatePullRequest, ClosePullRequest, PostReviewComment, and MergePullRequest.",
+        "Implement CreatePullRequest(ctx, repo, req): prefix title with Draft: if req.Draft is true and prefix is missing; execute POST /projects/{project_path}/merge_requests with source_branch, target_branch, title, and description; return PullRequest with Number: iid, normalized open state, and Merged: false.",
+        "Implement ReadPullRequest(ctx, ref) executing GET /projects/{project_path}/merge_requests/{number}; parse state (opened to open, merged to merged), Draft: (draft || work_in_progress), HeadBranch, BaseBranch, HeadSHA, and author; on unauthenticated 404, annotate error with private repository guidance.",
+        "Implement ReadChangedFiles(ctx, ref) executing GET /projects/{project_path}/merge_requests/{number}/changes; for each change, map Filename from new_path or old_path, Status (added, deleted, modified), and count diff lines starting with + or - (excluding +++ and ---) to populate Additions and Deletions.",
+        "Implement GetPRState(ctx, ref) executing GET /projects/{project_path}/merge_requests/{number}, returning PRState with Number: iid, State, Merged, and HeadSHA.",
+        "Implement ClosePullRequest(ctx, ref) executing PUT /projects/{project_path}/merge_requests/{number} with state_event close.",
+        "Implement GetCIChecks(ctx, ref) executing GET /projects/{project_path}/merge_requests/{number}/pipelines?per_page=1; if no pipelines, return []CheckRun{} and nil; query GET /projects/{project_path}/pipelines/{id}/jobs?per_page=100 and map jobs to CheckRun with normalized status and conclusion.",
+        "Implement GetPRReviews(ctx, ref) querying approvals via GET /projects/{project_path}/merge_requests/{number}/approvals (mapping approved_by to Review with State: approved) and discussion notes via GET /projects/{project_path}/merge_requests/{number}/notes (filtering system == false to State: commented), returning combined slice sorted chronologically.",
+        "Implement PostReviewComment(ctx, ref, body) executing POST /projects/{project_path}/merge_requests/{number}/notes with the comment body.",
+        "Implement MergePullRequest(ctx, ref, opts): build payload with commit_message, sha if specified, and squash boolean (governed by opts.Method: true for MergeMethodSquash, false for MergeMethodMerge, omitted for MergeMethodDefault); execute PUT /projects/{project_path}/merge_requests/{number}/merge; map HTTP 405, 406, and 409 to ErrConflict; return MergeResult on HTTP 200.",
+        "Run go test ./issuex/... -run 'TestGitLab_MR.*|TestGitLab_Merge.*|TestGitLab_CI.*|TestGitLab_Review.*' to confirm tests pass."
+      ],
+      "touches": [
+        "issuex/gitlab_mr.go",
+        "issuex/gitlab_mr_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "done"
+    },
+    {
+      "id": 5,
+      "kind": "integration",
+      "title": "Verify GitLab adapter execution paths, contracts, and ambiguous host probe end-to-end",
+      "tests": [
+        "TS-03-29",
+        "TS-03-30",
+        "TS-03-31",
+        "TS-03-32"
+      ],
+      "steps": [
+        "Write smoke tests TS-03-29, TS-03-30, TS-03-31, and TS-03-32 in issuex/gitlab_smoke_test.go exercising the live execution paths against mock HTTP server environments.",
+        "Trace 03-PATH-1 through NewGitLab, CreateIssue, ReadIssue (verifying issue thread and filtered comments), and CloseIssue (verifying comment posting and closed state); confirm each step transitions to the next with zero stubs.",
+        "Trace 03-PATH-2 through NewWithOptions with GitLab remote URL, ReadPullRequest, GetCIChecks (verifying pipeline job mapping), PostReviewComment, and MergePullRequest with MergeMethodDefault; confirm each call transitions to the next with zero stubs.",
+        "Trace 03-PATH-3 through rate-limit backoff retry with injected sleep function verifying that HTTP 429 with 2-second Retry-After sleeps and retries successfully; confirm execution flow.",
+        "Trace 03-PATH-4 through NewWithOptions probing an ambiguous host via GET /api/v4/version, constructing the GitLab client, and calling GetRepository using URL-encoded project path; confirm execution flow.",
+        "Confirm every unwanted criterion contract is satisfied in production code: IsNotFound on 404 with private guidance, IsNoToken on unauthenticated writes, IsConflict on merge 405/406/409, IsRateLimited on excessive backoff or retry failure, and partial comment error preservation in IssueThread.CommentsErr.",
+        "Search all touched files (issuex/gitlab.go, issuex/factory.go, issuex/gitlab_issues.go, issuex/gitlab_mr.go, issuex/gitlab_test.go, issuex/gitlab_issues_test.go, issuex/gitlab_mr_test.go, issuex/gitlab_smoke_test.go) for stub markers like panic(\\\"not implemented\\\"), TODO, or unimplemented return values, and ensure none remain.",
+        "Run make test and make lint to verify the full repository build, lint, and test suite pass cleanly."
+      ],
+      "touches": [
+        "issuex/gitlab.go",
+        "issuex/factory.go",
+        "issuex/gitlab_issues.go",
+        "issuex/gitlab_mr.go",
+        "issuex/gitlab_smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "done_when": [
+        "`make test` passes with zero failures across all packages",
+        "`make lint` passes with no formatting or vet discrepancies"
+      ],
+      "state": "done"
+    }
+  ]
+}

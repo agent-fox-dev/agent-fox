@@ -1,0 +1,484 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "02",
+  "spec_name": "issuex_github",
+  "schema_version": 2,
+  "introduction": "The issuex GitHub adapter provides a full implementation of the forge-neutral Client interface for GitHub REST API v3 / 2022-11-28, supporting repository inspection, issue tracking, and pull request workflows across github.com and GitHub Enterprise instances.",
+  "glossary": {
+    "CheckRun": "A GitHub Actions or external CI/CD check execution attached to a specific commit SHA.",
+    "EnterpriseEndpoint": "A custom GitHub Enterprise Server or GitHub Enterprise Cloud API endpoint path.",
+    "MergeMethod": "The pull request merge strategy: merge commit, squash and merge, or rebase and merge.",
+    "ReviewEvent": "The GitHub pull request review event action, such as COMMENT, APPROVE, or REQUEST_CHANGES.",
+    "Truncated": "A boolean flag indicating that comments or list results exceeded the fetch cap and more items exist on the server."
+  },
+  "requirements": [
+    {
+      "id": "02-REQ-1",
+      "title": "GitHub Client Construction, Lifecycle, and Factory Wiring",
+      "rationale": "Direct construction and factory integration allow callers to instantiate authenticated or unauthenticated GitHub adapters configured for public or enterprise instances.",
+      "criteria": [
+        {
+          "id": "02-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "issuex package",
+          "action": "provide a GitHub client adapter struct that implements all methods of the Client interface and export the NewGitHub(Options) (Client, error) constructor"
+        },
+        {
+          "id": "02-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "NewGitHub is called with Options",
+          "system": "GitHub constructor",
+          "action": "resolve BaseURL from Options or GITHUB_API_URL or default to https://api.github.com without trailing slash, Token from Options or GITHUB_TOKEN or GH_TOKEN, HTTPClient from Options or default 30-second timeout client, and UserAgent from Options or default agent-fox"
+        },
+        {
+          "id": "02-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "NewWithOptions is called with NoOp set to false and the resolved forge type is ForgeTypeGitHub",
+          "system": "client factory",
+          "action": "construct and return the GitHub client adapter instead of returning ErrUnsupportedForge"
+        },
+        {
+          "id": "02-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "GitHub client",
+          "action": "report true from Authenticated() when holding a non-empty token and false otherwise, and close idle HTTP connections on the underlying transport from Close() returning nil"
+        },
+        {
+          "id": "02-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "GitHub client",
+          "action": "for any outgoing HTTP request, include Accept: application/vnd.github+json, X-GitHub-Api-Version: 2022-11-28, and User-Agent headers, appending Authorization: Bearer <Token> when authenticated and Content-Type: application/json when a request body is present"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-2",
+      "title": "Repository Metadata and Merge Policy Inspection",
+      "rationale": "Repository inspection verifies repository accessibility, permissions, default branch, and allowed merge strategies for pull request automation.",
+      "criteria": [
+        {
+          "id": "02-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "GetRepository is called with a valid Repo",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name} and populate a Repository struct with FullName, DefaultBranch, Private, Archived, and Permissions booleans for Push, Pull, and Admin"
+        },
+        {
+          "id": "02-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "GetRepository receives a successful repository response",
+          "system": "GitHub client",
+          "action": "record the repository merge strategy booleans allow_merge_commit, allow_squash_merge, and allow_rebase_merge for pull request merge method resolution"
+        },
+        {
+          "id": "02-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "GetRepository receives HTTP 404 on a client without an authentication token",
+          "system": "GitHub client",
+          "action": "return an error wrapping ErrNotFound with guidance indicating the repository may be private and require authentication",
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance"
+        },
+        {
+          "id": "02-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "GetRepository receives HTTP 404 on an authenticated client",
+          "system": "GitHub client",
+          "action": "return an error wrapping ErrNotFound",
+          "contract": "returns an error satisfying IsNotFound(err) == true"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-3",
+      "title": "Issue Lifecycle and Retrieval",
+      "rationale": "Issue lifecycle methods enable creating, reading with full comment history, updating, closing, and filtered listing of forge issues.",
+      "criteria": [
+        {
+          "id": "02-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "CreateIssue is called with a Repo and CreateIssueRequest on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/issues with title, body, and labels, returning the created Issue with Number, Title, Body, State, URL, Author, Labels, timestamps, and IsPR set to false"
+        },
+        {
+          "id": "02-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "CreateIssue, UpdateIssue, or CloseIssue is called on a client without an authentication token",
+          "system": "GitHub client",
+          "action": "reject the call and return ErrNoToken without executing network requests",
+          "contract": "returns an error satisfying IsNoToken(err) == true"
+        },
+        {
+          "id": "02-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "ReadIssue is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name}/issues/{number}, set Issue.IsPR to true if the response contains a pull_request key, and fetch chronological comments via ListComments into IssueThread"
+        },
+        {
+          "id": "02-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "ReadIssue receives an error when fetching comments after successfully retrieving issue metadata",
+          "system": "GitHub client",
+          "action": "record the comment failure in IssueThread.CommentsErr and return the populated Issue with nil top-level error",
+          "contract": "IssueThread has populated Issue, non-nil CommentsErr, and ReadIssue returns nil error"
+        },
+        {
+          "id": "02-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "ReadIssue receives HTTP 404 on an unauthenticated client",
+          "system": "GitHub client",
+          "action": "return an error wrapping ErrNotFound with guidance that the issue or repository may be private",
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private issue guidance"
+        },
+        {
+          "id": "02-REQ-3.6",
+          "pattern": "event_driven",
+          "condition": "UpdateIssue is called with an IssueRef and UpdateIssueRequest on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute PATCH /repos/{owner}/{name}/issues/{number} with non-empty fields and return the updated Issue struct"
+        },
+        {
+          "id": "02-REQ-3.7",
+          "pattern": "event_driven",
+          "condition": "CloseIssue is called with an IssueRef and optional comment on an authenticated client",
+          "system": "GitHub client",
+          "action": "post the comment via AddComment if non-empty, and execute PATCH /repos/{owner}/{name}/issues/{number} with state closed"
+        },
+        {
+          "id": "02-REQ-3.8",
+          "pattern": "event_driven",
+          "condition": "ListIssues is called with a Repo and IssueFilter",
+          "system": "GitHub client",
+          "action": "paginate GET /repos/{owner}/{name}/issues with state, labels, assignee, sort, and direction query parameters, exclude items containing a pull_request key, and set IssueList.Incomplete to true if results reach filter.Limit while additional issues remain"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-4",
+      "title": "Issue Comments and Label Operations",
+      "rationale": "Comments and labels provide issue interaction and triage categorization with idempotent mutation semantics.",
+      "criteria": [
+        {
+          "id": "02-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "AddComment is called with an IssueRef and comment body on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/issues/{number}/comments with the comment body and return the comment html_url"
+        },
+        {
+          "id": "02-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "ListComments is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "paginate GET /repos/{owner}/{name}/issues/{number}/comments with 100 items per page up to a maximum cap of 5 pages (500 comments), setting CommentList.Truncated to true if the 5th page contains 100 items"
+        },
+        {
+          "id": "02-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "AddLabels is called with an IssueRef and a non-empty slice of label names on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/issues/{number}/labels with the label names array"
+        },
+        {
+          "id": "02-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "AddLabels is called with an empty labels slice",
+          "system": "GitHub client",
+          "action": "return nil immediately without making network calls"
+        },
+        {
+          "id": "02-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "RemoveLabel is called with an IssueRef and label name on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute DELETE /repos/{owner}/{name}/issues/{number}/labels/{label} with URL-escaped label name, returning nil when the response is HTTP 200 or HTTP 404"
+        },
+        {
+          "id": "02-REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "CreateLabel is called with a Repo and Label on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/labels with name, hex color stripped of leading hash, and description, returning nil when the response is HTTP 201 or HTTP 422 with already_exists code"
+        },
+        {
+          "id": "02-REQ-4.7",
+          "pattern": "unwanted",
+          "condition": "AddComment, AddLabels, RemoveLabel, or CreateLabel is called on a client without an authentication token",
+          "system": "GitHub client",
+          "action": "reject the call and return ErrNoToken without executing network requests",
+          "contract": "returns an error satisfying IsNoToken(err) == true"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-5",
+      "title": "Pull Request Lifecycle and File Changes",
+      "rationale": "Pull request operations support automated code review workflows, PR metadata inspection, and changed file analysis.",
+      "criteria": [
+        {
+          "id": "02-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "CreatePullRequest is called with a Repo and CreatePullRequestRequest on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/pulls with title, body, head, base, and draft flag, returning the created PullRequest struct with Merged set to false"
+        },
+        {
+          "id": "02-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "ReadPullRequest is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return the parsed PullRequest struct with head branch, base branch, head SHA, draft status, and merge status"
+        },
+        {
+          "id": "02-REQ-5.3",
+          "pattern": "unwanted",
+          "condition": "ReadPullRequest receives HTTP 404 on an unauthenticated client",
+          "system": "GitHub client",
+          "action": "return an error wrapping ErrNotFound with guidance indicating the repository or pull request may be private",
+          "contract": "returns an error satisfying IsNotFound(err) == true and containing private repository guidance"
+        },
+        {
+          "id": "02-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "ReadChangedFiles is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/files and return a slice of ChangedFile structs with status normalized to added, modified, or deleted"
+        },
+        {
+          "id": "02-REQ-5.5",
+          "pattern": "event_driven",
+          "condition": "GetPRState is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number} and return a PRState struct with State set to merged when merged is true, closed when state is closed and merged is false, or open otherwise"
+        },
+        {
+          "id": "02-REQ-5.6",
+          "pattern": "event_driven",
+          "condition": "ClosePullRequest is called with an IssueRef on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute PATCH /repos/{owner}/{name}/pulls/{number} with state closed"
+        },
+        {
+          "id": "02-REQ-5.7",
+          "pattern": "unwanted",
+          "condition": "CreatePullRequest or ClosePullRequest is called on a client without an authentication token",
+          "system": "GitHub client",
+          "action": "reject the call and return ErrNoToken without executing network requests",
+          "contract": "returns an error satisfying IsNoToken(err) == true"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-6",
+      "title": "Pull Request Checks, Reviews, and Merge Execution",
+      "rationale": "CI status checks, review commenting, and policy-aware pull request merging enable complete automation of review and integration pipelines.",
+      "criteria": [
+        {
+          "id": "02-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "GetCIChecks is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "resolve the pull request head commit SHA via ReadPullRequest and execute GET /repos/{owner}/{name}/commits/{head_sha}/check-runs, returning mapped CheckRun structs"
+        },
+        {
+          "id": "02-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "GetPRReviews is called with an IssueRef",
+          "system": "GitHub client",
+          "action": "execute GET /repos/{owner}/{name}/pulls/{number}/reviews and return mapped Review structs with state normalized to approved, changes_requested, commented, or dismissed"
+        },
+        {
+          "id": "02-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "PostReviewComment is called with an IssueRef and body string on an authenticated client",
+          "system": "GitHub client",
+          "action": "execute POST /repos/{owner}/{name}/pulls/{number}/reviews with event COMMENT and body"
+        },
+        {
+          "id": "02-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "MergePullRequest is called with an explicit MergeMethod option on an authenticated client",
+          "system": "GitHub client",
+          "action": "map MergeMethodMerge to merge, MergeMethodSquash to squash, or MergeMethodRebase to rebase, and execute PUT /repos/{owner}/{name}/pulls/{number}/merge returning MergeResult on HTTP 200"
+        },
+        {
+          "id": "02-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "MergePullRequest is called with MergeMethodDefault on an authenticated client",
+          "system": "GitHub client",
+          "action": "query repository merge settings via GET /repos/{owner}/{name} and select the first enabled strategy from merge commit, squash, or rebase, falling back to omitting merge_method"
+        },
+        {
+          "id": "02-REQ-6.6",
+          "pattern": "unwanted",
+          "condition": "MergePullRequest receives HTTP 405 or HTTP 409 from GitHub",
+          "system": "GitHub client",
+          "action": "return an error wrapping ErrConflict indicating the pull request cannot be merged",
+          "contract": "returns an error satisfying IsConflict(err) == true"
+        },
+        {
+          "id": "02-REQ-6.7",
+          "pattern": "unwanted",
+          "condition": "PostReviewComment or MergePullRequest is called on a client without an authentication token",
+          "system": "GitHub client",
+          "action": "reject the call and return ErrNoToken without executing network requests",
+          "contract": "returns an error satisfying IsNoToken(err) == true"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-7",
+      "title": "GitHub REST Transport, Error Handling, and Rate Limiting",
+      "rationale": "Bounded memory usage, rate-limit backoff with retry, and canonical error classification ensure resilience against GitHub API failures and throttling.",
+      "criteria": [
+        {
+          "id": "02-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "GitHub transport",
+          "action": "read all HTTP response bodies through an io.LimitReader bounded to at most 8 MB (8388608 bytes)"
+        },
+        {
+          "id": "02-REQ-7.2",
+          "pattern": "complex_event",
+          "condition": "an HTTP response has status 429 or status 403 with header X-RateLimit-Remaining 0",
+          "guard": "the calculated RetryAfter backoff duration is less than or equal to 120 seconds",
+          "system": "GitHub transport",
+          "action": "invoke the configured sleep function for the backoff duration and retry the request once"
+        },
+        {
+          "id": "02-REQ-7.3",
+          "pattern": "unwanted",
+          "condition": "an HTTP response has status 429 or status 403 with header X-RateLimit-Remaining 0 and the RetryAfter backoff exceeds 120 seconds, or a retried rate-limited request fails",
+          "system": "GitHub transport",
+          "action": "abort the request and return an error wrapping ErrRateLimited",
+          "contract": "returns an error satisfying IsRateLimited(err) == true"
+        },
+        {
+          "id": "02-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "GitHub transport",
+          "action": "for any GitHub REST error response payload containing a message and an errors array, format the HTTPError message by concatenating the message with field-level details from the errors array"
+        },
+        {
+          "id": "02-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "an HTTP response returns status 404, 409, or 405",
+          "system": "GitHub transport",
+          "action": "wrap the corresponding sentinel error ErrNotFound for status 404 or ErrConflict for status 409 and 405 in the returned HTTPError"
+        },
+        {
+          "id": "02-REQ-7.6",
+          "pattern": "event_driven",
+          "condition": "a custom sleep function is configured on the GitHub client adapter",
+          "system": "GitHub transport",
+          "action": "invoke the custom sleep function instead of time.Sleep during rate-limit backoff retries"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "02-PATH-1",
+      "title": "GitHub issue creation, reading with comments, and closing with comment",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes NewGitHub with authentication token and repository target"
+        },
+        {
+          "actor": "client factory",
+          "action": "constructs and returns an authenticated GitHub client"
+        },
+        {
+          "actor": "caller",
+          "action": "calls CreateIssue with title, body, and labels"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes POST /repos/{owner}/{name}/issues and returns the created Issue"
+        },
+        {
+          "actor": "caller",
+          "action": "calls ReadIssue for the created issue reference"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes GET /repos/{owner}/{name}/issues/{number} and fetches issue comments via ListComments"
+        },
+        {
+          "actor": "caller",
+          "action": "calls CloseIssue with an explanatory closing comment"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes AddComment to post the closing comment and PATCHes the issue state to closed"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-2",
+      "title": "Pull request check runs inspection, review commenting, and repository-policy merge",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes NewWithOptions for a GitHub repository and calls ReadPullRequest"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes GET /repos/{owner}/{name}/pulls/{number} and returns PR details with head commit SHA"
+        },
+        {
+          "actor": "caller",
+          "action": "calls GetCIChecks to verify PR commit check run status"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "queries commit check runs and returns the status of each check"
+        },
+        {
+          "actor": "caller",
+          "action": "calls PostReviewComment with approval comments"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes POST /repos/{owner}/{name}/pulls/{number}/reviews with event COMMENT"
+        },
+        {
+          "actor": "caller",
+          "action": "calls MergePullRequest with MergeMethodDefault"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "queries repository merge settings, selects the allowed merge strategy, and executes PUT /repos/{owner}/{name}/pulls/{number}/merge"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-3",
+      "title": "Rate-limit backoff and retry recovery on GitHub REST request",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "calls GetRepository on an authenticated GitHub client"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "executes GET /repos/{owner}/{name} and receives an HTTP 403 response with X-RateLimit-Remaining 0 and Retry-After header of 2 seconds"
+        },
+        {
+          "actor": "GitHub transport",
+          "action": "calculates the backoff duration via RetryAfter() and invokes the injected sleep function for the duration"
+        },
+        {
+          "actor": "GitHub transport",
+          "action": "retries the GET /repos/{owner}/{name} request once"
+        },
+        {
+          "actor": "GitHub client",
+          "action": "receives HTTP 200 and returns the populated Repository struct to the caller"
+        }
+      ]
+    }
+  ]
+}

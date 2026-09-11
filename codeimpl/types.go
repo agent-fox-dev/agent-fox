@@ -31,6 +31,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // Options configure one implementation run.
@@ -53,7 +54,7 @@ type Options struct {
 	Branch string
 	// Repo is the target repository for the pull request. Zero means the
 	// origin remote's.
-	Repo ghapi.Repo
+	Repo issuex.Repo
 	// Land decides what happens once every task is done.
 	Land LandMode
 	// DryRun makes no REMOTE change: nothing is pushed and no pull request
@@ -101,7 +102,9 @@ type Options struct {
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
-	// GitHub is the REST client.
+	// Forge is the forge client.
+	Forge issuex.Client
+	// GitHub is deprecated: use Forge instead.
 	GitHub *ghapi.Client
 	// Git is the repository wrapper. Nil means one rooted at the workspace.
 	Git *gitx.Git
@@ -194,9 +197,10 @@ const (
 	// CategoryUnverified means a task was implemented and the checks do not
 	// pass; the work is parked on the branch.
 	CategoryUnverified = "unverified"
-	// CategoryGit and CategoryGitHub are the two external systems.
+	// CategoryGit and CategoryForge are the two external systems.
 	CategoryGit    = "git"
-	CategoryGitHub = "github"
+	CategoryForge  = "forge"
+	CategoryGitHub = CategoryForge
 	// CategoryEmpty means a task reported work and changed nothing.
 	CategoryEmpty = "empty_change"
 )

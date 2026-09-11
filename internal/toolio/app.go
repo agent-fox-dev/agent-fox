@@ -14,6 +14,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // UsageError is a wrong invocation: no input on stdin, a flag combination
@@ -40,8 +41,12 @@ type Deps struct {
 	Workspace *tools.Workspace
 	// Runner drives the model phases.
 	Runner *agentrun.Runner
+	// Forge is the REST client, always non-nil.
+	Forge issuex.Client
 	// GitHub is the REST client, always non-nil. Whether it can write is
 	// GitHub.Authenticated().
+	// Deprecated: use Forge instead. Kept for backwards compatibility until
+	// commands and pipeline runners migrate.
 	GitHub *ghapi.Client
 	// Run accumulates warnings and per-phase cost for the envelope.
 	Run *Run
@@ -191,8 +196,26 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 
 	gh := ghapi.New(a.Name + "/" + a.Version)
+	var forge issuex.Client
+	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
+		forge, _ = issuex.NewWithOptions(issuex.Options{
+			BaseURL:   "https://" + ref.Repo.Host,
+			UserAgent: a.Name + "/" + a.Version,
+		})
+	}
+	if forge == nil {
+		opts := issuex.Options{UserAgent: a.Name + "/" + a.Version}
+		if repo, ok := issuex.DetectRepo(ws.Root); ok {
+			opts.Repo = repo
+		}
+		var forgeErr error
+		forge, forgeErr = issuex.NewWithOptions(opts)
+		if forgeErr != nil || forge == nil {
+			forge = issuex.NewNoOp()
+		}
+	}
 
-	in, err := Resolve(ctx, e.argument, e.stdin, gh)
+	in, err := Resolve(ctx, e.argument, e.stdin, forge)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef(
@@ -247,6 +270,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Input:     in,
 		Workspace: ws,
 		Runner:    runner,
+		Forge:     forge,
 		GitHub:    gh,
 		Run:       e.run,
 		Progress:  e.progress,

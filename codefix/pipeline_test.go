@@ -19,9 +19,9 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // The tests below drive the REAL pipeline — the real pre-flight, the real
@@ -378,11 +378,11 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			comments = append(comments, body["body"].(string))
-			_ = json.NewEncoder(w).Encode(ghapi.Comment{HTMLURL: "https://github.com/a/b/issues/1#c"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"html_url": "https://github.com/a/b/issues/1#c"})
 		case strings.HasSuffix(r.URL.Path, "/pulls"):
 			_ = json.NewDecoder(r.Body).Decode(&prPayload)
-			_ = json.NewEncoder(w).Encode(ghapi.PullRequest{
-				Number: 5, HTMLURL: "https://github.com/a/b/pull/5"})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number": 5, "html_url": "https://github.com/a/b/pull/5"})
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -390,7 +390,7 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 	defer srv.Close()
 
 	ws, g := newRepo(t, 0)
-	ref := ghapi.IssueRef{Repo: ghapi.Repo{Owner: "a", Name: "b"}, Number: 1}
+	ref := issuex.IssueRef{Repo: issuex.Repo{Owner: "a", Name: "b", Host: "github.com"}, Number: 1}
 	o := newOptions(ws, g, defaultBrain())
 	o.Input.Kind = toolio.KindIssue
 	o.Input.Origin = ref.URL()
@@ -398,7 +398,16 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 	o.Land = LandPR
 	// --dry-run keeps the push out of it while still exercising the comment
 	// and pull-request paths' inputs; the push itself is covered in gitx.
-	o.GitHub = ghapi.NewWithOptions(ghapi.Options{BaseURL: srv.URL, Token: "t", UserAgent: "test"})
+	client, err := issuex.NewWithOptions(issuex.Options{
+		BaseURL:   srv.URL,
+		Repo:      ref.Repo,
+		Token:     "t",
+		UserAgent: "test",
+	})
+	if err != nil {
+		t.Fatalf("issuex.NewWithOptions: %v", err)
+	}
+	o.Forge = client
 	o.DryRun = true
 
 	got, err := Run(context.Background(), o)
@@ -864,5 +873,281 @@ func TestAMissingVerdictIsRenderedAsMissing(t *testing.T) {
 	}
 	if criteriaVerdictSection("###", nil, nil) != "" {
 		t.Error("a report with no criteria gets no section")
+	}
+}
+
+// TS-04-13 (unit): codefix declares forge-neutral Options, CategoryForge constant, and issueRef type alias
+// Verifies: 04-REQ-4.1
+func TestTS0413_CodefixTypesAndConstants(t *testing.T) {
+	var o Options
+	var _ issuex.Repo = o.Repo
+	var _ issuex.Client = o.Forge
+	if CategoryForge != "forge" {
+		t.Errorf("CategoryForge = %q, want %q", CategoryForge, "forge")
+	}
+	if CategoryGitHub != CategoryForge {
+		t.Errorf("CategoryGitHub = %q, want %q", CategoryGitHub, CategoryForge)
+	}
+	var _ issueRef = (*issuex.IssueRef)(nil)
+}
+
+// TS-04-14 (integration): codefix preflight detects repository via issuex.DetectRepo
+// Verifies: 04-REQ-4.2
+func TestTS0414_PreflightDetectsRepo(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	ctx := context.Background()
+
+	// Add origin remote to the repo
+	if out, code, err := gitx.ExecRunner(ctx, ws.Root, []string{
+		"git", "remote", "add", "origin", "https://github.com/acme/repo.git",
+	}); err != nil || code != 0 {
+		t.Fatalf("git remote add: %v (%d) %s", err, code, out)
+	}
+
+	result := &Result{Stage: "preflight"}
+	mockForge := issuex.NewNoOp()
+	opts := Options{
+		Workspace: ws,
+		Forge:     mockForge,
+		Git:       g,
+		Land:      LandNone,
+	}
+
+	target, _, pfErr := Preflight(ctx, opts, g, result)
+	if pfErr != nil {
+		t.Fatalf("Preflight failed: %v", pfErr)
+	}
+	if target.Owner != "acme" || target.Name != "repo" {
+		t.Errorf("target = %+v, want Owner: acme, Name: repo", target)
+	}
+
+	// Test fallback to o.Input.Issue.Repo when origin remote is absent
+	ws2, g2 := newRepo(t, 0)
+	result2 := &Result{Stage: "preflight"}
+	issueRef := &issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "fallback-owner", Name: "fallback-repo", Host: "github.com"},
+		Number: 42,
+	}
+	mockAuthForge := &mockAuthClient{authenticated: true}
+	opts2 := Options{
+		Workspace: ws2,
+		Forge:     mockAuthForge,
+		Git:       g2,
+		Land:      LandNone,
+		Input: toolio.Input{
+			Kind:  toolio.KindIssue,
+			Issue: issueRef,
+		},
+	}
+	target2, _, pfErr2 := Preflight(ctx, opts2, g2, result2)
+	if pfErr2 != nil {
+		t.Fatalf("Preflight fallback failed: %v", pfErr2)
+	}
+	if target2.Owner != "fallback-owner" || target2.Name != "fallback-repo" {
+		t.Errorf("target2 = %+v, want Owner: fallback-owner, Name: fallback-repo", target2)
+	}
+}
+
+// TS-04-15 (unit): codefix preflight returns auth failure when unauthenticated for PR landing or commenting
+// Verifies: 04-REQ-4.3
+type mockAuthClient struct {
+	issuex.NoOpClient
+	authenticated bool
+}
+
+func (m *mockAuthClient) Authenticated() bool {
+	return m.authenticated
+}
+
+func TestTS0415_PreflightAuthFailure(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	ctx := context.Background()
+
+	// Case 1: LandPR enabled, unauthenticated Forge
+	opts := Options{
+		Workspace: ws,
+		Land:      LandPR,
+		DryRun:    false,
+		Forge:     &mockAuthClient{authenticated: false},
+		Git:       g,
+	}
+	result := &Result{Stage: "preflight"}
+	_, _, err := Preflight(ctx, opts, g, result)
+	if err == nil {
+		t.Fatal("expected preflight auth failure, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want %q", err.StageName(), "preflight")
+	}
+	if err.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want %q", err.CategoryName(), "auth")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN") {
+		t.Errorf("error %q should mention GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN", err.Error())
+	}
+
+	// Case 2: Input.Issue present, unauthenticated Forge
+	issueRef := &issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 12,
+	}
+	opts2 := Options{
+		Workspace: ws,
+		Land:      LandNone,
+		DryRun:    false,
+		Forge:     &mockAuthClient{authenticated: false},
+		Git:       g,
+		Input: toolio.Input{
+			Kind:  toolio.KindIssue,
+			Issue: issueRef,
+		},
+	}
+	result2 := &Result{Stage: "preflight"}
+	_, _, err2 := Preflight(ctx, opts2, g, result2)
+	if err2 == nil {
+		t.Fatal("expected preflight auth failure for issue input, got nil")
+	}
+	if err2.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want %q", err2.StageName(), "preflight")
+	}
+	if err2.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want %q", err2.CategoryName(), "auth")
+	}
+	if !strings.Contains(err2.Error(), "GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN") {
+		t.Errorf("error %q should mention GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN", err2.Error())
+	}
+}
+
+// TS-04-16 (unit): codefix preflight returns usage failure when target repository cannot be resolved for LandPR
+// Verifies: 04-REQ-4.4
+func TestTS0416_PreflightTargetUsageFailure(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	ctx := context.Background()
+
+	opts := Options{
+		Workspace: ws, // has no origin remote
+		Land:      LandPR,
+		DryRun:    false,
+		Forge:     &mockAuthClient{authenticated: true},
+		Git:       g,
+	}
+	result := &Result{Stage: "preflight"}
+	_, _, err := Preflight(ctx, opts, g, result)
+	if err == nil {
+		t.Fatal("expected usage failure for unresolved target repo under LandPR, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want %q", err.StageName(), "preflight")
+	}
+	if err.CategoryName() != "usage" {
+		t.Errorf("CategoryName = %q, want %q", err.CategoryName(), "usage")
+	}
+	if !strings.Contains(err.Error(), "--land=pr needs a target repository") {
+		t.Errorf("error %q should contain '--land=pr needs a target repository'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "has no origin remote on a recognized forge") {
+		t.Errorf("error %q should mention 'has no origin remote on a recognized forge'", err.Error())
+	}
+}
+
+// TS-04-17 (integration): codefix opens pull request and posts comment via issuex.Client
+// Verifies: 04-REQ-4.5, 04-REQ-4.6, 04-REQ-10.3
+func TestTS0417_OpenPullRequestAndPostComment(t *testing.T) {
+	var prCreated bool
+	var prPayload map[string]any
+	var commentCreated bool
+	var commentPayload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/pulls") {
+			prCreated = true
+			_ = json.NewDecoder(r.Body).Decode(&prPayload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"html_url": "https://forge/pr/1",
+				"number":   1,
+				"title":    prPayload["title"],
+				"body":     prPayload["body"],
+			})
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/comments") {
+			commentCreated = true
+			_ = json.NewDecoder(r.Body).Decode(&commentPayload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"html_url": "https://forge/comment/123",
+				"id":       123,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	client, err := issuex.NewWithOptions(issuex.Options{
+		BaseURL:   server.URL,
+		Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Token:     "tok",
+		UserAgent: "test",
+	})
+	if err != nil {
+		t.Fatalf("issuex.NewWithOptions: %v", err)
+	}
+
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	issueRef := issuex.IssueRef{Repo: target, Number: 42}
+	opts := Options{
+		Forge: client,
+		Draft: true,
+		Input: toolio.Input{
+			Kind:  toolio.KindIssue,
+			Issue: &issueRef,
+		},
+		Run:      toolio.NewRun("fix", "test"),
+		Progress: toolio.NewProgress(io.Discard, "fix", false, true),
+	}
+
+	result := &Result{Stage: "committed"}
+	analysis := Analysis{
+		Classification: ClassBug,
+		Title:          "fix null pointer in widget",
+		Summary:        "fixed nil deref",
+	}
+	impl := Implementation{
+		Summary: "handled nil pointer",
+	}
+
+	// Execute OpenPullRequest
+	OpenPullRequest(ctx, opts, target, result, analysis, impl, "main", "fix/42-fix-null-pointer")
+	if !prCreated {
+		t.Error("expected CreatePullRequest to be called on server")
+	}
+	if result.PullRequestURL != "https://forge/pr/1" {
+		t.Errorf("PullRequestURL = %q, want %q", result.PullRequestURL, "https://forge/pr/1")
+	}
+	if result.PullRequestNumber != 1 {
+		t.Errorf("PullRequestNumber = %d, want 1", result.PullRequestNumber)
+	}
+	if prPayload["draft"] != true {
+		t.Errorf("draft payload = %v, want true", prPayload["draft"])
+	}
+	if prPayload["head"] != "fix/42-fix-null-pointer" {
+		t.Errorf("head payload = %v, want 'fix/42-fix-null-pointer'", prPayload["head"])
+	}
+	if prPayload["base"] != "main" {
+		t.Errorf("base payload = %v, want 'main'", prPayload["base"])
+	}
+
+	// Execute PostComment
+	PostComment(ctx, opts, result, "summary body text", "summary")
+	if !commentCreated {
+		t.Error("expected AddComment to be called on server")
+	}
+	if len(result.Comments) != 1 || result.Comments[0] != "https://forge/comment/123" {
+		t.Errorf("Comments = %v, want ['https://forge/comment/123']", result.Comments)
+	}
+	if commentPayload["body"] != "summary body text" {
+		t.Errorf("comment body payload = %v, want 'summary body text'", commentPayload["body"])
 	}
 }

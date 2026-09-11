@@ -1,0 +1,509 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "02",
+  "spec_name": "issuex_github",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-02-1",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-1.1",
+        "02-REQ-1.4"
+      ],
+      "title": "GitHub client adapter implements Client interface, handles authentication state, and closes idle transport connections",
+      "given": [
+        "the issuex package and GitHub client adapter implementation"
+      ],
+      "when": "inspecting interface conformance, Authenticated(), and Close() on the GitHub adapter",
+      "then": [
+        "githubClient implements the issuex.Client interface completely",
+        "Authenticated() returns true when holding a non-empty token and false otherwise",
+        "Close() closes idle transport connections and returns nil"
+      ],
+      "pseudocode": "var _ issuex.Client = (*githubClient)(nil)\nc := newTestGitHubClient(Options{Token: \"ghp_secret\"})\nassert c.Authenticated() == true\nassert c.Close() == nil\n\nunauth := newTestGitHubClient(Options{})\nassert unauth.Authenticated() == false"
+    },
+    {
+      "id": "TS-02-2",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-1.2"
+      ],
+      "title": "NewGitHub constructor resolves base URL, token, HTTP client, and user agent from options and environment variables",
+      "given": [
+        "custom Options and process environment variable combinations"
+      ],
+      "when": "NewGitHub is called with explicit options or fallback environment variables",
+      "then": [
+        "BaseURL resolves from Options or GITHUB_API_URL or defaults to https://api.github.com without trailing slash",
+        "Token resolves from Options or GITHUB_TOKEN or GH_TOKEN",
+        "default HTTPClient has a 30-second timeout if unspecified",
+        "default UserAgent is agent-fox if unspecified"
+      ],
+      "pseudocode": "c1, _ := NewGitHub(Options{BaseURL: \"https://ghe.example.com/api/v3/\", Token: \"tok1\", UserAgent: \"custom-ua\"})\nassert c1.(*githubClient).baseURL == \"https://ghe.example.com/api/v3\"\nassert c1.(*githubClient).token == \"tok1\"\nassert c1.(*githubClient).userAgent == \"custom-ua\"\n\nt.Setenv(\"GITHUB_API_URL\", \"https://api.github.corp/\")\nt.Setenv(\"GITHUB_TOKEN\", \"tok2\")\nc2, _ := NewGitHub(Options{})\nassert c2.(*githubClient).baseURL == \"https://api.github.corp\"\nassert c2.(*githubClient).token == \"tok2\"\nassert c2.(*githubClient).userAgent == \"agent-fox\"\nassert c2.(*githubClient).httpClient.Timeout == 30*time.Second"
+    },
+    {
+      "id": "TS-02-3",
+      "kind": "integration",
+      "verifies": [
+        "02-REQ-1.3"
+      ],
+      "title": "NewWithOptions factory constructs and returns GitHub client when forge type resolves to GitHub",
+      "given": [
+        "Options with remote URL pointing to github.com and NoOp false"
+      ],
+      "when": "NewWithOptions is called with NoOp false for a GitHub repository remote URL",
+      "then": [
+        "NewWithOptions detects ForgeTypeGitHub and returns an active GitHub client adapter rather than ErrUnsupportedForge"
+      ],
+      "pseudocode": "client, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"},\n    RemoteURL: \"https://github.com/agentfox/agent-fox.git\",\n    Token: \"dummy-token\",\n})\nassert err == nil\nassert client != nil\nassert client.Authenticated() == true\nassert client.(*githubClient).repo.Owner == \"agentfox\""
+    },
+    {
+      "id": "TS-02-4",
+      "kind": "property",
+      "verifies": [
+        "02-REQ-1.5"
+      ],
+      "title": "Outgoing HTTP requests consistently format GitHub API headers and authentication tokens",
+      "given": [
+        "a quickcheck generator for HTTP methods, paths, authentication tokens, and request payloads"
+      ],
+      "when": "for any outgoing HTTP request executed through the GitHub client adapter",
+      "then": [
+        "Accept header is always application/vnd.github+json",
+        "X-GitHub-Api-Version is always 2022-11-28",
+        "User-Agent is always populated",
+        "Authorization header contains Bearer token when authenticated and is omitted when unauthenticated",
+        "Content-Type is application/json when request body is present"
+      ],
+      "pseudocode": "forAll(genMethod, genPath, genToken, genPayload, func(method, path, token string, body []byte) bool {\n    var captured *http.Request\n    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        captured = r\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(\"{}\"))\n    }))\n    defer srv.Close()\n    c := newTestGitHubClient(Options{BaseURL: srv.URL, Token: token})\n    _ = c.do(context.Background(), method, path, body, nil)\n    ok := captured.Header.Get(\"Accept\") == \"application/vnd.github+json\" &&\n          captured.Header.Get(\"X-GitHub-Api-Version\") == \"2022-11-28\" &&\n          captured.Header.Get(\"User-Agent\") != \"\"\n    if token != \"\" {\n        ok = ok && captured.Header.Get(\"Authorization\") == \"Bearer \" + token\n    } else {\n        ok = ok && captured.Header.Get(\"Authorization\") == \"\"\n    }\n    if len(body) > 0 {\n        ok = ok && captured.Header.Get(\"Content-Type\") == \"application/json\"\n    }\n    return ok\n})"
+    },
+    {
+      "id": "TS-02-5",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-2.1",
+        "02-REQ-2.2"
+      ],
+      "title": "GetRepository fetches repository metadata and records permissions and merge policy settings",
+      "given": [
+        "a mock server returning GitHub repository JSON with permissions and merge strategy flags"
+      ],
+      "when": "calling GetRepository with a valid Repo on an authenticated client",
+      "then": [
+        "FullName, DefaultBranch, Private, Archived, and Permissions booleans are accurately populated",
+        "merge strategy flags allow_merge_commit, allow_squash_merge, and allow_rebase_merge are recorded in the client"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"GET\"\n    assert r.URL.Path == \"/repos/owner/test-repo\"\n    w.Write([]byte(`{\n        \"full_name\": \"owner/test-repo\",\n        \"default_branch\": \"main\",\n        \"private\": true,\n        \"archived\": false,\n        \"permissions\": {\"push\": true, \"pull\": true, \"admin\": false},\n        \"allow_merge_commit\": true,\n        \"allow_squash_merge\": false,\n        \"allow_rebase_merge\": true\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nrepo, err := c.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"test-repo\"})\nassert err == nil\nassert repo.FullName == \"owner/test-repo\"\nassert repo.DefaultBranch == \"main\"\nassert repo.Private == true\nassert repo.Archived == false\nassert repo.Permissions.Push == true && repo.Permissions.Pull == true && repo.Permissions.Admin == false\nassert c.allowMergeCommit == true && c.allowSquashMerge == false && c.allowRebaseMerge == true"
+    },
+    {
+      "id": "TS-02-6",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-2.3",
+        "02-REQ-2.4"
+      ],
+      "title": "GetRepository wraps ErrNotFound on 404 responses with private repo guidance for unauthenticated callers",
+      "given": [
+        "a mock server returning HTTP 404 Not Found for GET /repos/{owner}/{name}"
+      ],
+      "when": "calling GetRepository on an unauthenticated client vs an authenticated client receiving 404",
+      "then": [
+        "unauthenticated call returns an error satisfying IsNotFound(err) == true and containing private repository guidance",
+        "authenticated call returns an error satisfying IsNotFound(err) == true"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\n\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, errUnauth := unauth.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"priv-repo\"})\nassert issuex.IsNotFound(errUnauth) == true\nassert strings.Contains(strings.ToLower(errUnauth.Error()), \"private\")\n\nauth := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n_, errAuth := auth.GetRepository(context.Background(), Repo{Owner: \"owner\", Name: \"priv-repo\"})\nassert issuex.IsNotFound(errAuth) == true"
+    },
+    {
+      "id": "TS-02-7",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.1"
+      ],
+      "title": "CreateIssue posts issue metadata and returns created Issue struct",
+      "given": [
+        "an authenticated GitHub client and mock server handling POST /repos/{owner}/{name}/issues"
+      ],
+      "when": "CreateIssue is called with valid parameters on an authenticated client",
+      "then": [
+        "POST request is sent to /repos/{owner}/{name}/issues with title, body, and labels",
+        "returned Issue struct has Number, Title, Body, State, URL, Author, Labels, and IsPR set to false"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    assert r.Method == \"POST\"\n    assert r.URL.Path == \"/repos/owner/repo/issues\"\n    var body map[string]any\n    json.NewDecoder(r.Body).Decode(&body)\n    assert body[\"title\"] == \"Bug title\"\n    assert body[\"body\"] == \"Bug body\"\n    assert body[\"labels\"].([]any)[0] == \"bug\"\n    w.WriteHeader(http.StatusCreated)\n    w.Write([]byte(`{\n        \"number\": 12,\n        \"title\": \"Bug title\",\n        \"body\": \"Bug body\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/owner/repo/issues/12\",\n        \"user\": {\"login\": \"alice\"},\n        \"labels\": [{\"name\": \"bug\"}],\n        \"created_at\": \"2025-01-01T00:00:00Z\",\n        \"updated_at\": \"2025-01-01T00:00:00Z\"\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nissue, err := c.CreateIssue(context.Background(), Repo{Owner: \"owner\", Name: \"repo\"}, CreateIssueRequest{\n    Title: \"Bug title\", Body: \"Bug body\", Labels: []string{\"bug\"},\n})\nassert err == nil\nassert issue.Number == 12\nassert issue.Title == \"Bug title\"\nassert issue.Author.Login == \"alice\"\nassert issue.Labels[0].Name == \"bug\"\nassert issue.IsPR == false"
+    },
+    {
+      "id": "TS-02-8",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.2",
+        "02-REQ-4.7",
+        "02-REQ-5.7",
+        "02-REQ-6.7"
+      ],
+      "title": "Unauthenticated mutation operations immediately reject with ErrNoToken without network calls",
+      "given": [
+        "an unauthenticated GitHub client with no token"
+      ],
+      "when": "calling CreateIssue, UpdateIssue, CloseIssue, AddComment, AddLabels, RemoveLabel, CreateLabel, CreatePullRequest, ClosePullRequest, PostReviewComment, or MergePullRequest without a token",
+      "then": [
+        "each mutation method returns an error satisfying IsNoToken(err) == true",
+        "no HTTP requests are dispatched to the server"
+      ],
+      "pseudocode": "c := newTestGitHubClient(Options{Token: \"\"})\nctx := context.Background()\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 1}\nrepo := Repo{Owner: \"o\", Name: \"r\"}\n\n_, err1 := c.CreateIssue(ctx, repo, CreateIssueRequest{Title: \"t\"})\nassert issuex.IsNoToken(err1) == true\n\n_, err2 := c.UpdateIssue(ctx, ref, UpdateIssueRequest{Title: \"t\"})\nassert issuex.IsNoToken(err2) == true\n\nerr3 := c.CloseIssue(ctx, ref, \"closing\")\nassert issuex.IsNoToken(err3) == true\n\n_, err4 := c.AddComment(ctx, ref, \"cmt\")\nassert issuex.IsNoToken(err4) == true\n\nerr5 := c.AddLabels(ctx, ref, []string{\"lbl\"})\nassert issuex.IsNoToken(err5) == true\n\nerr6 := c.RemoveLabel(ctx, ref, \"lbl\")\nassert issuex.IsNoToken(err6) == true\n\nerr7 := c.CreateLabel(ctx, repo, Label{Name: \"lbl\"})\nassert issuex.IsNoToken(err7) == true\n\n_, err8 := c.CreatePullRequest(ctx, repo, CreatePullRequestRequest{Title: \"t\"})\nassert issuex.IsNoToken(err8) == true\n\nerr9 := c.ClosePullRequest(ctx, ref)\nassert issuex.IsNoToken(err9) == true\n\nerr10 := c.PostReviewComment(ctx, ref, \"rev\")\nassert issuex.IsNoToken(err10) == true\n\n_, err11 := c.MergePullRequest(ctx, ref, MergeOptions{})\nassert issuex.IsNoToken(err11) == true"
+    },
+    {
+      "id": "TS-02-9",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.3",
+        "02-REQ-3.4"
+      ],
+      "title": "ReadIssue fetches issue metadata, sets IsPR, and handles comment retrieval and partial failures",
+      "given": [
+        "a mock server returning issue details with pull_request key and comments responses"
+      ],
+      "when": "calling ReadIssue with an IssueRef when comment fetching succeeds or fails",
+      "then": [
+        "Issue.IsPR is set to true when the pull_request key is present",
+        "IssueThread.Comments contains chronologically listed comments when comment retrieval succeeds",
+        "IssueThread has populated Issue, non-nil CommentsErr, and ReadIssue returns nil error when comment fetch fails"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/comments\") {\n        if r.Header.Get(\"X-Fail-Comments\") == \"1\" {\n            w.WriteHeader(http.StatusInternalServerError)\n            return\n        }\n        w.Write([]byte(`[{\"body\": \"first comment\", \"user\": {\"login\": \"bob\"}, \"html_url\": \"https://cmt/1\"}]`))\n        return\n    }\n    w.Write([]byte(`{\n        \"number\": 42,\n        \"title\": \"PR issue\",\n        \"pull_request\": {\"url\": \"https://api.github.com/repos/o/r/pulls/42\"}\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nthread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 42})\nassert err == nil\nassert thread.Issue.IsPR == true\nassert len(thread.Comments) == 1\nassert thread.Comments[0].Body == \"first comment\"\n\n// Test partial comment failure resilience\ncFail := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\", HTTPClient: injectHeaderClient(\"X-Fail-Comments\", \"1\")})\nthreadFail, errFail := cFail.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 42})\nassert errFail == nil\nassert threadFail.Issue.Number == 42\nassert threadFail.CommentsErr != nil"
+    },
+    {
+      "id": "TS-02-10",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.5"
+      ],
+      "title": "ReadIssue wraps ErrNotFound on 404 with private issue guidance for unauthenticated callers",
+      "given": [
+        "an unauthenticated GitHub client and mock server returning HTTP 404 Not Found"
+      ],
+      "when": "calling ReadIssue on an unauthenticated client receiving HTTP 404",
+      "then": [
+        "returns an error satisfying IsNotFound(err) == true and containing private issue guidance"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, err := unauth.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 999})\nassert issuex.IsNotFound(err) == true\nassert strings.Contains(strings.ToLower(err.Error()), \"private\")"
+    },
+    {
+      "id": "TS-02-11",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.6",
+        "02-REQ-3.7"
+      ],
+      "title": "UpdateIssue patches issue fields and CloseIssue adds optional comment before closing",
+      "given": [
+        "an authenticated GitHub client and mock server handling issue PATCH and comment POST"
+      ],
+      "when": "calling UpdateIssue with updated fields and calling CloseIssue with an explanatory comment",
+      "then": [
+        "UpdateIssue PATCHes only specified fields and returns the updated Issue struct",
+        "CloseIssue calls AddComment first if comment is non-empty before sending PATCH with state closed"
+      ],
+      "pseudocode": "var calls []string\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    calls = append(calls, r.Method+\" \"+r.URL.Path)\n    if r.Method == \"POST\" && strings.HasSuffix(r.URL.Path, \"/comments\") {\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"html_url\": \"https://cmt/1\"}`))\n        return\n    }\n    if r.Method == \"PATCH\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        w.Write([]byte(fmt.Sprintf(`{\"number\": 5, \"title\": \"%s\", \"state\": \"%s\"}`, body[\"title\"], body[\"state\"])))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nctx := context.Background()\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 5}\n\nupd, errUpd := c.UpdateIssue(ctx, ref, UpdateIssueRequest{Title: \"New Title\"})\nassert errUpd == nil\nassert upd.Title == \"New Title\"\n\nerrClose := c.CloseIssue(ctx, ref, \"Closing as completed\")\nassert errClose == nil\nassert calls[1] == \"POST /repos/o/r/issues/5/comments\"\nassert calls[2] == \"PATCH /repos/o/r/issues/5\""
+    },
+    {
+      "id": "TS-02-12",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-3.8"
+      ],
+      "title": "ListIssues paginates issue results, applies query filters, excludes pull requests, and flags incomplete results",
+      "given": [
+        "a mock server returning paginated issue responses containing genuine issues and pull requests"
+      ],
+      "when": "ListIssues is called with an IssueFilter specifying criteria and pagination limits",
+      "then": [
+        "query parameters state, labels, assignee, sort, and direction are correctly appended to the request URL",
+        "items containing a pull_request key are excluded from the returned issues",
+        "IssueList.Incomplete is set to true when results reach filter.Limit while additional issues remain"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    q := r.URL.Query()\n    assert q.Get(\"state\") == \"open\"\n    assert q.Get(\"labels\") == \"bug,p1\"\n    assert q.Get(\"assignee\") == \"alice\"\n    assert q.Get(\"sort\") == \"updated\"\n    assert q.Get(\"direction\") == \"desc\"\n    w.Write([]byte(`[\n        {\"number\": 1, \"title\": \"Genuine issue 1\"},\n        {\"number\": 2, \"title\": \"Pull Request 2\", \"pull_request\": {}},\n        {\"number\": 3, \"title\": \"Genuine issue 3\"}\n    ]`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nlist, err := c.ListIssues(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, IssueFilter{\n    State: \"open\", Labels: []string{\"bug\", \"p1\"}, Assignee: \"alice\", Sort: \"updated\", Direction: \"desc\", Limit: 2,\n})\nassert err == nil\nassert len(list.Issues) == 2\nassert list.Issues[0].Number == 1\nassert list.Issues[1].Number == 3\nassert list.Incomplete == false"
+    },
+    {
+      "id": "TS-02-13",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-4.1",
+        "02-REQ-4.2"
+      ],
+      "title": "AddComment posts comment and returns URL, and ListComments paginates up to 500 cap with truncation flag",
+      "given": [
+        "an authenticated GitHub client and mock server handling issue comments"
+      ],
+      "when": "calling AddComment with comment body, and calling ListComments on an issue with >= 500 comments",
+      "then": [
+        "AddComment executes POST to /comments with body and returns comment html_url",
+        "ListComments paginates up to 5 pages (500 comments) and sets CommentList.Truncated to true when page 5 contains 100 items"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" {\n        var body map[string]string\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"body\"] == \"test comment\"\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\"html_url\": \"https://github.com/o/r/issues/1#issuecomment-1\"}`))\n        return\n    }\n    page := r.URL.Query().Get(\"page\")\n    if page == \"5\" {\n        // Return 100 items on 5th page to trigger truncation\n        w.Write(makeCommentPageJSON(100))\n        return\n    }\n    w.Write(makeCommentPageJSON(100))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 1}\n\nurl, err := c.AddComment(context.Background(), ref, \"test comment\")\nassert err == nil\nassert url == \"https://github.com/o/r/issues/1#issuecomment-1\"\n\ncmts, errList := c.ListComments(context.Background(), ref)\nassert errList == nil\nassert len(cmts.Comments) == 500\nassert cmts.Truncated == true"
+    },
+    {
+      "id": "TS-02-14",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-4.3",
+        "02-REQ-4.4"
+      ],
+      "title": "AddLabels appends labels on issues and skips network requests for empty label slices",
+      "given": [
+        "an authenticated GitHub client and mock server"
+      ],
+      "when": "calling AddLabels with an empty slice versus a non-empty slice of labels",
+      "then": [
+        "AddLabels with empty slice returns nil immediately without executing network requests",
+        "AddLabels with non-empty slice executes POST /repos/{owner}/{name}/issues/{number}/labels with the label names"
+      ],
+      "pseudocode": "called := false\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    called = true\n    assert r.Method == \"POST\"\n    assert r.URL.Path == \"/repos/o/r/issues/10/labels\"\n    var body map[string]any\n    json.NewDecoder(r.Body).Decode(&body)\n    assert len(body[\"labels\"].([]any)) == 2\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`[{\"name\": \"bug\"}, {\"name\": \"ui\"}]`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\n// Empty labels: should not touch server\nassert c.AddLabels(context.Background(), ref, []string{}) == nil\nassert called == false\n\n// Non-empty labels: calls server\nassert c.AddLabels(context.Background(), ref, []string{\"bug\", \"ui\"}) == nil\nassert called == true"
+    },
+    {
+      "id": "TS-02-15",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-4.5",
+        "02-REQ-4.6"
+      ],
+      "title": "RemoveLabel and CreateLabel perform idempotent label mutations on GitHub",
+      "given": [
+        "an authenticated GitHub client and mock server returning HTTP 404 for DELETE and HTTP 422 already_exists for POST"
+      ],
+      "when": "calling RemoveLabel for a non-existent label and CreateLabel for an already existing label",
+      "then": [
+        "RemoveLabel URL-escapes label name and treats HTTP 404 as successful idempotent removal returning nil",
+        "CreateLabel strips leading # from color and treats HTTP 422 with already_exists code as successful idempotent creation returning nil"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"DELETE\" {\n        assert r.URL.Path == \"/repos/o/r/issues/10/labels/special%20label\"\n        w.WriteHeader(http.StatusNotFound)\n        return\n    }\n    if r.Method == \"POST\" {\n        var body map[string]string\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"color\"] == \"ff0000\" // leading # stripped\n        w.WriteHeader(http.StatusUnprocessableEntity)\n        w.Write([]byte(`{\"message\": \"Validation Failed\", \"errors\": [{\"resource\": \"Label\", \"code\": \"already_exists\", \"field\": \"name\"}]}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\nerrRem := c.RemoveLabel(context.Background(), ref, \"special label\")\nassert errRem == nil\n\nerrCreate := c.CreateLabel(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, Label{\n    Name: \"special label\", Color: \"#ff0000\", Description: \"desc\",\n})\nassert errCreate == nil"
+    },
+    {
+      "id": "TS-02-16",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-5.1",
+        "02-REQ-5.2"
+      ],
+      "title": "CreatePullRequest creates PR with draft flag and ReadPullRequest parses PR metadata",
+      "given": [
+        "an authenticated GitHub client and mock server handling PR creation and retrieval"
+      ],
+      "when": "calling CreatePullRequest and ReadPullRequest on an authenticated client",
+      "then": [
+        "CreatePullRequest executes POST /pulls with draft flag and returns PullRequest with Merged false",
+        "ReadPullRequest executes GET /pulls/{number} and returns parsed PullRequest struct with branch names and head SHA"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"POST\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"draft\"] == true\n        assert body[\"head\"] == \"feature\"\n        assert body[\"base\"] == \"main\"\n        w.WriteHeader(http.StatusCreated)\n        w.Write([]byte(`{\n            \"number\": 88, \"title\": \"PR 88\", \"draft\": true, \"merged\": false,\n            \"head\": {\"ref\": \"feature\", \"sha\": \"abc123\"}, \"base\": {\"ref\": \"main\"}\n        }`))\n        return\n    }\n    w.Write([]byte(`{\n        \"number\": 88, \"title\": \"PR 88\", \"draft\": true, \"merged\": false,\n        \"head\": {\"ref\": \"feature\", \"sha\": \"abc123\"}, \"base\": {\"ref\": \"main\"}\n    }`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\npr, err := c.CreatePullRequest(context.Background(), Repo{Owner: \"o\", Name: \"r\"}, CreatePullRequestRequest{\n    Title: \"PR 88\", Head: \"feature\", Base: \"main\", Draft: true,\n})\nassert err == nil\nassert pr.Number == 88\nassert pr.Draft == true\nassert pr.Merged == false\n\nreadPR, errRead := c.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 88})\nassert errRead == nil\nassert readPR.HeadBranch == \"feature\"\nassert readPR.HeadSHA == \"abc123\"\nassert readPR.BaseBranch == \"main\""
+    },
+    {
+      "id": "TS-02-17",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-5.3"
+      ],
+      "title": "ReadPullRequest wraps ErrNotFound on 404 with private repository guidance for unauthenticated callers",
+      "given": [
+        "an unauthenticated GitHub client and mock server returning HTTP 404 on GET /pulls/{number}"
+      ],
+      "when": "calling ReadPullRequest on an unauthenticated client receiving HTTP 404",
+      "then": [
+        "returns an error satisfying IsNotFound(err) == true and containing private repository guidance"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusNotFound)\n    w.Write([]byte(`{\"message\": \"Not Found\"}`))\n}))\ndefer srv.Close()\nunauth := newTestGitHubClient(Options{BaseURL: srv.URL})\n_, err := unauth.ReadPullRequest(context.Background(), IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 99})\nassert issuex.IsNotFound(err) == true\nassert strings.Contains(strings.ToLower(err.Error()), \"private\")"
+    },
+    {
+      "id": "TS-02-18",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-5.4",
+        "02-REQ-5.5",
+        "02-REQ-5.6"
+      ],
+      "title": "ReadChangedFiles normalizes file statuses, GetPRState inspects merge status, and ClosePullRequest closes PR",
+      "given": [
+        "an authenticated GitHub client and mock server handling PR changed files, state, and close"
+      ],
+      "when": "calling ReadChangedFiles, GetPRState, and ClosePullRequest on an IssueRef",
+      "then": [
+        "ReadChangedFiles returns ChangedFile structs with status normalized to added, modified, or deleted",
+        "GetPRState maps merged PRs to state merged, unmerged closed PRs to closed, and otherwise open",
+        "ClosePullRequest sends PATCH with state closed"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if strings.HasSuffix(r.URL.Path, \"/files\") {\n        w.Write([]byte(`[\n            {\"filename\": \"a.go\", \"status\": \"added\", \"additions\": 10, \"deletions\": 0},\n            {\"filename\": \"b.go\", \"status\": \"modified\", \"additions\": 2, \"deletions\": 1},\n            {\"filename\": \"c.go\", \"status\": \"removed\", \"additions\": 0, \"deletions\": 5}\n        ]`))\n        return\n    }\n    if r.Method == \"PATCH\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"state\"] == \"closed\"\n        w.Write([]byte(`{\"state\": \"closed\"}`))\n        return\n    }\n    // GET /pulls/5\n    w.Write([]byte(`{\"number\": 5, \"state\": \"closed\", \"merged\": true, \"head\": {\"sha\": \"sha1\"}}`))\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 5}\n\nfiles, errFiles := c.ReadChangedFiles(context.Background(), ref)\nassert errFiles == nil\nassert len(files) == 3\nassert files[2].Status == \"deleted\" // mapped from removed to deleted\n\nst, errSt := c.GetPRState(context.Background(), ref)\nassert errSt == nil\nassert st.State == \"merged\" // merged=true overrides closed\nassert st.Merged == true\n\nerrClose := c.ClosePullRequest(context.Background(), ref)\nassert errClose == nil"
+    },
+    {
+      "id": "TS-02-19",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-6.1",
+        "02-REQ-6.2",
+        "02-REQ-6.3"
+      ],
+      "title": "GetCIChecks retrieves commit check runs, GetPRReviews normalizes reviews, and PostReviewComment submits review",
+      "given": [
+        "an authenticated GitHub client and mock server handling commit check runs, reviews, and review comments"
+      ],
+      "when": "calling GetCIChecks, GetPRReviews, and PostReviewComment on an IssueRef",
+      "then": [
+        "GetCIChecks resolves PR head SHA via ReadPullRequest and queries /commits/{head_sha}/check-runs",
+        "GetPRReviews normalizes review states to lowercase approved, changes_requested, commented, or dismissed",
+        "PostReviewComment executes POST /reviews with event COMMENT and body"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.URL.Path == \"/repos/o/r/pulls/7\" && r.Method == \"GET\" {\n        w.Write([]byte(`{\"number\": 7, \"head\": {\"sha\": \"commit_sha_123\"}}`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/commits/commit_sha_123/check-runs\" {\n        w.Write([]byte(`{\"check_runs\": [{\"name\": \"ci/test\", \"status\": \"completed\", \"conclusion\": \"success\", \"output\": {\"summary\": \"Passed\"}, \"html_url\": \"https://ci/1\"}]}`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/pulls/7/reviews\" && r.Method == \"GET\" {\n        w.Write([]byte(`[{\"user\": {\"login\": \"eve\"}, \"state\": \"CHANGES_REQUESTED\", \"body\": \"Needs fixes\", \"submitted_at\": \"2025-01-01T00:00:00Z\"}]`))\n        return\n    }\n    if r.URL.Path == \"/repos/o/r/pulls/7/reviews\" && r.Method == \"POST\" {\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        assert body[\"event\"] == \"COMMENT\"\n        assert body[\"body\"] == \"Looks promising\"\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(`{}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 7}\n\nchecks, errChecks := c.GetCIChecks(context.Background(), ref)\nassert errChecks == nil\nassert len(checks) == 1\nassert checks[0].Name == \"ci/test\"\nassert checks[0].Conclusion == \"success\"\n\nreviews, errReviews := c.GetPRReviews(context.Background(), ref)\nassert errReviews == nil\nassert len(reviews) == 1\nassert reviews[0].State == \"changes_requested\" // normalized to lowercase\n\nerrComment := c.PostReviewComment(context.Background(), ref, \"Looks promising\")\nassert errComment == nil"
+    },
+    {
+      "id": "TS-02-20",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-6.4",
+        "02-REQ-6.5",
+        "02-REQ-6.6"
+      ],
+      "title": "MergePullRequest executes explicit or repository default merge strategies and wraps conflict errors",
+      "given": [
+        "an authenticated GitHub client and mock server handling PR merge and repository merge settings"
+      ],
+      "when": "calling MergePullRequest with explicit merge method, default method, or when encountering 405/409 conflict",
+      "then": [
+        "MergePullRequest maps explicit MergeMethod (merge, squash, rebase) into JSON payload",
+        "MergeMethodDefault queries repository allowed merge strategies (merge > squash > rebase)",
+        "returns an error satisfying IsConflict(err) == true when GitHub responds with HTTP 405 or HTTP 409"
+      ],
+      "pseudocode": "var mergeMethodSent string\nvar returnConflict bool\nsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    if r.Method == \"GET\" && r.URL.Path == \"/repos/o/r\" {\n        // repo settings: merge commit disabled, squash enabled\n        w.Write([]byte(`{\"allow_merge_commit\": false, \"allow_squash_merge\": true, \"allow_rebase_merge\": true}`))\n        return\n    }\n    if r.Method == \"PUT\" && strings.HasSuffix(r.URL.Path, \"/merge\") {\n        if returnConflict {\n            w.WriteHeader(http.StatusMethodNotAllowed) // 405\n            w.Write([]byte(`{\"message\": \"Pull Request is not mergeable\"}`))\n            return\n        }\n        var body map[string]any\n        json.NewDecoder(r.Body).Decode(&body)\n        mergeMethodSent = body[\"merge_method\"].(string)\n        w.WriteHeader(http.StatusOK)\n        w.Write([]byte(`{\"merged\": true, \"sha\": \"merged_sha_99\", \"message\": \"Pull Request successfully merged\"}`))\n        return\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nref := IssueRef{Repo: Repo{Owner: \"o\", Name: \"r\"}, Number: 10}\n\n// Explicit squash\nres, err := c.MergePullRequest(context.Background(), ref, MergeOptions{Method: MergeMethodSquash})\nassert err == nil\nassert res.Merged == true\nassert mergeMethodSent == \"squash\"\n\n// Default method: queries repo, selects squash since merge_commit is false\nresDef, errDef := c.MergePullRequest(context.Background(), ref, MergeOptions{Method: MergeMethodDefault})\nassert errDef == nil\nassert resDef.Merged == true\nassert mergeMethodSent == \"squash\"\n\n// Conflict on 405/409\nreturnConflict = true\n_, errConflict := c.MergePullRequest(context.Background(), ref, MergeOptions{})\nassert issuex.IsConflict(errConflict) == true"
+    },
+    {
+      "id": "TS-02-21",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-7.1"
+      ],
+      "title": "Transport enforces 8 MB bounded reading on HTTP response bodies",
+      "given": [
+        "a mock server generating an HTTP response body exceeding 8 MB"
+      ],
+      "when": "reading HTTP response bodies through the GitHub client transport",
+      "then": [
+        "response reader is bounded to at most 8,388,608 bytes via io.LimitReader preventing unbounded memory growth"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.WriteHeader(http.StatusOK)\n    // Stream 9 MB of data\n    chunk := make([]byte, 1024*1024)\n    for i := 0; i < 9; i++ {\n        w.Write(chunk)\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\nvar buf bytes.Buffer\nerr := c.do(context.Background(), \"GET\", \"/test\", nil, &buf)\n// Body reading is truncated at 8,388,608 bytes via io.LimitReader\nassert buf.Len() <= 8*1024*1024"
+    },
+    {
+      "id": "TS-02-22",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-7.2",
+        "02-REQ-7.3",
+        "02-REQ-7.6"
+      ],
+      "title": "Transport executes single rate-limit retry with injectable sleep and returns ErrRateLimited if limit exceeded",
+      "given": [
+        "a GitHub client configured with an injected sleep function and mock server simulating 429 and 403 quota exhaustion"
+      ],
+      "when": "an HTTP request receives 429 or 403 quota exhaustion with backoff <= 120s versus backoff > 120s",
+      "then": [
+        "the custom sleep function is invoked for the backoff duration and the request is retried once when backoff <= 120 seconds",
+        "returns an error satisfying IsRateLimited(err) == true when backoff > 120 seconds or retry fails",
+        "the injected sleep function is called instead of time.Sleep during retries"
+      ],
+      "pseudocode": "var slept time.Duration\nsleepFn := func(d time.Duration) { slept = d }\n\n// Case 1: 429 with 5-second backoff succeeds on retry\nattempts := 0\nsrv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    attempts++\n    if attempts == 1 {\n        w.Header().Set(\"Retry-After\", \"5\")\n        w.WriteHeader(http.StatusTooManyRequests)\n        return\n    }\n    w.WriteHeader(http.StatusOK)\n    w.Write([]byte(`{\"full_name\": \"o/r\"}`))\n}))\ndefer srv1.Close()\nc1 := newTestGitHubClient(Options{BaseURL: srv1.URL, Token: \"tok\"})\nc1.sleep = sleepFn\n_, err1 := c1.GetRepository(context.Background(), Repo{Owner: \"o\", Name: \"r\"})\nassert err1 == nil\nassert attempts == 2\nassert slept == 5*time.Second\n\n// Case 2: 403 quota exhaustion with > 120s backoff aborts immediately\nsrv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    w.Header().Set(\"X-RateLimit-Remaining\", \"0\")\n    w.Header().Set(\"X-RateLimit-Reset\", strconv.FormatInt(time.Now().Add(200*time.Second).Unix(), 10))\n    w.WriteHeader(http.StatusForbidden)\n}))\ndefer srv2.Close()\nc2 := newTestGitHubClient(Options{BaseURL: srv2.URL, Token: \"tok\"})\nc2.sleep = sleepFn\n_, err2 := c2.GetRepository(context.Background(), Repo{Owner: \"o\", Name: \"r\"})\nassert issuex.IsRateLimited(err2) == true"
+    },
+    {
+      "id": "TS-02-23",
+      "kind": "property",
+      "verifies": [
+        "02-REQ-7.4"
+      ],
+      "title": "GitHub REST error JSON payloads format into HTTPError message with field-level details",
+      "given": [
+        "a generator producing GitHub REST error JSON payloads with messages and field-level errors"
+      ],
+      "when": "for any GitHub REST error response payload containing a message and an errors array",
+      "then": [
+        "HTTPError message concatenates the top-level message with formatted field-level details from the errors array"
+      ],
+      "pseudocode": "forAll(genErrorMessage, genFieldErrors, func(msg string, fieldErrs []fieldError) bool {\n    payload, _ := json.Marshal(map[string]any{\n        \"message\": msg,\n        \"errors\": fieldErrs,\n    })\n    httpErr := parseGitHubError(http.StatusUnprocessableEntity, \"POST\", \"/repos/o/r/labels\", payload)\n    expectedPrefix := msg\n    if !strings.Contains(httpErr.Error(), expectedPrefix) {\n        return false\n    }\n    for _, fe := range fieldErrs {\n        if !strings.Contains(httpErr.Error(), fe.Field) || !strings.Contains(httpErr.Error(), fe.Code) {\n            return false\n        }\n    }\n    return true\n})"
+    },
+    {
+      "id": "TS-02-24",
+      "kind": "unit",
+      "verifies": [
+        "02-REQ-7.5"
+      ],
+      "title": "Transport maps HTTP 404 to ErrNotFound and 409 and 405 to ErrConflict in HTTPError",
+      "given": [
+        "a mock server returning HTTP 404, 409, and 405 error responses"
+      ],
+      "when": "an HTTP request receives status 404, 409, or 405",
+      "then": [
+        "HTTP 404 response wraps ErrNotFound in the returned HTTPError",
+        "HTTP 409 and 405 responses wrap ErrConflict in the returned HTTPError"
+      ],
+      "pseudocode": "srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n    switch r.URL.Path {\n    case \"/404\":\n        w.WriteHeader(http.StatusNotFound)\n        w.Write([]byte(`{\"message\": \"Not Found\"}`))\n    case \"/409\":\n        w.WriteHeader(http.StatusConflict)\n        w.Write([]byte(`{\"message\": \"Conflict\"}`))\n    case \"/405\":\n        w.WriteHeader(http.StatusMethodNotAllowed)\n        w.Write([]byte(`{\"message\": \"Method Not Allowed\"}`))\n    }\n}))\ndefer srv.Close()\nc := newTestGitHubClient(Options{BaseURL: srv.URL, Token: \"tok\"})\n\nerr404 := c.do(context.Background(), \"GET\", \"/404\", nil, nil)\nassert issuex.IsNotFound(err404) == true\nassert errors.Is(err404, issuex.ErrNotFound)\n\nerr409 := c.do(context.Background(), \"POST\", \"/409\", nil, nil)\nassert issuex.IsConflict(err409) == true\nassert errors.Is(err409, issuex.ErrConflict)\n\nerr405 := c.do(context.Background(), \"PUT\", \"/405\", nil, nil)\nassert issuex.IsConflict(err405) == true\nassert errors.Is(err405, issuex.ErrConflict)"
+    },
+    {
+      "id": "TS-02-25",
+      "kind": "smoke",
+      "verifies": [
+        "02-PATH-1"
+      ],
+      "title": "GitHub issue creation, reading with comments, and closing with comment end-to-end flow",
+      "given": [
+        "an authenticated GitHub client connected to a mock GitHub REST server"
+      ],
+      "when": "creating an issue, reading the issue thread with comments, and closing the issue with a comment",
+      "then": [
+        "the issue is created with expected number, read back with comment thread, and closed with the closing comment persisted"
+      ],
+      "pseudocode": "c, err := issuex.NewGitHub(issuex.Options{BaseURL: mockServer.URL, Token: \"ghp_mocktoken\"})\nassert err == nil\nrepo := issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"}\n\n// 1. Create issue\nissue, err := c.CreateIssue(ctx, repo, issuex.CreateIssueRequest{\n    Title: \"Smoke issue\", Body: \"Issue body\", Labels: []string{\"smoke\"},\n})\nassert err == nil\nref := issuex.IssueRef{Repo: repo, Number: issue.Number}\n\n// 2. Read issue with comments\nthread, err := c.ReadIssue(ctx, ref)\nassert err == nil\nassert thread.Issue.Number == issue.Number\nassert thread.CommentsErr == nil\n\n// 3. Close issue with comment\nerr = c.CloseIssue(ctx, ref, \"Completed smoke test\")\nassert err == nil",
+      "real_components": [
+        "issuex.Client",
+        "issuex.NewGitHub",
+        "githubClient",
+        "HTTP transport"
+      ]
+    },
+    {
+      "id": "TS-02-26",
+      "kind": "smoke",
+      "verifies": [
+        "02-PATH-2"
+      ],
+      "title": "Pull request check runs inspection, review commenting, and repository-policy merge end-to-end flow",
+      "given": [
+        "an authenticated GitHub client configured via NewWithOptions targeting a repository with merge commit policy"
+      ],
+      "when": "reading a pull request, inspecting CI check runs, submitting a review comment, and executing repository default merge",
+      "then": [
+        "PR metadata and head SHA are resolved, CI check runs are returned, review comment is submitted, and PR is merged successfully using repository allowed strategy"
+      ],
+      "pseudocode": "c, err := issuex.NewWithOptions(issuex.Options{\n    Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"},\n    RemoteURL: \"https://github.com/agentfox/agent-fox.git\",\n    Token: \"ghp_mocktoken\",\n    BaseURL: mockServer.URL,\n})\nassert err == nil\nref := issuex.IssueRef{Repo: issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"}, Number: 10}\n\n// 1. Read PR\npr, err := c.ReadPullRequest(ctx, ref)\nassert err == nil\nassert pr.HeadSHA != \"\"\n\n// 2. Get CI checks\nchecks, err := c.GetCIChecks(ctx, ref)\nassert err == nil\nassert len(checks) > 0\n\n// 3. Post review comment\nerr = c.PostReviewComment(ctx, ref, \"Smoke review approved\")\nassert err == nil\n\n// 4. Merge with default repo policy\nres, err := c.MergePullRequest(ctx, ref, issuex.MergeOptions{Method: issuex.MergeMethodDefault})\nassert err == nil\nassert res.Merged == true",
+      "real_components": [
+        "issuex.Client",
+        "issuex.NewWithOptions",
+        "githubClient",
+        "HTTP transport"
+      ]
+    },
+    {
+      "id": "TS-02-27",
+      "kind": "smoke",
+      "verifies": [
+        "02-PATH-3"
+      ],
+      "title": "Rate-limit backoff and retry recovery on GitHub REST request end-to-end flow",
+      "given": [
+        "an authenticated GitHub client with an injected zero-delay sleep function and mock server simulating 403 quota exhaustion on first attempt"
+      ],
+      "when": "calling GetRepository on the client encountering an initial rate limit response with 2 second backoff",
+      "then": [
+        "injected sleep function is invoked with 2 seconds, the request is retried once, and the repository metadata is successfully returned"
+      ],
+      "pseudocode": "var slept time.Duration\nc, err := issuex.NewGitHub(issuex.Options{BaseURL: mockServer.URL, Token: \"ghp_mocktoken\"})\nassert err == nil\nc.(*githubClient).sleep = func(d time.Duration) { slept = d }\n\nrepo, err := c.GetRepository(ctx, issuex.Repo{Owner: \"agentfox\", Name: \"agent-fox\"})\nassert err == nil\nassert repo.FullName == \"agentfox/agent-fox\"\nassert slept == 2*time.Second",
+      "real_components": [
+        "issuex.Client",
+        "issuex.NewGitHub",
+        "githubClient",
+        "HTTP transport rate-limit retry logic"
+      ]
+    }
+  ]
+}

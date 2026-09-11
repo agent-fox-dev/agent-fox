@@ -46,7 +46,7 @@ func TestReadIssuePagesComments(t *testing.T) {
 		}
 	})
 
-	thread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{"acme", "widgets"}, Number: 42})
+	thread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: "acme", Name: "widgets"}, Number: 42})
 	if err != nil {
 		t.Fatalf("ReadIssue: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestReadIssueSurvivesUnreadableComments(t *testing.T) {
 		}
 		writeJSON(w, Issue{Number: 1, Title: "t"})
 	})
-	thread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{"a", "b"}, Number: 1})
+	thread, err := c.ReadIssue(context.Background(), IssueRef{Repo: Repo{Owner: "a", Name: "b"}, Number: 1})
 	if err != nil {
 		t.Fatalf("ReadIssue: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestHTTPErrorCarriesTheAPIMessage(t *testing.T) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"resource":"Issue","field":"title","code":"missing_field"}]}`))
 	})
-	_, err := c.CreateIssue(context.Background(), Repo{"a", "b"}, "", "body", nil)
+	_, err := c.CreateIssue(context.Background(), Repo{Owner: "a", Name: "b"}, "", "body", nil)
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -119,9 +119,9 @@ func TestWritesRefuseWithoutAToken(t *testing.T) {
 	c := NewWithOptions(Options{BaseURL: srv.URL, Token: " ", UserAgent: "test"})
 	c.token = "" // as if neither GITHUB_TOKEN nor GH_TOKEN were set
 
-	ref := IssueRef{Repo: Repo{"a", "b"}, Number: 1}
+	ref := IssueRef{Repo: Repo{Owner: "a", Name: "b"}, Number: 1}
 	ctx := context.Background()
-	if _, err := c.CreateIssue(ctx, Repo{"a", "b"}, "t", "b", nil); !errors.Is(err, ErrNoToken) {
+	if _, err := c.CreateIssue(ctx, Repo{Owner: "a", Name: "b"}, "t", "b", nil); !errors.Is(err, ErrNoToken) {
 		t.Errorf("CreateIssue: want ErrNoToken, got %v", err)
 	}
 	if _, err := c.UpdateIssue(ctx, ref, "t", "b"); !errors.Is(err, ErrNoToken) {
@@ -130,7 +130,7 @@ func TestWritesRefuseWithoutAToken(t *testing.T) {
 	if _, err := c.AddComment(ctx, ref, "b"); !errors.Is(err, ErrNoToken) {
 		t.Errorf("AddComment: want ErrNoToken, got %v", err)
 	}
-	if _, err := c.CreatePullRequest(ctx, Repo{"a", "b"}, "t", "b", "h", "base", false); !errors.Is(err, ErrNoToken) {
+	if _, err := c.CreatePullRequest(ctx, Repo{Owner: "a", Name: "b"}, "t", "b", "h", "base", false); !errors.Is(err, ErrNoToken) {
 		t.Errorf("CreatePullRequest: want ErrNoToken, got %v", err)
 	}
 	if called {
@@ -155,7 +155,7 @@ func TestRateLimitedRequestIsRetriedOnce(t *testing.T) {
 		}
 		writeJSON(w, Issue{Number: 5, HTMLURL: "https://github.com/a/b/issues/5"})
 	})
-	got, err := c.CreateIssue(context.Background(), Repo{"a", "b"}, "t", "body", nil)
+	got, err := c.CreateIssue(context.Background(), Repo{Owner: "a", Name: "b"}, "t", "body", nil)
 	if err != nil {
 		t.Fatalf("CreateIssue: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestNonRateLimitFailuresAreNotRetried(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
 	})
-	if _, err := c.CreateIssue(context.Background(), Repo{"a", "b"}, "t", "b", nil); err == nil {
+	if _, err := c.CreateIssue(context.Background(), Repo{Owner: "a", Name: "b"}, "t", "b", nil); err == nil {
 		t.Fatal("want an error")
 	}
 	if n != 1 {
@@ -196,7 +196,7 @@ func TestCreateIssueSendsTitleBodyAndLabels(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		writeJSON(w, Issue{Number: 9, HTMLURL: "https://github.com/acme/widgets/issues/9"})
 	})
-	got, err := c.CreateIssue(context.Background(), Repo{"acme", "widgets"}, "title", "body", []string{"af:fix"})
+	got, err := c.CreateIssue(context.Background(), Repo{Owner: "acme", Name: "widgets"}, "title", "body", []string{"af:fix"})
 	if err != nil {
 		t.Fatalf("CreateIssue: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestCreatePullRequestSendsHeadAndBase(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		writeJSON(w, PullRequest{Number: 3, HTMLURL: "https://github.com/acme/widgets/pull/3"})
 	})
-	pr, err := c.CreatePullRequest(context.Background(), Repo{"acme", "widgets"},
+	pr, err := c.CreatePullRequest(context.Background(), Repo{Owner: "acme", Name: "widgets"},
 		"fix: it", "body", "fix/issue-1-it", "main", true)
 	if err != nil {
 		t.Fatalf("CreatePullRequest: %v", err)

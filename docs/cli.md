@@ -57,7 +57,7 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "version": "0.4.0",
   "ok": true,
   "exit_code": 0,
-  "input":  { "kind": "github", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
+  "input":  { "kind": "issue", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
   "model":  { "spec": "STANDARD", "id": "claude-sonnet-5", "vendor": "anthropic",
               "api": "anthropic-messages", "thinking": "high" },
   "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cost_usd": 0.19, "turns": 23,
@@ -319,6 +319,46 @@ The order is the rule and the reason is concrete: a generator that cannot see a
 test id cannot own it, which is how the previous format produced specs whose
 edge-case tests belonged to no task at all.
 
+### More than one spec's worth of work
+
+A spec is one cohesive feature — at most 10 requirements and 8 tasks — and a
+PRD for a whole subsystem is several. The PRD phase says so rather than
+producing an oversized spec: it writes the PRD for the first, foundational
+scope and reports the full split, every scope with the name its package will
+carry. `spec` then writes **all of them**, one package per scope, in order:
+
+```
+spec: the input is 4 specs' worth of work; writing every scope: issuex_core, issuex_github, issuex_gitlab, issuex_adopt
+spec: scope 1 of 4 (issuex_core): the forge-neutral contract and the null client
+spec:   wrote .specs/01_issuex_core
+spec: scope 2 of 4 (issuex_github): the GitHub implementation over the shared transport
+...
+spec: the split is complete: 4 packages
+```
+
+Each later scope gets its own PRD phase, told which scope it writes and shown
+the packages before it, so it builds on them — `## Dependencies` and the tasks
+artifact's `dependencies` name the earlier specs — instead of restating them.
+The plan names the package; a model that renames a scope is overruled, with a
+warning.
+
+The split is recorded in the spec root as `<first_scope>.split.json` while it
+is unfinished. A run that stops early — a budget hit on the third of four
+scopes, a lost connection — leaves the plan and the packages it wrote behind,
+and **running `spec` on the same input again resumes from the scope that
+failed**: no PRD phase for the whole input, no second copy of the first
+package. A file or issue input is matched by where it came from, so an input
+edited between runs still resumes; text and stdin are matched by content. The
+plan is removed by the run that writes the last package, so its presence means
+exactly one thing: `spec` stopped before it was done. A plan for a *different*
+input is reported as a warning and left alone.
+
+A package that does not validate stops nothing: it is on disk, its errors name
+the rules, and the scopes after it are written. The run then exits 1 with
+`category: "invalid_spec"` naming the packages to fix. Every other failure
+stops the run on the scope it happened in, with the scope named in the message
+and `result.split` showing what exists.
+
 | Flag | Default | Effect |
 |---|---|---|
 | `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
@@ -354,16 +394,29 @@ it.
 
 ### The result
 
-`result` carries `spec_dir`, `spec_id`, `spec_name`, `title`, `status`,
-`source`, the `artifacts` written, the counts, and:
+`result` describes the first package this run wrote: `spec_dir`, `spec_id`,
+`spec_name`, `title`, `status`, `source`, the `artifacts` written, the counts,
+and:
 
 - `validation` — the format's verdict, with every error naming its rule
   (`C1`…`C11`, `json_schema`, `completeness`)
 - `traceability` — derived, never stored: `criteria_covered`,
   `criteria_uncovered`, `paths_covered`, `paths_uncovered`, `tests_unowned`
 - `open_questions` — the decisions made under uncertainty
-- `recommended_split` — non-empty when the input was more than one spec's worth
-  of work; the package then covers the first scope only
+
+When the input was more than one spec's worth of work, three fields join them:
+
+- `follow_on_specs` — the further packages this run wrote, in order, each
+  with the same fields as the top level
+- `split` — every scope of the split, first one first, with its `name`,
+  `scope`, and `status`: `done`, `invalid` (on disk, does not validate),
+  `failed` (this run stopped here) or `pending`; `spec_id` and `spec_dir`
+  once the package exists
+- `split_plan` — the plan file, present only while the split is unfinished
+
+`ok` is true only when every scope has a valid package. A caller that wants
+to know what happened reads `split`; a caller that wants the rest written runs
+`spec` on the same input again.
 
 A package that does not validate is still written, and the run exits 1 with
 `category: "invalid_spec"`. A spec you can read and fix is worth more than no

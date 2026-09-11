@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // The tests below drive the REAL pipeline — the real scaffolding, the real
@@ -63,21 +64,50 @@ func loadFixture(t *testing.T, specID, specName string) (map[afspec.GenerationSt
 
 // scriptedAuthor stands in for the four model phases.
 type scriptedAuthor struct {
+	t         *testing.T
 	prd       PRD
 	artifacts map[afspec.GenerationStep]map[string]any
-	arch      string
+	// primary is the "NN_name" the artifacts above were relabelled for. A
+	// package with another id or name — a later scope of a split — gets the
+	// fixture relabelled for it on demand.
+	primary string
+	arch    string
 
 	prdErr      error
 	artifactErr map[afspec.GenerationStep]error
 	// skipStepValidation submits an artifact without the per-step check,
 	// standing in for a violation that only whole-package validation can see.
 	skipStepValidation bool
+	// breakScope names the split scope whose tasks artifact is submitted
+	// with one test unowned, so that package does not validate.
+	breakScope string
 
-	steps []afspec.GenerationStep
+	// followOn scripts the PRD phase for one scope of a split, by scope
+	// name. A scope with no script gets the fixture PRD under the planned
+	// name; one in followOnErr fails instead.
+	followOn    map[string]PRD
+	followOnErr map[string]error
+
+	steps       []afspec.GenerationStep
+	prdRequests []prdRequest
 }
 
-func (a *scriptedAuthor) WritePRD(context.Context, prdRequest) (PRD, agentrun.Result, error) {
-	return a.prd, agentrun.Result{Name: "prd", Turns: 3}, a.prdErr
+func (a *scriptedAuthor) WritePRD(_ context.Context, req prdRequest) (PRD, agentrun.Result, error) {
+	a.prdRequests = append(a.prdRequests, req)
+	res := agentrun.Result{Name: "prd", Turns: 3}
+	if req.Split == nil {
+		return a.prd, res, a.prdErr
+	}
+	name := req.Split.Scope().Name
+	if err := a.followOnErr[name]; err != nil {
+		return PRD{}, res, err
+	}
+	if prd, ok := a.followOn[name]; ok {
+		return prd, res, nil
+	}
+	prd := a.prd
+	prd.SpecName, prd.Title, prd.RecommendedSplit = name, "Scope "+name, nil
+	return prd, res, nil
 }
 
 func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest) (map[string]any, agentrun.Result, error) {
@@ -87,9 +117,18 @@ func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest
 		return nil, res, err
 	}
 	content := a.artifacts[req.Step]
+	if req.SpecID+"_"+req.SpecName != a.primary {
+		fixtures, _ := loadFixture(a.t, req.SpecID, req.SpecName)
+		content = fixtures[req.Step]
+	}
+	skip := a.skipStepValidation
+	if a.breakScope != "" && req.SpecName == a.breakScope && req.Step == afspec.StepTasks {
+		dropOneOwnedTest(content)
+		skip = true
+	}
 	// The pipeline validates through the same handler the tool uses, so the
 	// scripted author goes through it too rather than around it.
-	if a.skipStepValidation {
+	if skip {
 		decoded, err := afspec.DecodeArtifact(req.Step, content)
 		if err != nil {
 			return nil, res, err
@@ -110,6 +149,15 @@ func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest
 	return content, res, nil
 }
 
+// dropOneOwnedTest breaks rule C7 in a tasks artifact: task 1 owns
+// TS-NN-1..3, and dropping one leaves that test owned by nothing.
+func dropOneOwnedTest(tasksContent map[string]any) {
+	tasks := tasksContent["tasks"].([]any)
+	first := tasks[0].(map[string]any)
+	tests := first["tests"].([]any)
+	first["tests"] = tests[:len(tests)-1]
+}
+
 func (a *scriptedAuthor) WriteArchitecture(context.Context, architectureRequest) (string, agentrun.Result, error) {
 	if a.arch == "" {
 		return "", agentrun.Result{Name: "architecture"}, errors.New("no architecture scripted")
@@ -121,6 +169,7 @@ func newAuthor(t *testing.T, specID, specName string) *scriptedAuthor {
 	t.Helper()
 	artifacts, body := loadFixture(t, specID, specName)
 	return &scriptedAuthor{
+		t: t,
 		prd: PRD{
 			SpecName: specName,
 			Title:    "Test Feature",
@@ -132,7 +181,10 @@ func newAuthor(t *testing.T, specID, specName string) *scriptedAuthor {
 			}},
 		},
 		artifacts:   artifacts,
+		primary:     specID + "_" + specName,
 		artifactErr: map[afspec.GenerationStep]error{},
+		followOn:    map[string]PRD{},
+		followOnErr: map[string]error{},
 	}
 }
 
@@ -265,11 +317,7 @@ func TestAnInvalidPackageIsWrittenAndReported(t *testing.T) {
 	a := newAuthor(t, "01", "test_feature")
 	a.skipStepValidation = true
 
-	// Task 1 owns TS-01-1..3; dropping one leaves that test owned by nothing.
-	tasks := a.artifacts[afspec.StepTasks]["tasks"].([]any)
-	first := tasks[0].(map[string]any)
-	tests := first["tests"].([]any)
-	first["tests"] = tests[:len(tests)-1]
+	dropOneOwnedTest(a.artifacts[afspec.StepTasks])
 
 	got, err := Run(context.Background(), newOptions(ws, a))
 	if err == nil {
@@ -479,5 +527,165 @@ func TestDryRunStillValidatesAgainstTheDirectoryName(t *testing.T) {
 	}
 	if got.Traceability.CriteriaCovered == 0 {
 		t.Error("the traceability report should be derived under --dry-run too")
+	}
+}
+
+type mockForgeClient struct {
+	issuex.NoOpClient
+	authenticated bool
+	commentURL    string
+	commentErr    error
+	commentCalls  int
+	lastBody      string
+	lastRef       issuex.IssueRef
+}
+
+func (m *mockForgeClient) Authenticated() bool {
+	return m.authenticated
+}
+
+func (m *mockForgeClient) AddComment(ctx context.Context, ref issuex.IssueRef, body string) (string, error) {
+	m.commentCalls++
+	m.lastRef = ref
+	m.lastBody = body
+	if m.commentErr != nil {
+		return "", m.commentErr
+	}
+	return m.commentURL, nil
+}
+
+// TS-04-29 (unit): specgen Options defines Forge field of type issuex.Client
+// Verifies: 04-REQ-7.1
+func TestTS0429_OptionsDefinesForgeField(t *testing.T) {
+	var o Options
+	var _ issuex.Client = o.Forge
+}
+
+// TS-04-30 (unit): specgen preflight returns auth failure when --comment is enabled without credentials
+// Verifies: 04-REQ-7.2
+func TestTS0430_PreflightAuthFailureWithoutCredentials(t *testing.T) {
+	ctx := context.Background()
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+
+	// Case 1: unauthenticated Forge client
+	opts := Options{
+		Comment: true,
+		DryRun:  false,
+		Input:   toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef},
+		Forge:   &mockForgeClient{authenticated: false},
+	}
+	_, err := Preflight(ctx, opts)
+	if err == nil {
+		t.Fatal("expected auth failure, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", err.StageName())
+	}
+	if err.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", err.CategoryName())
+	}
+	wantMsg := "--comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment"
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want message containing %q", err.Error(), wantMsg)
+	}
+
+	// Case 2: nil Forge client
+	optsNil := Options{
+		Comment: true,
+		DryRun:  false,
+		Input:   toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef},
+		Forge:   nil,
+	}
+	_, errNil := Preflight(ctx, optsNil)
+	if errNil == nil {
+		t.Fatal("expected auth failure for nil Forge, got nil")
+	}
+	if errNil.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", errNil.StageName())
+	}
+	if errNil.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", errNil.CategoryName())
+	}
+	if !strings.Contains(errNil.Error(), wantMsg) {
+		t.Errorf("error = %q, want message containing %q", errNil.Error(), wantMsg)
+	}
+}
+
+// TS-04-31 (integration): specgen posts PRD comment via Forge.AddComment and records warning on failure
+// Verifies: 04-REQ-7.3, 04-REQ-7.4
+func TestTS0431_PostsPRDCommentAndWarnsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+
+	// Success case: PRD comment is posted via Forge.AddComment and populates pkg.CommentURL
+	ws := newWorkspace(t)
+	a := newAuthor(t, "01", "test_feature")
+	mockForge := &mockForgeClient{
+		authenticated: true,
+		commentURL:    "https://forge/issue/1#note_9",
+	}
+	opts := newOptions(ws, a)
+	opts.Comment = true
+	opts.DryRun = false
+	opts.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+	opts.Forge = mockForge
+
+	pkg, _, err := GeneratePRD(ctx, opts)
+	if err != nil {
+		t.Fatalf("GeneratePRD failed: %v", err)
+	}
+	if pkg == nil {
+		t.Fatal("expected non-nil Package")
+	}
+	if pkg.CommentURL != "https://forge/issue/1#note_9" {
+		t.Errorf("CommentURL = %q, want %q", pkg.CommentURL, "https://forge/issue/1#note_9")
+	}
+	if mockForge.commentCalls != 1 {
+		t.Errorf("commentCalls = %d, want 1", mockForge.commentCalls)
+	}
+	if mockForge.lastRef != issueRef {
+		t.Errorf("lastRef = %+v, want %+v", mockForge.lastRef, issueRef)
+	}
+	if !strings.Contains(mockForge.lastBody, "## Intent") {
+		t.Errorf("comment body should contain PRD markdown, got: %s", mockForge.lastBody)
+	}
+
+	// Error degraded to warning case: comment failure does not fail the pipeline run
+	wsErr := newWorkspace(t)
+	aErr := newAuthor(t, "01", "test_feature")
+	mockForgeErr := &mockForgeClient{
+		authenticated: true,
+		commentErr:    errors.New("forbidden"),
+	}
+	run := toolio.NewRun("spec", "test")
+	optsErr := newOptions(wsErr, aErr)
+	optsErr.Comment = true
+	optsErr.DryRun = false
+	optsErr.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+	optsErr.Forge = mockForgeErr
+	optsErr.Run = run
+
+	pkgErr, _, err2 := GeneratePRD(ctx, optsErr)
+	if err2 != nil {
+		t.Fatalf("expected successful Result despite comment error, got: %v", err2)
+	}
+	if pkgErr == nil {
+		t.Fatal("expected non-nil Package")
+	}
+	if pkgErr.CommentURL != "" {
+		t.Errorf("CommentURL = %q, want empty string on failure", pkgErr.CommentURL)
+	}
+	warnings := run.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
+	}
+	if !strings.Contains(warnings[0], "the PRD could not be posted") {
+		t.Errorf("warning %q should contain 'the PRD could not be posted'", warnings[0])
 	}
 }

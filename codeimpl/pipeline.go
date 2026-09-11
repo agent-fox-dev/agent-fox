@@ -11,19 +11,21 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
-// runState is what the pipeline establishes in pre-flight and carries
+// RunState is what the pipeline establishes in pre-flight and carries
 // through the task loop.
-type runState struct {
+type RunState struct {
+	Target issuex.Repo
+
 	root       string
 	git        *gitx.Git
 	base       string
-	target     ghapi.Repo
+	target     issuex.Repo
 	specsDir   string
 	specDir    string
 	relSpecDir string
@@ -39,6 +41,8 @@ type runState struct {
 	prior      []priorTask
 	cost       float64
 }
+
+type runState = RunState
 
 // Run drives the whole pipeline.
 //
@@ -190,15 +194,34 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.Progress.Step("pushed origin/%s", st.branch)
 	}
 	if o.Land == LandPR && result.Pushed && st.target.Valid() {
-		pr, err := o.GitHub.CreatePullRequest(ctx, st.target, pullRequestTitle(st.spec),
-			pullRequestBody(result), st.branch, st.base, o.Draft)
+		client := o.Forge
+		var pr issuex.PullRequest
+		var err error
+		if client != nil {
+			pr, err = client.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
+				Title: pullRequestTitle(st.spec),
+				Body:  pullRequestBody(result),
+				Head:  st.branch,
+				Base:  st.base,
+				Draft: o.Draft,
+			})
+		} else if o.GitHub != nil {
+			ghPR, ghErr := o.GitHub.CreatePullRequest(ctx, st.target, pullRequestTitle(st.spec),
+				pullRequestBody(result), st.branch, st.base, o.Draft)
+			if ghErr == nil {
+				pr = issuex.PullRequest{URL: ghPR.HTMLURL, Number: ghPR.Number}
+			}
+			err = ghErr
+		} else {
+			err = fmt.Errorf("no forge client configured")
+		}
 		if err != nil {
 			o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
 				"hand from %s into %s): %v", st.branch, st.base, err)
 		} else {
-			result.PullRequestURL = pr.HTMLURL
+			result.PullRequestURL = pr.URL
 			result.PullRequestNumber = pr.Number
-			o.Progress.Step("opened %s", pr.HTMLURL)
+			o.Progress.Step("opened %s", pr.URL)
 		}
 	}
 	switch {
@@ -211,6 +234,42 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.Progress.Step("%d task(s) landed on %s", result.TasksDone, st.branch)
 	return result, nil
+}
+
+// LandPRChanges opens a pull request for the landed changes via Forge.CreatePullRequest.
+func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result) (*Result, error) {
+	if o.Forge == nil {
+		return result, failf("land", CategoryForge, "no forge client configured")
+	}
+	pr, err := o.Forge.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
+		Title: pullRequestTitle(st.spec),
+		Body:  pullRequestBody(result),
+		Head:  st.branch,
+		Base:  st.base,
+		Draft: o.Draft,
+	})
+	if err != nil {
+		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+			"hand from %s into %s): %v", st.branch, st.base, err)
+		return result, err
+	}
+	result.PullRequestURL = pr.URL
+	result.PullRequestNumber = pr.Number
+	if o.Progress != nil {
+		o.Progress.Step("opened %s", pr.URL)
+	}
+	result.Stage = "landed"
+	return result, nil
+}
+
+// Preflight runs every check that can refuse the run, in the order that
+// costs least when it refuses.
+func Preflight(ctx context.Context, o Options, result *Result) (*RunState, *Failure) {
+	st, err := preflight(ctx, o, result)
+	if st != nil {
+		st.Target = st.target
+	}
+	return st, err
 }
 
 // preflight is every check that can refuse the run, in the order that
@@ -272,22 +331,23 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	st.specDir, st.relSpecDir = dir, rel
 	result.SpecDir = rel
 
-	// A run that will write to GitHub checks that it can before it spends
+	// A run that will write to the forge checks that it can before it spends
 	// money on a model.
 	st.target = o.Repo
 	if !st.target.Valid() {
-		if r, ok := ghapi.DetectRepo(st.root); ok {
+		if r, ok := issuex.DetectRepo(st.root); ok {
 			st.target = r
 		}
 	}
-	if o.Land == LandPR && !o.DryRun && !o.GitHub.Authenticated() {
+	authOK := (o.Forge != nil && o.Forge.Authenticated()) || (o.GitHub != nil && o.GitHub.Authenticated())
+	if o.Land == LandPR && !o.DryRun && !authOK {
 		return nil, failf("preflight", "auth",
-			"opening a pull request needs a credential: set GITHUB_TOKEN or GH_TOKEN, "+
+			"opening a pull request needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, "+
 				"or pass --land=branch, --land=none or --dry-run")
 	}
 	if o.Land == LandPR && !o.DryRun && !st.target.Valid() {
 		return nil, failf("preflight", "usage",
-			"--land=pr needs a target repository: %s has no GitHub origin remote — pass "+
+			"--land=pr needs a target repository: %s has no origin remote on a recognized forge — pass "+
 				"--repo owner/repo, or --land=branch", st.root)
 	}
 	if o.Land.Pushes() && !o.DryRun && !git.HasRemote(ctx) {
@@ -297,6 +357,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	if st.target.Valid() {
 		result.Repo = st.target.String()
 	}
+	st.Target = st.target
 
 	// The branch is decided before the package is read, because the package
 	// on the branch is what a second run continues from.
