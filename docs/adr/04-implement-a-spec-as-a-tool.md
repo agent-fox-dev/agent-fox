@@ -152,7 +152,7 @@ by the task that made it green. `--verify` replaces the pair with one command
 for a project whose `tasks.json` is wrong about itself; `--no-verify` runs
 nothing and the run is reported as unverified.
 
-#### Repairing a red baseline, on request
+#### Repairing the checks, on request
 
 The comparison is the right default and the wrong tool for one case: a suite
 that is red for a reason nobody has fixed hides every regression the tasks
@@ -177,6 +177,21 @@ a suite that fails for two reasons is fixed one reason at a time). The last
 failure parks the attempt as a `wip:` commit, which the next run discards,
 and exits 4 with no task implemented. A blocker — the failure is not in the
 code — exits 3.
+
+The same flag applies the same loop at the other end of the run. The
+integration task is the last one and the one whose smoke tests run against
+the real components, so its gate is the run's final verification of the
+whole suite, and what it finds is usually a wiring gap between earlier tasks.
+Retrying the integration task from scratch — the rule for every other task
+— would rewrite the smoke tests and leave the gap. With `--repair`, a red
+gate after the integration task goes to the repair loop on top of the task's
+work instead: the work is held in a provisional commit so each attempt can be
+discarded back to it, a green gate lands task and fix as one `feat:` commit
+whose body names the cause, and a spent loop parks both as the task's
+`wip:`. A task whose own report says a test it owns fails is not repaired —
+the model says it is not done, and the from-scratch retry stands — and an
+earlier task's red gate is never repaired: a task that broke the checks is a
+task done wrong, not a suite to fix.
 
 The repair phase may run on a different model than the tasks
 (`--repair-model`), because the case it exists for is a failure that needs

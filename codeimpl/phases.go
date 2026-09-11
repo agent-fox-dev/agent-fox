@@ -57,7 +57,7 @@ type surveyInput struct {
 	Repair bool
 }
 
-// repairInput is what one baseline repair phase is given.
+// repairInput is what one repair phase is given.
 type repairInput struct {
 	Spec   *afspec.Spec
 	Root   string
@@ -66,6 +66,12 @@ type repairInput struct {
 	// Failing is the gate as it stands: the one the phase has to make green.
 	Failing GateResult
 	Survey  *Survey
+	// Task is set when the repair follows the integration task: the task
+	// whose work is at HEAD, provisionally committed. Nil means the repair
+	// is of the baseline, before any task.
+	Task *afspec.Task
+	// Prior are the reports of the tasks landed in this run, oldest first.
+	Prior []priorTask
 	// Attempt is 1 for the first attempt; Previous describes the attempt
 	// before it when there was one.
 	Attempt  int

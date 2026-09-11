@@ -491,7 +491,7 @@ broke it".
 
 `--verify` replaces the pair with one command; `--no-verify` runs nothing.
 
-### Repairing a red baseline
+### Repairing the checks
 
 A repository whose checks fail before any change is not refused: the run
 records the red baseline and judges every task by comparison, so a task that
@@ -500,12 +500,16 @@ once it is green, and one that keeps it red is `still_failing`. That is the
 right default for a suite with one known-broken test, and the wrong one for a
 suite whose failure hides every regression the tasks might introduce.
 
-`--repair` makes the red baseline a phase of its own, run **once, before the
-first task** and only when the baseline is red — on a green one the flag does
-nothing. The `repair` phase gets the failing commands and their output, the
-survey brief, and the spec for orientation only; it has the same tools as the
-implementation phase and the same refusal of the spec package. After it, the
-gate runs again, and the bar is green, not "no worse than before":
+`--repair` makes a red gate a phase of its own at the two points where the
+whole suite is what matters: **before the first task**, when the baseline is
+red, and **after the integration task**, when its checks fail. On a green
+gate the flag does nothing. The `repair` phase gets the failing commands and
+their output, the survey brief, and the spec for orientation only; it has the
+same tools as the implementation phase and the same refusal of the spec
+package. After it, the gate runs again, and the bar is green, not "no worse
+than before".
+
+Before the first task:
 
 - Green: the change is committed as `fix: <subject>` with a `Spec: <dir>,
   repair` trailer, the first commit on the branch, and the green gate is the
@@ -521,7 +525,29 @@ gate runs again, and the bar is green, not "no worse than before":
   machine does not have, so no change to the code could fix them — exits 3
   with the question.
 
-`--repair-model` runs that one phase on another model — a tier such as
+After the integration task, which is the last task and the one that runs the
+spec's smoke tests against the real components, its verification is the run's
+final "run all tests". Without the flag a red gate there is a failed attempt
+like any other: discarded and retried from scratch. With it, the failure is
+repaired **on top of the task's work** instead, because what the smoke tests
+find is usually a wiring gap between earlier tasks, which redoing the last
+one would not close:
+
+- The task's change is held in a provisional commit, so every repair attempt
+  starts from it and a discarded attempt goes back to it, not to the commit
+  before the task. The phase is told where the work stands, which tests the
+  task owns, and what the earlier tasks did.
+- Green: the hold is undone and task and fix land as **one** `feat:` commit,
+  whose body says the checks failed after the task and were repaired, with
+  the cause. The task's entry in the result carries the `repair` report.
+- Still red after `--repair-attempts`: task and last attempt are parked
+  together as the task's `wip:` commit, the run exits 4, and the next run
+  discards it and implements the task again.
+- A task whose own report answers `fail` for a test it owns is not repaired:
+  its author says it is not done, and it is retried from scratch as before.
+  An earlier task's red gate is never repaired either.
+
+`--repair-model` runs the repair phase on another model — a tier such as
 `ADVANCED`, or a catalog spec — resolved against the same `--vendor` and
 `--variant` as the run's model and checked for its credential before anything
 runs. It implies `--repair`. The rest of the run stays on `--model`. It is
@@ -592,7 +618,7 @@ it, for a driver that runs one task at a time.
 | `--no-survey` | off | skip the survey phase |
 | `--task-attempts` | `2` | implementation attempts per task before the run parks |
 | `--total-budget` | none | spend ceiling for the whole run; a run that reaches it stops between tasks, with everything landed so far committed |
-| `--repair` | off | repair a red baseline once, before the first task; the run stops if it cannot |
+| `--repair` | off | repair the checks when they fail before the first task or after the integration task; the run stops if it cannot |
 | `--repair-attempts` | `3` | repair attempts before the run gives up |
 | `--repair-model` | the run's model | model tier or catalog spec for the repair phase alone; implies `--repair` |
 
@@ -608,10 +634,11 @@ per task under `tasks`, in the plan's order — its `outcome` (`pending`,
 `diff_stat` from git, its `verification` gate and `verdict`, `tests_outcome`,
 and the model's own `submission` kept separate — plus `gate`, `baseline`,
 `verification`, `verdict`, `pushed`, `pull_request_url`, the `survey`, any
-`blocker`, and `cost_usd`. With `--repair` on a red baseline, `repair` reports
-that phase the same way: `outcome`, `attempts`, `model` when it differed,
+`blocker`, and `cost_usd`. With `--repair`, a repair is reported the same
+way — `outcome`, `attempts`, `model` when it differed, the `failing` gate,
 `commit`, `changed_files`, `diff_stat`, `verification`, and the model's
-`submission` with its `cause`.
+`submission` with its `cause` — as `repair` at the top level for the
+baseline and on the integration task's entry for the one after it.
 
 ### What the model may and may not do
 

@@ -265,6 +265,14 @@ func (g *Git) ResetHard(ctx context.Context, ref string) error {
 	return err
 }
 
+// ResetSoft moves the branch back to a commit and keeps everything since
+// as staged changes in the tree. It is how a commit made to hold work
+// provisionally is undone before the work is committed for real.
+func (g *Git) ResetSoft(ctx context.Context, ref string) error {
+	_, err := g.must(ctx, "reset", "--soft", ref)
+	return err
+}
+
 // DeleteBranch removes a local branch.
 func (g *Git) DeleteBranch(ctx context.Context, name string) error {
 	_, err := g.must(ctx, "branch", "-D", name)

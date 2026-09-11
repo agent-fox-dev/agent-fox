@@ -85,13 +85,16 @@ type Options struct {
 	// TotalBudgetUSD caps the spend of the whole run, across every phase.
 	// Zero means no cap beyond the per-phase bounds.
 	TotalBudgetUSD float64
-	// RepairBaseline makes a red baseline a phase of its own, run once
-	// before the first task: the model fixes what fails, the gate runs again,
-	// and the tasks start from a green baseline or the run stops. Without
-	// it a red baseline is recorded and the tasks are judged by comparison.
-	RepairBaseline bool
-	// RepairAttempts is how many repair attempts the baseline gets before
-	// the run gives up. Zero means DefaultRepairAttempts.
+	// Repair makes a red gate a phase of its own at the two points where
+	// the whole suite is what matters: before the first task, when the
+	// baseline is red, and after the integration task, when its checks
+	// fail. The model fixes what fails, the gate runs again, and the run
+	// goes on from green or stops. Without it a red baseline is recorded and
+	// the tasks are judged by comparison, and a red integration task is
+	// retried from scratch like any other.
+	Repair bool
+	// RepairAttempts is how many attempts one repair gets before the run
+	// gives up. Zero means DefaultRepairAttempts.
 	RepairAttempts int
 	// RepairRunner drives the repair phase, when it should run on another
 	// model than the tasks. Nil means Runner.
@@ -304,12 +307,15 @@ type RepairSubmission struct {
 	Blocker *Blocker `json:"blocker,omitempty"`
 }
 
-// RepairReport is what happened to the baseline repair.
+// RepairReport is what happened to one repair: of the baseline, or of the
+// checks after the integration task.
 type RepairReport struct {
 	// Outcome is done, unverified (the checks still fail after the last
 	// attempt), blocked, failed or aborted.
 	Outcome  string `json:"outcome"`
 	Attempts int    `json:"attempts,omitempty"`
+	// Failing is the gate that was red before the repair.
+	Failing *GateResult `json:"failing,omitempty"`
 	// Model is the model the repair phase ran on, when it differs from the
 	// run's.
 	Model string `json:"model,omitempty"`
@@ -369,6 +375,9 @@ type TaskReport struct {
 	TestsOutcome string `json:"tests_outcome,omitempty"`
 	// Submission is the model's report, kept separate from the facts above.
 	Submission *Submission `json:"submission,omitempty"`
+	// Repair is the repair of the checks after this task, when the run was
+	// asked for one and this is the integration task whose checks failed.
+	Repair *RepairReport `json:"repair,omitempty"`
 	// Error says why a task did not land.
 	Error string `json:"error,omitempty"`
 }
@@ -411,7 +420,8 @@ type Result struct {
 	PullRequestNumber int    `json:"pull_request_number,omitempty"`
 
 	// Repair is the baseline repair, when the run was asked for one and
-	// the baseline was red.
+	// the baseline was red. The repair after the integration task is on
+	// that task's entry.
 	Repair *RepairReport `json:"repair,omitempty"`
 
 	// Survey and Blocker are the model's.

@@ -104,19 +104,20 @@ settle how to proceed, set blocker instead of guessing; that stops the run
 and asks a person. Small doubts are resolved and recorded in notes.`
 
 // repairSystemPrompt is the mandate of the phase that runs only when the
-// operator asked for it and the checks were red before any change.
+// operator asked for it and the checks are red: before any task, or after
+// the integration task.
 //
 // It is narrower than the implementation mandate on purpose: the phase
 // exists to make the spec's own checks pass, and nothing it could do toward
 // the spec is worth the confusion of a commit that does both. The one
 // temptation it names — a failing test made to pass by deleting it — is
 // named because it is the shortest route to green and the wrong one.
-const repairSystemPrompt = `You are a senior engineer restoring a repository's own checks to green before a specification is implemented in it.
+const repairSystemPrompt = `You are a senior engineer restoring a repository's own checks to green, at one of two moments: before a specification is implemented in it, or after the specification's last task, when the whole suite is what decides whether the work lands.
 
-The checks below failed before any change was made. Your job is to find out
-why and fix the cause, so that the tasks implemented after you start from a
-repository whose checks pass. You are not implementing the specification;
-it is given to you only so you know what is about to be built on your fix.
+The checks failed. Your job is to find out why and fix the cause, so that
+the checks pass. You are not implementing the specification: what it says
+and what is not yet done are not yours to do, and it is given to you so you
+know what the code is for.
 
 Method:
 
@@ -265,17 +266,41 @@ func surveyPrompt(in surveyInput) string {
 func repairPrompt(in repairInput) string {
 	var b strings.Builder
 	spec := in.Spec
-	fmt.Fprintf(&b, "Repair the checks of the repository in %s, so that specification %s (\"%s\") "+
-		"can be implemented on a green baseline. You are on branch `%s`, created for that work.",
-		in.Root, filepath.Base(spec.Dir), spec.Title, in.Branch)
+	if in.Task == nil {
+		fmt.Fprintf(&b, "Repair the checks of the repository in %s, so that specification %s (\"%s\") "+
+			"can be implemented on a green baseline. You are on branch `%s`, created for that work.",
+			in.Root, filepath.Base(spec.Dir), spec.Title, in.Branch)
+	} else {
+		fmt.Fprintf(&b, "Repair the checks of the repository in %s: they failed after task %d (\"%s\"), "+
+			"the integration task of specification %s (\"%s\"), was implemented. You are on branch `%s`.",
+			in.Root, in.Task.Id, in.Task.Title, filepath.Base(spec.Dir), spec.Title, in.Branch)
+	}
 	if in.Attempts > 1 {
 		fmt.Fprintf(&b, " This is attempt %d of %d.", in.Attempt, in.Attempts)
 	}
 	b.WriteString("\n\n")
 	b.WriteString(languageBlock(in.Profile))
 
+	if in.Task != nil {
+		b.WriteString("## Where the work stands\n\n")
+		b.WriteString("The task's change is the commit at HEAD, made provisionally so that you can read it " +
+			"(`git show HEAD`); the tasks before it are the commits below it on this branch, each " +
+			"landed with the checks green. The integration task is the one that runs the spec's " +
+			"smoke tests against the real components, so a failure here is often a wiring gap " +
+			"between earlier tasks, not a fault of this one. Fix the cause wherever it is. Do not " +
+			"undo the task's work and do not remove or weaken the tests it wrote: they are what " +
+			"found the gap.\n\n")
+		if len(in.Task.Tests) > 0 {
+			fmt.Fprintf(&b, "The task owns these tests: %s.\n\n", strings.Join(in.Task.Tests, ", "))
+		}
+	}
+
 	b.WriteString("## What failed\n\n")
-	b.WriteString("The program ran these commands, in this order, before any change:\n\n")
+	if in.Task == nil {
+		b.WriteString("The program ran these commands, in this order, before any change:\n\n")
+	} else {
+		b.WriteString("The program ran these commands, in this order, after the task:\n\n")
+	}
 	for i, cmd := range in.Gate {
 		fmt.Fprintf(&b, "%d. `%s`", i+1, cmd)
 		if i < len(in.Failing.Checks) {
@@ -306,11 +331,29 @@ func repairPrompt(in repairInput) string {
 	if in.Survey != nil {
 		b.WriteString(surveyBlock(*in.Survey))
 	}
+	if len(in.Prior) > 0 {
+		b.WriteString("## Tasks landed in this run\n\n")
+		for _, p := range in.Prior {
+			fmt.Fprintf(&b, "- Task %d: %s — %s", p.ID, p.Title, strings.TrimSpace(p.Summary))
+			if len(p.Files) > 0 {
+				fmt.Fprintf(&b, " (%s)", strings.Join(p.Files, ", "))
+			}
+			b.WriteString("\n")
+			for _, g := range p.Gotchas {
+				fmt.Fprintf(&b, "  - gotcha: %s\n", strings.TrimSpace(g))
+			}
+		}
+		b.WriteString("\n")
+	}
 	if in.Previous != nil {
 		b.WriteString(previousAttemptBlock(*in.Previous, "the repair"))
 	}
 
-	b.WriteString("## The specification that will be implemented afterwards\n\n")
+	if in.Task == nil {
+		b.WriteString("## The specification that will be implemented afterwards\n\n")
+	} else {
+		b.WriteString("## The specification the work implements\n\n")
+	}
 	b.WriteString("For orientation only: do not implement any of it.\n\n")
 	b.WriteString(strings.TrimSpace(spec.RenderCombined()))
 	b.WriteString("\n\n")
