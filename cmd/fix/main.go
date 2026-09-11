@@ -18,9 +18,9 @@ import (
 	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 const usage = `fix — diagnose a problem, implement it, verify it, land it
@@ -29,7 +29,8 @@ Usage:
   fix [flags] <input>
 
 The input is exactly one of:
-  a GitHub issue or pull-request URL   the issue is the problem; the run
+  a GitHub or GitLab issue or pull/merge-request URL
+                                       the issue is the problem; the run
                                        comments on it and the pull request
                                        closes it
   a path to a readable file            the file's contents are the problem
@@ -75,7 +76,7 @@ func main() {
 		Version: agentfox.Version,
 		Usage:   usage,
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo; default the input issue's, else the origin remote of --dir")
+			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
 			fs.BoolVar(&dryRun, "dry-run", false, "make no remote change: push nothing, open nothing, post nothing")
 			fs.StringVar(&verify, "verify", "", "the command that decides success; default detected from the project")
@@ -95,8 +96,8 @@ func main() {
 				return toolio.Usagef("--land %q is not one of %s", land, strings.Join(codefix.LandModes, ", "))
 			}
 			if repo != "" {
-				if _, ok := ghapi.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q is not owner/repo", repo)
+				if _, ok := issuex.ParseRepo(repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
 				}
 			}
 			if noVerify && verify != "" {
@@ -107,7 +108,7 @@ func main() {
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			mode, _ := codefix.ParseLandMode(land)
-			target, _ := ghapi.ParseRepo(repo)
+			target, _ := issuex.ParseRepo(repo)
 
 			result, err := codefix.Run(ctx, codefix.Options{
 				Input:         d.Input,
@@ -124,7 +125,7 @@ func main() {
 				Pull:          pull.set,
 				PullBranch:    pull.branch,
 				Runner:        d.Runner,
-				GitHub:        d.GitHub,
+				Forge:         d.Forge,
 				CheckRunner:   gitx.ReducedEnvRunner,
 				Run:           d.Run,
 				Progress:      d.Progress,

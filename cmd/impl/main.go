@@ -19,9 +19,9 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 const usage = `impl — implement a specification, task by task, verified, on a branch
@@ -55,7 +55,8 @@ the first task: the model fixes what fails, the checks run again, and the
 tasks start from green — or, after --repair-attempts, the last attempt is
 parked and the run exits 4 without implementing anything. --repair-model
 runs that one phase on another model, for a repository whose failure needs
-more than the run's model.
+more than the run's model. When landing with --land=pr, a pull request or
+merge request is opened on the target forge (GitHub or GitLab).
 
 Exit codes:
   0  every task landed, and the branch was landed as --land asked
@@ -101,7 +102,7 @@ func main() {
 			fs.StringVar(&specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+codeimpl.DefaultSpecDirName+" or $"+codeimpl.SpecDirEnv)
 			fs.IntVar(&task, "task", 0, "implement only this task id; default every task that is not done")
 			fs.StringVar(&branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo; default the origin remote of --dir")
+			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
 			fs.BoolVar(&dryRun, "dry-run", false, "make no remote change: push nothing, open nothing")
 			fs.StringVar(&verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
@@ -128,8 +129,8 @@ func main() {
 				return toolio.Usagef("--land %q is not one of %s", land, strings.Join(codeimpl.LandModes, ", "))
 			}
 			if repo != "" {
-				if _, ok := ghapi.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q is not owner/repo", repo)
+				if _, ok := issuex.ParseRepo(repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
 				}
 			}
 			if noVerify && verify != "" {
@@ -157,14 +158,14 @@ func main() {
 		},
 		CheckInput: func(in toolio.Input) error {
 			if in.Kind == toolio.KindIssue {
-				return toolio.Usagef("impl takes a spec package, not an issue: give a spec directory, id or name")
+				return toolio.Usagef("impl takes a spec package, not an issue (GitHub or GitLab): give a spec directory, id or name")
 			}
 			return nil
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			mode, _ := codeimpl.ParseLandMode(land)
-			target, _ := ghapi.ParseRepo(repo)
+			target, _ := issuex.ParseRepo(repo)
 
 			// The repair model is resolved — and its credential checked —
 			// before anything runs, the way the run's own model is.
@@ -203,7 +204,7 @@ func main() {
 				RepairAttempts: repairTries,
 				RepairRunner:   repairRunner,
 				Runner:         d.Runner,
-				GitHub:         d.GitHub,
+				Forge:          d.Forge,
 				CheckRunner:    gitx.ReducedEnvRunner,
 				Run:            d.Run,
 				Progress:       d.Progress,

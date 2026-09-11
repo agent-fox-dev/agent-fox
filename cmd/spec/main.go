@@ -24,7 +24,8 @@ Usage:
   spec [flags] <input>
 
 The input is exactly one of:
-  a GitHub issue or pull-request URL   the issue and its comments are the idea
+  a GitHub or GitLab issue or pull/merge-request URL
+                                       the issue and its comments are the idea
   a path to a readable file            the file's contents are the idea
   any other text                       the text is the idea
   -                                    the idea is read from stdin
@@ -78,7 +79,7 @@ func main() {
 			fs.BoolVar(&architecture, "architecture", false, "also write the optional architecture.md")
 			fs.BoolVar(&noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
 			fs.BoolVar(&comment, "comment", false, "post the finished PRD back to the issue the input came from")
-			fs.BoolVar(&dryRun, "dry-run", false, "write nothing to disk or GitHub; report the package that would be written")
+			fs.BoolVar(&dryRun, "dry-run", false, "write nothing to disk or forge (GitHub or GitLab); report the package that would be written")
 		},
 		// Generating an artifact is one long structured answer plus however
 		// many repairs the rules demand. The turn ceiling is the repair
@@ -94,7 +95,7 @@ func main() {
 		},
 		CheckInput: func(in toolio.Input) error {
 			if comment && !dryRun && in.Issue == nil {
-				return toolio.Usagef("--comment posts the PRD back to the issue it came from, "+
+				return toolio.Usagef("--comment posts the PRD back to the forge issue it came from (GitHub or GitLab), "+
 					"and %s is %s", in.Origin, in.Kind)
 			}
 			return nil
@@ -111,7 +112,7 @@ func main() {
 				Comment:      comment,
 				DryRun:       dryRun,
 				Runner:       d.Runner,
-				GitHub:       d.GitHub,
+				Forge:        d.Forge,
 				Run:          d.Run,
 				Progress:     d.Progress,
 			})
