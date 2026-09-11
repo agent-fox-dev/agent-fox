@@ -118,7 +118,7 @@ type ErrorInfo struct {
 	Stage string `json:"stage"`
 	// Category classifies the failure so a caller can decide whether
 	// re-running could help: usage, auth, input, model, budget, max_turns,
-	// git, github, verify, internal.
+	// git, forge, verify, internal.
 	Category string `json:"category"`
 	Message  string `json:"message"`
 }

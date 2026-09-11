@@ -1,7 +1,7 @@
 // Command issue triages a problem report against a codebase and files a
-// structured GitHub issue.
+// structured issue on GitHub or GitLab.
 //
-//	issue [flags] <text | file | github-url | ->
+//	issue [flags] <text | file | issue-url | ->
 //
 // It takes exactly one input and writes exactly one JSON object to stdout.
 // Progress goes to stderr, so the two never interleave.

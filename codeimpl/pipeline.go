@@ -194,35 +194,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.Progress.Step("pushed origin/%s", st.branch)
 	}
 	if o.Land == LandPR && result.Pushed && st.target.Valid() {
-		client := o.Forge
-		var pr issuex.PullRequest
-		var err error
-		if client != nil {
-			pr, err = client.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
-				Title: pullRequestTitle(st.spec),
-				Body:  pullRequestBody(result),
-				Head:  st.branch,
-				Base:  st.base,
-				Draft: o.Draft,
-			})
-		} else if o.GitHub != nil {
-			ghPR, ghErr := o.GitHub.CreatePullRequest(ctx, st.target, pullRequestTitle(st.spec),
-				pullRequestBody(result), st.branch, st.base, o.Draft)
-			if ghErr == nil {
-				pr = issuex.PullRequest{URL: ghPR.HTMLURL, Number: ghPR.Number}
-			}
-			err = ghErr
-		} else {
-			err = fmt.Errorf("no forge client configured")
-		}
-		if err != nil {
-			o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
-				"hand from %s into %s): %v", st.branch, st.base, err)
-		} else {
-			result.PullRequestURL = pr.URL
-			result.PullRequestNumber = pr.Number
-			o.Progress.Step("opened %s", pr.URL)
-		}
+		// A failed pull request is not a failed run: the branch is pushed
+		// and every task on it is verified, so the work is safe and a person
+		// can open the request by hand. LandPRChanges records the warning.
+		_, _ = LandPRChanges(ctx, o, st, result)
 	}
 	switch {
 	case o.Land == LandPR && result.PullRequestURL != "":
@@ -236,9 +211,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	return result, nil
 }
 
-// LandPRChanges opens a pull request for the landed changes via Forge.CreatePullRequest.
+// LandPRChanges opens the pull request — or, on GitLab, the merge request —
+// for the pushed branch through the forge client, and degrades to a warning
+// when it cannot: the work is already on the remote, and a run that wrote and
+// verified every task is not reported as failed over a permissions error.
 func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result) (*Result, error) {
 	if o.Forge == nil {
+		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+			"hand from %s into %s): no forge client configured", st.branch, st.base)
 		return result, failf("land", CategoryForge, "no forge client configured")
 	}
 	pr, err := o.Forge.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
@@ -339,8 +319,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 			st.target = r
 		}
 	}
-	authOK := (o.Forge != nil && o.Forge.Authenticated()) || (o.GitHub != nil && o.GitHub.Authenticated())
-	if o.Land == LandPR && !o.DryRun && !authOK {
+	if o.Land == LandPR && !o.DryRun && (o.Forge == nil || !o.Forge.Authenticated()) {
 		return nil, failf("preflight", "auth",
 			"opening a pull request needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, "+
 				"or pass --land=branch, --land=none or --dry-run")

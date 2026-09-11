@@ -1,7 +1,7 @@
 // Command spec turns a product idea into a complete, validated version 2
 // specification package.
 //
-//	spec [flags] <text | file | github-url | ->
+//	spec [flags] <text | file | issue-url | ->
 //
 // It takes exactly one input and writes exactly one JSON object to stdout.
 // Progress goes to stderr, so the two never interleave.

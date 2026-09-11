@@ -18,18 +18,18 @@ Four programs, one interface: **one input, one JSON object out.**
 
 ```
 spec  [flags] <input>     a product idea      → a validated specification package
-issue [flags] <input>     a problem report    → a structured GitHub issue
+issue [flags] <input>     a problem report    → a structured issue on GitHub or GitLab
 fix   [flags] <input>     a problem           → a verified change on a branch
 impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
 ```
 
-The input is exactly one of: a GitHub issue or pull-request URL, a path to a
-readable file, `-` for stdin, or any other text. There is no flag that selects
+The input is exactly one of: a GitHub or GitLab issue or pull/merge-request
+URL, a path to a readable file, `-` for stdin, or any other text. There is no flag that selects
 the kind — the argument's shape decides, in Go, before anything else happens.
 
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...
-export GITHUB_TOKEN=ghp_...
+export GITHUB_TOKEN=ghp_...            # or GITLAB_TOKEN=glpat-...
 
 issue "panic: assignment to entry in nil map in loop.go, after an abort"
 fix   https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
@@ -87,9 +87,9 @@ applies it to the legacy orchestrator that `impl` replaces.
 | `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
 | `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
 | `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
+| `issuex/` | `issuex` | The forge client: one interface over GitHub and GitLab for reading issues, filing them, commenting, and opening pull or merge requests. Every forge call the tools make goes through it. |
 | `internal/toolio/` | `toolio` | Input classification, the JSON envelope, exit codes, and the shell the commands share. |
 | `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
-| `internal/ghapi/` | `ghapi` | A dependency-free GitHub REST client. |
 | `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
 | `internal/project/` | `project` | What a repository is written in, and the audit that refuses a plan naming another ecosystem's tooling. |
 | `cmd/spec/`, `cmd/issue/`, `cmd/fix/`, `cmd/impl/` | `main` | The four tools. |
@@ -117,8 +117,8 @@ make build          # build every CLI into bin/
 ```
 
 The test suite needs no API key, no GitHub token and no network: the model half
-runs against AgentKit's scripted provider, GitHub against an `httptest` server,
-and git against real temporary repositories.
+runs against AgentKit's scripted provider, GitHub and GitLab against
+`httptest` servers, and git against real temporary repositories.
 
 ## Documentation
 

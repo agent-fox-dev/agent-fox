@@ -1,7 +1,7 @@
 // Command fix diagnoses a problem against a repository, implements the fix on
 // a branch, verifies it with the project's own checks, and lands it.
 //
-//	fix [flags] <text | file | github-url | ->
+//	fix [flags] <text | file | issue-url | ->
 //
 // It takes exactly one input and writes exactly one JSON object to stdout.
 // Progress goes to stderr, so the two never interleave.

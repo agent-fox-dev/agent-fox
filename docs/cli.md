@@ -4,7 +4,7 @@ Four tools, one interface.
 
 ```
 spec  [flags] <input>     a product idea      → a validated specification package
-issue [flags] <input>     a problem report    → a structured GitHub issue
+issue [flags] <input>     a problem report    → a structured issue on GitHub or GitLab
 fix   [flags] <input>     a problem           → a verified change on a branch
 impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
 ```
@@ -27,7 +27,7 @@ no flag that selects the kind; the argument's shape decides.
 
 | The argument is | Then it is | What is used |
 |---|---|---|
-| a GitHub issue or pull-request URL | `github` | the issue, its body, and its comments |
+| a GitHub or GitLab issue or pull/merge-request URL | `issue` | the issue, its body, and its comments |
 | a path to a readable regular file | `file` | the file's contents |
 | `-` | `stdin` | everything piped in |
 | anything else | `text` | the text itself |
@@ -87,12 +87,12 @@ whether re-running could help:
 |---|---|
 | `usage` | the invocation was wrong; nothing was fetched or written |
 | `input` | the input could not be read (a private issue, an unreadable file) |
-| `auth` | no credential for the model's vendor, or for GitHub |
+| `auth` | no credential for the model's vendor, or for the forge (GitHub or GitLab) |
 | `model` | the model spec could not be resolved |
 | `api` | a provider or transport failure |
 | `budget`, `max_turns` | a phase hit its ceiling; raising it may help |
 | `no_result` | the model finished without calling its terminating tool |
-| `git`, `github` | an external system refused |
+| `git`, `forge` | an external system refused: git, or GitHub or GitLab |
 | `ambiguous` | (`fix`) the input reads two ways; a question was posted |
 | `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done |
 | `unverified` | (`fix`, `impl`) code was written and the checks do not pass |
@@ -132,7 +132,7 @@ whether re-running could help:
 ## `issue`
 
 Reads a problem report, traces it through the codebase, and files a structured
-GitHub issue with every claim cited to a file it actually read.
+issue on GitHub or GitLab with every claim cited to a file it actually read.
 
 ```sh
 issue "panic: assignment to entry in nil map in loop.go, after an abort"
@@ -144,7 +144,7 @@ issue ./crash.log --dry-run
 The analysis is read-only, and that is a mechanism rather than a promise: the
 mutating tools are excluded from the resolved set, there is no shell and no
 network tool, and the issue is created by a `net/http` call after the run.
-**No sequence of model outputs can cause this tool to write to GitHub.**
+**No sequence of model outputs can cause this tool to write to the forge.**
 
 Every path in `affected_files` is resolved against the workspace before the
 diagnosis is accepted; one that is not there comes back to the model as an
@@ -155,9 +155,9 @@ than from the code.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--repo owner/repo` | the input issue's, else the `origin` remote of `--dir` | where the issue is filed |
+| `--repo owner/repo` | the input issue's, else the `origin` remote of `--dir` | where the issue is filed; `group/subgroup/project` for a nested GitLab path |
 | `--label a,b` | — | labels for the created issue, e.g. `af:fix` |
-| `--dry-run` | off | make no change on GitHub; report the diagnosis only |
+| `--dry-run` | off | make no change on the forge; report the diagnosis only |
 | `--overwrite` | off | rewrite the input issue in place instead of creating a new one; needs an issue URL, and cannot be combined with `--repo` or `--label` |
 
 Bounds: 100 turns, $2.00 per phase.
@@ -233,7 +233,7 @@ wrapped items are all read; at most 30 criteria are taken.
 |---|---|---|
 | `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
 | `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
-| `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened |
+| `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
 | `--dry-run` | off | make no *remote* change: push nothing, open nothing, post nothing. The branch and the commit are still made locally |
 | `--verify` | detected | the command that decides success |
 | `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
@@ -366,7 +366,7 @@ and `result.split` showing what exists.
 | `--architecture` | off | also write the optional `architecture.md` |
 | `--no-activate` | off | leave a valid package in `draft` instead of activating it |
 | `--comment` | off | post the finished PRD back to the issue the input came from |
-| `--dry-run` | off | write nothing to disk or GitHub; report the package that would be written |
+| `--dry-run` | off | write nothing to disk or the forge; report the package that would be written |
 
 Bounds: 60 turns, $5.00 per phase.
 
@@ -441,7 +441,7 @@ impl 09 --repair --repair-model ADVANCED
 The input names a spec package rather than describing a problem: a directory,
 a spec id, a spec name, a directory name, or a file inside the package. It is
 resolved against the spec root (`--specs-dir`, else `$AF_SPEC_DIR`, else
-`<dir>/.specs`). A GitHub URL is refused: it is the one input shape the other
+`<dir>/.specs`). An issue URL is refused: it is the one input shape the other
 tools accept that has no meaning here. Note that a directory argument is
 classified as `text` by the shared input rules, which is expected — `impl`
 reads the text as a reference, not as a document.
@@ -606,7 +606,7 @@ it, for a driver that runs one task at a time.
 | `--task N` | every task not done | implement only task `N`; its dependencies must be done |
 | `--branch` | `impl/<NN>-<slug>` | the branch to work on, created if missing and continued if present |
 | `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
-| `--repo owner/repo` | the `origin` remote | where the pull request is opened |
+| `--repo owner/repo` | the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
 | `--dry-run` | off | make no *remote* change: push nothing, open nothing. The branch and the commits are still made |
 | `--verify` | the spec's `linter` and `all_tests` | one command that decides success instead |
 | `--no-verify` | off | run nothing; every task is then `unverified`, not a pass |
@@ -657,7 +657,9 @@ state, the commit, the push and the pull request are the program's.
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
-| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for `origin` |
+| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for `origin` and for issue URLs |
+| `GITLAB_TOKEN` | GitLab credential, on the same terms |
+| `GITLAB_API_URL` | a self-hosted GitLab host; its host is then also accepted for `origin` and for issue URLs |
 | vendor keys and base URLs | see [Configuration](configuration.md) |
 
 ## See also
