@@ -68,6 +68,11 @@ func TestNormalizeArgs(t *testing.T) {
 			in:   []string{"--dry-run", "-pull", "dev", "bug description"},
 			want: []string{"--dry-run", "-pull=dev", "bug description"},
 		},
+		{
+			name: "two pull occurrences each keep their own prefix",
+			in:   []string{"-pull", "a", "--pull", "b", "bug description"},
+			want: []string{"-pull=a", "--pull=b", "bug description"},
+		},
 	}
 
 	for _, tc := range cases {

@@ -234,8 +234,7 @@ func normalizeArgs(argv []string) []string {
 	// For each pull flag without '=', check if the immediately next token is a non-flag,
 	// and if there is at least one OTHER non-flag token (the positional input).
 	pullCombines := make(map[int]int) // pull index -> value index to combine
-	for pIdx, prefix := range pullIndices {
-		_ = prefix
+	for pIdx := range pullIndices {
 		valIdx := pIdx + 1
 		if valIdx < len(argv) && !strings.HasPrefix(argv[valIdx], "-") {
 			// Check if valIdx is in nonFlags
