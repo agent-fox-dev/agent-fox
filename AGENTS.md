@@ -39,8 +39,9 @@ internal/               # Shared, not importable from outside this repo
   project/              # What the repository is written in, and the test-command audit
   gitx/  checks/        # git, and the command that decides whether a change is correct
 cmd/                    # Executables: spec, issue, fix, impl (plus af and nightshift stubs)
-docs/                   # Documentation, ADRs and PRDs
-skills/                 # The markdown skills the tools replaced, kept for reference
+containers/             # Containerfiles for the sandbox and tools images
+docs/                   # Documentation, ADRs, errata, PRDs and drafts
+skills/                 # A note on the markdown skills the tools replaced (the files are gone)
 testdata/               # Shared test fixtures
 .specs/                 # Specs to be implemented
 .specs/archive/         # Old specs. Ignore for coding tasks, except for reference
@@ -111,9 +112,11 @@ make check
 
 ## Documentation
 
-- **PRDs** live in `docs/prd/NN-imperative-verb-phrase.md`. To choose NN,
+- **PRDs** live in `docs/prds/NN-imperative-verb-phrase.md`. To choose NN,
   list existing files, find the max numeric prefix, and use the next number
-  zero-padded to two digits for consistency (three digits once past 99).
+  zero-padded to two digits for consistency (three digits once past 99). The
+  two unnumbered files there predate this rule and are kept as history.
+- **PRD drafts** that are inputs for `spec` live in `docs/drafts/`.
 - **ADRs** live in `docs/adr/NN-imperative-verb-phrase.md`. To choose NN,
   list existing files, find the max numeric prefix, and use the next number
   zero-padded to two digits for consistency (three digits once past 99).

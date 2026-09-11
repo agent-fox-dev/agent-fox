@@ -6,7 +6,7 @@ The tools — `spec`, `issue`, `fix` and `impl` — reach a model through
 library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
 OpenAI-compatible gateways (OpenRouter, DeepSeek, Groq, xAI, Together,
 Moonshot). This document covers credentials, model selection, what the model
-is allowed to read, and the config file.
+is allowed to read, and why there is no config file.
 
 ## Quick start
 
@@ -43,8 +43,9 @@ ordered list rather than a `<VENDOR>_API_KEY` convention.
 | | `ANTHROPIC_API_KEY` | `x-api-key` |
 | `openai` | `OPENAI_API_KEY` | `Authorization: Bearer` |
 | `google` | `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | `x-goog-api-key` |
-| `ollama` | `OLLAMA_API_KEY` (usually unset) | `Authorization: Bearer` |
-| anything else | `<VENDOR>_API_KEY` | `Authorization: Bearer` |
+| `ollama` | `OLLAMA_API_KEY` (usually unset; Ollama is always `ambient`) | `Authorization: Bearer` |
+| `openrouter`, `deepseek`, `xai`, `groq`, `together`, `moonshot` | `<VENDOR>_API_KEY` | `Authorization: Bearer` |
+| anything else on an OpenAI wire | `<VENDOR>_API_KEY` | `Authorization: Bearer` |
 
 **A credential has three states, not two.** A deployment behind a gateway that
 authenticates by URL, or on an instance role, has no key this process can read
@@ -59,6 +60,7 @@ Setting only a base URL puts you in that state.
 |---|---|
 | `ANTHROPIC_BASE_URL` | a proxy or gateway in front of Anthropic |
 | `OPENAI_BASE_URL` | Azure OpenAI, a gateway, or any OpenAI-compatible server |
+| `<VENDOR>_BASE_URL` | the same for the OpenAI-compatible gateways (`OPENROUTER_BASE_URL`, …) |
 | `GOOGLE_GEMINI_BASE_URL` | Vertex AI, or a proxy |
 | `OLLAMA_HOST` | your Ollama server (default `http://localhost:11434`) |
 
@@ -139,17 +141,21 @@ written against a repository it never looked at names components that already
 exist under other names. `--dir` defaults to `.`.
 
 The read-only mandate is a mechanism rather than a prompt instruction. In every
-phase but `fix`'s and `impl`'s implementation phases, the mutating tools (`write_file`,
-`edit_file`, `execute`, `run_command`, `powershell`) are excluded from the
+phase that only reads — `issue`'s triage, every `spec` phase, `impl`'s survey
+— the mutating file tools (`write_file`, `edit_file`) are excluded from the
 resolved set, an invariant checks that set before the first request, and
-AgentKit's own unguarded-shell guard fails any run where a shell survived.
-`fetch_url` is never registered by any tool, so no phase has outbound network
-of any kind.
+AgentKit's own unguarded-shell guard fails any run where an unguarded shell
+survived. `fetch_url` is never registered by any tool, so no phase has
+outbound network of any kind. `fix`'s analysis and `impl`'s survey keep an
+`execute` tool, but under a guard that allows only reporting programs (`git`,
+`ls`, `cat`, `rg`, …) and refuses pipes, redirection and every mutating `git`
+subcommand.
 
-`fix`'s and `impl`'s implementation phases are the exceptions, and they run
-under a second guard: `git` is limited to its read-only subcommands, `gh` is
-refused outright, `find -exec`/`-delete` are refused, and `impl` additionally
-refuses every write under the spec package it is implementing. See the
+The phases that write — `fix`'s implementation phase, and `impl`'s
+implementation and repair phases — run under a second guard: `git` is limited
+to its read-only subcommands, `gh` is refused outright, `find -exec`/`-delete`
+are refused, and `impl` additionally refuses every write under the spec
+package it is implementing. See the
 [tool reference](cli.md#what-the-model-may-and-may-not-do).
 
 Project trust defaults to off because a repository that is merely the current

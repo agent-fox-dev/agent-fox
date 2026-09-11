@@ -154,10 +154,10 @@ from "blew the cost cap".
 **The dependency needs a sibling checkout.** `coder`'s module path is
 `github.com/agentfox/agentkit-go` and its repository is
 `github.com/agent-fox-dev/coder`, so the module proxy cannot serve it. It is
-consumed through `replace github.com/agentfox/agentkit-go => ../coder`, which
-is the same arrangement `coder`'s own `examples/flatline` uses for the spec
-library. Fixing this means changing the module path upstream and is out of
-scope here.
+consumed through `replace github.com/agentfox/agentkit-go => ../agentkit-go`
+(a checkout named after the module), which is the same arrangement `coder`'s
+own `examples/flatline` uses for the spec library. Fixing this means changing
+the module path upstream and is out of scope here.
 
 **Roughly 1 000 lines of production code and 2 000 lines of test leave the
 repository**, and what replaces them is tested against four wire APIs and a

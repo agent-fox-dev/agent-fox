@@ -90,9 +90,10 @@ whether re-running could help:
 | `auth` | no credential for the model's vendor, or for the forge (GitHub or GitLab) |
 | `model` | the model spec could not be resolved |
 | `api` | a provider or transport failure |
-| `budget`, `max_turns` | a phase hit its ceiling; raising it may help |
-| `no_result` | the model finished without calling its terminating tool |
-| `git`, `forge` | an external system refused: git, or GitHub or GitLab |
+| `budget`, `max_turns` | a phase ended in an error at its ceiling; raising it may help |
+| `aborted` | the run was cancelled (Ctrl-C, or `--phase-timeout`) |
+| `no_result` | the phase ended without calling its terminating tool: the model answered in prose, or stopped at its turn or budget ceiling; the message says which, and what to raise |
+| `git`, `forge`, `disk` | an external system refused: git, GitHub or GitLab, or (`spec`) the filesystem |
 | `ambiguous` | (`fix`) the input reads two ways; a question was posted |
 | `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done |
 | `unverified` | (`fix`, `impl`) code was written and the checks do not pass |
@@ -244,14 +245,20 @@ wrapped items are all read; at most 30 criteria are taken.
 
 Bounds: 150 turns, $5.00 per phase.
 
-Detection order for `--verify`: `make check`, `make test`, `go test ./...`,
-`npm test`, `pytest`, `cargo test`. When nothing can be detected the run says
-so and reports `unverified` rather than inventing a command.
+Detection order for `--verify`: a `Makefile` target `check`, then `test`
+(`make check` · `make test`); then by manifest — `go.mod` → `go test ./...
+-count=1`, a `package.json` with a `test` script → `npm test`, `pyproject.toml`
+→ `pytest -q` (`uv run pytest -q` when there is a `uv.lock`), `Cargo.toml` →
+`cargo test`. When nothing can be detected the run says so and reports
+`unverified` rather than inventing a command. The command is split on
+whitespace and run directly, without a shell, so a compound command belongs
+in a Makefile target or a script.
 
-The verification command runs with the model vendors' keys and every `*_TOKEN`,
-`*_SECRET`, `*_API_KEY` and `*_PASSWORD` variable stripped from its
-environment: a test suite is repository code, and a repository being fixed on a
-stranger's report is not something to hand an API key to.
+The verification command runs with the model vendors' variables and every
+`*_TOKEN`, `*_SECRET`, `*_KEY`, `*_PASSWORD`, `*_PAT`, `*_AUTH` and
+`*_CREDENTIALS` variable (and a few more spellings of the same) stripped from
+its environment: a test suite is repository code, and a repository being fixed
+on a stranger's report is not something to hand an API key to.
 
 `result` carries `stage`, `branch`, `base_branch`, `commit`, `changed_files`
 (from git), `baseline`, `verification`, `verdict`, `pull_request_url`, the
@@ -351,7 +358,9 @@ package. A file or issue input is matched by where it came from, so an input
 edited between runs still resumes; text and stdin are matched by content. The
 plan is removed by the run that writes the last package, so its presence means
 exactly one thing: `spec` stopped before it was done. A plan for a *different*
-input is reported as a warning and left alone.
+input is reported as a warning and left alone. A `--dry-run` writes no plan
+and resumes none: it reports the packages it would write and leaves an
+unfinished split exactly where it found it.
 
 A package that does not validate stops nothing: it is on disk, its errors name
 the rules, and the scopes after it are written. The run then exits 1 with
@@ -446,12 +455,14 @@ tools accept that has no meaning here. Note that a directory argument is
 classified as `text` by the shared input rules, which is expected — `impl`
 reads the text as a reference, not as a document.
 
-Pre-flight refuses, before a token is spent: a dirty tree; a package that does
-not validate (`invalid_spec`, with the rules named); a `sealed`, `superseded`
-or `archived` package; a `test_commands` entry that needs a shell or belongs
-to another ecosystem than the project's; a check that cannot run before any
-change; and, for `--land=pr`, a missing credential or target repository. A
-`draft` package is implemented with a warning. A package whose `dependencies`
+Pre-flight refuses, before a token is spent: a dirty tree; a package outside
+the repository (the task state is committed beside the work, so it has to be
+inside); a package that does not validate (`invalid_spec`, with the rules
+named); a `sealed`, `superseded` or `archived` package; a `test_commands`
+entry that needs a shell or belongs to another ecosystem than the project's;
+a check that cannot run before any change; and, for `--land=pr`, a missing
+credential or target repository. A `draft` package is implemented with a
+warning. A package whose `dependencies`
 name an upstream spec that is neither sealed nor done stops the run with exit
 3; an upstream that is not in the spec root is a warning.
 
@@ -643,11 +654,13 @@ baseline and on the integration task's entry for the one after it.
 ### What the model may and may not do
 
 The survey phase is read-only, with `execute` under the reporting allowlist.
-The implementation and repair phases have the file tools and a shell under the same guard
-as `fix`'s — `git` read-only, `gh` refused, `find -exec` refused — with one
-addition: `write_file` and `edit_file` refuse any path under the spec package,
-so "do not modify the spec" is a refusal rather than a request. The task's
-state, the commit, the push and the pull request are the program's.
+The implementation and repair phases have the file tools and a shell under the
+same guard as `fix`'s — `git` read-only, `gh` refused, `find -exec` refused —
+with one addition: `write_file` and `edit_file` refuse any path under the spec
+package, so "do not modify the spec" is a refusal rather than a request. A
+change that reaches the package through the shell anyway is reverted before
+the gate runs, with a warning. The task's state, the commit, the push and the
+pull request are the program's.
 
 ## Environment
 

@@ -23,7 +23,13 @@ one's *conclusion* rather than from how it got there.
 | `spec` | `generate:{artifact}` | the four read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
 | `spec` | `architecture` (opt-in) | the four read tools | 32 768 | `submit_architecture` |
 | `impl` | `survey` | the four read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
+| `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
 | `impl` | `implement` (once per task) | the read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
+
+The "four read tools" are `read_file`, `list_files`, `find_files` and
+`search_files`. The build allowlist is the read-only one plus the toolchains
+(`go`, `make`, `npm`, `python`, `cargo`, …), the verification command's own
+program, and whatever `--allow` adds.
 
 `max_tokens` is an upper bound, clamped to the resolved model's own ceiling.
 Temperature is 0.2 everywhere, because every phase produces a structured
@@ -81,11 +87,17 @@ What each handler rejects, and what the rejection says:
 | `submit_analysis` | an empty title, an unknown classification, an ambiguity with no question | which field, and what it is for |
 | `submit_implementation` | an empty commit subject | that it is the subject of the commit this run makes |
 | `submit_implementation` | `criteria_verdicts` that skips an acceptance criterion the report defined, names one it did not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence | which ids are missing or unknown, and what a piece of evidence has to name |
-| `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent`; a `recommended_split` of one scope, with a name the format cannot use or used twice, or whose first scope is not the PRD being submitted | each would otherwise fail later and more expensively — the split's names become directory names, three phases on |
+| `submit_prd` | a spec name the format cannot use, an empty title, a body with no `## Intent` or one that starts with YAML frontmatter; a `recommended_split` of one scope, with a name the format cannot use or used twice, or whose first scope is not the PRD being submitted | each would otherwise fail later and more expensively — the split's names become directory names, three phases on |
 | `submit_{artifact}` | the artifact's v2 schema, plus every cross-file rule decidable at that point | the rule that failed, by name (`C1`…`C11`) |
 | `submit_tasks` | test commands from another ecosystem than the project's | the detected language, and the project's real commands |
 | `submit_survey` | an empty summary, a blocker with no reason | which field, and what it is for |
-| `submit_task` | an empty commit subject; `test_verdicts` that skips a test the task owns, names one it does not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence; the same for `done_when_verdicts` | which ids are missing or unknown, and what a piece of evidence has to name |
+| `submit_repair` | an empty cause, an empty commit subject, an empty change list, a blocker with no reason | which field, and what a reviewer needs it for |
+| `submit_task` | an empty commit subject; `test_verdicts` that skips a test the task owns, names one it does not, answers twice, uses a verdict outside `pass`/`fail`, or offers a one-word evidence; the same for `done_when_verdicts`; a blocker with no reason | which ids are missing or unknown, and what a piece of evidence has to name |
+
+A `blocker` is accepted as soon as it has a reason: it is the one submission
+that is not asked to be complete, because its whole content is "a person has
+to decide". A `submit_task` or `submit_repair` that carries one skips every
+other check.
 
 The three `submit_{artifact}` schemas are converted from the format's own JSON
 Schemas rather than re-authored, with one omission: the artifact's `$schema`
@@ -135,8 +147,11 @@ three different responses:
 | `max_turns` | it kept failing validation | raise `--max-turns`, or read the rejections with `--verbose` |
 | `budget_exceeded` | the phase hit its cost cap | raise `--budget`, or choose a cheaper tier |
 
-The category in the envelope is `no_result` for the first and `max_turns` or
-`budget` for the others.
+The category in the envelope is `no_result` in all three cases — the phase
+ran to its end and produced nothing — and the message carries the stop reason
+and the matching hint. The `max_turns` and `budget` categories are reserved
+for a phase that ends in an error while at its ceiling; a phase that merely
+stops there reports `no_result`.
 
 There is no way to *force* a tool call: AgentKit's `ToolChoice` is
 unset/auto/none, the tri-state expressible on every wire it speaks.
@@ -213,5 +228,7 @@ it, labels it with its provenance, and says to treat it as evidence to be
 verified against the code rather than as instructions to follow.
 
 That is a mitigation, not a guarantee, and it is the cheap half of one. The
-expensive half is that no phase has a tool that reaches GitHub, git or the
-network, so an instruction hidden in an issue body has nothing to reach for.
+expensive half is that no phase has a tool that reaches GitHub or GitLab, the
+network, or a mutating `git` subcommand, so an instruction hidden in an issue
+body has nothing to reach for: the branch, the commit, the push, the pull
+request and every comment are made by the program.
