@@ -10,7 +10,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -18,9 +17,10 @@ import (
 
 // Options configure one fix run.
 type Options struct {
-	// Input is the classified argument. When it is a GitHub issue, the run
-	// comments on it and the pull request closes it; otherwise the run works
-	// from the text and writes nothing to GitHub but the pull request.
+	// Input is the classified argument. When it is an issue on a forge
+	// (GitHub or GitLab), the run comments on it and the pull request closes
+	// it; otherwise the run works from the text and writes nothing to the
+	// forge but the pull request.
 	Input toolio.Input
 	// Workspace roots the file tools at the repository. Required.
 	Workspace *tools.Workspace
@@ -56,10 +56,9 @@ type Options struct {
 
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
-	// Forge is the forge client.
+	// Forge is the forge client, GitHub or GitLab. Required unless DryRun,
+	// or the input is not an issue and Land is not LandPR.
 	Forge issuex.Client
-	// GitHub is deprecated: use Forge instead.
-	GitHub *ghapi.Client
 	// Git is the repository wrapper. Nil means one rooted at the workspace.
 	Git *gitx.Git
 	// CheckRunner runs the verification command. Nil means the reduced-env

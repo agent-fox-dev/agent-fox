@@ -15,7 +15,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -53,10 +52,8 @@ type Options struct {
 
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
-	// Forge is the forge client, used only by Comment.
+	// Forge is the forge client, GitHub or GitLab, used only by Comment.
 	Forge issuex.Client
-	// GitHub is deprecated: use Forge instead. Kept for backwards compatibility.
-	GitHub *ghapi.Client
 	// Run records warnings and per-phase cost.
 	Run *toolio.Run
 	// Progress reports steps to stderr.

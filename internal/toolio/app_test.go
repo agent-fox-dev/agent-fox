@@ -69,7 +69,7 @@ func TestAppEmitsJSONOnEveryPath(t *testing.T) {
 		if env.Model == nil || env.Model.Spec == "" {
 			t.Errorf("Model = %+v", env.Model)
 		}
-		if seen.Runner == nil || seen.Workspace == nil || seen.GitHub == nil || seen.Forge == nil {
+		if seen.Runner == nil || seen.Workspace == nil || seen.Forge == nil {
 			t.Error("Exec was called with an incomplete Deps")
 		}
 	})

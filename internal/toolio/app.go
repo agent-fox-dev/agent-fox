@@ -13,7 +13,6 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -41,13 +40,10 @@ type Deps struct {
 	Workspace *tools.Workspace
 	// Runner drives the model phases.
 	Runner *agentrun.Runner
-	// Forge is the REST client, always non-nil.
+	// Forge is the forge client — GitHub or GitLab, chosen from the input
+	// URL or the origin remote — and is always non-nil. Whether it can write
+	// is Forge.Authenticated().
 	Forge issuex.Client
-	// GitHub is the REST client, always non-nil. Whether it can write is
-	// GitHub.Authenticated().
-	// Deprecated: use Forge instead. Kept for backwards compatibility until
-	// commands and pipeline runners migrate.
-	GitHub *ghapi.Client
 	// Run accumulates warnings and per-phase cost for the envelope.
 	Run *Run
 	// Progress writes to stderr.
@@ -195,7 +191,6 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		return a.usage(err)
 	}
 
-	gh := ghapi.New(a.Name + "/" + a.Version)
 	var forge issuex.Client
 	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
 		forge, _ = issuex.NewWithOptions(issuex.Options{
@@ -219,7 +214,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef(
-				"no input: give a report, a file path, a GitHub URL, or - to read stdin"))
+				"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"))
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
 	}
@@ -271,7 +266,6 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Workspace: ws,
 		Runner:    runner,
 		Forge:     forge,
-		GitHub:    gh,
 		Run:       e.run,
 		Progress:  e.progress,
 		Model:     choice,

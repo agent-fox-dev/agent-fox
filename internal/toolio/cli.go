@@ -33,10 +33,10 @@ const DefaultModel = "STANDARD"
 
 // Common is the flag set every agent-fox tool shares.
 //
-// The tools take exactly one positional argument — text, a file path, a
-// GitHub URL, or "-" for stdin — and everything else is a flag. Keeping the
-// flags identical across the tools is deliberate: a caller that can drive one
-// can drive all of them.
+// The tools take exactly one positional argument — text, a file path, an
+// issue URL on GitHub or GitLab, or "-" for stdin — and everything else is a
+// flag. Keeping the flags identical across the tools is deliberate: a caller
+// that can drive one can drive all of them.
 type Common struct {
 	Dir          string
 	Model        string

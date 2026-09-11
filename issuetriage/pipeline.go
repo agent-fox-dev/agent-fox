@@ -8,7 +8,6 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -41,12 +40,9 @@ type Options struct {
 
 	// Runner drives the model phase. Required.
 	Runner *agentrun.Runner
-	// Forge is the REST client. It may be nil under DryRun with a
-	// non-issue input.
+	// Forge is the forge client, GitHub or GitLab. It may be nil under
+	// DryRun with a non-issue input.
 	Forge issuex.Client
-	// GitHub is deprecated: use Forge instead. Kept for backwards compatibility
-	// until commands migrate.
-	GitHub *ghapi.Client
 	// Run records progress, warnings and per-phase cost.
 	Run *toolio.Run
 	// Progress reports steps to stderr.
@@ -55,7 +51,7 @@ type Options struct {
 
 // Result is what the tool reports as JSON.
 type Result struct {
-	// Action is what happened on GitHub: created, updated, or none.
+	// Action is what happened on the forge: created, updated, or none.
 	Action string `json:"action"`
 	// Repo is the repository the issue was filed in or would be.
 	Repo string `json:"repo,omitempty"`
@@ -113,7 +109,7 @@ func failf(stage, category, format string, args ...any) *Failure {
 // Run performs the triage and, unless DryRun says otherwise, writes the issue.
 //
 // The order is the correction the skill needs most: every check that can
-// refuse the run happens before the model is called, and the write to GitHub
+// refuse the run happens before the model is called, and the write to the forge
 // happens after it. The skill posts to the issue in step 5 and checks whether
 // it can work in step 6, which leaves a public comment describing work that
 // never began.

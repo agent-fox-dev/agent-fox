@@ -12,7 +12,7 @@ is allowed to read, and the config file.
 
 ```sh
 export ANTHROPIC_API_KEY="sk-ant-..."
-export GITHUB_TOKEN="ghp_..."          # only for the tools that write
+export GITHUB_TOKEN="ghp_..."          # only for the tools that write; GITLAB_TOKEN for GitLab
 ```
 
 There is no configuration file. With a key in the environment the tools use the
@@ -204,7 +204,9 @@ directories up that changes what the same command does.
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
-| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote |
+| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
+| `GITLAB_TOKEN` | GitLab credential, on the same terms |
+| `GITLAB_API_URL` | a self-hosted GitLab host; its host is then also accepted for the `origin` remote and for issue URLs |
 | `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
 
 ## See also

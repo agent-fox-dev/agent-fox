@@ -32,11 +32,11 @@ specgen/                # The spec pipeline: PRD, three generation phases, proje
 issuetriage/            # The issue triage pipeline
 codefix/                # The fix pipeline
 codeimpl/               # The implementation pipeline: a spec, task by task, on a branch
+issuex/                 # The forge client: issues, comments and pull/merge requests on GitHub and GitLab
 internal/               # Shared, not importable from outside this repo
   toolio/               # Input classification, the JSON envelope, the shared CLI shell
   agentrun/             # Model resolution, the phase runner, the read-only invariant, the shell guard
   project/              # What the repository is written in, and the test-command audit
-  ghapi/                # GitHub REST client
   gitx/  checks/        # git, and the command that decides whether a change is correct
 cmd/                    # Executables: spec, issue, fix, impl (plus af and nightshift stubs)
 docs/                   # Documentation, ADRs and PRDs
@@ -47,8 +47,10 @@ testdata/               # Shared test fixtures
 ```
 
 The four tools share one interface: one positional input (text, a file path, a
-GitHub URL, or `-`), one JSON object on stdout, progress on stderr, one
-exit-code table. Adding a subcommand to any of them is a change to that
+GitHub or GitLab issue URL, or `-`), one JSON object on stdout, progress on
+stderr, one exit-code table. Every call to a forge — reading an issue, filing
+one, commenting, opening a pull or merge request — goes through `issuex`; no
+tool or pipeline talks to GitHub or GitLab on its own. Adding a subcommand to any of them is a change to that
 interface — see [ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) before
 proposing one.
 

@@ -33,11 +33,11 @@ specgen/                  # The spec pipeline
 issuetriage/              # The triage pipeline
 codefix/                  # The fix pipeline
 codeimpl/                 # The implementation pipeline
+issuex/                   # The forge client: issues and pull/merge requests on GitHub and GitLab
 internal/
   toolio/                 # Input classification, the JSON envelope, the shared CLI shell
   agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
   project/                # Language detection and the test-command audit
-  ghapi/                  # GitHub REST client
   gitx/                   # git, and the process runner
   checks/                 # Detecting and running a project's own quality command
 cmd/
@@ -86,8 +86,15 @@ go mod download
   `catalog.ResolveModel`; `credentials.go` is the preflight. See
   [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
 
-- **internal/ghapi** — a dependency-free GitHub REST client. It lives outside
-  every agent on purpose: no model is given a tool that reaches it.
+- **issuex** (`issuex/`) — the forge client. One `Client` interface over
+  GitHub and GitLab: reading an issue and its comments, filing and rewriting
+  an issue, commenting, and opening a pull or merge request. `ParseIssueURL`,
+  `ParseRepo` and `DetectRepo` are the only places a URL, a `--repo` value or
+  an `origin` remote is parsed. It is the one path to a forge in this
+  repository: the shell in `toolio` builds the client, the pipelines call it,
+  and no tool or pipeline carries a GitHub or GitLab client of its own. It
+  lives outside every agent on purpose: no model is given a tool that reaches
+  it. It is a public package so the sibling projects can import it.
 
 - **internal/gitx**, **internal/checks** — every git command a tool runs, and
   the detection and execution of the command that decides whether a change is
@@ -127,7 +134,7 @@ Tests need no API key, no GitHub token and no network:
 - the phases that call a model run against `provider/faux`, AgentKit's scripted
   provider, so a test asserts on the `core.Request` values that reached the wire
   rather than on arguments this repository built for itself;
-- GitHub runs against an `httptest` server;
+- GitHub and GitLab run against `httptest` servers;
 - git runs against real temporary repositories, because the wrapper's whole job
   is to get git's own behaviour right and a fake git would only confirm the
   wrapper's assumptions about it.

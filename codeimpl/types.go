@@ -28,7 +28,6 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -102,10 +101,9 @@ type Options struct {
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
-	// Forge is the forge client.
+	// Forge is the forge client, GitHub or GitLab. Required when Land is
+	// LandPR and DryRun is off.
 	Forge issuex.Client
-	// GitHub is deprecated: use Forge instead.
-	GitHub *ghapi.Client
 	// Git is the repository wrapper. Nil means one rooted at the workspace.
 	Git *gitx.Git
 	// CheckRunner runs the check commands. Nil means the reduced-env
