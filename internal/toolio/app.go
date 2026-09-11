@@ -14,6 +14,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // UsageError is a wrong invocation: no input on stdin, a flag combination
@@ -191,8 +192,22 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 
 	gh := ghapi.New(a.Name + "/" + a.Version)
+	var forge issuex.Client
+	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
+		forge, _ = issuex.NewWithOptions(issuex.Options{
+			BaseURL:   "https://" + ref.Repo.Host,
+			UserAgent: a.Name + "/" + a.Version,
+		})
+	}
+	if forge == nil {
+		var forgeErr error
+		forge, forgeErr = issuex.New(a.Name + "/" + a.Version)
+		if forgeErr != nil || forge == nil {
+			forge = issuex.NewNoOp()
+		}
+	}
 
-	in, err := Resolve(ctx, e.argument, e.stdin, gh)
+	in, err := Resolve(ctx, e.argument, e.stdin, forge)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef(

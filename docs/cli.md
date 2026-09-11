@@ -57,7 +57,7 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "version": "0.4.0",
   "ok": true,
   "exit_code": 0,
-  "input":  { "kind": "github", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
+  "input":  { "kind": "issue", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
   "model":  { "spec": "STANDARD", "id": "claude-sonnet-5", "vendor": "anthropic",
               "api": "anthropic-messages", "thinking": "high" },
   "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cost_usd": 0.19, "turns": 23,

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // SourceKind is what the single argument turned out to be.
@@ -30,8 +30,8 @@ const (
 	KindFile SourceKind = "file"
 	// KindStdin is the input piped in, selected with the argument "-".
 	KindStdin SourceKind = "stdin"
-	// KindIssue is a GitHub issue or pull-request URL.
-	KindIssue SourceKind = "github"
+	// KindIssue is an issue or pull/merge request on any supported forge.
+	KindIssue SourceKind = "issue"
 )
 
 func (k SourceKind) String() string { return string(k) }
@@ -55,8 +55,8 @@ type Input struct {
 
 	// Issue is set for KindIssue: the reference and the thread it was read
 	// from. It is what lets a tool comment back on the issue it was given.
-	Issue  *ghapi.IssueRef
-	Thread *ghapi.Thread
+	Issue  *issuex.IssueRef
+	Thread *issuex.IssueThread
 }
 
 // ErrNoInput is the "halt until input is received" branch of the skills these
@@ -66,13 +66,13 @@ var ErrNoInput = errors.New("no input given")
 
 // Resolve classifies arg and loads it.
 //
-// The order is deliberate. "-" is stdin, unambiguously. A GitHub URL is
+// The order is deliberate. "-" is stdin, unambiguously. An issue URL is
 // recognized before the filesystem is touched, so a URL is never stat'ed. A
 // path that exists and is a regular file is read. Everything else is text —
 // including a path that does not exist, because "the widget/ package panics"
 // is a plausible thing to say and refusing it as a missing file would be
 // wrong.
-func Resolve(ctx context.Context, arg string, stdin io.Reader, gh *ghapi.Client) (Input, error) {
+func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Client) (Input, error) {
 	arg = strings.TrimSpace(arg)
 	switch {
 	case arg == "":
@@ -90,8 +90,8 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, gh *ghapi.Client)
 		return Input{Kind: KindStdin, Origin: "stdin", Body: body, Truncated: cut}, nil
 	}
 
-	if ref, ok := ghapi.ParseIssueURL(arg); ok {
-		return resolveIssue(ctx, ref, gh)
+	if ref, ok := issuex.ParseIssueURL(arg); ok {
+		return resolveIssue(ctx, ref, forge)
 	}
 	if body, cut, ok, err := readIfFile(arg); err != nil {
 		return Input{}, err
@@ -132,15 +132,18 @@ func readIfFile(arg string) (body string, truncated, ok bool, err error) {
 // The comments are included because the useful part of a report usually is
 // not in the opening post — it is in the third reply, where someone pasted
 // the traceback.
-func resolveIssue(ctx context.Context, ref ghapi.IssueRef, gh *ghapi.Client) (Input, error) {
-	if gh == nil {
-		return Input{}, fmt.Errorf("cannot read %s: no GitHub client configured", ref)
+func resolveIssue(ctx context.Context, ref issuex.IssueRef, forge issuex.Client) (Input, error) {
+	if forge == nil {
+		return Input{}, fmt.Errorf("cannot read issue: no forge client configured")
 	}
-	thread, err := gh.ReadIssue(ctx, ref)
+	thread, err := forge.ReadIssue(ctx, ref)
 	if err != nil {
+		if (errors.Is(err, issuex.ErrNotFound) || issuex.IsNotFound(err)) && !forge.Authenticated() {
+			return Input{}, fmt.Errorf("reading issue %s: repository or issue may be private and require credentials: %w", ref, err)
+		}
 		return Input{}, err
 	}
-	ref.IsPullRequest = ref.IsPullRequest || thread.Issue.IsPullRequest()
+	ref.IsPullRequest = ref.IsPullRequest || thread.Issue.IsPR
 
 	body, cut := Truncate(RenderThread(ref, thread))
 	return Input{
@@ -156,17 +159,27 @@ func resolveIssue(ctx context.Context, ref ghapi.IssueRef, gh *ghapi.Client) (In
 // RenderThread flattens an issue and its comments into the text a model
 // reads. It is a pure function so two runs on the same thread produce the
 // same prompt, which is what lets a provider's cache prefix survive.
-func RenderThread(ref ghapi.IssueRef, t ghapi.Thread) string {
+func RenderThread(ref issuex.IssueRef, t issuex.IssueThread) string {
 	var b strings.Builder
 	kind := "issue"
 	if ref.IsPullRequest {
 		kind = "pull request"
 	}
-	fmt.Fprintf(&b, "GitHub %s %s (state: %s)\n", kind, ref, t.Issue.State)
+	var brand string
+	host := strings.ToLower(ref.Repo.Host)
+	switch {
+	case strings.Contains(host, "gitlab"):
+		brand = "GitLab"
+	case strings.Contains(host, "github") || host == "":
+		brand = "GitHub"
+	default:
+		brand = "Forge"
+	}
+	fmt.Fprintf(&b, "%s %s %s (state: %s)\n", brand, kind, ref, t.Issue.State)
 	fmt.Fprintf(&b, "Title: %s\n", t.Issue.Title)
-	fmt.Fprintf(&b, "Author: %s\n", t.Issue.User.Login)
-	if labels := t.Issue.LabelNames(); len(labels) > 0 {
-		fmt.Fprintf(&b, "Labels: %s\n", strings.Join(labels, ", "))
+	fmt.Fprintf(&b, "Author: %s\n", t.Issue.Author.Login)
+	if len(t.Issue.Labels) > 0 {
+		fmt.Fprintf(&b, "Labels: %s\n", strings.Join(t.Issue.Labels, ", "))
 	}
 	fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(t.Issue.Body))
 	for _, c := range t.Comments {
