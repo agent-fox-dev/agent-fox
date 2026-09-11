@@ -182,7 +182,8 @@ result, the branch name, the diagnosis, the spec rendered scoped to one task.
 `impl`'s three phase names are the same for every task and every run: the
 task is in the user prompt, so `impl/implement` is one cache key across a
 whole spec rather than one per task. The `repair` phase — `--repair`, on a
-red baseline — is the one phase any tool runs on a model of its own:
+red baseline or after the integration task — is the one phase any tool runs
+on a model of its own:
 `--repair-model` resolves a second tier or catalog spec by the same rules
 and the same `--vendor` and `--variant`, and the rest of the run stays on
 `--model`.

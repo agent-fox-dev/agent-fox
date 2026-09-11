@@ -223,10 +223,10 @@ func TestParkedTaskIsRecognizedByItsTrailer(t *testing.T) {
 	if _, ok := parkedTask("wip: something a person wrote\n"); ok {
 		t.Error("a person's wip commit was mistaken for a parked attempt")
 	}
-	if _, ok := parkedTask(commitMessage(spec, task, Submission{CommitSubject: "x.", Summary: "s"})); ok {
+	if _, ok := parkedTask(commitMessage(spec, task, Submission{CommitSubject: "x.", Summary: "s"}, nil)); ok {
 		t.Error("a landed commit was mistaken for a parked attempt")
 	}
-	if got := commitMessage(spec, task, Submission{CommitSubject: "route output to stderr.", Summary: "Done."}); got !=
+	if got := commitMessage(spec, task, Submission{CommitSubject: "route output to stderr.", Summary: "Done."}, nil); got !=
 		"feat: route output to stderr\n\nDone.\n\nSpec: 09_agent_mode, task 2\n" {
 		t.Errorf("commit message =\n%s", got)
 	}

@@ -50,12 +50,13 @@ wip: commit and returns the checkout to the base branch. A second run
 continues from the last landed task.
 
 Checks that fail before any change are recorded and every task is judged by
-comparison. --repair makes them a phase of their own instead, once, before
-the first task: the model fixes what fails, the checks run again, and the
-tasks start from green — or, after --repair-attempts, the last attempt is
-parked and the run exits 4 without implementing anything. --repair-model
-runs that one phase on another model, for a repository whose failure needs
-more than the run's model.
+comparison. --repair makes a red gate a phase of its own instead, at the two
+points where the whole suite is what matters: before the first task, when
+the baseline is red, and after the integration task, when its checks fail.
+The model fixes what fails, the checks run again, and the run goes on from
+green — or, after --repair-attempts, the last attempt is parked and the run
+exits 4. --repair-model runs that phase on another model, for a repository
+whose failure needs more than the run's model.
 
 Exit codes:
   0  every task landed, and the branch was landed as --land asked
@@ -114,7 +115,7 @@ func main() {
 			fs.BoolVar(&noSurvey, "no-survey", false, "skip the read-only survey phase")
 			fs.IntVar(&attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
 			fs.Float64Var(&totalBudget, "total-budget", 0, "spend ceiling for the whole run, in dollars; 0 means only the per-phase bound")
-			fs.BoolVar(&repair, "repair", false, "repair checks that fail before any change, once, before the first task; the run stops if they cannot be repaired")
+			fs.BoolVar(&repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
 			fs.IntVar(&repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
 			fs.StringVar(&repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
 		},
@@ -199,7 +200,7 @@ func main() {
 				NoSurvey:       noSurvey,
 				TaskAttempts:   attempts,
 				TotalBudgetUSD: totalBudget,
-				RepairBaseline: repair,
+				Repair:         repair,
 				RepairAttempts: repairTries,
 				RepairRunner:   repairRunner,
 				Runner:         d.Runner,

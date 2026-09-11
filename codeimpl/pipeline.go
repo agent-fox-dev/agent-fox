@@ -58,7 +58,9 @@ type runState struct {
 //	             spent. Its commit is the first on the branch.
 //	tasks        for each task the plan has not done: model, then git's
 //	             account of the change, then the checks again, then — only
-//	             on a landable comparison — the state write and the commit
+//	             on a landable comparison — the state write and the commit.
+//	             When asked for, the integration task's red checks go to
+//	             the same repair loop, on top of its work, before it lands
 //	land         push, open the pull request
 func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Workspace == nil {
@@ -105,7 +107,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir}
 	}
 	st.brain = b
-	repair := o.RepairBaseline && len(st.baseline.failing()) > 0
+	repair := o.Repair && len(st.baseline.failing()) > 0
 
 	// ----------------------------------------------------------- survey --
 	if !o.NoSurvey {
@@ -513,36 +515,43 @@ func pendingTasks(spec *afspec.Spec, todo []int) []afspec.Task {
 	return out
 }
 
-// runRepair drives the baseline repair to a green gate or to a parked
-// attempt. It is runTask's shape with a different bar: not "no worse than
-// before" but green, because "before" is what it exists to replace.
-func runRepair(ctx context.Context, o Options, st *runState, result *Result) error {
-	report := &RepairReport{Outcome: OutcomePending}
-	if m, ok := st.brain.(interface{ RepairModel() string }); ok {
-		report.Model = m.RepairModel()
+// repairFailure is why a repair loop did not end green. Unless the
+// category is git's, the tree holds the last attempt, loose, for the
+// caller to park.
+type repairFailure struct {
+	reason   string
+	outcome  string
+	category string
+}
+
+// repairLoop runs the repair phase until the gate is green or the attempts
+// are spent. Every attempt starts from the commit at HEAD: one that does not
+// end green is discarded, with its failure in the next attempt's prompt.
+// The loop commits nothing and parks nothing — what a green gate or a spent
+// loop means is the caller's, and differs between the baseline and the
+// integration task.
+func repairLoop(ctx context.Context, o Options, st *runState, result *Result, report *RepairReport,
+	base repairInput) (GateResult, *repairFailure) {
+
+	gitErr := func(err error) (GateResult, *repairFailure) {
+		return GateResult{}, &repairFailure{reason: err.Error(), outcome: OutcomeFailed, category: CategoryGit}
 	}
-	result.Repair = report
+	head, err := st.git.Head(ctx)
+	if err != nil {
+		return gitErr(err)
+	}
 	var previous *attemptFailure
 
 	for attempt := 1; attempt <= o.RepairAttempts; attempt++ {
 		report.Attempts = attempt
 		if stop := overBudget(o, st); stop != nil {
-			_, err := stopped(ctx, o, st, result, stop)
-			return err
+			return GateResult{}, &repairFailure{reason: stop.Error(), outcome: OutcomeAborted, category: agentrun.CategoryBudget}
 		}
-		head, err := st.git.Head(ctx)
-		if err != nil {
-			return fail(PhaseRepair, CategoryGit, err)
-		}
+		in := base
+		in.Attempt, in.Attempts, in.Previous = attempt, o.RepairAttempts, previous
 
 		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
-		sub, stats, err := st.brain.Repair(ctx, repairInput{
-			Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
-			Failing: st.baseline, Survey: st.survey,
-			Attempt: attempt, Attempts: o.RepairAttempts, Previous: previous,
-			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
-			Profile: st.profile,
-		})
+		sub, stats, err := st.brain.Repair(ctx, in)
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))
 		result.CostUSD = st.cost
@@ -559,15 +568,15 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 				if attempt < o.RepairAttempts {
 					previous = failure
 					if err := discard(ctx, st, head); err != nil {
-						return fail(PhaseRepair, CategoryGit, err)
+						return gitErr(err)
 					}
 					continue
 				}
-				return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeFailed, cat)
+				return GateResult{}, &repairFailure{reason: failure.Reason, outcome: OutcomeFailed, category: cat}
 			case agentrun.CategoryAborted:
-				return parkRepair(ctx, o, st, result, report, err.Error(), OutcomeAborted, cat)
+				return GateResult{}, &repairFailure{reason: err.Error(), outcome: OutcomeAborted, category: cat}
 			default:
-				return parkRepair(ctx, o, st, result, report, err.Error(), OutcomeFailed, cat)
+				return GateResult{}, &repairFailure{reason: err.Error(), outcome: OutcomeFailed, category: cat}
 			}
 		}
 		report.Submission = &sub
@@ -575,14 +584,16 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 		if sub.Blocker != nil {
 			result.Blocker = sub.Blocker
 			o.Progress.Step("stopped: the checks cannot be repaired in code")
-			return parkRepair(ctx, o, st, result, report,
-				"the checks cannot be repaired in code: "+strings.TrimSpace(sub.Blocker.Reason),
-				OutcomeBlocked, CategoryBlocked)
+			return GateResult{}, &repairFailure{
+				reason:   "the checks cannot be repaired in code: " + strings.TrimSpace(sub.Blocker.Reason),
+				outcome:  OutcomeBlocked,
+				category: CategoryBlocked,
+			}
 		}
 
 		changed, err := st.git.ChangedFiles(ctx, head)
 		if err != nil {
-			return fail(PhaseRepair, CategoryGit, err)
+			return gitErr(err)
 		}
 		if len(changed) == 0 {
 			failure := &attemptFailure{Reason: "the phase reported a repair and no file differs from the commit it started from"}
@@ -590,7 +601,7 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 				previous = failure
 				continue
 			}
-			return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeFailed, CategoryEmpty)
+			return GateResult{}, &repairFailure{reason: failure.Reason, outcome: OutcomeFailed, category: CategoryEmpty}
 		}
 		report.ChangedFiles = changed
 		if stat, err := st.git.DiffStat(ctx, head); err == nil {
@@ -600,52 +611,141 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 		// The gate, held to green rather than compared: the comparison is
 		// what the repair exists to make unnecessary.
 		after := runGate(ctx, o, st.root, st.gate, "repair verification")
-		verdict := compareGate(st.baseline, after)
 		report.Verification = &after
 		result.Verification = after
-		result.Verdict = verdict
+		result.Verdict = compareGate(st.baseline, after)
 
 		if r, bad := after.couldNotRun(); bad {
-			return parkRepair(ctx, o, st, result, report,
-				fmt.Sprintf("`%s` could not run after the repair (%s), so the work was never measured", r.Command, runFailure(r)),
-				OutcomeUnverified, CategoryUnverified)
+			return GateResult{}, &repairFailure{
+				reason: fmt.Sprintf("`%s` could not run after the repair (%s), so the work was never measured",
+					r.Command, runFailure(r)),
+				outcome:  OutcomeUnverified,
+				category: CategoryUnverified,
+			}
 		}
 		if !after.OK() {
-			failure := &attemptFailure{Reason: fmt.Sprintf("the checks still do not pass (%s)", verdict), Gate: &after}
+			failure := &attemptFailure{Reason: fmt.Sprintf("the checks still do not pass (%s)", result.Verdict), Gate: &after}
 			if stat, e := st.git.DiffStat(ctx, head); e == nil {
 				failure.DiffStat = stat
 			}
 			if attempt < o.RepairAttempts {
 				previous = failure
-				o.Progress.Step("repair attempt %d did not make the checks pass (%s); discarding it", attempt, verdict)
+				o.Progress.Step("repair attempt %d did not make the checks pass (%s); discarding it", attempt, result.Verdict)
 				if err := discard(ctx, st, head); err != nil {
-					return fail(PhaseRepair, CategoryGit, err)
+					return gitErr(err)
 				}
 				continue
 			}
-			return parkRepair(ctx, o, st, result, report, failure.Reason, OutcomeUnverified, CategoryUnverified)
+			return GateResult{}, &repairFailure{reason: failure.Reason, outcome: OutcomeUnverified, category: CategoryUnverified}
 		}
-
-		// ---------------------------------------------------------- land --
-		commit, err := st.git.CommitAll(ctx, repairCommitMessage(st.spec, sub))
-		if err != nil {
-			return fail("commit", CategoryGit, err)
-		}
-		if dirty, err := st.git.DirtyFiles(ctx); err == nil && len(dirty) > 0 {
-			return failf("commit", CategoryGit,
-				"the tree is dirty after committing the repair — a hook changed files the commit does "+
-					"not carry:\n%s", strings.Join(dirty, "\n"))
-		}
-		report.Commit = commit
-		report.Outcome = OutcomeDone
-		// The green gate is what the first task is compared with. The result
-		// keeps the red one as the run's baseline, which is the truth about
-		// where the branch started.
-		st.baseline = after
-		o.Progress.Step("the checks were repaired and committed as %s (%s)", commit, verdict)
-		return nil
+		return after, nil
 	}
-	return failf(PhaseRepair, agentrun.CategoryInternal, "the repair ended without an outcome")
+	return GateResult{}, &repairFailure{reason: "the repair ended without an outcome", outcome: OutcomeFailed, category: agentrun.CategoryInternal}
+}
+
+// newRepairReport starts a report with what is known before the loop.
+func newRepairReport(st *runState, failing GateResult) *RepairReport {
+	report := &RepairReport{Outcome: OutcomePending, Failing: &failing}
+	if m, ok := st.brain.(interface{ RepairModel() string }); ok {
+		report.Model = m.RepairModel()
+	}
+	return report
+}
+
+// runRepair drives the baseline repair to a green gate, committed as its
+// own fix:, or to a parked attempt. It is runTask's shape with a different
+// bar: not "no worse than before" but green, because "before" is what it
+// exists to replace.
+func runRepair(ctx context.Context, o Options, st *runState, result *Result) error {
+	report := newRepairReport(st, st.baseline)
+	result.Repair = report
+
+	after, rf := repairLoop(ctx, o, st, result, report, repairInput{
+		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
+		Failing: st.baseline, Survey: st.survey,
+		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
+		Profile: st.profile,
+	})
+	if rf != nil {
+		report.Outcome, report.Error = rf.outcome, rf.reason
+		switch rf.category {
+		case CategoryGit:
+			return failf(PhaseRepair, CategoryGit, "%s", rf.reason)
+		case agentrun.CategoryBudget:
+			// Between attempts the tree is clean: nothing to park.
+			_, err := stopped(ctx, o, st, result, failf("budget", agentrun.CategoryBudget, "%s", rf.reason))
+			return err
+		}
+		return parkRepair(ctx, o, st, result, report, rf.reason, rf.outcome, rf.category)
+	}
+
+	commit, err := st.git.CommitAll(ctx, repairCommitMessage(st.spec, *report.Submission))
+	if err != nil {
+		return fail("commit", CategoryGit, err)
+	}
+	if dirty, err := st.git.DirtyFiles(ctx); err == nil && len(dirty) > 0 {
+		return failf("commit", CategoryGit,
+			"the tree is dirty after committing the repair — a hook changed files the commit does "+
+				"not carry:\n%s", strings.Join(dirty, "\n"))
+	}
+	report.Commit = commit
+	report.Outcome = OutcomeDone
+	// The green gate is what the first task is compared with. The result
+	// keeps the red one as the run's baseline, which is the truth about
+	// where the branch started.
+	st.baseline = after
+	o.Progress.Step("the checks were repaired and committed as %s (%s)", commit, result.Verdict)
+	return nil
+}
+
+// repairAfterTask drives the repair of the checks that failed after the
+// integration task, on top of the task's work, and reports the green gate.
+//
+// The task's change is held in a provisional commit while the loop runs,
+// so that each attempt can be discarded back to it and not to the commit
+// before the task; the hold is undone — soft, keeping the change — before
+// the task is committed for real, or parked. On a failure the task is
+// parked here, the report is filled in, and the error is the run's.
+func repairAfterTask(ctx context.Context, o Options, st *runState, result *Result, report *TaskReport,
+	task afspec.Task, head string, failing GateResult) (GateResult, error) {
+
+	rr := newRepairReport(st, failing)
+	report.Repair = rr
+	o.Progress.Step("task %d: the checks failed after the integration task; repairing them before it lands", task.Id)
+
+	if _, err := st.git.CommitAllNoVerify(ctx, holdCommitMessage(st.spec, task)); err != nil {
+		return GateResult{}, fail("task", CategoryGit, err)
+	}
+	after, rf := repairLoop(ctx, o, st, result, rr, repairInput{
+		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
+		Failing: failing, Survey: st.survey, Task: &task, Prior: st.prior,
+		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
+		Profile: st.profile,
+	})
+	// Whatever happened, the hold is undone and the task's change is back
+	// in the tree, staged, beside whatever the last attempt left.
+	bg, cancel := background(ctx)
+	err := st.git.ResetSoft(bg, head)
+	cancel()
+	if err != nil {
+		return GateResult{}, fail("task", CategoryGit, err)
+	}
+	if rf != nil {
+		rr.Outcome, rr.Error = rf.outcome, rf.reason
+		if rf.category == CategoryGit {
+			return GateResult{}, failf("task", CategoryGit, "%s", rf.reason)
+		}
+		stage := "task"
+		if rf.category == CategoryUnverified {
+			stage = "verify"
+		}
+		var perr error
+		*report, perr = park(ctx, o, st, result, *report, task,
+			"the checks failed after the task and could not be repaired: "+rf.reason, rf.outcome, rf.category, stage)
+		return GateResult{}, perr
+	}
+	rr.Outcome = OutcomeDone
+	return after, nil
 }
 
 // runTask drives one task to a landed commit or to a parked attempt.
@@ -745,13 +845,27 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			return park(ctx, o, st, result, report, task,
 				fmt.Sprintf("`%s` could not run after the change (%s), so the work was never measured", r.Command, runFailure(r)),
 				OutcomeUnverified, CategoryUnverified, "verify")
-		case !landable(verdict, len(st.gate) == 0):
-			failure = &attemptFailure{Reason: fmt.Sprintf("the checks did not pass (%s)", verdict), Gate: &after}
 		case report.TestsOutcome == VerdictFail || doneWhen == VerdictFail:
+			// The model's own account comes first: a task its author says is
+			// not done is retried from scratch, not repaired.
 			failure = &attemptFailure{
 				Reason:   "the report itself says the task is not done: a test it owns, or a done_when entry, was answered fail",
 				Verdicts: append(failedVerdicts(sub.TestVerdicts), failedVerdicts(sub.DoneWhenVerdicts)...),
 			}
+		case !landable(verdict, len(st.gate) == 0) && o.Repair && task.Kind == afspec.TaskKindIntegration:
+			// The whole suite, after the last task, is the run's final
+			// verification. What it finds is repaired on top of the work,
+			// not thrown away with it: a wiring gap between earlier tasks
+			// is not this task's to redo.
+			green, err := repairAfterTask(ctx, o, st, result, &report, task, head, after)
+			if err != nil {
+				return report, err
+			}
+			after, verdict = green, compareGate(st.baseline, green)
+			report.Verification, report.Verdict = &after, verdict
+			result.Verification, result.Verdict = after, verdict
+		case !landable(verdict, len(st.gate) == 0):
+			failure = &attemptFailure{Reason: fmt.Sprintf("the checks did not pass (%s)", verdict), Gate: &after}
 		}
 		if failure != nil {
 			if stat, e := st.git.DiffStat(ctx, head); e == nil {
@@ -775,7 +889,11 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		if err := saveTasks(st.spec, st.specDir); err != nil {
 			return report, fail("task", agentrun.CategoryInternal, err)
 		}
-		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub))
+		var repaired *RepairSubmission
+		if report.Repair != nil && report.Repair.Outcome == OutcomeDone {
+			repaired = report.Repair.Submission
+		}
+		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired))
 		if err != nil {
 			return report, fail("commit", CategoryGit, err)
 		}

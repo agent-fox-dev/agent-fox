@@ -58,13 +58,34 @@ func wipRepairMessage(spec *afspec.Spec, reason string) string {
 // The subject comes from the model; the type prefix and the trailer do not,
 // because those are facts about the run rather than judgements about the
 // change.
-func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission) string {
+//
+// repair, when set, is the repair of the checks after the task, which the
+// commit carries too: the body says so, with the cause, because a reader of
+// the one commit has to be able to tell the task's change from the fix.
+func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission, repair *RepairSubmission) string {
 	subject := strings.TrimSuffix(strings.TrimSpace(sub.CommitSubject), ".")
 	msg := "feat: " + subject
 	if body := strings.TrimSpace(sub.Summary); body != "" {
 		msg += "\n\n" + body
 	}
+	if repair != nil {
+		msg += "\n\nThe checks failed after the task and were repaired in the same commit. " +
+			strings.TrimSpace(repair.Cause)
+		if s := strings.TrimSpace(repair.Summary); s != "" {
+			msg += " " + s
+		}
+	}
 	return msg + "\n\n" + specRef(spec, task) + "\n"
+}
+
+// holdCommitMessage is the commit that holds a task's work while its
+// checks are repaired: every repair attempt starts from it, and it is
+// undone — soft, keeping the work — before the task is committed for real.
+// It carries the parked shape so that a run that dies mid-repair leaves a
+// tip the next run knows to discard.
+func holdCommitMessage(spec *afspec.Spec, task afspec.Task) string {
+	return fmt.Sprintf("%s task %d of %s awaits the repair of its checks\n\n%s\n",
+		wipPrefix, task.Id, filepath.Base(spec.Dir), specRef(spec, task))
 }
 
 // wipCommitMessage is what a task that did not land is parked as.
@@ -137,6 +158,10 @@ func pullRequestBody(r *Result) string {
 			continue
 		}
 		p("### Task %d: %s\n\n%s\n\n", t.ID, t.Title, strings.TrimSpace(t.Submission.Summary))
+		if t.Repair != nil && t.Repair.Outcome == OutcomeDone && t.Repair.Submission != nil {
+			p("**The checks failed after this task and were repaired in its commit.** Cause: %s %s\n\n",
+				strings.TrimSpace(t.Repair.Submission.Cause), strings.TrimSpace(t.Repair.Submission.Summary))
+		}
 		b.WriteString(verdictSection(t.Submission.TestVerdicts))
 		if strings.TrimSpace(t.Submission.Notes) != "" {
 			p("**Notes:** %s\n\n", strings.TrimSpace(t.Submission.Notes))

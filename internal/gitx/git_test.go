@@ -474,3 +474,34 @@ func TestCommitAllNoVerifySkipsAFailingHook(t *testing.T) {
 		t.Errorf("HeadMessage = %q", msg)
 	}
 }
+
+func TestResetSoftKeepsTheWork(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	head, err := g.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "held.txt"), []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.CommitAllNoVerify(ctx, "wip: hold\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "loose.txt"), []byte("loose"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ResetSoft(ctx, head); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := g.Head(ctx); got != head {
+		t.Errorf("HEAD = %s, want %s", got, head)
+	}
+	changed, err := g.ChangedFiles(ctx, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 2 {
+		t.Errorf("ChangedFiles = %v, want the held and the loose file", changed)
+	}
+}

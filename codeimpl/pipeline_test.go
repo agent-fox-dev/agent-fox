@@ -765,7 +765,7 @@ func TestRepairFixesARedBaselineBeforeTheFirstTask(t *testing.T) {
 		}, nil
 	}
 	o := newOptions(ws, g, b)
-	o.RepairBaseline = true
+	o.Repair = true
 	got, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -836,7 +836,7 @@ func TestRepairThatCannotFixTheChecksParksAndStops(t *testing.T) {
 			Changes: []FileChange{{Path: "attempt.go", Change: "added"}}}, nil
 	}
 	o := newOptions(ws, g, b)
-	o.RepairBaseline = true
+	o.Repair = true
 	o.RepairAttempts = 2
 	got, err := Run(context.Background(), o)
 	f := failureOf(t, err)
@@ -888,7 +888,7 @@ func TestRepairThatCannotFixTheChecksParksAndStops(t *testing.T) {
 			Changes: []FileChange{{Path: "FAIL", Change: "deleted"}}}, nil
 	}
 	o2 := newOptions(ws, g, b2)
-	o2.RepairBaseline = true
+	o2.Repair = true
 	got2, err := Run(context.Background(), o2)
 	if err != nil {
 		t.Fatalf("second run: %v", err)
@@ -914,7 +914,7 @@ func TestRepairBlockerAsksAPerson(t *testing.T) {
 		return RepairSubmission{Blocker: &Blocker{Reason: "the suite needs a running Postgres", Needed: "start one"}}, nil
 	}
 	o := newOptions(ws, g, b)
-	o.RepairBaseline = true
+	o.Repair = true
 	got, err := Run(context.Background(), o)
 	if f := failureOf(t, err); f.Category != CategoryBlocked {
 		t.Errorf("category = %s: %v", f.Category, err)
@@ -934,7 +934,7 @@ func TestRepairRunsOnlyOnARedBaselineWithTheFlag(t *testing.T) {
 		ws, g, _ := newSpecRepo(t)
 		b := &scriptedBrain{} // repair unscripted: it fails the run if it runs
 		o := newOptions(ws, g, b)
-		o.RepairBaseline = true
+		o.Repair = true
 		got, err := Run(context.Background(), o)
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -961,4 +961,184 @@ func TestRepairRunsOnlyOnARedBaselineWithTheFlag(t *testing.T) {
 			t.Errorf("the repair ran without the flag: %+v", got.Repair)
 		}
 	})
+}
+
+// With --repair, the integration task's red checks are repaired on top of
+// its work rather than retried from scratch, and task and fix land as one
+// commit.
+func TestRepairFixesTheChecksAfterTheIntegrationTask(t *testing.T) {
+	ws, g, specDir := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		if task.Kind == afspec.TaskKindIntegration {
+			write(t, root, "FAIL", "the smoke tests found a wiring gap")
+		}
+		return goodWork(root, task, attempt)
+	}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		write(t, root, "wiring.go", "package x // the gap\n")
+		return RepairSubmission{
+			Cause:         "Task 1's parser never registered its command, which only the smoke test exercises.",
+			Summary:       "Registered it.",
+			CommitSubject: "register the parser command",
+			Changes:       []FileChange{{Path: "wiring.go", Change: "added"}, {Path: "FAIL", Change: "deleted"}},
+		}, nil
+	}
+	o := newOptions(ws, g, b)
+	o.Repair = true
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Stage != "landed" || got.TasksDone != 3 || got.Repair != nil {
+		t.Errorf("Stage=%q done=%d baseline repair=%+v", got.Stage, got.TasksDone, got.Repair)
+	}
+	if len(b.inputs) != 3 || len(b.repairIns) != 1 {
+		t.Fatalf("%d task phases and %d repair phases", len(b.inputs), len(b.repairIns))
+	}
+	in := b.repairIns[0]
+	if in.Task == nil || in.Task.Id != 3 || len(in.Prior) != 2 || len(in.Failing.failing()) != 1 {
+		t.Errorf("repair input: task=%v prior=%d failing=%d", in.Task, len(in.Prior), len(in.Failing.failing()))
+	}
+	if p := repairPrompt(in); !strings.Contains(p, "Where the work stands") || !strings.Contains(p, "after the task") {
+		t.Error("the prompt does not describe the post-task situation")
+	}
+	r := got.Tasks[2]
+	if r.Outcome != OutcomeDone || r.Attempts != 1 || r.Repair == nil || r.Repair.Outcome != OutcomeDone ||
+		r.Repair.Failing == nil || r.Repair.Failing.OK() || r.Verdict != string(checks.VerdictPass) {
+		t.Fatalf("task 3 = %+v repair=%+v", r, r.Repair)
+	}
+
+	log := gitOut(t, ws.Root, "log", "--format=%s", "main..HEAD")
+	if want := "feat: implemented task 3\nfeat: implemented task 2\nfeat: implemented task 1"; log != want {
+		t.Errorf("log =\n%s\nwant\n%s", log, want)
+	}
+	body := gitOut(t, ws.Root, "log", "-1", "--format=%B")
+	if !strings.Contains(body, "were repaired in the same commit. Task 1's parser") {
+		t.Errorf("the commit body does not carry the repair:\n%s", body)
+	}
+	shown := gitOut(t, ws.Root, "show", "--stat", "--format=", "HEAD")
+	for _, f := range []string{"task3.go", "wiring.go", "tasks.json"} {
+		if !strings.Contains(shown, f) {
+			t.Errorf("the commit lacks %s:\n%s", f, shown)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(ws.Root, "FAIL")); !os.IsNotExist(err) {
+		t.Error("the FAIL marker survived")
+	}
+	if states := taskStates(t, specDir); states[3] != afspec.TaskStateDone {
+		t.Errorf("task 3 is %s", states[3])
+	}
+	if dirty, _ := g.DirtyFiles(context.Background()); len(dirty) != 0 {
+		t.Errorf("tree is dirty after the run: %v", dirty)
+	}
+	if !strings.Contains(pullRequestBody(got), "failed after this task and were repaired") {
+		t.Error("the pull request body does not mention the repair")
+	}
+}
+
+// A repair after the integration task that never gets green parks task
+// and attempt together as one wip: commit; the next run discards it and
+// starts the task again.
+func TestRepairAfterTheIntegrationTaskParksWhenItCannotFix(t *testing.T) {
+	ws, g, specDir := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		if task.Kind == afspec.TaskKindIntegration {
+			write(t, root, "FAIL", "")
+		}
+		return goodWork(root, task, attempt)
+	}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		write(t, root, "guess"+itoa(attempt)+".go", "package x\n")
+		return RepairSubmission{Cause: "unclear", Summary: "guessed", CommitSubject: "guess",
+			Changes: []FileChange{{Path: "guess.go", Change: "added"}}}, nil
+	}
+	o := newOptions(ws, g, b)
+	o.Repair = true
+	o.RepairAttempts = 2
+	got, err := Run(context.Background(), o)
+	f := failureOf(t, err)
+	if f.Category != CategoryUnverified || f.Stage != "verify" {
+		t.Errorf("failure = %s/%s: %v", f.Stage, f.Category, err)
+	}
+	if got.Stage != "parked" || got.TasksDone != 2 || len(b.repairIns) != 2 || len(b.inputs) != 3 {
+		t.Errorf("Stage=%q done=%d repairs=%d tasks=%d", got.Stage, got.TasksDone, len(b.repairIns), len(b.inputs))
+	}
+	r := got.Tasks[2]
+	if r.Outcome != OutcomeUnverified || r.Repair == nil || r.Repair.Outcome != OutcomeUnverified || r.Repair.Attempts != 2 ||
+		!strings.Contains(r.Error, "could not be repaired") {
+		t.Errorf("task 3 = %+v repair=%+v", r, r.Repair)
+	}
+	if second := b.repairIns[1]; second.Previous == nil || second.Previous.Gate == nil {
+		t.Error("the second repair attempt did not get the first one's failure")
+	}
+	if cur := gitOut(t, ws.Root, "rev-parse", "--abbrev-ref", "HEAD"); cur != "main" {
+		t.Errorf("checked out %q, want main", cur)
+	}
+	log := gitOut(t, ws.Root, "log", "--format=%s", "main.."+got.Branch)
+	if want := "wip: task 3 of 09_agent_mode did not land\nfeat: implemented task 2\nfeat: implemented task 1"; log != want {
+		t.Errorf("log =\n%s\nwant\n%s", log, want)
+	}
+	shown := gitOut(t, ws.Root, "show", "--stat", "--format=", got.Branch)
+	if !strings.Contains(shown, "task3.go") || !strings.Contains(shown, "guess2.go") || strings.Contains(shown, "guess1.go") {
+		t.Errorf("the parked commit should hold the task's work and the last attempt only:\n%s", shown)
+	}
+	if states := taskStates(t, specDir); states[3] != afspec.TaskStatePending {
+		// On the base branch the file is untouched; the branch records in_progress.
+		t.Errorf("task 3 is %s on %s", states[3], "main")
+	}
+
+	// The next run discards the parked commit, implements task 3 again,
+	// and this time the repair succeeds.
+	b2 := &scriptedBrain{implement: b.implement}
+	b2.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if _, err := os.Stat(filepath.Join(root, "guess2.go")); err == nil {
+			t.Error("the parked attempt was not discarded")
+		}
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		return RepairSubmission{Cause: "the marker", Summary: "removed it", CommitSubject: "remove the marker",
+			Changes: []FileChange{{Path: "FAIL", Change: "deleted"}}}, nil
+	}
+	o2 := newOptions(ws, g, b2)
+	o2.Repair = true
+	got2, err := Run(context.Background(), o2)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if !got2.Resumed || got2.TasksDone != 1 || got2.TasksSkipped != 2 || got2.Tasks[2].Repair == nil {
+		t.Errorf("second run: resumed=%v done=%d skipped=%d repair=%+v", got2.Resumed, got2.TasksDone,
+			got2.TasksSkipped, got2.Tasks[2].Repair)
+	}
+	if log := gitOut(t, ws.Root, "log", "--format=%s", "main..HEAD"); strings.Contains(log, "wip:") {
+		t.Errorf("a wip commit remains:\n%s", log)
+	}
+}
+
+// Only the integration task's failure is repaired: an earlier task that
+// breaks the checks is retried from scratch, flag or no flag.
+func TestRepairDoesNotApplyToAnEarlierTask(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		if task.Id == 2 {
+			write(t, root, "FAIL", "")
+			return passingReport(task, "break the build"), nil
+		}
+		return goodWork(root, task, attempt)
+	}
+	o := newOptions(ws, g, b)
+	o.Repair = true
+	got, err := Run(context.Background(), o)
+	if f := failureOf(t, err); f.Category != CategoryUnverified {
+		t.Errorf("category = %s: %v", f.Category, err)
+	}
+	if len(b.repairIns) != 0 || got.Tasks[1].Repair != nil || got.Tasks[1].Attempts != 2 {
+		t.Errorf("task 2 was repaired instead of retried: repairs=%d report=%+v", len(b.repairIns), got.Tasks[1])
+	}
 }
