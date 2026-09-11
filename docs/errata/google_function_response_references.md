@@ -18,7 +18,7 @@ of 4, `generate:test_spec`, with `google/gemini-3.8-flash`
 ```
 
 The model, writing `test_spec.json`, did the sensible thing and read the
-format's own schema, `afspec/schemas/test-spec.v2.json`, with `read_file`.
+format's own schema, `afspec/schemas/test_spec.v2.json`, with `read_file`.
 The next request was refused by Gemini.
 
 ## Why
@@ -47,22 +47,25 @@ OpenAI wires carry tool results as strings and are unaffected.
 In `coder`, `provider/google/google.go`: a tool result whose text is a JSON
 object with a `$`-prefixed key at any depth is wrapped under `"output"` like
 plain text, where it is a string the model reads and nothing Gemini resolves.
-Every other object still passes through verbatim. Rebuild the tools against a
-`coder` checkout carrying that change.
+Every other object still passes through verbatim.
 
-The change is beside this file as
+The change has landed upstream: `coder`'s `provider/google/google.go` carries
+`hasReservedKey`, so a current sibling checkout (`../agentkit-go`, see
+[Development](../development.md#prerequisites)) builds tools that are not
+affected. The `git format-patch` mailbox it was first shipped as is kept
+beside this file as
 [`google_function_response_references.patch`](google_function_response_references.patch),
-a `git format-patch` mailbox, until it lands upstream:
+for a checkout pinned before it:
 
 ```sh
-cd ../coder
+cd ../agentkit-go
 git am ../agent-fox/docs/errata/google_function_response_references.patch
 ```
 
-## Until then
+## On a build without the fix
 
 The run is resumable. `spec` recorded the split in
 `.specs/issuex_core.split.json` with scope 1 done, and running it on the same
 input again starts at scope 2; the same read can recur under the same model
-until `coder` is updated, so use `--vendor anthropic` or an OpenAI-wire model
-for the remaining scopes if it does.
+on a build without the fix, so use `--vendor anthropic` or an OpenAI-wire
+model for the remaining scopes if it does.

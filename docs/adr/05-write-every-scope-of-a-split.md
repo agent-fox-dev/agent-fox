@@ -1,4 +1,4 @@
-# 04. Write every scope of a split, and record the split until it is done
+# 05. Write every scope of a split, and record the split until it is done
 
 **Status:** accepted
 **Date:** 2026-09-10

@@ -15,7 +15,8 @@
 | [01](adr/01-adopt-spec-format-v2.md) | Adopt spec format version 2 |
 | [02](adr/02-build-the-spec-pipeline-on-agentkit.md) | Build the spec pipeline on AgentKit |
 | [03](adr/03-rebuild-the-skills-as-tools.md) | Rebuild the three skills as tools |
-| [04](adr/04-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
+| [04](adr/04-implement-a-spec-as-a-tool.md) | Implement a spec as a tool: `impl` |
+| [05](adr/05-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
 
 ## Errata
 
@@ -24,10 +25,19 @@ of the previous version would expect.
 
 | Erratum | Subject |
 |---|---|
+| [04_ghapi_removed](errata/04_ghapi_removed.md) | Spec 04 asked for `internal/ghapi` to stay as a deprecated layer; it is deleted, and `issuex` is the only path to a forge |
 | [agentkit_model_resolution](errata/agentkit_model_resolution.md) | Vertex and Bedrock refusal, the extended-variant model, cache policy, forced tool calls |
+| [google_function_response_references](errata/google_function_response_references.md) | Gemini resolves `$ref` inside a tool result; fixed in `coder`'s Google provider |
 | [tool_schema_property_names](errata/tool_schema_property_names.md) | Why the generation tools do not declare the artifact's `$schema`, and who writes it |
 
 ## PRDs
 
-`docs/prds/` holds the product requirements documents this repository was
-built from.
+[`docs/prds/`](prds/README.md) holds the product requirements documents this
+repository was built from. Both predate ADR 03 and describe a CLI that no
+longer exists; they are kept as history.
+
+## Drafts
+
+`docs/drafts/` holds PRD drafts that have been, or are about to be, handed to
+`spec`. [`forge_neutral_issue_pr_client.md`](drafts/forge_neutral_issue_pr_client.md)
+is the input the four `issuex` specs under `.specs/` were generated from.

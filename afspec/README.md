@@ -181,6 +181,14 @@ Neither is stored: format v2 §7.1 and §8.5 make both derived.
 | `(*TasksV2Json).GetTask(id) (*Task, bool)` | A copy of one task |
 | `ValidTaskTransition(current, target) bool` | Whether a task transition is allowed |
 
+### Lint
+
+| Function | Description |
+|----------|-------------|
+| `RunLintSpecs(specsDir, lintAll) (LintResult, error)` | Validate every spec under a root and collect the findings; specs whose tasks are all done are skipped unless `lintAll` |
+| `DiscoverLintSpecs(specsDir, filterSpec)` | The specs a lint run would look at |
+| `SortFindings(findings)` / `ComputeExitCode(findings)` | Order findings by severity, and the exit status they imply |
+
 ### Migration
 
 | Function | Description |
@@ -188,8 +196,11 @@ Neither is stored: format v2 §7.1 and §8.5 make both derived.
 | `Migrate(src, specID, specName)` | Convert version 1.3 artifacts to version 2, with a report |
 
 The `afspec/legacy` sub-package holds the version 1.3 types and a read-only
-loader. Nothing else in the module depends on them; they exist so that
-`spec migrate` can read a spec written under the old format.
+loader (`legacy.LoadSpec`). Nothing else in the module depends on them; they
+exist so that an embedder can read a spec written under the old format and
+hand it to `Migrate`. No tool in this repository exposes the migration — see
+[ADR 03](../docs/adr/03-rebuild-the-skills-as-tools.md) on why lifecycle and
+migration stay library API.
 
 ### Error types
 
@@ -221,4 +232,5 @@ make json-gen
 They are generated with `--only-models`. Structural checking belongs to
 `Validate`, which runs the compiled schemas and reports violations with the
 rule that failed; generated `UnmarshalJSON` methods would duplicate that and
-would also reject the empty scaffold `spec new` has to write and read back.
+would also reject the empty scaffold `CreateSpec` writes, which `Save` and
+`LoadSpec` have to round-trip before the artifacts are generated.

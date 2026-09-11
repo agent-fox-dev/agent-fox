@@ -3,7 +3,10 @@
 **Status:** accepted
 **Date:** 2026-09-09
 **Supersedes:** nothing
-**Related:** [ADR 02](02-build-the-spec-pipeline-on-agentkit.md)
+**Related:** [ADR 02](02-build-the-spec-pipeline-on-agentkit.md),
+[ADR 04](04-implement-a-spec-as-a-tool.md) (the fourth tool, `impl`),
+[erratum 04](../errata/04_ghapi_removed.md) (the `ghapi` package named below
+is now `issuex`)
 
 ## Context
 

@@ -6,8 +6,9 @@ The mono-repo for all agent-fox (golang) code: library modules, CLI tools and
 services. It depends on
 
 - [`coder`](https://github.com/agent-fox-dev/coder) — the AgentKit SDK
-- [`spec`](https://github.com/agent-fox-dev/spec) — the spec format
-- [`apikit`](https://github.com/txsvc/apikit)
+  (module `github.com/agentfox/agentkit-go`)
+- [`spec`](https://github.com/agent-fox-dev/spec) — the spec format, whose
+  JSON Schemas are copied into `afspec/schemas/`
 
 and works with [`hub`](https://github.com/agent-fox-dev/hub) as its backend
 service.
@@ -102,18 +103,30 @@ declare to the model, so the two cannot drift.
 
 ## Quick start
 
-The tools run on AgentKit, which lives in the `coder` repository under the
-module path `github.com/agentfox/agentkit-go`. That path does not match its
-repository URL, so the module proxy cannot serve it and it is consumed through
-a `replace` to a sibling checkout:
+Release binaries for darwin and linux, on arm64 and amd64, are installed by
+the script at the repository root. It fetches all four tools, because they
+share one release and one interface:
 
 ```bash
-git clone https://github.com/agent-fox-dev/coder ../coder
+curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/main/install.sh | sh
+```
+
+`TOOLS`, `INSTALL_DIR` (default `/usr/local/bin`) and `VERSION` (default
+`latest`) are read from the environment.
+
+To build from source: the tools run on AgentKit, which lives in the `coder`
+repository under the module path `github.com/agentfox/agentkit-go`. That path
+does not match its repository URL, so the module proxy cannot serve it and it
+is consumed through a `replace` to a sibling checkout named after the module:
+
+```bash
+git clone https://github.com/agent-fox-dev/coder ../agentkit-go
 ```
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # build every CLI into bin/
+make build          # go install spec, issue, fix and impl; af and nightshift into bin/
+make build-all      # static cross-builds of the four tools into dist/
 ```
 
 The test suite needs no API key, no GitHub token and no network: the model half

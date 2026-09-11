@@ -63,8 +63,11 @@ strictly worse than what the layer that builds the request body knows, and the
 policy could only ever apply to the system prompt — not to the tool schemas,
 which on a generation call are the largest stable thing in the request.
 
-`[provider] auth_method`, `vertex_project` and `vertex_region` are still read
-from `config.toml` and still unused, as before.
+`config.toml` itself is gone with the CLI that read it: the tools take their
+configuration from flags and the environment only (see
+[Configuration](../configuration.md#no-configuration-file)), so
+`[provider] auth_method`, `vertex_project` and `vertex_region` are no longer
+read at all.
 
 ## 4. A tool cannot be forced
 
@@ -73,9 +76,9 @@ from `config.toml` and still unused, as before.
 **Is:** nothing. AgentKit's `core.ToolChoice` is unset/auto/none — the
 tri-state that is expressible on every wire it speaks.
 
-**Consequence:** a model can end a phase by answering in prose. A phase run
-without `--read-source` declares exactly one tool and its prompt guideline
-says to call it; when a run ends without a submission the error names the
-`RunStopReason`, because "answered in prose" (`end_turn`), "kept failing
-validation" (`max_turns`) and "blew the cost cap" (`budget_exceeded`) want
-three different responses from the operator.
+**Consequence:** a model can end a phase by answering in prose. Every phase
+declares its terminating tool and a prompt guideline says to call it; when a
+run ends without a submission the error names the `RunStopReason`, because
+"answered in prose" (`end_turn`), "kept failing validation" (`max_turns`) and
+"blew the cost cap" (`budget_exceeded`) want three different responses from
+the operator.
