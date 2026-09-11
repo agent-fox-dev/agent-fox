@@ -19,6 +19,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // The tests below drive the REAL pipeline — the real pre-flight, the real
@@ -961,4 +962,176 @@ func TestRepairRunsOnlyOnARedBaselineWithTheFlag(t *testing.T) {
 			t.Errorf("the repair ran without the flag: %+v", got.Repair)
 		}
 	})
+}
+
+// mockAuthClient implements issuex.Client with configurable authentication and pull request creation.
+type mockAuthClient struct {
+	issuex.NoOpClient
+	authenticated bool
+	createdPR     issuex.PullRequest
+	createPRErr   error
+	capturedReq   issuex.CreatePullRequestRequest
+	capturedRepo  issuex.Repo
+}
+
+func (m *mockAuthClient) Authenticated() bool {
+	return m.authenticated
+}
+
+func (m *mockAuthClient) CreatePullRequest(ctx context.Context, repo issuex.Repo, req issuex.CreatePullRequestRequest) (issuex.PullRequest, error) {
+	m.capturedRepo = repo
+	m.capturedReq = req
+	if m.createPRErr != nil {
+		return issuex.PullRequest{}, m.createPRErr
+	}
+	return m.createdPR, nil
+}
+
+// TS-04-18 (unit): codeimpl declares forge-neutral Options and CategoryForge constant
+// Verifies: 04-REQ-5.1
+func TestTS0418_ForgeNeutralOptions(t *testing.T) {
+	var o Options
+	var _ issuex.Repo = o.Repo
+	var _ issuex.Client = o.Forge
+	if CategoryForge != "forge" {
+		t.Errorf("CategoryForge = %q, want %q", CategoryForge, "forge")
+	}
+	if CategoryGitHub != CategoryForge {
+		t.Errorf("CategoryGitHub = %q, want %q", CategoryGitHub, CategoryForge)
+	}
+}
+
+// TS-04-19 (integration): codeimpl preflight resolves target repository via issuex.DetectRepo
+// Verifies: 04-REQ-5.2
+func TestTS0419_PreflightDetectsRepo(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	ctx := context.Background()
+
+	// Add origin remote to the repo
+	if out, code, err := gitx.ExecRunner(ctx, ws.Root, []string{
+		"git", "remote", "add", "origin", "https://github.com/acme/proj.git",
+	}); err != nil || code != 0 {
+		t.Fatalf("git remote add: %v (%d) %s", err, code, out)
+	}
+
+	opts := newOptions(ws, g, &scriptedBrain{})
+	opts.Repo = issuex.Repo{} // target repository unspecified
+	result := &Result{Stage: "preflight"}
+
+	st, err := Preflight(ctx, opts, result)
+	if err != nil {
+		t.Fatalf("Preflight failed: %v", err)
+	}
+	if !st.Target.Valid() {
+		t.Errorf("st.Target is invalid: %+v", st.Target)
+	}
+	if st.Target.Owner != "acme" || st.Target.Name != "proj" {
+		t.Errorf("st.Target = %+v, want Owner: acme, Name: proj", st.Target)
+	}
+}
+
+// TS-04-20 (unit): codeimpl preflight returns auth failure when unauthenticated for LandPR
+// Verifies: 04-REQ-5.3
+func TestTS0420_PreflightAuthFailure(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	ctx := context.Background()
+
+	opts := newOptions(ws, g, &scriptedBrain{})
+	opts.Land = LandPR
+	opts.DryRun = false
+	opts.Forge = &mockAuthClient{authenticated: false}
+	result := &Result{Stage: "preflight"}
+
+	_, err := Preflight(ctx, opts, result)
+	if err == nil {
+		t.Fatal("expected preflight auth failure, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want %q", err.StageName(), "preflight")
+	}
+	if err.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want %q", err.CategoryName(), "auth")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN") {
+		t.Errorf("error %q should mention GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN", err.Error())
+	}
+}
+
+// TS-04-21 (unit): codeimpl preflight returns usage failure when target repository cannot be resolved
+// Verifies: 04-REQ-5.4
+func TestTS0421_PreflightTargetUsageFailure(t *testing.T) {
+	ws, g, _ := newSpecRepo(t) // no origin remote
+	ctx := context.Background()
+
+	opts := newOptions(ws, g, &scriptedBrain{})
+	opts.Land = LandPR
+	opts.DryRun = false
+	opts.Forge = &mockAuthClient{authenticated: true}
+	opts.Repo = issuex.Repo{}
+	result := &Result{Stage: "preflight"}
+
+	_, err := Preflight(ctx, opts, result)
+	if err == nil {
+		t.Fatal("expected usage failure for unresolved target repo under LandPR, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want %q", err.StageName(), "preflight")
+	}
+	if err.CategoryName() != "usage" {
+		t.Errorf("CategoryName = %q, want %q", err.CategoryName(), "usage")
+	}
+	if !strings.Contains(err.Error(), "no origin remote on a recognized forge") {
+		t.Errorf("error %q should mention 'no origin remote on a recognized forge'", err.Error())
+	}
+}
+
+// TS-04-22 (integration): codeimpl lands changes via Forge.CreatePullRequest
+// Verifies: 04-REQ-5.5
+func TestTS0422_LandPRChanges(t *testing.T) {
+	ctx := context.Background()
+	mockForge := &mockAuthClient{
+		authenticated: true,
+		createdPR: issuex.PullRequest{
+			URL:    "https://gitlab.com/grp/prj/-/merge_requests/4",
+			Number: 4,
+		},
+	}
+	opts := Options{
+		Land:  LandPR,
+		Forge: mockForge,
+		Draft: true,
+	}
+	target := issuex.Repo{Owner: "grp", Name: "prj", Host: "gitlab.com"}
+	st := &RunState{
+		Target: target,
+		target: target,
+		branch: "impl/09-test",
+		base:   "main",
+		spec: &afspec.Spec{
+			SpecID: "09",
+			Title:  "Agent Mode Spec CLI",
+		},
+	}
+	result := &Result{
+		TasksDone: 1,
+	}
+	res, err := LandPRChanges(ctx, opts, st, result)
+	if err != nil {
+		t.Fatalf("LandPRChanges: %v", err)
+	}
+	if res.PullRequestURL != "https://gitlab.com/grp/prj/-/merge_requests/4" {
+		t.Errorf("PullRequestURL = %q, want https://gitlab.com/grp/prj/-/merge_requests/4", res.PullRequestURL)
+	}
+	if res.PullRequestNumber != 4 {
+		t.Errorf("PullRequestNumber = %d, want 4", res.PullRequestNumber)
+	}
+	if res.Stage != "landed" {
+		t.Errorf("Stage = %q, want 'landed'", res.Stage)
+	}
+	if mockForge.capturedRepo != target {
+		t.Errorf("capturedRepo = %+v, want %+v", mockForge.capturedRepo, target)
+	}
+	if mockForge.capturedReq.Head != "impl/09-test" || mockForge.capturedReq.Base != "main" || !mockForge.capturedReq.Draft {
+		t.Errorf("capturedReq = %+v", mockForge.capturedReq)
+	}
 }
