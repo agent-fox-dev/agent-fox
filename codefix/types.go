@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // Classification is what the input turned out to be about. It decides the
@@ -227,6 +227,13 @@ type Result struct {
 	DryRun bool `json:"dry_run,omitempty"`
 }
 
+// Categories this package adds to the shared vocabulary.
+const (
+	// CategoryForge and CategoryGit are the two external systems.
+	CategoryForge  = "forge"
+	CategoryGitHub = CategoryForge
+)
+
 // issueRef is the reference a run may comment on, or nil when the input was
 // text or a file.
-type issueRef = *ghapi.IssueRef
+type issueRef = *issuex.IssueRef
