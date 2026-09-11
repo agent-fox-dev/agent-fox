@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	agentkit "github.com/agentfox/agentkit-go"
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/guard"
 )
 
 // GuardOptions configures the authorization boundary a phase with a shell
@@ -39,7 +39,7 @@ type GuardOptions struct {
 
 // Guard is the authorization boundary for a phase that has a shell.
 //
-// It is two layers. AgentKit's RestrictedPolicy supplies the floor: an
+// It is two layers. AgentKit's guard.Restricted supplies the floor: an
 // allowlist of program names, and a ban on shell operators when they are not
 // wanted. On top of it sit the rules that are specific to these tools and
 // that a generic policy cannot know:
@@ -60,7 +60,7 @@ type GuardOptions struct {
 // A refusal is a blocked tool result, not a crash: the model reads it and
 // adapts, which is why each reason says what to do instead.
 func Guard(o GuardOptions) core.BeforeToolCall {
-	base := agentkit.RestrictedPolicy(agentkit.RestrictedOptions{
+	base := guard.Restricted(guard.Options{
 		AllowedPrograms:     o.Programs,
 		AllowShellOperators: o.AllowOperators,
 		TerminateOnBlock:    false,

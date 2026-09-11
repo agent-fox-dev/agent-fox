@@ -8,8 +8,12 @@ import (
 	"time"
 
 	agentkit "github.com/agentfox/agentkit-go"
+	"github.com/agentfox/agentkit-go/compaction"
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/middleware"
+	"github.com/agentfox/agentkit-go/prompt"
 	"github.com/agentfox/agentkit-go/skills"
+	"github.com/agentfox/agentkit-go/stop"
 	"github.com/agentfox/agentkit-go/tools"
 )
 
@@ -271,19 +275,19 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 		SessionID:     r.cfg.SessionPrefix + "/" + p.Name,
 		TrustProject:  r.cfg.TrustProject,
 		// The stop policy is turns and budget only. It deliberately does NOT
-		// include StopWhenToolCalled(p.Terminator): that ends the run when
+		// include stop.WhenToolCalled(p.Terminator): that ends the run when
 		// the terminator is CALLED, and a call the handler rejects is the
 		// repair loop's first step, not its last. The intended ending is the
 		// handler's ToolResult.Terminate, which is set on acceptance and not
 		// on a rejection — so a malformed submission comes back to the model
 		// as an error it can fix, and these two bounds are what stop a phase
 		// that never converges.
-		StopPolicy: agentkit.StopAny(
-			agentkit.StopAfterTurns(r.cfg.Bounds.maxTurns()),
-			agentkit.StopOverBudget(r.cfg.Bounds.maxBudget()),
+		StopPolicy: stop.Any(
+			stop.AfterTurns(r.cfg.Bounds.maxTurns()),
+			stop.OverBudget(r.cfg.Bounds.maxBudget()),
 		),
 		Middleware: []core.Middleware{
-			agentkit.RetryMiddleware(agentkit.RetryOptions{MaxAttempts: r.cfg.Bounds.maxAttempts()}),
+			middleware.Retry(middleware.RetryOptions{MaxAttempts: r.cfg.Bounds.maxAttempts()}),
 		},
 	}
 	if maxTokens > 0 {
@@ -322,7 +326,7 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 		// check that the exclusions below actually held rather than an
 		// omission.
 		cfg.ToolPolicy = core.ToolPolicy{ExcludeTools: MutatingTools}
-		if err := AssertReadOnly(agentkit.ResolveToolPolicy(registered, cfg.ToolPolicy)); err != nil {
+		if err := AssertReadOnly(cfg.ToolPolicy.Resolve(registered)); err != nil {
 			return nil, nil, newError(p.Name, CategoryInternal, err, "%v", err)
 		}
 	}
@@ -384,10 +388,10 @@ func (r *Runner) installCompaction(cfg *core.AgentConfig, history *core.Conversa
 		return
 	}
 	client := core.ClientFunc(p.Stream)
-	cfg.TransformContext = agentkit.NewContextTransform(agentkit.CompactionDeps{
-		Strategy:       agentkit.SummarizationCompaction{ThresholdFraction: compactionThreshold},
-		Summarizer:     agentkit.ModelSummarizer(client, cfg.Model, compactionReserveTokens),
-		TurnSummarizer: agentkit.ModelTurnSummarizer(client, cfg.Model, compactionReserveTokens),
+	cfg.TransformContext = compaction.NewContextTransform(compaction.Deps{
+		Strategy:       compaction.Summarization{ThresholdFraction: compactionThreshold},
+		Summarizer:     compaction.ModelSummarizer(client, cfg.Model, compactionReserveTokens),
+		TurnSummarizer: compaction.ModelTurnSummarizer(client, cfg.Model, compactionReserveTokens),
 		History:        history,
 		Model:          cfg.Model,
 		OnError:        func(err error) { r.detail("compaction: %v", err) },
@@ -401,13 +405,13 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 	if r.cfg.WorkDir == "" {
 		return nil
 	}
-	cfg := agentkit.SkillsConfigFor(core.AgentConfig{TrustProject: r.cfg.TrustProject}, r.cfg.WorkDir, "")
+	cfg := skills.ConfigFor(core.AgentConfig{TrustProject: r.cfg.TrustProject}, r.cfg.WorkDir, "")
 	selected := agent.LoadSkills(skills.Discover(cfg), p.Name, "", cfg)
 	files, _ := skills.DiscoverContext(cfg)
 	if len(selected) == 0 && len(files) == 0 {
 		return nil
 	}
-	return agentkit.SkillBlocks(selected, files, agent.Tools())
+	return prompt.SkillBlocks(selected, files, agent.Tools())
 }
 
 func (r *Runner) trace(e core.Event) {
