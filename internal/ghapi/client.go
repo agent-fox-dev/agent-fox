@@ -1,3 +1,6 @@
+// Package ghapi provides a GitHub REST client for agent-fox tools.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 package ghapi
 
 import (
@@ -31,6 +34,8 @@ const commentPageLimit = 5
 //
 // The zero value is not usable; build one with New or NewWithOptions. It is
 // safe for concurrent use.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 type Client struct {
 	baseURL string
 	token   string
@@ -57,9 +62,13 @@ type Options struct {
 }
 
 // New returns a Client configured from the environment.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func New(userAgent string) *Client { return NewWithOptions(Options{UserAgent: userAgent}) }
 
 // NewWithOptions returns a Client, filling unset fields from the environment.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func NewWithOptions(o Options) *Client {
 	base := o.BaseURL
 	if base == "" {
@@ -96,6 +105,8 @@ func envOr(name, fallback string) string {
 // Authenticated reports whether a token was found. A tool that will write
 // checks this before it spends money on a model run, so the failure arrives
 // in the first second rather than the tenth minute.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) Authenticated() bool { return c != nil && c.token != "" }
 
 // ErrNoToken is returned by every write when no credential was found.
@@ -198,6 +209,8 @@ type Repository struct {
 }
 
 // GetRepository reads a repository.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) GetRepository(ctx context.Context, r Repo) (Repository, error) {
 	var out Repository
 	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s", r.Owner, r.Name), nil, &out)
@@ -210,6 +223,8 @@ func (c *Client) GetRepository(ctx context.Context, r Repo) (Repository, error) 
 // and the 404 GitHub returns in that case is indistinguishable from a
 // genuinely missing issue — so the error names both possibilities rather than
 // guessing at one.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) ReadIssue(ctx context.Context, ref IssueRef) (Thread, error) {
 	var t Thread
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d", ref.Repo.Owner, ref.Repo.Name, ref.Number)
@@ -241,6 +256,8 @@ func (c *Client) readComments(ctx context.Context, issuePath string) ([]Comment,
 }
 
 // CreateIssue files an issue and returns it.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) CreateIssue(ctx context.Context, r Repo, title, body string, labels []string) (Issue, error) {
 	if !c.Authenticated() {
 		return Issue{}, fmt.Errorf("creating an issue in %s: %w", r, ErrNoToken)
@@ -256,6 +273,8 @@ func (c *Client) CreateIssue(ctx context.Context, r Repo, title, body string, la
 
 // UpdateIssue replaces an issue's title and body. An empty title leaves the
 // existing one.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) UpdateIssue(ctx context.Context, ref IssueRef, title, body string) (Issue, error) {
 	if !c.Authenticated() {
 		return Issue{}, fmt.Errorf("updating %s: %w", ref, ErrNoToken)
@@ -271,6 +290,8 @@ func (c *Client) UpdateIssue(ctx context.Context, ref IssueRef, title, body stri
 }
 
 // AddComment posts a comment on an issue or pull request and returns its URL.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) AddComment(ctx context.Context, ref IssueRef, body string) (string, error) {
 	if !c.Authenticated() {
 		return "", fmt.Errorf("commenting on %s: %w", ref, ErrNoToken)
@@ -284,6 +305,8 @@ func (c *Client) AddComment(ctx context.Context, ref IssueRef, body string) (str
 }
 
 // AddLabels adds labels to an issue, leaving the ones already on it.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) AddLabels(ctx context.Context, ref IssueRef, labels []string) error {
 	if len(labels) == 0 {
 		return nil
@@ -296,6 +319,8 @@ func (c *Client) AddLabels(ctx context.Context, ref IssueRef, labels []string) e
 }
 
 // ReadPullRequest reads a pull request and the files it changes.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest, []ChangedFile, error) {
 	var pr PullRequest
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", ref.Repo.Owner, ref.Repo.Name, ref.Number)
@@ -312,6 +337,8 @@ func (c *Client) ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest
 }
 
 // CreatePullRequest opens a pull request from head into base.
+//
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
 func (c *Client) CreatePullRequest(ctx context.Context, r Repo, title, body, head, base string, draft bool) (PullRequest, error) {
 	if !c.Authenticated() {
 		return PullRequest{}, fmt.Errorf("opening a pull request in %s: %w", r, ErrNoToken)

@@ -1,6 +1,8 @@
 // Package ghapi is a small, dependency-free GitHub REST client for the
 // agent-fox tools.
 //
+// Deprecated: use github.com/agent-fox-dev/agentfox/issuex instead.
+//
 // It exists rather than shelling out to the `gh` CLI for three reasons. A
 // tool that runs unattended in a container cannot rely on a binary being
 // installed and interactively authenticated. A subprocess boundary turns

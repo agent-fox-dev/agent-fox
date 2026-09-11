@@ -1,0 +1,24 @@
+{
+	"folders": [
+		{
+			"name": "apikit",
+			"path": "../apikit"
+		},
+		{
+			"name": "spec",
+			"path": "../spec"
+		},
+		{
+			"name": "hub",
+			"path": "../hub"
+		},
+		{
+			"name": "agent-fox",
+			"path": "."
+		},
+		{
+			"path": "../agentkit-go"
+		}
+	],
+	"settings": {}
+}

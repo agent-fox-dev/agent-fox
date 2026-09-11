@@ -50,7 +50,7 @@
         "internal/ghapi/client.go",
         "internal/ghapi/ref_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
