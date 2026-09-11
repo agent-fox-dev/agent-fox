@@ -204,8 +204,12 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		})
 	}
 	if forge == nil {
+		opts := issuex.Options{UserAgent: a.Name + "/" + a.Version}
+		if repo, ok := issuex.DetectRepo(ws.Root); ok {
+			opts.Repo = repo
+		}
 		var forgeErr error
-		forge, forgeErr = issuex.New(a.Name + "/" + a.Version)
+		forge, forgeErr = issuex.NewWithOptions(opts)
 		if forgeErr != nil || forge == nil {
 			forge = issuex.NewNoOp()
 		}
