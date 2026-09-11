@@ -18,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // DefaultSpecDirName is where spec packages live under the repository root.
@@ -29,7 +30,7 @@ const SpecDirEnv = "AF_SPEC_DIR"
 // Options configure one spec generation run.
 type Options struct {
 	// Input is the classified argument: a product idea, a PRD file, or a
-	// GitHub issue thread. Required.
+	// forge issue thread. Required.
 	Input toolio.Input
 	// Workspace roots the read-only source access. Required.
 	Workspace *tools.Workspace
@@ -46,13 +47,15 @@ type Options struct {
 	Activate bool
 	// Comment posts the finished PRD back to the issue the input came from.
 	Comment bool
-	// DryRun writes nothing to disk and nothing to GitHub. The generated
+	// DryRun writes nothing to disk and nothing to the forge. The generated
 	// artifacts are still produced and reported.
 	DryRun bool
 
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
-	// GitHub is the REST client, used only by Comment.
+	// Forge is the forge client, used only by Comment.
+	Forge issuex.Client
+	// GitHub is deprecated: use Forge instead. Kept for backwards compatibility.
 	GitHub *ghapi.Client
 	// Run records warnings and per-phase cost.
 	Run *toolio.Run
@@ -213,6 +216,45 @@ const (
 	CategoryDisk = "disk"
 )
 
+// Preflight validates the run options before spending turns or tokens.
+func Preflight(ctx context.Context, o Options) (*Result, *Failure) {
+	if o.Comment && !o.DryRun {
+		if o.Input.Issue == nil {
+			return nil, failf("preflight", "usage",
+				"--comment posts the PRD back to the issue it came from, and the input is %s",
+				o.Input.Kind)
+		}
+		if o.Forge == nil || !o.Forge.Authenticated() {
+			return nil, failf("preflight", "auth",
+				"--comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment")
+		}
+	}
+	if o.Name != "" && !specNameRE.MatchString(o.Name) {
+		return nil, failf("preflight", "usage", "--name %q must match [a-z][a-z0-9_]*", o.Name)
+	}
+	if o.Workspace == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
+	}
+	if o.Runner == nil && o.author == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
+	}
+	for _, step := range afspec.GenerationSteps {
+		if _, err := ArtifactSchema(step); err != nil {
+			return nil, fail("preflight", agentrun.CategoryInternal, err)
+		}
+	}
+	return nil, nil
+}
+
+// GeneratePRD runs spec generation and returns the primary package and its directory.
+func GeneratePRD(ctx context.Context, o Options) (*Package, string, error) {
+	res, err := Run(ctx, o)
+	if res == nil {
+		return nil, "", err
+	}
+	return &res.Package, res.SpecDir, err
+}
+
 // Run produces every specification package the input calls for.
 //
 // An input that is one spec's worth of work is one PRD phase and one
@@ -229,41 +271,11 @@ const (
 // which is how the previous format produced specs whose edge-case and
 // property tests belonged to no task.
 func Run(ctx context.Context, o Options) (*Result, error) {
-	if o.Workspace == nil {
-		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
-	}
-	if o.Runner == nil && o.author == nil {
-		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
+	if _, f := Preflight(ctx, o); f != nil {
+		return nil, f
 	}
 	root := o.Workspace.Root
 	specsDir := resolveSpecsDir(o, root)
-
-	if o.Name != "" && !specNameRE.MatchString(o.Name) {
-		return nil, failf("preflight", "usage", "--name %q must match [a-z][a-z0-9_]*", o.Name)
-	}
-	if o.Comment && !o.DryRun {
-		if o.Input.Issue == nil {
-			return nil, failf("preflight", "usage",
-				"--comment posts the PRD back to the issue it came from, and the input is %s",
-				o.Input.Kind)
-		}
-		if o.GitHub == nil || !o.GitHub.Authenticated() {
-			return nil, failf("preflight", "auth",
-				"--comment needs a credential: set GITHUB_TOKEN or GH_TOKEN, or drop --comment")
-		}
-	}
-
-	// The three tool schemas are converted here, before a token is spent.
-	// They are derived from the format's own JSON Schemas, so a schema no
-	// provider will accept is an internal error rather than a usage one — and
-	// meeting it after the PRD phase, as a vendor's 400 on the first
-	// generation step, costs the PRD phase to learn something that was
-	// knowable at the start.
-	for _, step := range afspec.GenerationSteps {
-		if _, err := ArtifactSchema(step); err != nil {
-			return nil, fail("preflight", agentrun.CategoryInternal, err)
-		}
-	}
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
@@ -618,9 +630,9 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	}
 
 	// ---------------------------------------------------------- comment --
-	if o.Comment && !o.DryRun {
+	if o.Comment && !o.DryRun && o.Input.Issue != nil {
 		body := prdComment(validated, pkg)
-		url, err := o.GitHub.AddComment(ctx, *o.Input.Issue, body)
+		url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 		if err != nil {
 			o.Run.Warn("the PRD could not be posted on %s: %v", o.Input.Issue, err)
 		} else {

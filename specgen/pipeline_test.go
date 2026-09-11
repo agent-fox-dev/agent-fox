@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // The tests below drive the REAL pipeline — the real scaffolding, the real
@@ -526,5 +527,165 @@ func TestDryRunStillValidatesAgainstTheDirectoryName(t *testing.T) {
 	}
 	if got.Traceability.CriteriaCovered == 0 {
 		t.Error("the traceability report should be derived under --dry-run too")
+	}
+}
+
+type mockForgeClient struct {
+	issuex.NoOpClient
+	authenticated bool
+	commentURL    string
+	commentErr    error
+	commentCalls  int
+	lastBody      string
+	lastRef       issuex.IssueRef
+}
+
+func (m *mockForgeClient) Authenticated() bool {
+	return m.authenticated
+}
+
+func (m *mockForgeClient) AddComment(ctx context.Context, ref issuex.IssueRef, body string) (string, error) {
+	m.commentCalls++
+	m.lastRef = ref
+	m.lastBody = body
+	if m.commentErr != nil {
+		return "", m.commentErr
+	}
+	return m.commentURL, nil
+}
+
+// TS-04-29 (unit): specgen Options defines Forge field of type issuex.Client
+// Verifies: 04-REQ-7.1
+func TestTS0429_OptionsDefinesForgeField(t *testing.T) {
+	var o Options
+	var _ issuex.Client = o.Forge
+}
+
+// TS-04-30 (unit): specgen preflight returns auth failure when --comment is enabled without credentials
+// Verifies: 04-REQ-7.2
+func TestTS0430_PreflightAuthFailureWithoutCredentials(t *testing.T) {
+	ctx := context.Background()
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+
+	// Case 1: unauthenticated Forge client
+	opts := Options{
+		Comment: true,
+		DryRun:  false,
+		Input:   toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef},
+		Forge:   &mockForgeClient{authenticated: false},
+	}
+	_, err := Preflight(ctx, opts)
+	if err == nil {
+		t.Fatal("expected auth failure, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", err.StageName())
+	}
+	if err.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", err.CategoryName())
+	}
+	wantMsg := "--comment needs a forge credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or run without --comment"
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want message containing %q", err.Error(), wantMsg)
+	}
+
+	// Case 2: nil Forge client
+	optsNil := Options{
+		Comment: true,
+		DryRun:  false,
+		Input:   toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef},
+		Forge:   nil,
+	}
+	_, errNil := Preflight(ctx, optsNil)
+	if errNil == nil {
+		t.Fatal("expected auth failure for nil Forge, got nil")
+	}
+	if errNil.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", errNil.StageName())
+	}
+	if errNil.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", errNil.CategoryName())
+	}
+	if !strings.Contains(errNil.Error(), wantMsg) {
+		t.Errorf("error = %q, want message containing %q", errNil.Error(), wantMsg)
+	}
+}
+
+// TS-04-31 (integration): specgen posts PRD comment via Forge.AddComment and records warning on failure
+// Verifies: 04-REQ-7.3, 04-REQ-7.4
+func TestTS0431_PostsPRDCommentAndWarnsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+
+	// Success case: PRD comment is posted via Forge.AddComment and populates pkg.CommentURL
+	ws := newWorkspace(t)
+	a := newAuthor(t, "01", "test_feature")
+	mockForge := &mockForgeClient{
+		authenticated: true,
+		commentURL:    "https://forge/issue/1#note_9",
+	}
+	opts := newOptions(ws, a)
+	opts.Comment = true
+	opts.DryRun = false
+	opts.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+	opts.Forge = mockForge
+
+	pkg, _, err := GeneratePRD(ctx, opts)
+	if err != nil {
+		t.Fatalf("GeneratePRD failed: %v", err)
+	}
+	if pkg == nil {
+		t.Fatal("expected non-nil Package")
+	}
+	if pkg.CommentURL != "https://forge/issue/1#note_9" {
+		t.Errorf("CommentURL = %q, want %q", pkg.CommentURL, "https://forge/issue/1#note_9")
+	}
+	if mockForge.commentCalls != 1 {
+		t.Errorf("commentCalls = %d, want 1", mockForge.commentCalls)
+	}
+	if mockForge.lastRef != issueRef {
+		t.Errorf("lastRef = %+v, want %+v", mockForge.lastRef, issueRef)
+	}
+	if !strings.Contains(mockForge.lastBody, "## Intent") {
+		t.Errorf("comment body should contain PRD markdown, got: %s", mockForge.lastBody)
+	}
+
+	// Error degraded to warning case: comment failure does not fail the pipeline run
+	wsErr := newWorkspace(t)
+	aErr := newAuthor(t, "01", "test_feature")
+	mockForgeErr := &mockForgeClient{
+		authenticated: true,
+		commentErr:    errors.New("forbidden"),
+	}
+	run := toolio.NewRun("spec", "test")
+	optsErr := newOptions(wsErr, aErr)
+	optsErr.Comment = true
+	optsErr.DryRun = false
+	optsErr.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+	optsErr.Forge = mockForgeErr
+	optsErr.Run = run
+
+	pkgErr, _, err2 := GeneratePRD(ctx, optsErr)
+	if err2 != nil {
+		t.Fatalf("expected successful Result despite comment error, got: %v", err2)
+	}
+	if pkgErr == nil {
+		t.Fatal("expected non-nil Package")
+	}
+	if pkgErr.CommentURL != "" {
+		t.Errorf("CommentURL = %q, want empty string on failure", pkgErr.CommentURL)
+	}
+	warnings := run.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
+	}
+	if !strings.Contains(warnings[0], "the PRD could not be posted") {
+		t.Errorf("warning %q should contain 'the PRD could not be posted'", warnings[0])
 	}
 }
