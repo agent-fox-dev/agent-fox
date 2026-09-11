@@ -3,6 +3,7 @@ package issuetriage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +17,8 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
-	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // These tests drive the REAL pipeline — the real agent loop, the real
@@ -109,8 +110,9 @@ func newOptions(t *testing.T, ws *tools.Workspace, runner *agentrun.Runner) Opti
 			Body: "token refresh returns an expired credential",
 		},
 		Workspace: ws,
-		Repo:      ghapi.Repo{Owner: "acme", Name: "widgets"},
+		Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
 		Runner:    runner,
+		Forge:     issuex.NewNoOp(),
 		Run:       toolio.NewRun("issue", "test"),
 		Progress:  toolio.NewProgress(io.Discard, "issue", false, true),
 		DryRun:    true,
@@ -300,7 +302,7 @@ func TestTheTriagePhaseDeclaresOnlyReadToolsAndTheTerminator(t *testing.T) {
 	}
 }
 
-// The write to GitHub happens in Go, after the run, and only when the flags
+// The write to the forge happens in Go, after the run, and only when the flags
 // allow it.
 func TestFilingTheIssueIsAGoCallAfterTheRun(t *testing.T) {
 	var created struct {
@@ -316,8 +318,8 @@ func TestFilingTheIssueIsAGoCallAfterTheRun(t *testing.T) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(ghapi.Issue{
-			Number: 9, HTMLURL: "https://github.com/acme/widgets/issues/9",
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"number": 9, "html_url": "https://github.com/acme/widgets/issues/9",
 		})
 	}))
 	defer srv.Close()
@@ -326,14 +328,23 @@ func TestFilingTheIssueIsAGoCallAfterTheRun(t *testing.T) {
 	o := newOptions(t, ws, newRunner(t, ws, toolCall("c1", ToolFileIssue, validIssue())))
 	o.DryRun = false
 	o.Labels = []string{"af:fix"}
-	o.GitHub = ghapi.NewWithOptions(ghapi.Options{BaseURL: srv.URL, Token: "t", UserAgent: "test"})
+	var err error
+	o.Forge, err = issuex.NewWithOptions(issuex.Options{
+		BaseURL:   srv.URL,
+		Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Token:     "t",
+		UserAgent: "test",
+	})
+	if err != nil {
+		t.Fatalf("issuex.NewWithOptions: %v", err)
+	}
 
 	got, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if calls != 1 {
-		t.Errorf("GitHub calls = %d, want exactly one", calls)
+		t.Errorf("forge calls = %d, want exactly one", calls)
 	}
 	if got.Action != "created" || got.Number != 9 {
 		t.Errorf("result = %+v", got)
@@ -360,15 +371,11 @@ func TestAMissingTokenFailsBeforeTheModelIsCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An empty Token means "consult the environment", so the environment has
-	// to be emptied for the client to be genuinely unauthenticated.
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
 
 	o := newOptions(t, ws, runner)
 	o.DryRun = false
-	o.GitHub = ghapi.NewWithOptions(ghapi.Options{BaseURL: "http://127.0.0.1:1", UserAgent: "t"})
-	if o.GitHub.Authenticated() {
+	o.Forge = &mockClient{authenticated: false}
+	if o.Forge.Authenticated() {
 		t.Fatal("the test client should have no credential")
 	}
 
@@ -393,4 +400,256 @@ func asFailure(err error, target **Failure) bool {
 		e = u.Unwrap()
 	}
 	return false
+}
+
+type mockClient struct {
+	issuex.NoOpClient
+	authenticated bool
+	createErr     error
+	updateErr     error
+	createdIssue  issuex.Issue
+	updatedIssue  issuex.Issue
+	capturedReq   issuex.CreateIssueRequest
+	capturedUpd   issuex.UpdateIssueRequest
+}
+
+func (m *mockClient) Authenticated() bool {
+	return m.authenticated
+}
+
+func (m *mockClient) CreateIssue(ctx context.Context, repo issuex.Repo, req issuex.CreateIssueRequest) (issuex.Issue, error) {
+	m.capturedReq = req
+	if m.createErr != nil {
+		return issuex.Issue{}, m.createErr
+	}
+	if m.createdIssue.URL != "" || m.createdIssue.Number != 0 {
+		return m.createdIssue, nil
+	}
+	return issuex.Issue{Number: 1, URL: "https://example.com/issue/1", Title: req.Title, Body: req.Body}, nil
+}
+
+func (m *mockClient) UpdateIssue(ctx context.Context, ref issuex.IssueRef, req issuex.UpdateIssueRequest) (issuex.Issue, error) {
+	m.capturedUpd = req
+	if m.updateErr != nil {
+		return issuex.Issue{}, m.updateErr
+	}
+	if m.updatedIssue.URL != "" || m.updatedIssue.Number != 0 {
+		return m.updatedIssue, nil
+	}
+	return issuex.Issue{Number: ref.Number, URL: ref.URL(), Title: req.Title, Body: req.Body}, nil
+}
+
+// TS-04-23 (unit): issuetriage declares forge-neutral Options and CategoryForge constant
+// Verifies: 04-REQ-6.1
+func TestTS0423_ForgeNeutralOptions(t *testing.T) {
+	var o Options
+	var _ issuex.Repo = o.Repo
+	var _ issuex.Client = o.Forge
+	if CategoryForge != "forge" {
+		t.Errorf("CategoryForge = %q, want %q", CategoryForge, "forge")
+	}
+	if CategoryGitHub != CategoryForge {
+		t.Errorf("CategoryGitHub = %q, want %q", CategoryGitHub, CategoryForge)
+	}
+}
+
+// TS-04-24 (integration): issuetriage resolveTarget returns usage failure when target repository is unresolved
+// Verifies: 04-REQ-6.2
+func TestTS0424_ResolveTargetUnresolved(t *testing.T) {
+	ws := newWorkspace(t) // has no git remote
+	opts := Options{
+		Workspace: ws,
+		DryRun:    false,
+	}
+	_, err := ResolveTarget(opts)
+	if err == nil {
+		t.Fatal("expected preflight usage failure, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", err.StageName())
+	}
+	if err.CategoryName() != "usage" {
+		t.Errorf("CategoryName = %q, want usage", err.CategoryName())
+	}
+	if !strings.Contains(err.Error(), "--repo") || !strings.Contains(err.Error(), "--dry-run") {
+		t.Errorf("error %q should mention --repo and --dry-run", err.Error())
+	}
+	if !strings.Contains(err.Error(), "has no origin remote on a recognized forge") {
+		t.Errorf("error %q should mention 'has no origin remote on a recognized forge'", err.Error())
+	}
+}
+
+// TS-04-25 (unit): issuetriage checkWriteCredential returns internal failure when forge client is nil
+// Verifies: 04-REQ-6.3
+func TestTS0425_CheckWriteCredentialNilForge(t *testing.T) {
+	targetRepo := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	opts := Options{
+		Forge:  nil,
+		DryRun: false,
+	}
+	err := CheckWriteCredential(opts, targetRepo)
+	if err == nil {
+		t.Fatal("expected failure when Forge is nil, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", err.StageName())
+	}
+	if err.CategoryName() != "internal" {
+		t.Errorf("CategoryName = %q, want internal", err.CategoryName())
+	}
+	if !strings.Contains(err.Error(), "no forge client configured") {
+		t.Errorf("error %q should mention 'no forge client configured'", err.Error())
+	}
+}
+
+// TS-04-26 (unit): issuetriage checkWriteCredential returns auth failure when forge client is unauthenticated
+// Verifies: 04-REQ-6.4
+func TestTS0426_CheckWriteCredentialUnauthenticated(t *testing.T) {
+	targetRepo := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	opts := Options{
+		Forge:  &mockClient{authenticated: false},
+		DryRun: false,
+	}
+	err := CheckWriteCredential(opts, targetRepo)
+	if err == nil {
+		t.Fatal("expected failure when Forge is unauthenticated, got nil")
+	}
+	if err.StageName() != "preflight" {
+		t.Errorf("StageName = %q, want preflight", err.StageName())
+	}
+	if err.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", err.CategoryName())
+	}
+	if !strings.Contains(err.Error(), "needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run") {
+		t.Errorf("error %q should mention 'needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run'", err.Error())
+	}
+}
+
+// TS-04-27 (integration): issuetriage creates new issue or updates existing issue via Forge client
+// Verifies: 04-REQ-6.5, 04-REQ-6.6, 04-REQ-10.4
+func TestTS0427_CreateAndModifyIssue(t *testing.T) {
+	var created struct {
+		Title  string   `json:"title"`
+		Body   string   `json:"body"`
+		Labels []string `json:"labels"`
+	}
+	var updated struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues" {
+			_ = json.NewDecoder(r.Body).Decode(&created)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number":   101,
+				"html_url": "https://github.com/acme/widgets/issues/101",
+				"title":    created.Title,
+				"body":     created.Body,
+			})
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/widgets/issues/42" {
+			_ = json.NewDecoder(r.Body).Decode(&updated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number":   42,
+				"html_url": "https://github.com/acme/widgets/issues/42",
+				"title":    updated.Title,
+				"body":     updated.Body,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	client, err := issuex.NewWithOptions(issuex.Options{
+		BaseURL:   server.URL,
+		Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Token:     "tok",
+		UserAgent: "test",
+	})
+	if err != nil {
+		t.Fatalf("issuex.NewWithOptions: %v", err)
+	}
+
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+
+	// Overwrite == false -> CreateIssue
+	optsCreate := Options{
+		Forge:     client,
+		Overwrite: false,
+		Labels:    []string{"bug"},
+	}
+	outCreate := &Result{Title: "New issue", Body: "details"}
+	errCreate := Write(ctx, optsCreate, target, outCreate)
+	if errCreate != nil {
+		t.Fatalf("Write (create) failed: %v", errCreate)
+	}
+	if outCreate.Action != "created" || outCreate.URL != "https://github.com/acme/widgets/issues/101" || outCreate.Number != 101 {
+		t.Errorf("outCreate = %+v, want action created, URL https://github.com/acme/widgets/issues/101, number 101", outCreate)
+	}
+	if created.Title != "New issue" || created.Body != "details" || len(created.Labels) != 1 || created.Labels[0] != "bug" {
+		t.Errorf("created payload = %+v", created)
+	}
+
+	// Overwrite == true -> UpdateIssue
+	issueRef := issuex.IssueRef{Repo: target, Number: 42}
+	optsUpdate := Options{
+		Forge:     client,
+		Overwrite: true,
+		Input:     toolio.Input{Issue: &issueRef},
+	}
+	outUpdate := &Result{Title: "Updated title", Body: "updated details"}
+	errUpdate := Write(ctx, optsUpdate, target, outUpdate)
+	if errUpdate != nil {
+		t.Fatalf("Write (update) failed: %v", errUpdate)
+	}
+	if outUpdate.Action != "updated" || outUpdate.URL != "https://github.com/acme/widgets/issues/42" || outUpdate.Number != 42 {
+		t.Errorf("outUpdate = %+v, want action updated, URL https://github.com/acme/widgets/issues/42, number 42", outUpdate)
+	}
+	if updated.Title != "Updated title" || updated.Body != "updated details" {
+		t.Errorf("updated payload = %+v", updated)
+	}
+}
+
+// TS-04-28 (unit): issuetriage write classifies forge errors via issuex.IsNoToken
+// Verifies: 04-REQ-6.7
+func TestTS0428_WriteErrorClassification(t *testing.T) {
+	ctx := context.Background()
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+
+	// Test missing token error classification
+	optsNoToken := Options{
+		Forge: &mockClient{createErr: issuex.ErrNoToken},
+	}
+	outNoToken := &Result{Title: "Title", Body: "Body"}
+	errNoToken := Write(ctx, optsNoToken, target, outNoToken)
+	if errNoToken == nil {
+		t.Fatal("expected write auth error, got nil")
+	}
+	if errNoToken.StageName() != "write" {
+		t.Errorf("StageName = %q, want write", errNoToken.StageName())
+	}
+	if errNoToken.CategoryName() != "auth" {
+		t.Errorf("CategoryName = %q, want auth", errNoToken.CategoryName())
+	}
+
+	// Test general forge error classification
+	optsGeneral := Options{
+		Forge: &mockClient{createErr: errors.New("500 internal server error")},
+	}
+	outGeneral := &Result{Title: "Title", Body: "Body"}
+	errGeneral := Write(ctx, optsGeneral, target, outGeneral)
+	if errGeneral == nil {
+		t.Fatal("expected write forge error, got nil")
+	}
+	if errGeneral.StageName() != "write" {
+		t.Errorf("StageName = %q, want write", errGeneral.StageName())
+	}
+	if errGeneral.CategoryName() != "forge" {
+		t.Errorf("CategoryName = %q, want forge", errGeneral.CategoryName())
+	}
 }

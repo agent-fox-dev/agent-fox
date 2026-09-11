@@ -2,7 +2,6 @@ package issuetriage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +10,13 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/ghapi"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
+)
+
+// Categories this package adds to the shared vocabulary.
+const (
+	CategoryForge  = "forge"
+	CategoryGitHub = CategoryForge
 )
 
 // Options configure one triage run.
@@ -22,10 +28,10 @@ type Options struct {
 	Workspace *tools.Workspace
 	// Repo is the target repository. Zero means: the repository the input
 	// issue came from, else the origin remote of the workspace.
-	Repo ghapi.Repo
+	Repo issuex.Repo
 	// Labels are applied to a created issue.
 	Labels []string
-	// DryRun makes no change on GitHub. The rendered issue is still
+	// DryRun makes no change on the forge. The rendered issue is still
 	// produced and reported.
 	DryRun bool
 	// Overwrite rewrites the input issue in place — title and body — instead
@@ -35,8 +41,11 @@ type Options struct {
 
 	// Runner drives the model phase. Required.
 	Runner *agentrun.Runner
-	// GitHub is the REST client. It may be nil under DryRun with a
+	// Forge is the REST client. It may be nil under DryRun with a
 	// non-issue input.
+	Forge issuex.Client
+	// GitHub is deprecated: use Forge instead. Kept for backwards compatibility
+	// until commands migrate.
 	GitHub *ghapi.Client
 	// Run records progress, warnings and per-phase cost.
 	Run *toolio.Run
@@ -116,11 +125,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, failf("preflight", "internal", "no runner configured")
 	}
 
-	target, err := resolveTarget(o)
+	target, err := ResolveTarget(o)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkWriteCredential(o, target); err != nil {
+	if err := CheckWriteCredential(o, target); err != nil {
 		return nil, err
 	}
 
@@ -183,86 +192,118 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	if o.DryRun {
-		o.Progress.Step("dry run: nothing was written to GitHub")
+		if o.Progress != nil {
+			o.Progress.Step("dry run: nothing was written to the forge")
+		}
 		return out, nil
 	}
-	if err := write(ctx, o, target, out); err != nil {
+	if err := Write(ctx, o, target, out); err != nil {
 		return out, err
 	}
 	return out, nil
 }
 
-// resolveTarget decides which repository the issue belongs to.
+// ResolveTarget decides which repository the issue belongs to.
 //
 // A --repo flag wins, then the repository the input issue came from, then the
 // origin remote of the workspace. A dry run with none of the three is legal:
 // the diagnosis is still worth printing.
-func resolveTarget(o Options) (ghapi.Repo, *Failure) {
+func ResolveTarget(o Options) (issuex.Repo, *Failure) {
 	if o.Repo.Valid() {
 		return o.Repo, nil
 	}
 	if o.Input.Issue != nil {
 		return o.Input.Issue.Repo, nil
 	}
-	if r, ok := ghapi.DetectRepo(o.Workspace.Root); ok {
-		return r, nil
+	root := ""
+	if o.Workspace != nil {
+		root = o.Workspace.Root
+		if r, ok := issuex.DetectRepo(o.Workspace.Root); ok {
+			return r, nil
+		}
 	}
 	if o.DryRun {
-		return ghapi.Repo{}, nil
+		return issuex.Repo{}, nil
 	}
-	return ghapi.Repo{}, failf("preflight", "usage",
-		"no target repository: %s has no GitHub origin remote and the input is not an "+
+	return issuex.Repo{}, failf("preflight", "usage",
+		"no target repository: %s has no origin remote on a recognized forge and the input is not an "+
 			"issue URL — pass --repo owner/repo, or --dry-run to print the diagnosis",
-		o.Workspace.Root)
+		root)
 }
 
-// checkWriteCredential fails before the model is called when the run will
+// CheckWriteCredential fails before the model is called when the run will
 // write and cannot.
 //
 // This is the pre-flight the skill does not have. Discovering a missing token
 // after a ten-minute analysis costs the analysis; discovering it in the first
 // second costs nothing.
-func checkWriteCredential(o Options, target ghapi.Repo) *Failure {
+func CheckWriteCredential(o Options, target issuex.Repo) *Failure {
 	if o.DryRun {
 		return nil
 	}
-	if o.GitHub == nil {
-		return failf("preflight", "internal", "no GitHub client configured")
+	if o.Forge == nil {
+		return failf("preflight", "internal", "no forge client configured")
 	}
-	if !o.GitHub.Authenticated() {
+	if !o.Forge.Authenticated() {
 		verb := "creating an issue"
 		if o.Overwrite {
 			verb = "rewriting the issue"
 		}
 		return failf("preflight", "auth",
-			"%s in %s needs a credential: set GITHUB_TOKEN or GH_TOKEN, or pass --dry-run",
+			"%s in %s needs a credential: set GITHUB_TOKEN, GH_TOKEN, or GITLAB_TOKEN, or pass --dry-run",
 			verb, target)
 	}
 	return nil
 }
 
-// write performs the one GitHub mutation this tool makes.
-func write(ctx context.Context, o Options, target ghapi.Repo, out *Result) *Failure {
+// Write performs the one forge mutation this tool makes.
+func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Failure {
+	if o.Forge == nil {
+		return failf("write", "internal", "no forge client configured")
+	}
 	if o.Overwrite {
-		ref := *o.Input.Issue
-		updated, err := o.GitHub.UpdateIssue(ctx, ref, out.Title, out.Body)
-		if err != nil {
-			return fail("write", "github", fmt.Errorf("rewriting %s: %w", ref, err))
+		if o.Input.Issue == nil {
+			return failf("write", "internal", "no input issue reference to overwrite")
 		}
-		out.Action, out.URL, out.Number = "updated", updated.HTMLURL, updated.Number
-		o.Progress.Step("rewrote %s", updated.HTMLURL)
+		ref := *o.Input.Issue
+		updated, err := o.Forge.UpdateIssue(ctx, ref, issuex.UpdateIssueRequest{
+			Title: out.Title,
+			Body:  out.Body,
+		})
+		if err != nil {
+			if issuex.IsNoToken(err) {
+				return fail("write", "auth", err)
+			}
+			return fail("write", CategoryForge, fmt.Errorf("rewriting %s: %w", ref, err))
+		}
+		out.Action, out.URL, out.Number = "updated", updated.URL, updated.Number
+		if out.URL == "" {
+			out.URL = updated.HTMLURL
+		}
+		if o.Progress != nil {
+			o.Progress.Step("rewrote %s", out.URL)
+		}
 		return nil
 	}
 
-	created, err := o.GitHub.CreateIssue(ctx, target, out.Title, out.Body, o.Labels)
+	created, err := o.Forge.CreateIssue(ctx, target, issuex.CreateIssueRequest{
+		Title:  out.Title,
+		Body:   out.Body,
+		Labels: o.Labels,
+	})
 	if err != nil {
-		if errors.Is(err, ghapi.ErrNoToken) {
+		if issuex.IsNoToken(err) {
 			return fail("write", "auth", err)
 		}
-		return fail("write", "github", fmt.Errorf("creating an issue in %s: %w", target, err))
+		return fail("write", CategoryForge, fmt.Errorf("creating an issue in %s: %w", target, err))
 	}
-	out.Action, out.URL, out.Number = "created", created.HTMLURL, created.Number
-	o.Progress.Step("filed %s", created.HTMLURL)
+	out.Action, out.URL, out.Number = "created", created.URL, created.Number
+	if out.URL == "" {
+		out.URL = created.HTMLURL
+	}
+	if o.Progress != nil {
+		o.Progress.Step("filed %s", out.URL)
+	}
 	return nil
 }
 
