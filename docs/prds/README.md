@@ -11,3 +11,15 @@ exists; they are kept as the record of why `afspec` looks the way it does.
 | [gospec.md](gospec.md) | A Go port of the `agentspec` package and the `spec` CLI, subcommand for subcommand | Built, then deleted: ADR 03 replaced the fifteen-subcommand CLI with the `spec` tool, and [ADR 02](../adr/02-build-the-spec-pipeline-on-agentkit.md) replaced its model layer with AgentKit |
 
 New PRDs go here as `NN-imperative-verb-phrase.md`, numbered from `01`.
+
+## Proposed
+
+Three PRDs for making the four tools better tools for a model to call. They
+change the interface in `internal/toolio` rather than any pipeline, and are
+meant to be specified and built in order.
+
+| Document | What it asks for |
+|---|---|
+| [01-make-the-envelope-decidable.md](01-make-the-envelope-decidable.md) | JSON on every non-terminal invocation; `status` and `summary`; one `needs_human` shape and `--context` to answer it; `retryable`, `resumable` and `fix_hint` on errors; structured warnings |
+| [02-trim-and-chain-the-results.md](02-trim-and-chain-the-results.md) | `--detail summary` by default with a full report file; `artifacts`, `side_effects` and `next`; a warning and `--input-kind` for a mistyped path; `--dry-run` and `--total-budget` shared |
+| [03-make-the-tools-observable-and-self-describing.md](03-make-the-tools-observable-and-self-describing.md) | `--events jsonl` and `--output`; `--schema` and `schema_version`; trust labels on untrusted text; `--preflight` |
