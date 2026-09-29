@@ -1,7 +1,7 @@
 # Configuration
 
 The tools — `spec`, `issue`, `fix` and `impl` — reach a model through
-[AgentKit](https://github.com/agent-fox-dev/coder)
+[AgentKit](https://github.com/agent-fox-dev/agentkit-go)
 (module `github.com/agentfox/agentkit-go`), so it speaks every wire API that
 library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
 OpenAI-compatible gateways (OpenRouter, DeepSeek, Groq, xAI, Together,

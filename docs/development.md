@@ -3,29 +3,16 @@
 ## Prerequisites
 
 - Go 1.26.5 or later
-- A sibling checkout of [`coder`](https://github.com/agent-fox-dev/coder),
-  in a directory named `agentkit-go`
-
-`coder` ships the AgentKit agent SDK the tools run on. Its module path
-is `github.com/agentfox/agentkit-go` while its repository is
-`agent-fox-dev/coder`, so the module proxy cannot serve it and it is consumed
-through a `replace` to a checkout beside this one — `go.mod` names
-`../agentkit-go`, after the module rather than the repository:
+- A sibling checkout of [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go), in a directory named `agentkit-go`
 
 ```bash
-git clone https://github.com/agent-fox-dev/coder ../agentkit-go
+git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 ```
 
-Point the replace elsewhere if your layout differs:
-
-```bash
-go mod edit -replace github.com/agentfox/agentkit-go=/path/to/coder
-```
-
-This is the same arrangement `coder`'s own `examples/flatline` uses for the
+This is the same arrangement `agentkit-go`'s own `examples/flatline` uses for the
 spec library, and it goes away when the module path is fixed upstream. The
 container build is the one place that still expects the checkout at
-`../coder` (`make build-tools-container` passes it as a build context).
+`../agentkit-go` (`make build-tools-container` passes it as a build context).
 
 ## Repository layout
 
@@ -64,7 +51,7 @@ build metadata (`version.go`).
 
 ```bash
 git clone https://github.com/agent-fox-dev/agent-fox.git
-git clone https://github.com/agent-fox-dev/coder.git agentkit-go
+git clone https://github.com/agent-fox-dev/agentkit-go.git agentkit-go
 cd agent-fox
 go mod download
 ```

@@ -5,7 +5,7 @@ agent-fox is an autonomous spec-first coding agent (golang version).
 The mono-repo for all agent-fox (golang) code: library modules, CLI tools and
 services. It depends on
 
-- [`coder`](https://github.com/agent-fox-dev/coder) — the AgentKit SDK
+- [`agentkit-go`](https://github.com/agent-fox-dev/agentkit-go) — the AgentKit SDK
   (module `github.com/agentfox/agentkit-go`)
 - [`spec`](https://github.com/agent-fox-dev/spec) — the spec format, whose
   JSON Schemas are copied into `afspec/schemas/`
@@ -114,13 +114,13 @@ curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/main/instal
 `TOOLS`, `INSTALL_DIR` (default `/usr/local/bin`) and `VERSION` (default
 `latest`) are read from the environment.
 
-To build from source: the tools run on AgentKit, which lives in the `coder`
+To build from source: the tools run on AgentKit, which lives in the `agentkit-go`
 repository under the module path `github.com/agentfox/agentkit-go`. That path
 does not match its repository URL, so the module proxy cannot serve it and it
 is consumed through a `replace` to a sibling checkout named after the module:
 
 ```bash
-git clone https://github.com/agent-fox-dev/coder ../agentkit-go
+git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 ```
 
 ```bash
