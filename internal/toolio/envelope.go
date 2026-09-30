@@ -184,6 +184,61 @@ type SideEffect struct {
 	Warning WarnCode `json:"warning,omitempty"`
 }
 
+// SameInputPlaceholder stands for the original input in a suggested
+// invocation whose input may be arbitrarily large (raw text, stdin, a
+// report too long to repeat). needs_human.resume and a next[] entry that
+// must agree with it both use it.
+const SameInputPlaceholder = "<same input>"
+
+// AnswerPlaceholder stands for the caller's answer to a needs_human question
+// in a resume command.
+const AnswerPlaceholder = "\"<answer>\""
+
+// Next is one suggested follow-up invocation (06-REQ-6): the tool to run,
+// the single input to give it, the flags to add, and why. It is derived in
+// Go from a tool's own Result, never from the model.
+type Next struct {
+	Tool  string   `json:"tool"`
+	Input string   `json:"input"`
+	Flags []string `json:"flags"`
+	Why   string   `json:"why"`
+}
+
+// Command renders n as one command line: tool, input, flags, space-joined.
+func (n Next) Command() string {
+	parts := append([]string{n.Tool, n.Input}, n.Flags...)
+	return strings.Join(parts, " ")
+}
+
+// ResumeNext is the suggestion to run tool again on the same input with an
+// answer to its question: the one shape needs_human.resume and a tool's own
+// next[] ambiguity entry share, so the two cannot disagree. Its input is the
+// placeholder, not the literal argument, because a report can be up to
+// 256 KB and is not runnable as given in a JSON array.
+func ResumeNext(tool, why string) Next {
+	return Next{Tool: tool, Input: SameInputPlaceholder, Flags: []string{"--context", AnswerPlaceholder}, Why: why}
+}
+
+// ResumePlaceholder is how a next[] entry names in to re-run it: the
+// literal origin (a file path or an issue URL) when the input had a small,
+// stable one, and SameInputPlaceholder when it was raw text or stdin.
+func ResumePlaceholder(in Input) string {
+	switch in.Kind {
+	case KindFile, KindIssue:
+		if in.Origin != "" {
+			return in.Origin
+		}
+	}
+	return SameInputPlaceholder
+}
+
+// NextProvider is implemented by Result types that suggest their own
+// follow-up invocations (06-REQ-6). Every entry must be derived from fact
+// fields the Result already holds, never from the model's own report.
+type NextProvider interface {
+	Next() []Next
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
@@ -260,6 +315,11 @@ type Envelope struct {
 	// the order it happened. Omitted when there were none — which is
 	// always the case under --dry-run (06-REQ-5).
 	SideEffects []SideEffect `json:"side_effects,omitempty"`
+
+	// Next is the invocations a caller would plausibly make next, derived
+	// from the result in Go. Omitted when there is nothing to suggest
+	// (06-REQ-6).
+	Next []Next `json:"next,omitempty"`
 
 	Input *InputInfo `json:"input,omitempty"`
 	Usage *UsageInfo `json:"usage,omitempty"`
@@ -593,7 +653,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 					Options:  opts,
 					Needed:   needed,
 					Stage:    stage,
-					Resume:   fmt.Sprintf("%s <same input> --context \"<answer>\"", r.tool),
+					Resume:   ResumeNext(r.tool, "").Command(),
 				}
 			}
 		}

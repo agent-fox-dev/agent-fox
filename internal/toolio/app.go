@@ -210,8 +210,14 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		artifacts = ap.Artifacts()
 	}
 
+	var next []Next
+	if np, ok := full.(NextProvider); ok {
+		next = np.Next()
+	}
+
 	fileEnv := run.Envelope(code, full, failure)
 	fileEnv.Artifacts = artifacts
+	fileEnv.Next = next
 
 	reportFile := ""
 	path, perr := reportPath(common, a.Name, run)
@@ -235,6 +241,7 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 	env := run.Envelope(code, full, failure)
 	env.ReportFile = reportFile
 	env.Artifacts = artifacts
+	env.Next = next
 	if reportFile != "" {
 		env.Artifacts = withReportFileArtifact(artifacts, reportFile)
 	}

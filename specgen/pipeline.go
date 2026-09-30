@@ -83,6 +83,12 @@ type Result struct {
 	SplitPlan string `json:"split_plan,omitempty"`
 	// DryRun records that nothing was written.
 	DryRun bool `json:"dry_run,omitempty"`
+
+	// inputRef is how a next[] entry names the input to re-run it: the
+	// literal file path or issue URL when the input had one, and the
+	// needs_human.resume placeholder for raw text or stdin. It is not part
+	// of the JSON result.
+	inputRef string
 }
 
 // Summary returns one sentence describing the outcome in spec's vocabulary.
@@ -351,7 +357,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			"commands cannot be checked against it", root)
 	}
 
-	result := &Result{DryRun: o.DryRun}
+	result := &Result{DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
 
 	// ---------------------------------------------------- resume or PRD --
 	//
