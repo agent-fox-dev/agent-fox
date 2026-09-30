@@ -1,0 +1,833 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "09",
+  "spec_name": "tool_self_schema",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-09-1",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-1.1"
+      ],
+      "title": "Common.Register adds a boolean --schema flag defaulting to false",
+      "given": [
+        "a fresh Common and a new flag.FlagSet"
+      ],
+      "when": "Common.Register(fs) is called",
+      "then": [
+        "fs.Lookup(\"schema\") is non-nil",
+        "its DefValue is \"false\"",
+        "its Value implements flag.Getter and Get() returns bool"
+      ],
+      "pseudocode": "var c Common; fs := flag.NewFlagSet(\"t\", flag.ContinueOnError); c.Register(fs); f := fs.Lookup(\"schema\"); assert f != nil; assert f.DefValue == \"false\""
+    },
+    {
+      "id": "TS-09-2",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.2"
+      ],
+      "title": "Invoking a tool with --schema builds and prints the self-description document and exits 0",
+      "given": [
+        "an App configured like fix, with Flags, Description, InputDescription, ExitCodes and ResultSample set"
+      ],
+      "when": "app.Main is called with argv [\"--schema\"]",
+      "then": [
+        "the returned exit code is 0",
+        "stdout is exactly one JSON object followed by a single trailing newline",
+        "the object has a top-level \"tool\" key"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--schema\"}, stdin, &stdout, &stderr); assert code == 0; assert json.Unmarshal(stdout.Bytes(), &m) == nil; assert bytes.HasSuffix(stdout.Bytes(), []byte(\"}\\n\"))"
+    },
+    {
+      "id": "TS-09-3",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.3"
+      ],
+      "title": "--version keeps priority over --schema when both are given",
+      "given": [
+        "an App named \"tool\" with Version \"9.9.9\""
+      ],
+      "when": "app.Main is called with argv [\"--schema\", \"--version\"]",
+      "then": [
+        "stdout is exactly \"tool 9.9.9\\n\"",
+        "the exit code is 0",
+        "the self-description document is not printed"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--schema\",\"--version\"}, stdin, &stdout, &stderr); assert stdout.String() == \"tool 9.9.9\\n\"; assert code == 0"
+    },
+    {
+      "id": "TS-09-4",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.4"
+      ],
+      "title": "--schema alongside --output, --events and --events-file creates no files and has no run",
+      "given": [
+        "a temp directory with no pre-existing files named out.json, events.json or ev2.json"
+      ],
+      "when": "the fix binary is run with [\"--schema\", \"--output\", \"out.json\", \"--events\", \"events.json\", \"--events-file\", \"ev2.json\"]",
+      "then": [
+        "the process exits 0",
+        "none of out.json, events.json or ev2.json exist afterward",
+        "stdout carries only the self-description document"
+      ],
+      "pseudocode": "run(bin, \"--schema\",\"--output\",tmp+\"/out.json\",\"--events\",tmp+\"/events.json\",\"--events-file\",tmp+\"/ev2.json\"); assert !exists(tmp+\"/out.json\"); assert !exists(tmp+\"/events.json\"); assert !exists(tmp+\"/ev2.json\")"
+    },
+    {
+      "id": "TS-09-5",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.5"
+      ],
+      "title": "A positional argument given alongside --schema is accepted and ignored",
+      "given": [
+        "the fix binary built once for both invocations"
+      ],
+      "when": "fix is run once as [\"--schema\"] and once as [\"--schema\", \"some text\"]",
+      "then": [
+        "the two invocations' stdout byte sequences are identical"
+      ],
+      "pseudocode": "a := run(bin, \"--schema\"); b := run(bin, \"--schema\", \"some text\"); assert a.stdout == b.stdout; assert a.exitCode == b.exitCode"
+    },
+    {
+      "id": "TS-09-6",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.6"
+      ],
+      "title": "An unparseable flag given alongside --schema reports flag.Parse's own error, not the document",
+      "given": [
+        "the fix binary"
+      ],
+      "when": "fix is run with [\"--schema\", \"--not-a-real-flag\"]",
+      "then": [
+        "the exit code is 2",
+        "stderr contains flag.Parse's own \"flag provided but not defined\" style message",
+        "stdout does not contain a top-level \"flags\" key"
+      ],
+      "pseudocode": "r := run(bin, \"--schema\", \"--not-a-real-flag\"); assert r.exitCode == 2; assert strings.Contains(r.stderr, \"flag provided but not defined\"); assert !strings.Contains(r.stdout, \"\\\"flags\\\"\")"
+    },
+    {
+      "id": "TS-09-7",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-1.7"
+      ],
+      "title": "--schema exits 0 with no credential configured, --dir an empty directory, and no network reachable",
+      "given": [
+        "no AF_MODEL, AGENTKIT_MODEL, ANTHROPIC_API_KEY, OPENAI_API_KEY, GITHUB_TOKEN or GITLAB_TOKEN set",
+        "--dir points at a freshly created, empty temp directory",
+        "the default HTTP transport is replaced with one that fails any dial"
+      ],
+      "when": "each of spec, issue, fix, and impl is run with [\"--dir\", emptyDir, \"--schema\"]",
+      "then": [
+        "every invocation exits 0",
+        "the self-description document is printed for each",
+        "no outbound connection attempt is observed",
+        "no credential or model-resolution error appears in stderr"
+      ],
+      "pseudocode": "for tool in [spec,issue,fix,impl]: r := run(bin(tool), \"--dir\", emptyDir, \"--schema\"); assert r.exitCode == 0; assert !dialAttempted; assert !strings.Contains(r.stderr, \"credential\")"
+    },
+    {
+      "id": "TS-09-8",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.1",
+        "09-REQ-2.2"
+      ],
+      "title": "The self-description document carries exactly the seven top-level keys, with tool and schema_version matching an ordinary envelope",
+      "given": [
+        "fix built as a binary"
+      ],
+      "when": "fix is run once with [\"--schema\"] and once with [\"--land\", \"bogus\", \"text\"] (a usage error that still emits an envelope without resolving a model)",
+      "then": [
+        "the --schema document's top-level keys are exactly {tool, schema_version, description, input, flags, result, exit_codes}",
+        "the document's tool field equals the usage-error envelope's tool field",
+        "the document's schema_version field equals the usage-error envelope's schema_version field"
+      ],
+      "pseudocode": "doc := parse(run(bin,\"--schema\").stdout); env := parse(run(bin,\"--land\",\"bogus\",\"text\").stdout); assert set(doc.keys()) == {tool,schema_version,description,input,flags,result,exit_codes}; assert doc.tool == env.tool; assert doc.schema_version == env.schema_version"
+    },
+    {
+      "id": "TS-09-9",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.3"
+      ],
+      "title": "Each tool's description field is its own hand-authored one-sentence value",
+      "given": [
+        "spec, issue, fix and impl each built as binaries"
+      ],
+      "when": "each is run with [\"--schema\"]",
+      "then": [
+        "each document's description is a non-empty single sentence with no embedded newline",
+        "the four descriptions are pairwise distinct"
+      ],
+      "pseudocode": "descs := {}; for tool in [spec,issue,fix,impl]: d := parse(run(bin(tool),\"--schema\").stdout).description; assert d != \"\" && !strings.Contains(d,\"\\n\"); descs[tool]=d; assert len(set(descs.values())) == 4"
+    },
+    {
+      "id": "TS-09-10",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.4"
+      ],
+      "title": "Every tool's input field carries the same closed four-element kinds list regardless of what that tool's CheckInput refuses",
+      "given": [
+        "spec, issue, fix and impl each built as binaries",
+        "impl's own CheckInput refuses the issue kind at runtime"
+      ],
+      "when": "each is run with [\"--schema\"]",
+      "then": [
+        "each document's input.kinds equals exactly [\"text\",\"file\",\"stdin\",\"issue\"]",
+        "each document's input.description is a non-empty string",
+        "impl's input.kinds still includes \"issue\" even though impl refuses issue input on an ordinary run"
+      ],
+      "pseudocode": "for tool in [spec,issue,fix,impl]: d := parse(run(bin(tool),\"--schema\").stdout); assert d.input.kinds == [\"text\",\"file\",\"stdin\",\"issue\"]; assert d.input.description != \"\""
+    },
+    {
+      "id": "TS-09-11",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.5"
+      ],
+      "title": "A tool's exit_codes lists exactly the codes its Exec can actually return, each with a hand-authored description",
+      "given": [
+        "fix built as a binary, whose Exec can return 0, 1, 2, 3 and 4"
+      ],
+      "when": "fix is run with [\"--schema\"]",
+      "then": [
+        "the document's exit_codes has keys \"0\",\"1\",\"2\",\"3\",\"4\" and no others",
+        "every value is a non-empty one-line string"
+      ],
+      "pseudocode": "d := parse(run(fixBin,\"--schema\").stdout); assert set(d.exit_codes.keys()) == {0,1,2,3,4}; for v in d.exit_codes.values(): assert v != \"\" && !strings.Contains(v,\"\\n\")"
+    },
+    {
+      "id": "TS-09-12",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.6"
+      ],
+      "title": "issue and spec each report exactly three exit codes: 0, 1 and 2",
+      "given": [
+        "issue and spec each built as binaries"
+      ],
+      "when": "each is run with [\"--schema\"]",
+      "then": [
+        "each document's exit_codes has exactly the keys \"0\", \"1\" and \"2\""
+      ],
+      "pseudocode": "for tool in [issue,spec]: d := parse(run(bin(tool),\"--schema\").stdout); assert set(d.exit_codes.keys()) == {0,1,2}"
+    },
+    {
+      "id": "TS-09-13",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-2.7"
+      ],
+      "title": "fix and impl each report exactly five exit codes: 0 through 4",
+      "given": [
+        "fix and impl each built as binaries"
+      ],
+      "when": "each is run with [\"--schema\"]",
+      "then": [
+        "each document's exit_codes has exactly the keys \"0\",\"1\",\"2\",\"3\",\"4\""
+      ],
+      "pseudocode": "for tool in [fix,impl]: d := parse(run(bin(tool),\"--schema\").stdout); assert set(d.exit_codes.keys()) == {0,1,2,3,4}"
+    },
+    {
+      "id": "TS-09-14",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.1"
+      ],
+      "title": "The flags document's property order follows fs.VisitAll's stable name order over Common plus the tool's own flags",
+      "given": [
+        "a FlagSet with Common's flags registered, then two tool-specific flags \"zeta\" and \"alpha\" registered via the tool's Flags closure"
+      ],
+      "when": "the flags generator walks the FlagSet",
+      "then": [
+        "the generated properties appear in the same order fs.VisitAll would visit them, lexicographic by flag name"
+      ],
+      "pseudocode": "var names []string; fs.VisitAll(func(f *flag.Flag){names=append(names,f.Name)}); doc := flagsSchema(fs); assert orderOf(doc.properties, excluding(schema,version)) == filter(names, excluding(schema,version))"
+    },
+    {
+      "id": "TS-09-15",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.2"
+      ],
+      "title": "The flags document excludes the schema and version flags themselves",
+      "given": [
+        "a FlagSet carrying --schema and --version among other flags"
+      ],
+      "when": "the flags generator builds the document",
+      "then": [
+        "flags.properties has no key named \"schema\"",
+        "flags.properties has no key named \"version\""
+      ],
+      "pseudocode": "doc := flagsSchema(fs); _, hasSchema := doc.properties[\"schema\"]; _, hasVersion := doc.properties[\"version\"]; assert !hasSchema && !hasVersion"
+    },
+    {
+      "id": "TS-09-16",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.3"
+      ],
+      "title": "A flag's description is its Usage string verbatim",
+      "given": [
+        "a FlagSet with a flag registered with Usage \"the exact usage text\""
+      ],
+      "when": "the flags generator builds the document",
+      "then": [
+        "that property's description equals \"the exact usage text\" exactly, unmodified"
+      ],
+      "pseudocode": "fs.StringVar(&v,\"x\",\"\",\"the exact usage text\"); doc := flagsSchema(fs); assert doc.properties[\"x\"].description == \"the exact usage text\""
+    },
+    {
+      "id": "TS-09-17",
+      "kind": "property",
+      "verifies": [
+        "09-REQ-3.4"
+      ],
+      "title": "A flag registered through StringVar, BoolVar, IntVar or Float64Var reports the JSON type matching its Getter's dynamic type",
+      "given": [],
+      "when": "for any flag registered via StringVar, BoolVar, IntVar, or Float64Var with an arbitrary default value",
+      "then": [
+        "the generated property's type is \"string\" for StringVar, \"boolean\" for BoolVar, \"integer\" for IntVar, and \"number\" for Float64Var",
+        "the generated property's default equals the flag's own default value"
+      ],
+      "pseudocode": "for (register,def,wantType) in [(StringVar,\"x\",string),(BoolVar,true,boolean),(IntVar,7,integer),(Float64Var,3.14,number)]: fs := flag.NewFlagSet(...); register(&v,\"f\",def,\"u\"); doc := flagsSchema(fs); assert doc.properties[\"f\"].type == wantType; assert doc.properties[\"f\"].default == def"
+    },
+    {
+      "id": "TS-09-18",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.5"
+      ],
+      "title": "A time.Duration flag renders as a string with format duration, default in the duration's own string form",
+      "given": [
+        "a FlagSet with fs.DurationVar(&v, \"verify-timeout\", 10*time.Minute, \"...\") registered"
+      ],
+      "when": "the flags generator builds the document",
+      "then": [
+        "flags.properties[\"verify-timeout\"] equals {type: string, format: duration, default: \"10m0s\", description: \"...\"}"
+      ],
+      "pseudocode": "fs.DurationVar(&v,\"verify-timeout\",10*time.Minute,\"...\"); doc := flagsSchema(fs); p := doc.properties[\"verify-timeout\"]; assert p.type == \"string\" && p.format == \"duration\" && p.default == \"10m0s\""
+    },
+    {
+      "id": "TS-09-19",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.6"
+      ],
+      "title": "fix's hand-written --pull flag, which does not implement flag.Getter, is reported as a plain string using its own String()",
+      "given": [
+        "the fully-populated FlagSet fix's App.Main constructs, including --pull registered via fs.Var(&pull, \"pull\", theUsageString)"
+      ],
+      "when": "the flags generator builds fix's flags document",
+      "then": [
+        "flags.properties[\"pull\"] equals {type: string, default: pull.String(), description: theUsageString}"
+      ],
+      "pseudocode": "doc := flagsSchema(fixFlagSet); p := doc.properties[\"pull\"]; assert p.type == \"string\"; assert p.default == (&pullFlag{}).String(); assert p.description == theUsageString"
+    },
+    {
+      "id": "TS-09-20",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.7"
+      ],
+      "title": "A flag declared with a closed set of legal values carries an enum key listing exactly that set",
+      "given": [
+        "fix's --land flag, declared alongside its StringVar with the enum [\"pr\",\"branch\",\"none\"]",
+        "fix's --repo flag, which takes free text and has no such declaration"
+      ],
+      "when": "the flags generator builds fix's flags document",
+      "then": [
+        "flags.properties[\"land\"].enum equals [\"pr\",\"branch\",\"none\"]",
+        "flags.properties[\"repo\"] carries no enum key"
+      ],
+      "pseudocode": "doc := flagsSchema(fixFlagSet); assert doc.properties[\"land\"].enum == [\"pr\",\"branch\",\"none\"]; _, hasEnum := doc.properties[\"repo\"][\"enum\"]; assert !hasEnum"
+    },
+    {
+      "id": "TS-09-21",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-3.8"
+      ],
+      "title": "The flags document is shaped as a standalone object schema with no required or additionalProperties keys",
+      "given": [
+        "any populated FlagSet"
+      ],
+      "when": "the flags generator builds the document",
+      "then": [
+        "the top-level shape is {$schema: the 2020-12 meta-schema URI, type: object, properties: {...}}",
+        "there is no \"required\" key",
+        "there is no \"additionalProperties\" key"
+      ],
+      "pseudocode": "doc := flagsSchema(fs); assert doc[\"$schema\"] == \"https://json-schema.org/draft/2020-12/schema\"; assert doc[\"type\"] == \"object\"; _, hasReq := doc[\"required\"]; _, hasAP := doc[\"additionalProperties\"]; assert !hasReq && !hasAP"
+    },
+    {
+      "id": "TS-09-22",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.1"
+      ],
+      "title": "A struct type renders as an object schema whose property order follows reflect.VisibleFields, including promoted embedded fields",
+      "given": [
+        "specgen.Result, which embeds Package anonymously"
+      ],
+      "when": "the result generator renders reflect.TypeOf(specgen.Result{})",
+      "then": [
+        "the schema's type is \"object\"",
+        "the properties order matches reflect.VisibleFields(reflect.TypeOf(specgen.Result{})) filtered to exported JSON fields",
+        "Package's own fields appear in place, promoted, not nested under a \"Package\" key"
+      ],
+      "pseudocode": "s := resultSchema(reflect.TypeOf(specgen.Result{})); assert s.type == \"object\"; assert orderOf(s.properties) == jsonFieldOrder(reflect.VisibleFields(reflect.TypeOf(specgen.Result{})))"
+    },
+    {
+      "id": "TS-09-23",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.2"
+      ],
+      "title": "A field's JSON name and required-ness follow its json tag exactly as encoding/json reads it",
+      "given": [
+        "a struct with a field tagged json:\"a\" with no omitempty, one tagged json:\"b,omitempty\", and one tagged json:\"-\""
+      ],
+      "when": "the result generator renders that struct type",
+      "then": [
+        "properties contains \"a\" and \"required\" includes \"a\"",
+        "properties contains \"b\" and \"required\" does not include \"b\"",
+        "properties does not contain a key for the field tagged json:\"-\""
+      ],
+      "pseudocode": "type T struct{ A string `json:\"a\"`; B string `json:\"b,omitempty\"`; C string `json:\"-\"` }; s := resultSchema(reflect.TypeOf(T{})); assert contains(s.required,\"a\") && !contains(s.required,\"b\"); assert !hasKey(s.properties,\"c\")"
+    },
+    {
+      "id": "TS-09-24",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.3"
+      ],
+      "title": "A slice field, a pointer field and a scalar field each render as the expected JSON Schema node",
+      "given": [
+        "a struct with a []string field, a *SubStruct field, and an int field"
+      ],
+      "when": "the result generator renders that struct type",
+      "then": [
+        "the slice field's schema is {type: array, items: {type: string}}",
+        "the pointer field's schema equals SubStruct's own object schema with no nullable marker of any kind",
+        "the int field's schema is {type: integer}"
+      ],
+      "pseudocode": "type Sub struct{ N int `json:\"n\"` }; type T struct{ L []string `json:\"l\"`; P *Sub `json:\"p\"`; I int `json:\"i\"` }; s := resultSchema(reflect.TypeOf(T{})); assert s.properties[\"l\"] == {type:array,items:{type:string}}; assert s.properties[\"p\"] == resultSchema(reflect.TypeOf(Sub{})); assert s.properties[\"i\"] == {type:integer}"
+    },
+    {
+      "id": "TS-09-25",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.4"
+      ],
+      "title": "Every field reachable from toolio.Envelope and from a tool's Result type carries a description sourced from the new struct tag",
+      "given": [
+        "toolio.Envelope and codefix.Result, both fully tagged as this scope requires"
+      ],
+      "when": "the result generator renders reflect.TypeOf(toolio.Envelope{}) and reflect.TypeOf(codefix.Result{})",
+      "then": [
+        "every generated property carries a non-empty \"description\" string",
+        "each description equals the value of that field's description struct tag, not its json tag or Go doc comment"
+      ],
+      "pseudocode": "for typ in [reflect.TypeOf(toolio.Envelope{}), reflect.TypeOf(codefix.Result{})]: s := resultSchema(typ); walk(s.properties, func(name,node){ assert node.description != \"\" })"
+    },
+    {
+      "id": "TS-09-26",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.5"
+      ],
+      "title": "An object schema's properties marshal in declaration order, not Go map key order",
+      "given": [
+        "a struct type whose declared field order is z, a, m, deliberately not alphabetical"
+      ],
+      "when": "the generated schema is marshalled to JSON",
+      "then": [
+        "the raw JSON's \"properties\" object lists keys in the order z, a, m, not alphabetically sorted"
+      ],
+      "pseudocode": "type T struct{ Z int `json:\"z\"`; A int `json:\"a\"`; M int `json:\"m\"` }; s := resultSchema(reflect.TypeOf(T{})); b,_ := json.Marshal(s); assert rawKeyOrder(b,\"properties\") == [\"z\",\"a\",\"m\"]"
+    },
+    {
+      "id": "TS-09-27",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.6"
+      ],
+      "title": "The envelope's Result field is substituted with the schema of the running tool's own concrete Result type",
+      "given": [
+        "an App with ResultSample set to a zero-value codefix.Result{}"
+      ],
+      "when": "the result document is built for that App from toolio.Envelope",
+      "then": [
+        "result.properties.result equals the object schema generated directly from codefix.Result, not a generic {type: object} placeholder"
+      ],
+      "pseudocode": "doc := resultDocumentFor(app); assert doc.properties[\"result\"] == resultSchema(reflect.TypeOf(codefix.Result{}))"
+    },
+    {
+      "id": "TS-09-28",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-4.7"
+      ],
+      "title": "The result document is a standalone, independently valid JSON Schema 2020-12 document",
+      "given": [
+        "an App configured with a ResultSample"
+      ],
+      "when": "the result document is built",
+      "then": [
+        "its top-level shape is {$schema: the 2020-12 meta-schema URI, type: object, properties: {...}, required: [...]}",
+        "it carries no reference to the flags document"
+      ],
+      "pseudocode": "doc := resultDocumentFor(app); assert doc[\"$schema\"] == \"https://json-schema.org/draft/2020-12/schema\"; assert doc[\"type\"]==\"object\"; _, hasProps := doc[\"properties\"]; _, hasReq := doc[\"required\"]; assert hasProps && hasReq"
+    },
+    {
+      "id": "TS-09-29",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-5.1"
+      ],
+      "title": "Envelope.SchemaVersion is tagged json:\"schema_version\", sits immediately after Version, and is never omitted",
+      "given": [
+        "the toolio.Envelope struct definition"
+      ],
+      "when": "reflect.VisibleFields(reflect.TypeOf(toolio.Envelope{})) is inspected, and an Envelope with a zero-value SchemaVersion is marshalled",
+      "then": [
+        "the field named SchemaVersion has json tag \"schema_version\" with no omitempty option",
+        "it occupies the index immediately after the Version field",
+        "marshalling an Envelope always yields a \"schema_version\" key, even when its value is the empty string"
+      ],
+      "pseudocode": "fields := reflect.VisibleFields(reflect.TypeOf(toolio.Envelope{})); assert fields[indexOf(\"Version\")+1].Name == \"SchemaVersion\"; tag := fields[indexOf(\"SchemaVersion\")].Tag.Get(\"json\"); assert tag == \"schema_version\"; b,_ := json.Marshal(toolio.Envelope{}); assert strings.Contains(string(b),\"schema_version\")"
+    },
+    {
+      "id": "TS-09-30",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.2"
+      ],
+      "title": "All four tools set Envelope.SchemaVersion from the same shared constant",
+      "given": [
+        "spec, issue, fix and impl each built as binaries"
+      ],
+      "when": "each is run to produce an ordinary envelope via a usage error that still calls Run.Envelope, e.g. an invalid --land value on fix/impl, an invalid --repo on issue/spec",
+      "then": [
+        "all four envelopes' schema_version fields are identical",
+        "that value equals toolio.SchemaVersion"
+      ],
+      "pseudocode": "vals := {}; for tool in [spec,issue,fix,impl]: env := parse(runUsageError(bin(tool)).stdout); vals[tool]=env.schema_version; assert len(set(vals.values()))==1; assert vals[\"fix\"] == toolio.SchemaVersion"
+    },
+    {
+      "id": "TS-09-31",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-5.3"
+      ],
+      "title": "toolio.SchemaVersion is the literal string 2.0.0",
+      "given": [],
+      "when": "toolio.SchemaVersion is read",
+      "then": [
+        "its value is exactly \"2.0.0\""
+      ],
+      "pseudocode": "assert toolio.SchemaVersion == \"2.0.0\""
+    },
+    {
+      "id": "TS-09-32",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-5.4"
+      ],
+      "title": "The run_start progress event carries schema_version under the same key as the envelope",
+      "given": [
+        "a run configured with an events sink per 07_progress_event_stream, driven end to end with a scripted model"
+      ],
+      "when": "the run completes and its emitted events are captured",
+      "then": [
+        "the run_start event's JSON object has a \"schema_version\" key",
+        "its value equals toolio.SchemaVersion"
+      ],
+      "pseudocode": "events := runWithEventsSink(...); rs := findEvent(events,\"run_start\"); assert rs[\"schema_version\"] == toolio.SchemaVersion"
+    },
+    {
+      "id": "TS-09-33",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-5.5"
+      ],
+      "title": "The written compatibility rule classifies the four named kinds of envelope change as additive",
+      "given": [
+        "docs/adr/06-version-the-envelope-interface.md"
+      ],
+      "when": "the ADR's decision section is read",
+      "then": [
+        "it names, as additive: a new top-level field, a new field on an existing object such as result/needs_human/error/a warning/an event, a new value in a field documented as an open set, and a new event type"
+      ],
+      "pseudocode": "text := readFile(\"docs/adr/06-version-the-envelope-interface.md\"); for phrase in [\"new top-level\",\"new field on an existing object\",\"open set\",\"new event type\"]: assert strings.Contains(text,phrase)"
+    },
+    {
+      "id": "TS-09-34",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-5.6"
+      ],
+      "title": "The written compatibility rule classifies removal, renaming, type change and enum narrowing as breaking",
+      "given": [
+        "docs/adr/06-version-the-envelope-interface.md"
+      ],
+      "when": "the ADR's decision section is read",
+      "then": [
+        "it names, as breaking: removing a field, renaming a field, changing a field's type, and narrowing a field documented as a closed enum",
+        "it states each of these bumps the major version"
+      ],
+      "pseudocode": "text := readFile(\"docs/adr/06-version-the-envelope-interface.md\"); for phrase in [\"removing\",\"renaming\",\"changing a field's type\",\"narrowing\",\"major\"]: assert strings.Contains(text,phrase)"
+    },
+    {
+      "id": "TS-09-35",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.1"
+      ],
+      "title": "Each tool ships a checked-in golden file holding its --schema output's exact bytes",
+      "given": [
+        "cmd/spec/testdata/schema.golden.json, cmd/issue/testdata/schema.golden.json, cmd/fix/testdata/schema.golden.json and cmd/impl/testdata/schema.golden.json exist in the repository"
+      ],
+      "when": "each tool is built and run with [\"--schema\"]",
+      "then": [
+        "the live stdout bytes equal the corresponding golden file's bytes exactly, for every one of the four tools"
+      ],
+      "pseudocode": "for tool in [spec,issue,fix,impl]: live := run(bin(tool),\"--schema\").stdout; golden := readFile(\"cmd/\"+tool+\"/testdata/schema.golden.json\"); assert live == golden"
+    },
+    {
+      "id": "TS-09-36",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.2"
+      ],
+      "title": "A drifted golden file fails the golden-file test with a byte-level diff naming the tool",
+      "given": [
+        "a copy of cmd/fix/testdata/schema.golden.json mutated to differ from fix's live --schema output"
+      ],
+      "when": "the golden-file test in cmd/fix is run, e.g. `go test -run TestSchemaGolden ./cmd/fix`, against the mutated file",
+      "then": [
+        "the test run exits non-zero",
+        "its output names \"fix\" and shows a diff between the live and golden bytes"
+      ],
+      "pseudocode": "mutate(\"cmd/fix/testdata/schema.golden.json\"); out, code := exec(\"go\",\"test\",\"-run\",\"TestSchemaGolden\",\"./cmd/fix\"); assert code != 0; assert strings.Contains(out,\"fix\"); assert strings.Contains(out,\"diff\") || strings.Contains(out,\"-\"); restoreOriginal()"
+    },
+    {
+      "id": "TS-09-37",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.3"
+      ],
+      "title": "The golden-file update path regenerates the golden file instead of failing",
+      "given": [
+        "a copy of cmd/fix/testdata/schema.golden.json mutated to differ from fix's live --schema output"
+      ],
+      "when": "the golden-file test is run with its update path set, e.g. `UPDATE_GOLDEN=1 go test -run TestSchemaGolden ./cmd/fix`",
+      "then": [
+        "the test run exits 0",
+        "the golden file's bytes afterward equal the live --schema output"
+      ],
+      "pseudocode": "mutate(\"cmd/fix/testdata/schema.golden.json\"); out, code := execWithEnv({UPDATE_GOLDEN:\"1\"},\"go\",\"test\",\"-run\",\"TestSchemaGolden\",\"./cmd/fix\"); assert code == 0; assert readFile(\"cmd/fix/testdata/schema.golden.json\") == run(fixBin,\"--schema\").stdout"
+    },
+    {
+      "id": "TS-09-38",
+      "kind": "integration",
+      "verifies": [
+        "09-REQ-6.4"
+      ],
+      "title": "Both flags and result of every tool's --schema output compile against the JSON Schema 2020-12 meta-schema",
+      "given": [
+        "spec, issue, fix and impl each built as binaries",
+        "github.com/santhosh-tekuri/jsonschema/v6 loaded with the 2020-12 meta-schema"
+      ],
+      "when": "each tool's --schema output is parsed and its flags and result values are compiled as schemas",
+      "then": [
+        "compilation succeeds for both flags and result, for all four tools",
+        "a deliberately invalid document, e.g. one missing \"type\", fails compilation, proving the check is not a no-op"
+      ],
+      "pseudocode": "compiler := jsonschema.NewCompiler(); for tool in [spec,issue,fix,impl]: doc := parse(run(bin(tool),\"--schema\").stdout); assert compiles(compiler,doc.flags); assert compiles(compiler,doc.result); assert !compiles(compiler,{properties:{}})"
+    },
+    {
+      "id": "TS-09-39",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-6.5"
+      ],
+      "title": "The exhaustiveness checker names every field reachable from a type that lacks the description tag",
+      "given": [
+        "a synthetic struct type with one tagged field (description present) and one untagged field",
+        "toolio.Envelope and each of the four Result types, all fully tagged"
+      ],
+      "when": "the exhaustiveness checker walks the synthetic type, and separately walks toolio.Envelope and the four Result types",
+      "then": [
+        "walking the synthetic type reports exactly one missing field, named by its Go field name",
+        "walking toolio.Envelope and each Result type reports no missing fields"
+      ],
+      "pseudocode": "type Bad struct{ A string `json:\"a\" description:\"has one\"`; B string `json:\"b\"` }; missing := checkDescriptions(reflect.TypeOf(Bad{})); assert missing == [\"B\"]; for typ in [toolio.Envelope{},codefix.Result{},codeimpl.Result{},issuetriage.Result{},specgen.Result{}]: assert checkDescriptions(reflect.TypeOf(typ)) == nil"
+    },
+    {
+      "id": "TS-09-40",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.1"
+      ],
+      "title": "docs/cli.md's shared-flags table has a --schema row describing its default and effect",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "the shared-flags table is read",
+      "then": [
+        "a row exists for --schema",
+        "the row states its default is false and describes that it prints the self-description document instead of running"
+      ],
+      "pseudocode": "text := readFile(\"docs/cli.md\"); row := findTableRow(text,\"--schema\"); assert row != nil; assert strings.Contains(row,\"false\")"
+    },
+    {
+      "id": "TS-09-41",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.2"
+      ],
+      "title": "docs/cli.md has a Self-description (--schema) section with a worked example and an explanation of flags, result and exit_codes",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "the document is scanned for a heading matching \"Self-description\"",
+      "then": [
+        "the section exists",
+        "it contains one abbreviated JSON example",
+        "it explains what the flags, result and exit_codes keys mean"
+      ],
+      "pseudocode": "text := readFile(\"docs/cli.md\"); section := findSection(text,\"Self-description\"); assert section != \"\"; for word in [\"flags\",\"result\",\"exit_codes\"]: assert strings.Contains(section,word)"
+    },
+    {
+      "id": "TS-09-42",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.3"
+      ],
+      "title": "docs/cli.md has an Interface versions section listing 1.0.0 and 2.0.0 with the additive/breaking rule",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "the document is scanned for a heading matching \"Interface versions\"",
+      "then": [
+        "the section exists",
+        "it lists a \"1.0.0\" entry and a \"2.0.0\" entry, each with its own paragraph",
+        "it states the additive/breaking rule from 09-REQ-5"
+      ],
+      "pseudocode": "text := readFile(\"docs/cli.md\"); section := findSection(text,\"Interface versions\"); assert strings.Contains(section,\"1.0.0\") && strings.Contains(section,\"2.0.0\"); assert strings.Contains(section,\"additive\") && strings.Contains(section,\"breaking\")"
+    },
+    {
+      "id": "TS-09-43",
+      "kind": "unit",
+      "verifies": [
+        "09-REQ-7.4"
+      ],
+      "title": "The ADR docs/adr/06-version-the-envelope-interface.md records context, decision and consequence as an accepted decision",
+      "given": [
+        "the repository's docs/adr directory"
+      ],
+      "when": "docs/adr/06-version-the-envelope-interface.md is read",
+      "then": [
+        "the file exists",
+        "it records a status of accepted",
+        "it contains a context section, a decision section naming the closed additive/breaking list, and a consequence section stating a future spec touching the envelope states which kind of change it makes"
+      ],
+      "pseudocode": "text := readFile(\"docs/adr/06-version-the-envelope-interface.md\"); assert strings.Contains(text,\"ccepted\"); assert strings.Contains(text,\"Context\"); assert strings.Contains(text,\"Decision\"); assert strings.Contains(text,\"Consequence\")"
+    },
+    {
+      "id": "TS-09-44",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-1",
+        "09-REQ-1.2",
+        "09-REQ-1.7",
+        "09-REQ-2.1"
+      ],
+      "title": "A caller introspects fix's interface with no credential configured before ever running it",
+      "given": [
+        "fix built as a real binary",
+        "no model credential environment variable set",
+        "--dir points at a freshly created, empty directory",
+        "the meta-schema for JSON Schema 2020-12 is available to the caller"
+      ],
+      "when": "the caller runs 'fix --dir <empty-dir> --schema'",
+      "then": [
+        "fix exits 0",
+        "stdout is exactly one JSON document carrying tool, schema_version, description, input, flags, result and exit_codes",
+        "the document's flags and result both compile against the 2020-12 meta-schema",
+        "no network connection was attempted and no model was resolved"
+      ],
+      "real_components": [
+        "cmd/fix main",
+        "toolio.App",
+        "toolio.Common",
+        "the flags generator",
+        "the result generator",
+        "github.com/santhosh-tekuri/jsonschema/v6"
+      ]
+    },
+    {
+      "id": "TS-09-45",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-2",
+        "09-REQ-6.1",
+        "09-REQ-6.2"
+      ],
+      "title": "A maintainer's undeclared Result field change is caught by the golden-file test",
+      "given": [
+        "a working copy of the repository with codefix.Result temporarily given one new exported, tagged field",
+        "cmd/fix/testdata/schema.golden.json left unchanged"
+      ],
+      "when": "`make test` is run against this working copy",
+      "then": [
+        "make test fails",
+        "its output names fix and shows a diff between the live --schema output and the checked-in golden file",
+        "restoring codefix.Result and rerunning `make test`, or regenerating the golden file, makes it pass again"
+      ],
+      "real_components": [
+        "cmd/fix main",
+        "cmd/fix's golden-file test",
+        "codefix.Result",
+        "the result generator",
+        "make test / go test"
+      ]
+    },
+    {
+      "id": "TS-09-46",
+      "kind": "smoke",
+      "verifies": [
+        "09-PATH-3",
+        "09-REQ-5.1",
+        "09-REQ-5.2",
+        "09-REQ-5.3"
+      ],
+      "title": "An ordinary run of issue reports the same schema_version its own --schema advertised",
+      "given": [
+        "issue built as a real binary",
+        "a valid issue report as input",
+        "a scripted model provider standing in for the real vendor"
+      ],
+      "when": "the caller first runs 'issue --schema' and records schema_version, then runs 'issue' on a real report to completion",
+      "then": [
+        "the ordinary run's envelope carries schema_version \"2.0.0\", identical to the value '--schema' advertised",
+        "the caller's equality check between the two values succeeds"
+      ],
+      "real_components": [
+        "cmd/issue main",
+        "toolio.App",
+        "toolio.Run.Envelope",
+        "issuetriage.Run"
+      ]
+    }
+  ]
+}

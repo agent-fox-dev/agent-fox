@@ -1,0 +1,832 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "05",
+  "spec_name": "envelope_decidable",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-05-1",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.1"
+      ],
+      "title": "A whitespace-only positional argument is folded into the bare-invocation case before Resolve runs, with no model resolution attempted",
+      "given": [
+        "no vendor credential environment variable is set, so a model-resolution attempt would fail loudly and distinguishably"
+      ],
+      "when": "App.Main is invoked with the positional argument \"   \" (three spaces) and a writable --dir",
+      "then": [
+        "the process exit code is ExitUsage (2), not the ExitFailed/auth failure a reached model resolution would produce",
+        "fs.Usage() still prints the help text and flag list to stderr, unchanged"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--dir\", dir, \"   \"}, emptyStdin, &stdout, &stderr); assert code == ExitUsage; assert strings.Contains(stderr.String(), \"usage\")"
+    },
+    {
+      "id": "TS-05-2",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.2"
+      ],
+      "title": "A bare invocation with stdout not a terminal emits a usage envelope naming the four accepted input shapes",
+      "given": [
+        "stdout is a bytes.Buffer, which isTerminal reports as not a terminal"
+      ],
+      "when": "App.Main is invoked with an empty positional argument",
+      "then": [
+        "exactly one JSON object is written to stdout",
+        "ok is false, exit_code is 2, status is \"usage\"",
+        "error.stage is \"usage\" and error.category is \"usage\"",
+        "error.message equals \"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin\"",
+        "the returned process exit code is 2"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--dir\", dir}, emptyStdin, &stdout, &stderr); env := unmarshal(stdout); assert code == 2 && !env.OK && env.Status == \"usage\" && env.Error.Message == \"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin\""
+    },
+    {
+      "id": "TS-05-3",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.3"
+      ],
+      "title": "A bare invocation with stdout a terminal writes nothing to stdout",
+      "given": [
+        "stdout is an *os.File opened on a character device (e.g. /dev/null, which isTerminal treats identically to a tty since it only checks os.ModeCharDevice); the test is skipped where no such device is available"
+      ],
+      "when": "App.Main is invoked with an empty positional argument",
+      "then": [
+        "stdout receives zero bytes",
+        "the process exit code is still 2",
+        "the help text is still printed to stderr, unchanged from today"
+      ],
+      "pseudocode": "f, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0); code := app.Main(ctx, []string{\"--dir\", dir}, emptyStdin, f, &stderr); assert code == 2; info,_ := f.Stat(); assert info.Size() == 0"
+    },
+    {
+      "id": "TS-05-4",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.4"
+      ],
+      "title": "-h/--help and --version exit before the bare-invocation check and never emit an envelope",
+      "given": [
+        "stdout is a bytes.Buffer (not a terminal), so the bare-invocation envelope would fire if the check were reached"
+      ],
+      "when": "App.Main is invoked once with only -h and once with only --version",
+      "then": [
+        "for -h, stdout stays empty and the process exit code is 0",
+        "for --version, stdout carries the version sentence and no JSON object, and the process exit code is 0"
+      ],
+      "pseudocode": "code1 := app.Main(ctx, []string{\"-h\"}, stdin, &out1, &err1); assert code1 == ExitOK && out1.Len()==0; code2 := app.Main(ctx, []string{\"--version\"}, stdin, &out2, &err2); assert code2 == ExitOK && !strings.HasPrefix(strings.TrimSpace(out2.String()), \"{\")"
+    },
+    {
+      "id": "TS-05-5",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-1.5"
+      ],
+      "title": "The bare-invocation envelope's error.message is byte-identical to the message toolio.ErrNoInput's own path produces",
+      "given": [],
+      "when": "the error.message from a bare invocation (stdout not a terminal) is compared against the error.message produced when Resolve itself returns ErrNoInput (e.g. stdin piped as \"-\" with only whitespace on it)",
+      "then": [
+        "both messages are the exact same string: \"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin\""
+      ],
+      "pseudocode": "envBare := runBareInvocation(); envStdin := runApp([]string{\"--dir\", dir, \"-\"}, \"   \\n\"); assert envBare.Error.Message == envStdin.Error.Message"
+    },
+    {
+      "id": "TS-05-6",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.1"
+      ],
+      "title": "status and summary are always present, never omitted, on every envelope regardless of outcome",
+      "given": [
+        "a Run whose result implements no Summary() interface"
+      ],
+      "when": "Run.Envelope is called once with ExitOK and once with ExitFailed",
+      "then": [
+        "both marshalled envelopes carry a non-empty \"status\" key",
+        "both marshalled envelopes carry a \"summary\" key that is present even though no tool supplied one"
+      ],
+      "pseudocode": "for _, code := range []int{ExitOK, ExitFailed} { env := run.Envelope(code, plainResult, errInfoOrNil); b,_ := json.Marshal(env); assert bytes.Contains(b, []byte(`\"status\"`)); assert bytes.Contains(b, []byte(`\"summary\"`)) }"
+    },
+    {
+      "id": "TS-05-7",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.2"
+      ],
+      "title": "status is derived one-to-one from the exit code, in both directions, for every code in the table",
+      "given": [],
+      "when": "Run.Envelope is called once for each of ExitOK, ExitFailed, ExitUsage, ExitNeedsHuman and ExitUnverified",
+      "then": [
+        "status equals done, failed, usage, needs_human and unverified respectively",
+        "status never disagrees with ok or exit_code for any of the five"
+      ],
+      "pseudocode": "table := map[int]string{ExitOK:\"done\", ExitFailed:\"failed\", ExitUsage:\"usage\", ExitNeedsHuman:\"needs_human\", ExitUnverified:\"unverified\"}; for code, want := range table { env := run.Envelope(code, nil, errInfoFor(code)); assert env.Status == want }"
+    },
+    {
+      "id": "TS-05-8",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.3"
+      ],
+      "title": "A Result implementing Summary() supplies the envelope's summary, truncated to 200 characters",
+      "given": [
+        "a stub Result type whose Summary() string method returns a 250-character sentence"
+      ],
+      "when": "Run.Envelope is called with ExitOK and that result",
+      "then": [
+        "envelope.summary has length exactly 200",
+        "envelope.summary equals the first 200 characters of the stub's returned string"
+      ],
+      "pseudocode": "type stub struct{}; func (stub) Summary() string { return strings.Repeat(\"x\", 250) }; env := run.Envelope(ExitOK, stub{}, nil); assert len(env.Summary) == 200"
+    },
+    {
+      "id": "TS-05-9",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.4"
+      ],
+      "title": "A Result with no Summary() falls back to error.message when ok is false",
+      "given": [
+        "a plain struct result with no Summary() method"
+      ],
+      "when": "Run.Envelope is called with ExitFailed and an ErrorInfo whose Message is \"the pull request could not be opened\"",
+      "then": [
+        "envelope.summary equals \"the pull request could not be opened\""
+      ],
+      "pseudocode": "env := run.Envelope(ExitFailed, plainResult{}, &ErrorInfo{Stage:\"land\", Category:\"forge\", Message:\"the pull request could not be opened\"}); assert env.Summary == \"the pull request could not be opened\""
+    },
+    {
+      "id": "TS-05-10",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.5"
+      ],
+      "title": "A Result with no Summary() falls back to \"<tool>: done\" when ok is true",
+      "given": [
+        "a Run named \"fix\"",
+        "a plain struct result with no Summary() method"
+      ],
+      "when": "Run.Envelope is called with ExitOK",
+      "then": [
+        "envelope.summary equals \"fix: done\""
+      ],
+      "pseudocode": "run := NewRun(\"fix\", \"v1\"); env := run.Envelope(ExitOK, plainResult{}, nil); assert env.Summary == \"fix: done\""
+    },
+    {
+      "id": "TS-05-11",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.6"
+      ],
+      "title": "A high-severity warning on an ok:true run appends a fixed, deterministic clause noting the count and severity to the summary",
+      "given": [
+        "a Run carrying two warnings: one severity \"high\", one severity \"low\""
+      ],
+      "when": "Run.Envelope is called twice, with ExitOK and a result whose Summary() returns \"fix: committed and landed\"",
+      "then": [
+        "envelope.summary starts with \"fix: committed and landed\"",
+        "envelope.summary also states that 1 high-severity warning is present and that the highest severity is high",
+        "the appended clause text is identical across both calls, given the same warnings"
+      ],
+      "pseudocode": "run.Warn(WarnCode(\"input_truncated\"), \"high\", \"cut\"); run.Warn(WarnCode(\"comment_not_posted\"), \"low\", \"not posted\"); env1 := run.Envelope(ExitOK, summaryStub{\"fix: committed and landed\"}, nil); env2 := run.Envelope(ExitOK, summaryStub{\"fix: committed and landed\"}, nil); assert strings.HasPrefix(env1.Summary, \"fix: committed and landed\"); assert strings.Contains(env1.Summary, \"1\") && strings.Contains(env1.Summary, \"high\"); assert env1.Summary == env2.Summary"
+    },
+    {
+      "id": "TS-05-12",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-2.7"
+      ],
+      "title": "The envelope's JSON keys are emitted in the fixed field order, with usage.phases last",
+      "given": [
+        "an Envelope carrying every optional field: status, summary, error, needs_human, warnings, result, input, usage, model"
+      ],
+      "when": "the Envelope is marshalled with encoding/json",
+      "then": [
+        "the key order in the raw JSON text is tool, version, ok, status, exit_code, summary, error, needs_human, warnings, result, input, usage, model, duration_ms, started_at",
+        "within the usage object, \"phases\" is the last key"
+      ],
+      "pseudocode": "b,_ := json.Marshal(fullEnvelope); order := extractTopLevelKeyOrder(b); assert order == []string{\"tool\",\"version\",\"ok\",\"status\",\"exit_code\",\"summary\",\"error\",\"needs_human\",\"warnings\",\"result\",\"input\",\"usage\",\"model\",\"duration_ms\",\"started_at\"}; usageOrder := extractKeyOrder(b, \"usage\"); assert usageOrder[len(usageOrder)-1] == \"phases\""
+    },
+    {
+      "id": "TS-05-13",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.1"
+      ],
+      "title": "needs_human carries question, options, needed, stage and a non-literal resume template when status is needs_human",
+      "given": [
+        "an ErrorInfo with Stage \"analyse\"",
+        "a result reporting a question and two options A/B, with no needed value"
+      ],
+      "when": "Run.Envelope is called with ExitNeedsHuman (3) and a large (50KB) input body",
+      "then": [
+        "needs_human.question is set from the tool's question",
+        "needs_human.options carries both A and B entries, and needed is omitted",
+        "needs_human.stage equals error.stage exactly (\"analyse\")",
+        "needs_human.resume matches the fixed template naming the invocation shape and contains no fragment of the 50KB input text"
+      ],
+      "pseudocode": "env := run.Envelope(ExitNeedsHuman, questionResult, &ErrorInfo{Stage:\"analyse\", Category:\"ambiguous\", Message:\"...\"}); assert env.NeedsHuman.Stage == \"analyse\"; assert !strings.Contains(env.NeedsHuman.Resume, largeInputBody); assert len(env.NeedsHuman.Options) == 2 && env.NeedsHuman.Needed == \"\""
+    },
+    {
+      "id": "TS-05-14",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.2"
+      ],
+      "title": "needs_human is omitted entirely when status is not needs_human",
+      "given": [
+        "a result that could otherwise supply a question"
+      ],
+      "when": "Run.Envelope is called with ExitOK, ExitFailed, ExitUsage and ExitUnverified",
+      "then": [
+        "the marshalled JSON contains no \"needs_human\" key for any of the four"
+      ],
+      "pseudocode": "for _, code := range []int{ExitOK, ExitFailed, ExitUsage, ExitUnverified} { env := run.Envelope(code, questionResult, errInfoFor(code)); b,_ := json.Marshal(env); assert !bytes.Contains(b, []byte(`\"needs_human\"`)) }"
+    },
+    {
+      "id": "TS-05-15",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-3.3"
+      ],
+      "title": "codefix's Ambiguity maps onto needs_human's question and options A/B",
+      "given": [
+        "a codefix.Result with Ambiguity{Question: \"...\", InterpretationA: \"the HTTP client's retry loop\", InterpretationB: \"the job queue's redelivery\"}"
+      ],
+      "when": "the codefix pipeline's own envelope-facing shape is read by toolio.Run.Envelope while assembling the envelope with ExitNeedsHuman",
+      "then": [
+        "needs_human.question equals the Ambiguity's Question",
+        "needs_human.options equals [{id:\"A\", text: InterpretationA}, {id:\"B\", text: InterpretationB}]"
+      ],
+      "pseudocode": "result := &codefix.Result{Ambiguity: &codefix.Ambiguity{Question:\"...\", InterpretationA:\"the HTTP client's retry loop\", InterpretationB:\"the job queue's redelivery\"}}; env := run.Envelope(toolio.ExitNeedsHuman, result, &toolio.ErrorInfo{Stage:\"analyse\", Category:\"ambiguous\"}); assert env.NeedsHuman.Options[0] == Option{ID:\"A\", Text:\"the HTTP client's retry loop\"}"
+    },
+    {
+      "id": "TS-05-16",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-3.4"
+      ],
+      "title": "codeimpl's Blocker maps onto needs_human's question and needed, with no options",
+      "given": [
+        "a codeimpl.Result with Blocker{Reason: \"the spec names a module the PRD does not create\", Needed: \"a decision on module X\"}, set by the survey phase"
+      ],
+      "when": "toolio.Run.Envelope assembles the envelope with ExitNeedsHuman from that Result",
+      "then": [
+        "needs_human.question equals Blocker.Reason",
+        "needs_human.needed equals Blocker.Needed",
+        "needs_human.options is omitted"
+      ],
+      "pseudocode": "result := &codeimpl.Result{Blocker: &codeimpl.Blocker{Reason:\"the spec names a module the PRD does not create\", Needed:\"a decision on module X\"}}; env := run.Envelope(toolio.ExitNeedsHuman, result, &toolio.ErrorInfo{Stage:\"survey\", Category:codeimpl.CategoryBlocked}); assert env.NeedsHuman.Question == result.Blocker.Reason; assert env.NeedsHuman.Needed == result.Blocker.Needed; assert len(env.NeedsHuman.Options) == 0"
+    },
+    {
+      "id": "TS-05-17",
+      "kind": "integration",
+      "verifies": [
+        "05-REQ-3.5"
+      ],
+      "title": "checkUpstream sets Result.Blocker naming the dependency and the upstream package when a dependency is neither sealed nor done",
+      "given": [
+        "a spec package B declaring a task dependency on spec package A",
+        "spec package A has status \"active\" (not sealed) with at least one task not yet done"
+      ],
+      "when": "codeimpl.Run is invoked against spec package B",
+      "then": [
+        "the run exits with code 3 (ExitNeedsHuman)",
+        "result.Blocker.Reason names the dependency (spec A)",
+        "result.Blocker.Needed names the upstream package",
+        "the resulting envelope's needs_human is populated the same way any other blocker is (question from Reason, needed from Needed, no options)"
+      ],
+      "pseudocode": "writeSpecPackage(t, specADir, \"01\", \"upstream\"); markOneTaskUndone(specADir); writeSpecPackage(t, specBDir, \"02\", \"downstream\", dependsOn: \"01\"); result, err := codeimpl.Run(ctx, codeimpl.Options{Input: specBInput, ...}); assert result.Blocker != nil && strings.Contains(result.Blocker.Reason, \"01\"); assert strings.Contains(result.Blocker.Needed, \"upstream\")"
+    },
+    {
+      "id": "TS-05-18",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.6"
+      ],
+      "title": "specgen never sets needs_human even when open_questions is non-empty; the summary reports only the count",
+      "given": [
+        "a specgen.Result with three OpenQuestions entries"
+      ],
+      "when": "toolio.Run.Envelope assembles the envelope for an ExitOK run on that result",
+      "then": [
+        "needs_human is omitted",
+        "result.open_questions still carries all three entries, unaffected",
+        "envelope.summary mentions that 3 open questions remain"
+      ],
+      "pseudocode": "result := &specgen.Result{Package: specgen.Package{OpenQuestions: threeQuestions}}; env := run.Envelope(toolio.ExitOK, result, nil); b,_ := json.Marshal(env); assert !bytes.Contains(b, []byte(`\"needs_human\"`)); assert len(result.OpenQuestions) == 3; assert strings.Contains(env.Summary, \"3\")"
+    },
+    {
+      "id": "TS-05-19",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.7"
+      ],
+      "title": "Repeated --context flags render one labelled block appended to the phase prompt, independently of Body, and are reported as input.context_bytes",
+      "given": [
+        "--context \"first note\" and --context \"second note\" are both given on the command line, in that order"
+      ],
+      "when": "toolio.Common's flags are parsed and the run proceeds through App.execute",
+      "then": [
+        "the rendered block is headed \"## Additional context from the caller\" with one paragraph per value, in the order given",
+        "Input.Body is unchanged by --context: it equals exactly what Resolve produced",
+        "the phase prompt construction appends the block separately from Body",
+        "envelope.input.context_bytes equals the rendered block's byte length"
+      ],
+      "pseudocode": "common.Context = []string{\"first note\", \"second note\"}; block := common.ContextBlock(); assert strings.HasPrefix(block, \"## Additional context from the caller\"); assert strings.Contains(block, \"first note\") && strings.Contains(block, \"second note\"); in := resolveInput(); assert in.Body == originalBody; env := run.Envelope(...); assert env.Input.ContextBytes == len(block)"
+    },
+    {
+      "id": "TS-05-20",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-3.8"
+      ],
+      "title": "An input plus context block exceeding MaxInputBytes is refused as a usage error before anything is fetched",
+      "given": [
+        "Body is 200000 bytes long",
+        "one --context value brings len(Body)+len(contextBlock) above toolio.MaxInputBytes (256KB)"
+      ],
+      "when": "the run is invoked with that input and --context value",
+      "then": [
+        "the process exits with code 2",
+        "error.category is \"usage\"",
+        "no network call or file read is made for the input",
+        "neither Body nor the context block is silently truncated"
+      ],
+      "pseudocode": "body := strings.Repeat(\"a\", 200000); ctxVal := strings.Repeat(\"b\", 70000); env, code := runApp([]string{\"--dir\", dir, \"--context\", ctxVal, body}); assert code == toolio.ExitUsage; assert env.Error.Category == \"usage\"; assert !networkCalled"
+    },
+    {
+      "id": "TS-05-21",
+      "kind": "property",
+      "verifies": [
+        "05-REQ-4.1"
+      ],
+      "title": "retryable is true only for the api and aborted categories, for any category in the shared vocabulary",
+      "given": [],
+      "when": "for any category in {usage, input, auth, model, invalid_spec, blocked, ambiguous, empty_change, internal, budget, max_turns, no_result, unverified, git, forge, disk, api, aborted}, an ErrorInfo of that category is built by toolio",
+      "then": [
+        "retryable is true exactly when category is \"api\" or \"aborted\", and false for every other category in the domain"
+      ],
+      "pseudocode": "for cat := range allCategories { info := toolio.BuildErrorInfo(cat, ...); want := cat == \"api\" || cat == \"aborted\"; assert info.Retryable == want }"
+    },
+    {
+      "id": "TS-05-22",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.2"
+      ],
+      "title": "error.resumable is set from the result's Resumable() method via a type assertion",
+      "given": [
+        "a stub Result type with Resumable() bool"
+      ],
+      "when": "Run.Envelope is called with a failing exit code and, in turn, a stub returning true and one returning false",
+      "then": [
+        "error.resumable equals the stub's return value in both cases"
+      ],
+      "pseudocode": "type stubT struct{ v bool }; func (s stubT) Resumable() bool { return s.v }; env1 := run.Envelope(ExitUnverified, stubT{true}, errInfo); env2 := run.Envelope(ExitUnverified, stubT{false}, errInfo); assert env1.Error.Resumable == true; assert env2.Error.Resumable == false"
+    },
+    {
+      "id": "TS-05-23",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.3"
+      ],
+      "title": "codefix.Result.Resumable always returns false, because branch names are never deterministic",
+      "given": [
+        "a codefix.Result with Branch set to a non-empty value, e.g. \"fix/issue-42-abcdef\""
+      ],
+      "when": "Resumable() is called on it",
+      "then": [
+        "it returns false regardless of whether Branch is set"
+      ],
+      "pseudocode": "r := codefix.Result{Branch: \"fix/issue-42-abcdef\"}; assert r.Resumable() == false; r2 := codefix.Result{}; assert r2.Resumable() == false"
+    },
+    {
+      "id": "TS-05-24",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.4"
+      ],
+      "title": "codeimpl.Result.Resumable returns true exactly when Branch is non-empty",
+      "given": [
+        "one codeimpl.Result with Branch = \"impl/09-widget\"",
+        "one codeimpl.Result with Branch = \"\""
+      ],
+      "when": "Resumable() is called on each",
+      "then": [
+        "the first returns true",
+        "the second returns false"
+      ],
+      "pseudocode": "assert codeimpl.Result{Branch:\"impl/09-widget\"}.Resumable() == true; assert codeimpl.Result{Branch:\"\"}.Resumable() == false"
+    },
+    {
+      "id": "TS-05-25",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.5"
+      ],
+      "title": "specgen.Result.Resumable returns true exactly when SplitPlan is non-empty",
+      "given": [
+        "one specgen.Result with SplitPlan = \".specs/09_widget.split.json\"",
+        "one specgen.Result with SplitPlan = \"\""
+      ],
+      "when": "Resumable() is called on each",
+      "then": [
+        "the first returns true",
+        "the second returns false"
+      ],
+      "pseudocode": "assert specgen.Result{SplitPlan:\".specs/09_widget.split.json\"}.Resumable() == true; assert specgen.Result{SplitPlan:\"\"}.Resumable() == false"
+    },
+    {
+      "id": "TS-05-26",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.6"
+      ],
+      "title": "issuetriage.Result.Resumable always returns false",
+      "given": [
+        "an issuetriage.Result with every field populated as a filed issue would be"
+      ],
+      "when": "Resumable() is called on it",
+      "then": [
+        "it returns false"
+      ],
+      "pseudocode": "assert issuetriage.Result{Action:\"filed\", Number:57}.Resumable() == false"
+    },
+    {
+      "id": "TS-05-27",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.7"
+      ],
+      "title": "fix_hint for the budget and max_turns categories names the flag, the resolved current bound, and a suggestion double it",
+      "given": [
+        "a run whose resolved per-phase Bounds has MaxBudgetUSD=2.0 and MaxTurns=20"
+      ],
+      "when": "an ErrorInfo of category \"budget\" and one of category \"max_turns\" are built from those Bounds at a non-\"budget\" stage",
+      "then": [
+        "the budget error's fix_hint is {flag: \"--budget\", current: 2.0, suggest: 4.0}",
+        "the max_turns error's fix_hint is {flag: \"--max-turns\", current: 20, suggest: 40}"
+      ],
+      "pseudocode": "bounds := agentrun.Bounds{MaxBudgetUSD:2.0, MaxTurns:20}; hintB := toolio.FixHintFor(\"budget\", \"implement\", bounds, nil); assert hintB == FixHint{Flag:\"--budget\", Current:2.0, Suggest:4.0}; hintT := toolio.FixHintFor(\"max_turns\", \"implement\", bounds, nil); assert hintT == FixHint{Flag:\"--max-turns\", Current:20.0, Suggest:40.0}"
+    },
+    {
+      "id": "TS-05-28",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.7"
+      ],
+      "title": "fix_hint for the no_result category takes the shape of whichever bound the phase actually stopped at",
+      "given": [
+        "an agentrun.NoResultError exposing RunStopBudgetExceeded",
+        "a second agentrun.NoResultError exposing RunStopMaxTurns"
+      ],
+      "when": "toolio builds the fix_hint for each of the two no_result errors",
+      "then": [
+        "the first's fix_hint has flag \"--budget\"",
+        "the second's fix_hint has flag \"--max-turns\""
+      ],
+      "pseudocode": "errBudget := agentrun.NoResultError(\"implement\", \"submit\", agentrun.Result{StopReason: agentrun.RunStopBudgetExceeded}); errTurns := agentrun.NoResultError(\"implement\", \"submit\", agentrun.Result{StopReason: agentrun.RunStopMaxTurns}); assert toolio.FixHintFor(\"no_result\", \"implement\", bounds, errBudget).Flag == \"--budget\"; assert toolio.FixHintFor(\"no_result\", \"implement\", bounds, errTurns).Flag == \"--max-turns\""
+    },
+    {
+      "id": "TS-05-29",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.7"
+      ],
+      "title": "fix_hint for the auth category names the vendor's credential variables, or the forge token names for a forge credential",
+      "given": [
+        "a model auth failure whose vendor's CheckCredentials table lists ANTHROPIC_API_KEY",
+        "a forge auth failure targeting GitHub"
+      ],
+      "when": "toolio builds the fix_hint for each",
+      "then": [
+        "the model auth fix_hint is {env: [\"ANTHROPIC_API_KEY\", ...]}",
+        "the forge auth fix_hint for GitHub is {env: [\"GITHUB_TOKEN\", \"GH_TOKEN\"]}"
+      ],
+      "pseudocode": "modelHint := toolio.FixHintFor(\"auth\", \"preflight\", bounds, anthropicAuthErr); assert contains(modelHint.Env, \"ANTHROPIC_API_KEY\"); forgeHint := toolio.FixHintFor(\"auth\", \"land\", bounds, githubForgeAuthErr); assert forgeHint.Env == []string{\"GITHUB_TOKEN\", \"GH_TOKEN\"}"
+    },
+    {
+      "id": "TS-05-30",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.7"
+      ],
+      "title": "fix_hint for the model category is the static tier list, regardless of what model spec was asked for",
+      "given": [],
+      "when": "an ErrorInfo of category \"model\" is built for an unresolvable model spec",
+      "then": [
+        "fix_hint equals {flag: \"--model\", valid: [\"SIMPLE\", \"STANDARD\", \"ADVANCED\"]}"
+      ],
+      "pseudocode": "hint := toolio.FixHintFor(\"model\", \"preflight\", bounds, unresolvableModelErr); assert hint.Flag == \"--model\" && hint.Valid == []string{\"SIMPLE\",\"STANDARD\",\"ADVANCED\"}"
+    },
+    {
+      "id": "TS-05-31",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.7"
+      ],
+      "title": "fix_hint for a usage error naming exactly one culprit flag is present; one naming none or several is omitted",
+      "given": [
+        "a usage error from issue combining --overwrite with --repo/--label",
+        "a usage error from fix combining --no-verify with --verify",
+        "a generic usage error naming no specific flag"
+      ],
+      "when": "toolio builds the fix_hint for each",
+      "then": [
+        "the first two carry fix_hint {flag: \"--overwrite\"} and {flag: \"--no-verify\"} respectively",
+        "the third has no fix_hint field at all"
+      ],
+      "pseudocode": "h1 := toolio.FixHintFor(\"usage\", \"usage\", bounds, errors.New(\"--overwrite cannot be combined with --repo or --label\")); assert h1.Flag == \"--overwrite\"; h2 := toolio.FixHintFor(\"usage\", \"usage\", bounds, errors.New(\"--no-verify cannot be combined with --verify\")); assert h2.Flag == \"--no-verify\"; h3 := toolio.FixHintFor(\"usage\", \"usage\", bounds, errors.New(\"expected one input, got 2\")); assert h3 == nil"
+    },
+    {
+      "id": "TS-05-32",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-4.8"
+      ],
+      "title": "A budget-category error whose stage is literally \"budget\" gets a --total-budget fix_hint instead of the per-phase --budget one",
+      "given": [
+        "a run with TotalBudgetUSD=10.0 and a per-phase MaxBudgetUSD=2.0",
+        "an ErrorInfo{Stage: \"budget\", Category: \"budget\"} from codeimpl's total-budget check",
+        "a second ErrorInfo{Stage: \"implement\", Category: \"budget\"} from an ordinary per-phase ceiling"
+      ],
+      "when": "toolio builds the fix_hint for each",
+      "then": [
+        "the first's fix_hint is {flag: \"--total-budget\", current: 10.0, suggest: 20.0}",
+        "the second's fix_hint is {flag: \"--budget\", current: 2.0, suggest: 4.0}"
+      ],
+      "pseudocode": "h1 := toolio.FixHintFor(\"budget\", \"budget\", bounds, totalBudgetErr /* carries TotalBudgetUSD:10.0 */); assert h1.Flag == \"--total-budget\" && h1.Current == 10.0 && h1.Suggest == 20.0; h2 := toolio.FixHintFor(\"budget\", \"implement\", bounds, nil); assert h2.Flag == \"--budget\" && h2.Current == 2.0"
+    },
+    {
+      "id": "TS-05-33",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.1"
+      ],
+      "title": "Run.Warn accepts a WarnCode and severity, and the envelope reports each warning as a code/severity/stage/message object",
+      "given": [],
+      "when": "Run.Warn(WarnCode(\"input_truncated\"), \"high\", \"the input was truncated at %d bytes\", 262144) is called",
+      "then": [
+        "the envelope's warnings array holds one Warning{Code: \"input_truncated\", Severity: \"high\", Stage: <looked up>, Message: \"the input was truncated at 262144 bytes\"}"
+      ],
+      "pseudocode": "run.Warn(toolio.WarnCode(\"input_truncated\"), \"high\", \"the input was truncated at %d bytes\", 262144); env := run.Envelope(toolio.ExitOK, nil, nil); assert len(env.Warnings) == 1; w := env.Warnings[0]; assert w.Code == \"input_truncated\" && w.Severity == \"high\" && w.Message == \"the input was truncated at 262144 bytes\""
+    },
+    {
+      "id": "TS-05-34",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.2"
+      ],
+      "title": "a warning's stage is sourced from the single map[WarnCode]string table, never a call-site parameter",
+      "given": [
+        "the declared stage table maps WarnCode(\"commit_not_parked\") to \"park\""
+      ],
+      "when": "Run.Warn(WarnCode(\"commit_not_parked\"), \"high\", \"the commit could not be parked\") is called",
+      "then": [
+        "the resulting Warning's Stage is \"park\", and Warn's own signature takes no stage argument at all"
+      ],
+      "pseudocode": "run.Warn(toolio.WarnCode(\"commit_not_parked\"), \"high\", \"the commit could not be parked\"); w := run.Envelope(toolio.ExitOK, nil, nil).Warnings[0]; assert w.Stage == \"park\""
+    },
+    {
+      "id": "TS-05-35",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.3"
+      ],
+      "title": "every declared WarnCode constant has an entry in the stage table",
+      "given": [
+        "every WarnCode constant declared in internal/toolio"
+      ],
+      "when": "the test walks the declared constants against the stage table's keys",
+      "then": [
+        "no declared constant is missing a table entry"
+      ],
+      "pseudocode": "for _, code := range toolio.DeclaredWarnCodes() { _, ok := toolio.WarnStage(code); assert ok }"
+    },
+    {
+      "id": "TS-05-36",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.4"
+      ],
+      "title": "a source scan flags a Run.Warn call site that passes a bare string literal instead of a declared WarnCode",
+      "given": [
+        "every real Run.Warn call site across internal/toolio, codefix, codeimpl, specgen and issuetriage",
+        "a fixture source file containing a call shaped like Warn(\"some_code\", \"high\", \"message\")"
+      ],
+      "when": "the source-scan test walks both the real tree and the fixture",
+      "then": [
+        "scanning the real call sites reports zero violations",
+        "scanning the fixture reports exactly the one call site passing a literal instead of a constant"
+      ],
+      "pseudocode": "violations := scanWarnCallSites([]string{\"internal/toolio\",\"codefix\",\"codeimpl\",\"specgen\",\"issuetriage\"}); assert len(violations) == 0; fixtureViolations := scanWarnCallSites([]string{\"testdata/warn_literal_fixture\"}); assert len(fixtureViolations) == 1"
+    },
+    {
+      "id": "TS-05-37",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.5"
+      ],
+      "title": "severity is read as given at the call site, not derived from code alone",
+      "given": [
+        "two Run.Warn calls both with code \"spec_edit_reverted\", one severity \"high\" and one severity \"low\""
+      ],
+      "when": "both calls are made on separate Run instances",
+      "then": [
+        "the resulting Warning objects carry \"high\" and \"low\" respectively, proving severity is not fixed per code"
+      ],
+      "pseudocode": "run1.Warn(toolio.WarnCode(\"spec_edit_reverted\"), \"high\", \"reverted\"); run2.Warn(toolio.WarnCode(\"spec_edit_reverted\"), \"low\", \"reverted\"); assert run1.Envelope(...).Warnings[0].Severity == \"high\"; assert run2.Envelope(...).Warnings[0].Severity == \"low\""
+    },
+    {
+      "id": "TS-05-38",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.6"
+      ],
+      "title": "the WarnCode stage table carries every code-to-stage pair the spec lists",
+      "given": [],
+      "when": "every listed pair (input_truncated/input, comments_unreadable/input, no_verify_command/preflight, criteria_unmet/implement, commit_not_parked/park, checkout_not_restored/park, pull_request_not_opened/land, comment_not_posted/report, spec_edit_reverted/task, state_not_saved/park, draft_package/preflight, upstream_missing/preflight, parked_attempt_discarded/preflight, spec_validation_warning/preflight, specs_dir_unreadable/preflight, project_language_unknown/preflight, name_flag_ignored/usage, scope_renamed/prd, scope_count_mismatch/prd, split_plan_foreign/split, split_plan_unreadable/split, split_plan_stale/split, split_plan_update_failed/split, split_plan_not_removed/split, architecture_not_written/write, activation_failed/activate, rejected_path_calls/analyse) is looked up in the declared table",
+      "then": [
+        "every pair is present and matches exactly"
+      ],
+      "pseudocode": "pairs := map[string]string{\"input_truncated\":\"input\", \"comments_unreadable\":\"input\", \"no_verify_command\":\"preflight\", /* ... every remaining pair ... */ \"rejected_path_calls\":\"analyse\"}; for code, stage := range pairs { got, ok := toolio.WarnStage(toolio.WarnCode(code)); assert ok && got == stage }"
+    },
+    {
+      "id": "TS-05-39",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-5.7"
+      ],
+      "title": "a call to Run.Warn is reflected in the envelope's warnings array as a full object matching the call site and the table",
+      "given": [
+        "Run.Warn(WarnCode(\"pull_request_not_opened\"), \"high\", \"the pull request could not be opened: %v\", someErr) is called once"
+      ],
+      "when": "Run.Envelope assembles the envelope",
+      "then": [
+        "envelope.warnings has one entry whose code, severity, stage and message match the call site and the declared table"
+      ],
+      "pseudocode": "run.Warn(toolio.WarnCode(\"pull_request_not_opened\"), \"high\", \"the pull request could not be opened: %v\", someErr); env := run.Envelope(toolio.ExitOK, nil, nil); w := env.Warnings[0]; assert w.Code == \"pull_request_not_opened\" && w.Severity == \"high\" && w.Stage == \"land\" && strings.Contains(w.Message, someErr.Error())"
+    },
+    {
+      "id": "TS-05-40",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.1"
+      ],
+      "title": "docs/cli.md's output example includes status, summary and needs_human fields",
+      "given": [],
+      "when": "docs/cli.md is read",
+      "then": [
+        "the documented output example carries the keys \"status\", \"summary\" and \"needs_human\""
+      ],
+      "pseudocode": "body := readFile(\"docs/cli.md\"); assert strings.Contains(body, \"\\\"status\\\"\") && strings.Contains(body, \"\\\"summary\\\"\") && strings.Contains(body, \"\\\"needs_human\\\"\")"
+    },
+    {
+      "id": "TS-05-41",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.2"
+      ],
+      "title": "docs/cli.md's error-category table gains a retryable column and a new warning-codes table",
+      "given": [],
+      "when": "docs/cli.md is read",
+      "then": [
+        "the error-category table has a column header naming \"retryable\"",
+        "a separate warning-codes table is present listing WarnCode entries with a severity and a stage column"
+      ],
+      "pseudocode": "body := readFile(\"docs/cli.md\"); assert strings.Contains(body, \"retryable\"); assert strings.Contains(body, \"input_truncated\") && strings.Contains(body, \"severity\") && strings.Contains(body, \"stage\")"
+    },
+    {
+      "id": "TS-05-42",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.3"
+      ],
+      "title": "docs/cli.md documents --context under the shared flags section",
+      "given": [],
+      "when": "docs/cli.md is read",
+      "then": [
+        "the shared flags section names \"--context\" and describes it as repeatable"
+      ],
+      "pseudocode": "body := readFile(\"docs/cli.md\"); assert strings.Contains(body, \"--context\")"
+    },
+    {
+      "id": "TS-05-43",
+      "kind": "unit",
+      "verifies": [
+        "05-REQ-6.4"
+      ],
+      "title": "README.md's exit-code sentence names the matching status value for each of the five exit codes",
+      "given": [],
+      "when": "README.md is read",
+      "then": [
+        "the exit-code sentence names \"done\", \"failed\", \"usage\", \"needs_human\" and \"unverified\" alongside 0, 1, 2, 3 and 4 respectively"
+      ],
+      "pseudocode": "body := readFile(\"README.md\"); for _, s := range []string{\"done\",\"failed\",\"usage\",\"needs_human\",\"unverified\"} { assert strings.Contains(body, s) }"
+    },
+    {
+      "id": "TS-05-44",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-1",
+        "05-REQ-1.2"
+      ],
+      "title": "A program-driven caller invoking fix with no argument and stdout redirected to a file gets one parseable envelope",
+      "given": [
+        "stdout is redirected to a real file, not a terminal",
+        "no positional argument is given"
+      ],
+      "when": "the fix binary's shared App.Main runs end to end through the real toolio shell",
+      "then": [
+        "the process exits with code 2",
+        "the file holds exactly one JSON object with status \"usage\" and error.message naming the four accepted input shapes",
+        "the caller can parse that file and read error.message to correct the invocation"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Run.Envelope",
+        "toolio.Emit"
+      ]
+    },
+    {
+      "id": "TS-05-45",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-2",
+        "05-REQ-3.3",
+        "05-REQ-3.7"
+      ],
+      "title": "fix stops on an ambiguity and resumes with --context to reach a done analysis",
+      "given": [
+        "a report describing a bug with two plausible causes",
+        "a real git repository workspace"
+      ],
+      "when": "fix is run once with the report, stops on the ambiguity, and is run a second time with the same input plus --context \"<answer>\"",
+      "then": [
+        "the first run's envelope has status \"needs_human\" with needs_human.options carrying entries A and B and a resume template naming the invocation shape",
+        "the second run's rendered context block reaches the analyse phase's prompt",
+        "the second run completes with status \"done\""
+      ],
+      "real_components": [
+        "toolio.App",
+        "codefix.Run",
+        "internal/gitx.Git",
+        "internal/checks"
+      ]
+    },
+    {
+      "id": "TS-05-46",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-3",
+        "05-REQ-4.4",
+        "05-REQ-4.7"
+      ],
+      "title": "impl hits a per-phase budget ceiling and resumes on the same branch once the ceiling is raised",
+      "given": [
+        "a real spec package under .specs with at least one task",
+        "a per-phase --budget ceiling low enough that a task phase exceeds it"
+      ],
+      "when": "impl is run once against the spec, stops at the budget ceiling with Result.Branch already set, and is run a second time with a higher --budget",
+      "then": [
+        "the first run's envelope carries error.category \"budget\", error.fix_hint {flag: \"--budget\", current, suggest}, and error.resumable true because Branch is non-empty",
+        "the second run continues on the same branch and completes with status \"done\""
+      ],
+      "real_components": [
+        "toolio.App",
+        "codeimpl.Run",
+        "internal/gitx.Git",
+        "internal/checks",
+        "afspec.LoadSpec"
+      ]
+    },
+    {
+      "id": "TS-05-47",
+      "kind": "smoke",
+      "verifies": [
+        "05-PATH-4",
+        "05-REQ-2.6",
+        "05-REQ-5.6"
+      ],
+      "title": "A high-severity input-truncation warning surfaces in an otherwise successful fix run's summary",
+      "given": [
+        "a report exceeding toolio.MaxInputBytes is given as fix's input",
+        "a real git repository workspace"
+      ],
+      "when": "fix runs end to end and lands the change",
+      "then": [
+        "the envelope's warnings array carries one entry with code \"input_truncated\", severity \"high\", stage \"input\"",
+        "envelope.ok is true",
+        "envelope.summary carries a deterministic clause noting one high-severity warning, alongside the unchanged warnings array entry"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Resolve",
+        "codefix.Run",
+        "internal/gitx.Git",
+        "internal/checks"
+      ]
+    }
+  ]
+}

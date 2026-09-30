@@ -1,0 +1,537 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "08",
+  "spec_name": "envelope_output_file",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-08-1",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.1"
+      ],
+      "title": "Common.Register adds an --output flag defaulting to empty",
+      "given": [],
+      "when": "Common.Register(fs) is called and fs.Parse is run with no --output argument",
+      "then": [
+        "fs.Lookup(\"output\") is non-nil",
+        "Common.Output equals the empty string"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(...); c := &Common{}; c.Register(fs); fs.Parse([]); assert fs.Lookup(\"output\") != nil; assert c.Output == \"\""
+    },
+    {
+      "id": "TS-08-2",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.2"
+      ],
+      "title": "--output resolves against the process working directory, not --dir",
+      "given": [
+        "cwd is a known temp directory",
+        "--dir points at a different, unrelated workspace directory"
+      ],
+      "when": "--output is given a relative path alongside an unrelated --dir",
+      "then": [
+        "the resolved destination equals filepath.Abs(cwd, the given value)",
+        "the resolved destination does not fall under --dir's root"
+      ],
+      "pseudocode": "cwd, _ := os.Getwd(); resolved := resolveOutput(\"sub/out.json\"); assert resolved == filepath.Join(cwd, \"sub/out.json\"); assert !strings.HasPrefix(resolved, dirFlagAbs)"
+    },
+    {
+      "id": "TS-08-3",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.3"
+      ],
+      "title": "--output - is refused as a usage error before anything is fetched",
+      "given": [],
+      "when": "the tool is invoked with --output - and a valid positional input",
+      "then": [
+        "the process exit code is 2",
+        "env.Error.Category == \"usage\"",
+        "no file is read or written for --output",
+        "Exec is never called"
+      ],
+      "pseudocode": "env, code, _ := runApp(app, []string{\"--output\", \"-\", \"some report\"}, \"\"); assert code == ExitUsage; assert env.Error.Category == \"usage\"; assert !execCalled"
+    },
+    {
+      "id": "TS-08-4",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-1.4"
+      ],
+      "title": "An --output path that already exists as a directory is a usage error caught before anything is fetched",
+      "given": [
+        "a temp directory D exists on disk"
+      ],
+      "when": "the tool is invoked with --output D and a valid positional input",
+      "then": [
+        "the process exit code is 2",
+        "env.Error.Category == \"usage\"",
+        "Exec is never called"
+      ],
+      "pseudocode": "env, code, _ := runApp(app, []string{\"--output\", tempDir, \"some report\"}, \"\"); assert code == ExitUsage; assert !execCalled"
+    },
+    {
+      "id": "TS-08-5",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-1.5"
+      ],
+      "title": "--output validation runs once, before PreCheck, Workspace(), Resolve or model resolution",
+      "given": [
+        "an App whose PreCheck, CheckInput and Exec each set a flag when called"
+      ],
+      "when": "the tool is invoked with --output - (a malformed value) and a valid positional input",
+      "then": [
+        "the run fails with exit code 2 before PreCheck ran",
+        "Workspace() was never called",
+        "no model was resolved",
+        "Exec was never called"
+      ],
+      "pseudocode": "app.PreCheck = func(*Common) error { preCheckCalled = true; return nil }; code := app.Main(ctx, []string{\"--output\", \"-\", \"x\"}, ...); assert code == ExitUsage; assert !preCheckCalled; assert !execCalled"
+    },
+    {
+      "id": "TS-08-6",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-2.2"
+      ],
+      "title": "The end-of-Main envelope is fully written to --output before any byte reaches stdout",
+      "given": [
+        "an App whose Exec returns a deterministic successful result",
+        "--output points at a fresh path in a temp directory"
+      ],
+      "when": "app.Main runs to completion with a stdout writer that, on its first Write, reads and parses the --output file",
+      "then": [
+        "at the moment stdout receives its first byte, the file at --output already exists and unmarshals into a complete envelope",
+        "that envelope's Tool, ExitCode and Result match the envelope subsequently written to stdout"
+      ],
+      "pseudocode": "type probeWriter struct{ outPath string }; func (p *probeWriter) Write(b []byte) (int, error) { data, err := os.ReadFile(p.outPath); assert err == nil; var e Envelope; assert json.Unmarshal(data, &e) == nil; return len(b), nil }; code := app.Main(ctx, []string{\"--output\", outPath, \"x\"}, stdin, &probeWriter{outPath}, stderr)"
+    },
+    {
+      "id": "TS-08-7",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.2"
+      ],
+      "title": "The flag-parsing-failure envelope is written to --output before stdout, when --output parsed before the bad flag",
+      "given": [
+        "--output is given before an undefined flag on the command line"
+      ],
+      "when": "app.Main is invoked with argv = [\"--output\", outPath, \"--nope\", \"x\"]",
+      "then": [
+        "the process exit code is 2",
+        "the file at --output exists and unmarshals to the same usage-failure envelope written to stdout"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--output\", outPath, \"--nope\", \"x\"}, stdin, &stdout, &stderr); assert code == ExitUsage; fileEnv := readEnvelope(outPath); stdoutEnv := readEnvelope(stdout.Bytes()); assert fileEnv == stdoutEnv"
+    },
+    {
+      "id": "TS-08-8",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.3"
+      ],
+      "title": "Emit's marshal-failure fallback envelope is written to --output identically to stdout",
+      "given": [
+        "an envelope whose Result field cannot be marshalled to JSON (e.g. a channel)",
+        "Output is set on the Run/Emit call"
+      ],
+      "when": "EmitWithOutput(w, outPath, env) is called",
+      "then": [
+        "the return code is ExitFailed",
+        "the file at outPath exists and its content, byte for byte, equals what was written to w"
+      ],
+      "pseudocode": "env := r.Envelope(ExitOK, map[string]any{\"bad\": make(chan int)}, nil); code := EmitWithOutput(&buf, outPath, env); assert code == ExitFailed; fileBytes, _ := os.ReadFile(outPath); assert bytes.Equal(fileBytes, buf.Bytes())"
+    },
+    {
+      "id": "TS-08-9",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-2.1"
+      ],
+      "title": "The --output file always carries exactly the same envelope stdout receives, outside a report-file collision",
+      "given": [
+        "no --report-file collision configured"
+      ],
+      "when": "for any combination of exit code (OK, failed, usage, needs_human, unverified), result payload, and set of warnings, the run is made with --output set",
+      "then": [
+        "the parsed content of the --output file deep-equals the parsed content written to stdout for that same run"
+      ],
+      "pseudocode": "for (code, result, warnings) in gen_envelopes(): env := buildEnvelope(code, result, warnings); stdoutEnv, fileEnv := runWithOutput(env); assert deepEqual(stdoutEnv, fileEnv)"
+    },
+    {
+      "id": "TS-08-10",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-2.4"
+      ],
+      "title": "A write to --output is always atomic: no partial content is ever observable and no temp file survives",
+      "given": [],
+      "when": "for any envelope whose serialised size ranges from a few bytes to several megabytes, it is written to --output",
+      "then": [
+        "a goroutine polling the destination path throughout the write never reads a document that fails to parse as complete JSON",
+        "after the write returns, the target directory contains no leftover temp file",
+        "the file at the destination equals the envelope written"
+      ],
+      "pseudocode": "for size in gen_sizes(): env := buildEnvelopeOfSize(size); done := make(chan struct{}); go pollDuringWrite(outPath, done); writeAtomic(outPath, env); close(done); assert noPartialReadObserved; assert !hasTempFilesIn(dir(outPath))"
+    },
+    {
+      "id": "TS-08-11",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.5"
+      ],
+      "title": "A missing parent directory for --output is created at write time",
+      "given": [
+        "--output points inside a directory tree that does not yet exist"
+      ],
+      "when": "the run completes and the envelope is written to --output",
+      "then": [
+        "the parent directory now exists",
+        "the file at --output exists and contains the envelope"
+      ],
+      "pseudocode": "outPath := filepath.Join(tempDir, \"a\", \"b\", \"c\", \"out.json\"); code := app.Main(ctx, []string{\"--output\", outPath, \"x\"}, ...); _, err := os.Stat(filepath.Dir(outPath)); assert err == nil; _, err = os.Stat(outPath); assert err == nil"
+    },
+    {
+      "id": "TS-08-12",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.6"
+      ],
+      "title": "--output is written under --dry-run exactly as without it",
+      "given": [
+        "a tool that accepts --dry-run and behaves identically apart from remote effects"
+      ],
+      "when": "the same run is made once with --dry-run and once without it, both with --output set to distinct paths",
+      "then": [
+        "both --output files exist and contain a complete envelope",
+        "the two envelopes' Tool, Result and Warnings fields match apart from any dry-run-specific field"
+      ],
+      "pseudocode": "runApp(app, []string{\"--dry-run\", \"--output\", outA, \"x\"}, \"\"); runApp(app, []string{\"--output\", outB, \"x\"}, \"\"); assert fileExists(outA); assert fileExists(outB)"
+    },
+    {
+      "id": "TS-08-13",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.7"
+      ],
+      "title": "-h/--help performs no --output validation and writes no file, even for a malformed --output value",
+      "given": [
+        "--output is set to \"-\", which would otherwise be a usage error"
+      ],
+      "when": "the tool is invoked with -h --output -",
+      "then": [
+        "the exit code is 0",
+        "stdout is empty",
+        "no file named \"-\" is created",
+        "no usage error about --output is reported"
+      ],
+      "pseudocode": "var stdout, stderr bytes.Buffer; code := app.Main(ctx, []string{\"-h\", \"--output\", \"-\"}, stdin, &stdout, &stderr); assert code == ExitOK; assert stdout.Len() == 0; assert !fileExists(\"-\")"
+    },
+    {
+      "id": "TS-08-14",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-2.7"
+      ],
+      "title": "A bare invocation with no positional argument performs no --output validation and writes no file",
+      "given": [
+        "--output is set to an existing directory, which would otherwise be a usage error"
+      ],
+      "when": "the tool is invoked with only --output <existing-dir> and no positional argument",
+      "then": [
+        "stdout is empty",
+        "no envelope is emitted",
+        "no file or error about the existing-directory --output value is produced"
+      ],
+      "pseudocode": "var stdout, stderr bytes.Buffer; code := app.Main(ctx, []string{\"--output\", existingDir}, stdin, &stdout, &stderr); assert stdout.Len() == 0; assert code == ExitUsage; assert !strings.Contains(stderr.String(), \"output\")"
+    },
+    {
+      "id": "TS-08-15",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-2.8"
+      ],
+      "title": "--output never changes ok, status or exit_code",
+      "given": [],
+      "when": "for any exit code among {OK, failed, usage, needs_human, unverified}, crossed with --output unset, --output set and succeeding, and --output set but failing to write",
+      "then": [
+        "OK and ExitCode on the run's own envelope are identical across all three --output states for the same underlying exit code"
+      ],
+      "pseudocode": "for code in exitCodes: baseline := runWithoutOutput(code); withOutput := runWithOutput(code, outPath); withFailingOutput := runWithOutput(code, unwritablePath); assert baseline.OK == withOutput.OK == withFailingOutput.OK; assert baseline.ExitCode == withOutput.ExitCode == withFailingOutput.ExitCode"
+    },
+    {
+      "id": "TS-08-16",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.1",
+        "08-REQ-3.3"
+      ],
+      "title": "A failed --output write is a low-severity output_not_written warning visible on the same run's stdout envelope, with the exit code unaffected",
+      "given": [
+        "--output points at a path under a directory the process cannot create (permission denied)"
+      ],
+      "when": "a successful run completes with that --output value",
+      "then": [
+        "the process exit code and ok match what they would be without --output",
+        "env.Warnings contains an entry with code output_not_written, severity low, stage emit, naming the path and the underlying error",
+        "that warning is present on the stdout envelope produced for this same invocation"
+      ],
+      "pseudocode": "env, code, _ := runApp(app, []string{\"--output\", unwritablePath, \"x\"}, \"\"); assert code == ExitOK; assert env.OK; w := findWarning(env.Warnings, \"output_not_written\"); assert w != nil; assert w.Severity == \"low\"; assert w.Stage == \"emit\"; assert strings.Contains(w.Message, unwritablePath)"
+    },
+    {
+      "id": "TS-08-17",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.2"
+      ],
+      "title": "The central WarnCode table maps output_not_written to stage emit",
+      "given": [],
+      "when": "the WarnCode-to-stage table is queried for output_not_written",
+      "then": [
+        "the table contains output_not_written",
+        "its recorded stage is emit"
+      ],
+      "pseudocode": "stage, ok := WarnStages[\"output_not_written\"]; assert ok; assert stage == \"emit\""
+    },
+    {
+      "id": "TS-08-18",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-3.4"
+      ],
+      "title": "When Emit's own fallback envelope also fails to write to --output, no second warnings entry is added",
+      "given": [
+        "a result that cannot be marshalled to JSON",
+        "--output points at a destination that itself cannot be written"
+      ],
+      "when": "EmitWithOutput is called with that envelope and that --output path",
+      "then": [
+        "the stdout content is the minimal fallback envelope carrying only the marshal failure",
+        "that fallback envelope's warnings field carries no output_not_written entry",
+        "the underlying write error is not surfaced as a second, separate warning anywhere"
+      ],
+      "pseudocode": "env := r.Envelope(ExitOK, map[string]any{\"bad\": make(chan int)}, nil); code := EmitWithOutput(&buf, unwritablePath, env); var got Envelope; json.Unmarshal(buf.Bytes(), &got); assert findWarning(got.Warnings, \"output_not_written\") == nil"
+    },
+    {
+      "id": "TS-08-19",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-4.1"
+      ],
+      "title": "--output and --report-file are compared as resolved, absolute, cleaned paths, without resolving symlinks",
+      "given": [
+        "two literal path strings that clean to the same absolute path (e.g. \"a/../a/out.json\" and \"a/out.json\") but where neither file exists yet"
+      ],
+      "when": "the collision check runs over these two configured values",
+      "then": [
+        "the two are reported as colliding, because filepath.Abs+filepath.Clean of each is equal",
+        "no attempt is made to resolve either as a symlink before comparing"
+      ],
+      "pseudocode": "a := \"a/../a/out.json\"; b := \"a/out.json\"; assert configuredDestinationsCollide(a, b) == true"
+    },
+    {
+      "id": "TS-08-20",
+      "kind": "property",
+      "verifies": [
+        "08-REQ-4.2"
+      ],
+      "title": "Collision detection depends only on the two configured, cleaned paths, never on whether either write succeeds",
+      "given": [],
+      "when": "for any pair of path strings, and for any combination of --output-write-succeeds and --report-file-write-succeeds outcomes",
+      "then": [
+        "the collision verdict for that pair is identical across all four success/failure combinations, and equals whether filepath.Clean(filepath.Abs(a)) == filepath.Clean(filepath.Abs(b))"
+      ],
+      "pseudocode": "for (a, b) in gen_path_pairs(): want := clean(abs(a)) == clean(abs(b)); for (outOK, reportOK) in [(true,true),(true,false),(false,true),(false,false)]: got := runCollisionCheck(a, b, outOK, reportOK); assert got == want"
+    },
+    {
+      "id": "TS-08-21",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.3",
+        "08-REQ-4.4"
+      ],
+      "title": "On a configured collision, --output's own write is skipped and the complete report lands, with a warning naming the collision",
+      "given": [
+        "--output and --report-file are given the same literal path",
+        "the report-file write itself succeeds and writes the complete, full-detail report"
+      ],
+      "when": "the tool runs to completion with --detail summary --output P --report-file P",
+      "then": [
+        "no attempted --output write, successful or failed, occurs at P (no output_not_written warning appears)",
+        "the file at P holds the complete report, not the --detail-selected view",
+        "env.Warnings contains output_matches_report_file, severity low, stage emit"
+      ],
+      "pseudocode": "env, code, _ := runApp(app, []string{\"--detail\", \"summary\", \"--output\", p, \"--report-file\", p, \"x\"}, \"\"); assert code == ExitOK; content := readFile(p); assert isFullReport(content); assert findWarning(env.Warnings, \"output_matches_report_file\") != nil; assert findWarning(env.Warnings, \"output_not_written\") == nil"
+    },
+    {
+      "id": "TS-08-22",
+      "kind": "integration",
+      "verifies": [
+        "08-REQ-4.5"
+      ],
+      "title": "When the collided destination's report-file write itself fails, nothing lands there and both causes are named",
+      "given": [
+        "--output and --report-file resolve to the same path P",
+        "P's write fails (e.g. P's parent cannot be created)"
+      ],
+      "when": "the tool runs to completion with --output P --report-file P",
+      "then": [
+        "no file exists at P after the run",
+        "env.Warnings contains both output_matches_report_file and report_file_not_written",
+        "the run's exit code and ok are unaffected by either failure"
+      ],
+      "pseudocode": "env, code, _ := runApp(app, []string{\"--output\", p, \"--report-file\", p, \"x\"}, \"\"); assert !fileExists(p); assert findWarning(env.Warnings, \"output_matches_report_file\") != nil; assert findWarning(env.Warnings, \"report_file_not_written\") != nil; assert code == ExitOK"
+    },
+    {
+      "id": "TS-08-23",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-4.6"
+      ],
+      "title": "The central WarnCode table maps output_matches_report_file to stage emit",
+      "given": [],
+      "when": "the WarnCode-to-stage table is queried for output_matches_report_file",
+      "then": [
+        "the table contains output_matches_report_file",
+        "its recorded stage is emit"
+      ],
+      "pseudocode": "stage, ok := WarnStages[\"output_matches_report_file\"]; assert ok; assert stage == \"emit\""
+    },
+    {
+      "id": "TS-08-24",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.1"
+      ],
+      "title": "docs/cli.md's shared-flags table documents --output, its atomicity, its ordering before stdout, and the report-file collision",
+      "given": [],
+      "when": "docs/cli.md is read",
+      "then": [
+        "the shared-flags table contains a row for --output",
+        "that row's description mentions writing a second copy of the envelope stdout gets",
+        "it mentions the write is atomic and happens before stdout",
+        "it describes what happens when --output collides with --report-file"
+      ],
+      "pseudocode": "text := readFile(\"docs/cli.md\"); assert strings.Contains(text, \"--output\"); assert strings.Contains(text, \"atomic\"); assert strings.Contains(text, \"before\"); assert strings.Contains(text, \"--report-file\")"
+    },
+    {
+      "id": "TS-08-25",
+      "kind": "unit",
+      "verifies": [
+        "08-REQ-5.2"
+      ],
+      "title": "docs/cli.md's warning-codes table lists output_not_written and output_matches_report_file",
+      "given": [],
+      "when": "docs/cli.md is read",
+      "then": [
+        "the warning-codes table contains a row for output_not_written",
+        "the warning-codes table contains a row for output_matches_report_file",
+        "both rows appear alongside report_file_not_written"
+      ],
+      "pseudocode": "text := readFile(\"docs/cli.md\"); assert strings.Contains(text, \"output_not_written\"); assert strings.Contains(text, \"output_matches_report_file\"); assert strings.Contains(text, \"report_file_not_written\")"
+    },
+    {
+      "id": "TS-08-26",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-1",
+        "08-REQ-2.2",
+        "08-REQ-2.4"
+      ],
+      "title": "A supervisor that has already lost its own stdout still recovers the full result from --output",
+      "given": [
+        "fix is invoked against a real git repository with a real GitHub-shaped forge server",
+        "the supervisor's stdout pipe is closed the instant the process exits"
+      ],
+      "when": "fix runs to completion with --output pointed at a durable path, landing a pull request",
+      "then": [
+        "the file at --output exists and, read after the process exits, unmarshals to one complete JSON envelope",
+        "that envelope's ok, result and pull-request URL match what a caller with an intact stdout would have seen",
+        "no partially-written document is ever observed at the path"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Emit",
+        "codefix.Run",
+        "internal/gitx.Git",
+        "issuex.GitHubClient"
+      ]
+    },
+    {
+      "id": "TS-08-27",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-2",
+        "08-REQ-3.1"
+      ],
+      "title": "A failed --output write is downgraded to a warning and never changes impl's exit code",
+      "given": [
+        "impl is invoked against a real git repository and a real forge server",
+        "--output names a destination under a directory the process cannot create"
+      ],
+      "when": "impl runs a full implementation task to completion with that --output value",
+      "then": [
+        "the run exits 0 and ok is true, exactly as it would without --output",
+        "the stdout envelope carries a low-severity output_not_written warning naming the path and the underlying cause",
+        "no file is left at the unwritable --output path"
+      ],
+      "real_components": [
+        "toolio.App",
+        "codeimpl.Run",
+        "internal/gitx.Git",
+        "issuex.Client"
+      ]
+    },
+    {
+      "id": "TS-08-28",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-3",
+        "08-REQ-4.3",
+        "08-REQ-4.4"
+      ],
+      "title": "spec's --output and --report-file, pointed at the same path, land the complete report rather than the --detail view",
+      "given": [
+        "spec is invoked against a real repository",
+        "--detail summary --output ./run.json --report-file ./run.json are all given"
+      ],
+      "when": "spec runs to completion generating a full specification package",
+      "then": [
+        "the file at ./run.json holds the complete report, not the --detail summary view",
+        "the stdout envelope carries the output_matches_report_file warning",
+        "no separate write attempt happened for --output at that path"
+      ],
+      "real_components": [
+        "toolio.App",
+        "specgen.Run",
+        "issuex.GitLabClient"
+      ]
+    },
+    {
+      "id": "TS-08-29",
+      "kind": "smoke",
+      "verifies": [
+        "08-PATH-4",
+        "08-REQ-2.3"
+      ],
+      "title": "Emit's internal marshal-failure fallback still leaves a durable, minimal envelope at --output",
+      "given": [
+        "fix's Exec returns a result value carrying a field that cannot be marshalled to JSON",
+        "--output points at a fresh, writable path"
+      ],
+      "when": "app.Main runs to completion with that Exec and that --output value",
+      "then": [
+        "stdout carries the minimal fallback envelope naming the marshal failure",
+        "the file at --output exists and, parsed, is byte-for-byte identical to that same fallback envelope",
+        "no full result envelope is ever observed at either destination"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Emit",
+        "codefix.Run"
+      ]
+    }
+  ]
+}

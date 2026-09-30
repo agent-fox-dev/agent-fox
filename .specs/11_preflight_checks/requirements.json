@@ -1,0 +1,437 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "11",
+  "spec_name": "preflight_checks",
+  "schema_version": 2,
+  "introduction": "This spec gives fix, impl, spec and issue a --preflight flag that runs every check the tool already performs before its first model call, reports the outcome as result.preflight and result.estimate, and stops before any model phase or remote write beyond the one local verification baseline fix/impl already run.",
+  "glossary": {
+    "--preflight": "The new boolean flag on Common that makes a tool run every check that would refuse the run and stop, instead of proceeding to a model phase.",
+    "Deps": "toolio.App's Deps struct: everything App.execute has already resolved and checked (Workspace, Runner, Forge, Input, Model) before dispatching to Exec or PreflightExec.",
+    "Estimate": "The new toolio type bounding what a real run would spend at most: phase count and per-phase/total ceilings, derived from what --preflight already knows without calling a model.",
+    "PreflightCheck": "The new toolio type reporting one check --preflight performed and its outcome: a check name, whether it passed, and an optional detail.",
+    "PreflightExec": "The new second exec hook on toolio.App, parallel to Exec, that a tool implements to run its RunPreflight function instead of Run when --preflight is set.",
+    "ResolvedBounds": "The new agentrun.Runner accessor reporting the per-phase turn and budget ceilings the Runner will apply, without running a phase.",
+    "RunPreflight": "The new exported function per pipeline package (codefix, codeimpl, specgen, issuetriage) that reuses the package's existing Preflight/preflight check function verbatim and reports its outcome as a Result, without ever calling agentrun.Runner.Run.",
+    "baseline gate": "The project's own verification command(s), run once before any change, that a fix/impl run compares its later work against; codeimpl.preflight already runs this gate as its last step.",
+    "split plan": "The plan specgen records in the spec root when an input is more than one spec's worth of work, naming which scopes are done, invalid, failed or pending."
+  },
+  "requirements": [
+    {
+      "id": "11-REQ-1",
+      "title": "The --preflight flag on Common",
+      "rationale": "A caller needs one flag, honoured identically across all four tools, to ask whether a run would even start without paying for the model call that follows.",
+      "criteria": [
+        {
+          "id": "11-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "Common",
+          "action": "register a boolean --preflight flag with default false, alongside the existing shared flags, with the usage string \"run every check that would refuse the run, then stop; makes no change beyond a verification baseline\""
+        },
+        {
+          "id": "11-REQ-1.2",
+          "pattern": "complex_event",
+          "condition": "a tool is invoked with both --schema and --preflight set",
+          "guard": "flag parsing succeeds",
+          "system": "App",
+          "action": "honor --schema's existing precedence over --preflight, printing the self-description document and exiting before an input is classified",
+          "contract": "stdout carries only the self-description document; neither PreflightExec nor Exec is invoked; exit code 0"
+        },
+        {
+          "id": "11-REQ-1.3",
+          "pattern": "state_driven",
+          "condition": "--preflight is set on an invocation",
+          "system": "App",
+          "action": "parse and honor every other registered flag exactly as it would without --preflight, deciding only whether PreflightExec or Exec runs once every check passes",
+          "contract": "the PreCheck outcome, the CheckInput outcome, the resolved Workspace and the resolved model are identical for a --preflight invocation and the same invocation without --preflight"
+        },
+        {
+          "id": "11-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "fix is invoked with both --preflight and --dry-run",
+          "system": "fix",
+          "action": "produce the identical envelope --preflight alone would produce, since --preflight already implies making no remote write",
+          "contract": "the JSON envelope for 'fix --preflight --dry-run' equals byte-for-byte the JSON envelope for 'fix --preflight' on the same input and workspace state"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-2",
+      "title": "Dispatch in toolio.App, and one Options builder per tool",
+      "rationale": "A second exec hook keeps each tool's ordinary Exec closure a single, readable function, and a shared Options builder is what keeps the two paths from silently seeing different configuration.",
+      "criteria": [
+        {
+          "id": "11-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "App",
+          "action": "carry a second exec hook, PreflightExec func(context.Context, Deps) (int, any, *ErrorInfo), used identically to Exec"
+        },
+        {
+          "id": "11-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "e.common.Preflight is true and agentrun.NewRunner has already succeeded inside App.execute",
+          "system": "App.execute",
+          "action": "call a.PreflightExec(ctx, deps) instead of a.Exec(ctx, deps), passing the identical Deps value Exec would have received",
+          "contract": "the Deps.Workspace, Deps.Runner, Deps.Forge, Deps.Model and Deps.Input passed to PreflightExec equal what Exec would have received for the same invocation"
+        },
+        {
+          "id": "11-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "e.common.Preflight is true and the tool's App.PreflightExec is nil",
+          "system": "App.execute",
+          "action": "report an internal error rather than silently invoking Exec",
+          "contract": "the envelope's error object carries Category == agentrun.CategoryInternal; the process exits with ExitFailed (1); Exec is not invoked"
+        },
+        {
+          "id": "11-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "each of cmd/fix, cmd/impl, cmd/spec and cmd/issue's main.go",
+          "action": "factor its codefix.Options / codeimpl.Options / specgen.Options / issuetriage.Options construction into one named function called by both its Exec closure and its PreflightExec closure, so the two closures build identical option values for every flag"
+        },
+        {
+          "id": "11-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "cmd/impl/main.go",
+          "action": "factor --repair-model's resolution (d.RunnerFor(repairModel) and its credential check) into one function called by both its Exec closure and its PreflightExec closure"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-3",
+      "title": "Two new shared result types, and one new Runner accessor",
+      "rationale": "PreflightCheck and Estimate are shared value types, owned once in internal/toolio and embedded by all four tools' Result types, so the schema and trust checks each of them must satisfy cannot drift out of sync between tools.",
+      "criteria": [
+        {
+          "id": "11-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio",
+          "action": "export a PreflightCheck struct with fields Check string (json:\"check\", trust:\"fact\"), OK bool (json:\"ok\") and Detail string (json:\"detail,omitempty\", trust:\"fact\"), each field carrying a description struct tag"
+        },
+        {
+          "id": "11-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio",
+          "action": "export an Estimate struct with fields Phases int (json:\"phases\"), MaxTurnsPerPhase int (json:\"max_turns_per_phase\"), MaxBudgetPerPhaseUSD float64 (json:\"max_budget_per_phase_usd\") and MaxTotalUSD float64 (json:\"max_total_usd\"), each field carrying a description struct tag"
+        },
+        {
+          "id": "11-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Runner",
+          "action": "export a ResolvedBounds() (maxTurns int, maxBudgetUSD float64) method returning r.cfg.Bounds.maxTurns() and r.cfg.Bounds.maxBudget(), the same per-phase ceilings Run applies internally, without starting a phase"
+        },
+        {
+          "id": "11-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "each of codefix.Result, codeimpl.Result, issuetriage.Result and specgen.Result",
+          "action": "carry two new fields, appended immediately after DryRun: Preflight []toolio.PreflightCheck (json:\"preflight,omitempty\") and Estimate *toolio.Estimate (json:\"estimate,omitempty\"), each field carrying a description struct tag"
+        },
+        {
+          "id": "11-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "an ordinary run (--preflight not set) of any of the four tools completes, whether it succeeds or fails",
+          "system": "that tool's Result",
+          "action": "leave the Preflight and Estimate fields empty",
+          "contract": "the emitted envelope's result object carries no preflight key and no estimate key"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-4",
+      "title": "A failing --preflight run fails identically to the ordinary run it stands in for",
+      "rationale": "The whole promise of --preflight is that the same run refuses for the same reason whether or not the flag was given; this can only be guaranteed by reusing the same check function, never by a second implementation of it.",
+      "criteria": [
+        {
+          "id": "11-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "system",
+          "action": "for any invocation of fix, impl, spec or issue that would fail before its first model call, produce the identical stage, category, message and exit code whether or not --preflight is added to that invocation"
+        },
+        {
+          "id": "11-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "impl is invoked with --preflight against a repository whose working tree is dirty",
+          "system": "impl",
+          "action": "return the exact same error object the identical invocation without --preflight returns, both built by the one codeimpl.preflight function",
+          "contract": "the two JSON error objects (stage, category, message) compare byte-for-byte equal, and both exit with the usage exit code"
+        },
+        {
+          "id": "11-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "a check performed while building a --preflight run's result refuses the run",
+          "system": "the failing tool",
+          "action": "report no partial preflight checklist of checks already passed before the refusing check",
+          "contract": "the failing envelope's JSON result object carries no non-empty preflight array; only the fields the failing pipeline function itself set before returning are present"
+        },
+        {
+          "id": "11-REQ-4.4",
+          "pattern": "unwanted",
+          "condition": "a --preflight run ends in a failure",
+          "system": "the failing tool",
+          "action": "make no branch, no commit and no remote write beyond whatever fetch, fast-forward or branch checkout the failing pipeline function itself already performs before the check that refused it",
+          "contract": "no new branch exists that did not exist before the invocation, and the forge client records no write call"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-5",
+      "title": "Each pipeline's RunPreflight function, on success, reports its checklist and its estimate",
+      "rationale": "Each RunPreflight calls the pipeline's existing Preflight/preflight function unchanged, so a successful --preflight run's checklist is a faithful account of the same checks the ordinary run already performs, never a re-implementation of them.",
+      "criteria": [
+        {
+          "id": "11-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "fix is invoked with --preflight and every check codefix.Preflight performs passes",
+          "system": "codefix.RunPreflight",
+          "action": "resolve the verify command, run the baseline exactly as Run does, and report result.Preflight with entries for git_repository, clean_tree, base_branch, verify_command and verify_baseline, adding pull only when --pull/--pull=<branch> was given, and forge_credential/land_target/remote_configured only when the run would need them",
+          "contract": "exit code 0; result.stage equals \"preflight\"; result.baseline is populated; no branch is created"
+        },
+        {
+          "id": "11-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "impl is invoked with --preflight and every check codeimpl.preflight performs passes",
+          "system": "codeimpl.RunPreflight",
+          "action": "report result.Tasks from the same selectTasks outcome, and result.Preflight with entries for git_repository, clean_tree, spec_resolved, branch, spec_valid, spec_status, test_commands, dependencies and verify_baseline (verify_baseline absent under --no-verify), adding pull, forge_credential, land_target and remote_configured only when applicable, and repair_model_credential only when --repair-model was given",
+          "contract": "exit code 0; result.stage equals \"preflight\"; no branch is created when the target branch did not already exist"
+        },
+        {
+          "id": "11-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "spec is invoked with --preflight and every check specgen.Preflight performs passes",
+          "system": "specgen.RunPreflight",
+          "action": "report result.Preflight with schemas_valid always present, name_flag only when --name was given, comment_target and comment_credential only when --comment and not --dry-run, and split_plan only when not --dry-run",
+          "contract": "exit code 0; no package directory is written to disk"
+        },
+        {
+          "id": "11-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "issue is invoked with --preflight and issuetriage.Preflight (ResolveTarget then CheckWriteCredential) passes",
+          "system": "issuetriage.RunPreflight",
+          "action": "report result.Preflight with target_repository always present and forge_credential only when not --dry-run",
+          "contract": "exit code 0; no issue is created or updated on the forge"
+        },
+        {
+          "id": "11-REQ-5.5",
+          "pattern": "ubiquitous",
+          "system": "each RunPreflight function",
+          "action": "set result.Estimate from what the plan on disk already decided: fix to 2 phases (analyse, implement); impl to the count of pending tasks plus 1 unless --no-survey; spec to one PRD phase plus one per afspec.GenerationSteps entry, plus one more with --architecture, multiplied by the split plan's pending scope count when resuming one; issue to 1 phase — each with MaxTurnsPerPhase and MaxBudgetPerPhaseUSD taken from the run's Runner.ResolvedBounds() and MaxTotalUSD equal to Phases times MaxBudgetPerPhaseUSD"
+        },
+        {
+          "id": "11-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "a PreflightCheck entry describes an advisory outcome rather than a refusing one, such as no verify command detected or a currently failing baseline",
+          "system": "the RunPreflight function reporting it",
+          "action": "still report the run as a success with that entry's OK field false and its Detail naming the fact, rather than refusing the run over it",
+          "contract": "exit code 0; result.preflight contains an entry with ok:false and a non-empty detail; the run's own exit code is unaffected by that entry"
+        },
+        {
+          "id": "11-REQ-5.7",
+          "pattern": "ubiquitous",
+          "system": "each RunPreflight function",
+          "action": "never call agentrun.Runner.Run, so no phase is recorded on the run and the envelope carries no per-phase cost from this invocation"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-6",
+      "title": "Summary() and Resumable() under a preflight stage",
+      "rationale": "Stage == \"preflight\" on a successful result is a stage value the ordinary rules were never written for, so each tool's Summary()/Resumable() gains one additional, additive case rather than having its existing rules redefined.",
+      "criteria": [
+        {
+          "id": "11-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "a fix Result has Stage == \"preflight\" and its checks all passed",
+          "system": "fix Result.Summary()",
+          "action": "return \"fix: preflight passed (N checks)\" with N equal to len(result.Preflight)",
+          "contract": "Summary() returns exactly that string for a Stage==\"preflight\" success"
+        },
+        {
+          "id": "11-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "an impl Result has Stage == \"preflight\" and its checks all passed",
+          "system": "impl Result.Summary()",
+          "action": "return \"impl: preflight passed; N of M tasks remain\" with N and M taken from TasksRemaining and TasksTotal",
+          "contract": "Summary() returns exactly that string, with N and M substituted from the result's own fields"
+        },
+        {
+          "id": "11-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "a spec or an issue Result has Stage == \"preflight\" and its checks all passed",
+          "system": "that tool's Result.Summary()",
+          "action": "return \"<tool>: preflight passed (N checks)\" with N equal to len(result.Preflight)",
+          "contract": "Summary() returns exactly that string for the tool named"
+        },
+        {
+          "id": "11-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "each of the four tools' Result.Resumable()",
+          "action": "for any Result whose Stage equals \"preflight\", return false regardless of any other field, including impl's own Branch being non-empty"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-7",
+      "title": "The other four scopes' mechanisms apply to --preflight unchanged",
+      "rationale": "--preflight introduces no new event type, no special --output handling and no new trust exemption; it only adds two fields that the existing detail, schema and trust mechanisms must already know how to carry.",
+      "criteria": [
+        {
+          "id": "11-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "each tool's --detail summary field list",
+          "action": "include preflight and estimate among the fields kept in the summary view, so a --preflight result survives --detail summary intact"
+        },
+        {
+          "id": "11-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "a --preflight result",
+          "action": "leave artifacts[] and side_effects[] empty"
+        },
+        {
+          "id": "11-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "a --preflight run",
+          "action": "continue to emit run_start, one step event per Progress.Step/Begin call the reused checks make, and run_end through --events/--events-file, introducing no new event type"
+        },
+        {
+          "id": "11-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "App.Main's --output handling",
+          "action": "persist a --preflight envelope through the same two Emit call sites as any other envelope, with no special case for --preflight"
+        },
+        {
+          "id": "11-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "each tool's checked-in --schema golden file",
+          "action": "list --preflight in its flags document and preflight/estimate in its result document, satisfying the description-tag exhaustiveness check for every PreflightCheck and Estimate field"
+        },
+        {
+          "id": "11-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "the CheckTrust exhaustiveness test",
+          "action": "pass with PreflightCheck.Check and PreflightCheck.Detail carrying trust:\"fact\", leaving a --preflight result's untrusted_fields array empty whenever nothing else in the trimmed result carries model or external text"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-8",
+      "title": "Documentation",
+      "rationale": "--preflight's promise (\"no branch, no commit, no push, no comment, no issue, except the one baseline check\") has to be written down once, precisely, next to the flag table a caller already reads before running any tool.",
+      "criteria": [
+        {
+          "id": "11-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain a --preflight row in the shared-flags table describing its default (false) and its effect"
+        },
+        {
+          "id": "11-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain a \"Preflight (--preflight)\" section naming what it runs, what it never does (no branch, no commit, no push, no comment, no issue, except the baseline/gate check fix and impl already run, named explicitly), and stating that a --pull-driven fetch-and-fast-forward and an impl continuation-branch checkout are not suppressed"
+        },
+        {
+          "id": "11-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain one worked example per tool (fix, impl, spec, issue) showing result.preflight and result.estimate"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "11-PATH-1",
+      "title": "A caller learns a fix run would refuse, before paying for a model call",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'fix --preflight' against a repository whose working tree has uncommitted changes"
+        },
+        {
+          "actor": "fix's App.execute",
+          "action": "resolves the model, builds the Runner, and dispatches to codefix's PreflightExec since --preflight is set"
+        },
+        {
+          "actor": "codefix.RunPreflight",
+          "action": "calls the existing Preflight function, which finds the dirty tree and returns a Failure"
+        },
+        {
+          "actor": "fix",
+          "action": "emits the failure envelope with the same stage, category, message and exit code the same invocation without --preflight would produce, having made no branch and called no model"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-2",
+      "title": "A caller confirms an impl run would proceed, and reads its estimate before spending anything",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'impl --preflight' against a clean workspace holding a valid, active spec package with pending tasks"
+        },
+        {
+          "actor": "impl's App.execute",
+          "action": "dispatches to codeimpl's PreflightExec since --preflight is set"
+        },
+        {
+          "actor": "codeimpl.RunPreflight",
+          "action": "calls the existing preflight function, which checks out the continuation branch when one exists, validates the package, audits its test commands, checks its upstream dependencies and runs the baseline gate"
+        },
+        {
+          "actor": "impl",
+          "action": "emits an envelope with result.preflight and result.estimate and exit code 0, having created no new branch beyond checking out an already-existing one"
+        },
+        {
+          "actor": "caller",
+          "action": "re-runs impl without --preflight, confident it will not refuse before its first model call"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-3",
+      "title": "spec --preflight resumes a split plan and reports a multiplied phase estimate",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'spec --preflight' against an input for which an earlier run recorded a split plan with pending scopes"
+        },
+        {
+          "actor": "spec's App.execute",
+          "action": "dispatches to specgen's PreflightExec since --preflight is set"
+        },
+        {
+          "actor": "specgen.RunPreflight",
+          "action": "calls the existing Preflight function, confirms every generation step's schema compiles, and locates the pending split plan"
+        },
+        {
+          "actor": "specgen.RunPreflight",
+          "action": "reports result.preflight (schemas_valid, split_plan) and result.estimate.phases as one package's phase count multiplied by the plan's pending scope count, with exit code 0 and no package written"
+        },
+        {
+          "actor": "caller",
+          "action": "reads the estimate to decide whether to run spec for real and complete the split"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-4",
+      "title": "issue --preflight reports the resolved target without writing to the forge",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'issue --preflight' with a report as input and no explicit --repo, relying on the workspace's origin remote"
+        },
+        {
+          "actor": "issue's App.execute",
+          "action": "dispatches to issuetriage's PreflightExec since --preflight is set"
+        },
+        {
+          "actor": "issuetriage.RunPreflight",
+          "action": "calls the existing Preflight function (ResolveTarget then CheckWriteCredential), which resolves the target repository and confirms the forge credential"
+        },
+        {
+          "actor": "issue",
+          "action": "emits an envelope with result.preflight naming target_repository and forge_credential, exit code 0, and creates no issue on the forge"
+        }
+      ]
+    }
+  ]
+}

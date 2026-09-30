@@ -1,0 +1,324 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "05",
+  "spec_name": "envelope_decidable",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./codefix/... ./codeimpl/... ./specgen/... ./issuetriage/... ./internal/agentrun/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Emit a usage envelope on a bare or whitespace-only invocation when stdout is not a terminal",
+      "criteria": [
+        "05-REQ-1"
+      ],
+      "tests": [
+        "TS-05-1",
+        "TS-05-2",
+        "TS-05-3",
+        "TS-05-4",
+        "TS-05-5"
+      ],
+      "steps": [
+        "Write TS-05-1..TS-05-5 in internal/toolio/app_test.go and confirm they fail",
+        "In internal/toolio/input.go, extract the no-input message into an exported constant (e.g. NoInputMessage = \"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin\") kept beside ErrNoInput",
+        "In App.Main (internal/toolio/app.go), fold the empty-positional check into one that also treats an all-whitespace positional as bare (strings.TrimSpace(input) == \"\"), performed before Resolve or ResolveModel is ever reached",
+        "Keep fs.Usage() firing unconditionally on that path so the stderr help text and flag list are unchanged",
+        "After fs.Usage(), check isTerminal(stdout) (already package-private in internal/toolio/progress.go, same package as app.go): when false, build run.Envelope(ExitUsage, nil, &ErrorInfo{Stage: \"usage\", Category: \"usage\", Message: NoInputMessage}) and Emit it to stdout before returning ExitUsage",
+        "When isTerminal(stdout) is true, return ExitUsage with nothing written to stdout, exactly as today",
+        "Use the same NoInputMessage constant in execute()'s existing errors.Is(err, ErrNoInput) branch so the two paths can never diverge in wording",
+        "Confirm -h/--help and --version still return before this check is reached (SplitArgs' flag.ErrHelp branch and the common.Version branch both precede it) and add nothing that changes their exit code or stdout behaviour",
+        "Run gofmt and go vet on internal/toolio"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go",
+        "internal/toolio/input.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add status and summary to the envelope, derived centrally and reported by each tool's Result",
+      "criteria": [
+        "05-REQ-2"
+      ],
+      "tests": [
+        "TS-05-6",
+        "TS-05-7",
+        "TS-05-8",
+        "TS-05-9",
+        "TS-05-10",
+        "TS-05-11",
+        "TS-05-12"
+      ],
+      "steps": [
+        "Write TS-05-6..TS-05-12 in internal/toolio/envelope_test.go and confirm they fail",
+        "In internal/toolio/envelope.go, add Status and Summary string fields (json:\"status\" and json:\"summary\", never omitempty) to Envelope, and reorder every Envelope field in the struct declaration to: Tool, Version, OK, Status, ExitCode, Summary, Error, a placeholder NeedsHuman *NeedsHuman (type stubbed here, fully wired in task 3) with json:\"needs_human,omitempty\", Warnings, Result, Input, Usage, Model, DurationMS, StartedAt — Go's encoding/json follows struct-field order, so this fixes the wire order in one place",
+        "Add a package-level function mapping the five exit codes (ExitOK, ExitFailed, ExitUsage, ExitNeedsHuman, ExitUnverified) to \"done\", \"failed\", \"usage\", \"needs_human\", \"unverified\" and call it from Run.Envelope to set Status from the code argument it already receives — never settable by a tool",
+        "Define a Summarizer interface { Summary() string } and type-assert the result value passed to Run.Envelope against it, the same way Envelope already special-cases a typed-nil result; when it returns a non-empty string, truncate to 200 characters for env.Summary",
+        "When the assertion fails or returns empty: if OK is false, fall back to env.Error.Message; if OK is true, fall back to fmt.Sprintf(\"%s: done\", r.tool)",
+        "After the summary is chosen, if OK is true and any recorded warning has severity \"high\" (Warnings is still []string at this point; treat any entry as candidate until task 6 introduces structured severity — for now, hold this check behind a small severity-aware accessor on Run that task 6 will wire fully), append one fixed, deterministic clause naming the count of high-severity warnings and that the highest severity present is high",
+        "Implement Summary() string on codefix.Result (codefix/types.go): mention the commit and branch when Commit/Branch are set, the Verdict, whether it landed, or that it asked a question when Ambiguity is set",
+        "Implement Summary() string on codeimpl.Result (codeimpl/types.go): mention TasksDone/TasksTotal, Branch, and the verdict of the task or repair that stopped it when one did",
+        "Implement Summary() string on issuetriage.Result (issuetriage/pipeline.go): mention Action, URL/Number, Severity and len(AffectedFiles)",
+        "Implement Summary() string on specgen.Result (specgen/pipeline.go): mention the package(s) written, the count of OpenQuestions when non-empty, and for a split, how many of how many scopes",
+        "Run gofmt and go vet"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go",
+        "codefix/types.go",
+        "codeimpl/types.go",
+        "specgen/pipeline.go",
+        "issuetriage/pipeline.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Introduce needs_human fed by fix's Ambiguity and impl's Blocker, and the --context flag",
+      "criteria": [
+        "05-REQ-3"
+      ],
+      "tests": [
+        "TS-05-13",
+        "TS-05-14",
+        "TS-05-15",
+        "TS-05-16",
+        "TS-05-17",
+        "TS-05-18",
+        "TS-05-19",
+        "TS-05-20"
+      ],
+      "steps": [
+        "Write TS-05-13..TS-05-20 (in internal/toolio/envelope_test.go, internal/toolio/cli_test.go (new), codefix/pipeline_test.go, codeimpl/pipeline_test.go) and confirm they fail",
+        "In internal/toolio/envelope.go, fully define NeedsHuman{Question string, Options []Option \\`omitempty\\`, Needed string \\`omitempty\\`, Stage string, Resume string} and Option{ID, Text string}, replacing the task 2 placeholder type",
+        "Define an interface toolio can type-assert a Result against, e.g. NeedsHumanSource interface { NeedsHuman() (question string, options []Option, needed string, ok bool) }; in Run.Envelope, when code == ExitNeedsHuman and the assertion succeeds with ok true, populate needs_human with Stage set from the same failure's Stage and Resume set to fmt.Sprintf(\"%s <same input> --context \\\"<answer>\\\"\", r.tool) — never the literal input",
+        "When code != ExitNeedsHuman, leave NeedsHuman nil so it is omitted",
+        "Implement the NeedsHumanSource method on codefix.Result (codefix/types.go) from Ambiguity{Question, InterpretationA, InterpretationB}: options [{ID:\"A\",Text:InterpretationA},{ID:\"B\",Text:InterpretationB}], needed omitted",
+        "Implement the NeedsHumanSource method on codeimpl.Result (codeimpl/types.go) from Blocker{Reason, Needed}: Reason -> question, Needed -> needed, no options",
+        "In codeimpl/pipeline.go, change checkUpstream's signature to also receive *Result and, on an upstream dependency that is neither sealed nor fully done, set result.Blocker with Reason naming the dependency and Needed naming the upstream package (filepath.Base(m.Dir)) before returning the *Failure, exactly like the survey and task blockers",
+        "Confirm specgen.Result does not implement NeedsHumanSource (or implements it always returning ok=false), so a run with OpenQuestions never populates needs_human; result.open_questions and its Summary() count (task 2) are unaffected",
+        "In internal/toolio/cli.go, add a repeatable Context []string field to Common with its own flag.Value type registered as \"--context\" alongside Register's other flags, plus a ContextBlock() string method rendering \"## Additional context from the caller\" followed by one paragraph per value in order (empty string when none given)",
+        "In internal/toolio/input.go, add a Context string field to Input (separate from Body); extend Resolve's signature (or wrap it in execute()) to accept the rendered context block's byte length and refuse the run before it is fetched/read/truncated when len(source)+len(contextBlock) > MaxInputBytes, returning a usage-classified error instead of silently truncating either side",
+        "In internal/toolio/app.go execute(), compute the context block from e.common.Context before calling Resolve, thread its length into the new bound check, set in.Context on the resolved Input (leaving Body exactly as Resolve produced), and record its length as InputInfo.ContextBytes (json:\"context_bytes\") via a new/extended Run.SetInput call",
+        "In codefix/prompts.go, add a small helper that appends in.Context (when non-empty) after reportBlock in analysisPrompt and implementPrompt, independent of Body; in codeimpl (prompts.go/phases.go), thread Options.Input.Context through surveyInput/taskInput and append it in the survey/implement prompt renderers the same way"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go",
+        "internal/toolio/cli.go",
+        "internal/toolio/cli_test.go",
+        "internal/toolio/input.go",
+        "internal/toolio/input_test.go",
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go",
+        "codefix/types.go",
+        "codefix/prompts.go",
+        "codefix/pipeline_test.go",
+        "codeimpl/types.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/prompts.go",
+        "codeimpl/phases.go",
+        "codeimpl/pipeline_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Compute retryable centrally and resumable per tool's Result",
+      "criteria": [
+        "05-REQ-4.1",
+        "05-REQ-4.2",
+        "05-REQ-4.3",
+        "05-REQ-4.4",
+        "05-REQ-4.5",
+        "05-REQ-4.6"
+      ],
+      "tests": [
+        "TS-05-21",
+        "TS-05-22",
+        "TS-05-23",
+        "TS-05-24",
+        "TS-05-25",
+        "TS-05-26"
+      ],
+      "steps": [
+        "Write TS-05-21..TS-05-26 in internal/toolio/envelope_test.go and confirm they fail",
+        "Add a Retryable bool and a Resumable bool field to ErrorInfo (internal/toolio/envelope.go)",
+        "Add a package function (e.g. RetryableFor(category string) bool) returning true only for \"api\" and \"aborted\"; have Run.Envelope set env.Error.Retryable from it, right before returning, for every category in the shared vocabulary (usage, input, auth, model, invalid_spec, blocked, ambiguous, empty_change, internal, budget, max_turns, no_result, unverified, git, forge, disk, api, aborted) so no pipeline-set ErrorInfo can disagree",
+        "Define a Resumabler interface { Resumable() bool }; in Run.Envelope, when failure != nil, type-assert the result value and set env.Error.Resumable from it",
+        "Implement Resumable() bool on codefix.Result (codefix/types.go) always returning false",
+        "Implement Resumable() bool on codeimpl.Result (codeimpl/types.go) returning r.Branch != \"\"",
+        "Implement Resumable() bool on specgen.Result (specgen/pipeline.go) returning r.SplitPlan != \"\"",
+        "Implement Resumable() bool on issuetriage.Result (issuetriage/pipeline.go) always returning false",
+        "Run gofmt and go vet"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go",
+        "codefix/types.go",
+        "codeimpl/types.go",
+        "specgen/pipeline.go",
+        "issuetriage/pipeline.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Attach a machine-usable fix_hint to budget, max_turns, no_result, auth, model and single-flag usage errors",
+      "criteria": [
+        "05-REQ-4.7",
+        "05-REQ-4.8"
+      ],
+      "tests": [
+        "TS-05-27",
+        "TS-05-28",
+        "TS-05-29",
+        "TS-05-30",
+        "TS-05-31",
+        "TS-05-32"
+      ],
+      "steps": [
+        "Write TS-05-27..TS-05-32 in a new internal/toolio/fix_hint_test.go and confirm they fail",
+        "Add a FixHint struct (Flag, Env []string, Valid []string, Current, Suggest float64, all omitempty as applicable) and a FixHint *FixHint field on ErrorInfo (internal/toolio/envelope.go)",
+        "In internal/agentrun/phase.go, expose the RunStopReason carried by a NoResultError (e.g. an accessor method or an exported field on the *Error it returns) so a caller can tell RunStopBudgetExceeded from RunStopMaxTurns without re-parsing the message",
+        "In internal/agentrun/credentials.go, factor the vendor's credential variable name collection out of CheckCredentials into an exported CredentialVars(m *core.Model) []string, reused by both",
+        "Add internal/toolio/fix_hint.go with func FixHintFor(category, stage string, bounds agentrun.Bounds, err error) *FixHint: for \"budget\" at a stage other than \"budget\", return {Flag: \"--budget\", Current: bounds.MaxBudgetUSD, Suggest: 2x}; for \"budget\" at stage literally \"budget\", read TotalBudgetUSD off err via a small interface (e.g. interface{ TotalBudgetUSD() float64 }) and return {Flag: \"--total-budget\", Current, Suggest: 2x}; for \"max_turns\", return {Flag: \"--max-turns\", Current: bounds.MaxTurns, Suggest: 2x}; for \"no_result\", inspect err's RunStopReason and return whichever of the two shapes above matches; for \"auth\", return {Env: CredentialVars(...)} for a model credential or {Env: [\"GITHUB_TOKEN\",\"GH_TOKEN\"]} / {Env: [\"GITLAB_TOKEN\"]} for a forge credential (branch on which forge the message names); for \"model\", return the static {Flag: \"--model\", Valid: [\"SIMPLE\",\"STANDARD\",\"ADVANCED\"]}; for \"usage\", parse err's message and return {Flag} only when exactly one culprit flag is named (--overwrite combined with --repo/--label, --no-verify combined with --verify), else nil; for every other category, return nil",
+        "In codeimpl/pipeline.go's overBudget (the failf(\"budget\", agentrun.CategoryBudget, ...) call site), wrap the returned *Failure so it also implements the TotalBudgetUSD() float64 accessor, returning o.TotalBudgetUSD",
+        "Thread the run's resolved Bounds into Run (e.g. Run.SetBounds, populated in App.execute from e.common.Bounds(a.DefaultBounds)) and call FixHintFor from Run.Envelope using env.Error.Category, env.Error.Stage, the stored Bounds, and the pipeline error when available, setting env.Error.FixHint",
+        "Run gofmt and go vet"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/fix_hint.go",
+        "internal/toolio/fix_hint_test.go",
+        "internal/toolio/app.go",
+        "internal/agentrun/phase.go",
+        "internal/agentrun/credentials.go",
+        "codeimpl/pipeline.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Turn warnings into structured objects with a code, severity and stage, and convert every Run.Warn call site",
+      "criteria": [
+        "05-REQ-5"
+      ],
+      "tests": [
+        "TS-05-33",
+        "TS-05-34",
+        "TS-05-35",
+        "TS-05-36",
+        "TS-05-37",
+        "TS-05-38",
+        "TS-05-39"
+      ],
+      "steps": [
+        "Write TS-05-33..TS-05-39 (internal/toolio/envelope_test.go, a new internal/toolio/warncode_test.go and internal/toolio/warnscan_test.go) and confirm they fail",
+        "Add a new file internal/toolio/warncode.go declaring type WarnCode string and every constant from the requirement's table (input_truncated, comments_unreadable, no_verify_command, criteria_unmet, commit_not_parked, checkout_not_restored, pull_request_not_opened, comment_not_posted, spec_edit_reverted, state_not_saved, draft_package, upstream_missing, parked_attempt_discarded, spec_validation_warning, specs_dir_unreadable, project_language_unknown, name_flag_ignored, scope_renamed, scope_count_mismatch, split_plan_foreign, split_plan_unreadable, split_plan_stale, split_plan_update_failed, split_plan_not_removed, architecture_not_written, activation_failed, rejected_path_calls), a var warnStages map[WarnCode]string with the stage from the same table for every one of them, and WarnStage(code) (string, bool) plus DeclaredWarnCodes() []WarnCode helpers",
+        "In internal/toolio/envelope.go, replace Warnings []string with Warnings []Warning where Warning{Code WarnCode, Severity, Stage, Message string} (json: code, severity, stage, message), and change Run's internal warnings slice to []Warning",
+        "Rewrite Run.Warn's signature to Warn(code WarnCode, severity, format string, args ...any); it looks up stage via WarnStage (every declared constant must resolve) and appends a Warning built from code, severity, the looked-up stage and fmt.Sprintf(format, args...)",
+        "Update the high-severity summary clause added in task 2 to check w.Severity == \"high\" over the now-structured Warnings",
+        "Convert every real Run.Warn call site to pass a declared WarnCode and an explicit severity, one call at a time: internal/toolio/app.go (input_truncated/high, comments_unreadable/low); codefix/pipeline.go (no_verify_command/high, criteria_unmet/high, commit_not_parked/high, checkout_not_restored/low, pull_request_not_opened/high x2, comment_not_posted/low x2); codeimpl/pipeline.go (pull_request_not_opened/high x2, parked_attempt_discarded/low, spec_validation_warning/low, draft_package/low, no_verify_command/high, upstream_missing/low x3, spec_edit_reverted/high x2, state_not_saved/high, commit_not_parked/high, checkout_not_restored/low x2); specgen/pipeline.go (specs_dir_unreadable/low, project_language_unknown/low, name_flag_ignored/low, scope_renamed/low, scope_count_mismatch/low, split_plan_update_failed/high, split_plan_not_removed/low, architecture_not_written/low, activation_failed/high, comment_not_posted/low); specgen/split.go (split_plan_unreadable/low, split_plan_foreign/low, split_plan_stale/high); issuetriage/pipeline.go (rejected_path_calls/low)",
+        "Add a source-scan test (internal/toolio/warnscan_test.go) that parses every non-test .go file under internal/toolio, codefix, codeimpl, specgen and issuetriage (go/parser or a targeted regexp over Warn( call sites) and flags a call whose first argument is not an identifier/selector of type WarnCode; add a fixture testdata/warn_literal_fixture/bad.go with one call passing a bare string literal, and assert the scan reports zero violations on the real tree and exactly one on the fixture",
+        "Run gofmt and go vet"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go",
+        "internal/toolio/warncode.go",
+        "internal/toolio/warncode_test.go",
+        "internal/toolio/warnscan_test.go",
+        "internal/toolio/app.go",
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "specgen/pipeline.go",
+        "specgen/split.go",
+        "issuetriage/pipeline.go",
+        "testdata/warn_literal_fixture/bad.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Update docs/cli.md and README.md for the new envelope shape",
+      "criteria": [
+        "05-REQ-6"
+      ],
+      "tests": [
+        "TS-05-40",
+        "TS-05-41",
+        "TS-05-42",
+        "TS-05-43"
+      ],
+      "steps": [
+        "Write TS-05-40..TS-05-43 in a new docs_test.go at the repository root (package agentfox, reusing findWorkspaceRoot from verify_test.go) reading docs/cli.md and README.md, and confirm they fail",
+        "In docs/cli.md's \"## The output\" example, add \"status\" and \"summary\" fields to the sample envelope, and add a needs_human example object matching the shape from task 3",
+        "Add a \"retryable\" column to docs/cli.md's error-category table, filled in per category from 05-REQ-4.1",
+        "Add a new \"### Warning codes\" table to docs/cli.md listing every WarnCode from task 6's table with its severity and stage columns",
+        "Document --context under docs/cli.md's \"## Shared flags\" section as repeatable, describing the rendered \"## Additional context from the caller\" block and its effect on input.context_bytes",
+        "Extend README.md's exit-code sentence to name the matching status value (done, failed, usage, needs_human, unverified) for each of the five codes",
+        "Run gofmt and go vet (docs are not Go; only docs_test.go needs it)"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "README.md",
+        "docs_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Verify every execution path end to end against the real toolio shell, codefix and codeimpl",
+      "tests": [
+        "TS-05-44",
+        "TS-05-45",
+        "TS-05-46",
+        "TS-05-47"
+      ],
+      "steps": [
+        "Write TS-05-44 in internal/toolio/smoke_test.go: run the real App.Main for fix with no positional argument and stdout redirected to a real temp file (not a terminal); confirm exit code 2 and the file holds exactly one JSON object with status \"usage\" and the exact error.message",
+        "Write TS-05-45: using the faux model backend already wired in smoke_test.go and a real git repository, script codefix's analyse phase to return an Ambiguity, run fix end to end through App.Main, and confirm status \"needs_human\" with options A/B and a resume template; script a second faux response that succeeds, re-run fix with --context \"<answer>\" on the same input, and confirm the rendered context block reached the analyse phase's request and the run completes with status \"done\"",
+        "Write TS-05-46: write a real spec package under a temp .specs dir via afspec, script codeimpl's task phase to exceed a very low --budget, run impl end to end through App.Main and confirm error.category \"budget\", error.fix_hint {flag: \"--budget\", current, suggest}, and error.resumable true (Result.Branch already set); re-run impl with a higher --budget and confirm it lands on the same branch with status \"done\"",
+        "Write TS-05-47: build a report exceeding toolio.MaxInputBytes, run fix end to end against a real git repository, and confirm the warnings array carries one input_truncated/high/input entry, ok is true, and summary carries the deterministic high-severity clause",
+        "Confirm all four pass, then trace 05-PATH-1 (App.Main -> Run.Envelope -> Emit), 05-PATH-2 (App.Main -> codefix.Run's analyse phase -> Run.Envelope's needs_human assembly -> Common.ContextBlock on the resumed run), 05-PATH-3 (App.Main -> codeimpl.Run -> overBudget -> toolio.FixHintFor -> codeimpl.Result.Resumable), and 05-PATH-4 (toolio.Resolve/Truncate -> Run.Warn(input_truncated,...) -> codefix.Run landing -> Run.Envelope's high-severity clause) through the real code, confirming each step calls the next and no stub remains",
+        "For every criterion carrying a contract (05-REQ-1.2, 1.3, 1.4, 2.6, 3.1, 3.7, 3.8, 4.7), confirm the producer's field (error.message, needs_human.resume, input.context_bytes, error.fix_hint, the summary clause) is read by a caller in production code — App.Main/Emit or a cmd's main — not only asserted in a test",
+        "Confirm checkUpstream's Blocker (task 3) is reached from codeimpl.Run's production preflight path, not only from a unit test calling checkUpstream directly",
+        "Grep every file listed in tasks 1-7's touches for TODO, panic(\"not implemented\"), and a bare return nil on a non-trivial new path (FixHintFor, the NeedsHumanSource implementations, WarnStage lookups, the Summarizer/Resumabler methods); remove any that remain",
+        "Run `make test` and `make lint` and confirm both succeed"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "done_when": [
+        "`make test` passes",
+        "`make lint` passes"
+      ],
+      "state": "pending"
+    }
+  ]
+}

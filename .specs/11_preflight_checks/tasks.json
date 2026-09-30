@@ -1,0 +1,381 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "11",
+  "spec_name": "preflight_checks",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./... -run TS_11 -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "supplies status (derived from the exit code RunPreflight's failure path reuses unchanged) and the Summary()/Resumable() result interfaces this scope extends with a Stage==\"preflight\" case on all four Result types."
+    },
+    {
+      "spec": "06",
+      "reason": "supplies --detail summary|full and each tool's per-field \"kept in summary\" list, which this scope's preflight/estimate fields are added to, and artifacts[]/side_effects[], which stay empty on a --preflight run without further code."
+    },
+    {
+      "spec": "07",
+      "reason": "supplies --events/--events-file and the closed event-type set a --preflight run continues to emit unchanged."
+    },
+    {
+      "spec": "08",
+      "reason": "supplies --output <path>, which persists a --preflight envelope exactly as it would any other, with no special case."
+    },
+    {
+      "spec": "09",
+      "reason": "supplies --schema, the description-tag exhaustiveness check and the four golden files, which this scope's two new Result fields must satisfy and which are regenerated to include them."
+    },
+    {
+      "spec": "10",
+      "reason": "supplies the trust struct tag and CheckTrust exhaustiveness check; PreflightCheck.Check/.Detail must carry trust:\"fact\" to satisfy it."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add the --preflight flag, App's PreflightExec dispatch hook, and the shared PreflightCheck/Estimate/ResolvedBounds types",
+      "criteria": [
+        "11-REQ-1.1",
+        "11-REQ-1.2",
+        "11-REQ-1.3",
+        "11-REQ-2.1",
+        "11-REQ-2.2",
+        "11-REQ-2.3",
+        "11-REQ-3.1",
+        "11-REQ-3.2",
+        "11-REQ-3.3"
+      ],
+      "tests": [
+        "TS-11-1",
+        "TS-11-2",
+        "TS-11-3",
+        "TS-11-5",
+        "TS-11-6",
+        "TS-11-7",
+        "TS-11-13",
+        "TS-11-14",
+        "TS-11-15"
+      ],
+      "steps": [
+        "Write TS-11-1, TS-11-2, TS-11-3, TS-11-5, TS-11-6, TS-11-7, TS-11-13, TS-11-14 and TS-11-15 against the current internal/toolio and internal/agentrun packages and confirm they fail",
+        "In internal/toolio/cli.go add `Preflight bool` to Common and register it in Register with fs.BoolVar(&c.Preflight, \"preflight\", false, \"run every check that would refuse the run, then stop; makes no change beyond a verification baseline\")",
+        "Create internal/toolio/preflight.go exporting PreflightCheck{Check, OK, Detail} and Estimate{Phases, MaxTurnsPerPhase, MaxBudgetPerPhaseUSD, MaxTotalUSD}, each field carrying a description tag, and Check/Detail additionally carrying trust:\"fact\"",
+        "In internal/agentrun/phase.go add `func (r *Runner) ResolvedBounds() (maxTurns int, maxBudgetUSD float64) { return r.cfg.Bounds.maxTurns(), r.cfg.Bounds.maxBudget() }`",
+        "In internal/toolio/app.go add `PreflightExec func(context.Context, Deps) (int, any, *ErrorInfo)` to App",
+        "In App.execute, immediately after agentrun.NewRunner(cfg) succeeds, branch: when e.common.Preflight is true, call a.PreflightExec(ctx, deps) when it is non-nil, else return an ErrorInfo with Category agentrun.CategoryInternal at ExitFailed without calling Exec; otherwise call a.Exec(ctx, deps) exactly as before",
+        "Confirm this branch sits after every other check (PreCheck, Workspace, Resolve, CheckInput, ResolveModel) so a --preflight invocation parses and honours every flag identically to the ordinary run, and after --schema's own precedence in Main so --schema still exits before the input is classified",
+        "Add a stub App in an internal/toolio test whose Exec and PreflightExec both record the Deps they received and a call count, run it once with --preflight and once without on the same input, and assert the Workspace/Runner/Forge/Model/Input equality, the dispatch/no-dispatch behaviour, and the nil-PreflightExec internal-error path",
+        "Run `go test ./internal/toolio/... ./internal/agentrun/... -count=1` and confirm TS-11-1, TS-11-2, TS-11-3, TS-11-5, TS-11-6, TS-11-7, TS-11-13, TS-11-14 and TS-11-15 pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/preflight.go",
+        "internal/toolio/app_test.go",
+        "internal/agentrun/phase.go",
+        "internal/agentrun/phase_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "codefix.RunPreflight: fix's checklist, estimate and Result fields, wired through cmd/fix",
+      "criteria": [
+        "11-REQ-1.4",
+        "11-REQ-2.4",
+        "11-REQ-3.4",
+        "11-REQ-3.5",
+        "11-REQ-4.4",
+        "11-REQ-5.1",
+        "11-REQ-5.5",
+        "11-REQ-5.6",
+        "11-REQ-6.1"
+      ],
+      "tests": [
+        "TS-11-4",
+        "TS-11-8",
+        "TS-11-16",
+        "TS-11-20",
+        "TS-11-25",
+        "TS-11-26",
+        "TS-11-30",
+        "TS-11-34",
+        "TS-11-36"
+      ],
+      "steps": [
+        "Write TS-11-4, TS-11-8, TS-11-16, TS-11-20, TS-11-25, TS-11-26, TS-11-30, TS-11-34 and TS-11-36 in codefix and cmd/fix and confirm they fail",
+        "In cmd/fix/main.go, factor the codefix.Options literal built inside Exec's closure into a named function fixOptions(d toolio.Deps) codefix.Options that reads the same captured flag variables, so a new PreflightExec closure can call the identical function",
+        "In codefix/types.go add `Preflight []toolio.PreflightCheck` and `Estimate *toolio.Estimate`, each json \"…,omitempty\" and carrying a description tag, immediately after Result's DryRun field",
+        "In codefix/pipeline.go, factor the verify-command-detection-and-baseline block out of Run (command resolution, checks.Detect, runChecks, result.Baseline) into an unexported helper resolveVerifyAndBaseline(ctx, o, root, result) string, called by both Run and the new RunPreflight",
+        "Add `func RunPreflight(ctx context.Context, o Options) (*Result, error)`: build Result{Stage: \"preflight\", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}, call the existing Preflight(ctx, o, git, result) unchanged and return its failure verbatim; on success call resolveVerifyAndBaseline, then populate result.Preflight (git_repository, clean_tree, base_branch, pull only when o.Pull/o.PullBranch, forge_credential/land_target/remote_configured only when the run would need them, verify_command, verify_baseline) and result.Estimate (Phases: 2, MaxTurnsPerPhase/MaxBudgetPerPhaseUSD from o.Runner.ResolvedBounds(), MaxTotalUSD: 2*MaxBudgetPerPhaseUSD)",
+        "In cmd/fix/main.go register `PreflightExec: func(ctx, d) (int, any, *toolio.ErrorInfo) { result, err := codefix.RunPreflight(ctx, fixOptions(d)); if err != nil { info := toolio.ErrorFrom(\"run\", err); return toolio.ExitCodeFor(info.Category), result, info }; return toolio.ExitOK, result, nil }`",
+        "Add a Stage == \"preflight\" case to codefix.Result's Summary() (from 05_envelope_decidable) returning \"fix: preflight passed (N checks)\" with N = len(result.Preflight), and to Resumable() returning false",
+        "Run `go test ./codefix/... ./cmd/fix/... -count=1` and confirm TS-11-4, TS-11-8, TS-11-16, TS-11-20, TS-11-25, TS-11-26, TS-11-30, TS-11-34 and TS-11-36 pass"
+      ],
+      "touches": [
+        "cmd/fix/main.go",
+        "codefix/pipeline.go",
+        "codefix/types.go",
+        "codefix/pipeline_test.go",
+        "cmd/fix/main_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "codeimpl.RunPreflight: impl's checklist, estimate and Result fields, wired through cmd/impl",
+      "criteria": [
+        "11-REQ-2.4",
+        "11-REQ-2.5",
+        "11-REQ-3.4",
+        "11-REQ-4.2",
+        "11-REQ-4.3",
+        "11-REQ-5.2",
+        "11-REQ-5.5",
+        "11-REQ-6.2"
+      ],
+      "tests": [
+        "TS-11-9",
+        "TS-11-12",
+        "TS-11-17",
+        "TS-11-21",
+        "TS-11-23",
+        "TS-11-24",
+        "TS-11-27",
+        "TS-11-31",
+        "TS-11-37"
+      ],
+      "steps": [
+        "Write TS-11-9, TS-11-12, TS-11-17, TS-11-21, TS-11-23, TS-11-24, TS-11-27, TS-11-31 and TS-11-37 in codeimpl and cmd/impl and confirm they fail",
+        "In cmd/impl/main.go factor the codeimpl.Options literal built inside Exec's closure into a named function implOptions(d toolio.Deps, repairRunner *agentrun.Runner) codeimpl.Options",
+        "Factor the --repair-model resolution (d.RunnerFor(repairModel) plus its progress detail) out of Exec's closure into resolveRepairRunner(d toolio.Deps, repairModel string) (*agentrun.Runner, *toolio.ModelChoice, error), called identically by Exec and the new PreflightExec",
+        "In codeimpl/types.go add `Preflight []toolio.PreflightCheck` and `Estimate *toolio.Estimate`, each with a description tag, immediately after Result's DryRun field",
+        "Add `func RunPreflight(ctx context.Context, o Options) (*Result, error)` to codeimpl/pipeline.go: build Result{Stage: \"preflight\", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}, call the existing unexported preflight(ctx, o, result) unchanged and return its failure verbatim (result.Tasks is already selectTasks's output on success)",
+        "On success populate result.Preflight (git_repository, clean_tree, pull only when o.Pull, spec_resolved, branch with detail continuing-vs-created from st.exists, spec_valid, spec_status, test_commands, dependencies, verify_baseline from st.baseline.OK() absent when len(st.gate)==0, forge_credential/land_target/remote_configured when applicable, repair_model_credential when o.RepairRunner != nil) and result.Estimate.Phases = len(st.todo) + (0 if o.NoSurvey else 1), bounds from o.Runner.ResolvedBounds()",
+        "Wire PreflightExec in cmd/impl/main.go calling codeimpl.RunPreflight(ctx, implOptions(d, repairRunner)) with the repair runner resolved via resolveRepairRunner exactly as Exec resolves it",
+        "Add a Stage == \"preflight\" case to codeimpl.Result's Summary() returning \"impl: preflight passed; N of M tasks remain\" from TasksRemaining/TasksTotal, and to Resumable() returning false regardless of Branch",
+        "Run `go test ./codeimpl/... ./cmd/impl/... -count=1` and confirm TS-11-9, TS-11-12, TS-11-17, TS-11-21, TS-11-23, TS-11-24, TS-11-27, TS-11-31 and TS-11-37 pass"
+      ],
+      "touches": [
+        "cmd/impl/main.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/types.go",
+        "codeimpl/pipeline_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "specgen.RunPreflight: spec's checklist, split-aware estimate and Result fields, wired through cmd/spec",
+      "criteria": [
+        "11-REQ-2.4",
+        "11-REQ-3.4",
+        "11-REQ-5.3",
+        "11-REQ-5.5",
+        "11-REQ-6.3"
+      ],
+      "tests": [
+        "TS-11-10",
+        "TS-11-19",
+        "TS-11-28",
+        "TS-11-32",
+        "TS-11-38"
+      ],
+      "steps": [
+        "Write TS-11-10, TS-11-19, TS-11-28, TS-11-32 and TS-11-38 in specgen and cmd/spec and confirm they fail",
+        "In cmd/spec/main.go factor the specgen.Options literal built inside Exec's closure into a named function specOptions(d toolio.Deps) specgen.Options",
+        "In specgen/pipeline.go add `Preflight []toolio.PreflightCheck` and `Estimate *toolio.Estimate`, each with a description tag, immediately after Result's DryRun field",
+        "Add `func RunPreflight(ctx context.Context, o Options) (*Result, error)`: call the existing Preflight(ctx, o) unchanged and return its failure verbatim; on success set result.Stage = \"preflight\" and build result.Preflight (schemas_valid always; name_flag only when o.Name != \"\"; comment_target/comment_credential only when o.Comment && !o.DryRun; split_plan only when !o.DryRun, reusing the unexported findSplitPlan(specsDir, o.Input, o.Run) and returning its error as the run's failure, not a checklist entry, when it errors)",
+        "In the same function set result.Estimate.Phases = 1 + len(afspec.GenerationSteps), +1 when o.Architecture, multiplied by the found plan's Pending() when findSplitPlan returns one; bounds from o.Runner.ResolvedBounds()",
+        "Wire PreflightExec in cmd/spec/main.go calling specgen.RunPreflight(ctx, specOptions(d))",
+        "Add a Stage == \"preflight\" case to specgen.Result's Summary() returning \"spec: preflight passed (N checks)\" with N = len(result.Preflight), and to Resumable() returning false",
+        "Run `go test ./specgen/... ./cmd/spec/... -count=1` and confirm TS-11-10, TS-11-19, TS-11-28, TS-11-32 and TS-11-38 pass"
+      ],
+      "touches": [
+        "cmd/spec/main.go",
+        "specgen/pipeline.go",
+        "specgen/pipeline_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "issuetriage.RunPreflight, and the cross-tool failure-parity and never-calls-Run tests",
+      "criteria": [
+        "11-REQ-2.4",
+        "11-REQ-3.4",
+        "11-REQ-4.1",
+        "11-REQ-5.4",
+        "11-REQ-5.5",
+        "11-REQ-5.7",
+        "11-REQ-6.3",
+        "11-REQ-6.4"
+      ],
+      "tests": [
+        "TS-11-11",
+        "TS-11-18",
+        "TS-11-22",
+        "TS-11-29",
+        "TS-11-33",
+        "TS-11-35",
+        "TS-11-39",
+        "TS-11-40"
+      ],
+      "steps": [
+        "Write TS-11-11, TS-11-18, TS-11-29, TS-11-33 and TS-11-39 in issuetriage and cmd/issue and confirm they fail",
+        "In cmd/issue/main.go factor the issuetriage.Options literal built inside Exec's closure into a named function issueOptions(d toolio.Deps) issuetriage.Options",
+        "In issuetriage/issue.go add a `DryRun bool \\`json:\"dry_run,omitempty\"\\`` field to Result mirroring Options.DryRun (not yet reported), then append `Preflight []toolio.PreflightCheck` and `Estimate *toolio.Estimate`, each with a description tag, immediately after it",
+        "Add `func Preflight(o Options) (issuex.Repo, *Failure)` to issuetriage/pipeline.go composing `target, err := ResolveTarget(o); if err != nil { return issuex.Repo{}, err }; if err := CheckWriteCredential(o, target); err != nil { return issuex.Repo{}, err }; return target, nil`, exactly the order Run already calls them in",
+        "Add `func RunPreflight(o Options) (*Result, error)`: call Preflight(o) and return its failure verbatim on error; on success set result.Stage = \"preflight\", result.DryRun = o.DryRun, result.Preflight (target_repository always; forge_credential only when !o.DryRun), and result.Estimate (Phases: 1, bounds from o.Runner.ResolvedBounds())",
+        "Wire PreflightExec in cmd/issue/main.go calling issuetriage.RunPreflight(issueOptions(d))",
+        "Add a Stage == \"preflight\" case to issuetriage.Result's Summary() returning \"issue: preflight passed (N checks)\", and to Resumable() returning false",
+        "Write TS-11-22 (the failing-scenario corpus — dirty tree, unresolvable model, missing credential, invalid spec package, unreachable repository — across fix, impl, spec and issue), TS-11-35 (none of the four RunPreflight functions ever call Runner.Run) and TS-11-40 (Resumable() is false for every Stage==\"preflight\" Result, including codeimpl's with Branch set) now that all four RunPreflight functions exist",
+        "Run `go test ./issuetriage/... ./cmd/issue/... ./codefix/... ./codeimpl/... ./specgen/... -count=1` and confirm TS-11-11, TS-11-18, TS-11-22, TS-11-29, TS-11-33, TS-11-35, TS-11-39 and TS-11-40 pass"
+      ],
+      "touches": [
+        "cmd/issue/main.go",
+        "issuetriage/pipeline.go",
+        "issuetriage/issue.go",
+        "issuetriage/triage_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Extend --detail, --events, --output, --schema and the trust check for --preflight across all four tools",
+      "criteria": [
+        "11-REQ-7.1",
+        "11-REQ-7.2",
+        "11-REQ-7.3",
+        "11-REQ-7.4",
+        "11-REQ-7.5",
+        "11-REQ-7.6"
+      ],
+      "tests": [
+        "TS-11-41",
+        "TS-11-42",
+        "TS-11-43",
+        "TS-11-44",
+        "TS-11-45",
+        "TS-11-46"
+      ],
+      "steps": [
+        "Write TS-11-41, TS-11-42, TS-11-43, TS-11-44, TS-11-45 and TS-11-46 and confirm they fail",
+        "Add \"preflight\" and \"estimate\" to each tool's --detail summary kept-field allowlist (06_trim_and_chain_results' per-tool list) for codefix.Result, codeimpl.Result, specgen.Result and issuetriage.Result, so a --preflight result survives --detail summary intact",
+        "Confirm (TS-11-42) that a --preflight result's artifacts[] and side_effects[] stay empty for every tool: no code change is expected, since every call site that appends to either array sits after the point RunPreflight returns; add the regression test that locks this",
+        "Confirm (TS-11-43) that --events/--events-file on a fix --preflight run emits only run_start, step, heartbeat and run_end, with no new event type, by wiring PreflightExec through the same Progress/event machinery Exec already uses",
+        "Confirm (TS-11-44) that --output <path> persists a fix --preflight envelope through App.Main's existing two Emit call sites unchanged, with no special case",
+        "Regenerate the four tools' checked-in --schema golden files (09_tool_self_schema's generator) so each lists --preflight among its flags and preflight/estimate among its result fields, and confirm the description-tag exhaustiveness check passes for every PreflightCheck and Estimate field",
+        "Confirm the CheckTrust exhaustiveness test (10_untrusted_text_labels) passes with PreflightCheck.Check/.Detail tagged trust:\"fact\", and that a --preflight result's untrusted_fields array is empty",
+        "Run `make test` and confirm TS-11-41 through TS-11-46 pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "codefix/types.go",
+        "codeimpl/types.go",
+        "specgen/pipeline.go",
+        "issuetriage/issue.go",
+        "cmd/fix/testdata",
+        "cmd/impl/testdata",
+        "cmd/spec/testdata",
+        "cmd/issue/testdata"
+      ],
+      "depends_on": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Document --preflight in docs/cli.md",
+      "criteria": [
+        "11-REQ-8.1",
+        "11-REQ-8.2",
+        "11-REQ-8.3"
+      ],
+      "tests": [
+        "TS-11-47",
+        "TS-11-48",
+        "TS-11-49"
+      ],
+      "steps": [
+        "Write TS-11-47, TS-11-48 and TS-11-49 as a new root-package test (e.g. cli_doc_test.go, mirroring verify_test.go's findWorkspaceRoot helper) that reads docs/cli.md and confirms they fail",
+        "Add a --preflight row to the \"## Shared flags\" table in docs/cli.md, naming its default (false) and its effect",
+        "Add a \"## Preflight (`--preflight`)\" section stating what it runs, what it never does (no branch, no commit, no push, no comment, no issue — except the baseline/gate check fix/impl already run, named explicitly), and that a --pull-driven fetch-and-fast-forward and an impl continuation-branch checkout are not suppressed",
+        "Add one worked example per tool (fix, impl, spec, issue) under that section, each showing a result.preflight array and a result.estimate object drawn from the fields each RunPreflight now actually produces",
+        "Run `go test ./... -run TestCLIDoc -count=1` (or the equivalent test name chosen above) and confirm TS-11-47, TS-11-48 and TS-11-49 pass"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "cli_doc_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Verify every --preflight execution path end to end, against the real CLI shell",
+      "tests": [
+        "TS-11-50",
+        "TS-11-51",
+        "TS-11-52",
+        "TS-11-53"
+      ],
+      "steps": [
+        "Write TS-11-50, TS-11-51, TS-11-52 and TS-11-53 in internal/toolio/smoke_test.go, following the existing faux-provider pattern already used there, and confirm they pass",
+        "Trace 11-PATH-1 through the real code: App.execute -> PreflightExec -> codefix.RunPreflight -> Preflight -> the dirty-tree refusal -> the identical envelope fix alone would produce; confirm each step actually calls the next in cmd/fix/main.go and codefix/pipeline.go, with no stub remaining",
+        "Trace 11-PATH-2 through cmd/impl/main.go and codeimpl/pipeline.go, confirming the continuation-branch checkout and the baseline gate run inside preflight are reached, and that no new branch is created",
+        "Trace 11-PATH-3 through cmd/spec/main.go and specgen/pipeline.go, confirming findSplitPlan is called and result.estimate.phases is multiplied by plan.Pending()",
+        "Trace 11-PATH-4 through cmd/issue/main.go and issuetriage/pipeline.go, confirming ResolveTarget and CheckWriteCredential are both reached and no forge write call is made",
+        "For every criterion carrying a contract (11-REQ-1.2, 11-REQ-1.4, 11-REQ-2.2, 11-REQ-2.3, 11-REQ-3.5, 11-REQ-4.2, 11-REQ-4.3, 11-REQ-4.4, 11-REQ-5.1, 11-REQ-5.2, 11-REQ-5.3, 11-REQ-5.4, 11-REQ-5.6), confirm the producing function's result is consumed by production code in App.execute/PreflightExec/RunPreflight, not only asserted in a test",
+        "Grep internal/toolio, internal/agentrun, codefix, codeimpl, specgen, issuetriage and the four cmd/* packages touched by tasks 1-7 for panic(\"not implemented\"), TODO and a bare return nil on a non-trivial path; remove or resolve any that remain",
+        "Run `make test` and `make lint` and confirm the whole suite, including TS-11-50, TS-11-51, TS-11-52 and TS-11-53, passes"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "state": "pending"
+    }
+  ]
+}

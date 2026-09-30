@@ -1,0 +1,429 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "09",
+  "spec_name": "tool_self_schema",
+  "schema_version": 2,
+  "introduction": "This spec gives each of the four agent-fox tools (spec, issue, fix, impl) a --schema flag that prints, without doing any work, a single JSON document describing the flags it accepts and the JSON Schema of what it returns, and adds a schema_version field to the ordinary envelope so a caller can tell which shape of the shared interface it is looking at.",
+  "glossary": {
+    "JSON Schema 2020-12": "The JSON Schema meta-schema draft this feature's flags and result documents are written against and validated with.",
+    "envelope": "The single JSON object (toolio.Envelope) every agent-fox tool writes to stdout on an ordinary run.",
+    "flags document": "The self-description document's flags value: a standalone JSON Schema 2020-12 document describing the tool's flag set.",
+    "golden file": "A checked-in file holding the exact bytes a command is expected to produce, compared byte-for-byte by a test.",
+    "result document": "The self-description document's result value: a standalone JSON Schema 2020-12 document describing the envelope shape that tool actually writes, with its own Result type substituted in.",
+    "self-description document": "The single JSON object a tool prints instead of running, when invoked with --schema."
+  },
+  "requirements": [
+    {
+      "id": "09-REQ-1",
+      "title": "The --schema flag: precedence and isolation from a run",
+      "rationale": "A caller has to be able to ask what a tool accepts and returns without risking a network call, a credential check, or a change to the repository.",
+      "criteria": [
+        {
+          "id": "09-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "Common",
+          "action": "register a boolean --schema flag with default false, alongside the existing shared flags"
+        },
+        {
+          "id": "09-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "a tool is invoked with --schema set to true and --version is not set",
+          "system": "App",
+          "action": "build the tool's self-description document and write it to stdout as indented JSON followed by a newline",
+          "contract": "the process exits 0; stdout contains exactly one JSON object followed by a trailing newline and nothing else"
+        },
+        {
+          "id": "09-REQ-1.3",
+          "pattern": "complex_event",
+          "condition": "a tool is invoked with both --schema and --version set",
+          "guard": "flag parsing succeeds",
+          "system": "App",
+          "action": "honor --version's existing precedence by printing the build identity line and exiting, without printing the self-description document",
+          "contract": "stdout is exactly '<tool> <version>\\n'; exit code 0"
+        },
+        {
+          "id": "09-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "--schema is given together with --output, --events, or --events-file",
+          "system": "App",
+          "action": "take no run-related action for any of those flags: create no output file, no events sink, and no run",
+          "contract": "no file exists at any path named by --output, --events or --events-file after the process exits; stdout carries only the self-description document"
+        },
+        {
+          "id": "09-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "--schema is given together with a positional argument",
+          "system": "App",
+          "action": "accept the positional argument and ignore it, producing output identical to the same invocation without it",
+          "contract": "the stdout bytes for '<tool> --schema \"some text\"' equal the stdout bytes for '<tool> --schema'"
+        },
+        {
+          "id": "09-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "another flag given alongside --schema fails flag.Parse's own validation, such as an unknown flag or a malformed value",
+          "system": "App",
+          "action": "report flag.Parse's existing error and not print the self-description document",
+          "contract": "exit code 2; stderr carries the flag package's own parse error; stdout does not contain the self-description document's tool or flags keys"
+        },
+        {
+          "id": "09-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "a tool is invoked with --schema, no environment variable naming a model credential set, and --dir pointing at an existing empty directory",
+          "system": "App",
+          "action": "exit 0 printing the document, making no network call, requiring no repository at --dir, and resolving no model",
+          "contract": "exit code 0; the document is printed; no outbound network connection is made; no credential or model-resolution error is raised"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-2",
+      "title": "The self-description document's shape",
+      "rationale": "A caller needs one document per tool that names what it does, what it takes, and how it can end, without reading Go source or docs/cli.md.",
+      "criteria": [
+        {
+          "id": "09-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "carry exactly the top-level keys tool, schema_version, description, input, flags, result, and exit_codes"
+        },
+        {
+          "id": "09-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "carry, in its tool and schema_version fields, the same values Envelope.Tool and Envelope.SchemaVersion carry on an ordinary run of that tool"
+        },
+        {
+          "id": "09-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "carry, in its description field, the tool's own hand-authored one-sentence App.Description value, set once in that tool's cmd/<tool>/main.go"
+        },
+        {
+          "id": "09-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "carry an input field shaped {\"description\": string, \"kinds\": [\"text\", \"file\", \"stdin\", \"issue\"]}, whose description is the tool's hand-authored App.InputDescription value and whose kinds is always this same four-element list regardless of which kinds that tool's own CheckInput accepts"
+        },
+        {
+          "id": "09-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "carry an exit_codes field whose keys are exactly the exit codes that tool's Exec can return under App's shared exit table, each paired with a one-line hand-authored description from that tool's App.ExitCodes"
+        },
+        {
+          "id": "09-REQ-2.6",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "for issue and spec, carry an exit_codes field with exactly the three keys \"0\", \"1\", and \"2\""
+        },
+        {
+          "id": "09-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "self-description document",
+          "action": "for fix and impl, carry an exit_codes field with exactly the five keys \"0\", \"1\", \"2\", \"3\", and \"4\""
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-3",
+      "title": "flags, generated from the tool's FlagSet",
+      "rationale": "A hand-written flags document drifts from the FlagSet the moment one changes and the other does not, so it has to be derived.",
+      "criteria": [
+        {
+          "id": "09-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "flags generator",
+          "action": "build the flags document by walking flag.FlagSet.VisitAll over the fully-populated FlagSet App.Main constructs, Common's registration followed by the tool's own Flags closure, in the name order VisitAll visits"
+        },
+        {
+          "id": "09-REQ-3.2",
+          "pattern": "unwanted",
+          "condition": "a registered flag is named schema or version",
+          "system": "flags generator",
+          "action": "exclude that flag from the flags document's properties",
+          "contract": "flags.properties has no key named 'schema' and no key named 'version'"
+        },
+        {
+          "id": "09-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "flags generator",
+          "action": "for every other registered flag, set that property's description to the flag's Usage string verbatim"
+        },
+        {
+          "id": "09-REQ-3.4",
+          "pattern": "complex_event",
+          "condition": "a flag's Value implements flag.Getter",
+          "guard": "Get() returns a dynamic type of string, bool, int64, or float64",
+          "system": "flags generator",
+          "action": "set that property's type to the matching JSON Schema primitive (\"string\", \"boolean\", or \"integer\"/\"number\") and its default to the flag's own default value"
+        },
+        {
+          "id": "09-REQ-3.5",
+          "pattern": "complex_event",
+          "condition": "a flag's Value implements flag.Getter",
+          "guard": "Get() returns a time.Duration",
+          "system": "flags generator",
+          "action": "set that property's schema to {\"type\": \"string\", \"format\": \"duration\"}, with default rendered as the duration's own string form, for example \"10m0s\""
+        },
+        {
+          "id": "09-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "a flag's Value does not implement flag.Getter, such as fix's hand-written --pull flag",
+          "system": "flags generator",
+          "action": "report that property as {\"type\": \"string\"}, with default taken from the flag's own String method",
+          "contract": "flags.properties['pull'] equals {\"type\": \"string\", \"default\": <the flag's String() result>, \"description\": <the flag's Usage>}"
+        },
+        {
+          "id": "09-REQ-3.7",
+          "pattern": "optional",
+          "condition": "a flag has been declared, as part of this scope's implementation, to carry a closed set of legal values, such as --land on fix and impl and any flag from an earlier scope of this split that has one",
+          "system": "flags generator",
+          "action": "include an enum key on that flag's property listing exactly that declared set"
+        },
+        {
+          "id": "09-REQ-3.8",
+          "pattern": "ubiquitous",
+          "system": "flags generator",
+          "action": "produce the flags document shaped {\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"type\": \"object\", \"properties\": {...}}, with no required key and no additionalProperties key"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-4",
+      "title": "result, generated from Go types by reflection",
+      "rationale": "A caller's own tooling needs the real shape of what a tool returns, derived from the Go types that actually get marshalled rather than hand-maintained separately.",
+      "criteria": [
+        {
+          "id": "09-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "render a Go struct type as {\"type\": \"object\", \"properties\": {...}, \"required\": [...]}, with property order following reflect.VisibleFields' declaration order, including fields promoted from an anonymously embedded struct"
+        },
+        {
+          "id": "09-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "derive a field's JSON property name and required-ness from its json struct tag exactly as encoding/json reads it: a tag carrying omitempty removes the field from required, a tag's absence keeps the field in required, and a field tagged json:\"-\" is skipped entirely"
+        },
+        {
+          "id": "09-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "render a slice field as {\"type\": \"array\", \"items\": <element schema>}, a pointer field as its pointee's own schema without a separate nullable marker, and a scalar field as the matching JSON Schema primitive type"
+        },
+        {
+          "id": "09-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "for any field reachable from toolio.Envelope or from one of the four tools' Result types, set that field's schema description from a new struct tag read alongside json"
+        },
+        {
+          "id": "09-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "serialize an object schema's properties as an ordered sequence through a custom MarshalJSON, never as a plain Go map, so property order is preserved regardless of encoding/json's own map-key sorting"
+        },
+        {
+          "id": "09-REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "the result document for a specific tool is built",
+          "system": "result generator",
+          "action": "apply itself to toolio.Envelope and substitute the schema of that tool's own concrete Result type, taken from a zero-value App.ResultSample, for the Envelope.Result field's schema",
+          "contract": "result.properties.result equals the object schema generated from that tool's own Result struct, not a generic {\"type\": \"object\"} placeholder"
+        },
+        {
+          "id": "09-REQ-4.7",
+          "pattern": "ubiquitous",
+          "system": "result generator",
+          "action": "produce a result document shaped {\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"type\": \"object\", \"properties\": {...}, \"required\": [...]}, valid as a standalone JSON Schema document independent of the flags document"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-5",
+      "title": "schema_version on the envelope, and the additive/breaking rule it names",
+      "rationale": "A caller needs to tell a shape it understands from one it does not before it acts on an envelope, separate from the build identity.",
+      "criteria": [
+        {
+          "id": "09-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "toolio.Envelope",
+          "action": "carry a SchemaVersion string field, tagged json:\"schema_version\", positioned immediately after Version in field order, present on every ordinary envelope without an omitempty tag"
+        },
+        {
+          "id": "09-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "toolio package",
+          "action": "define one package-level constant SchemaVersion that all four tools use to set Envelope.SchemaVersion, so all four always advertise the same value"
+        },
+        {
+          "id": "09-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "toolio package",
+          "action": "set the SchemaVersion constant to \"2.0.0\""
+        },
+        {
+          "id": "09-REQ-5.4",
+          "pattern": "ubiquitous",
+          "system": "run_start progress event",
+          "action": "carry the same schema_version value under the same key, as a new field on the already-closed event type"
+        },
+        {
+          "id": "09-REQ-5.5",
+          "pattern": "ubiquitous",
+          "system": "the compatibility rule",
+          "action": "classify as additive, not requiring a major version bump, each of: a new top-level envelope field, a new field on an existing object such as result, needs_human, error, a warning, or an event, a new value in a field whose own description documents it as an open set, and a new event type"
+        },
+        {
+          "id": "09-REQ-5.6",
+          "pattern": "ubiquitous",
+          "system": "the compatibility rule",
+          "action": "classify as breaking, requiring a major version bump, each of: removing or renaming a field, changing a field's type, and narrowing a field documented as a closed enum"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-6",
+      "title": "A golden-file test per tool, and an exhaustiveness check on descriptions",
+      "rationale": "Nothing keeps a generated document honest except a test that fails the moment the source it is generated from moves and the checked-in document does not.",
+      "criteria": [
+        {
+          "id": "09-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "the repository",
+          "action": "keep one checked-in golden file cmd/<tool>/testdata/schema.golden.json per tool, holding the exact bytes that tool's --schema output produces"
+        },
+        {
+          "id": "09-REQ-6.2",
+          "pattern": "unwanted",
+          "condition": "a change to a field reachable from a tool's Result type, to a flag's type, default, or declared enum, or to the envelope's own shape is made without updating that tool's checked-in golden file",
+          "system": "make test",
+          "action": "fail, reporting a byte-level diff between the built tool's live --schema output and the checked-in golden file",
+          "contract": "make test exits non-zero and its output names the tool and shows the diff between the live and golden bytes"
+        },
+        {
+          "id": "09-REQ-6.3",
+          "pattern": "optional",
+          "condition": "the golden-file update path, an environment variable or test flag, is given",
+          "system": "the golden-file test",
+          "action": "regenerate the golden file from the live --schema output instead of failing"
+        },
+        {
+          "id": "09-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "the test suite runs",
+          "system": "the golden-file test",
+          "action": "compile both the flags document and the result document of every tool's --schema output against the JSON Schema 2020-12 meta-schema, using github.com/santhosh-tekuri/jsonschema/v6",
+          "contract": "the test fails, naming the tool and which document (flags or result) did not compile, when either does not compile against the meta-schema"
+        },
+        {
+          "id": "09-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "the test suite runs",
+          "system": "the exhaustiveness test",
+          "action": "walk, by reflection, every field reachable from toolio.Envelope and from each of the four tools' Result types, and fail naming any field lacking the description struct tag 09-REQ-4 requires",
+          "contract": "the test fails and its failure message lists every field missing the description tag"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-7",
+      "title": "Documentation: docs/cli.md and the envelope-versioning ADR",
+      "rationale": "The compatibility rule only protects a caller if it is written down once, in a place every future change to the envelope is expected to consult and extend.",
+      "criteria": [
+        {
+          "id": "09-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain a --schema row in the shared-flags table describing its default and its effect"
+        },
+        {
+          "id": "09-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain a Self-description (--schema) section with one abbreviated worked example and an explanation of the flags, result, and exit_codes keys"
+        },
+        {
+          "id": "09-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain an Interface versions section listing 1.0.0 and 2.0.0, one paragraph each, stating the additive/breaking rule from 09-REQ-5, and serving as the place a future major bump appends its own entry"
+        },
+        {
+          "id": "09-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "the repository",
+          "action": "contain a new ADR file docs/adr/06-version-the-envelope-interface.md recording, as an accepted decision, the context, the semver additive-only decision with its closed additive/breaking list, and the consequence that a future spec touching the envelope states which kind of change it makes"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "09-PATH-1",
+      "title": "A caller introspects a tool's interface before ever running it",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'fix --schema' with no model credential configured and --dir pointing at an empty directory"
+        },
+        {
+          "actor": "fix",
+          "action": "parses flags, detects --schema, and builds the self-description document without resolving a model, checking a credential, or touching the network"
+        },
+        {
+          "actor": "fix",
+          "action": "writes the document as indented JSON to stdout and exits 0"
+        },
+        {
+          "actor": "caller",
+          "action": "compiles the document's flags and result values against the JSON Schema 2020-12 meta-schema and reads exit_codes to plan how to call fix"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-2",
+      "title": "A maintainer changes a Result field and the golden-file test catches the drift",
+      "steps": [
+        {
+          "actor": "maintainer",
+          "action": "adds a new field to codefix.Result without updating cmd/fix/testdata/schema.golden.json"
+        },
+        {
+          "actor": "make test",
+          "action": "builds fix, runs 'fix --schema', and compares the live output byte-for-byte against the checked-in golden file"
+        },
+        {
+          "actor": "make test",
+          "action": "fails, printing a diff between the live document and the golden file"
+        },
+        {
+          "actor": "maintainer",
+          "action": "regenerates the golden file through the update path and reruns make test until it passes"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-3",
+      "title": "An ordinary run reports the same interface version its own --schema advertised",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes 'issue' with a valid report as input, with no --schema flag"
+        },
+        {
+          "actor": "issue",
+          "action": "completes the run and calls Run.Envelope, which sets schema_version to the shared toolio.SchemaVersion constant (\"2.0.0\") alongside version"
+        },
+        {
+          "actor": "issue",
+          "action": "writes the ordinary envelope, including schema_version, to stdout"
+        },
+        {
+          "actor": "caller",
+          "action": "compares the envelope's schema_version against the value 'issue --schema' advertised earlier and proceeds only when they match"
+        }
+      ]
+    }
+  ]
+}
