@@ -235,6 +235,7 @@ a typo. An existing directory is never flagged.
 | `--verbose` | off | trace tool calls and timings on stderr |
 | `--quiet` | off | print nothing on stderr |
 | `--show-text` | off | stream the model's own prose to stderr |
+| `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--version` | — | print the build identity and exit |
 
 `--context` does not change `input.bytes` — it is rendered separately and

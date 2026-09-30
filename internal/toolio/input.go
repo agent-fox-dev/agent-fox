@@ -88,15 +88,7 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Clie
 		return Input{}, ErrNoInput
 
 	case arg == "-":
-		b, err := io.ReadAll(io.LimitReader(stdin, MaxInputBytes+1))
-		if err != nil {
-			return Input{}, fmt.Errorf("reading stdin: %w", err)
-		}
-		body, cut := Truncate(string(b))
-		if strings.TrimSpace(body) == "" {
-			return Input{}, ErrNoInput
-		}
-		return Input{Kind: KindStdin, Origin: "stdin", Body: body, Truncated: cut}, nil
+		return readStdin(stdin)
 	}
 
 	if ref, ok := issuex.ParseIssueURL(arg); ok {
@@ -115,6 +107,88 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Clie
 	}
 	body, cut := Truncate(arg)
 	return Input{Kind: KindText, Origin: "argument", Body: body, Truncated: cut}, nil
+}
+
+// readStdin reads the piped input, bounded at MaxInputBytes.
+func readStdin(stdin io.Reader) (Input, error) {
+	b, err := io.ReadAll(io.LimitReader(stdin, MaxInputBytes+1))
+	if err != nil {
+		return Input{}, fmt.Errorf("reading stdin: %w", err)
+	}
+	body, cut := Truncate(string(b))
+	if strings.TrimSpace(body) == "" {
+		return Input{}, ErrNoInput
+	}
+	return Input{Kind: KindStdin, Origin: "stdin", Body: body, Truncated: cut}, nil
+}
+
+// ResolveForced loads arg as the given kind instead of guessing, for
+// --input-kind (06-REQ-8). It skips Resolve's auto-classification entirely
+// rather than running it and checking the outcome, so nothing is fetched or
+// read on the way to a refusal. Every mismatch is a *UsageError, which the
+// shell turns into exit 2 before a model is resolved.
+//
+//   - file: the argument must stat as a regular file; a missing path and a
+//     directory are refused by name, before Resolve's file-vs-text fallback.
+//   - text: the argument is the body, verbatim: no file, URL or path-shape
+//     check, and no warning.
+//   - issue: the argument must parse as a forge issue or pull-request URL,
+//     checked before any HTTP request.
+//   - stdin: the argument must be exactly "-".
+//
+// A nil run is safe; forced modes record no warnings.
+func ResolveForced(ctx context.Context, kind, arg string, stdin io.Reader, forge issuex.Client, run *Run) (Input, error) {
+	_ = run
+	switch SourceKind(kind) {
+	case KindText:
+		if strings.TrimSpace(arg) == "" {
+			return Input{}, ErrNoInput
+		}
+		body, cut := Truncate(arg)
+		return Input{Kind: KindText, Origin: "argument", Body: body, Truncated: cut}, nil
+
+	case KindFile:
+		path := strings.TrimSpace(arg)
+		if path == "" {
+			return Input{}, ErrNoInput
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return Input{}, Usagef("--input-kind file: %s does not exist", path)
+			}
+			return Input{}, Usagef("--input-kind file: %s cannot be read: %v", path, err)
+		}
+		if info.IsDir() {
+			return Input{}, Usagef("--input-kind file: %s is a directory, not a file", path)
+		}
+		if !info.Mode().IsRegular() {
+			return Input{}, Usagef("--input-kind file: %s is not a regular file", path)
+		}
+		body, cut, ok, err := readIfFile(path)
+		if err != nil {
+			return Input{}, Usagef("--input-kind file: %v", err)
+		}
+		if !ok {
+			return Input{}, Usagef("--input-kind file: %s is not a readable regular file", path)
+		}
+		return Input{Kind: KindFile, Origin: filepath.Clean(path), Body: body, Truncated: cut}, nil
+
+	case KindIssue:
+		ref, ok := issuex.ParseIssueURL(arg)
+		if !ok {
+			return Input{}, Usagef("--input-kind issue: %q is not a GitHub or GitLab issue or pull-request URL", strings.TrimSpace(arg))
+		}
+		return resolveIssue(ctx, ref, forge)
+
+	case KindStdin:
+		if strings.TrimSpace(arg) != "-" {
+			return Input{}, Usagef("--input-kind stdin: the argument must be \"-\", got %q", strings.TrimSpace(arg))
+		}
+		return readStdin(stdin)
+	}
+	return Input{}, Usagef("--input-kind must be one of %q, %q, %q or %q, got %q",
+		KindFile, KindText, KindIssue, KindStdin, kind)
 }
 
 // extensionSuffix matches the short alphanumeric suffix of a file name.

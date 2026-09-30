@@ -155,6 +155,14 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: derr.Error(), err: derr,
 		})
 	}
+	if kerr := common.ValidInputKind(); kerr != nil {
+		// Same rule as --detail: refused before Workspace(), Resolve() or
+		// model resolution.
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, kerr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: kerr.Error(), err: kerr,
+		})
+	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
@@ -331,10 +339,19 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 	}
 
-	in, err := Resolve(ctx, e.argument, e.stdin, forge, e.run)
+	var in Input
+	if e.common.InputKind != "" {
+		in, err = ResolveForced(ctx, e.common.InputKind, e.argument, e.stdin, forge, e.run)
+	} else {
+		in, err = Resolve(ctx, e.argument, e.stdin, forge, e.run)
+	}
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef("%s", NoInputMessage))
+		}
+		var ue *UsageError
+		if errors.As(err, &ue) {
+			return a.usage(err)
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error(), err: err}
 	}

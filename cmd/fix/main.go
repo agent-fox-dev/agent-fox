@@ -190,6 +190,7 @@ var knownFixValueFlags = map[string]bool{
 	"max-turns":      true,
 	"budget":         true,
 	"phase-timeout":  true,
+	"input-kind":     true,
 }
 
 // normalizeArgs rewrites argv so that "-pull [branch]" doesn't cause the branch

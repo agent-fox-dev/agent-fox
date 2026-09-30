@@ -60,6 +60,9 @@ type Common struct {
 	// means the computed default under $XDG_STATE_HOME/agent-fox/runs (or
 	// its ~/.local/state fallback).
 	ReportFile string
+	// InputKind forces how the single argument is classified: "file",
+	// "text", "issue" or "stdin". Empty means auto-classify (Resolve).
+	InputKind string
 }
 
 type contextFlag []string
@@ -111,7 +114,20 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Version, "version", false, "print the build identity and exit")
 	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
 	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
+	fs.StringVar(&c.InputKind, "input-kind", "", "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
+}
+
+// ValidInputKind refuses any --input-kind value other than the four source
+// kinds. Empty is legal and means auto-classify.
+func (c *Common) ValidInputKind() error {
+	switch c.InputKind {
+	case "", string(KindFile), string(KindText), string(KindIssue), string(KindStdin):
+		return nil
+	default:
+		return fmt.Errorf("--input-kind must be one of %q, %q, %q or %q, got %q",
+			KindFile, KindText, KindIssue, KindStdin, c.InputKind)
+	}
 }
 
 // ValidDetail refuses any --detail value other than "summary" or "full". An
