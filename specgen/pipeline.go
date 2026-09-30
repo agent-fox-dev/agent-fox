@@ -129,6 +129,12 @@ func (r Result) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
+// Resumable implements toolio.Resumabler. For specgen, this is true whenever
+// SplitPlan is non-empty.
+func (r Result) Resumable() bool {
+	return r.SplitPlan != ""
+}
+
 // Package describes one specification package.
 type Package struct {
 	// SpecDir is the created package, relative to the repository root when

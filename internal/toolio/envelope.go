@@ -60,6 +60,12 @@ type Summarizer interface {
 	Summary() string
 }
 
+// Resumabler is implemented by Result types that report whether re-running
+// the same input continues rather than restarts the work.
+type Resumabler interface {
+	Resumable() bool
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
@@ -173,8 +179,34 @@ type ErrorInfo struct {
 	// Category classifies the failure so a caller can decide whether
 	// re-running could help: usage, auth, input, model, budget, max_turns,
 	// git, forge, verify, internal.
-	Category string `json:"category"`
-	Message  string `json:"message"`
+	Category  string `json:"category"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+	Resumable bool   `json:"resumable"`
+}
+
+// RetryableFor reports whether an error of the given category can succeed
+// if re-run unchanged. Only "api" and "aborted" are retryable.
+func RetryableFor(category string) bool {
+	return category == "api" || category == "aborted"
+}
+
+// BuildErrorInfo builds an ErrorInfo with Retryable set according to the category.
+func BuildErrorInfo(category string, extra ...string) *ErrorInfo {
+	stage := "error"
+	message := ""
+	if len(extra) > 0 {
+		stage = extra[0]
+	}
+	if len(extra) > 1 {
+		message = extra[1]
+	}
+	return &ErrorInfo{
+		Stage:     stage,
+		Category:  category,
+		Message:   message,
+		Retryable: RetryableFor(category),
+	}
 }
 
 // Run is the accumulating state of one tool invocation. It is what a
@@ -241,8 +273,8 @@ func (r *Run) Warn(format string, args ...any) {
 	r.warnings = append(r.warnings, strings.TrimSpace(fmt.Sprintf(format, args...)))
 }
 
-// warnWithSeverity records a warning with an explicit severity.
-func (r *Run) warnWithSeverity(code WarnCode, severity string, format string, args ...any) {
+// WarnWithSeverity records a warning with an explicit severity.
+func (r *Run) WarnWithSeverity(code WarnCode, severity string, format string, args ...any) {
 	if r == nil {
 		return
 	}
@@ -366,6 +398,18 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		}
 	}
 	env.Summary = summary
+
+	if env.Error != nil {
+		errCopy := *env.Error
+		errCopy.Retryable = RetryableFor(errCopy.Category)
+		if res, ok := env.Result.(Resumabler); ok {
+			errCopy.Resumable = res.Resumable()
+		} else {
+			errCopy.Resumable = false
+		}
+		env.Error = &errCopy
+	}
+
 	return env
 }
 
@@ -384,8 +428,12 @@ func Emit(w io.Writer, env Envelope) int {
 		fallback, _ := json.MarshalIndent(Envelope{
 			Tool: env.Tool, Version: env.Version, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
 			Summary: "the result could not be encoded as JSON: " + err.Error(),
-			Error: &ErrorInfo{Stage: "emit", Category: "internal",
-				Message: "the result could not be encoded as JSON: " + err.Error()},
+			Error: &ErrorInfo{
+				Stage: "emit", Category: "internal",
+				Message:   "the result could not be encoded as JSON: " + err.Error(),
+				Retryable: RetryableFor("internal"),
+				Resumable: false,
+			},
 		}, "", "  ")
 		_, _ = w.Write(append(fallback, '\n'))
 		return ExitFailed

@@ -111,6 +111,12 @@ func (r Result) Summary() string {
 	return fmt.Sprintf("issue: %s%s (%s severity, %d %s cited)", action, target, sev, filesCount, filesLabel)
 }
 
+// Resumable implements toolio.Resumabler. For issuetriage, this is always false
+// because issue has no notion of continuing a prior run.
+func (r Result) Resumable() bool {
+	return false
+}
+
 // Failure carries a stage and category alongside the message, so the caller
 // can render the JSON error object without re-deriving either.
 type Failure struct {

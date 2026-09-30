@@ -281,6 +281,12 @@ func (r Result) NeedsHuman() (question string, options []toolio.Option, needed s
 	}, "", true
 }
 
+// Resumable implements toolio.Resumabler. For codefix, this is always false
+// because branch names are non-deterministic.
+func (r Result) Resumable() bool {
+	return false
+}
+
 // Categories this package adds to the shared vocabulary.
 const (
 	// CategoryForge and CategoryGit are the two external systems.

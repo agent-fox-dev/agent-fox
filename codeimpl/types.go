@@ -473,6 +473,12 @@ func (r Result) NeedsHuman() (question string, options []toolio.Option, needed s
 	return r.Blocker.Reason, nil, r.Blocker.Needed, true
 }
 
+// Resumable implements toolio.Resumabler. For codeimpl, this is true whenever
+// Branch is non-empty.
+func (r Result) Resumable() bool {
+	return r.Branch != ""
+}
+
 // brain is the model-driven half: the survey, the baseline repair and the
 // per-task implementation, and nothing else.
 type brain interface {
