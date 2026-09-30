@@ -50,6 +50,8 @@ type Input struct {
 	// Body is the text the tool works from, already truncated to
 	// MaxInputBytes.
 	Body string
+	// Context is the rendered additional context block from --context flags.
+	Context string
 	// Truncated reports that Body is shorter than the source.
 	Truncated bool
 

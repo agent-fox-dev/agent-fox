@@ -50,6 +50,40 @@ type Common struct {
 	Quiet        bool
 	ShowText     bool
 	Version      bool
+	Context      []string
+}
+
+type contextFlag []string
+
+func (f *contextFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, ", ")
+}
+
+func (f *contextFlag) Set(val string) error {
+	*f = append(*f, val)
+	return nil
+}
+
+// ContextBlock renders the --context values into one labelled block,
+// or returns an empty string when none were given.
+func (c *Common) ContextBlock() string {
+	if c == nil || len(c.Context) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Additional context from the caller\n\n")
+	for i, p := range c.Context {
+		b.WriteString(p)
+		if i < len(c.Context)-1 {
+			b.WriteString("\n\n")
+		} else {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // Register adds the shared flags to fs.
@@ -66,6 +100,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Quiet, "quiet", false, "print nothing on stderr")
 	fs.BoolVar(&c.ShowText, "show-text", false, "stream the model's prose to stderr")
 	fs.BoolVar(&c.Version, "version", false, "print the build identity and exit")
+	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
 }
 
 // ModelSpec is the model the run will use, after the environment is consulted.

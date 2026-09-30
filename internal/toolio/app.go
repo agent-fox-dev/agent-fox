@@ -197,6 +197,16 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		return a.usage(err)
 	}
 
+	contextBlock := e.common.ContextBlock()
+	contextLen := len(contextBlock)
+
+	// Check if source length + context length exceeds MaxInputBytes before fetching anything.
+	// For text argument, we can check e.argument directly.
+	if len(e.argument)+contextLen > MaxInputBytes {
+		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
+			MaxInputBytes, len(e.argument)+contextLen))
+	}
+
 	var forge issuex.Client
 	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
 		forge, _ = issuex.NewWithOptions(issuex.Options{
@@ -223,6 +233,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
 	}
+	if len(in.Body)+contextLen > MaxInputBytes {
+		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
+			MaxInputBytes, len(in.Body)+contextLen))
+	}
+	in.Context = contextBlock
 	e.run.SetInput(in)
 	if in.Truncated {
 		e.run.Warn("the input was truncated at %d bytes", MaxInputBytes)

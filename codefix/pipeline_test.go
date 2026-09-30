@@ -1151,3 +1151,37 @@ func TestTS0417_OpenPullRequestAndPostComment(t *testing.T) {
 		t.Errorf("comment body payload = %v, want 'summary body text'", commentPayload["body"])
 	}
 }
+
+// TS-05-15 (integration): codefix's Ambiguity maps onto needs_human's question and options A/B
+func TestTS05_15_CodefixAmbiguityMapsOntoNeedsHuman(t *testing.T) {
+	result := &Result{
+		Ambiguity: &Ambiguity{
+			Question:        "Which retry loop?",
+			InterpretationA: "the HTTP client's retry loop",
+			InterpretationB: "the job queue's redelivery",
+		},
+	}
+	run := toolio.NewRun("fix", "test")
+	env := run.Envelope(toolio.ExitNeedsHuman, result, &toolio.ErrorInfo{Stage: "analyse", Category: "ambiguous"})
+
+	if env.NeedsHuman == nil {
+		t.Fatal("expected env.NeedsHuman to be non-nil")
+	}
+	if env.NeedsHuman.Question != "Which retry loop?" {
+		t.Errorf("expected Question %q, got %q", "Which retry loop?", env.NeedsHuman.Question)
+	}
+	if len(env.NeedsHuman.Options) != 2 {
+		t.Fatalf("expected 2 options, got %d", len(env.NeedsHuman.Options))
+	}
+	wantOptA := toolio.Option{ID: "A", Text: "the HTTP client's retry loop"}
+	wantOptB := toolio.Option{ID: "B", Text: "the job queue's redelivery"}
+	if env.NeedsHuman.Options[0] != wantOptA {
+		t.Errorf("option A: got %+v, want %+v", env.NeedsHuman.Options[0], wantOptA)
+	}
+	if env.NeedsHuman.Options[1] != wantOptB {
+		t.Errorf("option B: got %+v, want %+v", env.NeedsHuman.Options[1], wantOptB)
+	}
+	if env.NeedsHuman.Needed != "" {
+		t.Errorf("expected Needed to be empty, got %q", env.NeedsHuman.Needed)
+	}
+}

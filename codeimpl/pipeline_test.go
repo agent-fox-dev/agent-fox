@@ -1,6 +1,7 @@
 package codeimpl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1313,5 +1314,149 @@ func TestTS0422_LandPRChanges(t *testing.T) {
 	}
 	if mockForge.capturedReq.Head != "impl/09-test" || mockForge.capturedReq.Base != "main" || !mockForge.capturedReq.Draft {
 		t.Errorf("capturedReq = %+v", mockForge.capturedReq)
+	}
+}
+
+// TS-05-17 (integration): checkUpstream sets Result.Blocker naming the dependency and the upstream package when a dependency is neither sealed nor done
+func TestTS05_17_CheckUpstreamSetsBlocker(t *testing.T) {
+	ws, g, specDirB := newSpecRepo(t)
+	root := ws.Root
+
+	// specDirB is 09_agent_mode. We will make a new upstream spec 08_upstream
+	specDirA := filepath.Join(root, ".specs", "08_upstream")
+	if err := os.MkdirAll(specDirA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join("..", "testdata", "v2_example")
+	for _, name := range []string{"prd.md", "requirements.json", "test_spec.json", "tasks.json"} {
+		b, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "prd.md" {
+			b = bytes.ReplaceAll(b, []byte(`spec_id: "09"`), []byte(`spec_id: "08"`))
+			b = bytes.ReplaceAll(b, []byte("agent_mode"), []byte("upstream"))
+		}
+		if name == "requirements.json" {
+			b = bytes.ReplaceAll(b, []byte(`"spec_id": "09"`), []byte(`"spec_id": "08"`))
+			b = bytes.ReplaceAll(b, []byte("09-"), []byte("08-"))
+			b = bytes.ReplaceAll(b, []byte("agent_mode"), []byte("upstream"))
+		}
+		if name == "test_spec.json" {
+			b = bytes.ReplaceAll(b, []byte(`"spec_id": "09"`), []byte(`"spec_id": "08"`))
+			b = bytes.ReplaceAll(b, []byte("TS-09-"), []byte("TS-08-"))
+			b = bytes.ReplaceAll(b, []byte("09-"), []byte("08-"))
+		}
+		if name == "tasks.json" {
+			b = bytes.ReplaceAll(b, []byte("09-"), []byte("08-"))
+			b = bytes.ReplaceAll(b, []byte("TS-09-"), []byte("TS-08-"))
+			var doc map[string]any
+			if err := json.Unmarshal(b, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc["spec"] = "08"
+			doc["spec_id"] = "08"
+			doc["test_commands"] = map[string]any{"all_tests": "make test", "linter": "make lint"}
+			if b, err = json.MarshalIndent(doc, "", "  "); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(t, specDirA, name, string(b))
+	}
+	specA, err := afspec.LoadSpec(specDirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Transition specA to active
+	if _, err := specA.Transition("active", specDirA); err != nil {
+		t.Fatal(err)
+	}
+	// Keep at least one task undone in specA (they are all pending by default)
+
+	// Now configure specB (09) to depend on 08
+	tasksBFile := filepath.Join(specDirB, "tasks.json")
+	bB, err := os.ReadFile(tasksBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var docB map[string]any
+	if err := json.Unmarshal(bB, &docB); err != nil {
+		t.Fatal(err)
+	}
+	docB["dependencies"] = []map[string]any{
+		{"spec": "08", "reason": "needs upstream foundation"},
+	}
+	bB, err = json.MarshalIndent(docB, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, specDirB, "tasks.json", string(bB))
+
+	ctx := context.Background()
+	if _, err := g.CommitAll(ctx, "chore: add upstream spec and dependency\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := newOptions(ws, g, &scriptedBrain{})
+	opts.Input = toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "09"}
+
+	result, err := Run(ctx, opts)
+	if err == nil {
+		t.Fatal("expected Run to fail with blocked failure, got nil error")
+	}
+
+	var f *Failure
+	if !errors.As(err, &f) || f.Category != CategoryBlocked {
+		t.Fatalf("expected CategoryBlocked, got err = %v", err)
+	}
+	if result == nil || result.Blocker == nil {
+		t.Fatalf("expected result.Blocker to be set, got %+v", result)
+	}
+	if !strings.Contains(result.Blocker.Reason, "08") {
+		t.Errorf("expected Blocker.Reason to contain '08', got %q", result.Blocker.Reason)
+	}
+	if !strings.Contains(result.Blocker.Needed, "08_upstream") {
+		t.Errorf("expected Blocker.Needed to contain '08_upstream', got %q", result.Blocker.Needed)
+	}
+
+	// Verify that toolio.Envelope populates needs_human from this Result with ExitNeedsHuman
+	run := toolio.NewRun("impl", "v1")
+	env := run.Envelope(toolio.ExitNeedsHuman, result, &toolio.ErrorInfo{Stage: f.Stage, Category: f.Category})
+	if env.NeedsHuman == nil {
+		t.Fatal("expected env.NeedsHuman to be non-nil")
+	}
+	if env.NeedsHuman.Question != result.Blocker.Reason {
+		t.Errorf("expected NeedsHuman.Question == %q, got %q", result.Blocker.Reason, env.NeedsHuman.Question)
+	}
+	if env.NeedsHuman.Needed != result.Blocker.Needed {
+		t.Errorf("expected NeedsHuman.Needed == %q, got %q", result.Blocker.Needed, env.NeedsHuman.Needed)
+	}
+	if len(env.NeedsHuman.Options) != 0 {
+		t.Errorf("expected no options, got %v", env.NeedsHuman.Options)
+	}
+}
+
+// TS-05-16 (integration): codeimpl's Blocker maps onto needs_human's question and needed, with no options
+func TestTS05_16_CodeimplBlockerMapsOntoNeedsHuman(t *testing.T) {
+	run := toolio.NewRun("impl", "v1")
+	result := &Result{
+		Blocker: &Blocker{
+			Reason: "the spec names a module the PRD does not create",
+			Needed: "a decision on module X",
+		},
+	}
+	env := run.Envelope(toolio.ExitNeedsHuman, result, &toolio.ErrorInfo{Stage: "survey", Category: CategoryBlocked})
+
+	if env.NeedsHuman == nil {
+		t.Fatal("expected env.NeedsHuman to be non-nil")
+	}
+	if env.NeedsHuman.Question != result.Blocker.Reason {
+		t.Errorf("expected Question %q, got %q", result.Blocker.Reason, env.NeedsHuman.Question)
+	}
+	if env.NeedsHuman.Needed != result.Blocker.Needed {
+		t.Errorf("expected Needed %q, got %q", result.Blocker.Needed, env.NeedsHuman.Needed)
+	}
+	if len(env.NeedsHuman.Options) != 0 {
+		t.Errorf("expected len(Options) == 0, got %d", len(env.NeedsHuman.Options))
 	}
 }

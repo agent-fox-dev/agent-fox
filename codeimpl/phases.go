@@ -55,6 +55,8 @@ type surveyInput struct {
 	Pending []afspec.Task
 	// Repair says the red baseline will be repaired before the first task.
 	Repair bool
+	// Context is the rendered additional context block from --context flags.
+	Context string
 }
 
 // repairInput is what one repair phase is given.
@@ -106,6 +108,8 @@ type taskInput struct {
 	Instructions string
 	Steering     string
 	Profile      project.Profile
+	// Context is the rendered additional context block from --context flags.
+	Context string
 }
 
 // priorTask is what an earlier task leaves for the ones after it.

@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -267,6 +268,17 @@ func (r Result) Summary() string {
 	}
 
 	return strings.Join(parts, "; ")
+}
+
+// NeedsHuman implements toolio.NeedsHumanSource.
+func (r Result) NeedsHuman() (question string, options []toolio.Option, needed string, ok bool) {
+	if r.Ambiguity == nil {
+		return "", nil, "", false
+	}
+	return r.Ambiguity.Question, []toolio.Option{
+		{ID: "A", Text: r.Ambiguity.InterpretationA},
+		{ID: "B", Text: r.Ambiguity.InterpretationB},
+	}, "", true
 }
 
 // Categories this package adds to the shared vocabulary.

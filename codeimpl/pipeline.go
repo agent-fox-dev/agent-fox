@@ -122,6 +122,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		survey, stats, err := b.Survey(ctx, surveyInput{
 			Spec: st.spec, Root: st.root, Profile: st.profile, Gate: st.gate,
 			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo), Repair: repair,
+			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))
@@ -424,7 +425,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	}
 	result.Gate = st.gate
 
-	if f := checkUpstream(o, st); f != nil {
+	if f := checkUpstream(o, st, result); f != nil {
 		return nil, f
 	}
 
@@ -448,7 +449,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 
 // checkUpstream applies §8.2: every task of this spec runs after each
 // upstream spec is sealed or its tasks are done.
-func checkUpstream(o Options, st *runState) *Failure {
+func checkUpstream(o Options, st *runState, result *Result) *Failure {
 	deps := st.spec.Tasks.Dependencies
 	if len(deps) == 0 {
 		return nil
@@ -481,9 +482,15 @@ func checkUpstream(o Options, st *runState) *Failure {
 		}
 		for _, t := range up.Tasks.Tasks {
 			if t.State != afspec.TaskStateDone && t.State != afspec.TaskStateDropped {
-				return failf("preflight", CategoryBlocked,
-					"spec %s depends on spec %s (%s), whose task %d is %s; implement %s first",
+				reason := fmt.Sprintf("spec %s depends on spec %s (%s), whose task %d is %s; implement %s first",
 					st.spec.SpecID, d.Spec, d.Reason, t.Id, t.State, filepath.Base(m.Dir))
+				if result != nil {
+					result.Blocker = &Blocker{
+						Reason: reason,
+						Needed: filepath.Base(m.Dir),
+					}
+				}
+				return failf("preflight", CategoryBlocked, "%s", reason)
 			}
 		}
 	}
@@ -808,6 +815,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			Attempt: attempt, Attempts: o.TaskAttempts, Previous: previous,
 			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
 			Profile: st.profile,
+			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))

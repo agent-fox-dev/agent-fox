@@ -258,6 +258,9 @@ func surveyPrompt(in surveyInput) string {
 			"task. If you see the cause while reading, record it in the summary; do not resolve it " +
 			"as drift.\n")
 	}
+	if in.Context != "" {
+		b.WriteString("\n" + strings.TrimSpace(in.Context) + "\n")
+	}
 	b.WriteString("\nRead the code, locate what the spec names, record the conventions and the drift, " +
 		"and call " + ToolSubmitSurvey + ".")
 	return b.String()
@@ -458,6 +461,9 @@ func taskPrompt(in taskInput) string {
 		b.WriteString("--- BEGIN STEERING ---\n")
 		b.WriteString(strings.TrimSpace(in.Steering))
 		b.WriteString("\n--- END STEERING ---\n\n")
+	}
+	if in.Context != "" {
+		b.WriteString(strings.TrimSpace(in.Context) + "\n\n")
 	}
 	b.WriteString("Write the tests, see them fail, implement the steps, run the checks, then call " +
 		ToolSubmitTask + ".")

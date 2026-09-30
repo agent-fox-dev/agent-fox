@@ -60,9 +60,25 @@ type Summarizer interface {
 	Summary() string
 }
 
-// NeedsHuman is a placeholder for the structured human-decision request,
-// fully wired in a later task.
-type NeedsHuman struct{}
+// Option is one possible answer to a question in needs_human.
+type Option struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+// NeedsHuman carries the question a person must answer when status is "needs_human".
+type NeedsHuman struct {
+	Question string   `json:"question"`
+	Options  []Option `json:"options,omitempty"`
+	Needed   string   `json:"needed,omitempty"`
+	Stage    string   `json:"stage"`
+	Resume   string   `json:"resume"`
+}
+
+// NeedsHumanSource is implemented by Result types that supply human decision details.
+type NeedsHumanSource interface {
+	NeedsHuman() (question string, options []Option, needed string, ok bool)
+}
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
@@ -111,10 +127,11 @@ type Envelope struct {
 // wrong thing usually classified its input differently than the caller
 // assumed.
 type InputInfo struct {
-	Kind      string `json:"kind"`
-	Origin    string `json:"origin"`
-	Bytes     int    `json:"bytes"`
-	Truncated bool   `json:"truncated,omitempty"`
+	Kind         string `json:"kind"`
+	Origin       string `json:"origin"`
+	Bytes        int    `json:"bytes"`
+	Truncated    bool   `json:"truncated,omitempty"`
+	ContextBytes int    `json:"context_bytes,omitempty"`
 }
 
 // ModelInfo records which model served the run.
@@ -191,10 +208,11 @@ func (r *Run) SetInput(in Input) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.input = &InputInfo{
-		Kind:      in.Kind.String(),
-		Origin:    in.Origin,
-		Bytes:     len(in.Body),
-		Truncated: in.Truncated,
+		Kind:         in.Kind.String(),
+		Origin:       in.Origin,
+		Bytes:        len(in.Body),
+		Truncated:    in.Truncated,
+		ContextBytes: len(in.Context),
 	}
 }
 
@@ -302,6 +320,24 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		env.OK = false
 		env.ExitCode = ExitFailed
 		env.Status = StatusFor(ExitFailed)
+	}
+
+	if code == ExitNeedsHuman {
+		if nhs, ok := env.Result.(NeedsHumanSource); ok {
+			if q, opts, needed, ok := nhs.NeedsHuman(); ok {
+				stage := ""
+				if env.Error != nil {
+					stage = env.Error.Stage
+				}
+				env.NeedsHuman = &NeedsHuman{
+					Question: q,
+					Options:  opts,
+					Needed:   needed,
+					Stage:    stage,
+					Resume:   fmt.Sprintf("%s <same input> --context \"<answer>\"", r.tool),
+				}
+			}
+		}
 	}
 
 	var summary string

@@ -465,6 +465,14 @@ func (r Result) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
+// NeedsHuman implements toolio.NeedsHumanSource.
+func (r Result) NeedsHuman() (question string, options []toolio.Option, needed string, ok bool) {
+	if r.Blocker == nil {
+		return "", nil, "", false
+	}
+	return r.Blocker.Reason, nil, r.Blocker.Needed, true
+}
+
 // brain is the model-driven half: the survey, the baseline repair and the
 // per-task implementation, and nothing else.
 type brain interface {
