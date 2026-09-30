@@ -850,7 +850,7 @@ func TestAnUnmetCriterionIsReportedEvenWhenTheChecksPass(t *testing.T) {
 	}
 	var warned bool
 	for _, w := range o.Run.Warnings() {
-		if strings.Contains(w, "AC-2") {
+		if strings.Contains(w.Message, "AC-2") {
 			warned = true
 		}
 	}

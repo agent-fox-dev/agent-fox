@@ -192,7 +192,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	rejected, badPaths := t.Rejections()
 	if rejected > 0 {
-		o.Run.Warn("%d %s call(s) rejected for citing paths not in the workspace: %s",
+		o.Run.Warn(toolio.WarnRejectedPathCalls, "low", "%d %s call(s) rejected for citing paths not in the workspace: %s",
 			rejected, ToolFileIssue, joinLimited(badPaths, 5))
 	}
 

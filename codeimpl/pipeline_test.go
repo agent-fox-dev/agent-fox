@@ -387,7 +387,7 @@ func TestPipelineRetriesThenParksAFailingTask(t *testing.T) {
 	if got2.Branch != got.Branch {
 		t.Errorf("second run used %q, want the same branch %q", got2.Branch, got.Branch)
 	}
-	warned := strings.Join(o.Run.Warnings(), "\n")
+	warned := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n")
 	if !strings.Contains(warned, "discarded the parked attempt at task 2") {
 		t.Errorf("warnings = %q", warned)
 	}
@@ -517,7 +517,7 @@ func TestSpecPackageEditsAreReverted(t *testing.T) {
 	if states := taskStates(t, specDir); states[1] != afspec.TaskStateDone || states[2] != afspec.TaskStatePending {
 		t.Errorf("states = %v", states)
 	}
-	warned := strings.Join(o.Run.Warnings(), "\n")
+	warned := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n")
 	if !strings.Contains(warned, "changed the spec package") {
 		t.Errorf("no warning about the reverted edit: %q", warned)
 	}
@@ -637,7 +637,7 @@ func TestPreflightRefusals(t *testing.T) {
 		if _, err := Run(context.Background(), o); err != nil {
 			t.Fatalf("a draft was refused: %v", err)
 		}
-		if w := strings.Join(o.Run.Warnings(), "\n"); !strings.Contains(w, "draft") {
+		if w := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n"); !strings.Contains(w, "draft") {
 			t.Errorf("no warning about the draft: %q", w)
 		}
 	})

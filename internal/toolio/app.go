@@ -244,10 +244,10 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	in.Context = contextBlock
 	e.run.SetInput(in)
 	if in.Truncated {
-		e.run.Warn("the input was truncated at %d bytes", MaxInputBytes)
+		e.run.Warn(WarnInputTruncated, "high", "the input was truncated at %d bytes", MaxInputBytes)
 	}
 	if in.Thread != nil && in.Thread.CommentsErr != nil {
-		e.run.Warn("the issue's comments could not be read: %v", in.Thread.CommentsErr)
+		e.run.Warn(WarnCommentsUnreadable, "low", "the issue's comments could not be read: %v", in.Thread.CommentsErr)
 	}
 	e.progress.Detail("input: %s (%s, %d bytes)", in.Kind, in.Origin, len(in.Body))
 

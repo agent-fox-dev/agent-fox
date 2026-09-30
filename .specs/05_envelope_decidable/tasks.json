@@ -250,7 +250,7 @@
         "issuetriage/pipeline.go",
         "testdata/warn_literal_fixture/bad.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,

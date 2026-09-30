@@ -54,9 +54,6 @@ func StatusFor(code int) string {
 	}
 }
 
-// WarnCode identifies one warning cause.
-type WarnCode string
-
 // Summarizer is implemented by Result types that supply a summary of the run.
 type Summarizer interface {
 	Summary() string
@@ -86,6 +83,19 @@ type NeedsHuman struct {
 // NeedsHumanSource is implemented by Result types that supply human decision details.
 type NeedsHumanSource interface {
 	NeedsHuman() (question string, options []Option, needed string, ok bool)
+}
+
+// Warning is one thing that went differently than intended but did not stop
+// the run: a comment that could not be posted, a dependency that could not
+// be checked, a truncated input. Code is a stable identifier a caller can
+// switch on without parsing Message; Stage is looked up centrally from
+// warnStages, never supplied at the call site, so a code cannot be recorded
+// against two different stages by accident.
+type Warning struct {
+	Code     WarnCode `json:"code"`
+	Severity string   `json:"severity"`
+	Stage    string   `json:"stage"`
+	Message  string   `json:"message"`
 }
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
@@ -119,8 +129,8 @@ type Envelope struct {
 	// Warnings are things that went differently than intended but did not
 	// stop the run: a comment that could not be posted, a dependency that
 	// could not be checked, a truncated input.
-	Warnings []string `json:"warnings,omitempty"`
-	Result   any      `json:"result,omitempty"`
+	Warnings []Warning `json:"warnings,omitempty"`
+	Result   any       `json:"result,omitempty"`
 
 	Input *InputInfo `json:"input,omitempty"`
 	Usage *UsageInfo `json:"usage,omitempty"`
@@ -261,13 +271,12 @@ type Run struct {
 	version string
 	started time.Time
 
-	mu           sync.Mutex
-	warnings     []string
-	highWarnings int
-	phases       []PhaseInfo
-	model        *ModelInfo
-	input        *InputInfo
-	bounds       agentrun.Bounds
+	mu       sync.Mutex
+	warnings []Warning
+	phases   []PhaseInfo
+	model    *ModelInfo
+	input    *InputInfo
+	bounds   agentrun.Bounds
 }
 
 // NewRun starts a run's bookkeeping.
@@ -316,37 +325,22 @@ func (r *Run) SetModel(m *core.Model, thinking core.ThinkingLevel, spec string) 
 }
 
 // Warn records a non-fatal problem. Duplicates are kept: two failed comment
-// posts are two facts, not one.
-func (r *Run) Warn(format string, args ...any) {
+// posts are two facts, not one. code must be a declared WarnCode — its
+// stage is looked up from the shared table, never passed in, so a code
+// cannot be recorded against two different stages by accident.
+func (r *Run) Warn(code WarnCode, severity string, format string, args ...any) {
 	if r == nil {
 		return
 	}
+	stage, _ := WarnStage(code)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, strings.TrimSpace(fmt.Sprintf(format, args...)))
-}
-
-// WarnWithSeverity records a warning with an explicit severity.
-func (r *Run) WarnWithSeverity(code WarnCode, severity string, format string, args ...any) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, strings.TrimSpace(fmt.Sprintf(format, args...)))
-	if severity == "high" {
-		r.highWarnings++
-	}
-}
-
-// highSeverityWarnings returns the count of high-severity warnings recorded on the run.
-func (r *Run) highSeverityWarnings() int {
-	if r == nil {
-		return 0
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.highWarnings
+	r.warnings = append(r.warnings, Warning{
+		Code:     code,
+		Severity: severity,
+		Stage:    stage,
+		Message:  strings.TrimSpace(fmt.Sprintf(format, args...)),
+	})
 }
 
 // AddPhase records one model-facing step's cost.
@@ -360,13 +354,22 @@ func (r *Run) AddPhase(p PhaseInfo) {
 }
 
 // Warnings returns a copy of the warnings recorded so far.
-func (r *Run) Warnings() []string {
+func (r *Run) Warnings() []Warning {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]string(nil), r.warnings...)
+	return append([]Warning(nil), r.warnings...)
+}
+
+// WarningMessages returns just the message text of each warning, in order.
+func WarningMessages(ws []Warning) []string {
+	out := make([]string, len(ws))
+	for i, w := range ws {
+		out[i] = w.Message
+	}
+	return out
 }
 
 // Envelope assembles the object to print. code decides OK: only ExitOK is a
@@ -385,7 +388,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		Input:      r.input,
 		Model:      r.model,
 		Result:     presentOrNil(result),
-		Warnings:   append([]string(nil), r.warnings...),
+		Warnings:   append([]Warning(nil), r.warnings...),
 		DurationMS: time.Since(r.started).Milliseconds(),
 		StartedAt:  r.started.UTC().Format(time.RFC3339),
 	}
@@ -442,7 +445,12 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 			summary = fmt.Sprintf("%s: %s", r.tool, env.Status)
 		}
 	}
-	highCount := r.highWarnings
+	highCount := 0
+	for _, w := range r.warnings {
+		if w.Severity == "high" {
+			highCount++
+		}
+	}
 	if env.OK && highCount > 0 {
 		if highCount == 1 {
 			summary += "; 1 high-severity warning (highest severity: high)"

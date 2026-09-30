@@ -364,14 +364,14 @@ func TestApp_Execute_CommentsWarning_TS_04_12(t *testing.T) {
 	thread := issuex.IssueThread{CommentsErr: errors.New("rate limited")}
 	in := Input{Kind: KindIssue, Thread: &thread}
 	if in.Thread != nil && in.Thread.CommentsErr != nil {
-		mockRun.Warn("the issue's comments could not be read: %v", in.Thread.CommentsErr)
+		mockRun.Warn(WarnCommentsUnreadable, "low", "the issue's comments could not be read: %v", in.Thread.CommentsErr)
 	}
 	warns := mockRun.Warnings()
 	if len(warns) != 1 {
 		t.Fatalf("expected 1 warning, got %d", len(warns))
 	}
-	if !strings.Contains(warns[0], "the issue's comments could not be read: rate limited") {
-		t.Errorf("unexpected warning message: %s", warns[0])
+	if !strings.Contains(warns[0].Message, "the issue's comments could not be read: rate limited") {
+		t.Errorf("unexpected warning message: %s", warns[0].Message)
 	}
 
 	// Integration verification through App.execute
@@ -412,7 +412,7 @@ func TestApp_Execute_CommentsWarning_TS_04_12(t *testing.T) {
 	}
 	var foundWarning bool
 	for _, w := range env.Warnings {
-		if strings.Contains(w, "the issue's comments could not be read:") {
+		if strings.Contains(w.Message, "the issue's comments could not be read:") {
 			foundWarning = true
 			break
 		}

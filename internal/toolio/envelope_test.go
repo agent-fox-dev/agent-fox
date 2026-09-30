@@ -62,7 +62,7 @@ func TestEnvelopeSumsPhases(t *testing.T) {
 func TestEmitWritesOneJSONObject(t *testing.T) {
 	var buf bytes.Buffer
 	r := toolio.NewRun("issue", "v1")
-	r.Warn("something to note")
+	r.Warn(toolio.WarnCommentsUnreadable, "low", "something to note")
 
 	code := toolio.Emit(&buf, r.Envelope(toolio.ExitFailed, nil, &toolio.ErrorInfo{
 		Stage: "analyse", Category: "budget", Message: "over budget",
@@ -322,8 +322,8 @@ func (s ts05_11_stub) Summary() string {
 
 func TestTS05_11_HighSeverityWarningAppendsDeterministicClause(t *testing.T) {
 	run := toolio.NewRun("fix", "v1")
-	run.WarnWithSeverity(toolio.WarnCode("input_truncated"), "high", "cut")
-	run.WarnWithSeverity(toolio.WarnCode("comment_not_posted"), "low", "not posted")
+	run.Warn(toolio.WarnCode("input_truncated"), "high", "cut")
+	run.Warn(toolio.WarnCode("comment_not_posted"), "low", "not posted")
 
 	env1 := run.Envelope(toolio.ExitOK, ts05_11_stub{"fix: committed and landed"}, nil)
 	env2 := run.Envelope(toolio.ExitOK, ts05_11_stub{"fix: committed and landed"}, nil)
@@ -350,7 +350,7 @@ func TestTS05_12_EnvelopeKeyOrder(t *testing.T) {
 		Summary:    "something failed",
 		Error:      &toolio.ErrorInfo{Stage: "verify", Category: "git", Message: "failed"},
 		NeedsHuman: &toolio.NeedsHuman{},
-		Warnings:   []string{"warning 1"},
+		Warnings:   []toolio.Warning{{Code: "input_truncated", Severity: "high", Stage: "input", Message: "warning 1"}},
 		Result:     map[string]any{"key": "val"},
 		Input:      &toolio.InputInfo{Kind: "text", Origin: "arg", Bytes: 10},
 		Usage: &toolio.UsageInfo{
@@ -490,6 +490,65 @@ func TestTS05_26_IssuetriageResultResumableAlwaysFalse(t *testing.T) {
 	r := issuetriage.Result{Action: "filed", Number: 57}
 	if r.Resumable() != false {
 		t.Errorf("issuetriage.Result.Resumable() = %v, want false", r.Resumable())
+	}
+}
+
+// TS-05-33 (unit): Run.Warn accepts a WarnCode and severity, and the envelope reports each warning as a code/severity/stage/message object.
+func TestTS05_33_WarnAcceptsCodeAndSeverity(t *testing.T) {
+	run := toolio.NewRun("issue", "v1")
+	run.Warn(toolio.WarnCode("input_truncated"), "high", "the input was truncated at %d bytes", 262144)
+	env := run.Envelope(toolio.ExitOK, nil, nil)
+	if len(env.Warnings) != 1 {
+		t.Fatalf("len(Warnings) = %d, want 1", len(env.Warnings))
+	}
+	w := env.Warnings[0]
+	if w.Code != "input_truncated" || w.Severity != "high" || w.Message != "the input was truncated at 262144 bytes" {
+		t.Errorf("Warning = %+v", w)
+	}
+}
+
+// TS-05-34 (unit): a warning's stage is sourced from the single map[WarnCode]string table, never a call-site parameter.
+func TestTS05_34_StageSourcedFromTable(t *testing.T) {
+	run := toolio.NewRun("impl", "v1")
+	run.Warn(toolio.WarnCode("commit_not_parked"), "high", "the commit could not be parked")
+	env := run.Envelope(toolio.ExitOK, nil, nil)
+	if len(env.Warnings) != 1 {
+		t.Fatalf("len(Warnings) = %d, want 1", len(env.Warnings))
+	}
+	if got := env.Warnings[0].Stage; got != "park" {
+		t.Errorf("Stage = %q, want %q", got, "park")
+	}
+}
+
+// TS-05-37 (unit): severity is read as given at the call site, not derived from code alone.
+func TestTS05_37_SeverityIsCallSiteArgument(t *testing.T) {
+	run1 := toolio.NewRun("impl", "v1")
+	run1.Warn(toolio.WarnCode("spec_edit_reverted"), "high", "reverted")
+	run2 := toolio.NewRun("impl", "v1")
+	run2.Warn(toolio.WarnCode("spec_edit_reverted"), "low", "reverted")
+
+	env1 := run1.Envelope(toolio.ExitOK, nil, nil)
+	env2 := run2.Envelope(toolio.ExitOK, nil, nil)
+	if env1.Warnings[0].Severity != "high" {
+		t.Errorf("env1 Severity = %q, want high", env1.Warnings[0].Severity)
+	}
+	if env2.Warnings[0].Severity != "low" {
+		t.Errorf("env2 Severity = %q, want low", env2.Warnings[0].Severity)
+	}
+}
+
+// TS-05-39 (unit): a call to Run.Warn is reflected in the envelope's warnings array as a full object matching the call site and the table.
+func TestTS05_39_WarnReflectedAsFullObject(t *testing.T) {
+	run := toolio.NewRun("impl", "v1")
+	someErr := fmt.Errorf("permission denied")
+	run.Warn(toolio.WarnCode("pull_request_not_opened"), "high", "the pull request could not be opened: %v", someErr)
+	env := run.Envelope(toolio.ExitOK, nil, nil)
+	if len(env.Warnings) != 1 {
+		t.Fatalf("len(Warnings) = %d, want 1", len(env.Warnings))
+	}
+	w := env.Warnings[0]
+	if w.Code != "pull_request_not_opened" || w.Severity != "high" || w.Stage != "land" || !strings.Contains(w.Message, someErr.Error()) {
+		t.Errorf("Warning = %+v", w)
 	}
 }
 

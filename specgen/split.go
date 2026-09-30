@@ -192,12 +192,12 @@ func findSplitPlan(specsDir string, in toolio.Input, run *toolio.Run) (*SplitPla
 	for _, path := range matches {
 		p, err := loadSplitPlan(path)
 		if err != nil {
-			run.Warn("an unreadable split plan was ignored: %v", err)
+			run.Warn(toolio.WarnSplitPlanUnreadable, "low", "an unreadable split plan was ignored: %v", err)
 			continue
 		}
 		ok, changed := p.matches(in)
 		if !ok {
-			run.Warn("an unfinished split for another input (%s) is at %s; finish it by running "+
+			run.Warn(toolio.WarnSplitPlanForeign, "low", "an unfinished split for another input (%s) is at %s; finish it by running "+
 				"spec on that input again, or delete the file", p.Input.Origin, path)
 			continue
 		}
@@ -206,7 +206,7 @@ func findSplitPlan(specsDir string, in toolio.Input, run *toolio.Run) (*SplitPla
 				"one that is wrong", found.Path(specsDir), path)
 		}
 		if changed {
-			run.Warn("the input changed since the split was planned at %s; the remaining scopes "+
+			run.Warn(toolio.WarnSplitPlanStale, "high", "the input changed since the split was planned at %s; the remaining scopes "+
 				"are written from the current text against the planned split", path)
 		}
 		found = p
