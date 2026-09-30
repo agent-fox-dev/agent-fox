@@ -185,32 +185,55 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 }
 
 // emit builds the envelope, writes the complete (full-view) envelope to the
-// report file, and prints it to stdout. It is the one path every
-// JSON-emitting branch of Main goes through, so a report file is written for
-// a success, a failure and a post-classification usage error alike
-// (06-REQ-2.1, 06-REQ-2.6) — and, deliberately, not for the two
+// report file, and prints the --detail view to stdout. It is the one path
+// every JSON-emitting branch of Main goes through, so a report file is
+// written for a success, a failure and a post-classification usage error
+// alike (06-REQ-2.1, 06-REQ-2.6) — and, deliberately, not for the two
 // purely human-driven paths that return before ever calling it.
 //
-// The report file always carries the full view of result, regardless of
-// what --detail asked for on stdout (06-REQ-2.8): FullView marks it, and the
-// same Envelope value — the same bytes — is what gets written to the file
-// and printed to stdout, so the two can never disagree.
+// The report file always carries the full view of result, independent of
+// what --detail asked for on stdout (06-REQ-2.8, 06-REQ-3.5): FullView marks
+// it, and that value is what gets written to the file.
+//
+// Every envelope field derived from the result — Summary, NeedsHuman,
+// Error.Resumable — is derived from the full value on both paths, never
+// from the trimmed one: those are the 05_envelope_decidable fields that
+// decide the outcome, and a summary view that drops Ambiguity or Blocker
+// must not also drop the ability to tell that the run needs a human. Only
+// the envelope's own "result" key is swapped for the trimmed view, once
+// everything else has already been derived from the full one.
 func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result any, failure *ErrorInfo) int {
 	full := FullView(result)
-	env := run.Envelope(code, full, failure)
+	fileEnv := run.Envelope(code, full, failure)
 
+	reportFile := ""
 	path, perr := reportPath(common, a.Name, run)
 	if perr != nil {
 		run.Warn(WarnReportFileNotWritten, "low", "the report file's path could not be determined: %v", perr)
-		env = run.Envelope(code, full, failure)
 	} else {
-		env.ReportFile = path
-		if werr := WriteReport(path, env); werr != nil {
+		fileEnv.ReportFile = path
+		if werr := WriteReport(path, fileEnv); werr != nil {
 			run.Warn(WarnReportFileNotWritten, "low", "the report file could not be written to %s: %v", path, werr)
-			env = run.Envelope(code, full, failure)
+		} else {
+			reportFile = path
+		}
+	}
+
+	env := run.Envelope(code, full, failure)
+	env.ReportFile = reportFile
+	if env.Result != nil && wantsSummary(common.Detail) {
+		if s, ok := full.(Summarizable); ok {
+			env.Result = s.SummaryView()
 		}
 	}
 	return Emit(stdout, env)
+}
+
+// wantsSummary reports whether detail selects the trimmed view: "summary",
+// or the empty string, which is the zero Common's default before Register
+// runs.
+func wantsSummary(detail string) bool {
+	return detail == "" || detail == "summary"
 }
 
 // reportPath is the path a report file is written to: --report-file when

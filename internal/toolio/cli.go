@@ -145,6 +145,26 @@ func FullView(result any) any {
 	return result
 }
 
+// ApplyDetail returns the value to put in the envelope's "result" key for
+// the given --detail selection: result's own SummaryView() when detail is
+// "summary" (or empty, the zero Common's default) and result implements
+// Summarizable, and the full value — via FullView — otherwise. A Result
+// that does not implement Summarizable has nothing to trim, so it is always
+// emitted in full regardless of what --detail asked for.
+//
+// It answers only "what goes under result" — App.emit derives every other
+// envelope field (Summary, NeedsHuman, Error.Resumable) from the full value
+// on every run, since those decide the outcome and must not depend on what
+// --detail trimmed away.
+func ApplyDetail(detail string, result any) any {
+	if wantsSummary(detail) {
+		if s, ok := result.(Summarizable); ok {
+			return s.SummaryView()
+		}
+	}
+	return FullView(result)
+}
+
 // ModelSpec is the model the run will use, after the environment is consulted.
 func (c *Common) ModelSpec() string {
 	if c.Model != "" {

@@ -65,6 +65,17 @@ type Resumabler interface {
 	Resumable() bool
 }
 
+// Summarizable is implemented by Result types that supply a trimmed
+// "summary" view of themselves — the shape emitted on stdout by default,
+// under --detail summary (06-REQ-3). Only the fields a caller acts on next
+// are kept; every other field of the full Result is still computed exactly
+// as under --detail full, and is still written in full to the report file
+// (06-REQ-3.5). A Result that has nothing worth trimming need not implement
+// this: ApplyDetail falls back to the full value.
+type Summarizable interface {
+	SummaryView() any
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
