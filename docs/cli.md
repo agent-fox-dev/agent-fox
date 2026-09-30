@@ -185,6 +185,7 @@ quite what it appears to be; `low` is informational.
 | Code | Severity | Stage | Tool(s) |
 |---|---|---|---|
 | `input_truncated` | high | input | shared |
+| `input_looks_like_path` | high | input | shared |
 | `comments_unreadable` | low | input | shared |
 | `no_verify_command` | high | preflight | fix, impl |
 | `criteria_unmet` | high | implement | fix |
@@ -211,6 +212,12 @@ quite what it appears to be; `low` is informational.
 | `architecture_not_written` | low | write | spec |
 | `activation_failed` | high | activate | spec |
 | `rejected_path_calls` | low | analyse | issue |
+| `report_file_not_written` | low | report | shared |
+
+`input_looks_like_path` is raised when the argument was read as text but is a
+single line with no whitespace that contains a `/` or ends in a short
+extension (`widget/report.txt`) and nothing exists at that path — most likely
+a typo. An existing directory is never flagged.
 
 ## Shared flags
 

@@ -42,6 +42,11 @@ const (
 	// succeeds or fails on its own merits; only the envelope's report_file
 	// field is affected, and it is omitted.
 	WarnReportFileNotWritten WarnCode = "report_file_not_written"
+	// WarnInputLooksLikePath is recorded (06-REQ-7.1) when Resolve classified
+	// the argument as text, but it is a single whitespace-free line shaped
+	// like a path and nothing exists there: a plausible typo that would
+	// otherwise silently become prose.
+	WarnInputLooksLikePath WarnCode = "input_looks_like_path"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -77,6 +82,7 @@ var warnStages = map[WarnCode]string{
 	WarnActivationFailed:       "activate",
 	WarnRejectedPathCalls:      "analyse",
 	WarnReportFileNotWritten:   "report",
+	WarnInputLooksLikePath:     "input",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -118,5 +124,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnActivationFailed,
 		WarnRejectedPathCalls,
 		WarnReportFileNotWritten,
+		WarnInputLooksLikePath,
 	}
 }

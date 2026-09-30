@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -76,8 +78,10 @@ var ErrNoInput = errors.New("no input given")
 // path that exists and is a regular file is read. Everything else is text —
 // including a path that does not exist, because "the widget/ package panics"
 // is a plausible thing to say and refusing it as a missing file would be
-// wrong.
-func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Client) (Input, error) {
+// wrong. A text argument that is shaped like a path, though, is called out
+// with a high-severity input_looks_like_path warning on run (06-REQ-7.1); a
+// nil run records nothing.
+func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Client, run *Run) (Input, error) {
 	arg = strings.TrimSpace(arg)
 	switch {
 	case arg == "":
@@ -103,8 +107,27 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Clie
 	} else if ok {
 		return Input{Kind: KindFile, Origin: filepath.Clean(arg), Body: body, Truncated: cut}, nil
 	}
+	if looksLikePath(arg) {
+		if _, err := os.Stat(arg); err != nil {
+			run.Warn(WarnInputLooksLikePath, "high",
+				"the input %q looks like a file path but nothing exists there; it was read as text", arg)
+		}
+	}
 	body, cut := Truncate(arg)
 	return Input{Kind: KindText, Origin: "argument", Body: body, Truncated: cut}, nil
+}
+
+// extensionSuffix matches the short alphanumeric suffix of a file name.
+var extensionSuffix = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
+
+// looksLikePath reports whether arg is shaped like a path a person could
+// have mistyped: one line, no whitespace, and either a slash or a short
+// extension. Prose almost always has a space; a bare word has neither.
+func looksLikePath(arg string) bool {
+	if arg == "" || strings.ContainsFunc(arg, unicode.IsSpace) {
+		return false
+	}
+	return strings.Contains(arg, "/") || extensionSuffix.MatchString(arg)
 }
 
 // readIfFile reports whether arg names a readable regular file and returns

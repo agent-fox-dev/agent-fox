@@ -331,7 +331,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 	}
 
-	in, err := Resolve(ctx, e.argument, e.stdin, forge)
+	in, err := Resolve(ctx, e.argument, e.stdin, forge, e.run)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef("%s", NoInputMessage))
