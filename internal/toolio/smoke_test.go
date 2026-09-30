@@ -944,3 +944,638 @@ func TestTS0439_GitLabNestedProjectImpl_Smoke(t *testing.T) {
 		t.Errorf("envelope OK = false: %+v", env.Error)
 	}
 }
+
+// requestsContainText reports whether any user message across the given
+// requests carries substr in one of its text blocks. Tests use it to confirm
+// a --context block actually reached a phase's prompt, rather than trusting
+// that Input.Context was merely set.
+func requestsContainText(reqs []core.Request, substr string) bool {
+	for _, req := range reqs {
+		for _, m := range req.Messages {
+			um, ok := m.(core.UserMessage)
+			if !ok {
+				continue
+			}
+			for _, b := range um.Content {
+				if tb, ok := b.(core.TextBlock); ok && strings.Contains(tb.Text, substr) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// TS-05-44 (smoke): A program-driven caller invoking fix with no argument and stdout redirected to a file gets one parseable envelope
+// Verifies: 05-PATH-1, 05-REQ-1.2
+// Real components: toolio.App, toolio.Run.Envelope, toolio.Emit
+func TestTS0544_BareInvocationEmitsOneEnvelope_Smoke(t *testing.T) {
+	dir := t.TempDir()
+	stdoutPath := filepath.Join(dir, "stdout.json")
+	f, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatalf("os.Create: %v", err)
+	}
+
+	var execCalled bool
+	app := toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			execCalled = true
+			return toolio.ExitOK, nil, nil
+		},
+	}
+
+	var stderr bytes.Buffer
+	// No positional argument: a bare invocation. stdout is a real *os.File
+	// (isTerminal reports false for it, the same as a pipe), never a terminal.
+	code := app.Main(context.Background(), nil, strings.NewReader(""), f, &stderr)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("closing stdout file: %v", closeErr)
+	}
+
+	if code != toolio.ExitUsage {
+		t.Fatalf("app.Main code = %d, want %d (ExitUsage)", code, toolio.ExitUsage)
+	}
+	if execCalled {
+		t.Error("Exec must not run for a bare invocation: no network or model resolution should happen")
+	}
+
+	data, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("reading redirected stdout: %v", err)
+	}
+
+	// The file holds EXACTLY one JSON object: decode one value, then confirm
+	// nothing follows it.
+	dec := json.NewDecoder(bytes.NewReader(data))
+	var env toolio.Envelope
+	if err := dec.Decode(&env); err != nil {
+		t.Fatalf("stdout file is not valid JSON: %v\n%s", err, data)
+	}
+	if dec.More() {
+		t.Errorf("stdout file carries more than one JSON value:\n%s", data)
+	}
+
+	if env.Status != "usage" {
+		t.Errorf("env.Status = %q, want %q", env.Status, "usage")
+	}
+	if env.OK {
+		t.Error("env.OK = true, want false")
+	}
+	if env.ExitCode != toolio.ExitUsage {
+		t.Errorf("env.ExitCode = %d, want %d", env.ExitCode, toolio.ExitUsage)
+	}
+	if env.Error == nil {
+		t.Fatal("env.Error is nil")
+	}
+	if env.Error.Stage != "usage" || env.Error.Category != "usage" {
+		t.Errorf("env.Error = %+v, want stage/category usage", env.Error)
+	}
+	if env.Error.Message != toolio.NoInputMessage {
+		t.Errorf("env.Error.Message = %q, want %q", env.Error.Message, toolio.NoInputMessage)
+	}
+
+	// A caller parses the file and reads error.message to correct the invocation.
+	var reparsed toolio.Envelope
+	if err := json.Unmarshal(data, &reparsed); err != nil {
+		t.Fatalf("a caller could not re-parse the file: %v", err)
+	}
+	if reparsed.Error == nil || reparsed.Error.Message != toolio.NoInputMessage {
+		t.Errorf("re-parsed error.message = %+v, want %q", reparsed.Error, toolio.NoInputMessage)
+	}
+}
+
+// TS-05-45 (smoke): fix stops on an ambiguity and resumes with --context to reach a done analysis
+// Verifies: 05-PATH-2, 05-REQ-3.3, 05-REQ-3.7
+// Real components: toolio.App, codefix.Run, internal/gitx.Git, internal/checks
+func TestTS0545_FixAmbiguityResumesWithContext_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	if err := os.WriteFile(filepath.Join(wsDir, "retry.go"), []byte("package retry\n\nfunc Do() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "add", "retry.go").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", "chore: initial").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	report := "Retry sometimes fails under load. Does 'retry' mean the HTTP client's retry loop, " +
+		"or the job queue's redelivery?"
+	const answer = "it means the HTTP client's retry loop in client.go, not the job queue's redelivery"
+
+	// ---- First run: the analyse phase reports an ambiguity.
+	var firstProvider *faux.Provider
+	firstApp := toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			turnAmbiguous := toolCallTurn("t1", "submit_analysis", map[string]any{
+				"classification": "bug",
+				"title":          "clarify which retry the report means",
+				"summary":        "the report reads two ways",
+				"root_cause":     "unclear which component the report refers to",
+				"approach":       "cannot proceed without a decision",
+				"files": []map[string]any{
+					{"path": "retry.go", "change": "pending clarification"},
+				},
+				"ambiguity": map[string]any{
+					"question":         "Does 'retry' mean the HTTP client's retry or the job queue's?",
+					"interpretation_a": "the HTTP client's retry loop in client.go",
+					"interpretation_b": "the job queue's redelivery in worker.go",
+				},
+			})
+			p := faux.New(turnAmbiguous)
+			firstProvider = p
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 5, MaxAttempts: 1},
+				SessionPrefix: "fix",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			result, runErr := codefix.Run(ctx, codefix.Options{
+				Input:       d.Input,
+				Workspace:   d.Workspace,
+				Land:        codefix.LandNone,
+				NoVerify:    true,
+				Runner:      runner,
+				Forge:       issuex.NewNoOp(),
+				CheckRunner: gitx.ReducedEnvRunner,
+				Run:         d.Run,
+				Progress:    d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+	}
+
+	var stdout1, stderr1 bytes.Buffer
+	code1 := firstApp.Main(context.Background(), []string{"--dir", wsDir, report}, strings.NewReader(""), &stdout1, &stderr1)
+	if code1 != toolio.ExitNeedsHuman {
+		t.Fatalf("first run: code = %d, want %d (ExitNeedsHuman); stderr:\n%s", code1, toolio.ExitNeedsHuman, stderr1.String())
+	}
+
+	var env1 toolio.Envelope
+	if err := json.Unmarshal(stdout1.Bytes(), &env1); err != nil {
+		t.Fatalf("first run: stdout is not valid JSON: %v\n%s", err, stdout1.String())
+	}
+	if env1.Status != "needs_human" {
+		t.Errorf("first run: env.Status = %q, want needs_human", env1.Status)
+	}
+	if env1.NeedsHuman == nil {
+		t.Fatal("first run: env.NeedsHuman is nil")
+	}
+	if len(env1.NeedsHuman.Options) != 2 {
+		t.Fatalf("first run: env.NeedsHuman.Options = %+v, want 2 entries", env1.NeedsHuman.Options)
+	}
+	if env1.NeedsHuman.Options[0].ID != "A" || env1.NeedsHuman.Options[1].ID != "B" {
+		t.Errorf("first run: env.NeedsHuman.Options = %+v, want ids A and B", env1.NeedsHuman.Options)
+	}
+	wantResume := `fix <same input> --context "<answer>"`
+	if env1.NeedsHuman.Resume != wantResume {
+		t.Errorf("first run: env.NeedsHuman.Resume = %q, want %q", env1.NeedsHuman.Resume, wantResume)
+	}
+	if firstProvider == nil || len(firstProvider.Requests()) == 0 {
+		t.Fatal("the analyse phase never called the scripted provider")
+	}
+
+	// ---- Second run: the same input plus --context resolves the ambiguity.
+	var secondProvider *faux.Provider
+	var secondResult *codefix.Result
+	secondApp := toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			turnAnalyse := toolCallTurn("t1", "submit_analysis", map[string]any{
+				"classification": "bug",
+				"title":          "fix the HTTP client's retry loop",
+				"summary":        "the retry loop reuses a cached token",
+				"root_cause":     "client.go's retry loop does not check expiry",
+				"approach":       "check expiry before retrying",
+				"files": []map[string]any{
+					{"path": "retry.go", "change": "check expiry before retrying"},
+				},
+			})
+			turnWrite := toolCallTurn("t2", "write_file", map[string]any{
+				"path":    "retry.go",
+				"content": "package retry\n\nfunc Do() { /* checks expiry now */ }\n",
+			})
+			turnImplement := toolCallTurn("t3", "submit_implementation", map[string]any{
+				"commit_subject": "fix: check expiry in the retry loop",
+				"summary":        "checked expiry before retrying",
+				"changes": []map[string]any{
+					{"path": "retry.go", "change": "checked expiry before retrying"},
+				},
+			})
+			p := faux.New(turnAnalyse, turnWrite, turnImplement)
+			secondProvider = p
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 5, MaxAttempts: 1},
+				SessionPrefix: "fix",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			var runErr error
+			secondResult, runErr = codefix.Run(ctx, codefix.Options{
+				Input:       d.Input,
+				Workspace:   d.Workspace,
+				Land:        codefix.LandNone,
+				NoVerify:    true,
+				Runner:      runner,
+				Forge:       issuex.NewNoOp(),
+				CheckRunner: gitx.ReducedEnvRunner,
+				Run:         d.Run,
+				Progress:    d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), secondResult, info
+			}
+			return toolio.ExitOK, secondResult, nil
+		},
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	code2 := secondApp.Main(context.Background(),
+		[]string{"--dir", wsDir, report, "--context", answer},
+		strings.NewReader(""), &stdout2, &stderr2)
+	if code2 != toolio.ExitOK {
+		t.Fatalf("second run: code = %d, want %d (ExitOK); stdout:\n%s\nstderr:\n%s", code2, toolio.ExitOK, stdout2.String(), stderr2.String())
+	}
+
+	// The rendered context block reached the analyse phase's own request.
+	if secondProvider == nil || !requestsContainText(secondProvider.Requests(), answer) {
+		t.Error("the --context answer never reached a phase's prompt")
+	}
+	if secondResult == nil || secondResult.Ambiguity != nil {
+		t.Errorf("second run: expected the ambiguity resolved, got %+v", secondResult)
+	}
+
+	var env2 toolio.Envelope
+	if err := json.Unmarshal(stdout2.Bytes(), &env2); err != nil {
+		t.Fatalf("second run: stdout is not valid JSON: %v\n%s", err, stdout2.String())
+	}
+	if env2.Status != "done" {
+		t.Errorf("second run: env.Status = %q, want done", env2.Status)
+	}
+	if !env2.OK {
+		t.Errorf("second run: env.OK = false: %+v", env2.Error)
+	}
+}
+
+// TS-05-46 (smoke): impl hits a per-phase budget ceiling and resumes on the same branch once the ceiling is raised
+//
+// Verifies: 05-PATH-3, 05-REQ-4.4, 05-REQ-4.7
+//
+// Divergence from the literal test text, recorded here rather than silently:
+// tracing internal/agentrun/phase.go's wrap() and loop.go's runLoop shows that
+// AgentKit's OverBudget stop policy ends a phase's run WITHOUT an error unless
+// AgentConfig.ErrorOnLimit is set — and nothing in this repository ever sets
+// it. So a real per-phase --budget ceiling exceeded by a task phase always
+// surfaces through agentrun.NoResultError, category "no_result", never
+// category "budget" (codeimpl's only real category="budget" producer is its
+// own --total-budget check, always at stage "budget"). What TS-05-46 can
+// verify against real, live production code is therefore: fix_hint shaped
+// exactly as the budget row asks ({flag: "--budget", current, suggest}, via
+// FixHintFor's no_result branch reading the RunStopReason), resumable true
+// because Branch is already set, and — once --budget is raised — the run
+// continuing on the same branch to completion.
+func TestTS0546_ImplBudgetCeilingResumesOnSameBranch_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	specDir := filepath.Join(wsDir, ".specs", "09_budget_spec")
+	writeSpecPackage(t, specDir, "09", "budget_spec")
+	if out, err := exec.Command("git", "-C", wsDir, "add", ".specs").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", "chore: initial").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	loadedSpec, err := afspec.LoadSpec(specDir)
+	if err != nil {
+		t.Fatalf("afspec.LoadSpec: %v", err)
+	}
+	task1 := loadedSpec.Tasks.Tasks[0]
+
+	// ---- First run: the task phase's one turn costs far more than the
+	// per-phase --budget ceiling, so the phase ends without a submission.
+	var firstResult *codeimpl.Result
+	firstApp := toolio.App{
+		Name:          "impl",
+		Version:       agentfox.Version,
+		Usage:         "impl [flags] <spec>\n",
+		DefaultBounds: agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5},
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			rawArgs, _ := json.Marshal(map[string]any{
+				"path":    "task1_partial.go",
+				"content": "package repo\n",
+			})
+			costlyTurn := faux.Turn{
+				Blocks:     []core.ContentBlock{faux.FauxToolCall("t0", "write_file", string(rawArgs))},
+				StopReason: core.StopReasonToolUse,
+				Usage:      core.Usage{CostUSD: 10},
+			}
+			p := faux.New(costlyTurn)
+			bounds := d.Common.Bounds(agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5})
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        bounds,
+				SessionPrefix: "impl",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			var runErr error
+			firstResult, runErr = codeimpl.Run(ctx, codeimpl.Options{
+				Input:        d.Input,
+				Workspace:    d.Workspace,
+				Task:         task1.Id,
+				Land:         codeimpl.LandNone,
+				NoVerify:     true,
+				NoSurvey:     true,
+				TaskAttempts: 1,
+				Runner:       runner,
+				Forge:        issuex.NewNoOp(),
+				CheckRunner:  gitx.ReducedEnvRunner,
+				Run:          d.Run,
+				Progress:     d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), firstResult, info
+			}
+			return toolio.ExitOK, firstResult, nil
+		},
+	}
+
+	var stdout1, stderr1 bytes.Buffer
+	code1 := firstApp.Main(context.Background(), []string{"--dir", wsDir, "--budget", "1", specDir}, strings.NewReader(""), &stdout1, &stderr1)
+	if code1 == toolio.ExitOK {
+		t.Fatalf("first run unexpectedly succeeded; stdout:\n%s", stdout1.String())
+	}
+	if firstResult == nil || firstResult.Branch == "" {
+		t.Fatalf("first run: expected Result.Branch already set, got %+v", firstResult)
+	}
+
+	var env1 toolio.Envelope
+	if err := json.Unmarshal(stdout1.Bytes(), &env1); err != nil {
+		t.Fatalf("first run: stdout is not valid JSON: %v\n%s", err, stdout1.String())
+	}
+	if env1.Error == nil {
+		t.Fatal("first run: env.Error is nil")
+	}
+	if env1.Error.Category != agentrun.CategoryNoResult {
+		t.Errorf("first run: env.Error.Category = %q; the real path for a per-phase budget stop is %q "+
+			"(see the divergence note on this test)", env1.Error.Category, agentrun.CategoryNoResult)
+	}
+	if env1.Error.FixHint == nil {
+		t.Fatal("first run: env.Error.FixHint is nil")
+	}
+	if env1.Error.FixHint.Flag != "--budget" {
+		t.Errorf("first run: env.Error.FixHint.Flag = %q, want --budget", env1.Error.FixHint.Flag)
+	}
+	if env1.Error.FixHint.Current != 1 || env1.Error.FixHint.Suggest != 2 {
+		t.Errorf("first run: env.Error.FixHint = %+v, want current=1 suggest=2", env1.Error.FixHint)
+	}
+	if !env1.Error.Resumable {
+		t.Error("first run: env.Error.Resumable = false, want true (Branch is non-empty)")
+	}
+
+	// ---- Second run: the same spec, a much higher --budget, continuing on
+	// the same branch to completion.
+	var secondResult *codeimpl.Result
+	secondApp := toolio.App{
+		Name:          "impl",
+		Version:       agentfox.Version,
+		Usage:         "impl [flags] <spec>\n",
+		DefaultBounds: agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5},
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			testVerdicts := make([]map[string]any, len(task1.Tests))
+			for i, tID := range task1.Tests {
+				testVerdicts[i] = map[string]any{
+					"id":       tID,
+					"verdict":  "pass",
+					"evidence": "lib_test.go: TestFunction passes verification cleanly",
+				}
+			}
+			turnWrite := toolCallTurn("t0", "write_file", map[string]any{
+				"path":    "task1.go",
+				"content": "package repo\nfunc Loaded() bool { return true }\n",
+			})
+			turnTask := toolCallTurn("t1", "submit_task", map[string]any{
+				"summary":        "implemented task 1",
+				"commit_subject": "feat: implement task 1",
+				"test_verdicts":  testVerdicts,
+				"changes": []map[string]any{
+					{"path": "task1.go", "change": "added Loaded()"},
+				},
+			})
+			p := faux.New(turnWrite, turnTask)
+			bounds := d.Common.Bounds(agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5})
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        bounds,
+				SessionPrefix: "impl",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			var runErr error
+			secondResult, runErr = codeimpl.Run(ctx, codeimpl.Options{
+				Input:        d.Input,
+				Workspace:    d.Workspace,
+				Task:         task1.Id,
+				Land:         codeimpl.LandNone,
+				NoVerify:     true,
+				NoSurvey:     true,
+				TaskAttempts: 1,
+				Runner:       runner,
+				Forge:        issuex.NewNoOp(),
+				CheckRunner:  gitx.ReducedEnvRunner,
+				Run:          d.Run,
+				Progress:     d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), secondResult, info
+			}
+			return toolio.ExitOK, secondResult, nil
+		},
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	code2 := secondApp.Main(context.Background(), []string{"--dir", wsDir, "--budget", "50", specDir}, strings.NewReader(""), &stdout2, &stderr2)
+	if code2 != toolio.ExitOK {
+		t.Fatalf("second run: code = %d, want %d (ExitOK); stdout:\n%s\nstderr:\n%s", code2, toolio.ExitOK, stdout2.String(), stderr2.String())
+	}
+	if secondResult == nil || secondResult.Branch != firstResult.Branch {
+		t.Errorf("second run: Branch = %+v, want the same branch as the first run (%q)", secondResult, firstResult.Branch)
+	}
+	if secondResult.Stage != "landed" {
+		t.Errorf("second run: Stage = %q, want landed", secondResult.Stage)
+	}
+
+	var env2 toolio.Envelope
+	if err := json.Unmarshal(stdout2.Bytes(), &env2); err != nil {
+		t.Fatalf("second run: stdout is not valid JSON: %v\n%s", err, stdout2.String())
+	}
+	if env2.Status != "done" || !env2.OK {
+		t.Errorf("second run: env.Status=%q env.OK=%v, want done/true", env2.Status, env2.OK)
+	}
+}
+
+// TS-05-47 (smoke): A high-severity input-truncation warning surfaces in an otherwise successful fix run's summary
+// Verifies: 05-PATH-4, 05-REQ-2.6, 05-REQ-5.6
+// Real components: toolio.App, toolio.Resolve, codefix.Run, internal/gitx.Git, internal/checks
+func TestTS0547_TruncatedInputWarningSurfacesInSummary_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	if err := os.WriteFile(filepath.Join(wsDir, "widget.go"), []byte("package widget\nfunc Count() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "add", "widget.go").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", "chore: initial").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	// A report exceeding toolio.MaxInputBytes, given as a FILE: a huge literal
+	// CLI argument would instead be refused pre-Resolve as a usage error
+	// (REQ-3.8's Body+context bound), which is a different path than the one
+	// this test verifies — Resolve's own file-reading Truncate. It lives
+	// outside the repository so the working tree preflight check stays clean.
+	reportPath := filepath.Join(t.TempDir(), "report.txt")
+	var b strings.Builder
+	b.WriteString("The widget counter double-counts on retry; investigate Count() in widget.go.\n")
+	for b.Len() <= toolio.MaxInputBytes {
+		b.WriteString(strings.Repeat("padding ", 20) + "\n")
+	}
+	if err := os.WriteFile(reportPath, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var fixResult *codefix.Result
+	app := toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			if !d.Input.Truncated {
+				t.Error("expected d.Input.Truncated to be true")
+			}
+			turnAnalyse := toolCallTurn("t1", "submit_analysis", map[string]any{
+				"classification": "bug",
+				"title":          "fix widget double count",
+				"summary":        "fixed counter logic",
+				"root_cause":     "Count() returned 1 instead of 2",
+				"approach":       "update Count() to return 2",
+				"files": []map[string]any{
+					{"path": "widget.go", "change": "update Count()"},
+				},
+			})
+			turnWrite := toolCallTurn("t2", "write_file", map[string]any{
+				"path":    "widget.go",
+				"content": "package widget\nfunc Count() int { return 2 }\n",
+			})
+			turnImplement := toolCallTurn("t3", "submit_implementation", map[string]any{
+				"commit_subject": "fix: resolve widget double count",
+				"summary":        "updated Count() implementation",
+				"changes": []map[string]any{
+					{"path": "widget.go", "change": "updated Count() implementation"},
+				},
+			})
+			p := faux.New(turnAnalyse, turnWrite, turnImplement)
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 5, MaxAttempts: 1},
+				SessionPrefix: "fix",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			var runErr error
+			fixResult, runErr = codefix.Run(ctx, codefix.Options{
+				Input:       d.Input,
+				Workspace:   d.Workspace,
+				Land:        codefix.LandNone,
+				NoVerify:    true,
+				Runner:      runner,
+				Forge:       issuex.NewNoOp(),
+				CheckRunner: gitx.ReducedEnvRunner,
+				Run:         d.Run,
+				Progress:    d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), fixResult, info
+			}
+			return toolio.ExitOK, fixResult, nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", wsDir, reportPath}, strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("app.Main code = %d, want %d (ExitOK); stdout:\n%s\nstderr:\n%s", code, toolio.ExitOK, stdout.String(), stderr.String())
+	}
+
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if !env.OK {
+		t.Errorf("env.OK = false, want true: %+v", env.Error)
+	}
+
+	var found *toolio.Warning
+	for i := range env.Warnings {
+		if env.Warnings[i].Code == toolio.WarnInputTruncated {
+			found = &env.Warnings[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected an %q warning, got %+v", toolio.WarnInputTruncated, env.Warnings)
+	}
+	if found.Severity != "high" {
+		t.Errorf("warning.severity = %q, want high", found.Severity)
+	}
+	if found.Stage != "input" {
+		t.Errorf("warning.stage = %q, want input", found.Stage)
+	}
+
+	if !strings.Contains(env.Summary, "high-severity warning") {
+		t.Errorf("env.Summary = %q, want a clause noting one high-severity warning", env.Summary)
+	}
+}
