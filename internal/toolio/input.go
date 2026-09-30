@@ -59,6 +59,9 @@ type Input struct {
 	Thread *issuex.IssueThread
 }
 
+// NoInputMessage names the four accepted input shapes for an empty or missing input.
+const NoInputMessage = "no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"
+
 // ErrNoInput is the "halt until input is received" branch of the skills these
 // tools replace, except that a program cannot block on a conversational turn:
 // it exits with a usage error before a token is spent.

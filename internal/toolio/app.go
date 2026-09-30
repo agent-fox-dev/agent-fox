@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/agentfox/agentkit-go/tools"
@@ -112,10 +113,10 @@ type App struct {
 // Main parses, resolves and runs. It returns the process exit code.
 //
 // It writes exactly one JSON object to stdout on every program-driven path.
-// The two human-driven paths — -h/--help, and a bare invocation with no
-// positional argument — print the help text to stderr, write nothing to
-// stdout, and never reach Emit, the same way --version prints a bare
-// sentence and skips it.
+// When stdout is not a terminal, a bare invocation with no positional argument
+// (or only whitespace) also emits a usage envelope. When stdout is a terminal,
+// a bare invocation prints the help text to stderr and writes nothing to stdout,
+// the same way -h/--help exits 0 and --version prints a bare sentence.
 func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var common Common
 	fs := flag.NewFlagSet(a.Name, flag.ContinueOnError)
@@ -148,13 +149,18 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
 	}
-	if input == "" {
-		// A bare invocation with no positional argument is the same kind of
-		// human path as -h/--help: print what the tool does and say nothing
-		// on stdout, rather than pairing the help text with a JSON envelope
-		// that only restates it.
+	if strings.TrimSpace(input) == "" {
+		// A bare invocation with no positional argument (or only whitespace)
+		// prints the help text to stderr. When stdout is a terminal, stdout
+		// stays empty; when stdout is not a terminal, an envelope is emitted
+		// so programs piping stdout receive valid JSON.
 		fs.Usage()
-		return ExitUsage
+		if isTerminal(stdout) {
+			return ExitUsage
+		}
+		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: NoInputMessage,
+		}))
 	}
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
@@ -213,8 +219,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	in, err := Resolve(ctx, e.argument, e.stdin, forge)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
-			return a.usage(Usagef(
-				"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"))
+			return a.usage(Usagef("%s", NoInputMessage))
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
 	}
