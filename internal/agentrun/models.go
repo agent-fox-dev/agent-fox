@@ -53,9 +53,9 @@ type tierEntry struct {
 // running in the tier that was asked for.
 var tierTable = map[string]map[ModelTier]map[string]tierEntry{
 	"anthropic": {
-		TierSimple:   {"": {spec: "anthropic/claude-sonnet-5", thinking: core.ThinkingMedium}},
-		TierStandard: {"": {spec: "anthropic/claude-sonnet-5", thinking: core.ThinkingHigh}},
-		TierAdvanced: {"": {spec: "anthropic/claude-opus-5", thinking: core.ThinkingXHigh}, "extended": {spec: "anthropic/claude-fable-5-1", thinking: core.ThinkingXHigh}},
+		TierSimple:   {"": {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingMedium}},
+		TierStandard: {"": {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingHigh}},
+		TierAdvanced: {"": {spec: "anthropic/claude-opus-5-5", thinking: core.ThinkingXHigh}, "extended": {spec: "anthropic/claude-fable-5-1", thinking: core.ThinkingXHigh}},
 	},
 	"openai": {
 		TierSimple:   {"": {spec: "openai/gpt-5.6-luna"}},
@@ -89,7 +89,7 @@ func TierVendors() []string {
 //
 // A tier name (case-insensitive) is looked up in the vendor's tier table.
 // Anything else is returned unchanged and handed to the catalog, so
-// "anthropic/claude-opus-5", a bare unambiguous id, and a model released
+// "anthropic/claude-opus-5-5", a bare unambiguous id, and a model released
 // after this build was cut all work without a code change. A literal model
 // spec returns ThinkingUnset because the operator chose the model, not a tier.
 //

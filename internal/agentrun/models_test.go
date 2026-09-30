@@ -15,8 +15,8 @@ func TestTierNamesResolveCaseInsensitively(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ModelSpec(%q): %v", name, err)
 		}
-		if spec != "anthropic/claude-sonnet-5" {
-			t.Errorf("ModelSpec(%q) = %q, want anthropic/claude-sonnet-5", name, spec)
+		if spec != "anthropic/claude-sonnet-5-5" {
+			t.Errorf("ModelSpec(%q) = %q, want anthropic/claude-sonnet-5-5", name, spec)
 		}
 	}
 }
@@ -72,7 +72,7 @@ func TestAnUnknownVariantFallsBackToTheTierDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec != "anthropic/claude-sonnet-5" {
+	if spec != "anthropic/claude-sonnet-5-5" {
 		t.Errorf("ModelSpec(SIMPLE, extended) = %q, want the tier default", spec)
 	}
 }
@@ -80,7 +80,7 @@ func TestAnUnknownVariantFallsBackToTheTierDefault(t *testing.T) {
 func TestAModelIDIsHandedToTheCatalogUnchanged(t *testing.T) {
 	// Anything that is not a tier name is the catalog's business, so a model
 	// released after this build was cut needs no code change here.
-	for _, name := range []string{"anthropic/claude-opus-5", "openai/gpt-6-astra"} {
+	for _, name := range []string{"anthropic/claude-opus-5-5", "openai/gpt-6-astra"} {
 		spec, _, err := ModelSpec(name, "", "")
 		if err != nil {
 			t.Fatalf("ModelSpec(%q): %v", name, err)
@@ -121,14 +121,14 @@ func TestAModelIDIsNotBlockedByAnUnknownVendor(t *testing.T) {
 	// (ollama, an OpenAI-compatible gateway, ...) that has no tier table at
 	// all: naming it must not turn into "unknown model vendor".
 	for _, vendor := range []string{"ollama", "openrouter"} {
-		spec, _, err := ModelSpec("anthropic/claude-opus-5", "", vendor)
+		spec, _, err := ModelSpec("anthropic/claude-opus-5-5", "", vendor)
 		if err != nil {
 			t.Fatalf("ModelSpec(id, vendor=%s): %v", vendor, err)
 		}
-		if spec != "anthropic/claude-opus-5" {
+		if spec != "anthropic/claude-opus-5-5" {
 			t.Errorf("ModelSpec(id, vendor=%s) = %q, want it unchanged", vendor, spec)
 		}
-		if _, _, err := ResolveModel("anthropic/claude-opus-5", "", vendor); err != nil {
+		if _, _, err := ResolveModel("anthropic/claude-opus-5-5", "", vendor); err != nil {
 			t.Errorf("ResolveModel(id, vendor=%s): %v", vendor, err)
 		}
 	}
@@ -197,7 +197,7 @@ func TestAnthropicTiersCarryThePrescribedThinkingLevel(t *testing.T) {
 }
 
 func TestALiteralModelSpecReturnsThinkingUnset(t *testing.T) {
-	_, thinking, err := ModelSpec("anthropic/claude-opus-5", "", "")
+	_, thinking, err := ModelSpec("anthropic/claude-opus-5-5", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

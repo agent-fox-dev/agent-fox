@@ -16,13 +16,13 @@ export GITHUB_TOKEN="ghp_..."          # only for the tools that write; GITLAB_T
 ```
 
 There is no configuration file. With a key in the environment the tools use the
-`STANDARD` tier, which resolves to `claude-sonnet-5` at high thinking effort.
+`STANDARD` tier, which resolves to `claude-sonnet-5-5` at high thinking effort.
 
 Every run reports the model it resolved in its JSON envelope, so what actually
 served a run is a field rather than something to work out:
 
 ```jsonc
-"model": { "spec": "STANDARD", "id": "claude-sonnet-5", "vendor": "anthropic",
+"model": { "spec": "STANDARD", "id": "claude-sonnet-5-5", "vendor": "anthropic",
            "api": "anthropic-messages", "thinking": "high" }
 ```
 
@@ -85,9 +85,9 @@ does not require knowing which model id is current this month.
 
 | Tier | `anthropic` (default) | `openai` | `google` |
 |---|---|---|---|
-| `SIMPLE` | `claude-sonnet-5` · thinking `medium` | `gpt-5.6-luna` | `gemini-3.5-flash-lite` |
-| `STANDARD` | `claude-sonnet-5` · thinking `high` | `gpt-5.6-terra` | `gemini-3.8-flash` |
-| `ADVANCED` | `claude-opus-5` · thinking `xhigh` | `gpt-6-astra` | `gemini-3.1-pro-preview` |
+| `SIMPLE` | `claude-sonnet-5-5` · thinking `medium` | `gpt-5.6-luna` | `gemini-3.5-flash-lite` |
+| `STANDARD` | `claude-sonnet-5-5` · thinking `high` | `gpt-5.6-terra` | `gemini-3.8-flash` |
+| `ADVANCED` | `claude-opus-5-5` · thinking `xhigh` | `gpt-6-astra` | `gemini-3.1-pro-preview` |
 
 A tier names a model **and** a reasoning effort. Separating the two lets
 `SIMPLE` and `STANDARD` share a model and run it at different depth, which on
@@ -118,6 +118,33 @@ spec --model ADVANCED --variant extended ./big-idea.md
 a shell already configured for the SDK works here), which wins over the
 `STANDARD` default. `--vendor` and `$AF_MODEL_VENDOR` select which tier table
 the tier names resolve against, and have no effect on a model named by id.
+
+### Which vendor wins when several keys are set
+
+**Your environment never picks the vendor.** The tools do not scan for keys
+and choose whichever they find. With `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`
+(or `GOOGLE_API_KEY`, `OPENAI_API_KEY`, …) all exported, a tier name still
+resolves against the `anthropic` table, because `anthropic` is the default
+vendor. The vendor is decided in this order:
+
+1. A model named as `vendor/model-id` (`--model google/gemini-3.8-flash`) uses
+   that vendor.
+2. A tier name (`STANDARD`, …) uses `--vendor`, then `$AF_MODEL_VENDOR`, then
+   the default, `anthropic`.
+3. A bare model id is looked up in the catalog and uses the vendor that owns it.
+
+Only after that is the credential for the **resolved** vendor checked. Keys for
+other vendors are ignored. If the resolved vendor has no key, the run fails
+before any prompt is built. It does not fall back to another vendor whose key
+is set.
+
+To use Gemini with both keys exported:
+
+```sh
+spec --vendor google ./idea.md                 # tier table of google
+export AF_MODEL_VENDOR=google                  # the same, for the shell
+spec --model google/gemini-3.8-flash ./idea.md # or name the model
+```
 
 One model serves every phase of a run. Per-phase model selection existed in the
 previous CLI and is not carried over: it was configured in a file nobody edited,
