@@ -82,6 +82,35 @@ type Result struct {
 	RejectedPaths     []string `json:"rejected_paths,omitempty"`
 }
 
+// Summary returns one sentence describing the outcome in issue's vocabulary.
+func (r Result) Summary() string {
+	action := r.Action
+	if action == "" {
+		action = "triaged"
+	}
+	target := ""
+	if r.Repo != "" && r.Number > 0 {
+		target = fmt.Sprintf(" %s#%d", r.Repo, r.Number)
+	} else if r.URL != "" {
+		target = " " + r.URL
+	} else if r.Number > 0 {
+		target = fmt.Sprintf(" #%d", r.Number)
+	}
+
+	filesCount := len(r.AffectedFiles)
+	filesLabel := "files"
+	if filesCount == 1 {
+		filesLabel = "file"
+	}
+
+	sev := r.Severity
+	if sev == "" {
+		sev = "unknown"
+	}
+
+	return fmt.Sprintf("issue: %s%s (%s severity, %d %s cited)", action, target, sev, filesCount, filesLabel)
+}
+
 // Failure carries a stage and category alongside the message, so the caller
 // can render the JSON error object without re-deriving either.
 type Failure struct {

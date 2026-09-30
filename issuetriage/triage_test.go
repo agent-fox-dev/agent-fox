@@ -653,3 +653,22 @@ func TestTS0428_WriteErrorClassification(t *testing.T) {
 		t.Errorf("CategoryName = %q, want forge", errGeneral.CategoryName())
 	}
 }
+
+func TestIssueTriageResultSummary(t *testing.T) {
+	r := Result{
+		Action:   "filed",
+		Repo:     "acme/widgets",
+		Number:   57,
+		Severity: "high",
+		AffectedFiles: []FileRef{
+			{Path: "a.go"},
+			{Path: "b.go"},
+			{Path: "c.go"},
+			{Path: "d.go"},
+		},
+	}
+	want := "issue: filed acme/widgets#57 (high severity, 4 files cited)"
+	if r.Summary() != want {
+		t.Errorf("got %q, want %q", r.Summary(), want)
+	}
+}

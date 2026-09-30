@@ -212,7 +212,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Stage = "analysed"
 	result.Classification = string(analysis.Classification)
 	result.Title = analysis.Title
-	result.Summary = analysis.Summary
+	result.FixSummary = analysis.Summary
 	result.RootCause = analysis.RootCause
 	result.Approach = analysis.Approach
 	result.Assumptions = analysis.Assumptions
@@ -250,7 +250,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Stage = "implemented"
 	result.Implementation = &impl
 	if strings.TrimSpace(impl.Summary) != "" {
-		result.Summary = impl.Summary
+		result.FixSummary = impl.Summary
 	}
 
 	// The outcome is derived from the verdicts here rather than taken from

@@ -79,7 +79,7 @@
         "specgen/pipeline.go",
         "issuetriage/pipeline.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

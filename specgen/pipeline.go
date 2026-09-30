@@ -85,6 +85,50 @@ type Result struct {
 	DryRun bool `json:"dry_run,omitempty"`
 }
 
+// Summary returns one sentence describing the outcome in spec's vocabulary.
+func (r Result) Summary() string {
+	var parts []string
+
+	// Package(s) written / split progress
+	if len(r.Split) > 0 {
+		done := 0
+		for _, s := range r.Split {
+			if s.Status == ScopeDone {
+				done++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("spec: split %d of %d scopes", done, len(r.Split)))
+	} else {
+		pkgName := r.SpecDir
+		if pkgName == "" {
+			pkgName = r.SpecID
+		}
+		if pkgName != "" {
+			if len(r.FollowOnSpecs) > 0 {
+				parts = append(parts, fmt.Sprintf("spec: wrote %s (+%d follow-on packages)", pkgName, len(r.FollowOnSpecs)))
+			} else {
+				parts = append(parts, fmt.Sprintf("spec: wrote %s", pkgName))
+			}
+		} else {
+			parts = append(parts, "spec: done")
+		}
+	}
+
+	totalQuestions := len(r.OpenQuestions)
+	for _, f := range r.FollowOnSpecs {
+		totalQuestions += len(f.OpenQuestions)
+	}
+	if totalQuestions > 0 {
+		if totalQuestions == 1 {
+			parts = append(parts, "1 open question")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d open questions", totalQuestions))
+		}
+	}
+
+	return strings.Join(parts, "; ")
+}
+
 // Package describes one specification package.
 type Package struct {
 	// SpecDir is the created package, relative to the repository root when

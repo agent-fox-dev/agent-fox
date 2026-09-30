@@ -259,3 +259,34 @@ func TestBothPromptsCarryTheCriteria(t *testing.T) {
 		t.Error("a report without criteria must not grow a criteria section")
 	}
 }
+
+func TestResultSummary(t *testing.T) {
+	rAmb := Result{
+		Ambiguity: &Ambiguity{Question: "Which one?"},
+	}
+	if !strings.Contains(rAmb.Summary(), "ambiguity") {
+		t.Errorf("ambiguity summary = %q", rAmb.Summary())
+	}
+
+	rLanded := Result{
+		Commit:            "a3f9c1e12345",
+		Branch:            "fix/issue-42",
+		Verdict:           "pass",
+		PullRequestURL:    "https://github.com/org/repo/pull/42",
+		PullRequestNumber: 42,
+	}
+	want := "fix: committed a3f9c1e on fix/issue-42; checks pass; landed PR #42"
+	if rLanded.Summary() != want {
+		t.Errorf("got %q, want %q", rLanded.Summary(), want)
+	}
+
+	rNotLanded := Result{
+		Commit:  "a3f9c1e",
+		Branch:  "fix/issue-42-nil-map",
+		Verdict: "regressed",
+	}
+	wantNotLanded := "fix: committed a3f9c1e on fix/issue-42-nil-map; checks regressed; not landed"
+	if rNotLanded.Summary() != wantNotLanded {
+		t.Errorf("got %q, want %q", rNotLanded.Summary(), wantNotLanded)
+	}
+}

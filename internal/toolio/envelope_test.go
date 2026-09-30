@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -203,4 +204,230 @@ func TestEnvelopeDropsATypedNilResult(t *testing.T) {
 	if env.Result == nil {
 		t.Error("a present result was dropped")
 	}
+}
+
+// TS-05-6 (unit): status and summary are always present, never omitted, on every envelope regardless of outcome.
+func TestTS05_6_StatusAndSummaryAlwaysPresent(t *testing.T) {
+	type plainResult struct{}
+	run := NewRun("fix", "v1")
+	for _, code := range []int{ExitOK, ExitFailed} {
+		var errInfo *ErrorInfo
+		if code == ExitFailed {
+			errInfo = &ErrorInfo{Stage: "preflight", Category: "usage", Message: "bad flag"}
+		}
+		env := run.Envelope(code, plainResult{}, errInfo)
+		b, err := json.Marshal(env)
+		if err != nil {
+			t.Fatalf("Marshal failed: %v", err)
+		}
+		if !bytes.Contains(b, []byte(`"status"`)) {
+			t.Errorf("code %d: missing status key in %s", code, string(b))
+		}
+		if !bytes.Contains(b, []byte(`"summary"`)) {
+			t.Errorf("code %d: missing summary key in %s", code, string(b))
+		}
+		if env.Status == "" {
+			t.Errorf("code %d: env.Status is empty", code)
+		}
+		if env.Summary == "" {
+			t.Errorf("code %d: env.Summary is empty", code)
+		}
+	}
+}
+
+// TS-05-7 (unit): status is derived one-to-one from the exit code, in both directions, for every code in the table.
+func TestTS05_7_StatusDerivedFromExitCode(t *testing.T) {
+	run := NewRun("test", "v1")
+	table := map[int]string{
+		ExitOK:         "done",
+		ExitFailed:     "failed",
+		ExitUsage:      "usage",
+		ExitNeedsHuman: "needs_human",
+		ExitUnverified: "unverified",
+	}
+	for code, want := range table {
+		var errInfo *ErrorInfo
+		if code != ExitOK {
+			errInfo = &ErrorInfo{Stage: "test", Category: "test", Message: "err"}
+		}
+		env := run.Envelope(code, nil, errInfo)
+		if env.Status != want {
+			t.Errorf("exit code %d: got status %q, want %q", code, env.Status, want)
+		}
+		if (env.Status == "done") != env.OK {
+			t.Errorf("status %q disagrees with ok %v", env.Status, env.OK)
+		}
+		if env.ExitCode != code {
+			t.Errorf("exit code mismatch: got %d, want %d", env.ExitCode, code)
+		}
+	}
+}
+
+// TS-05-8 (unit): A Result implementing Summary() supplies the envelope's summary, truncated to 200 characters.
+type ts05_8_stub struct{}
+
+func (ts05_8_stub) Summary() string {
+	return strings.Repeat("x", 250)
+}
+
+func TestTS05_8_ResultSummaryTruncatedTo200(t *testing.T) {
+	run := NewRun("fix", "v1")
+	env := run.Envelope(ExitOK, ts05_8_stub{}, nil)
+	if len(env.Summary) != 200 {
+		t.Fatalf("summary length = %d, want 200", len(env.Summary))
+	}
+	if env.Summary != strings.Repeat("x", 200) {
+		t.Errorf("summary content mismatch")
+	}
+}
+
+// TS-05-9 (unit): A Result with no Summary() falls back to error.message when ok is false.
+func TestTS05_9_ResultWithoutSummaryFallsBackToErrorMessageWhenFailed(t *testing.T) {
+	type plainResult struct{}
+	run := NewRun("fix", "v1")
+	env := run.Envelope(ExitFailed, plainResult{}, &ErrorInfo{
+		Stage:    "land",
+		Category: "forge",
+		Message:  "the pull request could not be opened",
+	})
+	if env.Summary != "the pull request could not be opened" {
+		t.Errorf("got summary %q, want %q", env.Summary, "the pull request could not be opened")
+	}
+}
+
+// TS-05-10 (unit): A Result with no Summary() falls back to "<tool>: done" when ok is true.
+func TestTS05_10_ResultWithoutSummaryFallsBackToToolDoneWhenOK(t *testing.T) {
+	type plainResult struct{}
+	run := NewRun("fix", "v1")
+	env := run.Envelope(ExitOK, plainResult{}, nil)
+	if env.Summary != "fix: done" {
+		t.Errorf("got summary %q, want %q", env.Summary, "fix: done")
+	}
+}
+
+// TS-05-11 (unit): A high-severity warning on an ok:true run appends a fixed, deterministic clause noting the count and severity to the summary.
+type ts05_11_stub struct {
+	summary string
+}
+
+func (s ts05_11_stub) Summary() string {
+	return s.summary
+}
+
+func TestTS05_11_HighSeverityWarningAppendsDeterministicClause(t *testing.T) {
+	run := NewRun("fix", "v1")
+	run.warnWithSeverity(WarnCode("input_truncated"), "high", "cut")
+	run.warnWithSeverity(WarnCode("comment_not_posted"), "low", "not posted")
+
+	env1 := run.Envelope(ExitOK, ts05_11_stub{"fix: committed and landed"}, nil)
+	env2 := run.Envelope(ExitOK, ts05_11_stub{"fix: committed and landed"}, nil)
+
+	if !strings.HasPrefix(env1.Summary, "fix: committed and landed") {
+		t.Errorf("env1.Summary does not start with prefix: %q", env1.Summary)
+	}
+	if !strings.Contains(env1.Summary, "1") || !strings.Contains(env1.Summary, "high") {
+		t.Errorf("env1.Summary does not contain '1' and 'high': %q", env1.Summary)
+	}
+	if env1.Summary != env2.Summary {
+		t.Errorf("env1.Summary (%q) != env2.Summary (%q)", env1.Summary, env2.Summary)
+	}
+}
+
+// TS-05-12 (unit): The envelope's JSON keys are emitted in the fixed field order, with usage.phases last.
+func TestTS05_12_EnvelopeKeyOrder(t *testing.T) {
+	fullEnvelope := Envelope{
+		Tool:       "fix",
+		Version:    "v1",
+		OK:         false,
+		Status:     "failed",
+		ExitCode:   ExitFailed,
+		Summary:    "something failed",
+		Error:      &ErrorInfo{Stage: "verify", Category: "git", Message: "failed"},
+		NeedsHuman: &NeedsHuman{},
+		Warnings:   []string{"warning 1"},
+		Result:     map[string]any{"key": "val"},
+		Input:      &InputInfo{Kind: "text", Origin: "arg", Bytes: 10},
+		Usage: &UsageInfo{
+			InputTokens:  10,
+			OutputTokens: 20,
+			CostUSD:      0.01,
+			Turns:        1,
+			Phases:       []PhaseInfo{{Name: "phase1"}},
+		},
+		Model:      &ModelInfo{Spec: "model-1", ID: "id-1", Vendor: "vendor", API: "api"},
+		DurationMS: 123,
+		StartedAt:  "2025-01-01T00:00:00Z",
+	}
+
+	b, err := json.Marshal(fullEnvelope)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	order, err := extractTopLevelKeyOrder(b)
+	if err != nil {
+		t.Fatalf("extractTopLevelKeyOrder failed: %v", err)
+	}
+
+	wantOrder := []string{
+		"tool", "version", "ok", "status", "exit_code", "summary",
+		"error", "needs_human", "warnings", "result", "input",
+		"usage", "model", "duration_ms", "started_at",
+	}
+	if len(order) != len(wantOrder) {
+		t.Fatalf("got keys %v (len %d), want %v (len %d)", order, len(order), wantOrder, len(wantOrder))
+	}
+	for i := range wantOrder {
+		if order[i] != wantOrder[i] {
+			t.Errorf("key [%d] = %q, want %q (full order: %v)", i, order[i], wantOrder[i], order)
+		}
+	}
+
+	usageOrder, err := extractNestedKeyOrder(b, "usage")
+	if err != nil {
+		t.Fatalf("extractNestedKeyOrder failed: %v", err)
+	}
+	if len(usageOrder) == 0 || usageOrder[len(usageOrder)-1] != "phases" {
+		t.Errorf("usageOrder last key = %v, want 'phases'", usageOrder)
+	}
+}
+
+func extractTopLevelKeyOrder(data []byte) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return nil, fmt.Errorf("expected {, got %v", tok)
+	}
+	var keys []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string key, got %v", tok)
+		}
+		keys = append(keys, key)
+		var val any
+		if err := dec.Decode(&val); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+func extractNestedKeyOrder(data []byte, parentKey string) ([]string, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil, err
+	}
+	raw, ok := top[parentKey]
+	if !ok {
+		return nil, fmt.Errorf("key %q not found", parentKey)
+	}
+	return extractTopLevelKeyOrder(raw)
 }
