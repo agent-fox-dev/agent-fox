@@ -1,0 +1,825 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "07",
+  "spec_name": "progress_event_stream",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-07-1",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.1"
+      ],
+      "title": "Common.Register adds --events (default text) and --events-file flags to the shared flag set",
+      "given": [
+        "a fresh flag.FlagSet with Common.Register called on it"
+      ],
+      "when": "the --events and --events-file flags are looked up by name",
+      "then": [
+        "--events exists with default value \"text\"",
+        "--events-file exists with default value \"\"",
+        "both flags sit alongside --verbose, --quiet and the other shared flags"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"t\", flag.ContinueOnError); var c Common; c.Register(fs); assert fs.Lookup(\"events\").DefValue == \"text\"; assert fs.Lookup(\"events-file\") != nil"
+    },
+    {
+      "id": "TS-07-2",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.2"
+      ],
+      "title": "An invalid --events value is rejected as a usage error before any input is fetched",
+      "given": [
+        "a tool invocation with --events yaml"
+      ],
+      "when": "App.Main runs the invocation",
+      "then": [
+        "the process exits with code 2",
+        "stdout carries a JSON envelope with error.stage \"usage\"",
+        "no HTTP fetch or model resolution occurred",
+        "zero event lines are written to stderr or an events file"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--events\",\"yaml\",\"report text\"}, stdin, &stdout, &stderr); assert code == toolio.ExitUsage; var env toolio.Envelope; json.Unmarshal(stdout.Bytes(), &env); assert env.Error.Stage == \"usage\"; assert !strings.Contains(stderr.String(), \"\\\"type\\\":\")"
+    },
+    {
+      "id": "TS-07-3",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-1.3"
+      ],
+      "title": "--events-file opens the file once, truncated, flushing each JSONL line as it is written",
+      "given": [
+        "a pre-existing file at the target path containing stale content",
+        "--events-file <path> passed to a tool invocation"
+      ],
+      "when": "the run emits several events",
+      "then": [
+        "the file no longer contains the stale content once opened",
+        "each emitted line is visible in the file before the run exits, not only after",
+        "every line already flushed is complete, valid JSON"
+      ],
+      "pseudocode": "os.WriteFile(path, []byte(\"stale\"), 0o644); go app.Main(ctx, []string{\"--events-file\",path,input}, ...); time.Sleep(shortDelay); lines := readLines(path); assert !strings.Contains(string(readFile(path)), \"stale\"); for _, l := range lines { assert json.Valid([]byte(l)) }"
+    },
+    {
+      "id": "TS-07-4",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-1.4"
+      ],
+      "title": "--events-file carries the full JSONL stream while stderr keeps the human form under the default --events text",
+      "given": [
+        "a tool invoked with --events text --events-file run.jsonl"
+      ],
+      "when": "the run completes",
+      "then": [
+        "stderr contains only human-readable [tool] lines and no JSON object",
+        "run.jsonl contains one JSON object per line covering the run's documented events"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--events\",\"text\",\"--events-file\",path,input}, ...); assert !strings.Contains(stderr.String(), \"{\\\"ts\\\"\"); lines := readLines(path); for _, l := range lines { var ev map[string]any; json.Unmarshal([]byte(l), &ev) }"
+    },
+    {
+      "id": "TS-07-5",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-1.5"
+      ],
+      "title": "--quiet suppresses stderr text under both --events values but leaves the events file intact",
+      "given": [
+        "--quiet set together with --events jsonl and --events-file run.jsonl"
+      ],
+      "when": "the run completes",
+      "then": [
+        "stderr is empty",
+        "run.jsonl still contains the full event stream"
+      ],
+      "pseudocode": "app.Main(ctx, []string{\"--quiet\",\"--events\",\"jsonl\",\"--events-file\",path,input}, ...); assert stderr.Len() == 0; assert len(readLines(path)) > 0"
+    },
+    {
+      "id": "TS-07-6",
+      "kind": "integration",
+      "verifies": [
+        "07-REQ-1.6"
+      ],
+      "title": "A run terminated mid-stream leaves the events file as a valid prefix with no partial line",
+      "given": [
+        "--events-file <path> active and several events already flushed"
+      ],
+      "when": "the run's context is cancelled before run_end is written, simulating a kill mid-run",
+      "then": [
+        "every line already present in the file parses as complete, valid JSON",
+        "no trailing partial or corrupted line exists",
+        "the file's lines are exactly the events emitted before termination"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background()); go runWithSink(ctx, path); emitN events; cancel(); lines := readLines(path); for _, l := range lines { assert json.Valid([]byte(l)) }; assert len(lines) == N"
+    },
+    {
+      "id": "TS-07-7",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.1"
+      ],
+      "title": "Every emitted event carries ts, tool and type in addition to its type-specific fields",
+      "given": [
+        "a JSONL sink active for a tool named \"impl\""
+      ],
+      "when": "a step event is emitted through Progress.Step",
+      "then": [
+        "the decoded object has a ts field parseable as RFC3339 UTC",
+        "tool equals \"impl\"",
+        "type equals \"step\""
+      ],
+      "pseudocode": "p.Step(\"analyse\",\"working\"); line := sink.lastLine(); var obj map[string]any; json.Unmarshal([]byte(line), &obj); _, err := time.Parse(time.RFC3339, obj[\"ts\"].(string)); assert err == nil; assert obj[\"tool\"] == \"impl\"; assert obj[\"type\"] == \"step\""
+    },
+    {
+      "id": "TS-07-8",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-2.2"
+      ],
+      "title": "Every event type emitted by the sink is drawn from the closed set",
+      "given": [
+        "a JSONL sink active for a run exercising every event-producing call site: Step, PhaseStart/PhaseEnd, Turn, ToolCall, Check, Warn, heartbeat, run_start/run_end and Raw under --show-text"
+      ],
+      "when": "for any sequence of Progress/Runner/Run calls made during a run",
+      "then": [
+        "every decoded event's type is one of {run_start, step, phase_start, turn, tool_call, check, phase_end, warning, heartbeat, run_end, text}"
+      ],
+      "pseudocode": "closed := map[string]bool{\"run_start\":true,\"step\":true,\"phase_start\":true,\"turn\":true,\"tool_call\":true,\"check\":true,\"phase_end\":true,\"warning\":true,\"heartbeat\":true,\"run_end\":true,\"text\":true}; for _, line := range capturedLines { var obj map[string]any; json.Unmarshal([]byte(line), &obj); assert closed[obj[\"type\"].(string)] }"
+    },
+    {
+      "id": "TS-07-9",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-2.3"
+      ],
+      "title": "Every emitted event carries only the fields documented for its own type",
+      "given": [
+        "the documented per-type field table from the requirements",
+        "a run exercising every event type"
+      ],
+      "when": "for any event emitted during that run",
+      "then": [
+        "no event carries a field belonging to a type other than its own (e.g. a turn event never carries command/exit_code, a check event never carries turn/input_tokens)"
+      ],
+      "pseudocode": "fieldsByType := map[string][]string{\"turn\":{\"phase\",\"turn\",\"cost_usd\",\"input_tokens\",\"output_tokens\"}, \"check\":{\"command\",\"ok\",\"exit_code\",\"duration_ms\"}, ...}; base := []string{\"ts\",\"tool\",\"type\"}; for _, obj := range decodedEvents { allowed := append(base, fieldsByType[obj[\"type\"]]...); for k := range obj { assert contains(allowed, k) } }"
+    },
+    {
+      "id": "TS-07-10",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.4"
+      ],
+      "title": "With neither --events jsonl nor --events-file, no event objects are emitted at all",
+      "given": [
+        "a tool run with the default --events text and no --events-file"
+      ],
+      "when": "the run completes",
+      "then": [
+        "stderr contains only human-readable text with no event JSON object",
+        "no events file is created or written"
+      ],
+      "pseudocode": "app.Main(ctx, []string{input}, stdin, &stdout, &stderr); assert !strings.Contains(stderr.String(), \"\\\"type\\\":\"); assert !fileExists(anyEventsPath)"
+    },
+    {
+      "id": "TS-07-11",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-2.5"
+      ],
+      "title": "Each event is serialized as one line with no embedded newline",
+      "given": [
+        "a JSONL sink active"
+      ],
+      "when": "a step event carrying a multi-line formatted message is emitted",
+      "then": [
+        "the written line contains no raw newline before its own trailing line terminator",
+        "the line parses as one complete JSON object"
+      ],
+      "pseudocode": "p.Step(\"verify\",\"line1\\nline2\"); line := sink.lastLine(); trimmed := strings.TrimRight(line, \"\\n\"); assert !strings.Contains(trimmed, \"\\n\"); var obj map[string]any; assert json.Unmarshal([]byte(line), &obj) == nil"
+    },
+    {
+      "id": "TS-07-12",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.1"
+      ],
+      "title": "App.execute emits run_start right after the model is resolved and before the Runner is built",
+      "given": [
+        "a tool invocation with --events jsonl"
+      ],
+      "when": "App.execute reaches the point it calls e.run.SetModel and e.progress.Detail(\"model: …\")",
+      "then": [
+        "a run_start event was already written, carrying input_kind and model {spec, id, vendor}",
+        "it appears before the first phase_start event"
+      ],
+      "pseudocode": "events := captureEvents(func(){ app.Main(ctx, []string{\"--events\",\"jsonl\",input}, ...) }); assert events[0][\"type\"] == \"run_start\"; assert events[0][\"input_kind\"] == in.Kind.String(); assert events[0][\"model\"].(map[string]any)[\"id\"] == choice.Model.ID"
+    },
+    {
+      "id": "TS-07-13",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.2"
+      ],
+      "title": "App.Main emits run_end immediately before the envelope is written",
+      "given": [
+        "a completed tool run with --events jsonl"
+      ],
+      "when": "App.Main is about to call Emit(stdout, run.Envelope(...))",
+      "then": [
+        "a run_end event carrying status and exit_code was written to stderr before the stdout envelope bytes"
+      ],
+      "pseudocode": "events := captureEvents(func(){ code = app.Main(...) }); last := events[len(events)-1]; assert last[\"type\"] == \"run_end\"; assert int(last[\"exit_code\"].(float64)) == code"
+    },
+    {
+      "id": "TS-07-14",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-3.3"
+      ],
+      "title": "Neither run_start nor run_end is emitted on -h/--help or a bare invocation",
+      "given": [
+        "--events jsonl set alongside -h, and separately a bare invocation with no positional argument"
+      ],
+      "when": "App.Main runs each of the two invocations",
+      "then": [
+        "stdout carries no envelope on either path",
+        "zero event lines are written to stderr or the events file on either path"
+      ],
+      "pseudocode": "for _, argv := range [][]string{{\"--events\",\"jsonl\",\"-h\"},{\"--events\",\"jsonl\"}} { stdout.Reset(); stderr.Reset(); app.Main(ctx, argv, stdin, &stdout, &stderr); assert stdout.Len() == 0; assert countEventLines(stderr.String()) == 0 }"
+    },
+    {
+      "id": "TS-07-15",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-3.4"
+      ],
+      "title": "run_end.status always matches the exit code that decides the envelope's own ok field",
+      "given": [
+        "a family of runs producing each exit code in {ExitOK, ExitFailed, ExitUsage, ExitNeedsHuman, ExitUnverified}"
+      ],
+      "when": "for any of these exit codes, App.Main completes a run that reaches Emit",
+      "then": [
+        "the run_end event's status agrees with the envelope's ok field for every code tested"
+      ],
+      "pseudocode": "for _, code := range []int{toolio.ExitOK, toolio.ExitFailed, toolio.ExitUsage, toolio.ExitNeedsHuman, toolio.ExitUnverified} { events, env := runProducing(code); runEnd := lastOfType(events, \"run_end\"); assert (runEnd[\"status\"] == \"ok\") == env.OK }"
+    },
+    {
+      "id": "TS-07-16",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-3.5"
+      ],
+      "title": "run_start is always the first event and run_end always the last, for any run that reaches Emit",
+      "given": [
+        "a family of runs of varying length and outcome (success, failure, blocked) with --events jsonl active"
+      ],
+      "when": "for any such run that reaches App.Main's Emit call",
+      "then": [
+        "events[0].type == run_start for every run",
+        "events[last].type == run_end for every run",
+        "run_start appears exactly once per run"
+      ],
+      "pseudocode": "for _, scenario := range scenarios { events := runAndCapture(scenario); assert events[0][\"type\"] == \"run_start\"; assert events[len(events)-1][\"type\"] == \"run_end\"; assert countOfType(events, \"run_start\") == 1 }"
+    },
+    {
+      "id": "TS-07-17",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.1"
+      ],
+      "title": "Step emits a step event carrying stage and the formatted message when a JSONL sink is active",
+      "given": [
+        "a Progress with an active JSONL sink"
+      ],
+      "when": "Step(\"verify\", \"running %s\", \"tests\") is called",
+      "then": [
+        "a step event is emitted with stage \"verify\" and message \"running tests\""
+      ],
+      "pseudocode": "p.Step(\"verify\", \"running %s\", \"tests\"); ev := sink.lastEvent(); assert ev[\"type\"] == \"step\"; assert ev[\"stage\"] == \"verify\"; assert ev[\"message\"] == \"running tests\""
+    },
+    {
+      "id": "TS-07-18",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.2"
+      ],
+      "title": "Step's human-readable line stays exactly \"[tool] message\" with stage never shown, under any --events value",
+      "given": [
+        "a Progress writing to a buffer, tested both with and without an active JSONL sink"
+      ],
+      "when": "Step(\"verify\", \"running tests\") is called in both cases",
+      "then": [
+        "the human line written is exactly \"[tool] running tests\\n\" in both cases",
+        "the word \"verify\" never appears in the human line"
+      ],
+      "pseudocode": "for _, sinkActive := range []bool{true, false} { buf.Reset(); p.Step(\"verify\",\"running tests\"); assert buf.String() == \"[tool] running tests\\n\" }"
+    },
+    {
+      "id": "TS-07-19",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.3"
+      ],
+      "title": "Begin prints nothing and returns a no-op end function while a JSONL sink is active",
+      "given": [
+        "a Progress writing to a buffer with an active JSONL sink"
+      ],
+      "when": "Begin(\"checking\") is called and its returned function is invoked with a summary",
+      "then": [
+        "nothing is written to the buffer for the span before or after end() is called"
+      ],
+      "pseudocode": "end := p.Begin(\"checking\"); assert buf.Len() == 0; end(\"done\"); assert buf.Len() == 0"
+    },
+    {
+      "id": "TS-07-20",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.4"
+      ],
+      "title": "Detail never emits an event under any --events value",
+      "given": [
+        "a Progress with --verbose set and an active JSONL sink"
+      ],
+      "when": "Detail(\"tracing something\") is called",
+      "then": [
+        "no event object appears in the sink's captured stream",
+        "the existing --verbose stderr text line is still printed"
+      ],
+      "pseudocode": "p.Detail(\"tracing something\"); assert len(sink.events()) == 0; assert strings.Contains(buf.String(), \"tracing something\")"
+    },
+    {
+      "id": "TS-07-21",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.5"
+      ],
+      "title": "Raw emits a text event instead of writing prose while a JSONL sink is active and --show-text is set",
+      "given": [
+        "a Progress with ShowText true and an active JSONL sink, inside a known phase"
+      ],
+      "when": "Raw(\"model prose\") is called",
+      "then": [
+        "a text event is emitted carrying phase and delta \"model prose\"",
+        "no raw prose bytes are written to stderr or the events file"
+      ],
+      "pseudocode": "p.Raw(\"model prose\"); ev := sink.lastEvent(); assert ev[\"type\"] == \"text\"; assert ev[\"delta\"] == \"model prose\"; assert buf.Len() == 0"
+    },
+    {
+      "id": "TS-07-22",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.6"
+      ],
+      "title": "Raw does nothing when --show-text is not set, unchanged by any --events value",
+      "given": [
+        "a Progress with ShowText false, tested both with and without an active JSONL sink"
+      ],
+      "when": "Raw(\"model prose\") is called in both cases",
+      "then": [
+        "no text event is emitted in either case",
+        "no prose bytes are written to stderr or the events file in either case"
+      ],
+      "pseudocode": "for _, sinkActive := range []bool{true, false} { p.Raw(\"model prose\"); assert len(sink.events()) == 0; assert buf.Len() == 0 }"
+    },
+    {
+      "id": "TS-07-23",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.7"
+      ],
+      "title": "Progress.Check emits a check event with the exact fields from checks.Result when a JSONL sink is active",
+      "given": [
+        "a Progress with an active JSONL sink",
+        "a checks.Result{Command: \"make test\", OK: true, ExitCode: 0, DurationMS: 4200}"
+      ],
+      "when": "Progress.Check(res) is called, matching how codefix.runChecks and codeimpl.runGate call it after checks.Run returns",
+      "then": [
+        "a check event is emitted with command \"make test\", ok true, exit_code 0, duration_ms 4200"
+      ],
+      "pseudocode": "res := checks.Result{Command:\"make test\", OK:true, ExitCode:0, DurationMS:4200}; p.Check(res); ev := sink.lastEvent(); assert ev[\"command\"] == res.Command && ev[\"ok\"] == res.OK && ev[\"exit_code\"] == float64(res.ExitCode) && ev[\"duration_ms\"] == float64(res.DurationMS)"
+    },
+    {
+      "id": "TS-07-24",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-4.8"
+      ],
+      "title": "Progress.Check does nothing when no JSONL sink is active",
+      "given": [
+        "a Progress with no active JSONL sink"
+      ],
+      "when": "Progress.Check(res) is called",
+      "then": [
+        "no check event is produced",
+        "no additional stderr output beyond today's Begin line is written by Check itself"
+      ],
+      "pseudocode": "before := buf.String(); p.Check(checks.Result{Command:\"make test\", OK:true}); assert len(sink.events()) == 0; assert buf.String() == before"
+    },
+    {
+      "id": "TS-07-25",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.1"
+      ],
+      "title": "Observer gains PhaseStart, PhaseEnd, Turn and ToolCall as additive methods that Progress implements",
+      "given": [
+        "the agentrun.Observer interface and *toolio.Progress"
+      ],
+      "when": "a *toolio.Progress value is assigned to an agentrun.Observer variable and used in agentrun.Config",
+      "then": [
+        "the assignment and every existing agentrun.Config{Observer: someProgress} call site still compile unmodified"
+      ],
+      "pseudocode": "var o agentrun.Observer = toolio.NewProgress(nil, \"t\", false, false); _ = agentrun.Config{Observer: o}"
+    },
+    {
+      "id": "TS-07-26",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.2"
+      ],
+      "title": "Runner.Run calls Observer.PhaseStart once, before building the agent, with the phase's name, task and resolved ceilings",
+      "given": [
+        "a Runner with Bounds{MaxTurns: 12, MaxBudgetUSD: 3} and a fake Observer",
+        "a Phase{Name: \"implement\", Task: \"task-3\"}"
+      ],
+      "when": "Runner.Run(ctx, phase) is invoked",
+      "then": [
+        "Observer.PhaseStart was called exactly once before any tool call, with phase \"implement\", task \"task-3\", maxTurns 12, budgetUSD 3"
+      ],
+      "pseudocode": "runner.Run(ctx, phase); assert fakeObs.phaseStartCalls == []call{{\"implement\",\"task-3\",12,3.0}}"
+    },
+    {
+      "id": "TS-07-27",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.3"
+      ],
+      "title": "Runner.Run calls Observer.PhaseEnd exactly once as it returns, from the same Result it assembles",
+      "given": [
+        "a Runner driving a phase to completion with a fake Observer"
+      ],
+      "when": "Runner.Run returns Result{Turns:5, StopReason: X, Usage:{CostUSD:1.2}, Elapsed: 3s}",
+      "then": [
+        "Observer.PhaseEnd was called exactly once with the phase name, stop reason, turns 5, cost 1.2 and a duration matching Elapsed"
+      ],
+      "pseudocode": "res, _ := runner.Run(ctx, phase); assert fakeObs.phaseEndCalls == []call{{phase.Name, res.StopReason.String(), res.Turns, res.Usage.CostUSD, res.Elapsed.Milliseconds()}}"
+    },
+    {
+      "id": "TS-07-28",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.4"
+      ],
+      "title": "Runner.trace calls Observer.Turn once per turn boundary with a monotonic per-phase counter, degrading to zero usage fields when the stream exposes none",
+      "given": [
+        "a faux provider stream producing three turns with no dedicated per-turn usage event",
+        "a fake Observer"
+      ],
+      "when": "Runner.Run drives the phase",
+      "then": [
+        "Observer.Turn was called three times with turn numbers 1, 2, 3 in order for the same phase",
+        "each call's cost_usd, input_tokens and output_tokens are zero"
+      ],
+      "pseudocode": "runner.Run(ctx, phase); assert fakeObs.turnCalls == []call{{phase.Name,1,0,0,0},{phase.Name,2,0,0,0},{phase.Name,3,0,0,0}}"
+    },
+    {
+      "id": "TS-07-29",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.5"
+      ],
+      "title": "A traced ToolCallEndEvent calls Observer.ToolCall with blocked false when verbose tracing is on",
+      "given": [
+        "a Runner with Progress.Verbose() true and a fake Observer",
+        "a phase whose stream emits a ToolCallEndEvent for tool \"write_file\""
+      ],
+      "when": "Runner.trace processes that event",
+      "then": [
+        "Observer.ToolCall was called with phase, \"write_file\", blocked=false"
+      ],
+      "pseudocode": "runner.traceForTest(core.ToolCallEndEvent{Block: core.ContentBlock{Name:\"write_file\"}}); assert fakeObs.toolCallCalls == []call{{phase.Name,\"write_file\",false}}"
+    },
+    {
+      "id": "TS-07-30",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.6"
+      ],
+      "title": "Guard's OnBlock calls Observer.ToolCall with blocked true, correlated by tool name, alongside its existing counter and detail calls",
+      "given": [
+        "a Guard configured with a read-only rule that refuses execute, verbose tracing on, and a fake Observer"
+      ],
+      "when": "the model calls a blocked tool named \"execute\"",
+      "then": [
+        "Observer.ToolCall was called with phase, \"execute\", blocked=true",
+        "the block counter was still incremented",
+        "the existing Detail line was still emitted"
+      ],
+      "pseudocode": "decision := guardFn(ctx, blockedExecuteCallCtx); assert contains(fakeObs.toolCallCalls, call{phase.Name,\"execute\",true}); assert counter.count() == 1; assert len(fakeObs.detailCalls) >= 1"
+    },
+    {
+      "id": "TS-07-31",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.7"
+      ],
+      "title": "agentrun.Phase carries an optional Task field, set only at codeimpl's per-task phase construction and empty elsewhere",
+      "given": [
+        "codeimpl's per-task implement phase construction in codeimpl/phases.go for task \"task-7\"",
+        "every other pipeline's phase construction (codefix, specgen, issuetriage, and impl's other phases)"
+      ],
+      "when": "each phase value is constructed",
+      "then": [
+        "codeimpl's per-task implement Phase has Task == \"task-7\"",
+        "every other constructed Phase in the tree has Task == \"\""
+      ],
+      "pseudocode": "p := codeimpl.buildImplementPhase(task7); assert p.Task == \"task-7\"; for _, other := range otherConstructedPhases { assert other.Task == \"\" }"
+    },
+    {
+      "id": "TS-07-32",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-5.8"
+      ],
+      "title": "No Observer.ToolCall call is made at all when Progress.Verbose() is false",
+      "given": [
+        "a Runner with Progress.Verbose() false and a fake Observer",
+        "a phase whose stream includes both an accepted and a guard-blocked tool call"
+      ],
+      "when": "Runner.Run drives the phase",
+      "then": [
+        "Observer.ToolCall was never called",
+        "no tool_call event was ever emitted",
+        "no tool-call Detail line was printed"
+      ],
+      "pseudocode": "runner.Run(ctx, phase); assert len(fakeObs.toolCallCalls) == 0; assert len(sink.eventsOfType(\"tool_call\")) == 0; assert !strings.Contains(stderrBuf.String(), \"→\")"
+    },
+    {
+      "id": "TS-07-33",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.1"
+      ],
+      "title": "toolio.Run holds a reference to the events sink, set exactly once in App.Main right after Run and Progress are constructed",
+      "given": [
+        "App.Main running a tool invocation with --events jsonl"
+      ],
+      "when": "e.run and e.progress are both constructed inside App.Main",
+      "then": [
+        "the same sink instance backing e.progress is also attached to e.run before a.execute is called",
+        "the attachment happens exactly once per run"
+      ],
+      "pseudocode": "instrumentedApp.Main(ctx, []string{\"--events\",\"jsonl\",input}, ...); assert capturedRunSink == capturedProgressSink; assert attachCount == 1"
+    },
+    {
+      "id": "TS-07-34",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.2"
+      ],
+      "title": "Run.Warn emits a warning event mirroring code, severity, stage and message when a sink is attached and active",
+      "given": [
+        "a *Run with an attached, active JSONL sink"
+      ],
+      "when": "Run.Warn is called recording code \"comment_failed\", severity \"warn\", stage \"push\", message \"could not post comment\"",
+      "then": [
+        "a warning event is emitted with code \"comment_failed\", severity \"warn\", stage \"push\", message \"could not post comment\""
+      ],
+      "pseudocode": "run.Warn(\"comment_failed\",\"warn\",\"push\",\"could not post comment\"); ev := sink.lastEvent(); assert ev[\"type\"] == \"warning\" && ev[\"code\"] == \"comment_failed\" && ev[\"severity\"] == \"warn\" && ev[\"stage\"] == \"push\" && ev[\"message\"] == \"could not post comment\""
+    },
+    {
+      "id": "TS-07-35",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-6.3"
+      ],
+      "title": "A bare Run built without an attached sink records the warning without emitting any event and does not panic",
+      "given": [
+        "a *Run built with NewRun(...) and no sink attached, as today's tests already build"
+      ],
+      "when": "Run.Warn is called",
+      "then": [
+        "Run.Warnings() still returns the recorded warning",
+        "the call does not panic",
+        "no event is emitted anywhere"
+      ],
+      "pseudocode": "run := toolio.NewRun(\"fix\",\"v1\"); assert !panics(func(){ run.Warn(\"code\",\"warn\",\"stage\",\"msg\") }); assert len(run.Warnings()) == 1"
+    },
+    {
+      "id": "TS-07-36",
+      "kind": "property",
+      "verifies": [
+        "07-REQ-6.4"
+      ],
+      "title": "For any warning recorded on a Run with an attached sink, the warning event's fields match the envelope's own warnings entry exactly",
+      "given": [
+        "a *Run with an attached, active sink"
+      ],
+      "when": "for any set of warnings recorded with varying code, severity, stage and message",
+      "then": [
+        "for each recorded warning, the sink's warning event carries the identical code, severity, stage and message as the corresponding entry in run.Envelope(...).Warnings"
+      ],
+      "pseudocode": "for _, w := range genWarnings() { run.Warn(w.code, w.severity, w.stage, w.message) }; env := run.Envelope(toolio.ExitOK, nil, nil); for i, ev := range sink.eventsOfType(\"warning\") { assert ev[\"code\"] == env.Warnings[i].Code && ev[\"message\"] == env.Warnings[i].Message }"
+    },
+    {
+      "id": "TS-07-37",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.1"
+      ],
+      "title": "A single heartbeat ticker runs for the run's lifetime once --events jsonl or --events-file is active",
+      "given": [
+        "a run started with --events jsonl"
+      ],
+      "when": "the run is inspected while in progress",
+      "then": [
+        "exactly one heartbeat ticker is running, checking on a 1-second interval whether 15 seconds have passed since the last event"
+      ],
+      "pseudocode": "startRunWithSink(); assert sink.activeTickerCount() == 1; assert sink.tickerInterval() == time.Second"
+    },
+    {
+      "id": "TS-07-38",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.2"
+      ],
+      "title": "A heartbeat is emitted after 15 seconds of silence, carrying the last stage, elapsed_ms and accumulated cost_usd",
+      "given": [
+        "a run with --events jsonl active",
+        "the last step event named stage \"verify\"",
+        "toolio.Run has accumulated $0.42 across its recorded phases"
+      ],
+      "when": "15 seconds pass with no other event emitted (using a fake clock)",
+      "then": [
+        "a heartbeat event is emitted with stage \"verify\", an elapsed_ms approximating the run's elapsed time, and cost_usd 0.42"
+      ],
+      "pseudocode": "fakeClock.Advance(15 * time.Second); ev := sink.lastEvent(); assert ev[\"type\"] == \"heartbeat\" && ev[\"stage\"] == \"verify\" && ev[\"cost_usd\"] == 0.42"
+    },
+    {
+      "id": "TS-07-39",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.3"
+      ],
+      "title": "No heartbeat appears between two events emitted less than 15 seconds apart",
+      "given": [
+        "a run with --events jsonl active",
+        "a step event emitted at t=0"
+      ],
+      "when": "a second step event is emitted 10 seconds later, using a fake clock",
+      "then": [
+        "no heartbeat event appears between the two step events",
+        "the heartbeat window resets from the second step event's own timestamp"
+      ],
+      "pseudocode": "p.Step(\"a\",\"first\"); fakeClock.Advance(10 * time.Second); p.Step(\"b\",\"second\"); assert len(sink.eventsOfType(\"heartbeat\")) == 0"
+    },
+    {
+      "id": "TS-07-40",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.4"
+      ],
+      "title": "The heartbeat ticker stops once run_end is emitted",
+      "given": [
+        "a run with --events jsonl active that has just emitted run_end"
+      ],
+      "when": "15 more seconds pass after run_end, using a fake clock",
+      "then": [
+        "no further heartbeat event is emitted",
+        "the ticker reports itself stopped"
+      ],
+      "pseudocode": "emitRunEnd(); fakeClock.Advance(15 * time.Second); assert sink.activeTickerCount() == 0; assert len(eventsAfter(runEndIndex)) == 0"
+    },
+    {
+      "id": "TS-07-41",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-7.5"
+      ],
+      "title": "The heartbeat's cost_usd is read from toolio.Run's existing running total, not computed a second way",
+      "given": [
+        "a *Run with two phases already added via AddPhase, summing to $2.75",
+        "the heartbeat sink wired to that same Run"
+      ],
+      "when": "a heartbeat fires",
+      "then": [
+        "the heartbeat's cost_usd equals exactly the sum toolio.Run already exposes for usage.phases[]"
+      ],
+      "pseudocode": "run.AddPhase(toolio.PhaseInfo{CostUSD:1.0}); run.AddPhase(toolio.PhaseInfo{CostUSD:1.75}); hb := triggerHeartbeat(); env := run.Envelope(toolio.ExitOK, nil, nil); assert hb[\"cost_usd\"] == env.Usage.CostUSD"
+    },
+    {
+      "id": "TS-07-42",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.1"
+      ],
+      "title": "docs/cli.md documents --events/--events-file, the ten-row type table and a worked multi-line JSONL example",
+      "given": [
+        "the repository's docs/cli.md after this spec is implemented"
+      ],
+      "when": "the file is read",
+      "then": [
+        "it contains an \"event types\" heading",
+        "it documents both --events and --events-file",
+        "it lists all ten closed-set types",
+        "it contains a worked multi-line JSONL example"
+      ],
+      "pseudocode": "text := string(readFile(\"docs/cli.md\")); assert strings.Contains(text, \"event types\"); for _, t := range []string{\"run_start\",\"step\",\"phase_start\",\"turn\",\"tool_call\",\"check\",\"phase_end\",\"warning\",\"heartbeat\",\"run_end\"} { assert strings.Contains(text, t) }; assert strings.Contains(text, \"--events-file\")"
+    },
+    {
+      "id": "TS-07-43",
+      "kind": "unit",
+      "verifies": [
+        "07-REQ-8.2"
+      ],
+      "title": "docs/model-usage.md points at turn and phase_end as the way to watch spend live",
+      "given": [
+        "the repository's docs/model-usage.md after this spec is implemented"
+      ],
+      "when": "the file is read",
+      "then": [
+        "it contains a section mentioning both the turn and phase_end event types",
+        "that section sits near the existing usage.phases[] paragraph"
+      ],
+      "pseudocode": "text := string(readFile(\"docs/model-usage.md\")); assert strings.Contains(text, \"turn\") && strings.Contains(text, \"phase_end\") && strings.Contains(text, \"usage.phases\")"
+    },
+    {
+      "id": "TS-07-44",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-1",
+        "07-REQ-3.1",
+        "07-REQ-4.7",
+        "07-REQ-5.3"
+      ],
+      "title": "A supervisor watches a fix run live via --events jsonl and sees spend accumulate before it finishes",
+      "given": [
+        "a git repository with an open GitHub issue, a scripted faux model provider, and a verification command internal/checks.Detect finds"
+      ],
+      "when": "`fix --events jsonl <issue-url>` runs to completion",
+      "then": [
+        "stderr carries a run_start event before any phase_start",
+        "at least one turn event and one check event were emitted with cost_usd/exit_code populated",
+        "a phase_end event was emitted before run_end",
+        "run_end is the last event, immediately preceding the JSON envelope on stdout"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Progress JSONL sink",
+        "internal/agentrun.Runner",
+        "codefix pipeline",
+        "internal/checks.Run",
+        "issuex.GitHubClient"
+      ]
+    },
+    {
+      "id": "TS-07-45",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-2",
+        "07-REQ-4.1",
+        "07-REQ-7.2"
+      ],
+      "title": "A human reading stderr and a supervisor tailing a file watch the same impl run through different streams, including a heartbeat",
+      "given": [
+        "a git repository with a spec package, a scripted faux provider whose phase runs long enough to cross a shortened heartbeat window, both --events text and --events-file run.jsonl given"
+      ],
+      "when": "`impl --events text --events-file run.jsonl <spec>` runs to completion",
+      "then": [
+        "stderr contains only human-readable [tool] lines, no JSON",
+        "run.jsonl contains step events mirroring each human step, at least one heartbeat event during the long phase, and run_end as its last line",
+        "run.jsonl alone is enough to tell the run was alive throughout"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Progress JSONL sink",
+        "internal/agentrun.Runner",
+        "codeimpl pipeline",
+        "events file writer"
+      ]
+    },
+    {
+      "id": "TS-07-46",
+      "kind": "smoke",
+      "verifies": [
+        "07-PATH-3",
+        "07-REQ-1.2"
+      ],
+      "title": "An invalid --events value is refused before any work happens, with no events emitted",
+      "given": [
+        "a tool invocation `spec --events yaml <report>`"
+      ],
+      "when": "the tool runs",
+      "then": [
+        "the process exits with code 2",
+        "stdout carries a JSON envelope with error.stage \"usage\"",
+        "zero event lines were written to stderr",
+        "no fetch, model resolution or phase ran"
+      ],
+      "real_components": [
+        "toolio.App",
+        "toolio.Common flag validation"
+      ]
+    }
+  ]
+}

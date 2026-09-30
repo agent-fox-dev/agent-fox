@@ -85,6 +85,56 @@ type Result struct {
 	DryRun bool `json:"dry_run,omitempty"`
 }
 
+// Summary returns one sentence describing the outcome in spec's vocabulary.
+func (r Result) Summary() string {
+	var parts []string
+
+	// Package(s) written / split progress
+	if len(r.Split) > 0 {
+		done := 0
+		for _, s := range r.Split {
+			if s.Status == ScopeDone {
+				done++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("spec: split %d of %d scopes", done, len(r.Split)))
+	} else {
+		pkgName := r.SpecDir
+		if pkgName == "" {
+			pkgName = r.SpecID
+		}
+		if pkgName != "" {
+			if len(r.FollowOnSpecs) > 0 {
+				parts = append(parts, fmt.Sprintf("spec: wrote %s (+%d follow-on packages)", pkgName, len(r.FollowOnSpecs)))
+			} else {
+				parts = append(parts, fmt.Sprintf("spec: wrote %s", pkgName))
+			}
+		} else {
+			parts = append(parts, "spec: done")
+		}
+	}
+
+	totalQuestions := len(r.OpenQuestions)
+	for _, f := range r.FollowOnSpecs {
+		totalQuestions += len(f.OpenQuestions)
+	}
+	if totalQuestions > 0 {
+		if totalQuestions == 1 {
+			parts = append(parts, "1 open question")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d open questions", totalQuestions))
+		}
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+// Resumable implements toolio.Resumabler. For specgen, this is true whenever
+// SplitPlan is non-empty.
+func (r Result) Resumable() bool {
+	return r.SplitPlan != ""
+}
+
 // Package describes one specification package.
 type Package struct {
 	// SpecDir is the created package, relative to the repository root when
@@ -280,7 +330,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {
-		o.Run.Warn("could not read the existing specs in %s: %v", specsDir, err)
+		o.Run.Warn(toolio.WarnSpecsDirUnreadable, "low", "could not read the existing specs in %s: %v", specsDir, err)
 	}
 	env.landscape = landscape
 	env.profile = project.DetectProfile(root)
@@ -288,7 +338,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.Progress.Detail("project: %s (from %s), tests %q, linter %q",
 			env.profile.Language, env.profile.Manifest, env.profile.AllTests, env.profile.Linter)
 	} else {
-		o.Run.Warn("the project's language could not be determined from %s: the plan's test "+
+		o.Run.Warn(toolio.WarnProjectLanguageUnknown, "low", "the project's language could not be determined from %s: the plan's test "+
 			"commands cannot be checked against it", root)
 	}
 
@@ -311,7 +361,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	var first *PRD
 	if plan != nil {
 		if o.Name != "" {
-			o.Run.Warn("--name %q is ignored while resuming a split: the planned names are used", o.Name)
+			o.Run.Warn(toolio.WarnNameFlagIgnored, "low", "--name %q is ignored while resuming a split: the planned names are used", o.Name)
 		}
 		o.Progress.Step("resuming the split planned for %s: %d of %d scopes to write",
 			plan.Input.Origin, plan.Pending(), len(plan.Scopes))
@@ -380,12 +430,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			// changed here would leave the next run unable to tell that
 			// this scope was written.
 			if prd.SpecName != sc.Name {
-				o.Run.Warn("%s: the PRD phase named the spec %q; the planned name is used",
+				o.Run.Warn(toolio.WarnScopeRenamed, "low", "%s: the PRD phase named the spec %q; the planned name is used",
 					label, prd.SpecName)
 				prd.SpecName = sc.Name
 			}
 			if len(prd.RecommendedSplit) > 0 {
-				o.Run.Warn("%s: the PRD phase reported this scope as %d specs' worth of work; "+
+				o.Run.Warn(toolio.WarnScopeCountMismatch, "low", "%s: the PRD phase reported this scope as %d specs' worth of work; "+
 					"it is written as one, since the split was already decided",
 					label, len(prd.RecommendedSplit))
 			}
@@ -412,7 +462,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		sc.SpecID, sc.Dir = pkg.SpecID, dirName
 		if !o.DryRun {
 			if err := plan.save(specsDir); err != nil {
-				o.Run.Warn("the split plan could not be updated after %s: %v", label, err)
+				o.Run.Warn(toolio.WarnSplitPlanUpdateFailed, "high", "the split plan could not be updated after %s: %v", label, err)
 			}
 		}
 	}
@@ -420,7 +470,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Split = splitReport(root, specsDir, plan, -1)
 	if !o.DryRun {
 		if err := plan.remove(specsDir); err != nil {
-			o.Run.Warn("the split is complete and its plan could not be removed: %v", err)
+			o.Run.Warn(toolio.WarnSplitPlanNotRemoved, "low", "the split is complete and its plan could not be removed: %v", err)
 		} else {
 			result.SplitPlan = ""
 		}
@@ -557,7 +607,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 			// The architecture document is optional by the format's own
 			// definition, so failing to write it degrades the package rather
 			// than failing the run that produced the four required artifacts.
-			o.Run.Warn("architecture.md could not be written: %v", err)
+			o.Run.Warn(toolio.WarnArchitectureNotWritten, "low", "architecture.md could not be written: %v", err)
 		} else {
 			spec.Architecture = doc
 			pkg.Artifacts = append(pkg.Artifacts, "architecture.md")
@@ -618,7 +668,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	if o.Activate && !o.DryRun {
 		activated, err := validated.Transition("active", specPath)
 		if err != nil {
-			o.Run.Warn("the spec validates but could not be activated: %v", err)
+			o.Run.Warn(toolio.WarnActivationFailed, "high", "the spec validates but could not be activated: %v", err)
 		} else {
 			pkg.Status = activated.Status
 			e.landscape[len(e.landscape)-1].Status = activated.Status
@@ -631,7 +681,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		body := prdComment(validated, pkg)
 		url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 		if err != nil {
-			o.Run.Warn("the PRD could not be posted on %s: %v", o.Input.Issue, err)
+			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the PRD could not be posted on %s: %v", o.Input.Issue, err)
 		} else {
 			pkg.CommentURL = url
 			o.Progress.Step("posted the PRD to %s", url)

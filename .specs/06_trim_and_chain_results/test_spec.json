@@ -1,0 +1,1198 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "06",
+  "spec_name": "trim_and_chain_results",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-06-1",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.1"
+      ],
+      "title": "--detail is registered on Common, defaulting to summary and accepting full",
+      "given": [
+        "a Common flag set is registered for a tool"
+      ],
+      "when": "the tool is invoked with no --detail flag, and separately with --detail full",
+      "then": [
+        "the first run's Common.Detail is \"summary\"",
+        "the second run's Common.Detail is \"full\""
+      ],
+      "pseudocode": "c := &Common{}; fs := flag.NewFlagSet(); c.Register(fs); fs.Parse([]); assert c.Detail == \"summary\"; fs2.Parse([\"--detail\",\"full\"]); assert c.Detail == \"full\""
+    },
+    {
+      "id": "TS-06-2",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.2"
+      ],
+      "title": "An unrecognized --detail value is a usage error before any input is resolved",
+      "given": [
+        "a tool invocation with --detail wrong and a plain-text positional argument"
+      ],
+      "when": "the tool is run",
+      "then": [
+        "the process exits with code 2",
+        "the envelope's error.category is \"usage\"",
+        "no file is read, no issue is fetched, and no model is resolved"
+      ],
+      "pseudocode": "res := runCLI(tool, \"--detail\", \"wrong\", \"some text\"); assert res.ExitCode == 2; assert res.Envelope.Error.Category == \"usage\""
+    },
+    {
+      "id": "TS-06-3",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-1.3"
+      ],
+      "title": "The --detail full view's keys are always a superset of what full carried before this spec, for every tool",
+      "given": [
+        "a successful run recorded for each of issue, fix, spec and impl"
+      ],
+      "when": "for any of the four tools, the --detail full result's JSON keys are compared against the pre-06 full result's JSON keys for an equivalent run",
+      "then": [
+        "every pre-06 key is present in the post-06 full view",
+        "no pre-06 key is missing or restructured"
+      ],
+      "pseudocode": "for tool in [issue, fix, spec, impl]: pre := preSpecFullKeys(tool); post := runFull(tool).ResultKeys(); assert pre.isSubsetOf(post)"
+    },
+    {
+      "id": "TS-06-4",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-1.4"
+      ],
+      "title": "Every tool's Result records which detail view was emitted, under both summary and full",
+      "given": [
+        "a completed run of each of issue, fix, spec and impl"
+      ],
+      "when": "the envelope is built under --detail summary and again under --detail full",
+      "then": [
+        "result.detail is \"summary\" for the summary run",
+        "result.detail is \"full\" for the full run",
+        "detail is present on all four tools' results in both cases"
+      ],
+      "pseudocode": "for tool in [issue, fix, spec, impl]: assert runSummary(tool).Result[\"detail\"] == \"summary\"; assert runFull(tool).Result[\"detail\"] == \"full\""
+    },
+    {
+      "id": "TS-06-5",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-2.1"
+      ],
+      "title": "Every run writes the full-view envelope to a report file, regardless of --detail",
+      "given": [
+        "a successful fix run under --detail summary"
+      ],
+      "when": "the run completes",
+      "then": [
+        "a report file exists on disk",
+        "the report file's result carries every field the full view carries, not the trimmed subset"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--detail\", \"summary\", input); rf := readFile(r.Envelope.ReportFile); assert rf.Result.HasField(\"implementation\")"
+    },
+    {
+      "id": "TS-06-6",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.2"
+      ],
+      "title": "The default report-file path is computed under XDG_STATE_HOME with a colon-free timestamp and its parent directory is created",
+      "given": [
+        "XDG_STATE_HOME set to a temp directory",
+        "no --report-file given"
+      ],
+      "when": "issue is run to completion",
+      "then": [
+        "the report file exists at $XDG_STATE_HOME/agent-fox/runs/issue-<timestamp>-<pid>.json",
+        "the timestamp segment contains no colon",
+        "the parent directory was created by the run"
+      ],
+      "pseudocode": "os.Setenv(\"XDG_STATE_HOME\", tmp); r := runCLI(\"issue\", input); assert fileExists(filepath.Join(tmp, \"agent-fox/runs\", basename(r.Envelope.ReportFile)))"
+    },
+    {
+      "id": "TS-06-7",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.2"
+      ],
+      "title": "The report-file path falls back to ~/.local/state when XDG_STATE_HOME is unset",
+      "given": [
+        "XDG_STATE_HOME unset",
+        "HOME pointed at a temp directory",
+        "no --report-file given"
+      ],
+      "when": "spec is run to completion",
+      "then": [
+        "the report file exists under <HOME>/.local/state/agent-fox/runs/"
+      ],
+      "pseudocode": "os.Unsetenv(\"XDG_STATE_HOME\"); os.Setenv(\"HOME\", tmp); r := runCLI(\"spec\", input); assert fileExists(filepath.Join(tmp, \".local/state/agent-fox/runs\", basename(r.Envelope.ReportFile)))"
+    },
+    {
+      "id": "TS-06-8",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.3"
+      ],
+      "title": "A report file that cannot be written records a low warning and omits report_file, without failing the run",
+      "given": [
+        "a report-file directory that is read-only"
+      ],
+      "when": "fix is run successfully to completion",
+      "then": [
+        "the run's exit code and ok are unaffected by the write failure",
+        "warnings includes one entry with code report_file_not_written, severity low, stage report",
+        "the envelope has no report_file field"
+      ],
+      "pseudocode": "makeReadOnly(reportDir); r := runCLI(\"fix\", \"--report-file\", filepath.Join(reportDir, \"x.json\"), input); assert r.ExitCode == 0; assert r.Envelope.Warnings.Contains(code:\"report_file_not_written\"); assert !r.Envelope.HasField(\"report_file\")"
+    },
+    {
+      "id": "TS-06-9",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.4"
+      ],
+      "title": "A --dry-run run still writes its report file",
+      "given": [
+        "a fix run invoked with --dry-run"
+      ],
+      "when": "the run completes",
+      "then": [
+        "a report file exists on disk at the computed or given path"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--dry-run\", input); assert fileExists(r.Envelope.ReportFile)"
+    },
+    {
+      "id": "TS-06-10",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.5"
+      ],
+      "title": "report_file names the path actually written when the write succeeds",
+      "given": [
+        "a writable report-file location"
+      ],
+      "when": "impl is run to completion",
+      "then": [
+        "the envelope's top-level report_file equals the path the report was written to",
+        "the named file exists"
+      ],
+      "pseudocode": "r := runCLI(\"impl\", input); assert fileExists(r.Envelope.ReportFile); assert r.Envelope.ReportFile == expectedPath"
+    },
+    {
+      "id": "TS-06-11",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-2.6"
+      ],
+      "title": "A report file is written for a failed run and for a post-classification usage error",
+      "given": [
+        "an input that causes fix to fail its run",
+        "a separate invocation that fails a post-classification check"
+      ],
+      "when": "both are run",
+      "then": [
+        "both emit a JSON object on stdout",
+        "both have a report file written naming the same content that was printed"
+      ],
+      "pseudocode": "rFail := runCLI(\"fix\", failingInput); assert fileExists(rFail.Envelope.ReportFile); rUsage := runCLI(\"fix\", \"--input-kind\", \"issue\", \"not a url\"); assert fileExists(rUsage.Envelope.ReportFile)"
+    },
+    {
+      "id": "TS-06-12",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.7"
+      ],
+      "title": "A bare invocation, -h/--help and --version print no JSON and write no report file",
+      "given": [
+        "a terminal-attached bare invocation",
+        "an invocation with -h",
+        "an invocation with --version"
+      ],
+      "when": "each is run",
+      "then": [
+        "no JSON object appears on stdout beyond the existing terminal/help/version text",
+        "no file appears at any report-file location"
+      ],
+      "pseudocode": "for args in [[], [\"-h\"], [\"--version\"]]: r := runCLI(\"issue\", args...); assert !looksLikeJSON(r.Stdout); assert countFiles(reportsDir) == before"
+    },
+    {
+      "id": "TS-06-13",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-2.8"
+      ],
+      "title": "The report file's content is byte-for-byte identical to what --detail full would have printed for the same run",
+      "given": [
+        "identical, deterministic inputs for two runs of issue: one --detail summary, one --detail full"
+      ],
+      "when": "both runs complete",
+      "then": [
+        "the summary run's report file bytes equal the full run's stdout bytes"
+      ],
+      "pseudocode": "rs := runCLI(\"issue\", \"--detail\", \"summary\", input); rf := runCLI(\"issue\", \"--detail\", \"full\", input); assert readFile(rs.Envelope.ReportFile) == rf.Stdout"
+    },
+    {
+      "id": "TS-06-14",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.1"
+      ],
+      "title": "issue's summary view keeps exactly the documented subset, with affected_files reduced to paths only",
+      "given": [
+        "an issuetriage.Result with action, repo, url, number, title, severity, confidence, affected_files, labels, rejected_path_calls and other fields set"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "result carries exactly action, repo, url, number, title, severity, confidence, affected_files, labels, rejected_path_calls plus detail",
+        "each affected_files entry is a bare path string, not an object with role"
+      ],
+      "pseudocode": "s := res.SummaryView(); assert keys(s) == {action,repo,url,number,title,severity,confidence,affected_files,labels,rejected_path_calls,detail}; assert isStringArray(s.affected_files)"
+    },
+    {
+      "id": "TS-06-15",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.2"
+      ],
+      "title": "fix's summary view omits verification when the run's verdict is landable",
+      "given": [
+        "a codefix.Result whose Verification.Verdict.Landable() reports true"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "result has no verification field",
+        "result still carries stage, branch, base_branch, commit, changed_files, verdict, criteria_outcome, pull_request_url, dry_run"
+      ],
+      "pseudocode": "s := res.SummaryView(); assert !s.HasField(\"verification\"); assert s.HasFields(stage,branch,base_branch,commit,changed_files,verdict,criteria_outcome,pull_request_url,dry_run)"
+    },
+    {
+      "id": "TS-06-16",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.2"
+      ],
+      "title": "fix's summary view includes verification, tail output and all, when the run's verdict is not landable",
+      "given": [
+        "a codefix.Result whose Verification.Verdict.Landable() reports false"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "result carries a verification field",
+        "that field includes the failing command's tail output"
+      ],
+      "pseudocode": "s := res.SummaryView(); assert s.HasField(\"verification\"); assert len(s.verification.TailOutput) > 0"
+    },
+    {
+      "id": "TS-06-17",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.3"
+      ],
+      "title": "impl's summary view reduces each task to {id, outcome, commit, verdict} and omits top-level verification when the stopping verdict is landable",
+      "given": [
+        "a codeimpl.Result with several TaskReport entries and a landable top-level verdict"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "each task entry in result.tasks carries only id, outcome, commit, verdict",
+        "result has no top-level verification field",
+        "the task counts and package fields are present"
+      ],
+      "pseudocode": "s := res.SummaryView(); for t in s.tasks: assert keys(t) == {id,outcome,commit,verdict}; assert !s.HasField(\"verification\")"
+    },
+    {
+      "id": "TS-06-18",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.3"
+      ],
+      "title": "impl's summary view includes the top-level verification when the stopping verdict is not landable",
+      "given": [
+        "a codeimpl.Result whose stopping verdict fails codeimpl/gate.go's landable() check"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "result carries a top-level verification field with the gate's checks and tail output"
+      ],
+      "pseudocode": "s := res.SummaryView(); assert s.HasField(\"verification\"); assert len(s.verification.Checks) > 0"
+    },
+    {
+      "id": "TS-06-19",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.4"
+      ],
+      "title": "spec's summary view reduces validation and traceability and drops follow_on_specs and split_plan",
+      "given": [
+        "a specgen.Result with a full Validation, a full Traceability, follow_on_specs and split_plan populated"
+      ],
+      "when": "the summary view is built",
+      "then": [
+        "result.validation carries only valid, error_count, errors",
+        "result.traceability carries only criteria_uncovered, paths_uncovered, tests_unowned",
+        "result has no follow_on_specs and no split_plan field",
+        "result still carries spec_dir, spec_id, spec_name, status, artifacts, open_questions, split"
+      ],
+      "pseudocode": "s := res.SummaryView(); assert keys(s.validation) == {valid,error_count,errors}; assert keys(s.traceability) == {criteria_uncovered,paths_uncovered,tests_unowned}; assert !s.HasField(\"follow_on_specs\"); assert !s.HasField(\"split_plan\")"
+    },
+    {
+      "id": "TS-06-20",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-3.5"
+      ],
+      "title": "Fields trimmed from the summary view are still computed in full and are present, unabridged, in the report file",
+      "given": [
+        "a fix run under --detail summary whose verdict is landable, so verification is trimmed from stdout"
+      ],
+      "when": "the run completes",
+      "then": [
+        "stdout's result has no verification field",
+        "the report file's result carries a fully computed verification field, identical to what a --detail full run would compute"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--detail\", \"summary\", input); assert !r.Envelope.Result.HasField(\"verification\"); rf := readFile(r.Envelope.ReportFile); full := runCLI(\"fix\", \"--detail\", \"full\", input); assert rf.Result.verification == full.Envelope.Result.verification"
+    },
+    {
+      "id": "TS-06-21",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.1"
+      ],
+      "title": "artifacts entries carry exactly the fields fixed for their kind",
+      "given": [
+        "a fix run that created a branch, one commit, and opened a pull request"
+      ],
+      "when": "the envelope is built",
+      "then": [
+        "artifacts contains a branch entry with exactly {kind,name,base}",
+        "a commit entry with exactly {kind,sha,branch}",
+        "a pull_request entry with exactly {kind,url,number}"
+      ],
+      "pseudocode": "a := res.Artifacts(); branch := a.find(kind==\"branch\"); assert keys(branch) == {kind,name,base}; pr := a.find(kind==\"pull_request\"); assert keys(pr) == {kind,url,number}"
+    },
+    {
+      "id": "TS-06-22",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.2"
+      ],
+      "title": "artifacts is built only from the Result's already-established fact fields, never from the model's own report",
+      "given": [
+        "a codefix.Result whose Implementation text is mutated after the pipeline ran, while Branch, Commit and PullRequestURL are unchanged"
+      ],
+      "when": "artifacts is recomputed for that Result",
+      "then": [
+        "the artifacts array is identical to what it was before Implementation was mutated"
+      ],
+      "pseudocode": "before := res.Artifacts(); res.Implementation = \"anything else entirely\"; after := res.Artifacts(); assert before == after"
+    },
+    {
+      "id": "TS-06-23",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.3"
+      ],
+      "title": "Under --dry-run, a hypothetical pull_request, comment or issue entry is marked dry_run: true",
+      "given": [
+        "a fix run with --dry-run --land=pr, so no pull request was actually opened",
+        "an issue run with --dry-run, so no issue was actually filed"
+      ],
+      "when": "artifacts is built for each",
+      "then": [
+        "the fix run's pull_request artifact entry carries dry_run: true",
+        "the issue run's issue artifact entry carries dry_run: true with an empty url and number"
+      ],
+      "pseudocode": "prEntry := fixRes.Artifacts().find(kind==\"pull_request\"); assert prEntry.dry_run == true; issueEntry := issueRes.Artifacts().find(kind==\"issue\"); assert issueEntry.dry_run == true && issueEntry.url == \"\" && issueEntry.number == 0"
+    },
+    {
+      "id": "TS-06-24",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.4"
+      ],
+      "title": "Under --dry-run, the branch and commit entries carry no dry_run marker",
+      "given": [
+        "a fix run with --dry-run that still creates a branch and a commit locally"
+      ],
+      "when": "artifacts is built",
+      "then": [
+        "the branch entry has no dry_run field",
+        "the commit entry has no dry_run field"
+      ],
+      "pseudocode": "a := res.Artifacts(); branch := a.find(kind==\"branch\"); commit := a.find(kind==\"commit\"); assert !branch.HasField(\"dry_run\"); assert !commit.HasField(\"dry_run\")"
+    },
+    {
+      "id": "TS-06-25",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-4.5"
+      ],
+      "title": "The existing result fields are unchanged alongside the new artifacts array",
+      "given": [
+        "a fix run that produced a pull request"
+      ],
+      "when": "the envelope is built",
+      "then": [
+        "result.pull_request_url still carries the URL directly, unchanged",
+        "artifacts additionally carries the same URL under its pull_request entry"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", input); assert r.Envelope.Result.pull_request_url == r.Envelope.Artifacts.find(kind==\"pull_request\").url"
+    },
+    {
+      "id": "TS-06-26",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.1"
+      ],
+      "title": "side_effects lists every remote write in order and is omitted when there were none",
+      "given": [
+        "an issue run that creates an issue and posts no comment",
+        "a spec run that never wrote to a forge"
+      ],
+      "when": "each envelope is built",
+      "then": [
+        "the issue run's side_effects has one entry with action create_issue, ok, target and optional warning fields present",
+        "the spec run's envelope has no side_effects field at all"
+      ],
+      "pseudocode": "assert issueEnv.SideEffects[0].action == \"create_issue\"; assert !specEnv.HasField(\"side_effects\")"
+    },
+    {
+      "id": "TS-06-27",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.2",
+        "06-REQ-5.3"
+      ],
+      "title": "side_effects actions are drawn from the closed set and each target is named by its documented convention",
+      "given": [
+        "a fix run that pushes a branch, opens a PR, and posts a comment; an issue run that updates an existing issue"
+      ],
+      "when": "side_effects is built for each",
+      "then": [
+        "every action is one of create_issue, update_issue, comment, push, open_pr",
+        "the push entry's target is \"origin <branch>\"",
+        "the comment entry's target is \"<owner>/<repo>#<number>\"",
+        "the open_pr entry's target is \"<owner>/<repo>#<pr-number>\""
+      ],
+      "pseudocode": "for e in res.SideEffects(): assert e.action in {create_issue,update_issue,comment,push,open_pr}; push := find(action==push); assert push.target == fmt(\"origin %s\", branch); openPr := find(action==open_pr); assert openPr.target == fmt(\"%s/%s#%d\", owner, repo, prNumber)"
+    },
+    {
+      "id": "TS-06-28",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.4"
+      ],
+      "title": "A failed write is recorded with ok: false and the same WarnCode the call site already recorded",
+      "given": [
+        "a fix run whose push to origin fails, and the pipeline records a Run.Warn for that failure"
+      ],
+      "when": "side_effects is built",
+      "then": [
+        "the push entry has ok: false",
+        "the push entry's warning equals the WarnCode the pipeline's Run.Warn call recorded for that failure",
+        "no side_effects entry has ok: true for that same failed push"
+      ],
+      "pseudocode": "e := res.SideEffects().find(action==\"push\"); assert e.ok == false; assert e.warning == run.Warnings.find(stage==\"push\").Code"
+    },
+    {
+      "id": "TS-06-29",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-5.5"
+      ],
+      "title": "Each side_effects entry is recorded live at its actual write call site, in the order writes happened",
+      "given": [
+        "an issuetriage run whose Write path both creates an issue and posts a follow-up comment via a fake forge client"
+      ],
+      "when": "the run completes",
+      "then": [
+        "side_effects has a create_issue entry followed by a comment entry, in that order",
+        "the order matches the order the fake forge client received the two calls"
+      ],
+      "pseudocode": "fake := newFakeForge(); r := runIssuetriage(fake, input); assert r.SideEffects[0].action == \"create_issue\"; assert r.SideEffects[1].action == \"comment\"; assert fake.CallOrder == [\"CreateIssue\",\"PostComment\"]"
+    },
+    {
+      "id": "TS-06-30",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-5.6"
+      ],
+      "title": "side_effects is empty under --dry-run even for a run that would otherwise push, comment or open a PR",
+      "given": [
+        "a fix run with --dry-run --land=pr on a change that would normally push and open a pull request"
+      ],
+      "when": "the run completes",
+      "then": [
+        "the envelope has no side_effects field, or an empty side_effects array"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--dry-run\", \"--land\", \"pr\", input); assert isEmptyOrAbsent(r.Envelope.SideEffects)"
+    },
+    {
+      "id": "TS-06-31",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.1"
+      ],
+      "title": "issue suggests fix on the filed issue's URL, naming labels, when not run under --dry-run",
+      "given": [
+        "an issuetriage.Result with Action \"created\", a URL, and labels [\"bug\",\"triaged\"]"
+      ],
+      "when": "next is built",
+      "then": [
+        "next has one entry with tool fix, input the issue URL, empty flags, and why mentioning the labels"
+      ],
+      "pseudocode": "n := res.Next(); assert len(n) == 1; assert n[0].tool == \"fix\"; assert n[0].input == res.URL; assert contains(n[0].why, \"bug\") && contains(n[0].why, \"triaged\")"
+    },
+    {
+      "id": "TS-06-32",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.2"
+      ],
+      "title": "spec suggests impl on the first written package that validates",
+      "given": [
+        "a specgen.Result with two written packages, the second of which validates and the first does not"
+      ],
+      "when": "next is built",
+      "then": [
+        "next contains an entry naming tool impl, input the second (validating) package's spec_dir, and the fixed why sentence"
+      ],
+      "pseudocode": "n := res.Next(); e := n.find(tool==\"impl\"); assert e.input == validatingPkg.SpecDir"
+    },
+    {
+      "id": "TS-06-33",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.3"
+      ],
+      "title": "spec suggests spec again on the literal origin when the split is unfinished and the input had a file or issue origin",
+      "given": [
+        "a specgen.Result whose SplitPlan is non-empty and whose input origin was a file path"
+      ],
+      "when": "next is built",
+      "then": [
+        "next contains a second entry naming tool spec, input the literal file path"
+      ],
+      "pseudocode": "n := res.Next(); e := n.filter(tool==\"spec\")[0]; assert e.input == originalFilePath"
+    },
+    {
+      "id": "TS-06-34",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.3"
+      ],
+      "title": "spec's resume suggestion uses the needs_human.resume placeholder when the input was raw text or stdin",
+      "given": [
+        "a specgen.Result whose SplitPlan is non-empty and whose input was raw text with no stable origin"
+      ],
+      "when": "next is built",
+      "then": [
+        "the spec-resume entry's input is exactly \"<same input>\""
+      ],
+      "pseudocode": "n := res.Next(); e := n.filter(tool==\"spec\")[0]; assert e.input == \"<same input>\""
+    },
+    {
+      "id": "TS-06-35",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.4"
+      ],
+      "title": "impl suggests itself on the same spec directory when the run parked",
+      "given": [
+        "a codeimpl.Result with stage \"parked\""
+      ],
+      "when": "next is built",
+      "then": [
+        "next contains an entry naming tool impl, input the spec_dir, and why mentioning that re-running continues from the last landed task"
+      ],
+      "pseudocode": "n := res.Next(); e := n[0]; assert e.tool == \"impl\"; assert e.input == res.SpecDir; assert contains(e.why, \"continues from the last landed task\")"
+    },
+    {
+      "id": "TS-06-36",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.5"
+      ],
+      "title": "impl's parked-with-red-baseline suggestion adds --repair when no repair was attempted",
+      "given": [
+        "a codeimpl.Result with stage \"parked\", a baseline whose checks include a failing one, and no Repair field set"
+      ],
+      "when": "next is built",
+      "then": [
+        "the impl next entry's flags include \"--repair\"",
+        "the why text states the baseline needs repairing first"
+      ],
+      "pseudocode": "e := res.Next()[0]; assert contains(e.flags, \"--repair\"); assert contains(e.why, \"repair\")"
+    },
+    {
+      "id": "TS-06-37",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.6"
+      ],
+      "title": "fix's ambiguity next entry is character-for-character identical to needs_human.resume",
+      "given": [
+        "a codefix.Result whose error category is \"ambiguous\""
+      ],
+      "when": "next and needs_human are both built for the same Result",
+      "then": [
+        "next contains exactly one entry suggesting fix --context",
+        "that entry's input string is character-for-character identical to needs_human.resume"
+      ],
+      "pseudocode": "n := res.Next(); nh := res.NeedsHuman(); e := n[0]; assert contains(e.flags, \"--context\"); assert e.input == nh.Resume"
+    },
+    {
+      "id": "TS-06-38",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.7"
+      ],
+      "title": "fix produces no next entry on a run that lands successfully",
+      "given": [
+        "a codefix.Result whose stage is a successful landing"
+      ],
+      "when": "next is built",
+      "then": [
+        "next is absent or empty"
+      ],
+      "pseudocode": "n := res.Next(); assert isEmptyOrAbsent(n)"
+    },
+    {
+      "id": "TS-06-39",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-6.8"
+      ],
+      "title": "next entries are derived purely from Result fields, omitted when there is nothing to suggest, and are runnable exactly as printed",
+      "given": [
+        "a specgen.Result with no validating package and no unfinished split",
+        "an issuetriage.Result with Action \"none\""
+      ],
+      "when": "next is built for each, and the underlying model-authored report text is mutated without changing any fact field",
+      "then": [
+        "both envelopes omit next entirely",
+        "for a Result that does produce next entries, mutating the model-authored report text does not change the produced entries"
+      ],
+      "pseudocode": "assert !specRes.Next(); assert !issueRes.Next(); before := fixRes.Next(); fixRes.Implementation = \"different text\"; assert fixRes.Next() == before"
+    },
+    {
+      "id": "TS-06-40",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.1"
+      ],
+      "title": "A single-line, whitespace-free, path-shaped argument that does not exist is flagged with a high-severity warning naming it",
+      "given": [
+        "the argument \"widget/report.txt\", which does not exist on disk"
+      ],
+      "when": "Resolve classifies it",
+      "then": [
+        "the classification is text",
+        "a warning with code input_looks_like_path, severity high, stage input is recorded",
+        "the warning's message names \"widget/report.txt\""
+      ],
+      "pseudocode": "in, warns := ResolveWithWarnings(ctx, \"widget/report.txt\", nil, nil); assert in.Kind == KindText; w := warns.find(code==\"input_looks_like_path\"); assert w.Severity == \"high\"; assert contains(w.Message, \"widget/report.txt\")"
+    },
+    {
+      "id": "TS-06-41",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.2"
+      ],
+      "title": "An existing directory argument does not trigger the mistyped-path warning",
+      "given": [
+        "an existing directory path, e.g. \"src\""
+      ],
+      "when": "Resolve classifies it",
+      "then": [
+        "no input_looks_like_path warning is recorded for that argument"
+      ],
+      "pseudocode": "in, warns := ResolveWithWarnings(ctx, \"src\", nil, nil); assert !warns.any(code==\"input_looks_like_path\")"
+    },
+    {
+      "id": "TS-06-42",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.3"
+      ],
+      "title": "The mistyped-path warning is always in top-level warnings regardless of --detail, and appends the deterministic summary clause on an ok run",
+      "given": [
+        "a run that succeeds (ok: true) with an input_looks_like_path warning recorded"
+      ],
+      "when": "the envelope is built under --detail summary and again under --detail full",
+      "then": [
+        "both envelopes' top-level warnings array includes the input_looks_like_path entry",
+        "summary carries the appended high-severity clause"
+      ],
+      "pseudocode": "rs := runCLI(tool, \"--detail\", \"summary\", pathLikeInput); rf := runCLI(tool, \"--detail\", \"full\", pathLikeInput); assert rs.Envelope.Warnings.any(code==\"input_looks_like_path\"); assert rf.Envelope.Warnings.any(code==\"input_looks_like_path\"); assert contains(rs.Envelope.Summary, clauseFor(\"input_looks_like_path\"))"
+    },
+    {
+      "id": "TS-06-43",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-7.4"
+      ],
+      "title": "The presence of an input_looks_like_path warning does not affect what fix's or impl's summary view keeps for verification/baseline",
+      "given": [
+        "a fix run and an impl run, each with a landable verdict and an input_looks_like_path warning recorded"
+      ],
+      "when": "the summary view is built for each",
+      "then": [
+        "fix's summary still omits verification, exactly as it would without the warning",
+        "impl's summary still omits verification, exactly as it would without the warning"
+      ],
+      "pseudocode": "withWarning := buildSummary(landableFixResWithWarning); without := buildSummary(landableFixResNoWarning); assert withWarning.HasField(\"verification\") == without.HasField(\"verification\")"
+    },
+    {
+      "id": "TS-06-44",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.1"
+      ],
+      "title": "--input-kind is registered on Common accepting only file, text, issue or stdin",
+      "given": [
+        "a Common flag set is registered"
+      ],
+      "when": "--input-kind is given each of the four legal values, and then an illegal value",
+      "then": [
+        "each legal value is accepted",
+        "the illegal value is a usage error"
+      ],
+      "pseudocode": "for k in [\"file\",\"text\",\"issue\",\"stdin\"]: assert parseOK(\"--input-kind\", k); assert parseFails(\"--input-kind\", \"bogus\")"
+    },
+    {
+      "id": "TS-06-45",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.2"
+      ],
+      "title": "--input-kind file refuses a missing path, naming that it does not exist",
+      "given": [
+        "--input-kind file and a path that does not exist"
+      ],
+      "when": "Resolve runs",
+      "then": [
+        "the run exits with code 2",
+        "the error names that the path does not exist"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--input-kind\", \"file\", \"/no/such/path.txt\"); assert r.ExitCode == 2; assert contains(r.Stderr, \"does not exist\")"
+    },
+    {
+      "id": "TS-06-46",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.2"
+      ],
+      "title": "--input-kind file refuses a directory, naming that it is one",
+      "given": [
+        "--input-kind file and an existing directory path"
+      ],
+      "when": "Resolve runs",
+      "then": [
+        "the run exits with code 2",
+        "the error names that the path is a directory"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--input-kind\", \"file\", \"src\"); assert r.ExitCode == 2; assert contains(r.Stderr, \"directory\")"
+    },
+    {
+      "id": "TS-06-47",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.3"
+      ],
+      "title": "--input-kind text uses the argument verbatim, ignoring a same-named file or a parseable URL",
+      "given": [
+        "a file named \"report.txt\" existing on disk with different content than the argument string",
+        "an argument equal to \"report.txt\""
+      ],
+      "when": "Resolve runs with --input-kind text",
+      "then": [
+        "the resolved input's Body is the literal argument string \"report.txt\", not the file's contents",
+        "no file-existence or URL check occurred"
+      ],
+      "pseudocode": "in := ResolveForced(ctx, \"text\", \"report.txt\", nil, nil); assert in.Body == \"report.txt\"; assert in.Kind == KindText"
+    },
+    {
+      "id": "TS-06-48",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.4"
+      ],
+      "title": "--input-kind issue refuses an argument that does not parse as an issue URL, before any HTTP request",
+      "given": [
+        "--input-kind issue and the argument \"not a url\""
+      ],
+      "when": "Resolve runs",
+      "then": [
+        "the run exits with code 2",
+        "no HTTP request is made to any forge"
+      ],
+      "pseudocode": "r := runCLIWithForgeSpy(\"issue\", \"--input-kind\", \"issue\", \"not a url\"); assert r.ExitCode == 2; assert forgeSpy.RequestCount == 0"
+    },
+    {
+      "id": "TS-06-49",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-8.5"
+      ],
+      "title": "--input-kind stdin refuses any argument other than \"-\"",
+      "given": [
+        "--input-kind stdin and the argument \"file.txt\""
+      ],
+      "when": "Resolve runs",
+      "then": [
+        "the run exits with code 2"
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--input-kind\", \"stdin\", \"file.txt\"); assert r.ExitCode == 2"
+    },
+    {
+      "id": "TS-06-50",
+      "kind": "property",
+      "verifies": [
+        "06-REQ-8.6"
+      ],
+      "title": "A mismatched --input-kind, under any of the four values, is a usage error before anything is fetched, read beyond the check, or a model is resolved",
+      "given": [
+        "for each of file, issue and stdin, an argument that does not match that kind"
+      ],
+      "when": "for any (input-kind, mismatching argument) pair drawn from {(file, an issue URL), (issue, a plain string), (stdin, a non-'-' string)}",
+      "then": [
+        "the run exits with code 2",
+        "error.category is usage",
+        "no model is resolved"
+      ],
+      "pseudocode": "for (kind, arg) in mismatches: r := runCLI(\"fix\", \"--input-kind\", kind, arg); assert r.ExitCode == 2; assert r.Envelope.Error.Category == \"usage\""
+    },
+    {
+      "id": "TS-06-51",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-8.7"
+      ],
+      "title": "impl with --input-kind text on an ordinary spec reference is unaffected by a same-named file existing elsewhere on disk",
+      "given": [
+        "a spec package directory referenced by id \"07\"",
+        "a file named \"07\" also existing elsewhere on disk"
+      ],
+      "when": "impl is run with --input-kind text and the argument \"07\"",
+      "then": [
+        "codeimpl.Locate resolves the same package directory it resolves without --input-kind",
+        "Resolve's ordinary file check never ran"
+      ],
+      "pseudocode": "withFlag := runImpl(\"--input-kind\", \"text\", \"07\"); without := runImpl(\"07\"); assert withFlag.Result.SpecDir == without.Result.SpecDir"
+    },
+    {
+      "id": "TS-06-52",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.1"
+      ],
+      "title": "--dry-run is registered exactly once, on Common, with the one make-no-remote-change definition",
+      "given": [
+        "Common.Register is called for each of the four tools"
+      ],
+      "when": "the resulting flag sets are inspected",
+      "then": [
+        "each tool's flag set has exactly one --dry-run flag, defined by Common",
+        "its help text is the same string on every tool"
+      ],
+      "pseudocode": "for tool in tools: f := tool.FlagSet.Lookup(\"dry-run\"); assert f != nil; assert f.Usage == commonDryRunUsage"
+    },
+    {
+      "id": "TS-06-53",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.2"
+      ],
+      "title": "Each tool's usage text states the correct local meaning of --dry-run",
+      "given": [
+        "the usage constant in each of cmd/issue, cmd/fix, cmd/spec, cmd/impl's main.go"
+      ],
+      "when": "the usage text is inspected",
+      "then": [
+        "issue's usage says --dry-run does nothing locally",
+        "spec's usage says it writes no files either",
+        "fix's and impl's usage name the branch and the commits as still happening"
+      ],
+      "pseudocode": "assert !mentionsLocalEffect(issueUsage); assert contains(specUsage, \"writes no files\"); assert contains(fixUsage, \"branch\") && contains(fixUsage, \"commit\"); assert contains(implUsage, \"branch\") && contains(implUsage, \"commit\")"
+    },
+    {
+      "id": "TS-06-54",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.3"
+      ],
+      "title": "--total-budget is registered exactly once on Common, defaulting to zero (no ceiling)",
+      "given": [
+        "Common.Register is called"
+      ],
+      "when": "no --total-budget is given",
+      "then": [
+        "Common.TotalBudgetUSD is 0",
+        "a run with the per-phase --budget set but no --total-budget is not stopped by any total-budget check"
+      ],
+      "pseudocode": "c := &Common{}; fs := flag.NewFlagSet(); c.Register(fs); fs.Parse([]); assert c.TotalBudgetUSD == 0"
+    },
+    {
+      "id": "TS-06-55",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.4"
+      ],
+      "title": "issue applies min(--budget, --total-budget) as its one phase's effective ceiling",
+      "given": [
+        "issue invoked with --budget 10 --total-budget 4",
+        "issue invoked with --budget 4 --total-budget 10"
+      ],
+      "when": "the effective ceiling for the one phase is computed for each",
+      "then": [
+        "the first run's effective ceiling is 4",
+        "the second run's effective ceiling is 4"
+      ],
+      "pseudocode": "assert effectiveCeiling(budget:10, totalBudget:4) == 4; assert effectiveCeiling(budget:4, totalBudget:10) == 4"
+    },
+    {
+      "id": "TS-06-56",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-9.5"
+      ],
+      "title": "fix stops with category budget before the implementation phase when cumulative spend already exceeds --total-budget at the analyse/implement boundary",
+      "given": [
+        "a fix run with --total-budget set below what the analyse phase alone already spent"
+      ],
+      "when": "the pipeline reaches the boundary between analyse and implement",
+      "then": [
+        "the run stops before the implement phase starts",
+        "the envelope's error.category is \"budget\""
+      ],
+      "pseudocode": "r := runCLI(\"fix\", \"--total-budget\", \"0.01\", input); assert r.Envelope.Error.Category == \"budget\"; assert !r.ImplementPhaseRan"
+    },
+    {
+      "id": "TS-06-57",
+      "kind": "integration",
+      "verifies": [
+        "06-REQ-9.6"
+      ],
+      "title": "spec stops with category budget before a scope's PRD phase when --total-budget is exceeded, and an unsplit input has no interior boundary",
+      "given": [
+        "a spec run on an input that splits into three scopes, with --total-budget set below the cumulative spend before the second scope's PRD phase",
+        "a separate spec run on an input that does not split, with the same --total-budget"
+      ],
+      "when": "both runs proceed",
+      "then": [
+        "the split run stops with error.category \"budget\" before the second scope's PRD phase, with its split plan left in place",
+        "the unsplit run is bound only by the single-phase min(--budget,--total-budget) fold, like issue"
+      ],
+      "pseudocode": "rSplit := runCLI(\"spec\", \"--total-budget\", \"low\", splittingInput); assert rSplit.Envelope.Error.Category == \"budget\"; assert len(rSplit.Result.SplitPlan) > 0; rUnsplit := runCLI(\"spec\", \"--total-budget\", \"low\", unsplitInput); assert rUnsplit.EffectiveCeiling == min(budget, totalBudget)"
+    },
+    {
+      "id": "TS-06-58",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.7"
+      ],
+      "title": "A flag one tool does not use, but another tool defines, is rejected naming both the flag and the accepting tool",
+      "given": [
+        "impl invoked with --label, a flag issue defines"
+      ],
+      "when": "App.Main parses the flags",
+      "then": [
+        "the run exits with code 2",
+        "the error message names \"--label\" and names \"issue\" as the tool that accepts it"
+      ],
+      "pseudocode": "r := runCLI(\"impl\", \"--label\", \"x\", input); assert r.ExitCode == 2; assert contains(r.Stderr, \"--label\") && contains(r.Stderr, \"issue\")"
+    },
+    {
+      "id": "TS-06-59",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-9.8"
+      ],
+      "title": "A flag that belongs to none of the four tools keeps Go's generic flag.Parse error",
+      "given": [
+        "impl invoked with --nonexistent-flag"
+      ],
+      "when": "App.Main parses the flags",
+      "then": [
+        "the run exits with code 2",
+        "the error message is Go's unmodified \"flag provided but not defined: -nonexistent-flag\" text"
+      ],
+      "pseudocode": "r := runCLI(\"impl\", \"--nonexistent-flag\", \"x\", input); assert r.ExitCode == 2; assert contains(r.Stderr, \"flag provided but not defined: -nonexistent-flag\")"
+    },
+    {
+      "id": "TS-06-60",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.1",
+        "06-REQ-10.3",
+        "06-REQ-10.4"
+      ],
+      "title": "docs/cli.md's shared-flags table documents --detail/--report-file, --input-kind and the relocated --total-budget",
+      "given": [
+        "the current docs/cli.md"
+      ],
+      "when": "the shared-flags table and impl's flag table are inspected",
+      "then": [
+        "the shared-flags table has a --detail, --report-file entry",
+        "the shared flags section documents --input-kind's four values and the pre-fetch refusal it produces",
+        "--total-budget appears in the shared flags table and no longer only in impl's own flag table"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); assert contains(doc, \"--detail\") && contains(doc, \"--report-file\"); assert contains(doc, \"--input-kind\"); assert sharedFlagsTable(doc).contains(\"--total-budget\")"
+    },
+    {
+      "id": "TS-06-61",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.2"
+      ],
+      "title": "docs/cli.md gives each tool's own section a --detail summary subset table and the local meaning of --dry-run",
+      "given": [
+        "the current docs/cli.md"
+      ],
+      "when": "each of the four tool sections is inspected",
+      "then": [
+        "each of issue, fix, spec and impl's sections has a table naming the fields its summary view keeps",
+        "each section states what --dry-run still does locally for that tool"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); for tool in [issue,fix,spec,impl]: sec := section(doc, tool); assert sec.hasSummaryTable(); assert sec.mentionsDryRunLocalBehavior()"
+    },
+    {
+      "id": "TS-06-62",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.5"
+      ],
+      "title": "docs/cli.md's output section gains one worked example each for artifacts, side_effects and next",
+      "given": [
+        "the current docs/cli.md \"The output\" section"
+      ],
+      "when": "the section is inspected",
+      "then": [
+        "there is a worked JSON example containing an artifacts array",
+        "one containing a side_effects array",
+        "one containing a next array"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); sec := section(doc, \"The output\"); assert sec.hasExampleWith(\"artifacts\"); assert sec.hasExampleWith(\"side_effects\"); assert sec.hasExampleWith(\"next\")"
+    },
+    {
+      "id": "TS-06-63",
+      "kind": "unit",
+      "verifies": [
+        "06-REQ-10.6"
+      ],
+      "title": "docs/configuration.md documents the report-file default location, its fallback, and the --report-file override",
+      "given": [
+        "the current docs/configuration.md"
+      ],
+      "when": "the document is inspected",
+      "then": [
+        "a \"Report files\" heading (or an addition to an existing section) names the default $XDG_STATE_HOME/agent-fox/runs location",
+        "it names the ~/.local/state fallback",
+        "it states that --report-file overrides the computed path"
+      ],
+      "pseudocode": "doc := readFile(\"docs/configuration.md\"); assert contains(doc, \"XDG_STATE_HOME\"); assert contains(doc, \".local/state\"); assert contains(doc, \"--report-file\")"
+    },
+    {
+      "id": "TS-06-64",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-1",
+        "06-REQ-2.8",
+        "06-REQ-1.3",
+        "06-REQ-1.4"
+      ],
+      "title": "A caller keeps a small envelope and finds the rest, byte-for-byte, in the report file",
+      "given": [
+        "a real git repository with a fixable issue, run through the fix tool with --detail summary (the default)"
+      ],
+      "when": "fix is run to a landable completion",
+      "then": [
+        "the printed envelope's result is trimmed to fix's summary subset with detail: \"summary\"",
+        "report_file names the path the complete envelope was written to",
+        "the report file's bytes are byte-for-byte identical to what --detail full would have printed for the same run"
+      ],
+      "real_components": [
+        "codefix pipeline",
+        "git repository",
+        "internal/checks",
+        "toolio Run/Envelope",
+        "filesystem report-file writer"
+      ]
+    },
+    {
+      "id": "TS-06-65",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-2",
+        "06-REQ-6.1",
+        "06-REQ-5.1",
+        "06-REQ-4.1"
+      ],
+      "title": "A model chains issue into fix using next[] and side_effects[]",
+      "given": [
+        "a bug description run through the issue tool against a fake forge HTTP server standing in for GitHub"
+      ],
+      "when": "issue files the issue, and the caller then runs fix directly on next[0].input",
+      "then": [
+        "issuetriage.Write posted the issue and side_effects recorded a create_issue entry with ok: true",
+        "artifacts includes an issue entry naming the same URL",
+        "next[0] names fix with the issue URL as input",
+        "the second, fix invocation runs to completion using that literal URL with no further envelope reading"
+      ],
+      "real_components": [
+        "issuetriage pipeline",
+        "codefix pipeline",
+        "fake forge HTTP server",
+        "toolio Run/Envelope"
+      ]
+    },
+    {
+      "id": "TS-06-66",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-3",
+        "06-REQ-7.1",
+        "06-REQ-8.2"
+      ],
+      "title": "A mistyped path is caught, then confirmed strict",
+      "given": [
+        "the string \"widget/report.txt\", which does not exist on disk"
+      ],
+      "when": "fix is run on it once with default classification, and again with --input-kind file",
+      "then": [
+        "the first run classifies the argument as text and records a high-severity input_looks_like_path warning naming the path",
+        "the second run refuses with a usage error naming that the file does not exist, before any model is resolved"
+      ],
+      "real_components": [
+        "toolio Resolve",
+        "toolio CLI argument parsing",
+        "filesystem (os.Stat)"
+      ]
+    },
+    {
+      "id": "TS-06-67",
+      "kind": "smoke",
+      "verifies": [
+        "06-PATH-4",
+        "06-REQ-9.6"
+      ],
+      "title": "A split spec run hits a total-budget ceiling and resumes from where it stopped",
+      "given": [
+        "a large idea that splits into three scopes, run through spec with --total-budget set below the cumulative cost of the second scope's PRD phase"
+      ],
+      "when": "spec runs, stops at the ceiling, and is re-run later with a higher --total-budget",
+      "then": [
+        "the first run stops before the second scope's PRD phase at category \"budget\" with its split plan left in place",
+        "next[] on the first run suggests spec again on the same input's literal origin",
+        "the re-run with a higher ceiling resumes from the split plan and completes all three scopes"
+      ],
+      "real_components": [
+        "specgen pipeline",
+        "toolio Run (budget tracking)",
+        "filesystem spec-package writer"
+      ]
+    }
+  ]
+}

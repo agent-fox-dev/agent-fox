@@ -1,0 +1,322 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "07",
+  "spec_name": "progress_event_stream",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./internal/agentrun/... ./codefix/... ./codeimpl/... ./issuetriage/... ./specgen/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05_envelope_decidable",
+      "reason": "Supplies the Warning{code, severity, stage, message} shape the warning event mirrors verbatim, and the envelope's status vocabulary run_end.status is read from."
+    },
+    {
+      "spec": "06_trim_and_chain_results",
+      "reason": "Not read from directly by this scope, but run_end's eventual report_file field (added later by envelope_output_file) extends the run_end type this scope defines, so that type's shape here must leave room for it."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Define the closed event envelope and the JSONL sink's serialization core",
+      "criteria": [
+        "07-REQ-2"
+      ],
+      "tests": [
+        "TS-07-7",
+        "TS-07-8",
+        "TS-07-9",
+        "TS-07-10",
+        "TS-07-11"
+      ],
+      "steps": [
+        "Write TS-07-7 through TS-07-11 and confirm they fail",
+        "Create internal/toolio/events.go defining the closed set of type constants (run_start, step, phase_start, turn, tool_call, check, phase_end, warning, heartbeat, run_end, text) and one Go struct per type carrying only that type's documented fields plus the shared ts/tool/type envelope, so a type never carries a field it does not document",
+        "Implement an eventsSink type (a mutex, the tool name, zero or more active io.Writer destinations, an active flag) with an Emit(evt) method that stamps ts as time.Now().UTC().Format(time.RFC3339) and tool, marshals the event as one line of compact JSON with no embedded newline, and writes it to every active writer",
+        "Make every exported method on eventsSink nil-safe and a no-op when the sink is nil or inactive, mirroring Progress's existing nil-receiver pattern, so that with neither --events jsonl nor --events-file active no event object is ever produced",
+        "Add the property test asserting each emitted event type's JSON carries exactly its documented fields (no field belonging to another type) and the unit test asserting a multi-line formatted message still serializes onto a single line"
+      ],
+      "touches": [
+        "internal/toolio/events.go",
+        "internal/toolio/events_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add --events and --events-file flags and wire the sink into App",
+      "criteria": [
+        "07-REQ-1"
+      ],
+      "tests": [
+        "TS-07-1",
+        "TS-07-2",
+        "TS-07-3",
+        "TS-07-4",
+        "TS-07-5",
+        "TS-07-6"
+      ],
+      "steps": [
+        "Write TS-07-1 through TS-07-6 and confirm they fail",
+        "Add Events and EventsFile string fields to toolio.Common and register --events (default \"text\") and --events-file alongside the rest of the shared flags in Common.Register",
+        "In App.Main, right after SplitArgs succeeds and before the --version check, the bare-invocation check, or anything is fetched, validate common.Events is \"text\" or \"jsonl\"; on any other value return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{Stage: \"usage\", Category: \"usage\", Message: ...})) without opening a file or emitting any event",
+        "When --events-file names a path, open it once with O_CREATE|O_TRUNC|O_WRONLY and construct the events.go sink from task 1 with that file writer always active, independent of --events",
+        "Make the sink's stderr writer active only when common.Events == \"jsonl\" and !common.Quiet, while the file writer, when present, always carries the full JSONL stream regardless of --events or --quiet",
+        "Pass the constructed sink into NewProgress (extend its constructor or add a setter) so Progress can reach it",
+        "Write each JSONL line with a single Write call per line, so a process killed mid-run leaves the file as a valid prefix with no partial or corrupted line",
+        "Add the integration tests confirming --quiet suppresses stderr under both --events values without affecting the events file, and that a cancelled run leaves the file's already-flushed lines all individually valid JSON"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Emit run_start and run_end from the shared shell",
+      "criteria": [
+        "07-REQ-3"
+      ],
+      "tests": [
+        "TS-07-12",
+        "TS-07-13",
+        "TS-07-14",
+        "TS-07-15",
+        "TS-07-16"
+      ],
+      "steps": [
+        "Write TS-07-12 through TS-07-16 and confirm they fail",
+        "In App.execute, right after e.run.SetModel(...) and e.progress.Detail(\"model: …\") and before agentrun.Config/Runner is built, emit a run_start event {input_kind: in.Kind.String(), model: {spec, id, vendor}} through the sink",
+        "In App.Main, immediately before calling Emit(stdout, run.Envelope(...)), emit a run_end event {status, exit_code} derived from the same exit code that decides Envelope.OK, on every path that reaches that call",
+        "Confirm neither event fires on the -h/--help path or the bare-invocation path, both of which already return before reaching that point",
+        "Confirm run_start (when it fires at all) is always the first event of a run and run_end is always its last event, across ExitOK, ExitFailed, ExitUsage, ExitNeedsHuman and ExitUnverified",
+        "Add the property test iterating every one of those exit codes to lock in that run_end.status never disagrees with the envelope's own ok field"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/app_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Give Progress a JSONL sink behind Step/Begin/Detail/Raw/Check and the Observer methods",
+      "criteria": [
+        "07-REQ-4",
+        "07-REQ-5.1"
+      ],
+      "tests": [
+        "TS-07-17",
+        "TS-07-18",
+        "TS-07-19",
+        "TS-07-20",
+        "TS-07-21",
+        "TS-07-22",
+        "TS-07-23",
+        "TS-07-24",
+        "TS-07-25"
+      ],
+      "steps": [
+        "Write TS-07-17 through TS-07-25 and confirm they fail",
+        "Add a leading `stage string` parameter to Progress.Step; update every call site in codefix/pipeline.go, codeimpl/pipeline.go, codeimpl/gate.go, issuetriage/pipeline.go and specgen/pipeline.go to pass a stage drawn from the same vocabulary Result.Stage/Failure.Stage already use, leaving the printed \"[tool] message\" line unchanged",
+        "Give Progress a reference to the events sink built in tasks 1-2 (set by NewProgress); have Step also emit a step event {stage, message} when the sink is active",
+        "Make Progress.Begin print nothing and return a no-op end function when the sink is active, unchanged on a terminal or under --verbose text output otherwise",
+        "Leave Detail exactly as it is today: verbose stderr text only, never touching the sink under any --events value",
+        "Add PhaseStart, PhaseEnd, Turn and ToolCall method signatures to the agentrun.Observer interface in internal/agentrun/phase.go, and implement all four on *Progress: PhaseStart/PhaseEnd record the current phase name and emit phase_start/phase_end when the sink is active; Turn emits a turn event; ToolCall emits a tool_call event only when Progress.Verbose() is true",
+        "Change Progress.Raw to emit a text event {phase: currentPhase, delta: s} instead of writing prose when the sink is active and ShowText is true, and to remain a no-op, as today, when ShowText is false",
+        "Add Progress.Check(res checks.Result), emitting a check event {command, ok, exit_code, duration_ms} when the sink is active and doing nothing otherwise; call it immediately after checks.Run returns at codefix.runChecks and codeimpl.runGate",
+        "Add `var _ agentrun.Observer = (*toolio.Progress)(nil)` to a test file to lock in interface satisfaction"
+      ],
+      "touches": [
+        "internal/toolio/progress.go",
+        "internal/toolio/progress_test.go",
+        "internal/agentrun/phase.go",
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/gate.go",
+        "issuetriage/pipeline.go",
+        "specgen/pipeline.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Wire Runner and Guard to call the new Observer hooks, and give Phase a Task label",
+      "criteria": [
+        "07-REQ-5.2",
+        "07-REQ-5.3",
+        "07-REQ-5.4",
+        "07-REQ-5.5",
+        "07-REQ-5.6",
+        "07-REQ-5.7",
+        "07-REQ-5.8"
+      ],
+      "tests": [
+        "TS-07-26",
+        "TS-07-27",
+        "TS-07-28",
+        "TS-07-29",
+        "TS-07-30",
+        "TS-07-31",
+        "TS-07-32"
+      ],
+      "steps": [
+        "Write TS-07-26 through TS-07-32, using a fake Observer that records its calls, and confirm they fail",
+        "Add an optional Task string field to agentrun.Phase; set it only at codeimpl's per-task construction of the implement Phase in codeimpl/phases.go's Implement method (e.g. from taskInput.Task's id), leaving Task empty at every other Phase literal in the tree",
+        "In Runner.Run, call r.cfg.Observer.PhaseStart(p.Name, p.Task, r.cfg.Bounds.maxTurns(), r.cfg.Bounds.maxBudget()) exactly once before newAgent is built, nil-safe when Observer is nil",
+        "As Runner.Run returns, call Observer.PhaseEnd(p.Name, string(res.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds()) exactly once, from the same Result already assembled, on both the success and the error return paths",
+        "Add a per-phase turn counter inside Runner.Run and call Observer.Turn(p.Name, turn, costUSD, inputTokens, outputTokens) once per turn boundary Runner.trace observes in the phase's event stream, checking the vendored agentkit-go/core package for a per-turn usage event and degrading to zeroed cost/token fields when none exists",
+        "Extend Runner.trace's core.ToolCallEndEvent case to call Observer.ToolCall(p.Name, v.Block.Name, false) only when the Observer also satisfies an optional `interface{ Verbose() bool }` and reports true",
+        "Change GuardOptions.OnBlock in internal/agentrun/guard.go to carry the tool name separately from the reason (func(name, reason string)), updating guard.go's block() helper and its call sites",
+        "In Runner.newAgent's GuardOptions.OnBlock closure, keep counter.inc() and r.detail(...) unchanged, and add a call to Observer.ToolCall(p.Name, name, true) when Verbose() is true",
+        "Confirm that with Progress.Verbose() false, neither Runner.trace's ToolCallEndEvent handling nor Guard's OnBlock ever calls Observer.ToolCall"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/guard.go",
+        "internal/agentrun/phase_test.go",
+        "internal/agentrun/guard_test.go",
+        "codeimpl/phases.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Mirror Run.Warn into warning events through the attached sink",
+      "criteria": [
+        "07-REQ-6"
+      ],
+      "tests": [
+        "TS-07-33",
+        "TS-07-34",
+        "TS-07-35",
+        "TS-07-36"
+      ],
+      "steps": [
+        "Write TS-07-33 through TS-07-36 and confirm they fail",
+        "Add an unexported events-sink field to *toolio.Run and an AttachEvents(sink) setter; call it exactly once in App.Main immediately after run and progress are constructed, passing the same sink instance backing progress",
+        "Extend Run.Warn to also emit a warning event {code, severity, stage, message} through the attached sink, using the same code/severity/stage/message the warning is recorded with, whenever a sink is attached and active",
+        "Keep Run.Warn nil-safe and panic-free; confirm a bare *Run built via NewRun with no attached sink still records into Warnings() without emitting anything",
+        "Add the property test comparing every emitted warning event, field by field, against the matching entry in run.Envelope(...).Warnings for a batch of varied warnings"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/app.go",
+        "internal/toolio/envelope_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Run a 15-second heartbeat ticker off the run's own accumulated cost",
+      "criteria": [
+        "07-REQ-7"
+      ],
+      "tests": [
+        "TS-07-37",
+        "TS-07-38",
+        "TS-07-39",
+        "TS-07-40",
+        "TS-07-41"
+      ],
+      "steps": [
+        "Write TS-07-37 through TS-07-41, using an injectable clock/interval so 15 seconds do not have to be slept for real, and confirm they fail",
+        "Add one heartbeat ticker to the events sink from task 1, started once App.Main activates it (--events jsonl or --events-file), checking on a 1-second interval whether 15 seconds have passed since the last event of any type — run_start counting as the first, a heartbeat as the reset for the next",
+        "Track the sink's last-known stage from the most recent step or phase_start event, and read cost_usd from *toolio.Run's existing running phase total (add a small accessor if none exists) rather than computing it a second way",
+        "When 15 seconds of silence elapse, emit heartbeat {stage, elapsed_ms, cost_usd}; when any other event is emitted first, reset the window from that event's own timestamp instead of emitting one",
+        "Stop the ticker the moment run_end is emitted in App.Main (task 3), so no heartbeat can follow it",
+        "Make the ticker's interval and clock source injectable so tests advance a fake clock instead of sleeping real seconds"
+      ],
+      "touches": [
+        "internal/toolio/events.go",
+        "internal/toolio/events_test.go",
+        "internal/toolio/app.go"
+      ],
+      "depends_on": [
+        3,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Document the event stream in docs/cli.md and docs/model-usage.md",
+      "criteria": [
+        "07-REQ-8"
+      ],
+      "tests": [
+        "TS-07-42",
+        "TS-07-43"
+      ],
+      "steps": [
+        "Write TS-07-42 and TS-07-43 as doc-content assertions and confirm they fail",
+        "Add an \"event types\" section to docs/cli.md documenting --events (text/jsonl, default text) and --events-file, the ten-row type table (run_start, step, phase_start, turn, tool_call, check, phase_end, warning, heartbeat, run_end) with each type's fields, and a worked multi-line JSONL example drawn from a real run",
+        "Add a short section to docs/model-usage.md, next to the existing usage.phases[] paragraph, pointing at the turn and phase_end events as the way to watch spend live while a phase runs"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/model-usage.md"
+      ],
+      "depends_on": [
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "integration",
+      "title": "Verify the three execution paths end to end against the real tools",
+      "tests": [
+        "TS-07-44",
+        "TS-07-45",
+        "TS-07-46"
+      ],
+      "steps": [
+        "Write TS-07-44 (`fix --events jsonl` against a faux provider and a real check command), TS-07-45 (`impl --events text --events-file run.jsonl` with a shortened heartbeat window), and TS-07-46 (`spec --events yaml`), and confirm all three pass against the real App, Runner, checks and pipelines",
+        "Trace 07-PATH-1 end to end: App.execute emits run_start, Runner.Run's PhaseStart/Turn/ToolCall/PhaseEnd fire during the phase, codefix.runChecks calls Progress.Check, and App.Main emits run_end immediately before Emit — confirm each step actually calls the next in the real binary, with no stub left",
+        "Trace 07-PATH-2 end to end with both --events text and --events-file active, confirming the human stderr stream and the JSONL file diverge only in form, and that a heartbeat lands in the file during a long phase",
+        "Trace 07-PATH-3, confirming the invalid --events value is refused before Workspace/Resolve/ResolveModel run and that zero event lines reach stderr",
+        "For every criterion carrying a contract (07-REQ-1.2, 07-REQ-1.6, 07-REQ-2.4, 07-REQ-3.3, 07-REQ-4.6, 07-REQ-5.8, 07-REQ-6.3, 07-REQ-7.3), confirm its guarantee is enforced in production code (App.Main, Progress, Runner, Guard) and not only asserted by a test double",
+        "Grep internal/toolio, internal/agentrun, codefix, codeimpl, issuetriage and specgen for panic(\"not implemented\"), TODO and a bare return nil on a non-trivial path, and remove any left in the files this spec's tasks touched",
+        "Confirm docs/cli.md's type table and docs/model-usage.md's pointer match the shipped event structs exactly, with no drifted field name"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "state": "pending"
+    }
+  ]
+}

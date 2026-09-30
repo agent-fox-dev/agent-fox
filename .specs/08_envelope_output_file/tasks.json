@@ -1,0 +1,218 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "08",
+  "spec_name": "envelope_output_file",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05_envelope_decidable",
+      "reason": "Supplies the structured Warning{code, severity, stage} shape, the central WarnCode→stage table this spec's output_not_written and output_matches_report_file codes are added to, and the ok/status/exit_code semantics this spec must leave undisturbed."
+    },
+    {
+      "spec": "06_trim_and_chain_results",
+      "reason": "Supplies --report-file, its computed default location and its report_file_not_written warning, which this spec's requirement 4 reconciles --output against when the two name the same configured destination."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add and validate the --output flag on Common, before anything is fetched",
+      "criteria": [
+        "08-REQ-1"
+      ],
+      "tests": [
+        "TS-08-1",
+        "TS-08-2",
+        "TS-08-3",
+        "TS-08-4",
+        "TS-08-5"
+      ],
+      "steps": [
+        "Write TS-08-1 through TS-08-5 in internal/toolio (a new internal/toolio/output_test.go for TS-08-1..4, and a case in internal/toolio/app_test.go for TS-08-5) and confirm they fail",
+        "Add an Output string field to Common (internal/toolio/cli.go) and register it in Register(fs) as fs.StringVar(&c.Output, \"output\", \"\", ...), defaulting to empty",
+        "Add Common.ResolveOutput() (string, error): returns (\"\", nil) when c.Output is empty; returns a *UsageError (via Usagef) when c.Output is exactly \"-\"; otherwise resolves c.Output with filepath.Abs against the process's own working directory (never against c.Dir), stats the resolved path, and returns a *UsageError when it already exists as a directory; otherwise returns the resolved absolute path",
+        "In App.Main (internal/toolio/app.go), call common.ResolveOutput() once, immediately after the existing bare-invocation (input == \"\") and -h/--help early returns and before building Progress or calling a.execute, so the check runs before PreCheck, Workspace(), Resolve and model resolution",
+        "On a ResolveOutput error, emit the usage failure exactly like the existing flag-parsing-failure path does today (Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{Stage: \"usage\", Category: \"usage\", Message: err.Error()}))) and return before a.execute is ever called",
+        "Confirm via TS-08-5 that PreCheck, Workspace() and model resolution are never reached when --output fails validation",
+        "Run go test ./internal/toolio/... and iterate until TS-08-1..5 pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/output_test.go",
+        "internal/toolio/app_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Write --output atomically before stdout, at both Emit call sites and Emit's own fallback, unaffected by --dry-run or the run's outcome",
+      "criteria": [
+        "08-REQ-2"
+      ],
+      "tests": [
+        "TS-08-6",
+        "TS-08-7",
+        "TS-08-8",
+        "TS-08-9",
+        "TS-08-10",
+        "TS-08-11",
+        "TS-08-12",
+        "TS-08-13",
+        "TS-08-14",
+        "TS-08-15"
+      ],
+      "steps": [
+        "Write TS-08-6 through TS-08-15 in internal/toolio/output_test.go and internal/toolio/app_test.go and confirm they fail",
+        "Add internal/toolio/output.go with writeAtomic(path string, data []byte) error: os.MkdirAll the parent directory, os.CreateTemp in that same directory, Write, Sync, Close, then os.Rename over the destination — the same idiom afspec.Save and codeimpl's saveTasks already use — removing the temp file on any failure so none is left behind",
+        "Add EmitWithOutput(w io.Writer, outPath string, env Envelope) int to output.go: json.MarshalIndent env exactly as Emit does; on a marshal failure, build the same minimal guaranteed-encodable fallback Emit already builds, write it via writeAtomic to outPath when outPath is non-empty (ignoring any error from that write, per requirement 3.4), then write the fallback to w and return ExitFailed; on a marshal success, when outPath is non-empty attempt writeAtomic(outPath, bytes) (error handling for this branch lands in task 3), then write bytes to w and return env.ExitCode",
+        "Update App.Main to resolve --output once (task 1's ResolveOutput) and thread the resolved path into both existing Emit call sites, replacing Emit(stdout, run.Envelope(...)) with EmitWithOutput(stdout, outputPath, run.Envelope(...)) at the flag-parsing-failure site and at the end of Main",
+        "Confirm -h/--help and a bare invocation still return before ResolveOutput or EmitWithOutput are ever reached, so no --output validation runs and no file is written for those two paths (TS-08-13, TS-08-14)",
+        "Confirm --dry-run reaches the exact same App.Main code path with no special-casing, so --output is written identically with or without it (TS-08-12)",
+        "Confirm neither ResolveOutput, writeAtomic nor EmitWithOutput ever mutates code, result or failure, so ok/status/exit_code are identical whether or not --output is set or its write succeeds (TS-08-15)",
+        "Run go test ./internal/toolio/... -run Output and the full package tests, iterating until TS-08-6..15 pass, including the property tests over varied exit codes, sizes and --dry-run states"
+      ],
+      "touches": [
+        "internal/toolio/output.go",
+        "internal/toolio/app.go",
+        "internal/toolio/output_test.go",
+        "internal/toolio/app_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "A failed --output write becomes a low-severity output_not_written warning, never a failure",
+      "criteria": [
+        "08-REQ-3"
+      ],
+      "tests": [
+        "TS-08-16",
+        "TS-08-17",
+        "TS-08-18"
+      ],
+      "steps": [
+        "Write TS-08-16 through TS-08-18 in internal/toolio/output_test.go and confirm they fail",
+        "Declare WarnOutputNotWritten as a WarnCode constant and add its entry, mapped to stage \"emit\", to the central WarnCode→stage table 05_envelope_decidable establishes in internal/toolio/envelope.go",
+        "In EmitWithOutput's plain (non-fallback) branch, when writeAtomic(outPath, bytes) returns an error, append a Warning{Code: WarnOutputNotWritten, Severity: \"low\", Stage: <looked up from the central table>, Message: a message naming outPath and the underlying error} to the local copy of env.Warnings, then re-marshal that updated envelope for the write to w, so the run's exit_code stays env.ExitCode while the same stdout envelope now carries the warning",
+        "Confirm the marshal-failure fallback branch added in task 2 never appends a warning when its own write to outPath also fails, leaving the fallback bytes exactly as Emit already builds them (TS-08-18)",
+        "Extend (or add, if it does not yet exist for this constant) the WarnCode-completeness test asserting WarnOutputNotWritten maps to stage \"emit\" in the central table (TS-08-17)",
+        "Run go test ./internal/toolio/... and iterate until TS-08-16..18 pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/output.go",
+        "internal/toolio/output_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Reconcile --output with --report-file: skip the independent write and warn on a configured collision",
+      "criteria": [
+        "08-REQ-4"
+      ],
+      "tests": [
+        "TS-08-19",
+        "TS-08-20",
+        "TS-08-21",
+        "TS-08-22",
+        "TS-08-23"
+      ],
+      "steps": [
+        "Write TS-08-19 through TS-08-23 in internal/toolio/output_test.go (unit and property tests) and as an integration test alongside the tool that exercises --report-file (internal/toolio/app_test.go or a spec/impl integration test file) and confirm they fail",
+        "Declare WarnOutputMatchesReportFile as a WarnCode constant and add its entry, mapped to stage \"emit\", to the same central WarnCode→stage table as WarnOutputNotWritten, in internal/toolio/envelope.go",
+        "Add configuredDestinationsCollide(a, b string) bool to output.go: returns false when either input is empty, otherwise compares filepath.Clean(filepath.Abs(a)) == filepath.Clean(filepath.Abs(b)) without resolving symlinks",
+        "At the end-of-Main Emit call site in app.go, after resolving --output's destination and obtaining 06_trim_and_chain_results's configured --report-file destination (its explicit value or its own computed default, as that spec's implementation resolves it), call configuredDestinationsCollide on the two; when they collide, call run.Warn(WarnOutputMatchesReportFile, \"low\", ...) naming both paths, rebuild the envelope via run.Envelope(...) so it carries the new warning, and pass an empty outPath into EmitWithOutput for that call so --output's own write is skipped entirely and never attempted",
+        "Confirm this comparison is made from the two configured, resolved paths alone, before either write is attempted, so the collision verdict never depends on whether the --output or --report-file write later succeeds (TS-08-20)",
+        "Confirm that when the shared destination's report-file write itself then fails, nothing lands there and the envelope carries both output_matches_report_file and 06_trim_and_chain_results's own report_file_not_written, with exit_code and ok unaffected by either (TS-08-22)",
+        "Run go test ./internal/toolio/... and iterate until TS-08-19..23 pass"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/output.go",
+        "internal/toolio/envelope.go",
+        "internal/toolio/output_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Document --output and its two warning codes in docs/cli.md",
+      "criteria": [
+        "08-REQ-5"
+      ],
+      "tests": [
+        "TS-08-24",
+        "TS-08-25"
+      ],
+      "steps": [
+        "Write TS-08-24 and TS-08-25 as a small test that reads docs/cli.md and asserts the required rows and phrases (e.g. internal/toolio/docs_test.go) and confirm they fail",
+        "Add an --output row to docs/cli.md's shared-flags table stating it writes a second, atomic copy of the same envelope stdout gets, written before stdout, and describing what happens when it collides with --report-file",
+        "Add output_not_written and output_matches_report_file rows to docs/cli.md's warning-codes table (added by 05_envelope_decidable), alongside 06_trim_and_chain_results's report_file_not_written",
+        "Run go test ./internal/toolio/... and iterate until TS-08-24 and TS-08-25 pass"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "internal/toolio/docs_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "integration",
+      "title": "Verify --output end to end on all four tools, including the marshal-failure fallback and the report-file collision",
+      "tests": [
+        "TS-08-26",
+        "TS-08-27",
+        "TS-08-28",
+        "TS-08-29"
+      ],
+      "steps": [
+        "Write TS-08-26 through TS-08-29 as smoke tests (internal/toolio/smoke_test.go or a new envelope_output_smoke_test.go) driving fix, impl and spec against a real git repository, a real forge server (httptest) and a faux model provider, plus a codefix Exec that returns an unmarshalable result, and confirm they fail before this task's wiring is complete",
+        "Trace 08-PATH-1 through the real binaries: App.Main resolves and validates --output before PreCheck/Workspace() in cmd/fix, confirm execute runs to completion and EmitWithOutput writes the finished envelope to --output atomically before any byte reaches stdout, and that a caller reading the file after the process exits gets the complete envelope",
+        "Trace 08-PATH-2 through cmd/impl: confirm a write failure at an uncreatable --output destination surfaces only as the output_not_written warning, and that exit_code and ok are identical to a run made without --output",
+        "Trace 08-PATH-3 through cmd/spec: confirm the collision check from task 4 is reached when --output and --report-file are given the same path, that --output's own write is skipped, and that the file that lands there is the complete report the report-file mechanism writes, not the --detail summary view",
+        "Trace 08-PATH-4: confirm codefix returning an unmarshalable result reaches Emit's marshal-failure fallback inside EmitWithOutput, and that the same fallback envelope written to stdout is what lands, byte for byte, at --output",
+        "For every criterion carrying a contract in this spec (08-REQ-1.2, 1.3, 1.4, 2.2, 2.3, 2.4, 3.1, 3.4, 4.3, 4.4, 4.5), confirm the producer's result (the resolved path, the written file, the recorded warning) is consumed by a caller in production code — App.Main and EmitWithOutput — not only asserted by a test",
+        "Search internal/toolio/cli.go, internal/toolio/app.go, internal/toolio/output.go and internal/toolio/envelope.go for TODO and panic(\"not implemented\") and confirm none remain from this spec's work",
+        "Confirm all four entry points (cmd/spec, cmd/issue, cmd/fix, cmd/impl) reach App.Main unchanged, so --output is live identically on every tool and not only exercised by internal/toolio's own unit tests",
+        "Run `make test` and `make lint` and confirm both pass"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go",
+        "internal/toolio/envelope_output_smoke_test.go",
+        "cmd/spec",
+        "cmd/issue",
+        "cmd/fix",
+        "cmd/impl"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/agentfox/agentkit-go/tools"
@@ -112,10 +113,10 @@ type App struct {
 // Main parses, resolves and runs. It returns the process exit code.
 //
 // It writes exactly one JSON object to stdout on every program-driven path.
-// The two human-driven paths — -h/--help, and a bare invocation with no
-// positional argument — print the help text to stderr, write nothing to
-// stdout, and never reach Emit, the same way --version prints a bare
-// sentence and skips it.
+// When stdout is not a terminal, a bare invocation with no positional argument
+// (or only whitespace) also emits a usage envelope. When stdout is a terminal,
+// a bare invocation prints the help text to stderr and writes nothing to stdout,
+// the same way -h/--help exits 0 and --version prints a bare sentence.
 func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var common Common
 	fs := flag.NewFlagSet(a.Name, flag.ContinueOnError)
@@ -132,6 +133,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	run := NewRun(a.Name, a.Version)
 
 	input, err := SplitArgs(fs, argv)
+	run.SetBounds(common.Bounds(a.DefaultBounds))
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			// fs.Parse has already printed the help text to stderr: an
@@ -141,20 +143,25 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		}
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, err)
 		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: err.Error(),
+			Stage: "usage", Category: "usage", Message: err.Error(), err: err,
 		}))
 	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
 	}
-	if input == "" {
-		// A bare invocation with no positional argument is the same kind of
-		// human path as -h/--help: print what the tool does and say nothing
-		// on stdout, rather than pairing the help text with a JSON envelope
-		// that only restates it.
+	if strings.TrimSpace(input) == "" {
+		// A bare invocation with no positional argument (or only whitespace)
+		// prints the help text to stderr. When stdout is a terminal, stdout
+		// stays empty; when stdout is not a terminal, an envelope is emitted
+		// so programs piping stdout receive valid JSON.
 		fs.Usage()
-		return ExitUsage
+		if isTerminal(stdout) {
+			return ExitUsage
+		}
+		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: NoInputMessage,
+		}))
 	}
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
@@ -180,6 +187,9 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	bounds := e.common.Bounds(a.DefaultBounds)
+	e.run.SetBounds(bounds)
+
 	if a.PreCheck != nil {
 		if err := a.PreCheck(e.common); err != nil {
 			return a.usage(err)
@@ -189,6 +199,16 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	ws, err := e.common.Workspace()
 	if err != nil {
 		return a.usage(err)
+	}
+
+	contextBlock := e.common.ContextBlock()
+	contextLen := len(contextBlock)
+
+	// Check if source length + context length exceeds MaxInputBytes before fetching anything.
+	// For text argument, we can check e.argument directly.
+	if len(e.argument)+contextLen > MaxInputBytes {
+		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
+			MaxInputBytes, len(e.argument)+contextLen))
 	}
 
 	var forge issuex.Client
@@ -213,17 +233,21 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	in, err := Resolve(ctx, e.argument, e.stdin, forge)
 	if err != nil {
 		if errors.Is(err, ErrNoInput) {
-			return a.usage(Usagef(
-				"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"))
+			return a.usage(Usagef("%s", NoInputMessage))
 		}
-		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
+		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error(), err: err}
 	}
+	if len(in.Body)+contextLen > MaxInputBytes {
+		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
+			MaxInputBytes, len(in.Body)+contextLen))
+	}
+	in.Context = contextBlock
 	e.run.SetInput(in)
 	if in.Truncated {
-		e.run.Warn("the input was truncated at %d bytes", MaxInputBytes)
+		e.run.Warn(WarnInputTruncated, "high", "the input was truncated at %d bytes", MaxInputBytes)
 	}
 	if in.Thread != nil && in.Thread.CommentsErr != nil {
-		e.run.Warn("the issue's comments could not be read: %v", in.Thread.CommentsErr)
+		e.run.Warn(WarnCommentsUnreadable, "low", "the issue's comments could not be read: %v", in.Thread.CommentsErr)
 	}
 	e.progress.Detail("input: %s (%s, %d bytes)", in.Kind, in.Origin, len(in.Body))
 
@@ -236,7 +260,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	choice, err := e.common.ResolveModel()
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
-			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
+			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
@@ -248,7 +272,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Providers:     agentrun.DefaultProviders(),
 		Workspace:     ws,
 		TrustProject:  e.common.TrustProject,
-		Bounds:        e.common.Bounds(a.DefaultBounds),
+		Bounds:        bounds,
 		Observer:      e.progress,
 		ShowText:      e.common.ShowText,
 		SessionPrefix: a.Name,
@@ -256,7 +280,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	runner, err := agentrun.NewRunner(cfg)
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
-			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
+			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
 	}
 
@@ -278,7 +302,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 // paths (a bare invocation, -h/--help) that a person, not a program, hits,
 // and this one keeps stdout parseable for the caller that hit it.
 func (a App) usage(err error) (int, any, *ErrorInfo) {
-	return ExitUsage, nil, &ErrorInfo{Stage: "usage", Category: "usage", Message: err.Error()}
+	return ExitUsage, nil, &ErrorInfo{Stage: "usage", Category: "usage", Message: err.Error(), err: err}
 }
 
 // StageError maps a pipeline failure carrying a stage and a category onto the
@@ -292,13 +316,17 @@ type StageError interface {
 
 // ErrorFrom builds the envelope's error object from a pipeline failure.
 func ErrorFrom(defaultStage string, err error) *ErrorInfo {
-	info := &ErrorInfo{Stage: defaultStage, Category: agentrun.CategoryInternal, Message: err.Error()}
+	info := &ErrorInfo{Stage: defaultStage, Category: agentrun.CategoryInternal, Message: err.Error(), err: err}
 	var se StageError
 	if errors.As(err, &se) {
 		info.Stage, info.Category = se.StageName(), se.CategoryName()
-		return info
+	} else {
+		info.Category = agentrun.CategoryOf(err)
 	}
-	info.Category = agentrun.CategoryOf(err)
+	var tb interface{ TotalBudgetUSD() float64 }
+	if errors.As(err, &tb) {
+		info.TotalBudget = tb.TotalBudgetUSD()
+	}
 	return info
 }
 

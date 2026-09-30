@@ -122,6 +122,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		survey, stats, err := b.Survey(ctx, surveyInput{
 			Spec: st.spec, Root: st.root, Profile: st.profile, Gate: st.gate,
 			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo), Repair: repair,
+			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))
@@ -217,7 +218,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 // verified every task is not reported as failed over a permissions error.
 func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result) (*Result, error) {
 	if o.Forge == nil {
-		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): no forge client configured", st.branch, st.base)
 		return result, failf("land", CategoryForge, "no forge client configured")
 	}
@@ -229,7 +230,7 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		Draft: o.Draft,
 	})
 	if err != nil {
-		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", st.branch, st.base, err)
 		return result, err
 	}
@@ -370,7 +371,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 				if err := git.Clean(ctx); err != nil {
 					return nil, fail("preflight", CategoryGit, err)
 				}
-				o.Run.Warn("discarded the parked attempt at %s (%s); the work starts again "+
+				o.Run.Warn(toolio.WarnParkedAttemptDiscarded, "low", "discarded the parked attempt at %s (%s); the work starts again "+
 					"from the last landed commit", what, head)
 			}
 		}
@@ -386,7 +387,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 
 	v := spec.Validate()
 	for _, w := range v.Warnings {
-		o.Run.Warn("%s: %s", w.Check, w.Message)
+		o.Run.Warn(toolio.WarnSpecValidationWarning, "low", "%s: %s", w.Check, w.Message)
 	}
 	if !v.Valid {
 		return nil, failf("preflight", CategoryInvalidSpec,
@@ -396,7 +397,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	switch spec.Status {
 	case "active":
 	case "draft":
-		o.Run.Warn("%s is a draft: it validates, so it is implemented, but its intent is not yet "+
+		o.Run.Warn(toolio.WarnDraftPackage, "low", "%s is a draft: it validates, so it is implemented, but its intent is not yet "+
 			"frozen by activation", rel)
 	default:
 		return nil, failf("preflight", "usage", "%s is %s; there is nothing to implement", rel, spec.Status)
@@ -418,13 +419,13 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 		}
 	}
 	if len(st.gate) == 0 {
-		o.Run.Warn("no verification command runs: every task will be reported as unverified")
+		o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "no verification command runs: every task will be reported as unverified")
 	} else {
 		o.Progress.Detail("gate: %s", strings.Join(st.gate, " · "))
 	}
 	result.Gate = st.gate
 
-	if f := checkUpstream(o, st); f != nil {
+	if f := checkUpstream(o, st, result); f != nil {
 		return nil, f
 	}
 
@@ -448,14 +449,14 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 
 // checkUpstream applies §8.2: every task of this spec runs after each
 // upstream spec is sealed or its tasks are done.
-func checkUpstream(o Options, st *runState) *Failure {
+func checkUpstream(o Options, st *runState, result *Result) *Failure {
 	deps := st.spec.Tasks.Dependencies
 	if len(deps) == 0 {
 		return nil
 	}
 	metas, err := afspec.DiscoverSpecs(st.specsDir)
 	if err != nil {
-		o.Run.Warn("the spec's dependencies could not be checked: %v", err)
+		o.Run.Warn(toolio.WarnUpstreamMissing, "low", "the spec's dependencies could not be checked: %v", err)
 		return nil
 	}
 	byID := map[string]afspec.SpecMeta{}
@@ -465,7 +466,7 @@ func checkUpstream(o Options, st *runState) *Failure {
 	for _, d := range deps {
 		m, ok := byID[d.Spec]
 		if !ok {
-			o.Run.Warn("dependency on spec %s could not be checked: no such package under %s", d.Spec, st.specsDir)
+			o.Run.Warn(toolio.WarnUpstreamMissing, "low", "dependency on spec %s could not be checked: no such package under %s", d.Spec, st.specsDir)
 			continue
 		}
 		if m.Status == "sealed" {
@@ -473,7 +474,7 @@ func checkUpstream(o Options, st *runState) *Failure {
 		}
 		up, err := afspec.LoadSpec(m.Dir)
 		if err != nil {
-			o.Run.Warn("dependency on spec %s could not be checked: %v", d.Spec, err)
+			o.Run.Warn(toolio.WarnUpstreamMissing, "low", "dependency on spec %s could not be checked: %v", d.Spec, err)
 			continue
 		}
 		if up.Tasks == nil {
@@ -481,9 +482,15 @@ func checkUpstream(o Options, st *runState) *Failure {
 		}
 		for _, t := range up.Tasks.Tasks {
 			if t.State != afspec.TaskStateDone && t.State != afspec.TaskStateDropped {
-				return failf("preflight", CategoryBlocked,
-					"spec %s depends on spec %s (%s), whose task %d is %s; implement %s first",
+				reason := fmt.Sprintf("spec %s depends on spec %s (%s), whose task %d is %s; implement %s first",
 					st.spec.SpecID, d.Spec, d.Reason, t.Id, t.State, filepath.Base(m.Dir))
+				if result != nil {
+					result.Blocker = &Blocker{
+						Reason: reason,
+						Needed: filepath.Base(m.Dir),
+					}
+				}
+				return failf("preflight", CategoryBlocked, "%s", reason)
 			}
 		}
 	}
@@ -808,6 +815,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			Attempt: attempt, Attempts: o.TaskAttempts, Previous: previous,
 			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
 			Profile: st.profile,
+			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
 		done(phaseSummary(stats))
@@ -988,11 +996,11 @@ func revertSpecDir(ctx context.Context, o Options, st *runState, head string) {
 		return
 	}
 	if err := st.git.Restore(bg, st.relSpecDir); err != nil {
-		o.Run.Warn("the phase changed %s and the change could not be reverted: %v",
+		o.Run.Warn(toolio.WarnSpecEditReverted, "high", "the phase changed %s and the change could not be reverted: %v",
 			strings.Join(under, ", "), err)
 		return
 	}
-	o.Run.Warn("the phase changed the spec package (%s); the change was reverted — the package "+
+	o.Run.Warn(toolio.WarnSpecEditReverted, "high", "the phase changed the spec package (%s); the change was reverted — the package "+
 		"is the tool's to write", strings.Join(under, ", "))
 }
 
@@ -1011,7 +1019,7 @@ func park(ctx context.Context, o Options, st *runState, result *Result, report T
 	report.Error = reason
 
 	if err := saveTasks(st.spec, st.specDir); err != nil {
-		o.Run.Warn("the task state could not be written before parking: %v", err)
+		o.Run.Warn(toolio.WarnStateNotSaved, "high", "the task state could not be written before parking: %v", err)
 	}
 	commit, err := parkWork(ctx, o, st, result, wipCommitMessage(st.spec, task, reason))
 	if err != nil {
@@ -1053,12 +1061,12 @@ func parkWork(ctx context.Context, o Options, st *runState, result *Result, mess
 
 	commit, err := st.git.CommitAllNoVerify(bg, message)
 	if err != nil {
-		o.Run.Warn("the attempt could not be parked as a commit on %s; the tree is left as the "+
+		o.Run.Warn(toolio.WarnCommitNotParked, "high", "the attempt could not be parked as a commit on %s; the tree is left as the "+
 			"phase left it: %v", st.branch, err)
 		return "", err
 	}
 	if err := st.git.Checkout(bg, st.base); err != nil {
-		o.Run.Warn("could not return to %s: %v", st.base, err)
+		o.Run.Warn(toolio.WarnCheckoutNotRestored, "low", "could not return to %s: %v", st.base, err)
 	}
 	return commit, nil
 }
@@ -1071,7 +1079,7 @@ func stopped(ctx context.Context, o Options, st *runState, result *Result, f *Fa
 	defer cancel()
 	if cur, err := st.git.CurrentBranch(bg); err == nil && cur == st.branch && st.branch != st.base {
 		if err := st.git.Checkout(bg, st.base); err != nil {
-			o.Run.Warn("could not return to %s: %v", st.base, err)
+			o.Run.Warn(toolio.WarnCheckoutNotRestored, "low", "could not return to %s: %v", st.base, err)
 		}
 	}
 	return result, f
@@ -1086,9 +1094,11 @@ func background(ctx context.Context) (context.Context, context.CancelFunc) {
 // overBudget reports the run-level cap, checked before each phase.
 func overBudget(o Options, st *runState) *Failure {
 	if o.TotalBudgetUSD > 0 && st.cost >= o.TotalBudgetUSD {
-		return failf("budget", agentrun.CategoryBudget,
+		f := failf("budget", agentrun.CategoryBudget,
 			"the run has spent $%.2f of its $%.2f total budget; the tasks landed so far are on the "+
 				"branch, re-run to continue", st.cost, o.TotalBudgetUSD)
+		f.TotalBudget = o.TotalBudgetUSD
+		return f
 	}
 	return nil
 }

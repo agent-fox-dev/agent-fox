@@ -1,0 +1,319 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "08",
+  "spec_name": "envelope_output_file",
+  "schema_version": 2,
+  "introduction": "Every agent-fox tool (spec, issue, fix, impl) writes exactly one JSON envelope to stdout via internal/toolio's App.Main and Emit; today that envelope has no durable copy, so a caller that loses its own stdout pipe before reading it loses the result even though the tool finished. This spec adds a shared --output <path> flag that writes the same final envelope to a file, atomically, before anything reaches stdout, on every envelope-producing path including Emit's own internal marshal-failure fallback, and reconciles it with 06_trim_and_chain_results's --report-file when an operator points both at the same destination.",
+  "glossary": {
+    "Common": "The flag set every tool's Register call shares (internal/toolio/cli.go: --dir, --model, --budget, ...), where --output is added once.",
+    "Emit": "internal/toolio's function that marshals the envelope and writes it to stdout, falling back to a minimal, guaranteed-encodable envelope carrying just the failure when result cannot be marshalled.",
+    "WarnCode": "A declared string type identifying one warning cause; every constant has exactly one stage recorded in the central table 05_envelope_decidable establishes.",
+    "atomic write idiom": "The temp-file-in-target-directory, Sync, Close, then os.Rename-over-the-destination sequence already used by afspec.Save and codeimpl's saveTasks, reused here so a reader of --output never observes a partial document.",
+    "configured destination": "The resolved, absolute, cleaned path (filepath.Abs + filepath.Clean) an --output or --report-file value names, compared without resolving symlinks, independent of whether either write succeeds.",
+    "envelope": "The single JSON object internal/toolio's Run.Envelope assembles and Emit writes to stdout on every invocation."
+  },
+  "requirements": [
+    {
+      "id": "08-REQ-1",
+      "title": "--output <path>, a new flag on Common",
+      "rationale": "Every tool must accept the same destination flag with identical meaning, validated once, before anything is fetched, the same way --dir already is.",
+      "criteria": [
+        {
+          "id": "08-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "register an --output flag alongside the rest of Common's flags, defaulting to an empty string meaning nothing is written beyond stdout"
+        },
+        {
+          "id": "08-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "--output is given a non-empty value",
+          "system": "toolio Common",
+          "action": "resolve it to an absolute path via filepath.Abs against the process's current working directory, never against --dir's workspace root",
+          "contract": "the resolved destination for the write equals filepath.Abs of the given value, regardless of --dir's value"
+        },
+        {
+          "id": "08-REQ-1.3",
+          "pattern": "unwanted",
+          "condition": "the value given to --output is exactly \"-\"",
+          "system": "toolio Common",
+          "action": "reject the invocation as a usage error before anything is fetched",
+          "contract": "exit code 2; error.category is usage; no file is read or written"
+        },
+        {
+          "id": "08-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "the resolved --output path already exists as a directory",
+          "system": "toolio Common",
+          "action": "reject the invocation as a usage error, at the same point and for the same reason --dir's own directory check in Common.Workspace() does",
+          "contract": "exit code 2; error.category is usage; caught before anything is fetched"
+        },
+        {
+          "id": "08-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "perform every --output check (resolving the path, rejecting \"-\", rejecting an existing directory) once, as part of parsing the shared flags, before any tool's own PreCheck runs and before Workspace(), Resolve, or model resolution"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-2",
+      "title": "What gets written to --output, and when",
+      "rationale": "The durable copy only protects a caller if it is complete, atomic, and in place before the one copy that can vanish — stdout — is written at all, on every path that produces an envelope.",
+      "criteria": [
+        {
+          "id": "08-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any envelope-producing run given --output, write to it exactly the envelope about to be written to stdout — the same --detail view, warnings and error — except in the collision case (08-REQ-4)"
+        },
+        {
+          "id": "08-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "--output is set and an envelope is about to be produced, at either of App.Main's two Emit call sites (a flag-parsing failure, or the end of Main)",
+          "system": "App.Main",
+          "action": "write the envelope to --output before writing it to stdout",
+          "contract": "the file at --output is complete before any byte reaches stdout for that run"
+        },
+        {
+          "id": "08-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "Emit's own marshal of result fails and it falls back to its minimal, guaranteed-encodable envelope",
+          "system": "toolio Emit",
+          "action": "write that same fallback envelope to --output before writing it to stdout",
+          "contract": "the file at --output holds a document identical to the fallback envelope written to stdout"
+        },
+        {
+          "id": "08-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any write to --output, create a temp file in --output's own directory, write the envelope, Sync it, Close it, then os.Rename it over the destination, so a reader polling the path never observes a partially written document"
+        },
+        {
+          "id": "08-REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "--output's resolved path names a parent directory that does not yet exist, at the moment the envelope is written",
+          "system": "toolio",
+          "action": "create the parent directory (os.MkdirAll) as part of that write"
+        },
+        {
+          "id": "08-REQ-2.6",
+          "pattern": "state_driven",
+          "condition": "the run is made under --dry-run",
+          "system": "toolio",
+          "action": "still write --output exactly as it would without --dry-run, because it is local state on the machine running the tool, not a remote change"
+        },
+        {
+          "id": "08-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "the invocation is one of the two purely human-driven paths that already write nothing to stdout: -h/--help, or a bare invocation with no positional argument on a terminal",
+          "system": "toolio",
+          "action": "write nothing to --output and perform none of --output's validation",
+          "contract": "no file appears at the --output path for that invocation, and no --output validation error is raised even for a malformed value"
+        },
+        {
+          "id": "08-REQ-2.8",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any run, leave ok, status and exit_code exactly as they would be without --output, regardless of whether --output was given or whether writing it succeeded"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-3",
+      "title": "A failed --output write is a warning, not a failure",
+      "rationale": "Persisting a second, caller-requested copy of the result is not part of what decides whether the tool did its job, so a filesystem problem writing it must never change the run's exit code.",
+      "criteria": [
+        {
+          "id": "08-REQ-3.1",
+          "pattern": "unwanted",
+          "condition": "the write to --output fails (a parent directory that cannot be created, a permission error, a full disk)",
+          "system": "toolio",
+          "action": "record a low-severity warning output_not_written naming the path and the underlying error, and leave the run's exit code and ok unaffected",
+          "contract": "warnings includes an entry with code output_not_written, severity low, stage emit; exit_code and ok match what they would be absent --output"
+        },
+        {
+          "id": "08-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "toolio WarnCode table",
+          "action": "include output_not_written mapped to stage emit in the central WarnCode-to-stage table 05_envelope_decidable establishes"
+        },
+        {
+          "id": "08-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "the write to --output fails",
+          "system": "toolio",
+          "action": "record the output_not_written warning before the single envelope for that run is assembled and written to stdout",
+          "contract": "the same run's stdout envelope carries the output_not_written warning entry"
+        },
+        {
+          "id": "08-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "Emit's own internal marshal-failure fallback envelope (08-REQ-2.3) itself fails to write to --output",
+          "system": "toolio",
+          "action": "surface only the underlying error already present in that fallback's own stdout message, without adding a second, separate warnings entry for it",
+          "contract": "no output_not_written entry is added to any envelope for this case, because no further envelope exists to carry one"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-4",
+      "title": "Reconciling with 06_trim_and_chain_results's report file",
+      "rationale": "When an operator points --output and --report-file at the same destination, only one document can exist there, and it must be the complete report, not whichever --detail view --output alone would have produced.",
+      "criteria": [
+        {
+          "id": "08-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "compare --output and 06_trim_and_chain_results's --report-file destination as resolved, absolute, cleaned paths (filepath.Abs + filepath.Clean), without resolving symlinks"
+        },
+        {
+          "id": "08-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any pair of configured --output and --report-file values, decide whether they collide from the two configured destinations alone, independent of whether either write actually succeeds"
+        },
+        {
+          "id": "08-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "--output and --report-file resolve to the same configured destination",
+          "system": "toolio",
+          "action": "skip --output's own independent write entirely",
+          "contract": "no --output write, successful or failed, is attempted at the shared path"
+        },
+        {
+          "id": "08-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "--output and --report-file resolve to the same configured destination",
+          "system": "toolio",
+          "action": "record a low-severity warning output_matches_report_file naming that both flags named the same destination, regardless of whether the report-file write itself succeeds",
+          "contract": "warnings includes an entry with code output_matches_report_file, severity low, stage emit, whenever the two configured destinations match"
+        },
+        {
+          "id": "08-REQ-4.5",
+          "pattern": "unwanted",
+          "condition": "--output and --report-file collide (08-REQ-4.3) and the report-file write itself fails",
+          "system": "toolio",
+          "action": "leave nothing written at the shared path, with the envelope naming both causes",
+          "contract": "no file exists at the shared path; warnings includes both output_matches_report_file and report_file_not_written"
+        },
+        {
+          "id": "08-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "toolio WarnCode table",
+          "action": "include output_matches_report_file mapped to stage emit in the same central WarnCode-to-stage table as output_not_written"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-5",
+      "title": "Documentation",
+      "rationale": "docs/cli.md is the manual a caller falls back to and must describe --output and its two new warning codes.",
+      "criteria": [
+        {
+          "id": "08-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "this spec's --output flag ships",
+          "system": "docs/cli.md",
+          "action": "gain an --output row in the shared-flags table stating that it writes a second copy of the same envelope stdout gets, atomically, before stdout, and what happens on a collision with --report-file"
+        },
+        {
+          "id": "08-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "gain output_not_written and output_matches_report_file rows in the warning-codes table added by 05_envelope_decidable, alongside 06_trim_and_chain_results's report_file_not_written"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "08-PATH-1",
+      "title": "A supervisor that has already lost its own stdout still recovers the result from --output",
+      "steps": [
+        {
+          "actor": "caller (a supervisor process)",
+          "action": "invokes fix with --output /var/run/fix-result.json and closes its own stdout pipe before the run finishes"
+        },
+        {
+          "actor": "App.Main",
+          "action": "resolves --output to an absolute path against the process's working directory and validates it before anything is fetched"
+        },
+        {
+          "actor": "toolio",
+          "action": "writes the finished envelope to --output atomically (temp file, Sync, Close, Rename) before writing anything to stdout"
+        },
+        {
+          "actor": "caller (a supervisor process)",
+          "action": "polls the --output path after the tool exits and reads the complete envelope despite having lost stdout"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-2",
+      "title": "A failed --output write is downgraded to a warning without changing the run's exit code",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs impl with --output pointing at a destination whose parent directory cannot be created (a permission error)"
+        },
+        {
+          "actor": "toolio",
+          "action": "attempts the atomic write to --output, the write fails, and toolio records a low-severity output_not_written warning naming the path and the underlying error"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "assembles the run's stdout envelope carrying the output_not_written warning, with exit_code and ok unaffected"
+        },
+        {
+          "actor": "operator",
+          "action": "reads the envelope from stdout, sees the run succeeded, and learns from the warning that the second copy did not land"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-3",
+      "title": "--output and --report-file collide, and the complete report lands at the shared path",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs spec with --detail summary --output ./run.json --report-file ./run.json"
+        },
+        {
+          "actor": "toolio",
+          "action": "compares the two configured, resolved paths, finds they match, and skips --output's own independent write"
+        },
+        {
+          "actor": "toolio (06_trim_and_chain_results)",
+          "action": "writes the complete, full-view report to ./run.json and toolio records the output_matches_report_file warning"
+        },
+        {
+          "actor": "operator",
+          "action": "opens ./run.json and finds the complete report, not the --detail summary view --output alone would have produced"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-4",
+      "title": "Emit's internal marshal-failure fallback still leaves a durable file at --output",
+      "steps": [
+        {
+          "actor": "codefix",
+          "action": "returns a result value carrying a field that cannot be marshalled to JSON"
+        },
+        {
+          "actor": "toolio Emit",
+          "action": "fails to marshal the full envelope and falls back to its minimal, guaranteed-encodable envelope carrying just the failure"
+        },
+        {
+          "actor": "toolio Emit",
+          "action": "writes that same fallback envelope to --output before writing it to stdout"
+        },
+        {
+          "actor": "caller",
+          "action": "inspects the file at --output and finds the minimal failure envelope even though the full result could not be encoded"
+        }
+      ]
+    }
+  ]
+}

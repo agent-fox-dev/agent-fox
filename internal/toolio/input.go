@@ -50,6 +50,8 @@ type Input struct {
 	// Body is the text the tool works from, already truncated to
 	// MaxInputBytes.
 	Body string
+	// Context is the rendered additional context block from --context flags.
+	Context string
 	// Truncated reports that Body is shorter than the source.
 	Truncated bool
 
@@ -58,6 +60,9 @@ type Input struct {
 	Issue  *issuex.IssueRef
 	Thread *issuex.IssueThread
 }
+
+// NoInputMessage names the four accepted input shapes for an empty or missing input.
+const NoInputMessage = "no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"
 
 // ErrNoInput is the "halt until input is received" branch of the skills these
 // tools replace, except that a program cannot block on a conversational turn:

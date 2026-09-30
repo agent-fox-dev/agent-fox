@@ -1,0 +1,330 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "09",
+  "spec_name": "tool_self_schema",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./cmd/... ./codefix/... ./codeimpl/... ./issuetriage/... ./specgen/... ./internal/checks/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05_envelope_decidable",
+      "reason": "Defines status, summary, needs_human, and the structured Warning object that toolio.Envelope carries by the time this scope's result document and golden files reflect the envelope's real shape."
+    },
+    {
+      "spec": "06_trim_and_chain_results",
+      "reason": "Defines --detail and the detail/artifacts/side_effects/next fields on the envelope and on each tool's Result; the reflection generator and golden files in this scope must cover whatever shape those changes leave behind."
+    },
+    {
+      "spec": "07_progress_event_stream",
+      "reason": "Defines the run_start event this scope adds an additive schema_version field to, and the --events/--events-file flags this scope's --schema path must leave inert."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Build the flags-document generator over a flag.FlagSet",
+      "criteria": [
+        "09-REQ-3"
+      ],
+      "tests": [
+        "TS-09-14",
+        "TS-09-15",
+        "TS-09-16",
+        "TS-09-17",
+        "TS-09-18",
+        "TS-09-19",
+        "TS-09-20",
+        "TS-09-21"
+      ],
+      "steps": [
+        "Write TS-09-14 through TS-09-21 in a new internal/toolio/flagschema_test.go and confirm they fail",
+        "Add internal/toolio/flagschema.go defining an ordered schema node type (a slice of {name, node} pairs) with a custom MarshalJSON, so property order never goes through Go's sorted map-key marshalling",
+        "Implement BuildFlagsDocument(fs *flag.FlagSet) that walks fs.VisitAll in its existing name order, skipping the flags named \"schema\" and \"version\"",
+        "For each remaining flag, set description from f.Usage verbatim; when f.Value implements flag.Getter, infer type from Get()'s dynamic type (string, bool, int64, float64 -> string/boolean/integer/number) and set default from the flag's own default; special-case time.Duration as {type: string, format: duration} with default rendered via the duration's String(); when Value does not implement flag.Getter, report {type: string} with default from f.Value.String()",
+        "Add a small registry, e.g. func DeclareEnum(fs *flag.FlagSet, name string, values []string), pairing an already-registered flag with its closed set of legal values (Design Decision 7); have BuildFlagsDocument add an enum key only for a flag so declared",
+        "Wrap the result as {\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"type\": \"object\", \"properties\": {...}}, with no required and no additionalProperties key",
+        "In cmd/fix/main.go and cmd/impl/main.go, call toolio.DeclareEnum(fs, \"land\", codefix.LandModes) / codeimpl.LandModes immediately after each tool's --land StringVar registration",
+        "Run TS-09-14 through TS-09-21 against fix's fully-populated FlagSet (including --pull) and iterate until green"
+      ],
+      "touches": [
+        "internal/toolio/flagschema.go",
+        "internal/toolio/flagschema_test.go",
+        "cmd/fix/main.go",
+        "cmd/impl/main.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Build the reflection-based result-document generator and tag every reachable field",
+      "criteria": [
+        "09-REQ-4"
+      ],
+      "tests": [
+        "TS-09-22",
+        "TS-09-23",
+        "TS-09-24",
+        "TS-09-25",
+        "TS-09-26",
+        "TS-09-27",
+        "TS-09-28"
+      ],
+      "steps": [
+        "Write TS-09-22 through TS-09-28 in a new internal/toolio/resultschema_test.go and confirm they fail",
+        "Add internal/toolio/resultschema.go reusing the ordered-node schema type from flagschema.go (factor the shared type and its MarshalJSON into a small internal/toolio/schemadoc.go if that keeps both files simple)",
+        "Implement SchemaFor(t reflect.Type) that turns a struct into {type: object, properties: ..., required: ...} using reflect.VisibleFields (so an anonymously embedded struct's fields are promoted in place), a slice into {type: array, items: <element schema>}, a pointer into its pointee's own schema with no separate nullable marker, and a scalar into the matching JSON Schema primitive",
+        "Read each field's json tag exactly as encoding/json does: the tag's name and omitempty decide the property name and required-ness, and json:\"-\" skips the field entirely",
+        "Add a new `description` struct tag read alongside `json`, and set every generated property's description from it",
+        "Add the `description` tag to every exported, JSON-tagged field in: internal/toolio/envelope.go (Envelope, InputInfo, ModelInfo, UsageInfo, PhaseInfo, ErrorInfo), codefix/types.go (Result, FileChange, Analysis, Ambiguity, Implementation) and codefix/criteria.go (Criterion, CriterionVerdict), codeimpl/types.go (Result, TaskReport, Survey, Location, Drift, Blocker, Submission, RepairSubmission, RepairReport, GateResult, FileChange, Verdict), issuetriage/pipeline.go (Result) and issuetriage/issue.go (FileRef, Fix), internal/checks/checks.go (Result), specgen/pipeline.go (Result, Package, ScopeReport, ValidationReport, ValidationItem, TraceReport, OpenQuestion)",
+        "Implement BuildResultDocument(sample any) that calls SchemaFor(reflect.TypeOf(toolio.Envelope{})) and substitutes the Envelope.Result property's schema with SchemaFor(reflect.TypeOf(sample)), wrapping the whole thing as {\"$schema\": \"…/2020-12/schema\", \"type\": \"object\", \"properties\": {...}, \"required\": [...]}",
+        "Run TS-09-22 through TS-09-28 against specgen.Result (to exercise the embedded Package promotion) and against codefix.Result and toolio.Envelope, and iterate until green"
+      ],
+      "touches": [
+        "internal/toolio/resultschema.go",
+        "internal/toolio/resultschema_test.go",
+        "internal/toolio/schemadoc.go",
+        "internal/toolio/envelope.go",
+        "codefix/types.go",
+        "codefix/criteria.go",
+        "codeimpl/types.go",
+        "issuetriage/pipeline.go",
+        "issuetriage/issue.go",
+        "internal/checks/checks.go",
+        "specgen/pipeline.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Add schema_version to the envelope, its constant, and the additive field on run_start",
+      "criteria": [
+        "09-REQ-5"
+      ],
+      "tests": [
+        "TS-09-29",
+        "TS-09-30",
+        "TS-09-31",
+        "TS-09-32"
+      ],
+      "steps": [
+        "Write TS-09-29 through TS-09-32 (in internal/toolio/envelope_test.go and a small integration test that runs a usage-error invocation of each tool) and confirm they fail",
+        "In internal/toolio/envelope.go, add `SchemaVersion string` tagged `json:\"schema_version\" description:\"...\"` (no omitempty) to Envelope, positioned immediately after Version",
+        "Add a package-level `const SchemaVersion = \"2.0.0\"` in internal/toolio/envelope.go, and set Run.Envelope's returned Envelope.SchemaVersion from it unconditionally, so all four tools always advertise the same value",
+        "Locate the run_start event type introduced by 07_progress_event_stream and add the same `SchemaVersion string` field tagged `json:\"schema_version\"`, set from toolio.SchemaVersion at the point the event is emitted",
+        "Run TS-09-29 through TS-09-32 across spec, issue, fix and impl (each driven to a usage error that still calls Run.Envelope) and iterate until green"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Wire the --schema flag into Common and App.Main with the required precedence and isolation",
+      "criteria": [
+        "09-REQ-1"
+      ],
+      "tests": [
+        "TS-09-1",
+        "TS-09-2",
+        "TS-09-3",
+        "TS-09-4",
+        "TS-09-5",
+        "TS-09-6",
+        "TS-09-7"
+      ],
+      "steps": [
+        "Write TS-09-1 through TS-09-7 in internal/toolio/app_test.go (unit-level, against a synthetic App) and confirm they fail",
+        "In internal/toolio/cli.go, add `Schema bool` to Common and register it in Common.Register via `fs.BoolVar(&c.Schema, \"schema\", false, \"print this tool's flags and result JSON Schema and exit, doing no work\")`",
+        "In internal/toolio/app.go, add to App: `Description string`, `InputDescription string`, `ExitCodes map[int]string`, `ResultSample any`",
+        "Add internal/toolio/selfdescribe.go with a function that assembles the document: tool = a.Name, schema_version = toolio.SchemaVersion, description = a.Description, input = {description: a.InputDescription, kinds: [\"text\",\"file\",\"stdin\",\"issue\"]}, flags = BuildFlagsDocument(fs), result = BuildResultDocument(a.ResultSample), exit_codes = a.ExitCodes",
+        "In App.Main, immediately after the existing `if common.Version { ... }` block and before the bare-input check (`if input == \"\"`), add: if common.Schema is true, build the document, marshal it as indented JSON, write it followed by a newline to stdout, and return ExitOK — without constructing Progress, calling PreCheck, Common.Workspace(), Resolve, or resolving a model",
+        "Confirm --version keeps priority: when both --version and --schema are set, the existing --version branch runs first and returns before the --schema check is ever reached",
+        "Confirm a flag.Parse error (surfaced through SplitArgs) is reported exactly as today, before either the --version or --schema check runs",
+        "Confirm a positional argument alongside --schema does not affect the document written, since the --schema check happens before `input` is used for anything",
+        "Run TS-09-1 through TS-09-7, including the fix binary run with --output/--events/--events-file alongside --schema and the four-tool empty-directory-no-credential run, and iterate until green"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/selfdescribe.go",
+        "internal/toolio/app_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Give each of the four tools its own description, input description, exit codes and result sample",
+      "criteria": [
+        "09-REQ-2"
+      ],
+      "tests": [
+        "TS-09-8",
+        "TS-09-9",
+        "TS-09-10",
+        "TS-09-11",
+        "TS-09-12",
+        "TS-09-13"
+      ],
+      "steps": [
+        "Write TS-09-8 through TS-09-13 as integration tests that build and run each tool's binary with --schema, and confirm they fail",
+        "In cmd/fix/main.go's App literal, set Description to one hand-authored sentence, InputDescription to the prose already under \"The input is exactly one of:\" in fix's usage constant restated as a value, ExitCodes to the five-entry map (0 done, 1 failed, 2 usage, 3 needs_human, 4 unverified, in fix's own words), and ResultSample: codefix.Result{}",
+        "Do the same for cmd/impl/main.go: its own Description, InputDescription drawn from impl's usage text, a five-entry ExitCodes, and ResultSample: codeimpl.Result{}",
+        "Do the same for cmd/issue/main.go: its own Description, InputDescription drawn from issue's usage text, a three-entry ExitCodes (0, 1, 2 only), and ResultSample: issuetriage.Result{}",
+        "Do the same for cmd/spec/main.go: its own Description, InputDescription drawn from spec's usage text, a three-entry ExitCodes (0, 1, 2 only), and ResultSample: specgen.Result{}",
+        "Confirm the four descriptions are pairwise distinct non-empty single sentences, and that input.kinds is the same four-element list for all four tools regardless of what each tool's own CheckInput refuses (impl still lists \"issue\" even though it refuses issue input)",
+        "Confirm tool and schema_version in the --schema document match Envelope.Tool/Envelope.SchemaVersion from an ordinary (usage-error) run of the same binary",
+        "Run TS-09-8 through TS-09-13 and iterate until green"
+      ],
+      "touches": [
+        "cmd/fix/main.go",
+        "cmd/impl/main.go",
+        "cmd/issue/main.go",
+        "cmd/spec/main.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Golden-file tests per tool, meta-schema compilation, and the description exhaustiveness check",
+      "criteria": [
+        "09-REQ-6"
+      ],
+      "tests": [
+        "TS-09-35",
+        "TS-09-36",
+        "TS-09-37",
+        "TS-09-38",
+        "TS-09-39"
+      ],
+      "steps": [
+        "Write TS-09-35 through TS-09-39 and confirm they fail",
+        "Create cmd/impl/main_test.go, cmd/issue/main_test.go and cmd/spec/main_test.go, each carrying the same getTestBin/runCommand-style build-and-run helper cmd/fix/main_test.go already has (factor the shared parts into a small helper each package copies or imports, per the PRD's own note that the helper is 'reused')",
+        "In each of the four cmd/<tool>/main_test.go files, add TestSchemaGolden: build the tool, run it with only --schema, and compare the bytes byte-for-byte against cmd/<tool>/testdata/schema.golden.json",
+        "Support an update path via an environment variable, e.g. `UPDATE_GOLDEN=1`, that rewrites the golden file from the live output instead of failing when set",
+        "Generate the four initial golden files by running each TestSchemaGolden once with the update path set, and commit cmd/fix/testdata/schema.golden.json, cmd/impl/testdata/schema.golden.json, cmd/issue/testdata/schema.golden.json and cmd/spec/testdata/schema.golden.json",
+        "In the same test, parse the --schema output's flags and result values and compile each against the JSON Schema 2020-12 meta-schema using github.com/santhosh-tekuri/jsonschema/v6, the same way afspec.getCompiledSchemas already loads and compiles a schema, failing and naming the tool and which document did not compile on any failure",
+        "Add internal/toolio/descriptions_check.go with CheckDescriptions(t reflect.Type) []string, walking reflect.VisibleFields recursively (following structs, slices and pointers) and returning the Go field names that lack the `description` tag",
+        "Add a unit test asserting CheckDescriptions reports exactly the untagged field of a synthetic struct, and reports nothing for toolio.Envelope, codefix.Result, codeimpl.Result, issuetriage.Result and specgen.Result",
+        "Run TS-09-35 through TS-09-39 and iterate until green, then deliberately mutate a golden file to confirm the failure path names the tool and shows a diff before restoring it"
+      ],
+      "touches": [
+        "cmd/fix/main_test.go",
+        "cmd/impl/main_test.go",
+        "cmd/issue/main_test.go",
+        "cmd/spec/main_test.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json",
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json",
+        "internal/toolio/descriptions_check.go"
+      ],
+      "depends_on": [
+        2,
+        5
+      ],
+      "done_when": [
+        "cmd/impl/testdata/schema.golden.json, cmd/issue/testdata/schema.golden.json and cmd/spec/testdata/schema.golden.json exist alongside cmd/fix/testdata/schema.golden.json and all four TestSchemaGolden tests pass"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Document --schema, the self-description shape and the envelope-versioning ADR",
+      "criteria": [
+        "09-REQ-7"
+      ],
+      "tests": [
+        "TS-09-33",
+        "TS-09-34",
+        "TS-09-40",
+        "TS-09-41",
+        "TS-09-42",
+        "TS-09-43"
+      ],
+      "steps": [
+        "Write TS-09-33, TS-09-34, TS-09-40, TS-09-41, TS-09-42 and TS-09-43 as tests that read docs/cli.md and docs/adr/06-version-the-envelope-interface.md by file content, and confirm they fail",
+        "Add a `--schema` row to docs/cli.md's shared-flags table stating its default (false) and its effect: prints the self-description document and exits, doing no work",
+        "Add a new \"Self-description (`--schema`)\" section to docs/cli.md with one abbreviated worked example (tool, schema_version, description, input, an abbreviated flags, an abbreviated result, exit_codes) and prose explaining what flags, result and exit_codes mean",
+        "Add a new \"Interface versions\" section to docs/cli.md listing 1.0.0 and 2.0.0, one paragraph each, stating the additive/breaking rule (a new top-level field, a new field on an existing object, a new value in an open-set field, or a new event type is additive; removing/renaming a field, changing a field's type, or narrowing a closed enum is breaking and bumps the major version), and noting the 2.0.0 entry is the worked example (05_envelope_decidable's and 06_trim_and_chain_results's changes)",
+        "Write docs/adr/06-version-the-envelope-interface.md following the existing ADR template (see docs/adr/05-write-every-scope-of-a-split.md): Status accepted, Context (one shared envelope across four tools that must evolve without breaking a caller silently), Decision (semver, additive-only within a major version, the same closed additive/breaking list as docs/cli.md), Consequence (a future spec that touches the envelope states, in its own PRD, which kind of change it is making)",
+        "Run TS-09-33, TS-09-34, TS-09-40, TS-09-41, TS-09-42 and TS-09-43 and iterate until green"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/adr/06-version-the-envelope-interface.md"
+      ],
+      "depends_on": [
+        3,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Trace every --schema execution path end to end and verify the shared envelope carries schema_version live",
+      "tests": [
+        "TS-09-44",
+        "TS-09-45",
+        "TS-09-46"
+      ],
+      "steps": [
+        "Write TS-09-44, TS-09-45 and TS-09-46 against real built binaries (no mocks for App.Main, the flags/result generators, or Run.Envelope) and confirm they fail, then make them pass",
+        "Trace 09-PATH-1 through the real code: fix's cmd/fix main -> toolio.App.Main's --schema branch -> selfdescribe.go's document assembly -> flagschema.go's BuildFlagsDocument and resultschema.go's BuildResultDocument -> stdout; confirm each step actually calls the next, with --dir pointed at a freshly created empty directory and no model credential env var set, and confirm the printed flags and result both compile against the JSON Schema 2020-12 meta-schema",
+        "Trace 09-PATH-2: mutate codefix.Result, run `make test`, confirm cmd/fix's TestSchemaGolden fails naming fix and showing a diff, then restore codefix.Result (or regenerate the golden file through the update path) and confirm `make test` passes again",
+        "Trace 09-PATH-3: run `issue --schema` and record schema_version, then run issue on a real report through issuetriage.Run to completion and confirm the ordinary envelope's schema_version (set by Run.Envelope from the shared toolio.SchemaVersion constant) equals the value --schema advertised",
+        "For every criterion carrying a contract in Requirement 1 (09-REQ-1.2 through 09-REQ-1.7), confirm the producer (App.Main's --schema branch) is the one actually invoked when a real binary is run with --schema, not only exercised by a unit test against a synthetic App",
+        "Grep internal/toolio/flagschema.go, internal/toolio/resultschema.go, internal/toolio/selfdescribe.go, internal/toolio/descriptions_check.go and all four cmd/<tool>/main.go files for TODO and panic(\"not implemented\"); remove or resolve any that remain",
+        "Confirm cmd/fix, cmd/impl, cmd/issue and cmd/spec each still build and that `go vet ./...` and `gofmt -l .` report nothing new",
+        "Run `make test` and `make lint` and confirm both pass"
+      ],
+      "touches": [
+        "internal/toolio/flagschema.go",
+        "internal/toolio/resultschema.go",
+        "internal/toolio/selfdescribe.go",
+        "internal/toolio/descriptions_check.go",
+        "cmd/fix/main.go",
+        "cmd/impl/main.go",
+        "cmd/issue/main.go",
+        "cmd/spec/main.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "done_when": [
+        "make test passes",
+        "make lint passes"
+      ],
+      "state": "pending"
+    }
+  ]
+}

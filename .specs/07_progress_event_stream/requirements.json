@@ -1,0 +1,461 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "07",
+  "spec_name": "progress_event_stream",
+  "schema_version": 2,
+  "introduction": "progress_event_stream gives spec, issue, fix and impl a second, parseable copy of their existing stderr progress: one JSON object per line, from a closed and documented set of event types, emitted on stderr under --events jsonl and/or duplicated to a file under --events-file, so a caller that is itself a program can watch spend accumulate and tell a working run from a hung one without changing what any tool does or how it looks on a terminal by default.",
+  "glossary": {
+    "JSONL sink": "The in-process writer that turns Progress, Runner and Run calls into one JSON event object per line. It is active whenever --events jsonl or --events-file is given, and inactive (and silent) otherwise.",
+    "closed set": "The fixed list of event `type` values this spec ever emits (run_start, step, phase_start, turn, tool_call, check, phase_end, warning, heartbeat, run_end, text). Nothing outside it is ever written to the stream, and a type never carries a field not listed for it.",
+    "envelope": "The single JSON object every tool writes to stdout (toolio.Envelope), unchanged by this spec except that run_end's status is read from the same exit code that decides the envelope's own ok field.",
+    "heartbeat": "The idle-run liveness event emitted every 15 seconds when no other event was emitted in that window, so a caller tailing the stream can tell a working run from a hung one.",
+    "phase": "One model-facing step of a pipeline, named by agentrun.Phase.Name (e.g. impl's \"implement\" phase); the same name is a cache key across an entire run, so a per-task label lives in the separate Phase.Task field instead.",
+    "stage": "The pipeline-step vocabulary already used by Result.Stage and error.Stage (e.g. \"preflight\", \"analyse\", \"verify\", \"push\"), reused verbatim as the step event's stage field and the heartbeat's last-known stage."
+  },
+  "requirements": [
+    {
+      "id": "07-REQ-1",
+      "title": "--events and --events-file flags",
+      "rationale": "A caller that is a program needs an explicit, validated way to ask for the parseable stream on stderr or in a file without disturbing the human default.",
+      "criteria": [
+        {
+          "id": "07-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "Common",
+          "action": "register --events (accepting \"text\" or \"jsonl\", default \"text\") and --events-file <path>, alongside the rest of the shared flags"
+        },
+        {
+          "id": "07-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "--events is given a value other than \"text\" or \"jsonl\"",
+          "system": "App",
+          "action": "reject the invocation immediately after flag parsing, before --version, the bare-invocation check or any input/model resolution",
+          "contract": "exit code 2; a JSON envelope on stdout with error.stage \"usage\"; nothing is fetched and no event is emitted"
+        },
+        {
+          "id": "07-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "--events-file <path> is given",
+          "system": "App",
+          "action": "open the file once, truncating any existing content, and flush each JSONL line to it as it is written"
+        },
+        {
+          "id": "07-REQ-1.4",
+          "pattern": "complex_event",
+          "condition": "--events-file <path> is given",
+          "guard": "--events is \"text\"",
+          "system": "App",
+          "action": "still write the full JSONL event stream to the file while stderr keeps its default human-readable form"
+        },
+        {
+          "id": "07-REQ-1.5",
+          "pattern": "state_driven",
+          "condition": "--quiet is set",
+          "system": "App",
+          "action": "suppress the human-readable stderr progress under both --events values exactly as it does today, without affecting the events file"
+        },
+        {
+          "id": "07-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "the process is killed mid-run while --events-file is active",
+          "system": "App",
+          "action": "leave in the file exactly the JSONL lines already flushed before termination",
+          "contract": "the file's content is a prefix of what a completed run would have written, with no partial or corrupted line"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-2",
+      "title": "Event envelope shape and the closed set of types",
+      "rationale": "A caller writes one parser against a fixed, documented shape rather than against whatever string a tool happens to print this month.",
+      "criteria": [
+        {
+          "id": "07-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "JSONL sink",
+          "action": "write every event as one JSON object carrying ts (RFC 3339, UTC), tool and type, in addition to the fields documented for that type"
+        },
+        {
+          "id": "07-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "JSONL sink",
+          "action": "for any event it emits, use a type drawn from the closed set {run_start, step, phase_start, turn, tool_call, check, phase_end, warning, heartbeat, run_end, text} and never emit any type outside it"
+        },
+        {
+          "id": "07-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "JSONL sink",
+          "action": "for any event it emits, include only the fields documented for that event's type, with no field belonging to another type ever present"
+        },
+        {
+          "id": "07-REQ-2.4",
+          "pattern": "unwanted",
+          "condition": "neither --events jsonl nor --events-file is active",
+          "system": "JSONL sink",
+          "action": "emit no event objects at all",
+          "contract": "stderr carries only the human-readable text form and no file is written for events"
+        },
+        {
+          "id": "07-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "JSONL sink",
+          "action": "serialize each event as a single line with no embedded newline, so a line-oriented reader consumes the stream one line at a time"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-3",
+      "title": "run_start and run_end wired in the shared shell",
+      "rationale": "Emitting the run's first and last event from toolio itself, rather than from a pipeline, is what guarantees no tool can omit one or emit them out of order.",
+      "criteria": [
+        {
+          "id": "07-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "App.execute has resolved the model, at the same point it calls e.run.SetModel and e.progress.Detail(\"model: …\") today",
+          "system": "App",
+          "action": "emit a run_start event carrying input_kind and model {spec, id, vendor}, before agentrun.Config or Runner is built"
+        },
+        {
+          "id": "07-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "App.Main has the exit code and result and is about to call Emit(stdout, run.Envelope(...))",
+          "system": "App",
+          "action": "emit a run_end event carrying status and exit_code immediately before the envelope is written"
+        },
+        {
+          "id": "07-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "the invocation is -h/--help or a bare invocation with no positional argument on a terminal",
+          "system": "App",
+          "action": "emit neither run_start nor run_end",
+          "contract": "zero event lines are written to stderr or the events file, matching that stdout carries no envelope on these paths"
+        },
+        {
+          "id": "07-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "App",
+          "action": "for any completed run, derive the run_end event's status from the same exit code that decides the envelope's own ok field, so the two never disagree"
+        },
+        {
+          "id": "07-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "App",
+          "action": "for any run that reaches App.Main's Emit call, emit run_start exactly once before any other event and emit run_end as the last event of that run"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-4",
+      "title": "Progress gains a JSONL sink behind its existing methods",
+      "rationale": "Every pipeline's call sites stay unchanged; only what each Progress method does changes under an active sink, which is what keeps this change invisible to every existing caller.",
+      "criteria": [
+        {
+          "id": "07-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "Step(stage, format, args...) is called while a JSONL sink is active",
+          "system": "Progress",
+          "action": "emit a step event carrying stage and the formatted message, in addition to its unchanged human-readable line"
+        },
+        {
+          "id": "07-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "Progress",
+          "action": "print Step's human-readable line as exactly \"[tool] message\", with stage never shown, unchanged by any --events value"
+        },
+        {
+          "id": "07-REQ-4.3",
+          "pattern": "state_driven",
+          "condition": "a JSONL sink is active",
+          "system": "Progress",
+          "action": "have Begin print nothing to stderr or the events file for its own span and return a no-op end function, relying on the phase_start/phase_end or check events instead"
+        },
+        {
+          "id": "07-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "Progress",
+          "action": "never emit an event from Detail under any --events value, so a JSONL sink carries nothing beyond today's --verbose stderr text from it"
+        },
+        {
+          "id": "07-REQ-4.5",
+          "pattern": "complex_event",
+          "condition": "Raw is called while a JSONL sink is active",
+          "guard": "--show-text is set",
+          "system": "Progress",
+          "action": "emit a text event carrying phase and delta instead of writing raw prose"
+        },
+        {
+          "id": "07-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "Raw is called without --show-text",
+          "system": "Progress",
+          "action": "do nothing, unchanged by any --events value",
+          "contract": "no text event is emitted and no prose is written to stderr or the events file"
+        },
+        {
+          "id": "07-REQ-4.7",
+          "pattern": "event_driven",
+          "condition": "Progress.Check(res checks.Result) is called at the choke points in codefix.runChecks and codeimpl.runGate immediately after checks.Run returns, while a JSONL sink is active",
+          "system": "Progress",
+          "action": "emit a check event carrying command, ok, exit_code and duration_ms taken directly from res"
+        },
+        {
+          "id": "07-REQ-4.8",
+          "pattern": "ubiquitous",
+          "system": "Progress",
+          "action": "do nothing in Progress.Check when no JSONL sink is active, leaving today's stderr output from the surrounding Begin call as the only trace of the check"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-5",
+      "title": "agentrun.Observer gains phase and turn hooks",
+      "rationale": "A phase's cost and progress become visible while it runs, not only once it ends, and only Runner.Run itself calls the new hooks so no pipeline needs to change.",
+      "criteria": [
+        {
+          "id": "07-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "Observer interface",
+          "action": "add PhaseStart(phase, task string, maxTurns int, budgetUSD float64), PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64) and Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64) and ToolCall(phase, name string, blocked bool) as additive methods, so every existing agentrun.Config{Observer: someProgress} caller keeps compiling"
+        },
+        {
+          "id": "07-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "Runner.Run begins a phase, before the agent is built",
+          "system": "Runner",
+          "action": "call Observer.PhaseStart with the phase's name, its Task field (empty except impl's per-task implement phase) and the resolved maxTurns/maxBudget ceilings from r.cfg.Bounds, which becomes a phase_start event under an active JSONL sink"
+        },
+        {
+          "id": "07-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "Runner.Run is about to return",
+          "system": "Runner",
+          "action": "call Observer.PhaseEnd exactly once with the phase name, stop reason, turn count, cost and duration read from the same agentrun.Result it assembles, which becomes a phase_end event under an active JSONL sink"
+        },
+        {
+          "id": "07-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "Runner.trace processes a model turn boundary in the phase's event stream",
+          "system": "Runner",
+          "action": "call Observer.Turn once with a monotonically increasing per-phase turn counter and the correct phase name, degrading to zeroed cost and token fields when the underlying stream exposes no per-turn usage"
+        },
+        {
+          "id": "07-REQ-5.5",
+          "pattern": "complex_event",
+          "condition": "a ToolCallEndEvent is traced by Runner.trace",
+          "guard": "Progress.Verbose() is true",
+          "system": "Runner",
+          "action": "call Observer.ToolCall(phase, name, blocked: false)"
+        },
+        {
+          "id": "07-REQ-5.6",
+          "pattern": "complex_event",
+          "condition": "agentrun.Guard's OnBlock fires for a refused tool call",
+          "guard": "Progress.Verbose() is true",
+          "system": "Guard",
+          "action": "also call Observer.ToolCall(phase, name, blocked: true), correlated by tool name, in addition to today's counter.inc() and detail(...) calls"
+        },
+        {
+          "id": "07-REQ-5.7",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Phase",
+          "action": "carry an optional Task string field, set only at codeimpl's per-task phase construction and left empty on every other phase, so Phase.Name remains the stable cache key across every task"
+        },
+        {
+          "id": "07-REQ-5.8",
+          "pattern": "unwanted",
+          "condition": "Progress.Verbose() is false",
+          "system": "Runner and Guard",
+          "action": "make no Observer.ToolCall call at all",
+          "contract": "no tool_call event is ever emitted and no tool-call Detail line is printed, unchanged from today's --verbose gating"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-6",
+      "title": "warning events mirror Run.Warn",
+      "rationale": "Attaching the sink to Run keeps emitting a warning event a single, unavoidable side effect of recording the warning, the same guarantee the envelope's own warnings array relies on.",
+      "criteria": [
+        {
+          "id": "07-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "toolio.Run",
+          "action": "hold a reference to the events sink, set exactly once in App.Main immediately after both Run and Progress are constructed"
+        },
+        {
+          "id": "07-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "Run.Warn(...) records a warning carrying code, severity and stage, while a JSONL sink is attached and active",
+          "system": "toolio.Run",
+          "action": "also emit a warning event carrying the same code, severity, stage and message through the attached sink"
+        },
+        {
+          "id": "07-REQ-6.3",
+          "pattern": "unwanted",
+          "condition": "a *Run is built without an attached sink, as today's bare Run values in tests are",
+          "system": "toolio.Run",
+          "action": "record the warning as today without emitting any event",
+          "contract": "Run.Warnings() is unaffected and Run.Warn does not panic"
+        },
+        {
+          "id": "07-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "toolio.Run",
+          "action": "for any warning recorded on a Run with an attached sink, mirror the resulting warning event's fields exactly against the corresponding entry the envelope's own warnings array carries for that same warning"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-7",
+      "title": "heartbeat every 15 seconds of silence",
+      "rationale": "A caller tailing the stream needs a bounded upper limit on the gap between events to tell a working run from a hung one.",
+      "criteria": [
+        {
+          "id": "07-REQ-7.1",
+          "pattern": "state_driven",
+          "condition": "either --events jsonl or --events-file is active",
+          "system": "JSONL sink",
+          "action": "run one ticker for the run's lifetime that checks every second whether 15 seconds have passed since the last event of any type was emitted"
+        },
+        {
+          "id": "07-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "15 seconds have passed since the last emitted event, counting run_start as the first and a heartbeat as the reset for the next",
+          "system": "JSONL sink",
+          "action": "emit a heartbeat event carrying the last stage a step or phase_start event named, elapsed_ms since the run started, and cost_usd read from the run's accumulated phase total"
+        },
+        {
+          "id": "07-REQ-7.3",
+          "pattern": "unwanted",
+          "condition": "another event of any type is emitted before 15 seconds have elapsed since the previous one",
+          "system": "JSONL sink",
+          "action": "reset the heartbeat window from that event's own timestamp instead of emitting a heartbeat",
+          "contract": "no heartbeat event appears between two events emitted less than 15 seconds apart"
+        },
+        {
+          "id": "07-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "the run_end event is emitted",
+          "system": "JSONL sink",
+          "action": "stop the heartbeat ticker"
+        },
+        {
+          "id": "07-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "JSONL sink",
+          "action": "read the heartbeat's cost_usd from toolio.Run's existing running total for usage.phases[], never computing it a second way"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-8",
+      "title": "Documentation of the event stream",
+      "rationale": "A closed set of event types is only useful to a caller if it is written down once, in one place, rather than reverse-engineered from source.",
+      "criteria": [
+        {
+          "id": "07-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "contain an \"event types\" section documenting --events and --events-file, the closed set's type table, and a worked multi-line JSONL example"
+        },
+        {
+          "id": "07-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "contain a section pointing at the turn and phase_end events as the way to watch spend live, next to the existing usage.phases[] paragraph"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "07-PATH-1",
+      "title": "A supervisor watches a fix run live via --events jsonl",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes `fix --events jsonl <issue-url>`"
+        },
+        {
+          "actor": "App",
+          "action": "parses flags, validates --events, classifies the input and resolves the model"
+        },
+        {
+          "actor": "App",
+          "action": "emits a run_start event to stderr carrying input_kind and model"
+        },
+        {
+          "actor": "Runner",
+          "action": "emits phase_start, turn and tool_call events as agentkit streams a phase's events"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls Progress.Check after checks.Run returns, emitting a check event"
+        },
+        {
+          "actor": "Runner",
+          "action": "emits a phase_end event as the phase returns, folding its cost into toolio.Run"
+        },
+        {
+          "actor": "App",
+          "action": "emits a run_end event immediately before writing the JSON envelope to stdout"
+        },
+        {
+          "actor": "caller",
+          "action": "parses the JSONL stream and watches cost_usd accumulate before the run finishes"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-2",
+      "title": "A human and a supervisor watch the same impl run through different streams",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes `impl --events text --events-file run.jsonl <spec>`"
+        },
+        {
+          "actor": "App",
+          "action": "opens run.jsonl truncated and starts the JSONL sink and its 15s heartbeat ticker"
+        },
+        {
+          "actor": "Progress",
+          "action": "prints unchanged human step lines to stderr while emitting the matching step events only to run.jsonl"
+        },
+        {
+          "actor": "heartbeat ticker",
+          "action": "emits a heartbeat event to run.jsonl carrying stage, elapsed_ms and cost_usd after 15s of silence during a long phase"
+        },
+        {
+          "actor": "App",
+          "action": "emits run_end to run.jsonl immediately before writing the envelope, stopping the ticker"
+        },
+        {
+          "actor": "supervisor",
+          "action": "tails run.jsonl and confirms the run is alive from the heartbeat cadence, while a person reads the terminal's human text"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-3",
+      "title": "An invalid --events value is refused before any work happens",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes `spec --events yaml <report>`"
+        },
+        {
+          "actor": "App",
+          "action": "validates --events right after flag parsing, before --version, the bare-invocation check or any fetch"
+        },
+        {
+          "actor": "App",
+          "action": "rejects the invocation as a usage error, emitting neither run_start nor any other event"
+        },
+        {
+          "actor": "caller",
+          "action": "receives exit code 2 and a JSON envelope on stdout with error.stage \"usage\", with zero event lines on stderr"
+        }
+      ]
+    }
+  ]
+}

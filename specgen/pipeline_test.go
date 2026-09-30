@@ -410,7 +410,7 @@ func TestAFailedArchitectureIsAWarningNotAFailure(t *testing.T) {
 		t.Errorf("the package should still validate: %+v", got.Validation.Errors)
 	}
 	warnings := o.Run.Warnings()
-	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "architecture.md") {
+	if len(warnings) == 0 || !strings.Contains(strings.Join(toolio.WarningMessages(warnings), "\n"), "architecture.md") {
 		t.Errorf("warnings = %v", warnings)
 	}
 }
@@ -685,7 +685,40 @@ func TestTS0431_PostsPRDCommentAndWarnsOnFailure(t *testing.T) {
 	if len(warnings) != 1 {
 		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
 	}
-	if !strings.Contains(warnings[0], "the PRD could not be posted") {
-		t.Errorf("warning %q should contain 'the PRD could not be posted'", warnings[0])
+	if !strings.Contains(warnings[0].Message, "the PRD could not be posted") {
+		t.Errorf("warning %q should contain 'the PRD could not be posted'", warnings[0].Message)
+	}
+}
+
+func TestSpecgenResultSummary(t *testing.T) {
+	rSingle := Result{
+		Package: Package{
+			SpecDir: ".specs/05_envelope_decidable",
+			OpenQuestions: []OpenQuestion{
+				{Question: "Q1"},
+				{Question: "Q2"},
+			},
+		},
+	}
+	wantSingle := "spec: wrote .specs/05_envelope_decidable; 2 open questions"
+	if rSingle.Summary() != wantSingle {
+		t.Errorf("got %q, want %q", rSingle.Summary(), wantSingle)
+	}
+
+	rSplit := Result{
+		Split: []ScopeReport{
+			{Scope: "scope1", Status: ScopeDone},
+			{Scope: "scope2", Status: ScopeDone},
+			{Scope: "scope3", Status: ScopeFailed},
+		},
+		Package: Package{
+			OpenQuestions: []OpenQuestion{
+				{Question: "Q1"},
+			},
+		},
+	}
+	wantSplit := "spec: split 2 of 3 scopes; 1 open question"
+	if rSplit.Summary() != wantSplit {
+		t.Errorf("got %q, want %q", rSplit.Summary(), wantSplit)
 	}
 }

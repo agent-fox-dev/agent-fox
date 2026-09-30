@@ -1,0 +1,609 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "06",
+  "spec_name": "trim_and_chain_results",
+  "schema_version": 2,
+  "introduction": "The four agent-fox tools (issue, fix, spec, impl) share one JSON envelope assembled by internal/toolio. This spec trims that envelope's default view to what a caller acts on, keeps the complete result on disk in a report file, gives every tool a uniform artifacts[]/side_effects[] view of what it produced and changed, lets a result suggest its own next[] invocation, and closes two input-side gaps: a mistyped path silently read as prose, and a --dry-run/--total-budget promise kept only for Common's own flags. It builds directly on 05_envelope_decidable's status/summary/needs_human/warnings work and changes nothing about what any tool does.",
+  "glossary": {
+    "--input-kind": "A shared flag forcing Resolve's classification of the single argument to file, text, issue or stdin instead of letting it guess, refusing a mismatch before anything is fetched or a token is spent.",
+    "artifacts[]": "A top-level array giving one uniform shape, across all four tools, to what a run produced: branch, commit, pull_request, comment, issue, spec_package and report_file entries, built only from facts each tool's Result already holds.",
+    "detail view": "The result shape a run emits on stdout: summary (the default, a per-tool trimmed subset) or full (everything the tool computed), named by --detail and recorded on every Result as detail.",
+    "input_looks_like_path": "A new WarnCode: a high-severity warning naming a single-line, whitespace-free, path-shaped argument that Resolve classified as text because the path does not exist on disk.",
+    "landable verdict": "A checks.Verdict (fix) or codeimpl gate verdict (impl) for which Landable()/landable() reports true: the run may commit and push. The summary view's verification/baseline fields are included only when the run's stopping verdict is not landable.",
+    "next[]": "An optional top-level array of suggested follow-up invocations, derived from a tool's own Result in Go and never supplied by the model.",
+    "report file": "The complete envelope, always the full view of result regardless of --detail, written once per run to --report-file or a computed default path under $XDG_STATE_HOME/agent-fox/runs (or its ~/.local/state fallback).",
+    "side_effects[]": "A top-level array recording every write to a forge or a remote in the order it happened, so whether a run touched GitHub or GitLab has one answer regardless of which tool ran."
+  },
+  "requirements": [
+    {
+      "id": "06-REQ-1",
+      "title": "--detail flag and the full view",
+      "rationale": "A default view under 3 KB and a full view that loses nothing both need one flag with two legal values, and every Result must say which one it produced.",
+      "criteria": [
+        {
+          "id": "06-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "register a --detail flag accepting exactly the values summary and full, defaulting to summary when omitted"
+        },
+        {
+          "id": "06-REQ-1.2",
+          "pattern": "unwanted",
+          "condition": "--detail is given a value other than summary or full",
+          "system": "toolio Common",
+          "action": "reject the run before any input is resolved",
+          "contract": "exit code 2; error.category is usage; no file is read, no issue fetched, no model resolved"
+        },
+        {
+          "id": "06-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "--detail full is given",
+          "system": "Run.Envelope",
+          "action": "emit result exactly as the tool produces it today plus every field 05_envelope_decidable adds, with no field removed or restructured",
+          "contract": "result's JSON keys are a superset of what full carried before this spec, for every one of the four tools, and never a subset"
+        },
+        {
+          "id": "06-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "each tool's Result type",
+          "action": "record which view was emitted as a detail field carrying the literal string summary or full, present on both the full and the trimmed value"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-2",
+      "title": "The report file",
+      "rationale": "A caller who ran with --detail summary must be able to get the rest without a re-run, and a write that fails must not take the run down with it.",
+      "criteria": [
+        {
+          "id": "06-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "write the complete envelope's full view of result, whatever --detail was actually given, to a report file for every run"
+        },
+        {
+          "id": "06-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "--report-file <path> is not given",
+          "system": "toolio",
+          "action": "compute the report file's path as $XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at, colon-free>-<pid>.json, falling back to ~/.local/state/agent-fox/runs/... when $XDG_STATE_HOME is unset, and create the parent directory as needed",
+          "contract": "the file exists at the computed path after the run, with its parent directory created if it did not already exist"
+        },
+        {
+          "id": "06-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "the report file cannot be written (a permission error, a read-only filesystem)",
+          "system": "toolio",
+          "action": "record a low-severity warning report_file_not_written at stage report instead of failing the run, and omit the envelope's report_file field",
+          "contract": "the run's exit code and ok are unaffected by the write failure; warnings includes an entry with code report_file_not_written, severity low, stage report; report_file is absent from the envelope"
+        },
+        {
+          "id": "06-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "--dry-run is given",
+          "system": "toolio",
+          "action": "still write the report file, because it is local state on the machine running the tool and not a remote change"
+        },
+        {
+          "id": "06-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "set the envelope's top-level report_file field to the path actually written, whenever the write succeeded"
+        },
+        {
+          "id": "06-REQ-2.6",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "write the report file for every JSON object emitted to stdout, including a failed run and a post-classification usage error"
+        },
+        {
+          "id": "06-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "the invocation is one of the two purely human-driven paths: a bare invocation on a terminal, or -h/--help/--version",
+          "system": "toolio",
+          "action": "print nothing to stdout beyond the unchanged terminal/help/version behaviour and write no report file",
+          "contract": "no JSON object appears on stdout beyond what already prints today; no file appears at the report-file location for that invocation"
+        },
+        {
+          "id": "06-REQ-2.8",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any run whose report file was written, make that file's content byte-for-byte identical to what --detail full would have printed to stdout for the same run"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-3",
+      "title": "Per-tool summary view",
+      "rationale": "Each tool's trimmed subset removes or restructures fields in ways specific to its own Result shape, so what stays is decided once per tool rather than by a generic filter.",
+      "criteria": [
+        {
+          "id": "06-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "the tool is issue and --detail is summary (the default)",
+          "system": "issuetriage Result",
+          "action": "keep in result only action, repo, url, number, title, severity, confidence, affected_files reduced to paths only, labels and rejected_path_calls",
+          "contract": "result's JSON object carries exactly those keys plus detail; every other issuetriage.Result field is absent from stdout but present in the report file"
+        },
+        {
+          "id": "06-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "the tool is fix and --detail is summary (the default)",
+          "system": "codefix Result",
+          "action": "keep in result stage, branch, base_branch, commit, changed_files, verdict, criteria_outcome, pull_request_url and dry_run always, and additionally include verification only when checks.Compare's verdict for the run is not one Verdict.Landable() reports true for",
+          "contract": "result omits verification when the run's verdict is landable, and includes it, tail output and all, when the verdict regressed, stayed failing, or is otherwise not landable"
+        },
+        {
+          "id": "06-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "the tool is impl and --detail is summary (the default)",
+          "system": "codeimpl Result",
+          "action": "keep in result stage, spec_dir, spec_id, spec_name, title, status, branch, tasks_total, tasks_done, tasks_skipped, tasks_remaining, one entry per task reduced to {id, outcome, commit, verdict}, the top-level verdict and pull_request_url, and additionally the top-level verification only when the run stopped on a verdict that landable() (codeimpl/gate.go) reports false for",
+          "contract": "result's per-task entries carry only id, outcome, commit and verdict; the top-level verification is present exactly when the stopping verdict is not landable"
+        },
+        {
+          "id": "06-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "the tool is spec and --detail is summary (the default)",
+          "system": "specgen Result",
+          "action": "keep in result spec_dir, spec_id, spec_name, status, the unchanged artifacts file-name list, validation reduced to {valid, error_count, errors}, traceability reduced to {criteria_uncovered, paths_uncovered, tests_unowned}, open_questions and split, dropping follow_on_specs, split_plan, validation.warning_count, validation.warnings, traceability.criteria_covered and traceability.paths_covered",
+          "contract": "result's validation object carries only valid, error_count and errors; its traceability object carries only criteria_uncovered, paths_uncovered and tests_unowned; follow_on_specs and split_plan are absent from result"
+        },
+        {
+          "id": "06-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "compute every field trimmed from the summary view exactly as it would under full, and write it to the report file in full, never skipping the computation because the field will not appear on stdout"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-4",
+      "title": "artifacts[]: what the run produced",
+      "rationale": "A caller chaining tools needs one uniform shape for what a run produced, read off facts the tool already holds rather than the model's own account.",
+      "criteria": [
+        {
+          "id": "06-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "populate a top-level artifacts array whenever the run produced anything, over the closed set of kinds branch, commit, pull_request, comment, issue, spec_package and report_file, each carrying the fields fixed for its kind: branch {name, base}; commit {sha, branch}; pull_request {url, number}; comment {url}; issue {url, number}; spec_package {path, id, valid}; report_file {path}"
+        },
+        {
+          "id": "06-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "build every artifacts entry from facts already held on its own Result type (Branch, Commit, PullRequestURL, Comments, SpecDir, Validation.Valid and the rest), never from Implementation, Submission, Survey or any other field that is the model's own account of its work"
+        },
+        {
+          "id": "06-REQ-4.3",
+          "pattern": "complex_event",
+          "condition": "--dry-run is given",
+          "guard": "the entry describes something that would have happened on a forge or remote but did not (a pull_request or comment entry for a fix/impl dry run reaching --land=pr, or an issue entry for issue --dry-run)",
+          "system": "each tool",
+          "action": "mark that entry dry_run: true, with an empty url and number for the issue-entry case"
+        },
+        {
+          "id": "06-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "--dry-run is given and the entry describes something that happened locally (the branch created, the commit made)",
+          "system": "fix and impl",
+          "action": "omit the dry_run marker from that entry, because it is not hypothetical"
+        },
+        {
+          "id": "06-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "leave the existing result fields (url, pull_request_url, spec_dir and the rest) unchanged, so artifacts is a second, uniform view over the same facts rather than a replacement"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-5",
+      "title": "side_effects[]: what the run changed outside the machine",
+      "rationale": "\"Did this touch a forge\" must have one answer regardless of which tool ran, recorded live at the one place each write happens so it can never disagree with the warning the same site records on failure.",
+      "criteria": [
+        {
+          "id": "06-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "populate a top-level side_effects array, omitted when empty, listing every write to a forge or a remote in the order it happened, each carrying action, target, ok and, when ok is false, warning"
+        },
+        {
+          "id": "06-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "record action as one of create_issue, update_issue, comment, push or open_pr for every side_effects entry"
+        },
+        {
+          "id": "06-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "name target as \"origin <branch>\" for a push, \"<owner>/<repo>#<number>\" for a comment or an issue update, \"<owner>/<repo>\" for a created issue before it has a number, and \"<owner>/<repo>#<pr-number>\" for a pull request"
+        },
+        {
+          "id": "06-REQ-5.4",
+          "pattern": "complex_event",
+          "condition": "a recorded write did not succeed",
+          "guard": "the same call site already records a Run.Warn for the failure",
+          "system": "each tool",
+          "action": "set that side_effects entry's ok to false and warning to the WarnCode the call site recorded",
+          "contract": "no side_effects entry has ok: true alongside a write the call site itself reported as failed, and no failed write is ever recorded with ok true"
+        },
+        {
+          "id": "06-REQ-5.5",
+          "pattern": "ubiquitous",
+          "system": "toolio Run",
+          "action": "record each side_effects entry live, at the one call site the write actually happens (issuetriage.Write's two forge calls, codefix/codeimpl's git.Push, openPullRequest/LandPRChanges, and postComment, specgen's PRD-comment write), alongside the Run.Warn the same site already makes on failure, rather than deriving the array after the fact from the finished Result"
+        },
+        {
+          "id": "06-REQ-5.6",
+          "pattern": "state_driven",
+          "condition": "the run was made under --dry-run",
+          "system": "each tool",
+          "action": "produce an empty side_effects array, because every one of the recording call sites is already skipped or short-circuited under --dry-run"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-6",
+      "title": "next[]: the invocation a caller would make next",
+      "rationale": "A result should be able to suggest its own next invocation without a model inventing one, and the one entry that cannot be small must stay identical to the shape 05_envelope_decidable already established for the same case.",
+      "criteria": [
+        {
+          "id": "06-REQ-6.1",
+          "pattern": "complex_event",
+          "condition": "issue's Action is not \"none\" (an issue was filed or updated)",
+          "guard": "the run was not made under --dry-run",
+          "system": "issuetriage Result",
+          "action": "populate next with one entry {tool: \"fix\", input: the issue URL, flags: [], why: a sentence naming that the issue was filed and labelled, naming the labels when there were any}"
+        },
+        {
+          "id": "06-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "at least one package spec wrote validates",
+          "system": "specgen Result",
+          "action": "populate next with an entry {tool: \"impl\", input: the first validating package's spec_dir, flags: [], why: \"the package validates and is ready to implement\"}"
+        },
+        {
+          "id": "06-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "the split is unfinished (specgen Result.Resumable() is true, i.e. split_plan is non-empty)",
+          "system": "specgen Result",
+          "action": "add a further next entry suggesting spec again on the same input, using the literal origin (a file path or issue URL) when the input had one, and the placeholder \"<same input>\" (the same string needs_human.resume uses) when the input was raw text or stdin"
+        },
+        {
+          "id": "06-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "impl's stage is \"parked\" (exit 4)",
+          "system": "codeimpl Result",
+          "action": "populate next with an entry {tool: \"impl\", input: the spec_dir, flags: [], why: \"the run parked; re-running continues from the last landed task\"}"
+        },
+        {
+          "id": "06-REQ-6.5",
+          "pattern": "complex_event",
+          "condition": "impl parked (per 06-REQ-6.4) with a red baseline (the baseline's checks include a failing one)",
+          "guard": "no repair was attempted (result.repair is absent)",
+          "system": "codeimpl Result",
+          "action": "include \"--repair\" in that entry's flags and state in why that the baseline needs repairing first"
+        },
+        {
+          "id": "06-REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "fix stopped on an ambiguity (category: \"ambiguous\")",
+          "system": "codefix Result",
+          "action": "populate next with one entry suggesting fix again with --context, rendered exactly as needs_human.resume — the placeholder input shape, not the tool's literal argument",
+          "contract": "that next entry's input text is character-for-character identical to the envelope's own needs_human.resume; it is the one next[] entry that is not directly runnable as printed"
+        },
+        {
+          "id": "06-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "codefix Result",
+          "action": "populate no next entry on a run that lands successfully"
+        },
+        {
+          "id": "06-REQ-6.8",
+          "pattern": "ubiquitous",
+          "system": "each tool",
+          "action": "derive every next entry from its own Result in Go, never from the model, omit next entirely when there is nothing to suggest, and make every entry besides fix's ambiguity suggestion runnable exactly as printed, naming a stable and small reference such as an issue URL or a spec directory"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-7",
+      "title": "A mistyped path is flagged",
+      "rationale": "A single-line, path-shaped argument that does not exist is a plausible typo, and a caller deserves to be told rather than have it silently read as prose.",
+      "criteria": [
+        {
+          "id": "06-REQ-7.1",
+          "pattern": "complex_event",
+          "condition": "toolio Resolve classifies the input as text, and the raw argument is a single line, contains no whitespace character, and either contains a slash or ends in a short alphanumeric extension-shaped suffix matching \\.[A-Za-z0-9]{1,6}$",
+          "guard": "os.Stat on the raw argument fails (the path does not exist)",
+          "system": "toolio Resolve",
+          "action": "record a high-severity warning input_looks_like_path at stage input, naming the path",
+          "contract": "warnings includes an entry with code input_looks_like_path, severity high, stage input, whose message names the exact argument"
+        },
+        {
+          "id": "06-REQ-7.2",
+          "pattern": "unwanted",
+          "condition": "os.Stat on the raw argument reports an existing directory",
+          "system": "toolio Resolve",
+          "action": "not record an input_looks_like_path warning for it",
+          "contract": "warnings contains no input_looks_like_path entry naming that argument, because an existing directory is already a legitimate reference"
+        },
+        {
+          "id": "06-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "Run.Envelope",
+          "action": "carry the input_looks_like_path warning in the top-level warnings array regardless of what --detail was given, and, when the run's ok is true, append 05_envelope_decidable's deterministic high-severity clause to summary with no per-tool code beyond declaring the warning code"
+        },
+        {
+          "id": "06-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "fix and impl Result",
+          "action": "leave the summary view's kept verification/baseline fields unaffected by the presence of an input_looks_like_path warning"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-8",
+      "title": "--input-kind: opt-in strict classification",
+      "rationale": "A caller that wants to demand file, text, issue or stdin classification must get a usage error before a token is spent, not after a wrong guess is diagnosed.",
+      "criteria": [
+        {
+          "id": "06-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "register a shared --input-kind flag accepting file, text, issue or stdin, performing every check for the forced mode before a file is opened, a URL is fetched, or a model is resolved, in place of Resolve's ordinary auto-classification"
+        },
+        {
+          "id": "06-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "--input-kind file is given",
+          "system": "toolio Resolve",
+          "action": "require the argument to be a readable regular file, refusing a missing path by naming that it does not exist and a directory by naming that it is one, both before Resolve's ordinary file-vs-text fallback runs",
+          "contract": "a missing or directory argument produces a usage error naming which of the two it is, exit code 2"
+        },
+        {
+          "id": "06-REQ-8.3",
+          "pattern": "event_driven",
+          "condition": "--input-kind text is given",
+          "system": "toolio Resolve",
+          "action": "use the argument verbatim as the input body, performing no file-existence or issue-URL check even when a same-named file or a parseable URL exists"
+        },
+        {
+          "id": "06-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "--input-kind issue is given",
+          "system": "toolio Resolve",
+          "action": "require the argument to parse as a GitHub or GitLab issue or pull-request URL, refusing one that does not before any HTTP request",
+          "contract": "an argument that does not parse as such a URL produces a usage error, exit code 2, with no forge request made"
+        },
+        {
+          "id": "06-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "--input-kind stdin is given",
+          "system": "toolio Resolve",
+          "action": "require the argument to be exactly \"-\", refusing anything else",
+          "contract": "an argument other than \"-\" produces a usage error, exit code 2"
+        },
+        {
+          "id": "06-REQ-8.6",
+          "pattern": "unwanted",
+          "condition": "the argument does not match the forced --input-kind mode, under any of the four values",
+          "system": "toolio Resolve",
+          "action": "refuse the run",
+          "contract": "exit code 2; error.category is usage; nothing is fetched, no file is read beyond the existence/type check, and no model is resolved"
+        },
+        {
+          "id": "06-REQ-8.7",
+          "pattern": "event_driven",
+          "condition": "impl is invoked with --input-kind text and an ordinary spec reference (a directory, an id or a name)",
+          "system": "toolio Resolve",
+          "action": "hand the argument to codeimpl.Locate unmodified as a text-kind body, without Resolve's file check ever running and without any change to Locate itself",
+          "contract": "codeimpl.Locate resolves the same reference it resolves without --input-kind, unaffected by a same-named file existing elsewhere on disk"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-9",
+      "title": "Shared --dry-run, --total-budget and unsupported-flag rejection",
+      "rationale": "A flag every tool shares must mean the same thing on every tool, and a tool asked for a flag it does not support should say so by name.",
+      "criteria": [
+        {
+          "id": "06-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "register --dry-run exactly once, with the one definition make no remote change: no push, no write to a forge, shared by every tool that accepts it"
+        },
+        {
+          "id": "06-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "each tool's usage text and docs/cli.md",
+          "action": "state what the tool still does locally under --dry-run: nothing for issue, nothing for spec (no files are written either), and the branch and the commits for fix and impl"
+        },
+        {
+          "id": "06-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "toolio Common",
+          "action": "register --total-budget exactly once, as a dollar ceiling on the run's total spend across every phase, with zero (the default) meaning no ceiling beyond the existing per-phase --budget"
+        },
+        {
+          "id": "06-REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "the tool is issue, which has one phase",
+          "system": "issuetriage",
+          "action": "apply min(--budget, --total-budget) as that one phase's effective ceiling, so the two flags bound the same spend"
+        },
+        {
+          "id": "06-REQ-9.5",
+          "pattern": "complex_event",
+          "condition": "the tool is fix, whose two phases (analyse, implement) share one boundary between them",
+          "guard": "the cumulative spend at that boundary has already passed --total-budget",
+          "system": "codefix",
+          "action": "stop with category budget before the implementation phase starts, checked the same way codeimpl's overBudget checks between tasks"
+        },
+        {
+          "id": "06-REQ-9.6",
+          "pattern": "complex_event",
+          "condition": "the tool is spec, run on an input that splits into more than one scope",
+          "guard": "the cumulative spend before a scope's PRD phase begins has already passed --total-budget",
+          "system": "specgen",
+          "action": "stop with category budget, leaving the split plan in place to resume from; an unsplit input has no interior boundary and behaves like issue's single-phase fold"
+        },
+        {
+          "id": "06-REQ-9.7",
+          "pattern": "event_driven",
+          "condition": "a flag is given that the invoked tool's Exec does not use, but one of the other three tools defines",
+          "system": "toolio App.Main",
+          "action": "reject the flag.Parse failure with a usage error naming both the unsupported flag and which of the four tools does accept it, instead of Go's generic \"flag provided but not defined\" message",
+          "contract": "the usage error's message names the flag and the accepting tool by name; exit code 2"
+        },
+        {
+          "id": "06-REQ-9.8",
+          "pattern": "unwanted",
+          "condition": "a flag is given that belongs to none of the four tools",
+          "system": "toolio App.Main",
+          "action": "keep Go's own generic \"flag provided but not defined\" message",
+          "contract": "the usage error's message is Go's unmodified flag.Parse error text; exit code 2"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-10",
+      "title": "Documentation reflects the trimmed, chained envelope",
+      "rationale": "docs/cli.md and docs/configuration.md are what a caller falls back to and must describe the envelope this spec ships.",
+      "criteria": [
+        {
+          "id": "06-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "gain a \"--detail, --report-file\" entry in the shared-flags table"
+        },
+        {
+          "id": "06-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "gain, in each tool's own section, a table of its --detail summary subset mirroring 06-REQ-3, and the local meaning of --dry-run"
+        },
+        {
+          "id": "06-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "document --input-kind under shared flags, naming its four values and the pre-fetch refusal it produces on a mismatch"
+        },
+        {
+          "id": "06-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "move --total-budget from impl's own flag table into the shared flags table, documenting the per-tool granularity 06-REQ-9 fixes"
+        },
+        {
+          "id": "06-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "gain, in \"The output\" section, one worked example each for artifacts, side_effects and next"
+        },
+        {
+          "id": "06-REQ-10.6",
+          "pattern": "ubiquitous",
+          "system": "docs/configuration.md",
+          "action": "gain a \"Report files\" heading (or an addition to an existing section) naming the default report-file location, the $XDG_STATE_HOME / ~/.local/state fallback, and that --report-file overrides it"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "06-PATH-1",
+      "title": "A caller keeps a small envelope and finds the rest, byte-for-byte, in the report file",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs fix on a bug report with --detail summary (the default)"
+        },
+        {
+          "actor": "toolio",
+          "action": "computes the report-file path and writes the complete, full-view envelope to it before responding"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "emits result trimmed to fix's summary subset, with detail: \"summary\" and report_file naming the path just written"
+        },
+        {
+          "actor": "caller",
+          "action": "opens the report file and finds it byte-for-byte identical to what --detail full would have printed for the same run"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-2",
+      "title": "A model chains issue into fix using next[] and side_effects[]",
+      "steps": [
+        {
+          "actor": "caller (a model)",
+          "action": "runs issue on a bug description"
+        },
+        {
+          "actor": "issuetriage.Write",
+          "action": "posts the issue to GitHub and records a side_effects entry {action: \"create_issue\", target, ok: true}"
+        },
+        {
+          "actor": "issuetriage Result",
+          "action": "populates artifacts with an issue entry and next with a fix suggestion naming the issue URL and the labels applied"
+        },
+        {
+          "actor": "caller (a model)",
+          "action": "runs fix on next[0].input directly, without re-reading the rest of the envelope"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-3",
+      "title": "A mistyped path is caught, then confirmed strict",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs fix on the string \"widget/report.txt\", which does not exist on disk"
+        },
+        {
+          "actor": "toolio Resolve",
+          "action": "classifies the argument as text and records a high-severity input_looks_like_path warning naming the path"
+        },
+        {
+          "actor": "caller",
+          "action": "re-runs the same argument with --input-kind file"
+        },
+        {
+          "actor": "toolio Resolve",
+          "action": "refuses the run with a usage error naming that the file does not exist, before any model is resolved"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-4",
+      "title": "A split spec run hits a total-budget ceiling and resumes from where it stopped",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs spec on a large idea with --total-budget 20, and the input splits into three scopes"
+        },
+        {
+          "actor": "specgen",
+          "action": "stops before the second scope's PRD phase begins, at category \"budget\", leaving the split plan in place"
+        },
+        {
+          "actor": "toolio (05_envelope_decidable)",
+          "action": "sets error.resumable true because Result.SplitPlan is non-empty, and attaches error.fix_hint naming --total-budget"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "populates next[] with a spec suggestion on the same input's literal origin"
+        },
+        {
+          "actor": "operator",
+          "action": "re-runs spec with a higher --total-budget, and specgen resumes from the split plan to completion"
+        }
+      ]
+    }
+  ]
+}

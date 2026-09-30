@@ -212,7 +212,7 @@ func TestAFailedScopeLeavesAPlanTheNextRunResumesFrom(t *testing.T) {
 	if got.SplitPlan != "" {
 		t.Error("a finished split should have no plan")
 	}
-	if warnings := strings.Join(o.Run.Warnings(), "\n"); !strings.Contains(warnings, "--name") {
+	if warnings := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n"); !strings.Contains(warnings, "--name") {
 		t.Errorf("--name should be reported as ignored on resume; warnings: %q", warnings)
 	}
 }
@@ -240,7 +240,7 @@ func TestResumeMatchesByOriginAndNamesFromThePlan(t *testing.T) {
 	if got.SpecName != "widget_github" || got.SpecDir != filepath.Join(".specs", "02_widget_github") {
 		t.Errorf("the plan's name must win: %q at %q", got.SpecName, got.SpecDir)
 	}
-	warnings := strings.Join(o.Run.Warnings(), "\n")
+	warnings := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n")
 	if !strings.Contains(warnings, "input changed") || !strings.Contains(warnings, `"github_store"`) {
 		t.Errorf("warnings = %q", warnings)
 	}
@@ -338,7 +338,7 @@ func TestAPlanForAnotherInputIsLeftAlone(t *testing.T) {
 	if _, err := os.Stat(other.Path(filepath.Join(ws.Root, ".specs"))); err != nil {
 		t.Error("the other plan was removed")
 	}
-	if warnings := strings.Join(o.Run.Warnings(), "\n"); !strings.Contains(warnings, "docs/other.md") {
+	if warnings := strings.Join(toolio.WarningMessages(o.Run.Warnings()), "\n"); !strings.Contains(warnings, "docs/other.md") {
 		t.Errorf("the stray plan should be reported: %q", warnings)
 	}
 }

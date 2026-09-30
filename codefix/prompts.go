@@ -101,11 +101,22 @@ func criteriaBlock(criteria []Criterion, forImplementation bool) string {
 	return b.String()
 }
 
+// contextBlock renders the additional context block when present.
+func contextBlock(in toolio.Input) string {
+	if in.Context == "" {
+		return ""
+	}
+	return strings.TrimSpace(in.Context) + "\n\n"
+}
+
 func analysisPrompt(in analysisInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diagnose the problem below against the code in %s.\n\n", in.Root)
 	b.WriteString(reportBlock(in.Input))
 	b.WriteString("\n")
+	if ctx := contextBlock(in.Input); ctx != "" {
+		b.WriteString(ctx)
+	}
 	b.WriteString(criteriaBlock(in.Criteria, false))
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))
 	b.WriteString("\nRead the code, decide the smallest correct change, and call " +
@@ -120,6 +131,9 @@ func implementPrompt(in implementInput) string {
 
 	b.WriteString("## The problem\n\n")
 	b.WriteString(reportBlock(in.Input))
+	if ctx := contextBlock(in.Input); ctx != "" {
+		b.WriteString("\n" + ctx)
+	}
 
 	b.WriteString("\n## The diagnosis\n\n")
 	fmt.Fprintf(&b, "**Classification:** %s\n\n", in.Analysis.Classification)

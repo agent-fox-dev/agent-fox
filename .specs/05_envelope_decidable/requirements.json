@@ -1,0 +1,429 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "05",
+  "spec_name": "envelope_decidable",
+  "schema_version": 2,
+  "introduction": "The four agent-fox tools (fix, impl, spec, issue) share one JSON envelope, assembled by internal/toolio's Run.Envelope and written by Emit. This spec closes the gaps that force a program-driven caller to consult docs/cli.md instead of the envelope itself: a bare invocation now always emits JSON when stdout is not a terminal, the envelope gains status/summary fields derived from the exit code and the tool's own vocabulary, fix's ambiguity, impl's blocker and spec's deferred question surface through one needs_human shape fed back in by a --context flag, every error carries retryable/resumable/fix_hint, and warnings become structured objects with a code, severity and stage.",
+  "glossary": {
+    "Bounds": "The resolved per-phase ceilings (MaxBudgetUSD, MaxTurns, Timeout) that a run's --budget/--max-turns/--phase-timeout flags produce, already available to toolio at flag-parse time.",
+    "WarnCode": "A declared string type identifying one warning cause; every constant has exactly one stage recorded in a central table in internal/toolio.",
+    "context block": "The rendered \"## Additional context from the caller\" paragraph(s) built from every --context flag value, appended to a phase's prompt independently of Input.Body.",
+    "envelope": "The single JSON object internal/toolio's Run.Envelope assembles and Emit writes to stdout on every invocation.",
+    "fix_hint": "An optional error field naming the flag or environment variable a mechanical remedy would change, and the current and suggested values where they apply.",
+    "needs_human": "The envelope object, present only when status is \"needs_human\", that carries the question a person must answer, fed by fix's Ambiguity, impl's Blocker, or a future equivalent.",
+    "resumable": "An error field: true when re-running the same input continues the prior work rather than starting it over; reported per tool by each Result's Resumable() method.",
+    "resume template": "The fixed, non-literal string naming the invocation shape rather than a copy of the (possibly large) actual input, e.g. \"fix <same input> --context \\\"<answer>\\\"\".",
+    "retryable": "An error field: true only when re-running the identical command, unchanged, could succeed (categories api and aborted).",
+    "status": "A new envelope field naming the outcome in words, derived one-to-one and only in one direction from the exit code."
+  },
+  "requirements": [
+    {
+      "id": "05-REQ-1",
+      "title": "A bare invocation emits an envelope when stdout is not a terminal",
+      "rationale": "A caller piping stdout to a parser must receive one JSON object to parse even when there is nothing to do, not silence paired with stderr text only a human reads.",
+      "criteria": [
+        {
+          "id": "05-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "the positional argument is empty or consists only of whitespace",
+          "system": "App.Main",
+          "action": "treat the invocation as bare before calling Resolve, so that no network call or model resolution happens either way, and still print the help text and flag list to stderr unchanged"
+        },
+        {
+          "id": "05-REQ-1.2",
+          "pattern": "complex_event",
+          "condition": "the invocation is bare, per 05-REQ-1.1",
+          "guard": "stdout is not a terminal (isTerminal(stdout) is false)",
+          "system": "App.Main",
+          "action": "write one envelope to stdout with ok=false, exit_code=2, status=\"usage\", error.stage=\"usage\", error.category=\"usage\", and error.message set to \"no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin\"",
+          "contract": "stdout carries exactly one JSON object with those fields; the process exit code is 2"
+        },
+        {
+          "id": "05-REQ-1.3",
+          "pattern": "state_driven",
+          "condition": "the invocation is bare, per 05-REQ-1.1, and stdout is a terminal",
+          "system": "App.Main",
+          "action": "write nothing to stdout beyond the unchanged stderr help text",
+          "contract": "stdout is empty; the process exit code remains 2"
+        },
+        {
+          "id": "05-REQ-1.4",
+          "pattern": "unwanted",
+          "condition": "the invocation carries -h, --help or --version",
+          "system": "App.Main",
+          "action": "exit before the bare-invocation check is reached, without ever emitting an envelope",
+          "contract": "stdout carries the version or help text, never a JSON object; the process exit code is 0"
+        },
+        {
+          "id": "05-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "App.Main",
+          "action": "use the exact same message text as toolio.ErrNoInput for both the bare-invocation envelope's error.message and Resolve's own no-input error, so the two can never diverge"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-2",
+      "title": "status and summary",
+      "rationale": "A caller reading only the envelope should be able to tell what happened in one sentence and one word, without cross-referencing the exit-code table.",
+      "criteria": [
+        {
+          "id": "05-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "Run.Envelope",
+          "action": "always set both status and summary as non-omitted fields on every envelope it produces"
+        },
+        {
+          "id": "05-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "Run.Envelope",
+          "action": "for any exit code it receives, derive status from the fixed table 0 to \"done\", 1 to \"failed\", 2 to \"usage\", 3 to \"needs_human\", 4 to \"unverified\" — the same table toolio.ExitCodeFor already produces exit codes from, read in the opposite direction — so status can never disagree with ok or exit_code"
+        },
+        {
+          "id": "05-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "the result value passed to Run.Envelope implements a Summary() string method that returns a non-empty string",
+          "system": "Run.Envelope",
+          "action": "use the returned string as summary, truncated to 200 characters",
+          "contract": "envelope.summary is at most 200 characters and equals the tool's string, truncated when longer"
+        },
+        {
+          "id": "05-REQ-2.4",
+          "pattern": "complex_event",
+          "condition": "the result value does not implement a Summary() interface, or the type assertion for it fails",
+          "guard": "ok is false",
+          "system": "Run.Envelope",
+          "action": "fall back to the envelope's own error.message as summary"
+        },
+        {
+          "id": "05-REQ-2.5",
+          "pattern": "complex_event",
+          "condition": "the result value does not implement a Summary() interface, or the type assertion for it fails",
+          "guard": "ok is true",
+          "system": "Run.Envelope",
+          "action": "fall back to the fixed string \"<tool>: done\", with <tool> substituted for the run's own tool name, as summary"
+        },
+        {
+          "id": "05-REQ-2.6",
+          "pattern": "complex_event",
+          "condition": "the run's warnings include at least one entry with severity \"high\"",
+          "guard": "ok is true",
+          "system": "Run.Envelope",
+          "action": "append a fixed, deterministic clause to whatever summary was produced, noting the count of high-severity warnings and that the highest severity present is high",
+          "contract": "the clause is generated centrally in Run.Envelope, never supplied by a tool, and appears on every ok:true envelope carrying a high-severity warning"
+        },
+        {
+          "id": "05-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "Envelope struct",
+          "action": "emit JSON object keys in the order tool, version, ok, status, exit_code, summary, error, needs_human, warnings, result, input, usage, model, duration_ms, started_at, with usage.phases remaining the last field of UsageInfo"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-3",
+      "title": "One needs_human shape, fed by --context",
+      "rationale": "fix's ambiguity, impl's blocker and spec's deferred question are the same fact — a person has to decide something — and should not force a caller to learn three unrelated result shapes to notice it.",
+      "criteria": [
+        {
+          "id": "05-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "status is \"needs_human\"",
+          "system": "Run.Envelope",
+          "action": "include a needs_human object with question, options (omitted when there are none), needed (omitted when options are present), stage set to error.stage on the same envelope, and resume set to the fixed template naming the invocation shape",
+          "contract": "needs_human.stage equals error.stage exactly; needs_human.resume never contains the literal input text, only the invocation shape"
+        },
+        {
+          "id": "05-REQ-3.2",
+          "pattern": "optional",
+          "condition": "status is not \"needs_human\"",
+          "system": "Run.Envelope",
+          "action": "omit the needs_human field entirely"
+        },
+        {
+          "id": "05-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "codefix's analyse phase reports an Ambiguity carrying Question, InterpretationA and InterpretationB",
+          "system": "codefix",
+          "action": "populate needs_human.question from Question and needs_human.options with entries {id: \"A\", text: InterpretationA} and {id: \"B\", text: InterpretationB}"
+        },
+        {
+          "id": "05-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "codeimpl reports a Blocker carrying Reason and Needed, from the survey, a task, or checkUpstream",
+          "system": "codeimpl",
+          "action": "populate needs_human.question from Reason and needs_human.needed from Needed, with no options set"
+        },
+        {
+          "id": "05-REQ-3.5",
+          "pattern": "event_driven",
+          "condition": "checkUpstream finds a dependency spec that is neither sealed nor fully done",
+          "system": "codeimpl checkUpstream",
+          "action": "set result.Blocker with Reason naming the dependency and Needed naming the upstream package, exactly as the survey and task blockers already do",
+          "contract": "the run exits with code 3, and the resulting envelope's needs_human is populated the same way as any other blocker"
+        },
+        {
+          "id": "05-REQ-3.6",
+          "pattern": "ubiquitous",
+          "system": "specgen",
+          "action": "never set needs_human; a run with open questions reports only their count in summary, and result.open_questions is unaffected"
+        },
+        {
+          "id": "05-REQ-3.7",
+          "pattern": "event_driven",
+          "condition": "one or more --context flag values are given on the command line",
+          "system": "toolio Common",
+          "action": "render every value into one labelled block, \"## Additional context from the caller\", one paragraph per --context in the order given, append it to the phase prompt independently of Input.Body, and record the block's byte length as the envelope's input.context_bytes",
+          "contract": "Input.Body is unchanged by --context; envelope.input.context_bytes equals the rendered block's byte length"
+        },
+        {
+          "id": "05-REQ-3.8",
+          "pattern": "unwanted",
+          "condition": "the sum of len(Body) and the rendered context block's length exceeds toolio.MaxInputBytes",
+          "system": "toolio",
+          "action": "refuse the run as a usage error before anything is fetched, without silently truncating either Body or the context block",
+          "contract": "exit code 2; error.category is \"usage\"; no network call or file read for the input happens"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-4",
+      "title": "retryable, resumable and fix_hint on every error",
+      "rationale": "A caller reading only the envelope must be able to decide whether to retry unchanged, whether the same command continues the same work, and, where one exists, the mechanical remedy — without owning a copy of the category table.",
+      "criteria": [
+        {
+          "id": "05-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any error category, set error.retryable to true when the category is \"api\" or \"aborted\", and to false for every other category, including usage, input, auth, model, invalid_spec, blocked, ambiguous, empty_change, internal, budget, max_turns, no_result, unverified, git, forge and disk"
+        },
+        {
+          "id": "05-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "the result value passed to Run.Envelope implements a Resumable() bool method",
+          "system": "Run.Envelope",
+          "action": "set error.resumable from that method's return value via a type assertion"
+        },
+        {
+          "id": "05-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "codefix Result.Resumable",
+          "action": "always return false, because codefix names its branch with gitx.UniqueBranchName, which never lands a second run on the first run's branch"
+        },
+        {
+          "id": "05-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "codeimpl Result.Branch is non-empty",
+          "system": "codeimpl Result.Resumable",
+          "action": "return true; when Branch is empty, return false instead"
+        },
+        {
+          "id": "05-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "specgen Result.SplitPlan is non-empty",
+          "system": "specgen Result.Resumable",
+          "action": "return true; when SplitPlan is empty, return false instead"
+        },
+        {
+          "id": "05-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "issuetriage Result.Resumable",
+          "action": "always return false, because issue has no notion of continuing a prior run"
+        },
+        {
+          "id": "05-REQ-4.7",
+          "pattern": "complex_event",
+          "condition": "error.category is \"budget\", \"max_turns\", \"no_result\", \"auth\", \"model\" or \"usage\"",
+          "guard": "the category's own condition holds: a resolved per-phase Bounds value for budget or max_turns; a RunStopReason exposed on the error for no_result; the resolved model's vendor credential table, or a forge token name, for auth; the static tier constants for model; and, for usage, a message that names exactly one flag whose removal is the fix",
+          "system": "toolio",
+          "action": "attach an error.fix_hint object built from the category and those values: {flag, current, suggest} for budget and max_turns with suggest double current, the same shape chosen by whichever of the two the phase actually stopped at for no_result, {env: [...]} for auth, {flag: \"--model\", valid: [\"SIMPLE\", \"STANDARD\", \"ADVANCED\"]} for model, and {flag} for usage",
+          "contract": "fix_hint is omitted for every category outside this list, and omitted for a usage error that does not name exactly one culprit flag"
+        },
+        {
+          "id": "05-REQ-4.8",
+          "pattern": "complex_event",
+          "condition": "error.category is \"budget\"",
+          "guard": "error.stage is literally \"budget\" — codeimpl's total-budget check, the only call site named that",
+          "system": "toolio",
+          "action": "name error.fix_hint.flag as \"--total-budget\" and error.fix_hint.current as the run's resolved TotalBudgetUSD, instead of the per-phase --budget hint"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-5",
+      "title": "Structured warnings",
+      "rationale": "A caller that does not read every message needs to tell a truncated input apart from an unopened pull request without parsing prose.",
+      "criteria": [
+        {
+          "id": "05-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "replace Warnings []string with Warnings []Warning, where Warning carries code, severity, stage and message, and change Run.Warn's signature to Warn(code WarnCode, severity string, format string, args ...any)"
+        },
+        {
+          "id": "05-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "source every warning's stage from a single map[WarnCode]string table keyed by every declared WarnCode constant, rather than accepting stage as a call-site parameter"
+        },
+        {
+          "id": "05-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any declared WarnCode constant, ensure the stage table carries an entry for it, verified by a test that walks the declared constants against the table"
+        },
+        {
+          "id": "05-REQ-5.4",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any Run.Warn call site across internal/toolio, codefix, codeimpl, specgen and issuetriage, ensure the call passes a declared WarnCode constant rather than a bare string literal, verified by a source-scan test"
+        },
+        {
+          "id": "05-REQ-5.5",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "leave severity a call-site argument rather than deriving it from code alone, using \"high\" when the ok:true (or, on fix/impl, the landed/parked) result is not quite what it appears — the input was cut, a criterion came back unmet, a change under the spec package was reverted, a park or a state write silently failed — and \"low\" otherwise"
+        },
+        {
+          "id": "05-REQ-5.6",
+          "pattern": "ubiquitous",
+          "system": "toolio WarnCode table",
+          "action": "include at least the code-to-stage pairs input_truncated/input, comments_unreadable/input, no_verify_command/preflight, criteria_unmet/implement, commit_not_parked/park, checkout_not_restored/park, pull_request_not_opened/land, comment_not_posted/report, spec_edit_reverted/task, state_not_saved/park, draft_package/preflight, upstream_missing/preflight, parked_attempt_discarded/preflight, spec_validation_warning/preflight, specs_dir_unreadable/preflight, project_language_unknown/preflight, name_flag_ignored/usage, scope_renamed/prd, scope_count_mismatch/prd, split_plan_foreign/split, split_plan_unreadable/split, split_plan_stale/split, split_plan_update_failed/split, split_plan_not_removed/split, architecture_not_written/write, activation_failed/activate, and rejected_path_calls/analyse, adding a new constant and table entry for any call site found that fits none of them"
+        },
+        {
+          "id": "05-REQ-5.7",
+          "pattern": "event_driven",
+          "condition": "a call site records a warning via Run.Warn",
+          "system": "Run.Envelope",
+          "action": "include it in the envelope's warnings array as an object carrying code, the severity given at the call site, the stage looked up from the table, and the message formatted from the call site's format and args"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-6",
+      "title": "Documentation reflects the envelope",
+      "rationale": "docs/cli.md and README.md are the manual a caller falls back to; they must describe the same envelope this spec ships, not the one it replaces.",
+      "criteria": [
+        {
+          "id": "05-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "this spec's envelope changes are implemented",
+          "system": "docs/cli.md",
+          "action": "update its output example to include status, summary and needs_human fields"
+        },
+        {
+          "id": "05-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "add a retryable column to the error-category table and a new warning-codes table listing every WarnCode with its severity and its stage"
+        },
+        {
+          "id": "05-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "document the --context flag under the shared flags section"
+        },
+        {
+          "id": "05-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "README.md",
+          "action": "extend the exit-code sentence to name the matching status value — done, failed, usage, needs_human, unverified — for each of the five exit codes"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "05-PATH-1",
+      "title": "A program-driven caller gets an envelope from a bare invocation",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "invokes fix with no positional argument and stdout redirected to a file"
+        },
+        {
+          "actor": "App.Main",
+          "action": "detects the empty argument before calling Resolve and skips model resolution"
+        },
+        {
+          "actor": "App.Main",
+          "action": "writes one envelope to stdout with status \"usage\" and error.message naming the four accepted input shapes"
+        },
+        {
+          "actor": "caller",
+          "action": "parses the envelope from the file and reads error.message to correct the invocation"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-2",
+      "title": "fix stops on an ambiguity and resumes with --context",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs fix with a report describing a bug with two plausible causes"
+        },
+        {
+          "actor": "codefix analyse phase",
+          "action": "returns an Ambiguity carrying a question and two interpretations"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "emits status \"needs_human\" with needs_human.options A and B and a resume template"
+        },
+        {
+          "actor": "caller",
+          "action": "re-runs fix with the same input plus --context \"<answer>\""
+        },
+        {
+          "actor": "codefix",
+          "action": "renders the context block into its analyse prompt, resolves the ambiguity, and completes with status \"done\""
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-3",
+      "title": "impl hits a per-phase budget ceiling and resumes on the same branch",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs impl 09 and a task phase exceeds the per-phase --budget ceiling"
+        },
+        {
+          "actor": "codeimpl",
+          "action": "reports the failure at category \"budget\" with Result.Branch already set to impl/09-<slug>"
+        },
+        {
+          "actor": "toolio",
+          "action": "attaches error.fix_hint {flag: \"--budget\", current, suggest} and sets error.resumable true because Branch is non-empty"
+        },
+        {
+          "actor": "caller",
+          "action": "re-runs impl 09 with a higher --budget, and codeimpl continues on the same branch to completion with status \"done\""
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-4",
+      "title": "A high-severity warning surfaces in an otherwise successful run's summary",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs fix on an oversized report that exceeds MaxInputBytes"
+        },
+        {
+          "actor": "toolio",
+          "action": "truncates the input and records a warning with code \"input_truncated\", severity \"high\", stage \"input\""
+        },
+        {
+          "actor": "codefix",
+          "action": "completes the fix and lands it, reporting ok: true"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "appends a deterministic clause to summary noting one high-severity warning, alongside the unchanged warnings array entry"
+        }
+      ]
+    }
+  ]
+}

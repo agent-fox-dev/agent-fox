@@ -1,0 +1,446 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "06",
+  "spec_name": "trim_and_chain_results",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./issuetriage/... ./codefix/... ./codeimpl/... ./specgen/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "05",
+      "reason": "Supplies status, summary, needs_human (whose resume template next[] reuses for fix's ambiguity suggestion and spec's own resume suggestion), Resumable(), and the structured Warning{code, severity, stage} shape and its high-severity summary clause, which the new input_looks_like_path and report_file_not_written WarnCodes plug into."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add --detail to Common and a detail field to every tool's Result",
+      "criteria": [
+        "06-REQ-1"
+      ],
+      "tests": [
+        "TS-06-1",
+        "TS-06-2",
+        "TS-06-3",
+        "TS-06-4"
+      ],
+      "steps": [
+        "Write TS-06-1..4 (new internal/toolio/cli_test.go plus assertions in app_test.go) and confirm they fail",
+        "Add a Detail string field to Common in internal/toolio/cli.go and register --detail via fs.StringVar, default \"summary\"",
+        "Add Common.ValidDetail() error, refusing any value other than \"summary\" or \"full\"",
+        "In App.Main (internal/toolio/app.go), call this validation immediately after flags parse, before Workspace()/Resolve()/model resolution, returning an ExitUsage envelope (stage \"usage\", category \"usage\") on failure exactly like the existing SplitArgs error path",
+        "Add a Detail string json-tagged \"detail\" field and a SetDetail(string) method to issuetriage.Result, codefix.Result, codeimpl.Result and specgen.Result (specgen's Result embeds Package; put Detail on Package)",
+        "Define a small toolio.DetailedResult interface (SetDetail(string)) and a toolio.FullView(result any) any helper that sets Detail to \"full\" via the interface and returns the value unchanged",
+        "Confirm --detail full's emitted result is exactly today's full struct plus the new detail field for all four tools, with no key removed or restructured (fixture-based superset check for TS-06-3)",
+        "Run TS-06-1..4 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/cli_test.go",
+        "internal/toolio/app_test.go",
+        "issuetriage/pipeline.go",
+        "codefix/types.go",
+        "codeimpl/types.go",
+        "specgen/pipeline.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Write the complete envelope to a report file on every run",
+      "criteria": [
+        "06-REQ-2"
+      ],
+      "tests": [
+        "TS-06-5",
+        "TS-06-6",
+        "TS-06-7",
+        "TS-06-8",
+        "TS-06-9",
+        "TS-06-10",
+        "TS-06-11",
+        "TS-06-12",
+        "TS-06-13"
+      ],
+      "steps": [
+        "Write TS-06-5..13 (internal/toolio/report_test.go and app_test.go) and confirm they fail",
+        "Add ReportFile string to Common and register --report-file (empty default) in internal/toolio/cli.go",
+        "Add internal/toolio/report.go: DefaultReportPath(tool string, startedAt time.Time, pid int) (string, error) computing $XDG_STATE_HOME/agent-fox/runs/<tool>-<colon-free RFC3339-shaped timestamp>-<pid>.json, falling back to ~/.local/state/agent-fox/runs/... when $XDG_STATE_HOME is unset, and WriteReport(path string, env Envelope) error that creates the parent directory (os.MkdirAll) and writes the same json.MarshalIndent(env, \"\", \"  \") bytes Emit writes to stdout",
+        "Add a minimal structured Warning{Code, Severity, Stage, Message} type and a Run.WarnCode(code, severity, stage, format, args...) method in internal/toolio/envelope.go, alongside the existing string Warn, and declare the report_file_not_written constant (severity low, stage report)",
+        "Add ReportFile string (json tag report_file,omitempty) to Envelope",
+        "In App.Main, after building the envelope and before the final Emit, always compute FullView(result), compute the report path (--report-file or DefaultReportPath), call WriteReport; on failure call Run.WarnCode(\"report_file_not_written\", \"low\", \"report\", ...) and leave env.ReportFile unset; on success set env.ReportFile before marshalling so the printed and the written documents agree on that field's value",
+        "Confirm this write happens for every JSON-emitting path (success, failure, post-classification usage error) and is skipped only on the two paths that already return before Emit (-h/--help, bare invocation, --version) and confirm --dry-run does not skip it",
+        "Confirm the file written is byte-for-byte what --detail full would have printed for the same run, by using FullView(result) (never the --detail-trimmed view) for the file regardless of what --detail was given",
+        "Run TS-06-5..13 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/envelope.go",
+        "internal/toolio/report.go",
+        "internal/toolio/report_test.go",
+        "internal/toolio/app_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Give each tool a --detail summary view",
+      "criteria": [
+        "06-REQ-3"
+      ],
+      "tests": [
+        "TS-06-14",
+        "TS-06-15",
+        "TS-06-16",
+        "TS-06-17",
+        "TS-06-18",
+        "TS-06-19",
+        "TS-06-20"
+      ],
+      "steps": [
+        "Write TS-06-14..20 (new issuetriage/summary_test.go, codefix/summary_test.go, codeimpl/summary_test.go, specgen/summary_test.go) and confirm they fail",
+        "Define a toolio.Summarizable interface (SummaryView() any) in internal/toolio/envelope.go, and have FullView/ApplyDetail (from task 1) call SummaryView() when the effective detail is \"summary\", falling back to the full value when a Result does not implement it",
+        "Add issuetriage/summary.go: Result.SummaryView() returning action, repo, url, number, title, severity, confidence, affected_files reduced to path strings only, labels, rejected_path_calls, detail:\"summary\"",
+        "Add codefix/summary.go: Result.SummaryView() returning stage, branch, base_branch, commit, changed_files, verdict, criteria_outcome, pull_request_url, dry_run, detail, and verification (the full checks.Result) only when checks.Verdict(r.Verdict).Landable() is false",
+        "Add codeimpl/summary.go: Result.SummaryView() returning stage, spec_dir, spec_id, spec_name, title, status, branch, tasks_total, tasks_done, tasks_skipped, tasks_remaining, one entry per task reduced to {id, outcome, commit, verdict}, verdict, pull_request_url, detail, and the top-level verification only when landable(r.Verdict, ...) (codeimpl/gate.go) is false, reusing the same nothingToRun signal the pipeline already computes",
+        "Add specgen/summary.go: Result.SummaryView() returning spec_dir, spec_id, spec_name, status, artifacts, validation reduced to {valid, error_count, errors}, traceability reduced to {criteria_uncovered, paths_uncovered, tests_unowned}, open_questions, split, detail, dropping follow_on_specs and split_plan",
+        "Confirm every trimmed field is still computed exactly as under full and is present unabridged in the report file written by task 2's FullView path (TS-06-20)",
+        "Run TS-06-14..20 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "issuetriage/summary.go",
+        "issuetriage/summary_test.go",
+        "codefix/summary.go",
+        "codefix/summary_test.go",
+        "codeimpl/summary.go",
+        "codeimpl/summary_test.go",
+        "specgen/summary.go",
+        "specgen/summary_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Populate artifacts[] from each tool's own facts",
+      "criteria": [
+        "06-REQ-4"
+      ],
+      "tests": [
+        "TS-06-21",
+        "TS-06-22",
+        "TS-06-23",
+        "TS-06-24",
+        "TS-06-25"
+      ],
+      "steps": [
+        "Write TS-06-21..25 (issuetriage/artifacts_test.go, codefix/artifacts_test.go, codeimpl/artifacts_test.go, specgen/artifacts_test.go) and confirm they fail",
+        "Add an Artifact struct to internal/toolio/envelope.go over the closed kind set (branch {name, base}; commit {sha, branch}; pull_request {url, number}; comment {url}; issue {url, number}; spec_package {path, id, valid}; report_file {path}), each entry carrying only the fields fixed for its kind plus an optional dry_run bool, and add Envelope.Artifacts []Artifact (json tag artifacts,omitempty)",
+        "Add a toolio.ArtifactsProvider interface (Artifacts() []Artifact) wired into App.Main next to FullView/SummaryView so Envelope.Artifacts is populated whenever the Exec result implements it, plus a report_file entry appended once the report path from task 2 is known",
+        "Add a DryRun bool field to issuetriage.Result (mirroring codefix/codeimpl's existing one) and implement issuetriage/artifacts.go: Result.Artifacts() building an issue entry from Action/URL/Number, marked dry_run:true with empty url/number when Action==\"none\" under DryRun",
+        "Implement codefix/artifacts.go: Result.Artifacts() building branch, commit (from Result.Commit/Branch, plus the parked wip: commit when Stage==\"stopped\"), pull_request (dry_run:true under DryRun when Land==pr but PullRequestURL is empty) and comment entries from Result.Comments",
+        "Implement codeimpl/artifacts.go: Result.Artifacts() building branch, one commit entry per TaskReport.Commit and, when present, Repair.Commit, pull_request (dry_run marked the same way as codefix)",
+        "Implement specgen/artifacts.go: Result.Artifacts() building one spec_package entry per written package (Package plus every FollowOnSpecs entry) with valid from that package's own Validation.Valid, and a comment entry when CommentURL is set",
+        "Confirm every Artifacts() implementation reads only pre-existing fact fields (Branch, Commit, PullRequestURL, Comments, SpecDir, Validation.Valid, ...) and never Implementation/Submission/Survey, and that mutating those report fields does not change the array (TS-06-22)",
+        "Confirm the existing result fields are unchanged alongside the new array (TS-06-25)",
+        "Run TS-06-21..25 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/app.go",
+        "issuetriage/pipeline.go",
+        "issuetriage/artifacts.go",
+        "issuetriage/artifacts_test.go",
+        "codefix/artifacts.go",
+        "codefix/artifacts_test.go",
+        "codeimpl/artifacts.go",
+        "codeimpl/artifacts_test.go",
+        "specgen/artifacts.go",
+        "specgen/artifacts_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Record side_effects[] live at every forge/remote write",
+      "criteria": [
+        "06-REQ-5"
+      ],
+      "tests": [
+        "TS-06-26",
+        "TS-06-27",
+        "TS-06-28",
+        "TS-06-29",
+        "TS-06-30"
+      ],
+      "steps": [
+        "Write TS-06-26..30 (internal/toolio/envelope_test.go plus an issuetriage pipeline_test.go case for the live-recording order test TS-06-29) and confirm they fail",
+        "Add a SideEffect struct {Action, Target string; OK bool; Warning string (json tag warning,omitempty)} and Envelope.SideEffects []SideEffect (json tag side_effects,omitempty) to internal/toolio/envelope.go",
+        "Add Run.RecordSideEffect(action, target string, ok bool, warnCode string) (mutex-protected, append-only, mirroring Warn) and Run.SideEffects() []SideEffect, and wire Run.Envelope to copy them into Envelope.SideEffects",
+        "In issuetriage.Write (issuetriage/pipeline.go), call RecordSideEffect(\"create_issue\"/\"update_issue\", target string built as \"<owner>/<repo>\" or \"<owner>/<repo>#<number>\", ok, code) at both forge calls, right beside the existing Run.Warn on failure",
+        "In codefix's git.Push, openPullRequest and postComment call sites (codefix/pipeline.go) and codeimpl's equivalents (codeimpl/pipeline.go), add matching RecordSideEffect(\"push\"/\"open_pr\"/\"comment\", target, ok, code) calls beside their existing Run.Warn",
+        "In specgen's PRD-comment write (o.Forge.AddComment in specgen/pipeline.go's buildPackage), add the matching RecordSideEffect(\"comment\", ...) call",
+        "Confirm ok:false never coexists with a missing warning, and ok:true never coexists with a warning, by construction (both come from the same call site)",
+        "Confirm side_effects is empty/omitted under --dry-run because every one of the above call sites is already skipped or short-circuited under DryRun",
+        "Run TS-06-26..30 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/envelope_test.go",
+        "issuetriage/pipeline.go",
+        "issuetriage/pipeline_test.go",
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "specgen/pipeline.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Let each Result suggest its own next[] invocation",
+      "criteria": [
+        "06-REQ-6"
+      ],
+      "tests": [
+        "TS-06-31",
+        "TS-06-32",
+        "TS-06-33",
+        "TS-06-34",
+        "TS-06-35",
+        "TS-06-36",
+        "TS-06-37",
+        "TS-06-38",
+        "TS-06-39"
+      ],
+      "steps": [
+        "Write TS-06-31..39 (issuetriage/next_test.go, specgen/next_test.go, codeimpl/next_test.go, codefix/next_test.go) and confirm they fail",
+        "Add a Next struct {Tool, Input string; Flags []string (json tag flags); Why string} and Envelope.Next []Next (json tag next,omitempty) to internal/toolio/envelope.go, and a toolio.NextProvider interface (Next() []Next) wired into App.Main the same way ArtifactsProvider is",
+        "Add a shared toolio.ResumePlaceholder(in Input) string helper returning the literal origin (file path or issue URL) when the input had a stable one, and the literal string \"<same input>\" for text/stdin — the convention 05_envelope_decidable's needs_human.resume also uses",
+        "Implement issuetriage/next.go: Result.Next() returning one {tool:\"fix\", input: r.URL, why: a sentence naming the labels} when Action != \"none\" and the run was not a DryRun, else nil",
+        "Implement specgen/next.go: Result.Next() finding the first package among {Package, FollowOnSpecs...} whose Validation.Valid is true and appending {tool:\"impl\", input: that package's SpecDir, why:\"the package validates and is ready to implement\"}; when r.SplitPlan != \"\" also append {tool:\"spec\", input: ResumePlaceholder(o.Input)}",
+        "Implement codeimpl/next.go: Result.Next() returning {tool:\"impl\", input: r.SpecDir, why:\"the run parked; re-running continues from the last landed task\"} when Stage==\"parked\", adding \"--repair\" to Flags and naming the baseline in Why when r.Baseline has a failing check and r.Repair is nil",
+        "Implement codefix/next.go: Result.Next() returning nil on a landed run, and one {tool:\"fix\", flags:[\"--context\"], input: ResumePlaceholder(o.Input)} entry — character-for-character the same string this run's own needs_human.resume uses — when the run stopped on category \"ambiguous\"",
+        "Confirm every Next() implementation reads only already-established fact fields, never Implementation/Submission/Survey, and returns nil when there is nothing to suggest (TS-06-39)",
+        "Run TS-06-31..39 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "issuetriage/next.go",
+        "issuetriage/next_test.go",
+        "specgen/next.go",
+        "specgen/next_test.go",
+        "codeimpl/next.go",
+        "codeimpl/next_test.go",
+        "codefix/next.go",
+        "codefix/next_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Flag a mistyped, path-shaped argument that does not exist",
+      "criteria": [
+        "06-REQ-7"
+      ],
+      "tests": [
+        "TS-06-40",
+        "TS-06-41",
+        "TS-06-42",
+        "TS-06-43"
+      ],
+      "steps": [
+        "Write TS-06-40..43 (internal/toolio/input_test.go) and confirm they fail",
+        "Thread *Run through Resolve's signature in internal/toolio/input.go (Resolve(ctx, arg, stdin, forge, run *Run)) and update its one call site in App.execute (internal/toolio/app.go)",
+        "In Resolve's text fallback (after readIfFile reports ok=false), check: the raw argument is a single line, contains no whitespace, and either contains \"/\" or matches the regex \\.[A-Za-z0-9]{1,6}$, and os.Stat(arg) fails; when all hold, call run.WarnCode(\"input_looks_like_path\", \"high\", \"input\", \"...naming %s\", arg) (the WarnCode method added in task 2)",
+        "Confirm os.Stat succeeding on an existing directory does not fire the warning (REQ-7.2)",
+        "Confirm the warning is always present in the top-level warnings array regardless of --detail, and, until 05_envelope_decidable's deterministic summary-clause logic lands, append the same high-severity clause to Envelope.Summary here so TS-06-42 passes independently",
+        "Confirm fix's and codeimpl's SummaryView() (from task 3) is unaffected by the presence of this warning, since it reads only Result fields (TS-06-43)",
+        "Run TS-06-40..43 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/input.go",
+        "internal/toolio/app.go",
+        "internal/toolio/envelope.go",
+        "internal/toolio/input_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Add --input-kind for opt-in strict classification",
+      "criteria": [
+        "06-REQ-8"
+      ],
+      "tests": [
+        "TS-06-44",
+        "TS-06-45",
+        "TS-06-46",
+        "TS-06-47",
+        "TS-06-48",
+        "TS-06-49",
+        "TS-06-50",
+        "TS-06-51"
+      ],
+      "steps": [
+        "Write TS-06-44..51 (internal/toolio/input_test.go, internal/toolio/app_test.go and a codeimpl integration test) and confirm they fail",
+        "Add InputKind string to Common and register --input-kind in internal/toolio/cli.go accepting file|text|issue|stdin, empty meaning auto-classify; extend the shared validation added in task 1 to refuse any other value before Workspace/Resolve/model resolution",
+        "Add ResolveForced(ctx context.Context, kind, arg string, stdin io.Reader, forge issuex.Client, run *Run) (Input, error) to internal/toolio/input.go implementing: file — os.Stat first, refusing a missing path (\"does not exist\") or a directory (\"is a directory\") before any fallback; text — the argument verbatim, no file or URL check; issue — issuex.ParseIssueURL must succeed before any HTTP call, else usage error; stdin — the argument must be exactly \"-\"",
+        "Wire App.execute (internal/toolio/app.go) to call ResolveForced instead of Resolve when common.InputKind != \"\", returning a toolio.Usagef-based ExitUsage error (exit 2) on any mismatch",
+        "Confirm the --input-kind issue mismatch path makes no HTTP request (use a forge spy/round-tripper) and the --input-kind file paths run os.Stat but never open or read a mismatched file",
+        "Confirm impl --input-kind text on an ordinary spec reference reaches codeimpl.Locate (codeimpl/locate.go) unmodified as a text-kind body, unaffected by a same-named file existing elsewhere on disk, without Resolve's ordinary file check ever running",
+        "Run TS-06-44..51 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/input.go",
+        "internal/toolio/app.go",
+        "internal/toolio/input_test.go",
+        "internal/toolio/app_test.go",
+        "codeimpl/locate.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Share --dry-run and --total-budget on Common; name the accepting tool on a rejected flag",
+      "criteria": [
+        "06-REQ-9"
+      ],
+      "tests": [
+        "TS-06-52",
+        "TS-06-53",
+        "TS-06-54",
+        "TS-06-55",
+        "TS-06-56",
+        "TS-06-57",
+        "TS-06-58",
+        "TS-06-59"
+      ],
+      "steps": [
+        "Write TS-06-52..59 (internal/toolio/cli_test.go, internal/toolio/app_test.go, and issuetriage/codefix/specgen pipeline_test.go cases for the budget checks) and confirm they fail",
+        "Add DryRun bool to Common, register --dry-run once in Common.Register (internal/toolio/cli.go) with the single usage string \"make no remote change: no push, no write to a forge\"; remove the four separate fs.BoolVar(&dryRun, \"dry-run\", ...) registrations from cmd/issue, cmd/fix, cmd/spec and cmd/impl's main.go and read d.Common.DryRun in each Exec instead",
+        "Update each tool's usage constant in its cmd/<tool>/main.go to state the local meaning: issue nothing, spec nothing (still writes no files), fix and impl the branch and the commits",
+        "Add TotalBudgetUSD float64 to Common, register --total-budget once (default 0); remove impl's own --total-budget registration from cmd/impl/main.go's Flags func and read d.Common.TotalBudgetUSD, keeping codeimpl.Options.TotalBudgetUSD wired the same way as today",
+        "Add Options.TotalBudgetUSD to issuetriage.Options; in issuetriage.Run (issuetriage/pipeline.go) or cmd/issue/main.go, apply min(Budget, TotalBudgetUSD) as the one phase's effective bound when TotalBudgetUSD > 0",
+        "Add Options.TotalBudgetUSD to codefix.Options; in codefix.Run (codefix/pipeline.go), check cumulative spend at the analyse/implement boundary the same way codeimpl's overBudget checks between tasks (codeimpl/pipeline.go), stopping with Failure{Stage:\"implement\", Category:\"budget\"} before the implement phase starts when exceeded",
+        "Add Options.TotalBudgetUSD to specgen.Options; in specgen.Run's split loop (specgen/pipeline.go), check cumulative spend before each scope's PRD phase begins, stopping with Failure{Stage:\"prd\", Category:\"budget\"} and leaving the split plan in place; apply the same min(Budget,TotalBudgetUSD) single-phase fold as issue when the input does not split",
+        "Add a static map in internal/toolio/app.go naming each of the four tools' own flags (repo, label, overwrite, land, verify, specs-dir, name, ...); on a flag.Parse \"flag provided but not defined\" error, look up the flag name across the other three tools and, when found, replace the message with \"<this tool> does not accept --x; it is a <other tool> flag\"; otherwise keep Go's message unchanged",
+        "Run TS-06-52..59 and confirm they pass"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/cli_test.go",
+        "internal/toolio/app_test.go",
+        "cmd/issue/main.go",
+        "cmd/fix/main.go",
+        "cmd/spec/main.go",
+        "cmd/impl/main.go",
+        "issuetriage/pipeline.go",
+        "codefix/pipeline.go",
+        "specgen/pipeline.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Document --detail, --report-file, --input-kind, the shared --total-budget, and the new arrays",
+      "criteria": [
+        "06-REQ-10"
+      ],
+      "tests": [
+        "TS-06-60",
+        "TS-06-61",
+        "TS-06-62",
+        "TS-06-63"
+      ],
+      "steps": [
+        "Write TS-06-60..63 (new docs_test.go at the repository root, package agentfox, reading docs/cli.md and docs/configuration.md) and confirm they fail",
+        "In docs/cli.md's shared-flags table, add a \"--detail, --report-file\" row and an \"--input-kind\" row (naming its four values and the pre-fetch refusal a mismatch produces)",
+        "Move the --total-budget row out of impl's own flags documentation into the shared-flags table, documenting the per-tool granularity task 9 implements (issue/spec's min(--budget,--total-budget) fold, fix/spec's phase-boundary check, impl unchanged)",
+        "In each of issue, fix, spec and impl's own sections, add a small table naming the fields kept under --detail summary (mirroring task 3's four subsets) and a line stating what --dry-run still does locally for that tool",
+        "In \"The output\" section, add one worked JSON example each for artifacts, side_effects and next, using shapes consistent with tasks 4, 5 and 6",
+        "In docs/configuration.md, add a \"Report files\" heading (or extend an existing section) naming the default $XDG_STATE_HOME/agent-fox/runs/<tool>-<ts>-<pid>.json location, the ~/.local/state fallback, and that --report-file overrides it",
+        "Run TS-06-60..63 and confirm they pass"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs_test.go"
+      ],
+      "depends_on": [
+        9
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify the trimmed, chained envelope end to end across all four tools",
+      "tests": [
+        "TS-06-64",
+        "TS-06-65",
+        "TS-06-66",
+        "TS-06-67"
+      ],
+      "steps": [
+        "Write TS-06-64 in internal/toolio/smoke_test.go against the real codefix pipeline, a real git repository, internal/checks, and the filesystem report-file writer; confirm the --detail summary envelope is trimmed, report_file names the path written, and that file's bytes equal a --detail full run's stdout",
+        "Write TS-06-65 against the real issuetriage and codefix pipelines and a fake forge HTTP server (httptest), chaining issue's next[0].input directly into a real fix invocation, and confirm side_effects/artifacts/next line up exactly as specified",
+        "Write TS-06-66 against the real toolio.Resolve/ResolveForced and the filesystem, confirming the mistyped-path warning fires once and the --input-kind file re-run is refused before any model is resolved",
+        "Write TS-06-67 against the real specgen pipeline and toolio.Run's budget tracking, confirming a three-scope split run stops at category \"budget\" before the second scope's PRD phase and a re-run with a higher --total-budget completes all three scopes",
+        "Trace 06-PATH-1 through 06-PATH-4 in the real code (cmd/fix, cmd/issue, cmd/spec, cmd/impl, internal/toolio) confirming each step calls the next and no stub remains",
+        "For every criterion carrying a contract (06-REQ-1.2, 1.3, 2.3, 2.6, 2.7, 2.8, 4.3, 5.4, 6.6, 8.2, 8.4, 8.5, 8.6, 9.7, 9.8), confirm the producing code's result is consumed by production code — App.Main's Emit call, the pipelines' Run.Warn/RecordSideEffect call sites — not only asserted in a test",
+        "Grep every file named in this spec's tasks' touches (internal/toolio/*, codefix/*, codeimpl/*, issuetriage/*, specgen/*, cmd/*/main.go, docs/*) for panic(\"not implemented\"), stray TODO markers, and a bare return nil on a non-trivial path; resolve any that remain",
+        "Confirm --dry-run and --total-budget's Common-level registration is exercised by every one of the four cmd/<tool>/main.go binaries via toolio.App.Main in production code, not just in tests",
+        "Run make test and make lint and confirm both pass with the full spec 06 change set in the tree"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go"
+      ],
+      "depends_on": [
+        10
+      ],
+      "done_when": [
+        "`make test` passes with TS-06-64..67 exercising real git, internal/checks, a fake forge server and the filesystem, not mocks",
+        "`make lint` passes"
+      ],
+      "state": "pending"
+    }
+  ]
+}

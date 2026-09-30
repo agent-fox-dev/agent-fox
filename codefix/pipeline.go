@@ -168,7 +168,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	} else if command == "" {
 		command = checks.Detect(root)
 		if command == "" {
-			o.Run.Warn("no verification command could be detected for %s: the change will be "+
+			o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "no verification command could be detected for %s: the change will be "+
 				"reported as unverified", root)
 		} else {
 			o.Progress.Detail("verification command: %s", command)
@@ -212,7 +212,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Stage = "analysed"
 	result.Classification = string(analysis.Classification)
 	result.Title = analysis.Title
-	result.Summary = analysis.Summary
+	result.FixSummary = analysis.Summary
 	result.RootCause = analysis.RootCause
 	result.Approach = analysis.Approach
 	result.Assumptions = analysis.Assumptions
@@ -250,7 +250,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Stage = "implemented"
 	result.Implementation = &impl
 	if strings.TrimSpace(impl.Summary) != "" {
-		result.Summary = impl.Summary
+		result.FixSummary = impl.Summary
 	}
 
 	// The outcome is derived from the verdicts here rather than taken from
@@ -265,7 +265,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.CriteriaOutcome = criteriaOutcome(criteria, impl.CriteriaVerdicts)
 	if result.CriteriaOutcome == CriterionFail {
 		unmet := unmetCriteriaWarning(criteria, impl.CriteriaVerdicts)
-		o.Run.Warn("%s", unmet)
+		o.Run.Warn(toolio.WarnCriteriaUnmet, "high", "%s", unmet)
 		o.Progress.Step("%s", unmet)
 	}
 
@@ -442,12 +442,12 @@ func parkUnverified(ctx context.Context, o Options, git *gitx.Git, result *Resul
 
 	result.Stage = "unverified"
 	if commit, err := git.CommitAll(ctx, wipCommitMessage(impl, o.Input.Issue, verdict)); err != nil {
-		o.Run.Warn("the unverified work could not be committed on %s: %v", result.Branch, err)
+		o.Run.Warn(toolio.WarnCommitNotParked, "high", "the unverified work could not be committed on %s: %v", result.Branch, err)
 	} else {
 		result.Commit = commit
 	}
 	if err := git.Checkout(ctx, base); err != nil {
-		o.Run.Warn("could not return to %s: %v", base, err)
+		o.Run.Warn(toolio.WarnCheckoutNotRestored, "low", "could not return to %s: %v", base, err)
 	}
 	postComment(ctx, o, result, failureComment(result), "failure")
 
@@ -475,7 +475,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 	analysis Analysis, impl Implementation, base, branch string) {
 
 	if o.Forge == nil {
-		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): no forge client configured", branch, base)
 		return
 	}
@@ -487,7 +487,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 		Draft: o.Draft,
 	})
 	if err != nil {
-		o.Run.Warn("the pull request could not be opened (the branch is pushed; open it by "+
+		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", branch, base, err)
 		return
 	}
@@ -517,12 +517,12 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 		return
 	}
 	if o.Forge == nil {
-		o.Run.Warn("the %s comment could not be posted on %s: no forge client configured", kind, o.Input.Issue)
+		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: no forge client configured", kind, o.Input.Issue)
 		return
 	}
 	url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 	if err != nil {
-		o.Run.Warn("the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
+		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
 		return
 	}
 	result.Comments = append(result.Comments, url)

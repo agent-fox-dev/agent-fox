@@ -180,7 +180,7 @@ func summaryComment(r *Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
-	p("## Fix implemented\n\n%s\n\n", strings.TrimSpace(r.Summary))
+	p("## Fix implemented\n\n%s\n\n", strings.TrimSpace(r.FixSummary))
 
 	if len(r.ChangedFiles) > 0 {
 		p("### Changes\n\n")
@@ -237,7 +237,7 @@ func failureComment(r *Result) string {
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
 	p("## Change written, not landed\n\n")
-	p("%s\n\n", strings.TrimSpace(r.Summary))
+	p("%s\n\n", strings.TrimSpace(r.FixSummary))
 	p("The project's own checks do not pass after the change, so nothing was landed. ")
 	p("The work is parked on `%s` as a `wip:` commit", r.Branch)
 	if r.Commit != "" {
@@ -260,7 +260,7 @@ func pullRequestBody(r *Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
-	p("## Summary\n\n%s\n\n", strings.TrimSpace(r.Summary))
+	p("## Summary\n\n%s\n\n", strings.TrimSpace(r.FixSummary))
 	if r.IssueNumber > 0 {
 		p("Closes #%d\n\n", r.IssueNumber)
 	}

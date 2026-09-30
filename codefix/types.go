@@ -21,9 +21,11 @@
 package codefix
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -182,7 +184,7 @@ type Result struct {
 
 	Classification string   `json:"classification"`
 	Title          string   `json:"title"`
-	Summary        string   `json:"summary"`
+	FixSummary     string   `json:"summary"`
 	RootCause      string   `json:"root_cause,omitempty"`
 	Approach       string   `json:"approach,omitempty"`
 	Assumptions    []string `json:"assumptions,omitempty"`
@@ -225,6 +227,64 @@ type Result struct {
 	Ambiguity *Ambiguity `json:"ambiguity,omitempty"`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty"`
+}
+
+// Summary returns one sentence describing the outcome in fix's vocabulary.
+func (r Result) Summary() string {
+	if r.Ambiguity != nil {
+		return "fix: stopped on ambiguity; asked a question"
+	}
+	var parts []string
+	if r.Commit != "" || r.Branch != "" {
+		commitStr := r.Commit
+		if len(commitStr) > 7 {
+			commitStr = commitStr[:7]
+		}
+		if commitStr != "" && r.Branch != "" {
+			parts = append(parts, fmt.Sprintf("fix: committed %s on %s", commitStr, r.Branch))
+		} else if r.Branch != "" {
+			parts = append(parts, fmt.Sprintf("fix: branch %s", r.Branch))
+		} else {
+			parts = append(parts, fmt.Sprintf("fix: committed %s", commitStr))
+		}
+	} else {
+		parts = append(parts, "fix")
+	}
+
+	if r.Verdict != "" {
+		parts = append(parts, fmt.Sprintf("checks %s", r.Verdict))
+	}
+
+	if r.PullRequestURL != "" {
+		if r.PullRequestNumber > 0 {
+			parts = append(parts, fmt.Sprintf("landed PR #%d", r.PullRequestNumber))
+		} else {
+			parts = append(parts, "landed PR")
+		}
+	} else if r.Pushed {
+		parts = append(parts, "pushed")
+	} else if r.Commit != "" {
+		parts = append(parts, "not landed")
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+// NeedsHuman implements toolio.NeedsHumanSource.
+func (r Result) NeedsHuman() (question string, options []toolio.Option, needed string, ok bool) {
+	if r.Ambiguity == nil {
+		return "", nil, "", false
+	}
+	return r.Ambiguity.Question, []toolio.Option{
+		{ID: "A", Text: r.Ambiguity.InterpretationA},
+		{ID: "B", Text: r.Ambiguity.InterpretationB},
+	}, "", true
+}
+
+// Resumable implements toolio.Resumabler. For codefix, this is always false
+// because branch names are non-deterministic.
+func (r Result) Resumable() bool {
+	return false
 }
 
 // Categories this package adds to the shared vocabulary.

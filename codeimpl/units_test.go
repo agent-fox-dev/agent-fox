@@ -354,3 +354,43 @@ func TestSubmitRepairToolRefusesAnEmptyReport(t *testing.T) {
 		t.Errorf("a blocker was refused: %s", res.Detail)
 	}
 }
+
+func TestCodeimplResultSummary(t *testing.T) {
+	rDone := Result{
+		TasksDone:  3,
+		TasksTotal: 3,
+		Branch:     "impl/05-envelope-decidable",
+		Verdict:    "pass",
+	}
+	wantDone := "impl: 3/3 tasks done on impl/05-envelope-decidable; verdict: pass"
+	if rDone.Summary() != wantDone {
+		t.Errorf("got %q, want %q", rDone.Summary(), wantDone)
+	}
+
+	rStopped := Result{
+		TasksDone:  1,
+		TasksTotal: 3,
+		Branch:     "impl/05-envelope-decidable",
+		Tasks: []TaskReport{
+			{ID: 1, Outcome: OutcomeDone},
+			{ID: 2, Outcome: OutcomeUnverified, Verdict: "fail"},
+		},
+	}
+	wantStopped := "impl: 1/3 tasks done on impl/05-envelope-decidable; task 2 stopped with verdict fail"
+	if rStopped.Summary() != wantStopped {
+		t.Errorf("got %q, want %q", rStopped.Summary(), wantStopped)
+	}
+
+	rRepair := Result{
+		TasksDone:  0,
+		TasksTotal: 3,
+		Branch:     "impl/05-envelope-decidable",
+		Repair: &RepairReport{
+			Outcome: "failed",
+		},
+	}
+	wantRepair := "impl: 0/3 tasks done on impl/05-envelope-decidable; repair stopped (failed)"
+	if rRepair.Summary() != wantRepair {
+		t.Errorf("got %q, want %q", rRepair.Summary(), wantRepair)
+	}
+}

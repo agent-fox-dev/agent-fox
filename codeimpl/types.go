@@ -165,15 +165,17 @@ func (m LandMode) Pushes() bool { return m == LandPR || m == LandBranch }
 
 // Failure carries the stage and category of a failed run.
 type Failure struct {
-	Stage    string
-	Category string
-	Err      error
+	Stage       string
+	Category    string
+	Err         error
+	TotalBudget float64
 }
 
-func (f *Failure) Error() string        { return f.Err.Error() }
-func (f *Failure) Unwrap() error        { return f.Err }
-func (f *Failure) StageName() string    { return f.Stage }
-func (f *Failure) CategoryName() string { return f.Category }
+func (f *Failure) Error() string           { return f.Err.Error() }
+func (f *Failure) Unwrap() error           { return f.Err }
+func (f *Failure) StageName() string       { return f.Stage }
+func (f *Failure) CategoryName() string    { return f.Category }
+func (f *Failure) TotalBudgetUSD() float64 { return f.TotalBudget }
 
 func fail(stage, category string, err error) *Failure {
 	return &Failure{Stage: stage, Category: category, Err: err}
@@ -430,6 +432,53 @@ type Result struct {
 	CostUSD float64 `json:"cost_usd"`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty"`
+}
+
+// Summary returns one sentence describing the outcome in impl's vocabulary.
+func (r Result) Summary() string {
+	var parts []string
+	taskPart := fmt.Sprintf("impl: %d/%d tasks done", r.TasksDone, r.TasksTotal)
+	if r.Branch != "" {
+		taskPart += fmt.Sprintf(" on %s", r.Branch)
+	}
+	parts = append(parts, taskPart)
+
+	var stoppedReason string
+	if r.Repair != nil && r.Repair.Outcome != "" && r.Repair.Outcome != "done" {
+		stoppedReason = fmt.Sprintf("repair stopped (%s)", r.Repair.Outcome)
+	} else {
+		for _, t := range r.Tasks {
+			if t.Outcome != OutcomeDone && t.Outcome != OutcomeSkipped && t.Outcome != OutcomePending {
+				if t.Verdict != "" {
+					stoppedReason = fmt.Sprintf("task %d stopped with verdict %s", t.ID, t.Verdict)
+				} else if t.Outcome != "" {
+					stoppedReason = fmt.Sprintf("task %d stopped (%s)", t.ID, t.Outcome)
+				}
+				break
+			}
+		}
+	}
+	if stoppedReason != "" {
+		parts = append(parts, stoppedReason)
+	} else if r.Verdict != "" {
+		parts = append(parts, fmt.Sprintf("verdict: %s", r.Verdict))
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+// NeedsHuman implements toolio.NeedsHumanSource.
+func (r Result) NeedsHuman() (question string, options []toolio.Option, needed string, ok bool) {
+	if r.Blocker == nil {
+		return "", nil, "", false
+	}
+	return r.Blocker.Reason, nil, r.Blocker.Needed, true
+}
+
+// Resumable implements toolio.Resumabler. For codeimpl, this is true whenever
+// Branch is non-empty.
+func (r Result) Resumable() bool {
+	return r.Branch != ""
 }
 
 // brain is the model-driven half: the survey, the baseline repair and the

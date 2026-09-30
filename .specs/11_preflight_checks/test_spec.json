@@ -1,0 +1,946 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "11",
+  "spec_name": "preflight_checks",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-11-1",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-1.1"
+      ],
+      "title": "Common.Register adds a --preflight boolean flag defaulting to false with the documented usage string",
+      "given": [
+        "a fresh flag.FlagSet and an empty Common"
+      ],
+      "when": "Common.Register(fs) is called and fs is parsed with no arguments",
+      "then": [
+        "Common.Preflight is false",
+        "fs.Lookup(\"preflight\") is non-nil",
+        "its Usage string equals \"run every check that would refuse the run, then stop; makes no change beyond a verification baseline\""
+      ],
+      "pseudocode": "var c Common; fs := flag.NewFlagSet(...); c.Register(fs); fs.Parse(nil); assert c.Preflight == false; f := fs.Lookup(\"preflight\"); assert f.Usage == \"run every check that would refuse the run, then stop; makes no change beyond a verification baseline\""
+    },
+    {
+      "id": "TS-11-2",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.2"
+      ],
+      "title": "--schema takes priority over --preflight and exits before the input is classified",
+      "given": [
+        "an App with both --schema support and PreflightExec configured"
+      ],
+      "when": "the tool is invoked with both --schema and --preflight",
+      "then": [
+        "stdout carries only the self-description document",
+        "PreflightExec is not invoked",
+        "Exec is not invoked",
+        "the exit code is 0"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--schema\",\"--preflight\",\"some input\"}, ...); assert code == 0; assert !preflightExecCalled; assert !execCalled; assert isSelfDescription(stdout)"
+    },
+    {
+      "id": "TS-11-3",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.3"
+      ],
+      "title": "Every other flag is parsed and honoured identically whether or not --preflight is set",
+      "given": [
+        "a tool invoked twice on the same input and workspace: once plain, once with --preflight added"
+      ],
+      "when": "App.execute runs PreCheck, Workspace resolution, Resolve, CheckInput and ResolveModel for both invocations",
+      "then": [
+        "the PreCheck outcome is identical for both invocations",
+        "the CheckInput outcome is identical for both invocations",
+        "the resolved Workspace root is identical for both invocations",
+        "the resolved model id and thinking level are identical for both invocations"
+      ],
+      "pseudocode": "a := runCapturingDeps(argv); b := runCapturingDeps(append(argv, \"--preflight\")); assert a.Workspace.Root == b.Workspace.Root; assert a.Model.Model.ID == b.Model.Model.ID"
+    },
+    {
+      "id": "TS-11-4",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-1.4"
+      ],
+      "title": "fix --preflight --dry-run produces the byte-for-byte same envelope as fix --preflight alone",
+      "given": [
+        "a clean git workspace with a resolvable model and no forge write needed"
+      ],
+      "when": "fix is invoked once with --preflight --dry-run and once with only --preflight, on the same input and workspace state",
+      "then": [
+        "the two JSON stdout payloads are byte-for-byte equal"
+      ],
+      "pseudocode": "outA := runFix(dir, []string{\"--preflight\",\"--dry-run\",input}); outB := runFix(dir2, []string{\"--preflight\",input}); assert bytes.Equal(outA, outB)"
+    },
+    {
+      "id": "TS-11-5",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.1"
+      ],
+      "title": "toolio.App carries a PreflightExec field with the same signature shape as Exec",
+      "given": [],
+      "when": "an App value is constructed with a non-nil PreflightExec",
+      "then": [
+        "App.PreflightExec is assignable and callable as func(context.Context, Deps) (int, any, *ErrorInfo)"
+      ],
+      "pseudocode": "app := App{PreflightExec: func(ctx context.Context, d Deps) (int, any, *ErrorInfo) { return 0, nil, nil }}; code, _, _ := app.PreflightExec(ctx, Deps{}); assert code == 0"
+    },
+    {
+      "id": "TS-11-6",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-2.2"
+      ],
+      "title": "App.execute dispatches to PreflightExec, not Exec, when --preflight is set, passing identical Deps",
+      "given": [
+        "an App with both Exec and PreflightExec set, each recording the Deps it received"
+      ],
+      "when": "the tool is invoked with --preflight against a resolvable input and model",
+      "then": [
+        "PreflightExec is called exactly once",
+        "Exec is not called",
+        "the Deps.Workspace, Deps.Runner, Deps.Forge, Deps.Model and Deps.Input passed to PreflightExec equal what a parallel invocation without --preflight passes to Exec"
+      ],
+      "pseudocode": "execDeps := captureExecDeps(argvNoPreflight); pfDeps := capturePreflightDeps(argvWithPreflight); assert pfDeps.Workspace.Root == execDeps.Workspace.Root; assert pfDeps.Model.Model.ID == execDeps.Model.Model.ID; assert !execCalled"
+    },
+    {
+      "id": "TS-11-7",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.3"
+      ],
+      "title": "A tool that leaves PreflightExec nil reports an internal error under --preflight instead of silently running Exec",
+      "given": [
+        "an App with Exec set and PreflightExec left nil"
+      ],
+      "when": "the tool is invoked with --preflight",
+      "then": [
+        "the envelope's error Category equals agentrun.CategoryInternal",
+        "the process exit code equals ExitFailed (1)",
+        "Exec is not invoked"
+      ],
+      "pseudocode": "app := App{Exec: recordingExec, PreflightExec: nil}; code := app.Main(ctx, []string{\"--preflight\", input}, ...); assert code == toolio.ExitFailed; assert env.Error.Category == agentrun.CategoryInternal; assert !execCalled"
+    },
+    {
+      "id": "TS-11-8",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.4"
+      ],
+      "title": "cmd/fix's Exec and PreflightExec closures build identical codefix.Options from the same flags",
+      "given": [
+        "a set of parsed fix flags (--land, --pull, --repo, --no-verify)"
+      ],
+      "when": "fixOptions(d) is called once from a context resembling Exec and once from a context resembling PreflightExec, with the same Deps and flag values",
+      "then": [
+        "the two codefix.Options values are deeply equal in every field"
+      ],
+      "pseudocode": "optsA := fixOptions(deps); optsB := fixOptions(deps); assert reflect.DeepEqual(optsA, optsB)"
+    },
+    {
+      "id": "TS-11-9",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.4"
+      ],
+      "title": "cmd/impl's Exec and PreflightExec closures build identical codeimpl.Options from the same flags",
+      "given": [
+        "a set of parsed impl flags (--land, --pull, --repo, --task, --no-survey, --no-verify)"
+      ],
+      "when": "implOptions(d) is called once from a context resembling Exec and once from a context resembling PreflightExec, with the same Deps and flag values",
+      "then": [
+        "the two codeimpl.Options values are deeply equal in every field"
+      ],
+      "pseudocode": "optsA := implOptions(deps); optsB := implOptions(deps); assert reflect.DeepEqual(optsA, optsB)"
+    },
+    {
+      "id": "TS-11-10",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.4"
+      ],
+      "title": "cmd/spec's Exec and PreflightExec closures build identical specgen.Options from the same flags",
+      "given": [
+        "a set of parsed spec flags (--name, --architecture, --comment, --dry-run)"
+      ],
+      "when": "specOptions(d) is called once from a context resembling Exec and once from a context resembling PreflightExec, with the same Deps and flag values",
+      "then": [
+        "the two specgen.Options values are deeply equal in every field"
+      ],
+      "pseudocode": "optsA := specOptions(deps); optsB := specOptions(deps); assert reflect.DeepEqual(optsA, optsB)"
+    },
+    {
+      "id": "TS-11-11",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.4"
+      ],
+      "title": "cmd/issue's Exec and PreflightExec closures build identical issuetriage.Options from the same flags",
+      "given": [
+        "a set of parsed issue flags (--repo, --label, --dry-run)"
+      ],
+      "when": "issueOptions(d) is called once from a context resembling Exec and once from a context resembling PreflightExec, with the same Deps and flag values",
+      "then": [
+        "the two issuetriage.Options values are deeply equal in every field"
+      ],
+      "pseudocode": "optsA := issueOptions(deps); optsB := issueOptions(deps); assert reflect.DeepEqual(optsA, optsB)"
+    },
+    {
+      "id": "TS-11-12",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-2.5"
+      ],
+      "title": "cmd/impl's --repair-model resolution is factored into one function called identically by Exec and PreflightExec",
+      "given": [
+        "impl invoked with --repair-model=ADVANCED and a valid credential"
+      ],
+      "when": "the shared repair-model resolution function is called once as Exec would call it and once as PreflightExec would call it",
+      "then": [
+        "both calls resolve the same model id and thinking level",
+        "both calls perform the same credential check via d.RunnerFor"
+      ],
+      "pseudocode": "rA, mA, errA := resolveRepairRunner(deps, \"ADVANCED\"); rB, mB, errB := resolveRepairRunner(deps, \"ADVANCED\"); assert mA.Model.ID == mB.Model.ID; assert errA == nil && errB == nil"
+    },
+    {
+      "id": "TS-11-13",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.1"
+      ],
+      "title": "toolio.PreflightCheck exposes Check, OK and Detail with the documented JSON and trust tags",
+      "given": [],
+      "when": "the struct fields of toolio.PreflightCheck are inspected via reflection",
+      "then": [
+        "Check has json tag \"check\" and trust tag \"fact\"",
+        "OK has json tag \"ok\"",
+        "Detail has json tag \"detail,omitempty\" and trust tag \"fact\"",
+        "every field carries a non-empty description tag"
+      ],
+      "pseudocode": "t := reflect.TypeOf(toolio.PreflightCheck{}); f,_ := t.FieldByName(\"Check\"); assert f.Tag.Get(\"json\") == \"check\"; assert f.Tag.Get(\"trust\") == \"fact\"; assert f.Tag.Get(\"description\") != \"\""
+    },
+    {
+      "id": "TS-11-14",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.2"
+      ],
+      "title": "toolio.Estimate exposes Phases, MaxTurnsPerPhase, MaxBudgetPerPhaseUSD and MaxTotalUSD with the documented JSON tags",
+      "given": [],
+      "when": "the struct fields of toolio.Estimate are inspected via reflection",
+      "then": [
+        "Phases has json tag \"phases\"",
+        "MaxTurnsPerPhase has json tag \"max_turns_per_phase\"",
+        "MaxBudgetPerPhaseUSD has json tag \"max_budget_per_phase_usd\"",
+        "MaxTotalUSD has json tag \"max_total_usd\"",
+        "every field carries a non-empty description tag"
+      ],
+      "pseudocode": "t := reflect.TypeOf(toolio.Estimate{}); for _, name := range []string{\"Phases\",\"MaxTurnsPerPhase\",\"MaxBudgetPerPhaseUSD\",\"MaxTotalUSD\"} { f,_ := t.FieldByName(name); assert f.Tag.Get(\"description\") != \"\" }"
+    },
+    {
+      "id": "TS-11-15",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.3"
+      ],
+      "title": "Runner.ResolvedBounds reports the configured per-phase ceilings without starting a phase",
+      "given": [
+        "a Runner built with Bounds{MaxTurns: 12, MaxBudgetUSD: 3.5}"
+      ],
+      "when": "ResolvedBounds() is called before Run is ever invoked",
+      "then": [
+        "it returns (12, 3.5)",
+        "no model call is recorded on the runner's observer"
+      ],
+      "pseudocode": "r, _ := agentrun.NewRunner(cfg); turns, budget := r.ResolvedBounds(); assert turns == 12; assert budget == 3.5; assert observer.CallCount == 0"
+    },
+    {
+      "id": "TS-11-16",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.4"
+      ],
+      "title": "codefix.Result carries Preflight and Estimate fields immediately after DryRun",
+      "given": [],
+      "when": "the struct fields of codefix.Result are inspected via reflection",
+      "then": [
+        "a field named DryRun is immediately followed by a field named Preflight of type []toolio.PreflightCheck with json tag \"preflight,omitempty\"",
+        "the field following Preflight is named Estimate, of type *toolio.Estimate, with json tag \"estimate,omitempty\""
+      ],
+      "pseudocode": "fields := structFieldNames(codefix.Result{}); i := indexOf(fields, \"DryRun\"); assert fields[i+1] == \"Preflight\"; assert fields[i+2] == \"Estimate\""
+    },
+    {
+      "id": "TS-11-17",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.4"
+      ],
+      "title": "codeimpl.Result carries Preflight and Estimate fields immediately after DryRun",
+      "given": [],
+      "when": "the struct fields of codeimpl.Result are inspected via reflection",
+      "then": [
+        "a field named DryRun is immediately followed by Preflight ([]toolio.PreflightCheck, json \"preflight,omitempty\") then Estimate (*toolio.Estimate, json \"estimate,omitempty\")"
+      ],
+      "pseudocode": "fields := structFieldNames(codeimpl.Result{}); i := indexOf(fields, \"DryRun\"); assert fields[i+1] == \"Preflight\"; assert fields[i+2] == \"Estimate\""
+    },
+    {
+      "id": "TS-11-18",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.4"
+      ],
+      "title": "issuetriage.Result carries Preflight and Estimate fields immediately after DryRun",
+      "given": [],
+      "when": "the struct fields of issuetriage.Result are inspected via reflection",
+      "then": [
+        "a field named DryRun is immediately followed by Preflight ([]toolio.PreflightCheck, json \"preflight,omitempty\") then Estimate (*toolio.Estimate, json \"estimate,omitempty\")"
+      ],
+      "pseudocode": "fields := structFieldNames(issuetriage.Result{}); i := indexOf(fields, \"DryRun\"); assert fields[i+1] == \"Preflight\"; assert fields[i+2] == \"Estimate\""
+    },
+    {
+      "id": "TS-11-19",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.4"
+      ],
+      "title": "specgen.Result carries Preflight and Estimate fields immediately after DryRun",
+      "given": [],
+      "when": "the struct fields of specgen.Result are inspected via reflection",
+      "then": [
+        "a field named DryRun is immediately followed by Preflight ([]toolio.PreflightCheck, json \"preflight,omitempty\") then Estimate (*toolio.Estimate, json \"estimate,omitempty\")"
+      ],
+      "pseudocode": "fields := structFieldNames(specgen.Result{}); i := indexOf(fields, \"DryRun\"); assert fields[i+1] == \"Preflight\"; assert fields[i+2] == \"Estimate\""
+    },
+    {
+      "id": "TS-11-20",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.5"
+      ],
+      "title": "An ordinary successful run's envelope carries no preflight or estimate key",
+      "given": [
+        "a completed ordinary (non --preflight) successful run of any of the four tools"
+      ],
+      "when": "the envelope's result object is marshalled to JSON",
+      "then": [
+        "the JSON object carries no \"preflight\" key",
+        "the JSON object carries no \"estimate\" key"
+      ],
+      "pseudocode": "env := runOrdinary(fixArgv); m := decodeJSON(env.Result); assert !hasKey(m, \"preflight\"); assert !hasKey(m, \"estimate\")"
+    },
+    {
+      "id": "TS-11-21",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-3.5"
+      ],
+      "title": "An ordinary failing run's envelope carries no preflight or estimate key",
+      "given": [
+        "an ordinary (non --preflight) run of impl against a dirty tree, which fails"
+      ],
+      "when": "the envelope is marshalled to JSON",
+      "then": [
+        "the JSON result object, if present, carries no \"preflight\" key",
+        "the JSON result object, if present, carries no \"estimate\" key"
+      ],
+      "pseudocode": "env := runOrdinary(implArgvDirtyTree); m := decodeJSON(env.Result); assert !hasKey(m, \"preflight\"); assert !hasKey(m, \"estimate\")"
+    },
+    {
+      "id": "TS-11-22",
+      "kind": "property",
+      "verifies": [
+        "11-REQ-4.1"
+      ],
+      "title": "For any invocation that would fail before its first model call, adding --preflight does not change the failure",
+      "given": [
+        "a corpus of failing pre-model scenarios across the four tools: dirty tree, unresolvable model, missing credential, invalid spec package, unreachable repository"
+      ],
+      "when": "for any such scenario, the tool is invoked once without --preflight and once with --preflight added, on the same input and workspace state",
+      "then": [
+        "stage, category, message and exit code are identical between the two invocations for every scenario in the corpus"
+      ],
+      "pseudocode": "for scenario in corpus: a := runTool(scenario.argv); b := runTool(append(scenario.argv, \"--preflight\")); assert a.Error.Stage==b.Error.Stage; assert a.Error.Category==b.Error.Category; assert a.Error.Message==b.Error.Message; assert a.ExitCode==b.ExitCode"
+    },
+    {
+      "id": "TS-11-23",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-4.2"
+      ],
+      "title": "impl --preflight on a dirty working tree fails with the exact same error object as impl without --preflight",
+      "given": [
+        "a git repository with a valid spec package and an uncommitted change to a tracked file"
+      ],
+      "when": "impl is invoked once with --preflight and once without, on the same repository state",
+      "then": [
+        "the two JSON error objects (stage, category, message) compare byte-for-byte equal",
+        "both invocations exit with the usage exit code"
+      ],
+      "pseudocode": "envA := runImpl(dirtyRepo, []string{specDir}); envB := runImpl(dirtyRepoCopy, []string{\"--preflight\", specDir}); assert bytes.Equal(marshal(envA.Error), marshal(envB.Error)); assert envA.ExitCode==toolio.ExitUsage; assert envB.ExitCode==toolio.ExitUsage"
+    },
+    {
+      "id": "TS-11-24",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-4.3"
+      ],
+      "title": "A --preflight run that refuses partway through its checks reports no partial checklist of earlier passes",
+      "given": [
+        "a workspace with a clean tree but a spec package whose test_commands audit fails, so codeimpl.preflight refuses after the clean-tree check has already passed"
+      ],
+      "when": "impl --preflight is invoked",
+      "then": [
+        "the envelope's result object carries no non-empty \"preflight\" array",
+        "only the fields the failing preflight function itself set before returning are present"
+      ],
+      "pseudocode": "env := runImpl(dir, []string{\"--preflight\", specDir}); m := decodeJSON(env.Result); pf, ok := m[\"preflight\"]; assert !ok || len(pf.([]any)) == 0"
+    },
+    {
+      "id": "TS-11-25",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-4.4"
+      ],
+      "title": "A failing --preflight run creates no branch and makes no remote write beyond the pipeline's own pre-refusal actions",
+      "given": [
+        "a clean git repository resolved to a base branch, with the forge client instrumented to record write calls, and a check that refuses after the base-branch resolution but before branch creation"
+      ],
+      "when": "fix --preflight is invoked and its Preflight check refuses",
+      "then": [
+        "no branch exists that did not exist before the invocation",
+        "the forge client records no write call"
+      ],
+      "pseudocode": "branchesBefore := listBranches(dir); env := runFix(dir, []string{\"--preflight\", input}); branchesAfter := listBranches(dir); assert branchesBefore.Equal(branchesAfter); assert forge.WriteCalls == 0"
+    },
+    {
+      "id": "TS-11-26",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-5.1"
+      ],
+      "title": "codefix.RunPreflight, on full success, runs the baseline and reports the fix checklist without creating a branch",
+      "given": [
+        "a clean git repository with a detectable test command and no forge write required (no issue target, no --land=pr)"
+      ],
+      "when": "codefix.RunPreflight(ctx, o) is called",
+      "then": [
+        "the returned error is nil",
+        "result.Stage equals \"preflight\"",
+        "result.Baseline is populated",
+        "result.Preflight contains entries for git_repository, clean_tree, base_branch, verify_command and verify_baseline",
+        "no new branch exists in the repository"
+      ],
+      "pseudocode": "res, err := codefix.RunPreflight(ctx, opts); assert err == nil; assert res.Stage == \"preflight\"; assert res.Baseline != nil; assert containsCheck(res.Preflight, \"verify_baseline\"); assert branchesBefore.Equal(listBranches(dir))"
+    },
+    {
+      "id": "TS-11-27",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-5.2"
+      ],
+      "title": "codeimpl.RunPreflight, on full success, reports Tasks and the impl checklist without creating a new branch",
+      "given": [
+        "a clean git repository holding a valid, active spec package with pending tasks and passing test_commands audit, whose target work branch does not yet exist"
+      ],
+      "when": "codeimpl.RunPreflight(ctx, o) is called",
+      "then": [
+        "the returned error is nil",
+        "result.Stage equals \"preflight\"",
+        "result.Tasks reflects the pending/skipped outcome of selectTasks",
+        "result.Preflight contains entries for git_repository, clean_tree, spec_resolved, branch, spec_valid, spec_status, test_commands, dependencies and verify_baseline",
+        "no branch named in result.Branch exists in the repository yet"
+      ],
+      "pseudocode": "res, err := codeimpl.RunPreflight(ctx, opts); assert err == nil; assert res.Stage == \"preflight\"; assert len(res.Tasks) > 0; assert containsCheck(res.Preflight, \"dependencies\"); assert !branchExists(dir, res.Branch)"
+    },
+    {
+      "id": "TS-11-28",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-5.3"
+      ],
+      "title": "specgen.RunPreflight, on full success, reports the spec checklist and writes no package to disk",
+      "given": [
+        "a workspace with a resolvable runner and no existing split plan, invoked without --comment"
+      ],
+      "when": "specgen.RunPreflight(ctx, o) is called",
+      "then": [
+        "the returned error is nil",
+        "result.Preflight contains a schemas_valid entry",
+        "no new directory is written under the specs root"
+      ],
+      "pseudocode": "dirsBefore := listDirs(specsRoot); res, err := specgen.RunPreflight(ctx, opts); assert err == nil; assert containsCheck(res.Preflight, \"schemas_valid\"); assert listDirs(specsRoot).Equal(dirsBefore)"
+    },
+    {
+      "id": "TS-11-29",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-5.4"
+      ],
+      "title": "issuetriage.RunPreflight, on full success, reports the resolved target and creates no issue",
+      "given": [
+        "a report input with a resolvable target repository and a valid forge credential"
+      ],
+      "when": "issuetriage.RunPreflight(o) is called",
+      "then": [
+        "the returned error is nil",
+        "result.Preflight contains a target_repository entry and (since not --dry-run) a forge_credential entry",
+        "the forge client records no issue-creation call"
+      ],
+      "pseudocode": "res, err := issuetriage.RunPreflight(opts); assert err == nil; assert containsCheck(res.Preflight, \"target_repository\"); assert forge.IssueCreateCalls == 0"
+    },
+    {
+      "id": "TS-11-30",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.5"
+      ],
+      "title": "fix's estimate reports exactly two phases with bounds from ResolvedBounds",
+      "given": [
+        "a Runner whose ResolvedBounds() returns (10, 2.0)"
+      ],
+      "when": "codefix.RunPreflight computes result.Estimate on a passing run",
+      "then": [
+        "result.Estimate.Phases equals 2",
+        "result.Estimate.MaxTurnsPerPhase equals 10",
+        "result.Estimate.MaxBudgetPerPhaseUSD equals 2.0",
+        "result.Estimate.MaxTotalUSD equals 4.0"
+      ],
+      "pseudocode": "res, _ := codefix.RunPreflight(ctx, opts); assert res.Estimate.Phases == 2; assert res.Estimate.MaxTotalUSD == 2*res.Estimate.MaxBudgetPerPhaseUSD"
+    },
+    {
+      "id": "TS-11-31",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.5"
+      ],
+      "title": "impl's estimate counts pending tasks plus a survey phase unless --no-survey was given",
+      "given": [
+        "a spec package with 3 pending tasks",
+        "one invocation without --no-survey, one with --no-survey"
+      ],
+      "when": "codeimpl.RunPreflight computes result.Estimate for each invocation",
+      "then": [
+        "without --no-survey, result.Estimate.Phases equals 4",
+        "with --no-survey, result.Estimate.Phases equals 3"
+      ],
+      "pseudocode": "resA, _ := codeimpl.RunPreflight(ctx, optsWithSurvey); assert resA.Estimate.Phases == 4; resB, _ := codeimpl.RunPreflight(ctx, optsNoSurvey); assert resB.Estimate.Phases == 3"
+    },
+    {
+      "id": "TS-11-32",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.5"
+      ],
+      "title": "spec's estimate counts the PRD phase plus one per generation step, adds one for --architecture, and multiplies by a split plan's pending scope count when resuming",
+      "given": [
+        "afspec.GenerationSteps has 3 entries",
+        "a fresh unsplit input, invoked with and without --architecture",
+        "a split plan on disk with 2 pending scopes"
+      ],
+      "when": "specgen.RunPreflight computes result.Estimate for each case",
+      "then": [
+        "a fresh input without --architecture reports Phases == 4 (1 PRD + 3 steps)",
+        "a fresh input with --architecture reports Phases == 5",
+        "resuming the 2-pending-scope split plan multiplies the one-package figure by 2"
+      ],
+      "pseudocode": "resA, _ := specgen.RunPreflight(ctx, freshOpts); assert resA.Estimate.Phases == 1+len(afspec.GenerationSteps); resB, _ := specgen.RunPreflight(ctx, archOpts); assert resB.Estimate.Phases == resA.Estimate.Phases+1; resC, _ := specgen.RunPreflight(ctx, resumeOpts); assert resC.Estimate.Phases == resA.Estimate.Phases*2"
+    },
+    {
+      "id": "TS-11-33",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.5"
+      ],
+      "title": "issue's estimate reports exactly one phase with bounds from ResolvedBounds",
+      "given": [
+        "a Runner whose ResolvedBounds() returns (6, 1.5)"
+      ],
+      "when": "issuetriage.RunPreflight computes result.Estimate on a passing run",
+      "then": [
+        "result.Estimate.Phases equals 1",
+        "result.Estimate.MaxTotalUSD equals result.Estimate.MaxBudgetPerPhaseUSD"
+      ],
+      "pseudocode": "res, _ := issuetriage.RunPreflight(opts); assert res.Estimate.Phases == 1; assert res.Estimate.MaxTotalUSD == res.Estimate.MaxBudgetPerPhaseUSD"
+    },
+    {
+      "id": "TS-11-34",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.6"
+      ],
+      "title": "An advisory check that fails, such as no verify command detected, is reported honestly without refusing the run",
+      "given": [
+        "a clean git repository with no detectable verify command and --no-verify not given"
+      ],
+      "when": "codefix.RunPreflight is called",
+      "then": [
+        "the returned error is nil",
+        "result.Preflight contains a verify_command entry with OK false and a non-empty Detail naming \"none detected\"",
+        "the run's exit code is 0"
+      ],
+      "pseudocode": "res, err := codefix.RunPreflight(ctx, opts); assert err == nil; c := findCheck(res.Preflight, \"verify_command\"); assert c.OK == false; assert c.Detail != \"\""
+    },
+    {
+      "id": "TS-11-35",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-5.7"
+      ],
+      "title": "RunPreflight never calls Runner.Run, so the envelope carries no per-phase cost from the invocation",
+      "given": [
+        "a Runner instrumented to record every call to Run"
+      ],
+      "when": "each of codefix.RunPreflight, codeimpl.RunPreflight, specgen.RunPreflight and issuetriage.RunPreflight is called on a passing scenario",
+      "then": [
+        "the instrumented Runner's Run method is never invoked",
+        "the resulting Run's recorded phases list is empty"
+      ],
+      "pseudocode": "for runPreflight in []func(){fixCase, implCase, specCase, issueCase} { runPreflight(); assert recordingRunner.RunCallCount == 0 }; assert len(run.Phases()) == 0"
+    },
+    {
+      "id": "TS-11-36",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.1"
+      ],
+      "title": "fix Result.Summary() reports the checklist count when Stage is preflight and checks passed",
+      "given": [
+        "a codefix.Result with Stage == \"preflight\", OK == true and 5 entries in Preflight"
+      ],
+      "when": "Summary() is called",
+      "then": [
+        "it returns \"fix: preflight passed (5 checks)\""
+      ],
+      "pseudocode": "r := codefix.Result{Stage: \"preflight\", Preflight: make([]toolio.PreflightCheck, 5)}; assert r.Summary() == \"fix: preflight passed (5 checks)\""
+    },
+    {
+      "id": "TS-11-37",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.2"
+      ],
+      "title": "impl Result.Summary() reports remaining tasks when Stage is preflight and checks passed",
+      "given": [
+        "a codeimpl.Result with Stage == \"preflight\", TasksRemaining == 2 and TasksTotal == 5"
+      ],
+      "when": "Summary() is called",
+      "then": [
+        "it returns \"impl: preflight passed; 2 of 5 tasks remain\""
+      ],
+      "pseudocode": "r := codeimpl.Result{Stage: \"preflight\", TasksRemaining: 2, TasksTotal: 5}; assert r.Summary() == \"impl: preflight passed; 2 of 5 tasks remain\""
+    },
+    {
+      "id": "TS-11-38",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.3"
+      ],
+      "title": "spec Result.Summary() reports the checklist count when Stage is preflight and checks passed",
+      "given": [
+        "a specgen.Result with Stage == \"preflight\" and 3 entries in Preflight"
+      ],
+      "when": "Summary() is called",
+      "then": [
+        "it returns \"spec: preflight passed (3 checks)\""
+      ],
+      "pseudocode": "r := specgen.Result{Stage: \"preflight\", Preflight: make([]toolio.PreflightCheck, 3)}; assert r.Summary() == \"spec: preflight passed (3 checks)\""
+    },
+    {
+      "id": "TS-11-39",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.3"
+      ],
+      "title": "issue Result.Summary() reports the checklist count when Stage is preflight and checks passed",
+      "given": [
+        "an issuetriage.Result with Stage == \"preflight\" and 2 entries in Preflight"
+      ],
+      "when": "Summary() is called",
+      "then": [
+        "it returns \"issue: preflight passed (2 checks)\""
+      ],
+      "pseudocode": "r := issuetriage.Result{Stage: \"preflight\", Preflight: make([]toolio.PreflightCheck, 2)}; assert r.Summary() == \"issue: preflight passed (2 checks)\""
+    },
+    {
+      "id": "TS-11-40",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-6.4"
+      ],
+      "title": "Resumable() returns false for any Result whose Stage is preflight, even when impl's Branch is populated",
+      "given": [
+        "a codeimpl.Result with Stage == \"preflight\" and Branch set to a non-empty branch name",
+        "a codefix.Result, a specgen.Result and an issuetriage.Result each with Stage == \"preflight\""
+      ],
+      "when": "Resumable() is called on each",
+      "then": [
+        "every one returns false"
+      ],
+      "pseudocode": "implR := codeimpl.Result{Stage: \"preflight\", Branch: \"feature/x\"}; assert implR.Resumable() == false; fixR := codefix.Result{Stage: \"preflight\"}; assert fixR.Resumable() == false"
+    },
+    {
+      "id": "TS-11-41",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.1"
+      ],
+      "title": "--detail summary keeps preflight and estimate in the trimmed result for every tool",
+      "given": [
+        "a successful --preflight run of each of fix, impl, spec and issue"
+      ],
+      "when": "the envelope is requested with --detail summary",
+      "then": [
+        "the trimmed result object still carries a non-empty \"preflight\" array",
+        "the trimmed result object still carries a non-empty \"estimate\" object",
+        "for every one of the four tools"
+      ],
+      "pseudocode": "for tool in [\"fix\",\"impl\",\"spec\",\"issue\"] { env := runPreflight(tool, []string{\"--preflight\",\"--detail\",\"summary\", input}); m := decodeJSON(env.Result); assert hasKey(m, \"preflight\"); assert hasKey(m, \"estimate\") }"
+    },
+    {
+      "id": "TS-11-42",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-7.2"
+      ],
+      "title": "A --preflight result leaves artifacts[] and side_effects[] empty",
+      "given": [
+        "a successful --preflight run of fix"
+      ],
+      "when": "the envelope is inspected",
+      "then": [
+        "envelope.Artifacts is empty",
+        "envelope.SideEffects is empty"
+      ],
+      "pseudocode": "env := runFix(dir, []string{\"--preflight\", input}); assert len(env.Artifacts) == 0; assert len(env.SideEffects) == 0"
+    },
+    {
+      "id": "TS-11-43",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.3"
+      ],
+      "title": "A --preflight run emits only run_start, step and run_end events, with no new event type",
+      "given": [
+        "fix invoked with --preflight and --events"
+      ],
+      "when": "the event stream is captured for the run",
+      "then": [
+        "the first event is run_start",
+        "every intermediate event is a step event corresponding to a Progress.Step/Begin call the reused checks make",
+        "the last event is run_end",
+        "no event type outside {run_start, step, heartbeat, run_end} appears"
+      ],
+      "pseudocode": "events := captureEvents(runFix(dir, []string{\"--preflight\",\"--events\", input})); assert events[0].Type == \"run_start\"; assert events[len(events)-1].Type == \"run_end\"; for e := range events[1:len(events)-1] { assert e.Type in {\"step\",\"heartbeat\"} }"
+    },
+    {
+      "id": "TS-11-44",
+      "kind": "integration",
+      "verifies": [
+        "11-REQ-7.4"
+      ],
+      "title": "--output persists a --preflight envelope exactly as it would any other envelope",
+      "given": [
+        "fix invoked with --preflight and --output pointing to a file path"
+      ],
+      "when": "the run completes",
+      "then": [
+        "the file at --output contains the same JSON envelope written to stdout",
+        "no special-case branch in App.Main's Emit call sites was needed to produce it"
+      ],
+      "pseudocode": "path := tmpFile(); stdout := runFix(dir, []string{\"--preflight\",\"--output\", path, input}); fileContents := readFile(path); assert fileContents == stdout"
+    },
+    {
+      "id": "TS-11-45",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-7.5"
+      ],
+      "title": "Each tool's checked-in --schema golden file lists --preflight among flags and preflight/estimate among result fields",
+      "given": [
+        "the four regenerated golden schema files for fix, impl, spec and issue"
+      ],
+      "when": "each golden file is parsed",
+      "then": [
+        "its flags document contains an entry named \"preflight\"",
+        "its result document contains entries named \"preflight\" and \"estimate\", each field of PreflightCheck and Estimate carrying a description"
+      ],
+      "pseudocode": "for tool in [\"fix\",\"impl\",\"spec\",\"issue\"] { doc := loadGolden(tool); assert containsFlag(doc, \"preflight\"); assert containsResultField(doc, \"preflight\"); assert containsResultField(doc, \"estimate\") }"
+    },
+    {
+      "id": "TS-11-46",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-7.6"
+      ],
+      "title": "CheckTrust passes with the new PreflightCheck fields tagged fact, and a preflight-only result's untrusted_fields array is empty",
+      "given": [
+        "a passing --preflight result whose only string content is PreflightCheck.Check/.Detail values"
+      ],
+      "when": "CheckTrust is run over the result and the envelope's untrusted_fields array is computed",
+      "then": [
+        "CheckTrust reports no missing trust tag for PreflightCheck.Check or PreflightCheck.Detail",
+        "the envelope's untrusted_fields array is empty"
+      ],
+      "pseudocode": "assert checkTrustExhaustive(codefix.Result{}) == nil; env := runFix(dir, []string{\"--preflight\", input}); assert len(env.UntrustedFields) == 0"
+    },
+    {
+      "id": "TS-11-47",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-8.1"
+      ],
+      "title": "docs/cli.md contains a --preflight row in the shared-flags table",
+      "given": [
+        "the current docs/cli.md file"
+      ],
+      "when": "the shared-flags table is parsed",
+      "then": [
+        "a row for --preflight exists, naming default false and its effect"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); assert regexp.MustCompile(`\\|\\s*--preflight\\s*\\|`).MatchString(doc)"
+    },
+    {
+      "id": "TS-11-48",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-8.2"
+      ],
+      "title": "docs/cli.md contains a Preflight section naming what it runs, what it never does, and the two unsuppressed behaviours",
+      "given": [
+        "the current docs/cli.md file"
+      ],
+      "when": "the file's headings are scanned",
+      "then": [
+        "a heading titled \"Preflight (--preflight)\" exists",
+        "its body names no branch, no commit, no push, no comment, no issue as things it never does, names the baseline/gate exception explicitly, and states that a --pull fetch-and-fast-forward and an impl continuation-branch checkout are not suppressed"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); section := extractSection(doc, \"Preflight (--preflight)\"); assert section != \"\"; assert strings.Contains(section, \"no branch\"); assert strings.Contains(section, \"baseline\"); assert strings.Contains(section, \"fast-forward\")"
+    },
+    {
+      "id": "TS-11-49",
+      "kind": "unit",
+      "verifies": [
+        "11-REQ-8.3"
+      ],
+      "title": "docs/cli.md contains one worked example per tool showing result.preflight and result.estimate",
+      "given": [
+        "the current docs/cli.md file"
+      ],
+      "when": "the Preflight section's examples are scanned",
+      "then": [
+        "an example for fix, an example for impl, an example for spec and an example for issue each show a result.preflight array and a result.estimate object"
+      ],
+      "pseudocode": "doc := readFile(\"docs/cli.md\"); for tool in [\"fix\",\"impl\",\"spec\",\"issue\"] { ex := findExample(doc, tool); assert strings.Contains(ex, \"\\\"preflight\\\"\"); assert strings.Contains(ex, \"\\\"estimate\\\"\") }"
+    },
+    {
+      "id": "TS-11-50",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-1",
+        "11-REQ-4.1",
+        "11-REQ-4.2"
+      ],
+      "title": "A caller learns a fix run would refuse on a dirty tree, before any model call, through the real CLI shell",
+      "given": [
+        "a real git repository whose working tree has an uncommitted change",
+        "a resolvable model and credential"
+      ],
+      "when": "fix --preflight is invoked as a real process against the input",
+      "then": [
+        "the process exits with the usage exit code",
+        "the emitted envelope's stage, category and message equal exactly what 'fix' (without --preflight) on the same tree state would emit",
+        "no branch is created",
+        "no model provider is called"
+      ],
+      "real_components": [
+        "toolio.App",
+        "codefix.RunPreflight",
+        "codefix.Preflight",
+        "internal/gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-11-51",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-2",
+        "11-REQ-5.2",
+        "11-REQ-5.5"
+      ],
+      "title": "A caller confirms an impl run would proceed and reads its estimate, through the real CLI shell, before spending anything",
+      "given": [
+        "a real, clean git workspace holding a valid, active spec package with pending tasks and a passing baseline"
+      ],
+      "when": "impl --preflight is invoked as a real process against the spec package",
+      "then": [
+        "the process exits 0",
+        "the emitted envelope's result carries a non-empty preflight array and a populated estimate",
+        "no new branch exists beyond any already-existing continuation branch checked out",
+        "no model provider is called"
+      ],
+      "real_components": [
+        "toolio.App",
+        "codeimpl.RunPreflight",
+        "internal/gitx.Git",
+        "afspec.LoadSpec"
+      ]
+    },
+    {
+      "id": "TS-11-52",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-3",
+        "11-REQ-5.3",
+        "11-REQ-5.5"
+      ],
+      "title": "spec --preflight resumes a real split plan and reports a phase estimate multiplied by the pending scope count",
+      "given": [
+        "a real workspace holding a spec root with a recorded split plan naming 2 pending scopes"
+      ],
+      "when": "spec --preflight is invoked as a real process against the same input that produced the split plan",
+      "then": [
+        "the process exits 0",
+        "the emitted envelope's result.preflight contains schemas_valid and split_plan entries",
+        "result.estimate.phases equals one package's phase count multiplied by 2",
+        "no package directory is written to disk"
+      ],
+      "real_components": [
+        "toolio.App",
+        "specgen.RunPreflight",
+        "specgen.Preflight",
+        "afspec split plan"
+      ]
+    },
+    {
+      "id": "TS-11-53",
+      "kind": "smoke",
+      "verifies": [
+        "11-PATH-4",
+        "11-REQ-5.4"
+      ],
+      "title": "issue --preflight reports the resolved target repository through the real CLI shell without writing to the forge",
+      "given": [
+        "a real git workspace whose origin remote resolves to a forge repository",
+        "a report given as input with no explicit --repo"
+      ],
+      "when": "issue --preflight is invoked as a real process against the report",
+      "then": [
+        "the process exits 0",
+        "the emitted envelope's result.preflight names target_repository and forge_credential",
+        "the forge client records no write call",
+        "no model provider is called"
+      ],
+      "real_components": [
+        "toolio.App",
+        "issuetriage.RunPreflight",
+        "issuetriage.ResolveTarget",
+        "issuex.Client"
+      ]
+    }
+  ]
+}

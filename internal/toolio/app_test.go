@@ -75,18 +75,20 @@ func TestAppEmitsJSONOnEveryPath(t *testing.T) {
 	})
 
 	t.Run("no input", func(t *testing.T) {
-		// A bare invocation with no positional argument is a person asking
-		// what the tool does, not a program handing over work: the help text
-		// goes to stderr and stdout stays empty, rather than pairing it with
-		// a JSON envelope that only restates it.
+		// A bare invocation with no positional argument when stdout is not a
+		// terminal emits a usage envelope, and prints help text to stderr.
 		app, _ := newApp(t, nil)
 		var stdout, stderr bytes.Buffer
 		code := app.Main(context.Background(), []string{"--dir", dir}, strings.NewReader(""), &stdout, &stderr)
 		if code != ExitUsage {
 			t.Fatalf("code=%d", code)
 		}
-		if stdout.Len() != 0 {
-			t.Errorf("stdout should be empty for a bare invocation, got %q", stdout.String())
+		var env Envelope
+		if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+			t.Fatalf("stdout is not one JSON object (%v):\n%s", err, stdout.String())
+		}
+		if env.OK || env.ExitCode != ExitUsage {
+			t.Errorf("env = %+v", env)
 		}
 		if !strings.Contains(stderr.String(), "usage") {
 			t.Errorf("the flag list should be printed for a bare invocation:\n%s", stderr.String())
@@ -362,14 +364,14 @@ func TestApp_Execute_CommentsWarning_TS_04_12(t *testing.T) {
 	thread := issuex.IssueThread{CommentsErr: errors.New("rate limited")}
 	in := Input{Kind: KindIssue, Thread: &thread}
 	if in.Thread != nil && in.Thread.CommentsErr != nil {
-		mockRun.Warn("the issue's comments could not be read: %v", in.Thread.CommentsErr)
+		mockRun.Warn(WarnCommentsUnreadable, "low", "the issue's comments could not be read: %v", in.Thread.CommentsErr)
 	}
 	warns := mockRun.Warnings()
 	if len(warns) != 1 {
 		t.Fatalf("expected 1 warning, got %d", len(warns))
 	}
-	if !strings.Contains(warns[0], "the issue's comments could not be read: rate limited") {
-		t.Errorf("unexpected warning message: %s", warns[0])
+	if !strings.Contains(warns[0].Message, "the issue's comments could not be read: rate limited") {
+		t.Errorf("unexpected warning message: %s", warns[0].Message)
 	}
 
 	// Integration verification through App.execute
@@ -410,13 +412,163 @@ func TestApp_Execute_CommentsWarning_TS_04_12(t *testing.T) {
 	}
 	var foundWarning bool
 	for _, w := range env.Warnings {
-		if strings.Contains(w, "the issue's comments could not be read:") {
+		if strings.Contains(w.Message, "the issue's comments could not be read:") {
 			foundWarning = true
 			break
 		}
 	}
 	if !foundWarning {
 		t.Errorf("expected warning about unreadable comments, got warnings: %v", env.Warnings)
+	}
+}
+
+// TS-05-1 (unit): A whitespace-only positional argument is folded into the bare-invocation case before Resolve runs, with no model resolution attempted
+func TestTS_05_1(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+
+	dir := t.TempDir()
+	app, _ := newApp(t, nil)
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir, "   "}, strings.NewReader(""), &stdout, &stderr)
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage (%d), got %d", ExitUsage, code)
+	}
+	if !strings.Contains(stderr.String(), "usage") {
+		t.Errorf("expected stderr to contain usage help text, got:\n%s", stderr.String())
+	}
+}
+
+// TS-05-2 (unit): A bare invocation with stdout not a terminal emits a usage envelope naming the four accepted input shapes
+func TestTS_05_2(t *testing.T) {
+	dir := t.TempDir()
+	app, _ := newApp(t, nil)
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir}, strings.NewReader(""), &stdout, &stderr)
+	if code != ExitUsage {
+		t.Fatalf("expected exit code %d, got %d", ExitUsage, code)
+	}
+	var env Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not one JSON object (%v):\n%s", err, stdout.String())
+	}
+	if env.OK {
+		t.Errorf("expected ok=false, got true")
+	}
+	if env.ExitCode != ExitUsage {
+		t.Errorf("expected exit_code=%d, got %d", ExitUsage, env.ExitCode)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected error object, got nil")
+	}
+	if env.Error.Stage != "usage" {
+		t.Errorf("expected error.stage=usage, got %q", env.Error.Stage)
+	}
+	if env.Error.Category != "usage" {
+		t.Errorf("expected error.category=usage, got %q", env.Error.Category)
+	}
+	const wantMsg = "no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"
+	if env.Error.Message != wantMsg {
+		t.Errorf("expected error.message=%q, got %q", wantMsg, env.Error.Message)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &raw); err == nil {
+		if status, ok := raw["status"]; ok && status != "usage" {
+			t.Errorf("expected status=usage, got %v", status)
+		}
+	}
+}
+
+// TS-05-3 (unit): A bare invocation with stdout a terminal writes nothing to stdout
+func TestTS_05_3(t *testing.T) {
+	f, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		t.Skipf("cannot open %s: %v", os.DevNull, err)
+	}
+	defer f.Close()
+
+	if !isTerminal(f) {
+		t.Skipf("%s is not reported as terminal", os.DevNull)
+	}
+
+	dir := t.TempDir()
+	app, _ := newApp(t, nil)
+	var stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir}, strings.NewReader(""), f, &stderr)
+	if code != ExitUsage {
+		t.Fatalf("expected exit code %d, got %d", ExitUsage, code)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat failed: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("expected stdout size 0, got %d", info.Size())
+	}
+	if !strings.Contains(stderr.String(), "usage") {
+		t.Errorf("the help text should be printed to stderr:\n%s", stderr.String())
+	}
+}
+
+// TS-05-4 (unit): -h/--help and --version exit before the bare-invocation check and never emit an envelope
+func TestTS_05_4(t *testing.T) {
+	app, _ := newApp(t, nil)
+
+	var out1, err1 bytes.Buffer
+	code1 := app.Main(context.Background(), []string{"-h"}, strings.NewReader(""), &out1, &err1)
+	if code1 != ExitOK {
+		t.Fatalf("expected exit code 0 for -h, got %d", code1)
+	}
+	if out1.Len() != 0 {
+		t.Errorf("expected empty stdout for -h, got %q", out1.String())
+	}
+
+	var out2, err2 bytes.Buffer
+	code2 := app.Main(context.Background(), []string{"--version"}, strings.NewReader(""), &out2, &err2)
+	if code2 != ExitOK {
+		t.Fatalf("expected exit code 0 for --version, got %d", code2)
+	}
+	trimmed := strings.TrimSpace(out2.String())
+	if strings.HasPrefix(trimmed, "{") {
+		t.Errorf("expected version sentence, got JSON envelope: %s", trimmed)
+	}
+	if !strings.Contains(trimmed, "tool test") {
+		t.Errorf("expected version output to contain 'tool test', got: %s", trimmed)
+	}
+}
+
+// TS-05-5 (unit): The bare-invocation envelope's error.message is byte-identical to the message toolio.ErrNoInput's own path produces
+func TestTS_05_5(t *testing.T) {
+	dir := t.TempDir()
+	app, _ := newApp(t, nil)
+
+	// Bare invocation (no positional arg)
+	var outBare, errBare bytes.Buffer
+	codeBare := app.Main(context.Background(), []string{"--dir", dir}, strings.NewReader(""), &outBare, &errBare)
+	if codeBare != ExitUsage {
+		t.Fatalf("expected exit code %d for bare invocation, got %d", ExitUsage, codeBare)
+	}
+	var envBare Envelope
+	if err := json.Unmarshal(outBare.Bytes(), &envBare); err != nil {
+		t.Fatalf("failed to unmarshal bare envelope: %v", err)
+	}
+
+	// Resolve ErrNoInput path (e.g. stdin piped as "-" with only whitespace)
+	envStdin, codeStdin, _ := runApp(t, app, []string{"--dir", dir, "-"}, "   \n")
+	if codeStdin != ExitUsage {
+		t.Fatalf("expected exit code %d for stdin with only whitespace, got %d", ExitUsage, codeStdin)
+	}
+
+	if envBare.Error == nil || envStdin.Error == nil {
+		t.Fatalf("expected both envelopes to have an error, got envBare=%+v, envStdin=%+v", envBare.Error, envStdin.Error)
+	}
+	if envBare.Error.Message != envStdin.Error.Message {
+		t.Errorf("bare invocation error message %q != stdin error message %q", envBare.Error.Message, envStdin.Error.Message)
+	}
+	const expected = "no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"
+	if envBare.Error.Message != expected {
+		t.Errorf("expected message %q, got %q", expected, envBare.Error.Message)
 	}
 }
 

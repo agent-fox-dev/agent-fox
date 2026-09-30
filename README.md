@@ -44,8 +44,10 @@ Each writes exactly one JSON object to stdout, on every program-driven path
 including the failing ones. Progress goes to stderr, so the two never
 interleave. `--version` and `-h`/`--help` (and a bare invocation with no
 input) are the human-driven exceptions: they print text and emit no JSON.
-Exit codes are shared: `0` done, `1` failed, `2` usage, `3` a person has to
-answer something, `4` work exists but the checks do not pass.
+Exit codes are shared: `0` done (`status: "done"`), `1` failed (`status:
+"failed"`), `2` usage (`status: "usage"`), `3` a person has to answer something
+(`status: "needs_human"`), `4` work exists but the checks do not pass
+(`status: "unverified"`).
 
 See the [tool reference](docs/cli.md) for every flag, every result field and
 every error category.

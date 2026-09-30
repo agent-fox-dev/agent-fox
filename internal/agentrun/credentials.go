@@ -28,6 +28,20 @@ func vendorAuth(m *core.Model) provider.VendorAuth {
 	}
 }
 
+// CredentialVars returns the ordered list of environment variable names
+// accepted as credentials for the model's vendor.
+func CredentialVars(m *core.Model) []string {
+	if m == nil {
+		return nil
+	}
+	table := vendorAuth(m)
+	vars := make([]string, 0, len(table.Vars))
+	for _, e := range table.Vars {
+		vars = append(vars, e.Name)
+	}
+	return vars
+}
+
 // CheckCredentials reports whether a credential for the model's vendor can be
 // found, before anything expensive happens.
 //
@@ -45,16 +59,16 @@ func CheckCredentials(m *core.Model) error {
 	if provider.ResolveAuth(table, provider.Env{}).State != provider.CredentialNone {
 		return nil
 	}
-	names := make([]string, 0, len(table.Vars)+1)
-	for _, e := range table.Vars {
-		names = append(names, e.Name)
-	}
+	vars := CredentialVars(m)
+	names := append([]string(nil), vars...)
 	if table.BaseURLVar != "" {
 		names = append(names, table.BaseURLVar+" (for a gateway or a local server)")
 	}
-	return newError("", CategoryAuth, nil,
+	err := newError("", CategoryAuth, nil,
 		"no credential for vendor %q (model %s): set one of %s",
 		m.Provider, m.ID, strings.Join(names, ", "))
+	err.Model = m
+	return err
 }
 
 // retiredPlatformVars are the environment variables of the previous
