@@ -138,6 +138,14 @@ type Envelope struct {
 
 	DurationMS int64  `json:"duration_ms"`
 	StartedAt  string `json:"started_at"`
+
+	// ReportFile is the path the complete envelope was written to, present
+	// whenever that write succeeded. Absent when the write failed (a
+	// low-severity report_file_not_written warning explains why) or when
+	// this envelope is never written to a report file at all (the two
+	// purely human-driven paths: a bare invocation on a terminal, and
+	// -h/--help/--version).
+	ReportFile string `json:"report_file,omitempty"`
 }
 
 // InputInfo records what the single argument turned out to be. A caller

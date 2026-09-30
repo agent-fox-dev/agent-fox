@@ -142,18 +142,18 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			return ExitOK
 		}
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, err)
-		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: err.Error(), err: err,
-		}))
+		})
 	}
 	if derr := common.ValidDetail(); derr != nil {
 		// Checked before Workspace(), Resolve() or model resolution: an
 		// unrecognized --detail value is a usage error like any other, and
 		// nothing should be fetched or spent finding that out.
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, derr)
-		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: derr.Error(), err: derr,
-		}))
+		})
 	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
@@ -168,9 +168,9 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		if isTerminal(stdout) {
 			return ExitUsage
 		}
-		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: NoInputMessage,
-		}))
+		})
 	}
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
@@ -181,7 +181,45 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		progress: progress,
 		stdin:    stdin,
 	})
-	return Emit(stdout, run.Envelope(code, result, failure))
+	return a.emit(stdout, &common, run, code, result, failure)
+}
+
+// emit builds the envelope, writes the complete (full-view) envelope to the
+// report file, and prints it to stdout. It is the one path every
+// JSON-emitting branch of Main goes through, so a report file is written for
+// a success, a failure and a post-classification usage error alike
+// (06-REQ-2.1, 06-REQ-2.6) — and, deliberately, not for the two
+// purely human-driven paths that return before ever calling it.
+//
+// The report file always carries the full view of result, regardless of
+// what --detail asked for on stdout (06-REQ-2.8): FullView marks it, and the
+// same Envelope value — the same bytes — is what gets written to the file
+// and printed to stdout, so the two can never disagree.
+func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result any, failure *ErrorInfo) int {
+	full := FullView(result)
+	env := run.Envelope(code, full, failure)
+
+	path, perr := reportPath(common, a.Name, run)
+	if perr != nil {
+		run.Warn(WarnReportFileNotWritten, "low", "the report file's path could not be determined: %v", perr)
+		env = run.Envelope(code, full, failure)
+	} else {
+		env.ReportFile = path
+		if werr := WriteReport(path, env); werr != nil {
+			run.Warn(WarnReportFileNotWritten, "low", "the report file could not be written to %s: %v", path, werr)
+			env = run.Envelope(code, full, failure)
+		}
+	}
+	return Emit(stdout, env)
+}
+
+// reportPath is the path a report file is written to: --report-file when
+// given, else the computed default.
+func reportPath(common *Common, tool string, run *Run) (string, error) {
+	if common != nil && common.ReportFile != "" {
+		return common.ReportFile, nil
+	}
+	return DefaultReportPath(tool, run.started, os.Getpid())
 }
 
 type execArgs struct {

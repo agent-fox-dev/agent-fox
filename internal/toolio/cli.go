@@ -56,6 +56,10 @@ type Common struct {
 	// computed). The complete value is always available in the report file
 	// regardless of what this selects.
 	Detail string
+	// ReportFile overrides where the complete envelope is written. Empty
+	// means the computed default under $XDG_STATE_HOME/agent-fox/runs (or
+	// its ~/.local/state fallback).
+	ReportFile string
 }
 
 type contextFlag []string
@@ -107,6 +111,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Version, "version", false, "print the build identity and exit")
 	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
 	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
+	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
 }
 
 // ValidDetail refuses any --detail value other than "summary" or "full". An

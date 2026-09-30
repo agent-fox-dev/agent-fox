@@ -45,6 +45,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"architecture_not_written": "write",
 		"activation_failed":        "activate",
 		"rejected_path_calls":      "analyse",
+		"report_file_not_written":  "report",
 	}
 	for code, wantStage := range pairs {
 		got, ok := toolio.WarnStage(toolio.WarnCode(code))
