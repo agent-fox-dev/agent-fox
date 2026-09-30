@@ -204,7 +204,14 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 // everything else has already been derived from the full one.
 func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result any, failure *ErrorInfo) int {
 	full := FullView(result)
+
+	var artifacts []Artifact
+	if ap, ok := full.(ArtifactsProvider); ok {
+		artifacts = ap.Artifacts()
+	}
+
 	fileEnv := run.Envelope(code, full, failure)
+	fileEnv.Artifacts = artifacts
 
 	reportFile := ""
 	path, perr := reportPath(common, a.Name, run)
@@ -212,6 +219,12 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		run.Warn(WarnReportFileNotWritten, "low", "the report file's path could not be determined: %v", perr)
 	} else {
 		fileEnv.ReportFile = path
+		// A report_file artifact entry is added once the path is known, so
+		// "what did this run leave behind" is answered by this array too
+		// (06-REQ-2.4-derived, 06-REQ-4). It names the same file it sits
+		// inside — that is not circular, the same way ReportFile naming
+		// itself is not.
+		fileEnv.Artifacts = withReportFileArtifact(artifacts, path)
 		if werr := WriteReport(path, fileEnv); werr != nil {
 			run.Warn(WarnReportFileNotWritten, "low", "the report file could not be written to %s: %v", path, werr)
 		} else {
@@ -221,12 +234,23 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 
 	env := run.Envelope(code, full, failure)
 	env.ReportFile = reportFile
+	env.Artifacts = artifacts
+	if reportFile != "" {
+		env.Artifacts = withReportFileArtifact(artifacts, reportFile)
+	}
 	if env.Result != nil && wantsSummary(common.Detail) {
 		if s, ok := full.(Summarizable); ok {
 			env.Result = s.SummaryView()
 		}
 	}
 	return Emit(stdout, env)
+}
+
+// withReportFileArtifact appends a report_file entry naming path, without
+// mutating the slice artifacts was built from.
+func withReportFileArtifact(artifacts []Artifact, path string) []Artifact {
+	out := append([]Artifact(nil), artifacts...)
+	return append(out, Artifact{Kind: ArtifactReportFile, Path: path})
 }
 
 // wantsSummary reports whether detail selects the trimmed view: "summary",

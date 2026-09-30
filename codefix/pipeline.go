@@ -149,7 +149,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.VerifyTimeout = checks.DefaultTimeout
 	}
 
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
 	if o.Input.Issue != nil {
 		result.IssueURL = o.Input.Issue.URL()
 		result.IssueNumber = o.Input.Issue.Number

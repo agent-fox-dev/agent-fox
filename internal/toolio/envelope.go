@@ -76,6 +76,98 @@ type Summarizable interface {
 	SummaryView() any
 }
 
+// ArtifactKind is the closed set of shapes an Artifact can take (06-REQ-4.1).
+// A caller chaining tools switches on this rather than guessing which
+// fields are meaningful.
+type ArtifactKind string
+
+// The closed set of artifact kinds. There is no other.
+const (
+	ArtifactBranch      ArtifactKind = "branch"
+	ArtifactCommit      ArtifactKind = "commit"
+	ArtifactPullRequest ArtifactKind = "pull_request"
+	ArtifactComment     ArtifactKind = "comment"
+	ArtifactIssue       ArtifactKind = "issue"
+	ArtifactSpecPackage ArtifactKind = "spec_package"
+	ArtifactReportFile  ArtifactKind = "report_file"
+)
+
+// Artifact is one thing a run produced. Every field below is meaningful for
+// some kinds and not others; MarshalJSON emits only the fields fixed for
+// this entry's own Kind (plus dry_run when it is set), so a caller reading
+// one never has to know which fields to ignore (06-REQ-4.1).
+type Artifact struct {
+	Kind ArtifactKind
+
+	// branch
+	Name string
+	Base string
+
+	// commit
+	SHA    string
+	Branch string
+
+	// pull_request, issue: URL and Number. comment: URL only.
+	URL    string
+	Number int
+
+	// spec_package
+	Path  string
+	ID    string
+	Valid bool
+
+	// report_file: Path (above).
+
+	// DryRun marks an entry as hypothetical: something that would have
+	// happened on a forge or a remote under --dry-run, but did not
+	// (06-REQ-4.3). Never marshalled when false, since an entry for
+	// something that actually happened locally — a branch, a commit —
+	// carries no marker at all (06-REQ-4.4).
+	DryRun bool
+}
+
+// MarshalJSON emits exactly the fields fixed for a's own Kind, so a branch
+// entry is {kind,name,base} and nothing else, never the zero values of the
+// fields other kinds use (06-REQ-4.1).
+func (a Artifact) MarshalJSON() ([]byte, error) {
+	m := map[string]any{"kind": string(a.Kind)}
+	switch a.Kind {
+	case ArtifactBranch:
+		m["name"] = a.Name
+		m["base"] = a.Base
+	case ArtifactCommit:
+		m["sha"] = a.SHA
+		m["branch"] = a.Branch
+	case ArtifactPullRequest:
+		m["url"] = a.URL
+		m["number"] = a.Number
+	case ArtifactComment:
+		m["url"] = a.URL
+	case ArtifactIssue:
+		m["url"] = a.URL
+		m["number"] = a.Number
+	case ArtifactSpecPackage:
+		m["path"] = a.Path
+		m["id"] = a.ID
+		m["valid"] = a.Valid
+	case ArtifactReportFile:
+		m["path"] = a.Path
+	}
+	if a.DryRun {
+		m["dry_run"] = true
+	}
+	return json.Marshal(m)
+}
+
+// ArtifactsProvider is implemented by Result types that supply what the run
+// produced, in the uniform shape Artifact fixes (06-REQ-4). Every entry
+// must be read off a fact the Result already holds — Branch, Commit,
+// PullRequestURL, Comments, SpecDir, Validation.Valid and the rest — never
+// from a field that is the model's own account of its work.
+type ArtifactsProvider interface {
+	Artifacts() []Artifact
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
@@ -142,6 +234,11 @@ type Envelope struct {
 	// could not be checked, a truncated input.
 	Warnings []Warning `json:"warnings,omitempty"`
 	Result   any       `json:"result,omitempty"`
+
+	// Artifacts is what the run produced, in one uniform shape across every
+	// tool, over the closed ArtifactKind set. Present whenever the run
+	// produced anything (06-REQ-4).
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 
 	Input *InputInfo `json:"input,omitempty"`
 	Usage *UsageInfo `json:"usage,omitempty"`

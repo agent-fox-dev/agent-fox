@@ -45,7 +45,7 @@ func (r *Result) SummaryView() any {
 		SpecID:    r.SpecID,
 		SpecName:  r.SpecName,
 		Status:    r.Status,
-		Artifacts: r.Artifacts,
+		Artifacts: r.Package.Artifacts,
 		Validation: summaryValidation{
 			Valid:      r.Validation.Valid,
 			ErrorCount: r.Validation.ErrorCount,

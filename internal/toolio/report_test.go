@@ -304,8 +304,9 @@ func TestTS06_12_HumanDrivenPathsWriteNoReportFile(t *testing.T) {
 
 // TS-06-13 (unit): The report file's content is byte-for-byte identical to
 // what --detail full would have printed for the same run, once the two
-// runs' inherently non-deterministic fields (started_at, duration_ms, and
-// report_file itself, which names two different paths) are set aside.
+// runs' inherently non-deterministic fields (started_at, duration_ms,
+// report_file itself, and the report_file entry artifacts carries — both
+// name two different paths, one per run's own t.TempDir()) are set aside.
 func TestTS06_13_ReportFileByteIdenticalToFullDetailStdout(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	dir := t.TempDir()
@@ -348,6 +349,7 @@ func TestTS06_13_ReportFileByteIdenticalToFullDetailStdout(t *testing.T) {
 		delete(m, "started_at")
 		delete(m, "duration_ms")
 		delete(m, "report_file")
+		delete(m, "artifacts")
 		out, err := json.Marshal(m)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)

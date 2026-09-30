@@ -81,6 +81,9 @@ type Result struct {
 	RejectedPathCalls int      `json:"rejected_path_calls"`
 	RejectedPaths     []string `json:"rejected_paths,omitempty"`
 
+	// DryRun records that no remote change was made.
+	DryRun bool `json:"dry_run,omitempty"`
+
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both.
 	Detail string `json:"detail"`
@@ -221,6 +224,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		Labels:             o.Labels,
 		RejectedPathCalls:  rejected,
 		RejectedPaths:      toolio.SortedUnique(badPaths),
+		DryRun:             o.DryRun,
 	}
 	if o.Input.Issue != nil {
 		out.UpstreamURL = o.Input.Issue.URL()

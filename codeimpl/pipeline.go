@@ -89,7 +89,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.RepairAttempts = DefaultRepairAttempts
 	}
 
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
 	st, pfErr := preflight(ctx, o, result)
 	if pfErr != nil {
 		return result, pfErr
