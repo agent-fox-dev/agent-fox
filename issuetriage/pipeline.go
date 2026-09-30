@@ -80,7 +80,14 @@ type Result struct {
 	// nonzero count is the citation check working.
 	RejectedPathCalls int      `json:"rejected_path_calls"`
 	RejectedPaths     []string `json:"rejected_paths,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in issue's vocabulary.
 func (r Result) Summary() string {

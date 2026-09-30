@@ -432,7 +432,14 @@ type Result struct {
 	CostUSD float64 `json:"cost_usd"`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in impl's vocabulary.
 func (r Result) Summary() string {

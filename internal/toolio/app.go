@@ -146,6 +146,15 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: err.Error(), err: err,
 		}))
 	}
+	if derr := common.ValidDetail(); derr != nil {
+		// Checked before Workspace(), Resolve() or model resolution: an
+		// unrecognized --detail value is a usage error like any other, and
+		// nothing should be fetched or spent finding that out.
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, derr)
+		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: derr.Error(), err: derr,
+		}))
+	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK

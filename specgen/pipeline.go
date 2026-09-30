@@ -170,7 +170,16 @@ type Package struct {
 
 	// CommentURL is set when the finished PRD was posted back to the issue.
 	CommentURL string `json:"comment_url,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both. It lives on Package (rather than on
+	// Result, which embeds it) so it is set once for the first package and
+	// carried the same way every other Package field is.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (p *Package) SetDetail(d string) { p.Detail = d }
 
 // Scope states, as reported in Result.Split.
 const (

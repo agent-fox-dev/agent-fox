@@ -572,6 +572,25 @@ func TestTS_05_5(t *testing.T) {
 	}
 }
 
+// TS-06-2 (unit): An unrecognized --detail value is a usage error before any input is resolved
+func TestTS06_2_UnrecognizedDetailIsUsageError(t *testing.T) {
+	var execCalled bool
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		execCalled = true
+		return ExitOK, nil, nil
+	})
+	env, code, _ := runApp(t, app, []string{"--detail", "wrong", "some text"}, "")
+	if code != ExitUsage {
+		t.Fatalf("expected exit code %d, got %d", ExitUsage, code)
+	}
+	if env.Error == nil || env.Error.Category != "usage" {
+		t.Errorf("expected error.category == usage, got %+v", env.Error)
+	}
+	if execCalled {
+		t.Error("Exec ran with an invalid --detail: nothing should have been resolved")
+	}
+}
+
 func TestMain(m *testing.M) {
 	// The tests above resolve a model, and a stray credential variable in the
 	// developer's shell would change which vendor they resolve against.

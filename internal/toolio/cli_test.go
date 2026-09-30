@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/specgen"
 )
 
@@ -231,5 +234,222 @@ func TestTS05_20_ContextExceedingMaxInputBytesRefused(t *testing.T) {
 	}
 	if env.Error == nil || env.Error.Category != "usage" {
 		t.Errorf("expected error.category == 'usage', got %+v", env.Error)
+	}
+}
+
+// TS-06-1 (unit): --detail is registered on Common, defaulting to summary and accepting full
+func TestTS06_1_DetailRegisteredDefaultSummary(t *testing.T) {
+	var c toolio.Common
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	c.Register(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c.Detail != "summary" {
+		t.Errorf("expected default Detail == %q, got %q", "summary", c.Detail)
+	}
+
+	var c2 toolio.Common
+	fs2 := flag.NewFlagSet("t2", flag.ContinueOnError)
+	c2.Register(fs2)
+	if err := fs2.Parse([]string{"--detail", "full"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c2.Detail != "full" {
+		t.Errorf("expected Detail == %q, got %q", "full", c2.Detail)
+	}
+}
+
+// TS-06-1 (unit, continued): Common.ValidDetail refuses anything other than summary/full
+func TestTS06_1_ValidDetailRefusesUnknownValues(t *testing.T) {
+	for _, v := range []string{"summary", "full", ""} {
+		c := toolio.Common{Detail: v}
+		if err := c.ValidDetail(); err != nil {
+			t.Errorf("Detail=%q: expected no error, got %v", v, err)
+		}
+	}
+	c := toolio.Common{Detail: "wrong"}
+	if err := c.ValidDetail(); err == nil {
+		t.Error("expected an error for Detail=\"wrong\"")
+	}
+}
+
+// jsonKeysOf walks t's fields (recursing into anonymous embedded structs,
+// the way specgen.Result embeds Package) and returns every json tag name it
+// finds, skipping "-". It is a static view of what a type CAN emit, not what
+// one populated value happens to: an omitempty field with a zero value is
+// still counted, which is what makes it usable as a superset check
+// regardless of how a fixture value is populated.
+func jsonKeysOf(t reflect.Type) []string {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	var out []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" && !f.Anonymous {
+			continue // unexported
+		}
+		tag := f.Tag.Get("json")
+		name, opts, _ := strings.Cut(tag, ",")
+		_ = opts
+		if name == "-" {
+			continue
+		}
+		if name == "" && f.Anonymous {
+			out = append(out, jsonKeysOf(f.Type)...)
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// TS-06-3 (property): The --detail full view's keys are always a superset of
+// what full carried before this spec, for every tool.
+//
+// preKeys is a fixture snapshot of every JSON key each Result type carried
+// before this task added "detail": read directly off issuetriage/pipeline.go,
+// codefix/types.go, codeimpl/types.go and specgen/pipeline.go as they stood
+// going into this task.
+func TestTS06_3_FullViewKeysSupersetOfPreSpecKeys(t *testing.T) {
+	cases := []struct {
+		tool    string
+		typ     reflect.Type
+		preKeys []string
+	}{
+		{
+			tool: "issue",
+			typ:  reflect.TypeOf(issuetriage.Result{}),
+			preKeys: []string{
+				"action", "repo", "url", "number", "upstream_url", "title", "body",
+				"severity", "severity_rationale", "confidence", "problem", "reproduction",
+				"root_cause", "related_instances", "affected_files", "suggested_fix",
+				"acceptance_criteria", "labels", "rejected_path_calls", "rejected_paths",
+			},
+		},
+		{
+			tool: "fix",
+			typ:  reflect.TypeOf(codefix.Result{}),
+			preKeys: []string{
+				"stage", "repo", "issue_url", "issue_number", "classification", "title",
+				"summary", "root_cause", "approach", "assumptions", "acceptance_criteria",
+				"criteria_outcome", "branch", "base_branch", "commit", "pushed",
+				"changed_files", "diff_stat", "baseline", "verification", "verdict",
+				"pull_request_url", "pull_request_number", "comments", "implementation",
+				"ambiguity", "dry_run",
+			},
+		},
+		{
+			tool: "impl",
+			typ:  reflect.TypeOf(codeimpl.Result{}),
+			preKeys: []string{
+				"stage", "spec_dir", "spec_id", "spec_name", "title", "status", "repo",
+				"branch", "base_branch", "resumed", "tasks_total", "tasks_done",
+				"tasks_skipped", "tasks_remaining", "tasks", "gate", "baseline",
+				"verification", "verdict", "pushed", "pull_request_url",
+				"pull_request_number", "repair", "survey", "blocker", "cost_usd", "dry_run",
+			},
+		},
+		{
+			tool: "spec",
+			typ:  reflect.TypeOf(specgen.Result{}),
+			preKeys: []string{
+				"spec_dir", "spec_id", "spec_name", "title", "status", "source",
+				"artifacts", "requirements", "criteria", "execution_paths", "tests",
+				"tasks", "validation", "traceability", "open_questions", "comment_url",
+				"follow_on_specs", "split", "split_plan", "dry_run",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.tool, func(t *testing.T) {
+			postKeys := jsonKeysOf(c.typ)
+			postSet := map[string]bool{}
+			for _, k := range postKeys {
+				postSet[k] = true
+			}
+			for _, k := range c.preKeys {
+				if !postSet[k] {
+					t.Errorf("%s: pre-06 key %q is missing from the post-06 full view", c.tool, k)
+				}
+			}
+			if !postSet["detail"] {
+				t.Errorf("%s: expected the new \"detail\" key to be present", c.tool)
+			}
+		})
+	}
+}
+
+// TS-06-4 (unit): Every tool's Result records which detail view was emitted,
+// under both summary and full.
+func TestTS06_4_ResultRecordsDetailView(t *testing.T) {
+	t.Run("issue", func(t *testing.T) {
+		r := &issuetriage.Result{}
+		assertDetailRoundTrips(t, r)
+	})
+	t.Run("fix", func(t *testing.T) {
+		r := &codefix.Result{}
+		assertDetailRoundTrips(t, r)
+	})
+	t.Run("impl", func(t *testing.T) {
+		r := &codeimpl.Result{}
+		assertDetailRoundTrips(t, r)
+	})
+	t.Run("spec", func(t *testing.T) {
+		r := &specgen.Result{}
+		assertDetailRoundTrips(t, r)
+	})
+}
+
+// assertDetailRoundTrips exercises toolio.DetailedResult on r, then checks
+// the emitted JSON carries the "detail" key with the value that was set, for
+// both legal views.
+func assertDetailRoundTrips(t *testing.T, r toolio.DetailedResult) {
+	t.Helper()
+	for _, view := range []string{"summary", "full"} {
+		r.SetDetail(view)
+		b, err := json.Marshal(r)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		got, ok := m["detail"]
+		if !ok {
+			t.Fatalf("view %q: \"detail\" key missing from %s", view, string(b))
+		}
+		if got != view {
+			t.Errorf("view %q: result.detail == %v", view, got)
+		}
+	}
+}
+
+// TS-06-4 (unit, continued): toolio.FullView sets Detail to "full" via the
+// DetailedResult interface and returns the value unchanged otherwise.
+func TestTS06_4_FullViewSetsDetailFull(t *testing.T) {
+	r := &codefix.Result{Stage: "landed"}
+	out := toolio.FullView(r)
+	got, ok := out.(*codefix.Result)
+	if !ok {
+		t.Fatalf("FullView changed the type: %T", out)
+	}
+	if got != r {
+		t.Error("FullView should return the same value")
+	}
+	if got.Detail != "full" {
+		t.Errorf("expected Detail == full, got %q", got.Detail)
+	}
+	if got.Stage != "landed" {
+		t.Errorf("FullView should not touch other fields, got Stage=%q", got.Stage)
 	}
 }

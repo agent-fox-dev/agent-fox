@@ -51,6 +51,11 @@ type Common struct {
 	ShowText     bool
 	Version      bool
 	Context      []string
+	// Detail selects the result view emitted on stdout: "summary" (the
+	// default, a per-tool trimmed subset) or "full" (everything the tool
+	// computed). The complete value is always available in the report file
+	// regardless of what this selects.
+	Detail string
 }
 
 type contextFlag []string
@@ -101,6 +106,38 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.ShowText, "show-text", false, "stream the model's prose to stderr")
 	fs.BoolVar(&c.Version, "version", false, "print the build identity and exit")
 	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
+	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
+}
+
+// ValidDetail refuses any --detail value other than "summary" or "full". An
+// empty value (the zero Common, before Register runs) is treated as the
+// default so a caller building a Common by hand is not forced through
+// Register first.
+func (c *Common) ValidDetail() error {
+	switch c.Detail {
+	case "", "summary", "full":
+		return nil
+	default:
+		return fmt.Errorf("--detail must be %q or %q, got %q", "summary", "full", c.Detail)
+	}
+}
+
+// DetailedResult is implemented by every tool's Result type: it records
+// which view ("summary" or "full") was emitted, so a caller reading a
+// report file or a --detail full run can tell which document it has without
+// re-running the tool.
+type DetailedResult interface {
+	SetDetail(string)
+}
+
+// FullView marks result as the full view, via DetailedResult, and returns it
+// unchanged. A result that does not implement DetailedResult is returned as
+// given.
+func FullView(result any) any {
+	if dr, ok := result.(DetailedResult); ok {
+		dr.SetDetail("full")
+	}
+	return result
 }
 
 // ModelSpec is the model the run will use, after the environment is consulted.
