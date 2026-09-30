@@ -165,15 +165,17 @@ func (m LandMode) Pushes() bool { return m == LandPR || m == LandBranch }
 
 // Failure carries the stage and category of a failed run.
 type Failure struct {
-	Stage    string
-	Category string
-	Err      error
+	Stage       string
+	Category    string
+	Err         error
+	TotalBudget float64
 }
 
-func (f *Failure) Error() string        { return f.Err.Error() }
-func (f *Failure) Unwrap() error        { return f.Err }
-func (f *Failure) StageName() string    { return f.Stage }
-func (f *Failure) CategoryName() string { return f.Category }
+func (f *Failure) Error() string           { return f.Err.Error() }
+func (f *Failure) Unwrap() error           { return f.Err }
+func (f *Failure) StageName() string       { return f.Stage }
+func (f *Failure) CategoryName() string    { return f.Category }
+func (f *Failure) TotalBudgetUSD() float64 { return f.TotalBudget }
 
 func fail(stage, category string, err error) *Failure {
 	return &Failure{Stage: stage, Category: category, Err: err}

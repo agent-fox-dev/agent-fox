@@ -1094,9 +1094,11 @@ func background(ctx context.Context) (context.Context, context.CancelFunc) {
 // overBudget reports the run-level cap, checked before each phase.
 func overBudget(o Options, st *runState) *Failure {
 	if o.TotalBudgetUSD > 0 && st.cost >= o.TotalBudgetUSD {
-		return failf("budget", agentrun.CategoryBudget,
+		f := failf("budget", agentrun.CategoryBudget,
 			"the run has spent $%.2f of its $%.2f total budget; the tasks landed so far are on the "+
 				"branch, re-run to continue", st.cost, o.TotalBudgetUSD)
+		f.TotalBudget = o.TotalBudgetUSD
+		return f
 	}
 	return nil
 }

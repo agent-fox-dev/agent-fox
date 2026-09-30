@@ -477,6 +477,16 @@ func (r *Runner) wrap(p Phase, res core.RunResult, err error) error {
 	return newError(p.Name, category, err, "%v", err)
 }
 
+// RunStopReason aliases core.RunStopReason for tool-level callers.
+type RunStopReason = core.RunStopReason
+
+const (
+	// RunStopBudgetExceeded signals a phase reached its per-phase spend ceiling.
+	RunStopBudgetExceeded = core.RunStopBudgetExceeded
+	// RunStopMaxTurns signals a phase reached its per-phase turn ceiling.
+	RunStopMaxTurns = core.RunStopMaxTurns
+)
+
 // NoResultError is the error a caller reports when a phase finished cleanly
 // but never called its terminating tool. It is separated from a transport
 // failure because the remedy is different: raise the bounds, or narrow the
@@ -489,8 +499,10 @@ func NoResultError(phase, terminator string, res Result) error {
 	case core.RunStopMaxTurns:
 		hint = "raise --max-turns; the model was still working"
 	}
-	return newError(phase, CategoryNoResult, nil,
+	err := newError(phase, CategoryNoResult, nil,
 		"the phase ended (%s) without calling %s: %s", res.StopReason, terminator, hint)
+	err.StopReason = res.StopReason
+	return err
 }
 
 func firstLine(s string, limit int) string {

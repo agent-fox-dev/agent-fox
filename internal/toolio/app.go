@@ -133,6 +133,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	run := NewRun(a.Name, a.Version)
 
 	input, err := SplitArgs(fs, argv)
+	run.SetBounds(common.Bounds(a.DefaultBounds))
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			// fs.Parse has already printed the help text to stderr: an
@@ -142,7 +143,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		}
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, err)
 		return Emit(stdout, run.Envelope(ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: err.Error(),
+			Stage: "usage", Category: "usage", Message: err.Error(), err: err,
 		}))
 	}
 	if common.Version {
@@ -185,6 +186,9 @@ type execArgs struct {
 func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	bounds := e.common.Bounds(a.DefaultBounds)
+	e.run.SetBounds(bounds)
 
 	if a.PreCheck != nil {
 		if err := a.PreCheck(e.common); err != nil {
@@ -231,7 +235,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		if errors.Is(err, ErrNoInput) {
 			return a.usage(Usagef("%s", NoInputMessage))
 		}
-		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error()}
+		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error(), err: err}
 	}
 	if len(in.Body)+contextLen > MaxInputBytes {
 		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
@@ -256,7 +260,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	choice, err := e.common.ResolveModel()
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
-			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
+			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
@@ -268,7 +272,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Providers:     agentrun.DefaultProviders(),
 		Workspace:     ws,
 		TrustProject:  e.common.TrustProject,
-		Bounds:        e.common.Bounds(a.DefaultBounds),
+		Bounds:        bounds,
 		Observer:      e.progress,
 		ShowText:      e.common.ShowText,
 		SessionPrefix: a.Name,
@@ -276,7 +280,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	runner, err := agentrun.NewRunner(cfg)
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
-			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
+			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
 	}
 
@@ -298,7 +302,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 // paths (a bare invocation, -h/--help) that a person, not a program, hits,
 // and this one keeps stdout parseable for the caller that hit it.
 func (a App) usage(err error) (int, any, *ErrorInfo) {
-	return ExitUsage, nil, &ErrorInfo{Stage: "usage", Category: "usage", Message: err.Error()}
+	return ExitUsage, nil, &ErrorInfo{Stage: "usage", Category: "usage", Message: err.Error(), err: err}
 }
 
 // StageError maps a pipeline failure carrying a stage and a category onto the
@@ -312,13 +316,17 @@ type StageError interface {
 
 // ErrorFrom builds the envelope's error object from a pipeline failure.
 func ErrorFrom(defaultStage string, err error) *ErrorInfo {
-	info := &ErrorInfo{Stage: defaultStage, Category: agentrun.CategoryInternal, Message: err.Error()}
+	info := &ErrorInfo{Stage: defaultStage, Category: agentrun.CategoryInternal, Message: err.Error(), err: err}
 	var se StageError
 	if errors.As(err, &se) {
 		info.Stage, info.Category = se.StageName(), se.CategoryName()
-		return info
+	} else {
+		info.Category = agentrun.CategoryOf(err)
 	}
-	info.Category = agentrun.CategoryOf(err)
+	var tb interface{ TotalBudgetUSD() float64 }
+	if errors.As(err, &tb) {
+		info.TotalBudget = tb.TotalBudgetUSD()
+	}
 	return info
 }
 

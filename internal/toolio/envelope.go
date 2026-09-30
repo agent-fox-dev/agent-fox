@@ -2,6 +2,7 @@ package toolio
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agentfox/agentkit-go/core"
 )
 
@@ -171,6 +173,15 @@ type PhaseInfo struct {
 	DurationMS   int64   `json:"duration_ms"`
 }
 
+// FixHint is a machine-usable remedy for a failure.
+type FixHint struct {
+	Flag    string   `json:"flag,omitempty"`
+	Env     []string `json:"env,omitempty"`
+	Valid   []string `json:"valid,omitempty"`
+	Current float64  `json:"current,omitempty"`
+	Suggest float64  `json:"suggest,omitempty"`
+}
+
 // ErrorInfo says what failed and where.
 type ErrorInfo struct {
 	// Stage is the pipeline step that failed, in the tool's own vocabulary
@@ -179,10 +190,41 @@ type ErrorInfo struct {
 	// Category classifies the failure so a caller can decide whether
 	// re-running could help: usage, auth, input, model, budget, max_turns,
 	// git, forge, verify, internal.
-	Category  string `json:"category"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
-	Resumable bool   `json:"resumable"`
+	Category    string   `json:"category"`
+	Message     string   `json:"message"`
+	Retryable   bool     `json:"retryable"`
+	Resumable   bool     `json:"resumable"`
+	FixHint     *FixHint `json:"fix_hint,omitempty"`
+	TotalBudget float64  `json:"-"`
+	err         error    `json:"-"`
+}
+
+func (e *ErrorInfo) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
+func (e *ErrorInfo) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func (e *ErrorInfo) TotalBudgetUSD() float64 {
+	if e == nil {
+		return 0
+	}
+	if e.TotalBudget > 0 {
+		return e.TotalBudget
+	}
+	var tb interface{ TotalBudgetUSD() float64 }
+	if errors.As(e.err, &tb) {
+		return tb.TotalBudgetUSD()
+	}
+	return 0
 }
 
 // RetryableFor reports whether an error of the given category can succeed
@@ -225,11 +267,22 @@ type Run struct {
 	phases       []PhaseInfo
 	model        *ModelInfo
 	input        *InputInfo
+	bounds       agentrun.Bounds
 }
 
 // NewRun starts a run's bookkeeping.
 func NewRun(tool, version string) *Run {
 	return &Run{tool: tool, version: version, started: time.Now()}
+}
+
+// SetBounds records the resolved per-phase ceilings.
+func (r *Run) SetBounds(b agentrun.Bounds) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bounds = b
 }
 
 // SetInput records the classified input.
@@ -406,6 +459,13 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 			errCopy.Resumable = res.Resumable()
 		} else {
 			errCopy.Resumable = false
+		}
+		if errCopy.FixHint == nil {
+			var underlying error = &errCopy
+			if errCopy.err != nil {
+				underlying = errCopy.err
+			}
+			errCopy.FixHint = FixHintFor(errCopy.Category, errCopy.Stage, r.bounds, underlying)
 		}
 		env.Error = &errCopy
 	}

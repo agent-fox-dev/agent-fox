@@ -1,6 +1,10 @@
 package agentrun
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/agentfox/agentkit-go/core"
+)
 
 // Error categories. They are the vocabulary the tools' JSON envelopes report,
 // and they exist so a caller can decide whether re-running could help without
@@ -30,13 +34,18 @@ const (
 
 // Error is one failure with a category attached.
 type Error struct {
-	Phase  string
-	Detail string
-	Cat    string
-	Cause  error
+	Phase      string
+	Detail     string
+	Cat        string
+	Cause      error
+	StopReason core.RunStopReason
+	Model      *core.Model
 }
 
 func (e *Error) Error() string {
+	if e == nil {
+		return ""
+	}
 	if e.Phase == "" {
 		return e.Detail
 	}
@@ -48,6 +57,22 @@ func (e *Error) Category() string { return e.Cat }
 
 // Unwrap exposes the underlying cause to errors.Is and errors.As.
 func (e *Error) Unwrap() error { return e.Cause }
+
+// RunStopReason reports the stop reason if this error was caused by a loop termination.
+func (e *Error) RunStopReason() core.RunStopReason {
+	if e == nil {
+		return ""
+	}
+	return e.StopReason
+}
+
+// AuthModel returns the model associated with an auth failure, if any.
+func (e *Error) AuthModel() *core.Model {
+	if e == nil {
+		return nil
+	}
+	return e.Model
+}
 
 func newError(phase, category string, cause error, format string, args ...any) *Error {
 	return &Error{
