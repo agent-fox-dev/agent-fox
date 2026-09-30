@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1573,5 +1574,742 @@ func TestTS0547_TruncatedInputWarningSurfacesInSummary_Smoke(t *testing.T) {
 
 	if !strings.Contains(env.Summary, "high-severity warning") {
 		t.Errorf("env.Summary = %q, want a clause noting one high-severity warning", env.Summary)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Spec 06 (trim and chain the results): integration smoke tests.
+//
+// Each test drives a real pipeline through toolio.App.Main, with only the
+// model (a scripted faux provider) and the forge's network endpoint (an
+// httptest server) standing in for the outside world. Git, internal/checks
+// and the filesystem are real. Every test points XDG_STATE_HOME at a temp
+// directory so no run writes into the developer's own state directory.
+// ---------------------------------------------------------------------------
+
+// smokeGitDates pins git's clock so two runs over identical content make
+// identical commits, which lets one run's output be compared with another's.
+func smokeGitDates(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_AUTHOR_DATE", "2024-01-02T03:04:05Z")
+	t.Setenv("GIT_COMMITTER_DATE", "2024-01-02T03:04:05Z")
+}
+
+// smokeWidgetRepo makes a committed Go repository with one fixable bug.
+func smokeWidgetRepo(t *testing.T, remote string) string {
+	t.Helper()
+	dir := t.TempDir()
+	initGitRepo(t, dir, remote, "")
+	for name, content := range map[string]string{
+		"go.mod":         "module example.com/widgets\n\ngo 1.26\n",
+		"widget.go":      "package widget\nfunc Count() int { return 1 }\n",
+		"widget_test.go": "package widget\nimport \"testing\"\nfunc TestCount(t *testing.T) {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, argv := range [][]string{
+		{"git", "-C", dir, "add", "-A"},
+		{"git", "-C", dir, "commit", "-q", "-m", "chore: initial commit"},
+	} {
+		if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", argv, err, out)
+		}
+	}
+	return dir
+}
+
+// smokeFixTurns scripts the three model turns of a fix run that succeeds.
+// A report that lists acceptance criteria (as an issue filed by the issue
+// tool does) must be answered criterion by criterion: pass the ids.
+func smokeFixTurns(criteria ...string) []faux.Turn {
+	implementation := map[string]any{
+		"commit_subject": "fix: resolve widget double count",
+		"summary":        "updated Count() implementation",
+		"changes": []map[string]any{
+			{"path": "widget.go", "change": "updated Count() implementation"},
+		},
+	}
+	if len(criteria) > 0 {
+		var verdicts []map[string]any
+		for _, id := range criteria {
+			verdicts = append(verdicts, map[string]any{"id": id, "verdict": "pass",
+				"evidence": "widget.go: Count() now returns 2; widget_test.go: TestCount passes"})
+		}
+		implementation["criteria_verdicts"] = verdicts
+	}
+	return []faux.Turn{
+		toolCallTurn("t1", "submit_analysis", map[string]any{
+			"classification": "bug",
+			"title":          "fix widget double count",
+			"summary":        "fixed counter logic",
+			"root_cause":     "Count() returned 1 instead of 2",
+			"approach":       "update Count() to return 2",
+			"files": []map[string]any{
+				{"path": "widget.go", "change": "update Count()"},
+			},
+		}),
+		toolCallTurn("t2", "write_file", map[string]any{
+			"path":    "widget.go",
+			"content": "package widget\nfunc Count() int { return 2 }\n",
+		}),
+		toolCallTurn("t3", "submit_implementation", implementation),
+	}
+}
+
+// smokeFixApp is the fix tool wired the way cmd/fix wires it, except that
+// the model is scripted. verify is the command internal/checks runs for the
+// baseline and the verification; empty means verification is skipped.
+func smokeFixApp(turns []faux.Turn, verify string) toolio.App {
+	return toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			p := faux.New(turns...)
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 1, MaxAttempts: 1},
+				SessionPrefix: "fix",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			result, runErr := codefix.Run(ctx, codefix.Options{
+				Input:         d.Input,
+				Workspace:     d.Workspace,
+				Land:          codefix.LandNone,
+				DryRun:        d.Common.DryRun,
+				VerifyCommand: verify,
+				NoVerify:      verify == "",
+				Runner:        runner,
+				Forge:         d.Forge,
+				CheckRunner:   gitx.ReducedEnvRunner,
+				Run:           d.Run,
+				Progress:      d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+	}
+}
+
+var smokeDurationRe = regexp.MustCompile(`"duration_ms": \d+`)
+
+// smokeNormalize parses one envelope and drops what is different between
+// two runs of the same scenario by nature: timings, the start instant, and
+// the report file's own path (which names a different temp directory per
+// run).
+func smokeNormalize(t *testing.T, raw []byte) string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, raw)
+	}
+	var scrub func(any) any
+	scrub = func(v any) any {
+		switch x := v.(type) {
+		case map[string]any:
+			for k := range x {
+				switch k {
+				case "duration_ms", "started_at", "report_file":
+					delete(x, k)
+					continue
+				}
+				x[k] = scrub(x[k])
+			}
+			return x
+		case []any:
+			var out []any
+			for _, e := range x {
+				if m, ok := e.(map[string]any); ok && m["kind"] == "report_file" {
+					continue
+				}
+				out = append(out, scrub(e))
+			}
+			return out
+		}
+		return v
+	}
+	out, err := json.Marshal(scrub(v))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+// TS-06-64 (smoke): A caller keeps a small envelope and finds the rest, byte-for-byte, in the report file
+// Verifies: 06-PATH-1, 06-REQ-2.8, 06-REQ-1.3, 06-REQ-1.4
+// Real components: codefix pipeline, git repository, internal/checks, toolio Run/Envelope, filesystem report-file writer
+func TestTS0664_SummaryEnvelopeIsSmallAndReportFileHoldsTheRest_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	smokeGitDates(t)
+
+	const report = "Count() in widget.go returns 1 where it should return 2"
+
+	type outcome struct {
+		stdout, file []byte
+		path         string
+		env          toolio.Envelope
+	}
+	run := func(detail string) outcome {
+		wsDir := smokeWidgetRepo(t, "")
+		path := filepath.Join(t.TempDir(), "runs", "run.json")
+		args := []string{"--dir", wsDir, "--report-file", path}
+		if detail != "" {
+			args = append(args, "--detail", detail)
+		}
+		args = append(args, report)
+		app := smokeFixApp(smokeFixTurns(), "git --version")
+		var stdout, stderr bytes.Buffer
+		if code := app.Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr); code != toolio.ExitOK {
+			t.Fatalf("--detail %q: code %d; stdout:\n%s\nstderr:\n%s", detail, code, stdout.String(), stderr.String())
+		}
+		o := outcome{stdout: stdout.Bytes(), path: path}
+		var err error
+		if o.file, err = os.ReadFile(path); err != nil {
+			t.Fatalf("--detail %q: the report file was not written: %v", detail, err)
+		}
+		if err := json.Unmarshal(o.stdout, &o.env); err != nil {
+			t.Fatalf("stdout is not one JSON object: %v\n%s", err, o.stdout)
+		}
+		return o
+	}
+
+	// The default view: trimmed, small, and naming the file that holds the rest.
+	summary := run("")
+	if len(summary.stdout) >= 3*1024 {
+		t.Errorf("the summary envelope is %d bytes, want under 3 KB:\n%s", len(summary.stdout), summary.stdout)
+	}
+	if summary.env.ReportFile != summary.path {
+		t.Errorf("report_file = %q, want %q", summary.env.ReportFile, summary.path)
+	}
+	var sr struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(summary.stdout, &sr); err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"stage": true, "branch": true, "base_branch": true, "commit": true,
+		"changed_files": true, "verdict": true, "criteria_outcome": true, "pull_request_url": true,
+		"dry_run": true, "verification": true, "detail": true}
+	for k := range sr.Result {
+		if !allowed[k] {
+			t.Errorf("result carries %q, which is not in fix's summary subset", k)
+		}
+	}
+	if string(sr.Result["detail"]) != `"summary"` {
+		t.Errorf("result.detail = %s, want \"summary\"", sr.Result["detail"])
+	}
+	if _, ok := sr.Result["verification"]; ok {
+		t.Error("a landable run must not carry verification in its summary")
+	}
+	for _, key := range []string{"commit", "branch", "changed_files"} {
+		if _, ok := sr.Result[key]; !ok {
+			t.Errorf("the summary lost %q, which a caller acts on", key)
+		}
+	}
+	if bytes.Contains(summary.stdout, []byte("git version")) {
+		t.Error("command output leaked into the summary envelope")
+	}
+	// What was trimmed is in the file: the command output and the model's
+	// own account of the change.
+	if !bytes.Contains(summary.file, []byte("git version")) {
+		t.Error("the report file lacks the verification command's output")
+	}
+	if !bytes.Contains(summary.file, []byte(`"implementation"`)) {
+		t.Error("the report file lacks the implementation report")
+	}
+	var rf struct {
+		Result struct {
+			Detail string `json:"detail"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(summary.file, &rf); err != nil || rf.Result.Detail != "full" {
+		t.Errorf("the report file's result.detail = %q (err %v), want full", rf.Result.Detail, err)
+	}
+
+	// --detail full prints the very document it also writes: the same bytes,
+	// once the clock is set aside.
+	full := run("full")
+	got := smokeDurationRe.ReplaceAll(full.file, nil)
+	want := smokeDurationRe.ReplaceAll(full.stdout, nil)
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
+		t.Errorf("--detail full: the report file differs from stdout:\nfile:\n%s\nstdout:\n%s", full.file, full.stdout)
+	}
+
+	// And the summary run's file is what --detail full prints for the same
+	// run: another run of the same scenario agrees once what differs by
+	// nature (timings, the report's own path) is set aside.
+	if a, b := smokeNormalize(t, summary.file), smokeNormalize(t, full.stdout); a != b {
+		t.Errorf("the summary run's report file differs from a --detail full run's stdout:\nfile:   %s\nstdout: %s", a, b)
+	}
+}
+
+// smokeGitHubForge is a fake GitHub for acme/widgets. It records what is
+// written to it and stands behind http.DefaultTransport for the test.
+type smokeGitHubForge struct {
+	created  map[string]any
+	comments []string
+	reads    int
+}
+
+func newSmokeGitHubForge(t *testing.T) *smokeGitHubForge {
+	t.Helper()
+	f := &smokeGitHubForge{}
+	issue := func() map[string]any {
+		return map[string]any{
+			"id": 7, "number": 7, "state": "open",
+			"title":    f.created["title"],
+			"body":     f.created["body"],
+			"html_url": "https://github.com/acme/widgets/issues/7",
+			"user":     map[string]any{"login": "carol"},
+			"labels":   []any{map[string]any{"name": "bug"}},
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
+			_ = json.NewDecoder(r.Body).Decode(&f.created)
+			_ = json.NewEncoder(w).Encode(issue())
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues/7":
+			f.reads++
+			_ = json.NewEncoder(w).Encode(issue())
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues/7/comments":
+			_ = json.NewEncoder(w).Encode([]any{})
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/7/comments":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.comments = append(f.comments, fmt.Sprint(body["body"]))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 88, "html_url": "https://github.com/acme/widgets/issues/7#issuecomment-88",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	old := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = old })
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "github.com" || req.URL.Host == "api.github.com" {
+			req.URL.Scheme = "http"
+			req.URL.Host = server.Listener.Addr().String()
+		}
+		return old.RoundTrip(req)
+	})
+	return f
+}
+
+// TS-06-65 (smoke): A model chains issue into fix using next[] and side_effects[]
+// Verifies: 06-PATH-2, 06-REQ-6.1, 06-REQ-5.1, 06-REQ-4.1
+// Real components: issuetriage pipeline, codefix pipeline, fake forge HTTP server, toolio Run/Envelope
+func TestTS0665_IssueNextChainsIntoFix_Smoke(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "gh-smoke-token")
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	wsDir := smokeWidgetRepo(t, "https://github.com/acme/widgets.git")
+	forge := newSmokeGitHubForge(t)
+
+	var label string
+	issueApp := toolio.App{
+		Name:    "issue",
+		Version: agentfox.Version,
+		Usage:   "issue [flags] <input>\n",
+		Flags:   func(fs *flag.FlagSet) { fs.StringVar(&label, "label", "", "label") },
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			p := faux.New(toolCallTurn("turn_1", issuetriage.ToolFileIssue, map[string]any{
+				"title":          "widget: Count() double counts on retry",
+				"problem":        "Count() returns 1 where it should return 2",
+				"reproduction":   "Call Count() after a retry",
+				"confidence":     "Confirmed",
+				"root_cause":     "Count() returns a constant",
+				"affected_files": []any{map[string]any{"path": "widget.go", "role": "fault location"}},
+				"suggested_fix": map[string]any{
+					"approach": "Return 2",
+					"files":    []any{map[string]any{"path": "widget.go", "role": "change Count()"}},
+					"risks":    "None",
+				},
+				"acceptance_criteria": []any{"Given a retry, Count() returns 2"},
+				"severity":            "High",
+				"severity_rationale":  "Wrong answer",
+			}))
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
+				SessionPrefix: "issue",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			var labels []string
+			if label != "" {
+				labels = []string{label}
+			}
+			result, runErr := issuetriage.Run(ctx, issuetriage.Options{
+				Input:     d.Input,
+				Workspace: d.Workspace,
+				Labels:    labels,
+				DryRun:    d.Common.DryRun,
+				Runner:    runner,
+				Forge:     d.Forge,
+				Run:       d.Run,
+				Progress:  d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+	}
+
+	var stdout1, stderr1 bytes.Buffer
+	code := issueApp.Main(context.Background(), []string{"--dir", wsDir, "--label", "bug",
+		"Count() in widget.go double counts after a retry"}, strings.NewReader(""), &stdout1, &stderr1)
+	if code != toolio.ExitOK {
+		t.Fatalf("issue: code %d; stdout:\n%s\nstderr:\n%s", code, stdout1.String(), stderr1.String())
+	}
+	var issueEnv toolio.Envelope
+	if err := json.Unmarshal(stdout1.Bytes(), &issueEnv); err != nil {
+		t.Fatalf("issue stdout is not JSON: %v\n%s", err, stdout1.String())
+	}
+
+	const issueURL = "https://github.com/acme/widgets/issues/7"
+
+	// issuetriage.Write posted the issue, and the envelope says so.
+	if forge.created == nil {
+		t.Fatal("the forge never received the issue")
+	}
+	if len(issueEnv.SideEffects) != 1 {
+		t.Fatalf("side_effects = %+v, want exactly one create_issue", issueEnv.SideEffects)
+	}
+	if se := issueEnv.SideEffects[0]; se.Action != "create_issue" || se.Target != "acme/widgets" || !se.OK || se.Warning != "" {
+		t.Errorf("side_effects[0] = %+v, want {create_issue acme/widgets true}", se)
+	}
+
+	// artifacts names the same issue.
+	var filed *toolio.Artifact
+	for i, a := range issueEnv.Artifacts {
+		if a.Kind == toolio.ArtifactIssue {
+			filed = &issueEnv.Artifacts[i]
+		}
+	}
+	if filed == nil || filed.URL != issueURL || filed.Number != 7 || filed.DryRun {
+		t.Errorf("artifacts = %+v, want an issue entry for %s #7", issueEnv.Artifacts, issueURL)
+	}
+
+	// next[0] is fix on that URL, and says what was labelled.
+	if len(issueEnv.Next) == 0 {
+		t.Fatalf("next is empty; envelope:\n%s", stdout1.String())
+	}
+	next := issueEnv.Next[0]
+	if next.Tool != "fix" || next.Input != issueURL || len(next.Flags) != 0 || !strings.Contains(next.Why, "bug") {
+		t.Errorf("next[0] = %+v, want fix on %s naming the label", next, issueURL)
+	}
+
+	// The caller runs fix on next[0].input as printed, reading nothing else.
+	fixApp := smokeFixApp(smokeFixTurns("AC-1"), "")
+	var stdout2, stderr2 bytes.Buffer
+	args := append([]string{"--dir", wsDir}, next.Flags...)
+	args = append(args, next.Input)
+	if code := fixApp.Main(context.Background(), args, strings.NewReader(""), &stdout2, &stderr2); code != toolio.ExitOK {
+		t.Fatalf("fix on next[0].input: code %d; stdout:\n%s\nstderr:\n%s", code, stdout2.String(), stderr2.String())
+	}
+	var fixEnv toolio.Envelope
+	if err := json.Unmarshal(stdout2.Bytes(), &fixEnv); err != nil {
+		t.Fatalf("fix stdout is not JSON: %v\n%s", err, stdout2.String())
+	}
+	if !fixEnv.OK {
+		t.Errorf("fix envelope ok = false: %+v", fixEnv.Error)
+	}
+	if fixEnv.Input == nil || fixEnv.Input.Kind != string(toolio.KindIssue) || fixEnv.Input.Origin != issueURL {
+		t.Errorf("fix input = %+v, want the issue %s read from the forge", fixEnv.Input, issueURL)
+	}
+	if forge.reads == 0 {
+		t.Error("fix never read the issue it was pointed at")
+	}
+}
+
+// TS-06-66 (smoke): A mistyped path is caught, then confirmed strict
+// Verifies: 06-PATH-3, 06-REQ-7.1, 06-REQ-8.2
+// Real components: toolio Resolve, toolio CLI argument parsing, filesystem (os.Stat)
+func TestTS0666_MistypedPathWarnsThenInputKindFileRefuses_Smoke(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	wsDir := t.TempDir()
+	const arg = "widget/report.txt"
+	if _, err := os.Stat(arg); err == nil {
+		t.Fatalf("%s must not exist for this test", arg)
+	}
+
+	execs := 0
+	var received toolio.Input
+	newApp := func() toolio.App {
+		return toolio.App{
+			Name:    "fix",
+			Version: agentfox.Version,
+			Usage:   "fix [flags] <input>\n",
+			Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				execs++
+				received = d.Input
+				return toolio.ExitOK, map[string]any{"stage": "done"}, nil
+			},
+		}
+	}
+
+	// Default classification: text, with a high-severity warning naming it.
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	var stdout1, stderr1 bytes.Buffer
+	if code := newApp().Main(context.Background(), []string{"--dir", wsDir, arg}, strings.NewReader(""), &stdout1, &stderr1); code != toolio.ExitOK {
+		t.Fatalf("default run: code %d; stdout:\n%s\nstderr:\n%s", code, stdout1.String(), stderr1.String())
+	}
+	if received.Kind != toolio.KindText || received.Body != arg {
+		t.Errorf("input = %+v, want the argument as text", received)
+	}
+	var env1 toolio.Envelope
+	if err := json.Unmarshal(stdout1.Bytes(), &env1); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout1.String())
+	}
+	if env1.Input == nil || env1.Input.Kind != "text" {
+		t.Errorf("input = %+v, want kind text", env1.Input)
+	}
+	var found []toolio.Warning
+	for _, w := range env1.Warnings {
+		if w.Code == toolio.WarnInputLooksLikePath {
+			found = append(found, w)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("warnings = %+v, want exactly one %s", env1.Warnings, toolio.WarnInputLooksLikePath)
+	}
+	if w := found[0]; w.Severity != "high" || w.Stage != "input" || !strings.Contains(w.Message, arg) {
+		t.Errorf("warning = %+v, want high/input naming %q", w, arg)
+	}
+	if !env1.OK || !strings.Contains(env1.Summary, "high-severity warning") {
+		t.Errorf("ok=%v summary=%q, want an ok run whose summary carries the high-severity clause", env1.OK, env1.Summary)
+	}
+
+	// Strict: the same argument is refused as a usage error, before the model
+	// is resolved. No key is available, so reaching model resolution would
+	// fail differently (exit 1, stage preflight).
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	var stdout2, stderr2 bytes.Buffer
+	code := newApp().Main(context.Background(), []string{"--dir", wsDir, "--input-kind", "file", arg}, strings.NewReader(""), &stdout2, &stderr2)
+	if code != toolio.ExitUsage {
+		t.Fatalf("--input-kind file: code %d, want %d; stdout:\n%s\nstderr:\n%s", code, toolio.ExitUsage, stdout2.String(), stderr2.String())
+	}
+	if execs != 1 {
+		t.Errorf("Exec ran %d times, want only the first run's", execs)
+	}
+	var env2 toolio.Envelope
+	if err := json.Unmarshal(stdout2.Bytes(), &env2); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout2.String())
+	}
+	if env2.OK || env2.Error == nil || env2.Error.Stage != "usage" {
+		t.Fatalf("envelope = ok:%v error:%+v, want a usage error", env2.OK, env2.Error)
+	}
+	if !strings.Contains(env2.Error.Message, "does not exist") || !strings.Contains(env2.Error.Message, arg) {
+		t.Errorf("message = %q, want it to name %q and say it does not exist", env2.Error.Message, arg)
+	}
+	if env2.Model != nil {
+		t.Errorf("a model was resolved (%+v) before the refusal", env2.Model)
+	}
+}
+
+// smokeSpecTurns scripts the four model phases that write one scope's
+// package, each costing cost.
+func smokeSpecTurns(t *testing.T, id, name string, cost float64, split []map[string]any) []faux.Turn {
+	t.Helper()
+	fixtures, body := loadFixture(t, id, name)
+	prd := map[string]any{"spec_name": name, "title": "Scope " + name, "body": body}
+	if split != nil {
+		prd["recommended_split"] = split
+	}
+	turns := []faux.Turn{
+		toolCallTurn("prd-"+id, "submit_prd", prd),
+		toolCallTurn("req-"+id, "submit_requirements", fixtures[afspec.StepRequirements]),
+		toolCallTurn("test-"+id, "submit_test_spec", fixtures[afspec.StepTestSpec]),
+		toolCallTurn("tasks-"+id, "submit_tasks", fixtures[afspec.StepTasks]),
+	}
+	for i := range turns {
+		turns[i].Usage = core.Usage{CostUSD: cost}
+	}
+	return turns
+}
+
+// smokeSpecApp is the spec tool wired the way cmd/spec wires it (one-phase
+// folding of --total-budget included), with a scripted model.
+func smokeSpecApp(t *testing.T, turns []faux.Turn, provider **faux.Provider) toolio.App {
+	return toolio.App{
+		Name:        "spec",
+		Version:     agentfox.Version,
+		Usage:       "spec [flags] <input>\n",
+		SinglePhase: true,
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			p := faux.New(turns...)
+			*provider = p
+			runner, err := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        d.Common.SinglePhaseBounds(agentrun.Bounds{MaxTurns: 20, MaxBudgetUSD: 5, MaxAttempts: 1}),
+				SessionPrefix: "spec",
+			})
+			if err != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+			}
+			result, runErr := specgen.Run(ctx, specgen.Options{
+				Input:          d.Input,
+				Workspace:      d.Workspace,
+				Activate:       true,
+				DryRun:         d.Common.DryRun,
+				TotalBudgetUSD: d.Common.TotalBudgetUSD,
+				Runner:         runner,
+				Forge:          d.Forge,
+				Run:            d.Run,
+				Progress:       d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+	}
+}
+
+// TS-06-67 (smoke): A split spec run hits a total-budget ceiling and resumes from where it stopped
+// Verifies: 06-PATH-4, 06-REQ-9.6
+// Real components: specgen pipeline, toolio Run (budget tracking), filesystem spec-package writer
+func TestTS0667_SplitSpecStopsAtTotalBudgetAndResumes_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	if err := os.WriteFile(filepath.Join(wsDir, "go.mod"), []byte("module example.com/widgets\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(wsDir, "docs", "drafts", "widgets.md")
+	if err := os.MkdirAll(filepath.Dir(draft), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(draft, []byte("widgets: a model, a store, and the switch-over\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	specs := filepath.Join(wsDir, ".specs")
+	plan := filepath.Join(specs, "widget_core"+specgen.SplitPlanSuffix)
+
+	split := []map[string]any{
+		{"name": "widget_core", "scope": "The widget model and its loader."},
+		{"name": "widget_github", "scope": "The GitHub-backed widget store."},
+		{"name": "widget_adopt", "scope": "Switching the tools over to the new store."},
+	}
+
+	// First run: every phase costs $0.10, so the first scope's four phases
+	// spend $0.40 — past the $0.30 ceiling, which no single phase reaches.
+	var p1 *faux.Provider
+	app1 := smokeSpecApp(t, smokeSpecTurns(t, "01", "widget_core", 0.10, split), &p1)
+	var stdout1, stderr1 bytes.Buffer
+	code := app1.Main(context.Background(), []string{"--dir", wsDir, "--total-budget", "0.3", draft}, strings.NewReader(""), &stdout1, &stderr1)
+	if code == toolio.ExitOK {
+		t.Fatalf("the first run should stop at the ceiling; stdout:\n%s", stdout1.String())
+	}
+	var env1 toolio.Envelope
+	if err := json.Unmarshal(stdout1.Bytes(), &env1); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout1.String())
+	}
+	if env1.Error == nil || env1.Error.Category != "budget" || env1.Error.Stage != "budget" {
+		t.Fatalf("error = %+v, want stage and category budget; stderr:\n%s", env1.Error, stderr1.String())
+	}
+	if h := env1.Error.FixHint; h == nil || h.Flag != "--total-budget" {
+		t.Errorf("fix_hint = %+v, want one naming --total-budget", h)
+	}
+	if !env1.Error.Resumable {
+		t.Error("error.resumable = false, want true: the split plan is left in place")
+	}
+	if n := len(p1.Requests()); n != 4 {
+		t.Errorf("%d model turns ran, want the first scope's 4 and no second PRD phase", n)
+	}
+	if _, err := os.Stat(plan); err != nil {
+		t.Errorf("the split plan should remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(specs, "01_widget_core")); err != nil {
+		t.Errorf("the first package should be on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(specs, "02_widget_github")); err == nil {
+		t.Error("the second scope must not have been started")
+	}
+
+	// next[] names spec again on the input's literal origin.
+	var again *toolio.Next
+	for i, n := range env1.Next {
+		if n.Tool == "spec" {
+			again = &env1.Next[i]
+		}
+	}
+	if again == nil {
+		t.Fatalf("next = %+v, want a spec suggestion", env1.Next)
+	}
+	if env1.Input == nil || again.Input != env1.Input.Origin || again.Input == toolio.SameInputPlaceholder ||
+		filepath.Base(again.Input) != "widgets.md" {
+		t.Errorf("next spec input = %q, want the file's literal origin (input.origin = %+v)", again.Input, env1.Input)
+	}
+
+	// Re-run with a higher ceiling, on the input next[] named: the split
+	// resumes from the plan and completes every scope.
+	var p2 *faux.Provider
+	var turns []faux.Turn
+	turns = append(turns, smokeSpecTurns(t, "02", "widget_github", 0.10, nil)...)
+	turns = append(turns, smokeSpecTurns(t, "03", "widget_adopt", 0.10, nil)...)
+	app2 := smokeSpecApp(t, turns, &p2)
+	var stdout2, stderr2 bytes.Buffer
+	code = app2.Main(context.Background(), []string{"--dir", wsDir, "--total-budget", "50", again.Input}, strings.NewReader(""), &stdout2, &stderr2)
+	if code != toolio.ExitOK {
+		t.Fatalf("resume: code %d; stdout:\n%s\nstderr:\n%s", code, stdout2.String(), stderr2.String())
+	}
+	if n := len(p2.Requests()); n != 8 {
+		t.Errorf("the resume ran %d model turns, want 8 (scopes 2 and 3 only)", n)
+	}
+	for _, dir := range []string{"01_widget_core", "02_widget_github", "03_widget_adopt"} {
+		if _, err := os.Stat(filepath.Join(specs, dir)); err != nil {
+			t.Errorf("%s should be on disk after the resume: %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(plan); err == nil {
+		t.Error("the plan should be removed once every scope is written")
+	}
+	var env2 struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Split []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"split"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout2.Bytes(), &env2); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout2.String())
+	}
+	if !env2.OK || len(env2.Result.Split) != 3 {
+		t.Fatalf("resume envelope: ok=%v split=%+v, want three scopes", env2.OK, env2.Result.Split)
+	}
+	for _, s := range env2.Result.Split {
+		if s.Status != "done" {
+			t.Errorf("scope %s is %q, want done", s.Name, s.Status)
+		}
 	}
 }

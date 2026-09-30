@@ -440,7 +440,7 @@
         "`make test` passes with TS-06-64..67 exercising real git, internal/checks, a fake forge server and the filesystem, not mocks",
         "`make lint` passes"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
