@@ -15,10 +15,13 @@ the two never interleave and a caller can pipe stdout straight into a parser.
 
 Two paths are human-driven rather than program-driven, and print text instead:
 `--version` prints the build identity and exits 0, and `-h`/`--help` or a bare
-invocation with no positional argument prints the help text and the flag list
-to stderr and writes nothing to stdout — a person asking what the tool does
-gets an answer they can read, not a JSON object to parse. A bare invocation
-exits 2, since nothing was fetched or written; `-h`/`--help` exits 0.
+invocation with no positional argument (or one that is all whitespace) prints
+the help text and the flag list to stderr — a person asking what the tool does
+gets an answer they can read, not a JSON object to parse. `-h`/`--help` exits
+0 and never writes to stdout. A bare invocation exits 2, since nothing was
+fetched or written; it also writes a usage envelope to stdout when stdout is
+not a terminal (a pipe, a file, a redirect), so a program-driven caller still
+gets one JSON object to parse — see [Exit codes](#exit-codes).
 
 ## The input
 
@@ -56,14 +59,17 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "tool": "fix",
   "version": "0.4.0",
   "ok": true,
+  "status": "done",
   "exit_code": 0,
+  "summary": "fix: committed a3f9c1e on fix/issue-42-nil-map; checks pass; landed",
   "input":  { "kind": "issue", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
   "model":  { "spec": "STANDARD", "id": "claude-sonnet-5-5", "vendor": "anthropic",
               "api": "anthropic-messages", "thinking": "high" },
   "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cost_usd": 0.19, "turns": 23,
               "phases": [ { "name": "analyse", "turns": 9, "stop_reason": "tool_terminate", … } ] },
   "result": { /* tool-specific; see below */ },
-  "warnings": [ "the summary comment could not be posted on acme/widgets#42: 403" ],
+  "warnings": [ { "code": "comment_not_posted", "severity": "low", "stage": "report",
+                  "message": "the summary comment could not be posted on acme/widgets#42: 403" } ],
   "duration_ms": 214003,
   "started_at": "2026-09-09T13:20:30Z"
 }
@@ -73,43 +79,138 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
 the whole job it was asked to do, and it is never true alongside a non-zero
 `exit_code` or an `error` object.
 
+`status` names the outcome in words, derived one-to-one from `exit_code` (see
+the exit-code table below) — `done`, `failed`, `usage`, `needs_human` or
+`unverified` — so it can never disagree with `ok` or `exit_code`. `summary` is
+one sentence, in the tool's own vocabulary, capped at 200 characters; when the
+tool supplies none, it falls back to `error.message` (`ok: false`) or
+`"<tool>: done"` (`ok: true`). A run whose `ok` is `true` but that logged a
+`high`-severity warning gets a fixed clause appended noting the count.
+
 `error` is present exactly when `ok` is false:
 
 ```jsonc
 "error": { "stage": "verify", "category": "unverified",
-           "message": "`make check` did not pass after the change (regressed); the work is on fix/issue-42-… and was not landed" }
+           "message": "`make check` did not pass after the change (regressed); the work is on fix/issue-42-… and was not landed",
+           "retryable": false, "resumable": true }
 ```
 
 `stage` names the pipeline step in the tool's own vocabulary. `category` says
-whether re-running could help:
+whether re-running could help, and `retryable` says so directly — see the
+column below. `resumable` says whether re-running the *same input* continues
+the work rather than starting it over (true for `impl` whenever a branch was
+named, and for `spec` whenever an unfinished split plan exists; always false
+for `fix` and `issue`). `fix_hint`, where present, names a mechanical remedy:
 
-| Category | Means |
-|---|---|
-| `usage` | the invocation was wrong; nothing was fetched or written |
-| `input` | the input could not be read (a private issue, an unreadable file) |
-| `auth` | no credential for the model's vendor, or for the forge (GitHub or GitLab) |
-| `model` | the model spec could not be resolved |
-| `api` | a provider or transport failure |
-| `budget`, `max_turns` | a phase ended in an error at its ceiling; raising it may help |
-| `aborted` | the run was cancelled (Ctrl-C, or `--phase-timeout`) |
-| `no_result` | the phase ended without calling its terminating tool: the model answered in prose, or stopped at its turn or budget ceiling; the message says which, and what to raise |
-| `git`, `forge`, `disk` | an external system refused: git, GitHub or GitLab, or (`spec`) the filesystem |
-| `ambiguous` | (`fix`) the input reads two ways; a question was posted |
-| `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done |
-| `unverified` | (`fix`, `impl`) code was written and the checks do not pass |
-| `empty_change` | (`fix`, `impl`) work was reported and no file differs |
-| `invalid_spec` | (`spec`) the package was written and does not validate; (`impl`) the package does not validate and was not implemented |
-| `internal` | a bug in the tool |
+```jsonc
+"error": { "stage": "implement", "category": "budget",
+           "message": "the implement phase reached its budget ceiling",
+           "retryable": false, "resumable": true,
+           "fix_hint": { "flag": "--budget", "current": 5, "suggest": 10 } }
+```
+
+| Category | Means | `retryable` |
+|---|---|---|
+| `usage` | the invocation was wrong; nothing was fetched or written | no |
+| `input` | the input could not be read (a private issue, an unreadable file) | no |
+| `auth` | no credential for the model's vendor, or for the forge (GitHub or GitLab) | no |
+| `model` | the model spec could not be resolved | no |
+| `api` | a provider or transport failure | yes |
+| `budget`, `max_turns` | a phase ended in an error at its ceiling; raising it may help | no |
+| `aborted` | the run was cancelled (Ctrl-C, or `--phase-timeout`) | yes |
+| `no_result` | the phase ended without calling its terminating tool: the model answered in prose, or stopped at its turn or budget ceiling; the message says which, and what to raise | no |
+| `git`, `forge`, `disk` | an external system refused: git, GitHub or GitLab, or (`spec`) the filesystem | no |
+| `ambiguous` | (`fix`) the input reads two ways; a question was posted | no |
+| `blocked` | (`impl`) the spec cannot be implemented as written, or an upstream spec is not done | no |
+| `unverified` | (`fix`, `impl`) code was written and the checks do not pass | no |
+| `empty_change` | (`fix`, `impl`) work was reported and no file differs | no |
+| `invalid_spec` | (`spec`) the package was written and does not validate; (`impl`) the package does not validate and was not implemented | no |
+| `internal` | a bug in the tool | no |
+
+Only `api` and `aborted` are retryable: re-running the identical command,
+unchanged, could succeed. Every other category needs something to change
+first — the input, a flag, a credential, or a person's answer.
+
+### `needs_human`
+
+When `status` is `needs_human` (exit `3`), the envelope carries a
+`needs_human` object naming the question a person must answer, fed by `fix`'s
+ambiguity or `impl`'s blocker:
+
+```jsonc
+"needs_human": {
+  "question": "Does 'retry' mean the HTTP client's retry or the job queue's?",
+  "options": [
+    { "id": "A", "text": "the HTTP client's retry loop in client.go" },
+    { "id": "B", "text": "the job queue's redelivery in worker.go" }
+  ],
+  "stage": "analyse",
+  "resume": "fix <same input> --context \"<answer>\""
+}
+```
+
+`stage` is always `error.stage` on the same envelope, never a second copy.
+`resume` names the invocation *shape*, not a literal re-runnable command —
+the input may be arbitrarily large text. Answer with `--context`, described
+under [Shared flags](#shared-flags): the caller re-runs the same tool on the
+same input, adding `--context "<answer>"`, rather than re-typing the input.
+`impl`'s blocker has no `options`, only a free-form `needed`. `spec` never
+sets `needs_human`: it resolves every open question itself and reports the
+count in `summary`.
 
 ### Exit codes
 
-| Code | Meaning |
-|---|---|
-| `0` | done |
-| `1` | failed; the stage is named in the JSON |
-| `2` | usage error — nothing was fetched, nothing was written |
-| `3` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
-| `4` | work exists but the checks do not pass (`fix`, `impl`) |
+| Code | `status` | Meaning |
+|---|---|---|
+| `0` | `done` | done |
+| `1` | `failed` | failed; the stage is named in the JSON |
+| `2` | `usage` | usage error — nothing was fetched, nothing was written |
+| `3` | `needs_human` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
+| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) |
+
+A bare invocation — no positional argument, or one that is all whitespace —
+is also program-driven when stdout is not a terminal: it still writes the
+usage envelope above (`status: "usage"`, exit `2`) in addition to the help
+text on stderr, so a caller piping stdout into a parser always has a JSON
+object to read. When stdout is a terminal, nothing changes: only the help
+text, on stderr. `-h`/`--help` and `--version` never emit an envelope.
+
+### Warning codes
+
+`warnings` entries carry a stable `code`, a `severity` (`high` or `low`) and
+a `stage` — the pipeline step that raised them — alongside the free-text
+`message`. `high` means the `ok: true` (or landed/parked) result is not
+quite what it appears to be; `low` is informational.
+
+| Code | Severity | Stage | Tool(s) |
+|---|---|---|---|
+| `input_truncated` | high | input | shared |
+| `comments_unreadable` | low | input | shared |
+| `no_verify_command` | high | preflight | fix, impl |
+| `criteria_unmet` | high | implement | fix |
+| `commit_not_parked` | high | park | fix, impl |
+| `checkout_not_restored` | low | park | fix, impl |
+| `pull_request_not_opened` | high | land | fix, impl |
+| `comment_not_posted` | low | report | fix, spec |
+| `spec_edit_reverted` | high | task | impl |
+| `state_not_saved` | high | park | impl |
+| `draft_package` | low | preflight | impl |
+| `upstream_missing` | low | preflight | impl |
+| `parked_attempt_discarded` | low | preflight | impl |
+| `spec_validation_warning` | low | preflight | impl |
+| `specs_dir_unreadable` | low | preflight | spec |
+| `project_language_unknown` | low | preflight | spec |
+| `name_flag_ignored` | low | usage | spec |
+| `scope_renamed` | low | prd | spec |
+| `scope_count_mismatch` | low | prd | spec |
+| `split_plan_foreign` | low | split | spec |
+| `split_plan_unreadable` | low | split | spec |
+| `split_plan_stale` | high | split | spec |
+| `split_plan_update_failed` | high | split | spec |
+| `split_plan_not_removed` | low | split | spec |
+| `architecture_not_written` | low | write | spec |
+| `activation_failed` | high | activate | spec |
+| `rejected_path_calls` | low | analyse | issue |
 
 ## Shared flags
 
@@ -122,11 +223,19 @@ whether re-running could help:
 | `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
 | `--budget` | per tool | per-phase spend ceiling, in dollars |
 | `--phase-timeout` | — | wall-clock ceiling on one phase |
+| `--context` | — | additional context for the model, repeatable; each value becomes one paragraph of a labelled `## Additional context from the caller` block appended to the phase's prompt (not to the input itself), typically an answer to a prior run's `needs_human` question |
 | `--trust-project` | off | admit `AGENTS.md`, `CLAUDE.md` and `.specs/steering.md` into the system prompt |
 | `--verbose` | off | trace tool calls and timings on stderr |
 | `--quiet` | off | print nothing on stderr |
 | `--show-text` | off | stream the model's own prose to stderr |
 | `--version` | — | print the build identity and exit |
+
+`--context` does not change `input.bytes` — it is rendered separately and
+reported as `input.context_bytes`, which counts toward the same 256 KB input
+bound as the input itself: when the two together exceed it, the run is
+refused as a usage error before anything is fetched. Resuming a `needs_human`
+stop is `<tool> <same input> --context "<answer>"`, as given in the prior
+run's `needs_human.resume`.
 
 ---
 
