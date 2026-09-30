@@ -37,7 +37,10 @@ Output is one JSON object on stdout; progress goes to stderr.
 
 The analysis is read-only: the tools it has cannot write a file, run a
 command, or reach the network. The issue is filed on GitHub or GitLab by this
-program after the run, and --dry-run suppresses that.
+program after the run, and --dry-run suppresses that: it makes no remote
+change, and issue has nothing else to do locally, so it does nothing at all.
+--total-budget and --budget bound the same spend here (one phase); the lower
+of the two applies.
 
 Exit codes:
   0  triaged, and filed unless --dry-run
@@ -47,27 +50,27 @@ Exit codes:
 Flags:
 `
 
-func main() {
+func newApp() toolio.App {
 	var (
 		repo      string
 		labels    string
-		dryRun    bool
 		overwrite bool
 	)
 
-	app := toolio.App{
+	return toolio.App{
 		Name:    "issue",
 		Version: agentfox.Version,
 		Usage:   usage,
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&labels, "label", "", "comma-separated labels for the created issue, e.g. af:fix")
-			fs.BoolVar(&dryRun, "dry-run", false, "make no change on GitHub or GitLab; report the diagnosis only")
 			fs.BoolVar(&overwrite, "overwrite", false, "rewrite the input issue in place instead of creating a new one")
 		},
 		// A triage reads: 100 turns is a lot of files, and $2 is more than
 		// any single diagnosis has cost. Both are ceilings, not targets.
 		DefaultBounds: agentrun.Bounds{MaxTurns: 100, MaxBudgetUSD: 2.00},
+		// One phase: --total-budget and --budget bound the same spend.
+		SinglePhase: true,
 
 		PreCheck: func(*toolio.Common) error {
 			if overwrite && (repo != "" || labels != "") {
@@ -96,7 +99,7 @@ func main() {
 				Workspace: d.Workspace,
 				Repo:      target,
 				Labels:    splitLabels(labels),
-				DryRun:    dryRun,
+				DryRun:    d.Common.DryRun,
 				Overwrite: overwrite,
 				Runner:    d.Runner,
 				Forge:     d.Forge,
@@ -114,8 +117,10 @@ func main() {
 			return toolio.ExitOK, result, nil
 		},
 	}
+}
 
-	os.Exit(app.Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+func main() {
+	os.Exit(newApp().Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 func splitLabels(s string) []string {

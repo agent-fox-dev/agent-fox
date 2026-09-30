@@ -88,6 +88,9 @@ type scriptedAuthor struct {
 	followOn    map[string]PRD
 	followOnErr map[string]error
 
+	// prdCost is the spend every PRD phase reports.
+	prdCost float64
+
 	steps       []afspec.GenerationStep
 	prdRequests []prdRequest
 }
@@ -95,6 +98,7 @@ type scriptedAuthor struct {
 func (a *scriptedAuthor) WritePRD(_ context.Context, req prdRequest) (PRD, agentrun.Result, error) {
 	a.prdRequests = append(a.prdRequests, req)
 	res := agentrun.Result{Name: "prd", Turns: 3}
+	res.Usage.CostUSD = a.prdCost
 	if req.Split == nil {
 		return a.prd, res, a.prdErr
 	}

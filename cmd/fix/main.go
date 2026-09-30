@@ -45,6 +45,11 @@ checks, and only lands the work if they pass — comparing against a baseline
 taken before anything changed, so a repository that was already failing is
 reported honestly rather than as a regression.
 
+--dry-run makes no remote change: nothing is pushed, no pull request is opened,
+no comment is posted. It still does everything local — the branch is created and
+the commits are made. --total-budget is checked between the analyse and the
+implement phases; a run already over it stops before the implementation starts.
+
 Exit codes:
   0  fixed, verified, and landed as --land asked
   1  failed; the stage is named in the JSON
@@ -57,11 +62,10 @@ Exit codes:
 Flags:
 `
 
-func main() {
+func newApp() toolio.App {
 	var (
 		repo          string
 		land          string
-		dryRun        bool
 		verify        string
 		noVerify      bool
 		verifyTimeout time.Duration
@@ -71,14 +75,14 @@ func main() {
 		pull          pullFlag
 	)
 
-	app := toolio.App{
-		Name:    "fix",
+	return toolio.App{
+		Name: "fix",
+
 		Version: agentfox.Version,
 		Usage:   usage,
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
-			fs.BoolVar(&dryRun, "dry-run", false, "make no remote change: push nothing, open nothing, post nothing")
 			fs.StringVar(&verify, "verify", "", "the command that decides success; default detected from the project")
 			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; the result is then reported as unverified, not as a pass")
 			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one verification run")
@@ -111,24 +115,25 @@ func main() {
 			target, _ := issuex.ParseRepo(repo)
 
 			result, err := codefix.Run(ctx, codefix.Options{
-				Input:         d.Input,
-				Workspace:     d.Workspace,
-				Repo:          target,
-				Land:          mode,
-				DryRun:        dryRun,
-				VerifyCommand: verify,
-				NoVerify:      noVerify,
-				VerifyTimeout: verifyTimeout,
-				PushAttempts:  pushAttempts,
-				AllowPrograms: splitList(allow),
-				Draft:         draft,
-				Pull:          pull.set,
-				PullBranch:    pull.branch,
-				Runner:        d.Runner,
-				Forge:         d.Forge,
-				CheckRunner:   gitx.ReducedEnvRunner,
-				Run:           d.Run,
-				Progress:      d.Progress,
+				Input:          d.Input,
+				Workspace:      d.Workspace,
+				Repo:           target,
+				Land:           mode,
+				DryRun:         d.Common.DryRun,
+				TotalBudgetUSD: d.Common.TotalBudgetUSD,
+				VerifyCommand:  verify,
+				NoVerify:       noVerify,
+				VerifyTimeout:  verifyTimeout,
+				PushAttempts:   pushAttempts,
+				AllowPrograms:  splitList(allow),
+				Draft:          draft,
+				Pull:           pull.set,
+				PullBranch:     pull.branch,
+				Runner:         d.Runner,
+				Forge:          d.Forge,
+				CheckRunner:    gitx.ReducedEnvRunner,
+				Run:            d.Run,
+				Progress:       d.Progress,
 			})
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
@@ -137,8 +142,10 @@ func main() {
 			return toolio.ExitOK, result, nil
 		},
 	}
+}
 
-	os.Exit(app.Main(context.Background(), normalizeArgs(os.Args[1:]), os.Stdin, os.Stdout, os.Stderr))
+func main() {
+	os.Exit(newApp().Main(context.Background(), normalizeArgs(os.Args[1:]), os.Stdin, os.Stdout, os.Stderr))
 }
 
 type pullFlag struct {
@@ -191,6 +198,10 @@ var knownFixValueFlags = map[string]bool{
 	"budget":         true,
 	"phase-timeout":  true,
 	"input-kind":     true,
+	"total-budget":   true,
+	"detail":         true,
+	"report-file":    true,
+	"context":        true,
 }
 
 // normalizeArgs rewrites argv so that "-pull [branch]" doesn't cause the branch

@@ -35,6 +35,11 @@ type Options struct {
 	// files, so containing them on a branch you can delete is safer than
 	// leaving them loose.
 	DryRun bool
+	// TotalBudgetUSD caps the spend of the whole run, across both model
+	// phases. It is checked once, at the boundary between analyse and
+	// implement, the way codeimpl checks it between tasks. Zero means no cap
+	// beyond the per-phase bound.
+	TotalBudgetUSD float64
 	// VerifyCommand overrides detection. Empty means detect.
 	VerifyCommand string
 	// NoVerify runs nothing. The result is then reported as unverified — not
@@ -79,7 +84,13 @@ type Failure struct {
 	Stage    string
 	Category string
 	Err      error
+	// TotalBudget is the --total-budget ceiling a budget stop was checked
+	// against, so the envelope's fix_hint can name it. Zero otherwise.
+	TotalBudget float64
 }
+
+// TotalBudgetUSD is the run-level ceiling behind a stage "budget" failure.
+func (f *Failure) TotalBudgetUSD() float64 { return f.TotalBudget }
 
 func (f *Failure) Error() string        { return f.Err.Error() }
 func (f *Failure) Unwrap() error        { return f.Err }
@@ -219,6 +230,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	if analysis.Ambiguity != nil {
 		return stopOnAmbiguity(ctx, o, result, *analysis.Ambiguity)
+	}
+
+	// ------------------------------------------------ total budget check --
+	//
+	// The one interior boundary: the analysis is paid for and nothing has
+	// been written. A run already over its ceiling stops here, before a
+	// branch exists and before the expensive phase starts.
+	if f := overBudget(o); f != nil {
+		return result, f
 	}
 
 	// ----------------------------------------------------------- branch --
@@ -551,6 +571,20 @@ func runChecks(ctx context.Context, o Options, root, command, label string) chec
 	}
 	done(status)
 	return res
+}
+
+// overBudget reports the run-level cap, checked between the two phases. The
+// comparison and the wording follow codeimpl's overBudget.
+func overBudget(o Options) *Failure {
+	spent := o.Run.CostUSD()
+	if o.TotalBudgetUSD > 0 && spent >= o.TotalBudgetUSD {
+		f := failf("budget", agentrun.CategoryBudget,
+			"the run has spent $%.2f of its $%.2f total budget on the analysis; the implementation "+
+				"phase was not started", spent, o.TotalBudgetUSD)
+		f.TotalBudget = o.TotalBudgetUSD
+		return f
+	}
+	return nil
 }
 
 func recordPhase(run *toolio.Run, res agentrun.Result) {

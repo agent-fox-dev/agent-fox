@@ -60,6 +60,11 @@ whose failure needs more than the run's model. When landing with --land=pr,
 a pull request or merge request is opened on the target forge (GitHub or
 GitLab).
 
+--dry-run makes no remote change: nothing is pushed, no pull request is opened.
+It still does everything local — the branch is created and the commits are
+made. --total-budget caps the spend of the whole run, checked between phases
+and tasks.
+
 Exit codes:
   0  every task landed, and the branch was landed as --land asked
   1  failed; the stage is named in the JSON
@@ -73,14 +78,13 @@ Exit codes:
 Flags:
 `
 
-func main() {
+func newApp() toolio.App {
 	var (
 		specsDir      string
 		task          int
 		branch        string
 		repo          string
 		land          string
-		dryRun        bool
 		verify        string
 		noVerify      bool
 		verifyTimeout time.Duration
@@ -90,13 +94,12 @@ func main() {
 		pull          bool
 		noSurvey      bool
 		attempts      int
-		totalBudget   float64
 		repair        bool
 		repairTries   int
 		repairModel   string
 	)
 
-	app := toolio.App{
+	return toolio.App{
 		Name:    "impl",
 		Version: agentfox.Version,
 		Usage:   usage,
@@ -106,7 +109,6 @@ func main() {
 			fs.StringVar(&branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
-			fs.BoolVar(&dryRun, "dry-run", false, "make no remote change: push nothing, open nothing")
 			fs.StringVar(&verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
 			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
 			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one check command")
@@ -116,7 +118,6 @@ func main() {
 			fs.BoolVar(&pull, "pull", false, "checkout and pull the base branch from origin before anything else")
 			fs.BoolVar(&noSurvey, "no-survey", false, "skip the read-only survey phase")
 			fs.IntVar(&attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
-			fs.Float64Var(&totalBudget, "total-budget", 0, "spend ceiling for the whole run, in dollars; 0 means only the per-phase bound")
 			fs.BoolVar(&repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
 			fs.IntVar(&repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
 			fs.StringVar(&repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
@@ -143,9 +144,6 @@ func main() {
 			}
 			if attempts < 1 {
 				return toolio.Usagef("--task-attempts must be at least 1")
-			}
-			if totalBudget < 0 {
-				return toolio.Usagef("--total-budget cannot be negative")
 			}
 			if repairModel != "" {
 				repair = true
@@ -191,7 +189,7 @@ func main() {
 				Branch:         branch,
 				Repo:           target,
 				Land:           mode,
-				DryRun:         dryRun,
+				DryRun:         d.Common.DryRun,
 				VerifyCommand:  verify,
 				NoVerify:       noVerify,
 				VerifyTimeout:  verifyTimeout,
@@ -201,7 +199,7 @@ func main() {
 				Pull:           pull,
 				NoSurvey:       noSurvey,
 				TaskAttempts:   attempts,
-				TotalBudgetUSD: totalBudget,
+				TotalBudgetUSD: d.Common.TotalBudgetUSD,
 				Repair:         repair,
 				RepairAttempts: repairTries,
 				RepairRunner:   repairRunner,
@@ -218,8 +216,10 @@ func main() {
 			return toolio.ExitOK, result, nil
 		},
 	}
+}
 
-	os.Exit(app.Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+func main() {
+	os.Exit(newApp().Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 func splitList(s string) []string {

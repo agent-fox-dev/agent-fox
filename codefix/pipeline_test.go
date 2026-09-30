@@ -38,6 +38,9 @@ type scriptedBrain struct {
 	// analyzeErr and implementErr fail a phase.
 	analyzeErr, implementErr error
 
+	// analyzeCost is the spend the analyse phase reports.
+	analyzeCost float64
+
 	analyzed, implemented int
 	implementPrompt       string
 }
@@ -45,6 +48,7 @@ type scriptedBrain struct {
 func (b *scriptedBrain) Analyze(_ context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
 	b.analyzed++
 	res := agentrun.Result{Name: "analyse", Turns: 2}
+	res.Usage.CostUSD = b.analyzeCost
 	if b.analyzeErr != nil {
 		return Analysis{}, res, b.analyzeErr
 	}

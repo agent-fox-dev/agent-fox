@@ -1,6 +1,7 @@
 package toolio
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -98,6 +99,11 @@ type App struct {
 	// DefaultBounds are the per-phase ceilings before the shared flags
 	// override them.
 	DefaultBounds agentrun.Bounds
+	// SinglePhase marks a tool whose one model phase is the whole run (issue,
+	// and spec's undivided input). --total-budget and --budget then bound the
+	// same spend, so the lower of the two is the phase's effective ceiling.
+	// A tool with interior boundaries checks --total-budget there instead.
+	SinglePhase bool
 	// PreCheck runs after flag parsing and before anything is fetched. It is
 	// where a flag combination that cannot hold is refused, so a usage error
 	// never costs a network call or a token.
@@ -122,7 +128,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	fs := flag.NewFlagSet(a.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprint(stderr, a.Usage)
+		fmt.Fprint(fs.Output(), a.Usage)
 		fs.PrintDefaults()
 	}
 	common.Register(fs)
@@ -132,9 +138,22 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 	run := NewRun(a.Name, a.Version)
 
+	// The flag package writes its own complaint (and the usage text) to the
+	// flag set's output as it fails. That is buffered, so a flag another tool
+	// defines can be reported by name instead of as Go's generic "flag
+	// provided but not defined"; everything else is passed through as it
+	// was.
+	var parseOut bytes.Buffer
+	fs.SetOutput(&parseOut)
 	input, err := SplitArgs(fs, argv)
-	run.SetBounds(common.Bounds(a.DefaultBounds))
+	fs.SetOutput(stderr)
+	run.SetBounds(a.bounds(&common))
 	if err != nil {
+		if msg, ok := unsupportedFlagMessage(a.Name, err); ok {
+			err = Usagef("%s", msg)
+		} else {
+			io.Copy(stderr, &parseOut)
+		}
 		if errors.Is(err, flag.ErrHelp) {
 			// fs.Parse has already printed the help text to stderr: an
 			// explicit -h/--help is a person asking what the tool does, not
@@ -153,6 +172,12 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, derr)
 		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: derr.Error(), err: derr,
+		})
+	}
+	if berr := common.ValidTotalBudget(); berr != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, berr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: berr.Error(), err: berr,
 		})
 	}
 	if kerr := common.ValidInputKind(); kerr != nil {
@@ -284,6 +309,15 @@ func reportPath(common *Common, tool string, run *Run) (string, error) {
 	return DefaultReportPath(tool, run.started, os.Getpid())
 }
 
+// bounds are the per-phase ceilings this App runs with: the shared flags over
+// the tool's defaults, with --total-budget folded in for a one-phase tool.
+func (a App) bounds(c *Common) agentrun.Bounds {
+	if a.SinglePhase {
+		return c.SinglePhaseBounds(a.DefaultBounds)
+	}
+	return c.Bounds(a.DefaultBounds)
+}
+
 type execArgs struct {
 	common   *Common
 	argument string
@@ -296,7 +330,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	bounds := e.common.Bounds(a.DefaultBounds)
+	bounds := a.bounds(e.common)
 	e.run.SetBounds(bounds)
 
 	if a.PreCheck != nil {

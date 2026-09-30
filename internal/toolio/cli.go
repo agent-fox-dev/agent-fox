@@ -63,7 +63,22 @@ type Common struct {
 	// InputKind forces how the single argument is classified: "file",
 	// "text", "issue" or "stdin". Empty means auto-classify (Resolve).
 	InputKind string
+	// DryRun makes no remote change: no push, no write to a forge. It is
+	// defined here, once, so it means the same thing on every tool; each
+	// tool's help says what it still does locally.
+	DryRun bool
+	// TotalBudgetUSD is a ceiling, in dollars, on the run's total spend
+	// across every phase. Zero means no ceiling beyond the per-phase
+	// --budget.
+	TotalBudgetUSD float64
 }
+
+// DryRunUsage is the one definition of --dry-run, shared by every tool.
+const DryRunUsage = "make no remote change: no push, no write to a forge"
+
+// TotalBudgetUsage is the one definition of --total-budget, shared by every
+// tool.
+const TotalBudgetUsage = "spend ceiling for the whole run across every phase, in dollars; 0 means only the per-phase --budget"
 
 type contextFlag []string
 
@@ -115,6 +130,8 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
 	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
 	fs.StringVar(&c.InputKind, "input-kind", "", "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)")
+	fs.BoolVar(&c.DryRun, "dry-run", false, DryRunUsage)
+	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
 }
 
@@ -128,6 +145,14 @@ func (c *Common) ValidInputKind() error {
 		return fmt.Errorf("--input-kind must be one of %q, %q, %q or %q, got %q",
 			KindFile, KindText, KindIssue, KindStdin, c.InputKind)
 	}
+}
+
+// ValidTotalBudget refuses a negative --total-budget.
+func (c *Common) ValidTotalBudget() error {
+	if c.TotalBudgetUSD < 0 {
+		return fmt.Errorf("--total-budget cannot be negative")
+	}
+	return nil
 }
 
 // ValidDetail refuses any --detail value other than "summary" or "full". An
@@ -215,6 +240,18 @@ func (c *Common) Bounds(defaults agentrun.Bounds) agentrun.Bounds {
 	}
 	if c.Timeout > 0 {
 		b.Timeout = c.Timeout
+	}
+	return b
+}
+
+// SinglePhaseBounds is Bounds for a tool whose one phase is the whole run
+// (issue, and spec's undivided input): the run-wide --total-budget and the
+// per-phase ceiling bound the same spend, so the lower of the two is the
+// phase's effective ceiling.
+func (c *Common) SinglePhaseBounds(defaults agentrun.Bounds) agentrun.Bounds {
+	b := c.Bounds(defaults)
+	if c.TotalBudgetUSD > 0 && (b.MaxBudgetUSD <= 0 || c.TotalBudgetUSD < b.MaxBudgetUSD) {
+		b.MaxBudgetUSD = c.TotalBudgetUSD
 	}
 	return b
 }

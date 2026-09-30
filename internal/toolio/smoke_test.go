@@ -213,7 +213,7 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 	var triageResult *issuetriage.Result
 
 	var repo, labels string
-	var dryRun, overwrite bool
+	var overwrite bool
 
 	app := toolio.App{
 		Name:    "issue",
@@ -222,7 +222,6 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository")
 			fs.StringVar(&labels, "label", "", "labels")
-			fs.BoolVar(&dryRun, "dry-run", false, "dry run")
 			fs.BoolVar(&overwrite, "overwrite", false, "overwrite")
 		},
 		PreCheck: func(c *toolio.Common) error {
@@ -271,7 +270,7 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 				Input:     d.Input,
 				Workspace: d.Workspace,
 				Repo:      target,
-				DryRun:    dryRun,
+				DryRun:    d.Common.DryRun,
 				Runner:    runner,
 				Forge:     d.Forge,
 				Run:       d.Run,
@@ -441,7 +440,6 @@ func TestTS0437_GitHubBugfixPR_Smoke(t *testing.T) {
 
 	var land string = string(codefix.LandPR)
 	var repo string
-	var dryRun bool
 
 	app := toolio.App{
 		Name:    "fix",
@@ -450,7 +448,6 @@ func TestTS0437_GitHubBugfixPR_Smoke(t *testing.T) {
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&land, "land", string(codefix.LandPR), "land mode")
 			fs.StringVar(&repo, "repo", "", "target repo")
-			fs.BoolVar(&dryRun, "dry-run", false, "dry run")
 		},
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			receivedForge = d.Forge
@@ -498,7 +495,7 @@ func TestTS0437_GitHubBugfixPR_Smoke(t *testing.T) {
 				Workspace:   d.Workspace,
 				Repo:        target,
 				Land:        mode,
-				DryRun:      dryRun,
+				DryRun:      d.Common.DryRun,
 				NoVerify:    true,
 				Runner:      runner,
 				Forge:       d.Forge,
@@ -635,7 +632,7 @@ func TestTS0438_GitLabSpecPRDComment_Smoke(t *testing.T) {
 	var receivedForge issuex.Client
 	var specResult *specgen.Result
 
-	var comment, dryRun, architecture, noActivate bool
+	var comment, architecture, noActivate bool
 	var specsDir, name string
 
 	app := toolio.App{
@@ -648,7 +645,6 @@ func TestTS0438_GitLabSpecPRDComment_Smoke(t *testing.T) {
 			fs.BoolVar(&architecture, "architecture", false, "architecture")
 			fs.BoolVar(&noActivate, "no-activate", false, "no-activate")
 			fs.BoolVar(&comment, "comment", false, "comment")
-			fs.BoolVar(&dryRun, "dry-run", false, "dry run")
 		},
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			receivedForge = d.Forge
@@ -684,7 +680,7 @@ func TestTS0438_GitLabSpecPRDComment_Smoke(t *testing.T) {
 				Architecture: architecture,
 				Activate:     !noActivate,
 				Comment:      comment,
-				DryRun:       dryRun,
+				DryRun:       d.Common.DryRun,
 				Runner:       runner,
 				Forge:        d.Forge,
 				Run:          d.Run,

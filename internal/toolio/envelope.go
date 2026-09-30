@@ -581,6 +581,21 @@ func (r *Run) AddPhase(p PhaseInfo) {
 	r.phases = append(r.phases, p)
 }
 
+// CostUSD is the cumulative spend of every phase recorded so far. It is what
+// a run-level ceiling (--total-budget) is checked against between phases.
+func (r *Run) CostUSD() float64 {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var total float64
+	for _, p := range r.phases {
+		total += p.CostUSD
+	}
+	return total
+}
+
 // Warnings returns a copy of the warnings recorded so far.
 func (r *Run) Warnings() []Warning {
 	if r == nil {

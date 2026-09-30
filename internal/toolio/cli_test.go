@@ -11,6 +11,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/codeimpl"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/specgen"
@@ -451,5 +452,99 @@ func TestTS06_4_FullViewSetsDetailFull(t *testing.T) {
 	}
 	if got.Stage != "landed" {
 		t.Errorf("FullView should not touch other fields, got Stage=%q", got.Stage)
+	}
+}
+
+// toolFlagSetNames are the four tools whose flag sets share Common.
+var toolFlagSetNames = []string{"issue", "fix", "spec", "impl"}
+
+// TS-06-52 (unit): --dry-run is registered exactly once, on Common, with the
+// one make-no-remote-change definition.
+func TestTS06_52_DryRunRegisteredOnceOnCommon(t *testing.T) {
+	var usages []string
+	for _, tool := range toolFlagSetNames {
+		var c toolio.Common
+		fs := flag.NewFlagSet(tool, flag.ContinueOnError)
+		// Registering twice would panic ("flag redefined"); a single call
+		// must therefore define the flag.
+		c.Register(fs)
+		f := fs.Lookup("dry-run")
+		if f == nil {
+			t.Fatalf("%s: Common.Register did not define --dry-run", tool)
+		}
+		if f.Usage != toolio.DryRunUsage {
+			t.Errorf("%s: --dry-run usage = %q, want the one shared definition", tool, f.Usage)
+		}
+		usages = append(usages, f.Usage)
+		if err := fs.Parse([]string{"--dry-run"}); err != nil {
+			t.Fatal(err)
+		}
+		if !c.DryRun {
+			t.Errorf("%s: --dry-run did not set Common.DryRun", tool)
+		}
+	}
+	for _, u := range usages[1:] {
+		if u != usages[0] {
+			t.Errorf("help text differs across tools: %q vs %q", u, usages[0])
+		}
+	}
+	if !strings.Contains(toolio.DryRunUsage, "no remote change") {
+		t.Errorf("DryRunUsage = %q", toolio.DryRunUsage)
+	}
+}
+
+// TS-06-54 (unit): --total-budget is registered once on Common, default zero.
+func TestTS06_54_TotalBudgetDefaultsToZero(t *testing.T) {
+	var c toolio.Common
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	c.Register(fs)
+	if fs.Lookup("total-budget") == nil {
+		t.Fatal("Common.Register did not define --total-budget")
+	}
+	if err := fs.Parse([]string{"--budget", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	if c.TotalBudgetUSD != 0 {
+		t.Errorf("TotalBudgetUSD = %v, want 0", c.TotalBudgetUSD)
+	}
+	if err := c.ValidTotalBudget(); err != nil {
+		t.Errorf("zero total budget refused: %v", err)
+	}
+	// With the per-phase budget set and no total, nothing lowers the ceiling.
+	b := c.SinglePhaseBounds(agentrun.Bounds{MaxBudgetUSD: 2})
+	if b.MaxBudgetUSD != 3 {
+		t.Errorf("effective ceiling = %v, want the per-phase 3", b.MaxBudgetUSD)
+	}
+
+	neg := toolio.Common{TotalBudgetUSD: -1}
+	if neg.ValidTotalBudget() == nil {
+		t.Error("a negative --total-budget should be refused")
+	}
+}
+
+// TS-06-55 (unit): a one-phase tool applies min(--budget, --total-budget).
+func TestTS06_55_SinglePhaseCeilingIsTheLowerOfTheTwo(t *testing.T) {
+	defaults := agentrun.Bounds{MaxTurns: 100, MaxBudgetUSD: 2}
+	cases := []struct {
+		budget, total, want float64
+	}{
+		{10, 4, 4},
+		{4, 10, 4},
+		{0, 1, 1}, // the tool default (2) is above the total
+		{0, 9, 2}, // the total is above the tool default: the default stays
+		{0, 0, 2}, // neither given
+		{5, 0, 5}, // no total
+	}
+	for _, tc := range cases {
+		c := toolio.Common{Budget: tc.budget, TotalBudgetUSD: tc.total}
+		got := c.SinglePhaseBounds(defaults).MaxBudgetUSD
+		if got != tc.want {
+			t.Errorf("budget=%v total=%v: ceiling = %v, want %v", tc.budget, tc.total, got, tc.want)
+		}
+	}
+	// Bounds (the multi-phase path) is untouched by --total-budget.
+	c := toolio.Common{Budget: 10, TotalBudgetUSD: 4}
+	if got := c.Bounds(defaults).MaxBudgetUSD; got != 10 {
+		t.Errorf("Bounds ceiling = %v, want 10", got)
 	}
 }

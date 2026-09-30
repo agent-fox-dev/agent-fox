@@ -32,6 +32,13 @@ The input is exactly one of:
 
 Output is one JSON object on stdout; progress goes to stderr.
 
+--dry-run makes no remote change and, for spec, nothing local either: it writes
+no files under the spec root, posts no comment, and reports the package that
+would have been written. --total-budget is checked before each scope of a split
+begins its PRD phase (and a split that stops there keeps its plan to resume
+from); an input that is one spec's worth of work has no interior boundary, so
+there it lowers the one phase's ceiling like --budget.
+
 The run is unattended: nobody is waiting to answer questions, so the PRD phase
 resolves every open question itself, records each in a '## Design Decisions'
 section, and reports the ones it is least sure of as open_questions in the
@@ -59,17 +66,17 @@ Exit codes:
 Flags:
 `
 
-func main() {
+func newApp() toolio.App {
 	var (
 		specsDir     string
 		name         string
 		architecture bool
 		noActivate   bool
 		comment      bool
-		dryRun       bool
+		common       *toolio.Common
 	)
 
-	app := toolio.App{
+	return toolio.App{
 		Name:    "spec",
 		Version: agentfox.Version,
 		Usage:   usage,
@@ -79,22 +86,25 @@ func main() {
 			fs.BoolVar(&architecture, "architecture", false, "also write the optional architecture.md")
 			fs.BoolVar(&noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
 			fs.BoolVar(&comment, "comment", false, "post the finished PRD back to the issue the input came from")
-			fs.BoolVar(&dryRun, "dry-run", false, "write nothing to disk or forge (GitHub or GitLab); report the package that would be written")
 		},
 		// Generating an artifact is one long structured answer plus however
 		// many repairs the rules demand. The turn ceiling is the repair
 		// budget, and 60 is enough for a model that is converging and a stop
 		// for one that is not.
 		DefaultBounds: agentrun.Bounds{MaxTurns: 60, MaxBudgetUSD: 5.00},
+		// An input that does not split has one phase, so --total-budget lowers
+		// its ceiling like issue's; a split also checks it between scopes.
+		SinglePhase: true,
 
-		PreCheck: func(*toolio.Common) error {
+		PreCheck: func(c *toolio.Common) error {
+			common = c
 			if name != "" && !specgen.ValidSpecName(name) {
 				return toolio.Usagef("--name %q must match [a-z][a-z0-9_]*", name)
 			}
 			return nil
 		},
 		CheckInput: func(in toolio.Input) error {
-			if comment && !dryRun && in.Issue == nil {
+			if comment && !common.DryRun && in.Issue == nil {
 				return toolio.Usagef("--comment posts the PRD back to the forge issue it came from (GitHub or GitLab), "+
 					"and %s is %s", in.Origin, in.Kind)
 			}
@@ -103,18 +113,19 @@ func main() {
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			result, err := specgen.Run(ctx, specgen.Options{
-				Input:        d.Input,
-				Workspace:    d.Workspace,
-				SpecsDir:     specsDir,
-				Name:         name,
-				Architecture: architecture,
-				Activate:     !noActivate,
-				Comment:      comment,
-				DryRun:       dryRun,
-				Runner:       d.Runner,
-				Forge:        d.Forge,
-				Run:          d.Run,
-				Progress:     d.Progress,
+				Input:          d.Input,
+				Workspace:      d.Workspace,
+				SpecsDir:       specsDir,
+				Name:           name,
+				Architecture:   architecture,
+				Activate:       !noActivate,
+				Comment:        comment,
+				DryRun:         d.Common.DryRun,
+				TotalBudgetUSD: d.Common.TotalBudgetUSD,
+				Runner:         d.Runner,
+				Forge:          d.Forge,
+				Run:            d.Run,
+				Progress:       d.Progress,
 			})
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
@@ -123,6 +134,8 @@ func main() {
 			return toolio.ExitOK, result, nil
 		},
 	}
+}
 
-	os.Exit(app.Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+func main() {
+	os.Exit(newApp().Main(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
