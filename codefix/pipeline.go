@@ -307,7 +307,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	o.Progress.Step("committed %s", commit)
 
 	if o.Land.Pushes() && !o.DryRun {
-		if err := git.Push(ctx, branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) }); err != nil {
+		err := git.Push(ctx, branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) })
+		// A failed push is the run's error, not a Run.Warn: no warning code.
+		o.Run.RecordSideEffect("push", "origin "+branch, err == nil, "")
+		if err != nil {
 			return result, fail("push", CategoryGit, err)
 		}
 		result.Pushed = true
@@ -477,6 +480,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 	if o.Forge == nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): no forge client configured", branch, base)
+		o.Run.RecordSideEffect("open_pr", target.String(), false, toolio.WarnPullRequestNotOpened)
 		return
 	}
 	pr, err := o.Forge.CreatePullRequest(ctx, target, issuex.CreatePullRequestRequest{
@@ -489,8 +493,10 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 	if err != nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", branch, base, err)
+		o.Run.RecordSideEffect("open_pr", target.String(), false, toolio.WarnPullRequestNotOpened)
 		return
 	}
+	o.Run.RecordSideEffect("open_pr", fmt.Sprintf("%s#%d", target, pr.Number), true, "")
 	result.PullRequestURL = pr.URL
 	result.PullRequestNumber = pr.Number
 	o.Progress.Step("opened %s", pr.URL)
@@ -518,13 +524,16 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 	}
 	if o.Forge == nil {
 		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: no forge client configured", kind, o.Input.Issue)
+		o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
 		return
 	}
 	url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 	if err != nil {
 		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
+		o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
 		return
 	}
+	o.Run.RecordSideEffect("comment", o.Input.Issue.String(), true, "")
 	result.Comments = append(result.Comments, url)
 	o.Progress.Detail("posted the %s comment", kind)
 }

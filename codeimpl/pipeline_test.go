@@ -1317,6 +1317,121 @@ func TestTS0422_LandPRChanges(t *testing.T) {
 	}
 }
 
+// TS-06-27 (unit): LandPRChanges records open_pr on "<owner>/<repo>#<n>"
+// when the forge answers.
+func TestTS06_27_LandPRChangesRecordsOpenPR(t *testing.T) {
+	target := issuex.Repo{Owner: "grp", Name: "prj", Host: "gitlab.com"}
+	st := &RunState{Target: target, target: target, branch: "impl/09-test", base: "main",
+		spec: &afspec.Spec{SpecID: "09", Title: "Agent Mode Spec CLI"}}
+	opts := Options{Land: LandPR, Run: toolio.NewRun("impl", "test"),
+		Forge: &mockAuthClient{authenticated: true, createdPR: issuex.PullRequest{URL: "https://gitlab.com/grp/prj/-/merge_requests/4", Number: 4}}}
+	if _, err := LandPRChanges(context.Background(), opts, st, &Result{TasksDone: 1}); err != nil {
+		t.Fatal(err)
+	}
+	se := opts.Run.SideEffects()
+	if len(se) != 1 || se[0].Action != "open_pr" || se[0].Target != "grp/prj#4" || !se[0].OK || se[0].Warning != "" {
+		t.Fatalf("SideEffects = %+v", se)
+	}
+}
+
+// TS-06-28 (unit): a pull request that could not be opened, for either
+// reason the site warns about, is recorded ok:false with the same WarnCode.
+func TestTS06_28_LandPRChangesFailureSharesTheWarnCode(t *testing.T) {
+	target := issuex.Repo{Owner: "grp", Name: "prj", Host: "gitlab.com"}
+	st := &RunState{Target: target, target: target, branch: "impl/09-test", base: "main",
+		spec: &afspec.Spec{SpecID: "09", Title: "Agent Mode Spec CLI"}}
+	for name, forge := range map[string]issuex.Client{
+		"refused":   &mockAuthClient{authenticated: true, createPRErr: errors.New("403")},
+		"no client": nil,
+	} {
+		run := toolio.NewRun("impl", "test")
+		opts := Options{Land: LandPR, Run: run, Forge: forge}
+		if _, err := LandPRChanges(context.Background(), opts, st, &Result{}); err == nil {
+			t.Fatalf("%s: want an error", name)
+		}
+		se := run.SideEffects()
+		if len(se) != 1 || se[0].OK || se[0].Action != "open_pr" || se[0].Target != "grp/prj" ||
+			se[0].Warning != toolio.WarnPullRequestNotOpened {
+			t.Fatalf("%s: SideEffects = %+v", name, se)
+		}
+		if len(run.Warnings()) != 1 || run.Warnings()[0].Code != se[0].Warning {
+			t.Errorf("%s: warnings %+v disagree with %+v", name, run.Warnings(), se)
+		}
+	}
+}
+
+// implOriginFixture gives a real spec repository a bare origin, so the
+// pipeline's own push runs for real.
+func implOriginFixture(t *testing.T, originPath string) Options {
+	t.Helper()
+	ws, g, _ := newSpecRepo(t)
+	ctx := context.Background()
+	for _, argv := range [][]string{
+		{"git", "init", "-q", "--bare", originPath},
+		{"git", "remote", "add", "origin", originPath},
+	} {
+		if out, code, err := gitx.ExecRunner(ctx, ws.Root, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.Repo = issuex.Repo{Owner: "grp", Name: "prj", Host: "github.com"}
+	o.Forge = &mockAuthClient{authenticated: true,
+		createdPR: issuex.PullRequest{URL: "https://github.com/grp/prj/pull/3", Number: 3}}
+	o.Land = LandPR
+	o.PushAttempts = 1
+	return o
+}
+
+// TS-06-27 / TS-06-29 (integration): a real impl run records its push and
+// then its pull request, in that order.
+func TestTS06_29_ImplRecordsPushThenOpenPR(t *testing.T) {
+	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
+	res, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	se := o.Run.SideEffects()
+	if len(se) != 2 || se[0].Action != "push" || se[1].Action != "open_pr" {
+		t.Fatalf("SideEffects = %+v", se)
+	}
+	if se[0].Target != "origin "+res.Branch || !se[0].OK {
+		t.Errorf("push entry = %+v, branch %q", se[0], res.Branch)
+	}
+	if se[1].Target != "grp/prj#3" || !se[1].OK {
+		t.Errorf("open_pr entry = %+v", se[1])
+	}
+}
+
+// TS-06-28 (integration): a failed push is recorded ok:false, with no
+// warning code because the push site records no Run.Warn.
+func TestTS06_28_ImplFailedPushIsRecordedNotOK(t *testing.T) {
+	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
+	if out, code, err := gitx.ExecRunner(context.Background(), o.Workspace.Root,
+		[]string{"git", "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git")}); err != nil || code != 0 {
+		t.Fatalf("set-url: %v %s", err, out)
+	}
+	if _, err := Run(context.Background(), o); err == nil {
+		t.Fatal("want the push to fail the run")
+	}
+	se := o.Run.SideEffects()
+	if len(se) != 1 || se[0].Action != "push" || se[0].OK || se[0].Warning != "" {
+		t.Fatalf("SideEffects = %+v", se)
+	}
+}
+
+// TS-06-30 (integration): --dry-run --land=pr records no side effect.
+func TestTS06_30_ImplDryRunRecordsNoSideEffects(t *testing.T) {
+	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
+	o.DryRun = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if se := o.Run.SideEffects(); len(se) != 0 {
+		t.Errorf("dry run recorded %+v", se)
+	}
+}
+
 // TS-05-17 (integration): checkUpstream sets Result.Blocker naming the dependency and the upstream package when a dependency is neither sealed nor done
 func TestTS05_17_CheckUpstreamSetsBlocker(t *testing.T) {
 	ws, g, specDirB := newSpecRepo(t)

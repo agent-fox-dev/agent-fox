@@ -168,6 +168,22 @@ type ArtifactsProvider interface {
 	Artifacts() []Artifact
 }
 
+// SideEffect is one write a run made to a forge or a remote (06-REQ-5).
+//
+// Action is one of create_issue, update_issue, comment, push, open_pr.
+// Target names what was written to: "origin <branch>" for a push,
+// "<owner>/<repo>#<number>" for a comment or an issue update,
+// "<owner>/<repo>" for an issue that has no number yet, and
+// "<owner>/<repo>#<pr-number>" for a pull request. Warning is set only when
+// OK is false and the call site recorded a Run.Warn for the same failure: the
+// two come from one call site, so they cannot disagree.
+type SideEffect struct {
+	Action  string   `json:"action"`
+	Target  string   `json:"target"`
+	OK      bool     `json:"ok"`
+	Warning WarnCode `json:"warning,omitempty"`
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
@@ -239,6 +255,11 @@ type Envelope struct {
 	// tool, over the closed ArtifactKind set. Present whenever the run
 	// produced anything (06-REQ-4).
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+
+	// SideEffects is every write the run made to a forge or a remote, in
+	// the order it happened. Omitted when there were none — which is
+	// always the case under --dry-run (06-REQ-5).
+	SideEffects []SideEffect `json:"side_effects,omitempty"`
 
 	Input *InputInfo `json:"input,omitempty"`
 	Usage *UsageInfo `json:"usage,omitempty"`
@@ -389,6 +410,7 @@ type Run struct {
 
 	mu       sync.Mutex
 	warnings []Warning
+	effects  []SideEffect
 	phases   []PhaseInfo
 	model    *ModelInfo
 	input    *InputInfo
@@ -459,6 +481,36 @@ func (r *Run) Warn(code WarnCode, severity string, format string, args ...any) {
 	})
 }
 
+// RecordSideEffect records one write to a forge or a remote, in the order it
+// happened. It is called at the one place each write actually happens,
+// beside the Run.Warn the same site makes on failure, and passes that
+// warning's code as warn when ok is false. An ok entry never carries a
+// warning, whatever was passed, so the two cannot disagree (06-REQ-5.4).
+func (r *Run) RecordSideEffect(action, target string, ok bool, warn WarnCode) {
+	if r == nil {
+		return
+	}
+	if ok {
+		warn = ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.effects = append(r.effects, SideEffect{Action: action, Target: target, OK: ok, Warning: warn})
+}
+
+// SideEffects returns a copy of the writes recorded so far, in order.
+func (r *Run) SideEffects() []SideEffect {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.effects) == 0 {
+		return nil
+	}
+	return append([]SideEffect(nil), r.effects...)
+}
+
 // AddPhase records one model-facing step's cost.
 func (r *Run) AddPhase(p PhaseInfo) {
 	if r == nil {
@@ -507,6 +559,9 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		Warnings:   append([]Warning(nil), r.warnings...),
 		DurationMS: time.Since(r.started).Milliseconds(),
 		StartedAt:  r.started.UTC().Format(time.RFC3339),
+	}
+	if len(r.effects) > 0 {
+		env.SideEffects = append([]SideEffect(nil), r.effects...)
 	}
 	if len(r.phases) > 0 {
 		u := &UsageInfo{Phases: append([]PhaseInfo(nil), r.phases...)}

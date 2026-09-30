@@ -654,6 +654,100 @@ func TestTS0428_WriteErrorClassification(t *testing.T) {
 	}
 }
 
+// TS-06-26 (unit): a created issue is recorded as create_issue on
+// "<owner>/<repo>"; an update is recorded as update_issue on
+// "<owner>/<repo>#<number>" (06-REQ-5.1, 06-REQ-5.3).
+// TS-06-27 (unit): the actions and targets follow the documented convention.
+func TestTS06_26_27_WriteRecordsCreateAndUpdateSideEffects(t *testing.T) {
+	ctx := context.Background()
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+
+	run := toolio.NewRun("issue", "test")
+	o := Options{Forge: &mockClient{authenticated: true}, Run: run}
+	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got := run.SideEffects()
+	if len(got) != 1 || got[0].Action != "create_issue" || got[0].Target != "acme/widgets" || !got[0].OK || got[0].Warning != "" {
+		t.Fatalf("create: SideEffects = %+v", got)
+	}
+
+	run = toolio.NewRun("issue", "test")
+	ref := issuex.IssueRef{Repo: target, Number: 42}
+	o = Options{Forge: &mockClient{authenticated: true}, Run: run, Overwrite: true, Input: toolio.Input{Issue: &ref}}
+	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got = run.SideEffects()
+	if len(got) != 1 || got[0].Action != "update_issue" || got[0].Target != "acme/widgets#42" || !got[0].OK {
+		t.Fatalf("update: SideEffects = %+v", got)
+	}
+}
+
+// TS-06-28 (unit): a failed forge write is recorded ok:false. The site
+// records no Run.Warn for it (the failure is the run's error), so no warning
+// code is attached — and none is invented.
+func TestTS06_28_FailedIssueWriteIsRecordedNotOK(t *testing.T) {
+	ctx := context.Background()
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	run := toolio.NewRun("issue", "test")
+	o := Options{Forge: &mockClient{createErr: errors.New("500")}, Run: run}
+	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err == nil {
+		t.Fatal("want a failure")
+	}
+	got := run.SideEffects()
+	if len(got) != 1 || got[0].OK || got[0].Action != "create_issue" || got[0].Warning != "" {
+		t.Fatalf("SideEffects = %+v", got)
+	}
+	if len(run.Warnings()) != 0 {
+		t.Errorf("Write recorded warnings %v; the side effect must not pair with a warning that is not there", run.Warnings())
+	}
+}
+
+// TS-06-29 (integration): side effects are recorded live at the real write
+// call site, in the order the writes reached the forge. issuetriage.Write
+// makes exactly one forge mutation, so the order across calls is checked
+// against the forge's own call log for two consecutive writes on one Run.
+func TestTS06_29_SideEffectsRecordedLiveInForgeCallOrder(t *testing.T) {
+	ctx := context.Background()
+	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			calls = append(calls, "create_issue")
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 9, "html_url": "https://github.com/acme/widgets/issues/9"})
+		case http.MethodPatch:
+			calls = append(calls, "update_issue")
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 9, "html_url": "https://github.com/acme/widgets/issues/9"})
+		}
+	}))
+	defer srv.Close()
+	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: srv.URL, Repo: target, Token: "tok", UserAgent: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := toolio.NewRun("issue", "test")
+	if err := Write(ctx, Options{Forge: client, Run: run}, target, &Result{Title: "t", Body: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := issuex.IssueRef{Repo: target, Number: 9}
+	if err := Write(ctx, Options{Forge: client, Run: run, Overwrite: true, Input: toolio.Input{Issue: &ref}},
+		target, &Result{Title: "t", Body: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	got := run.SideEffects()
+	if len(got) != len(calls) || len(got) != 2 {
+		t.Fatalf("side effects %+v, forge calls %v", got, calls)
+	}
+	for i := range got {
+		if got[i].Action != calls[i] {
+			t.Errorf("entry %d = %s, forge saw %s", i, got[i].Action, calls[i])
+		}
+	}
+}
+
 func TestIssueTriageResultSummary(t *testing.T) {
 	r := Result{
 		Action:   "filed",

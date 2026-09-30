@@ -312,6 +312,10 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 			Title: out.Title,
 			Body:  out.Body,
 		})
+		// The write is recorded where it happens. A failure here is the
+		// run's error rather than a Run.Warn, so there is no warning code
+		// to pair with it.
+		o.Run.RecordSideEffect("update_issue", ref.String(), err == nil, "")
 		if err != nil {
 			if issuex.IsNoToken(err) {
 				return fail("write", "auth", err)
@@ -333,6 +337,7 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 		Body:   out.Body,
 		Labels: o.Labels,
 	})
+	o.Run.RecordSideEffect("create_issue", target.String(), err == nil, "")
 	if err != nil {
 		if issuex.IsNoToken(err) {
 			return fail("write", "auth", err)

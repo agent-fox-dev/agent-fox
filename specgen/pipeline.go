@@ -691,7 +691,9 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 		if err != nil {
 			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the PRD could not be posted on %s: %v", o.Input.Issue, err)
+			o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
 		} else {
+			o.Run.RecordSideEffect("comment", o.Input.Issue.String(), true, "")
 			pkg.CommentURL = url
 			o.Progress.Step("posted the PRD to %s", url)
 		}
