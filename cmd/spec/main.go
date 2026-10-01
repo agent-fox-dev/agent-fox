@@ -66,15 +66,53 @@ Exit codes:
 Flags:
 `
 
+// specFlags holds the values of spec's own flags. Both the ordinary Exec and
+// the --preflight PreflightExec read them through specOptions, so the two
+// paths build identical specgen.Options and a check run under --preflight
+// cannot pass against a configuration the real run would not use.
+type specFlags struct {
+	specsDir     string
+	name         string
+	architecture bool
+	noActivate   bool
+	comment      bool
+}
+
+// specOptions builds the specgen.Options for one run from the parsed flags
+// and what App.execute resolved.
+func (f *specFlags) specOptions(d toolio.Deps) specgen.Options {
+	return specgen.Options{
+		Input:          d.Input,
+		Workspace:      d.Workspace,
+		SpecsDir:       f.specsDir,
+		Name:           f.name,
+		Architecture:   f.architecture,
+		Activate:       !f.noActivate,
+		Comment:        f.comment,
+		DryRun:         d.Common.DryRun,
+		TotalBudgetUSD: d.Common.TotalBudgetUSD,
+		Runner:         d.Runner,
+		Forge:          d.Forge,
+		Run:            d.Run,
+		Progress:       d.Progress,
+	}
+}
+
+// failureResponse maps a pipeline error onto the exit code and error object,
+// the same way for the ordinary run and for --preflight. A refusal at the
+// preflight stage has no result, and a nil *Result in the interface is not a
+// nil result: the shell would call SetDetail on it.
+func failureResponse(result *specgen.Result, err error) (int, any, *toolio.ErrorInfo) {
+	info := toolio.ErrorFrom("run", err)
+	if result == nil {
+		return toolio.ExitCodeFor(info.Category), nil, info
+	}
+	return toolio.ExitCodeFor(info.Category), result, info
+}
+
 func newApp() toolio.App {
-	var (
-		specsDir     string
-		name         string
-		architecture bool
-		noActivate   bool
-		comment      bool
-		common       *toolio.Common
-	)
+	f := &specFlags{}
+	var common *toolio.Common
 
 	return toolio.App{
 		Name:             "spec",
@@ -89,11 +127,11 @@ func newApp() toolio.App {
 		},
 		ResultSample: specgen.Result{},
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+specgen.DefaultSpecDirName+" or $"+specgen.SpecDirEnv)
-			fs.StringVar(&name, "name", "", "override the spec name the model chooses; must match [a-z][a-z0-9_]*")
-			fs.BoolVar(&architecture, "architecture", false, "also write the optional architecture.md")
-			fs.BoolVar(&noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
-			fs.BoolVar(&comment, "comment", false, "post the finished PRD back to the issue the input came from")
+			fs.StringVar(&f.specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+specgen.DefaultSpecDirName+" or $"+specgen.SpecDirEnv)
+			fs.StringVar(&f.name, "name", "", "override the spec name the model chooses; must match [a-z][a-z0-9_]*")
+			fs.BoolVar(&f.architecture, "architecture", false, "also write the optional architecture.md")
+			fs.BoolVar(&f.noActivate, "no-activate", false, "leave a valid package in draft instead of activating it")
+			fs.BoolVar(&f.comment, "comment", false, "post the finished PRD back to the issue the input came from")
 		},
 		// Generating an artifact is one long structured answer plus however
 		// many repairs the rules demand. The turn ceiling is the repair
@@ -106,13 +144,13 @@ func newApp() toolio.App {
 
 		PreCheck: func(c *toolio.Common) error {
 			common = c
-			if name != "" && !specgen.ValidSpecName(name) {
-				return toolio.Usagef("--name %q must match [a-z][a-z0-9_]*", name)
+			if f.name != "" && !specgen.ValidSpecName(f.name) {
+				return toolio.Usagef("--name %q must match [a-z][a-z0-9_]*", f.name)
 			}
 			return nil
 		},
 		CheckInput: func(in toolio.Input) error {
-			if comment && !common.DryRun && in.Issue == nil {
+			if f.comment && !common.DryRun && in.Issue == nil {
 				return toolio.Usagef("--comment posts the PRD back to the forge issue it came from (GitHub or GitLab), "+
 					"and %s is %s", in.Origin, in.Kind)
 			}
@@ -120,24 +158,19 @@ func newApp() toolio.App {
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			result, err := specgen.Run(ctx, specgen.Options{
-				Input:          d.Input,
-				Workspace:      d.Workspace,
-				SpecsDir:       specsDir,
-				Name:           name,
-				Architecture:   architecture,
-				Activate:       !noActivate,
-				Comment:        comment,
-				DryRun:         d.Common.DryRun,
-				TotalBudgetUSD: d.Common.TotalBudgetUSD,
-				Runner:         d.Runner,
-				Forge:          d.Forge,
-				Run:            d.Run,
-				Progress:       d.Progress,
-			})
+			result, err := specgen.Run(ctx, f.specOptions(d))
 			if err != nil {
-				info := toolio.ErrorFrom("run", err)
-				return toolio.ExitCodeFor(info.Category), result, info
+				return failureResponse(result, err)
+			}
+			return toolio.ExitOK, result, nil
+		},
+
+		// --preflight: every check the ordinary run makes before its first
+		// model call, against the identical options, then stop.
+		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			result, err := specgen.RunPreflight(ctx, f.specOptions(d))
+			if err != nil {
+				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
 		},

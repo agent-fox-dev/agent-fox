@@ -150,21 +150,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if git == nil {
 		git = gitx.New(root, nil)
 	}
-	if o.Land == "" {
-		o.Land = LandPR
-	}
-	if o.PushAttempts <= 0 {
-		o.PushAttempts = 4
-	}
-	if o.VerifyTimeout <= 0 {
-		o.VerifyTimeout = checks.DefaultTimeout
-	}
+	o.applyDefaults()
 
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
-	if o.Input.Issue != nil {
-		result.IssueURL = o.Input.Issue.URL()
-		result.IssueNumber = o.Input.Issue.Number
-	}
+	result := newResult(o)
 
 	target, base, pfErr := preflight(ctx, o, git, result)
 	if pfErr != nil {
@@ -173,21 +161,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Repo = target.String()
 	result.BaseBranch = base
 
-	command := o.VerifyCommand
-	if o.NoVerify {
-		command = ""
-	} else if command == "" {
-		command = checks.Detect(root)
-		if command == "" {
-			o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "no verification command could be detected for %s: the change will be "+
-				"reported as unverified", root)
-		} else {
-			o.Progress.Detail("verification command: %s", command)
-		}
-	}
-
-	baseline := runChecks(ctx, o, root, command, "baseline")
-	result.Baseline = baseline
+	command := resolveVerifyAndBaseline(ctx, o, root, result)
+	baseline := result.Baseline
 
 	// The acceptance criteria are read out of the report before the model
 	// sees it, so that what the change is measured against is fixed by the
@@ -359,6 +334,56 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	return result, nil
 }
 
+// applyDefaults fills the options a caller may leave zero. Run and
+// RunPreflight both apply it, so the two see the same Land mode — which
+// decides whether a credential and a remote are checked — and the same
+// verification timeout.
+func (o *Options) applyDefaults() {
+	if o.Land == "" {
+		o.Land = LandPR
+	}
+	if o.PushAttempts <= 0 {
+		o.PushAttempts = 4
+	}
+	if o.VerifyTimeout <= 0 {
+		o.VerifyTimeout = checks.DefaultTimeout
+	}
+}
+
+// newResult is the result both Run and RunPreflight start from, so a run that
+// refuses at its preflight stage reports the same fields either way.
+func newResult(o Options) *Result {
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
+	if o.Input.Issue != nil {
+		result.IssueURL = o.Input.Issue.URL()
+		result.IssueNumber = o.Input.Issue.Number
+	}
+	return result
+}
+
+// resolveVerifyAndBaseline settles the command that decides success — the
+// operator's, else the detected one, else none under --no-verify — and runs
+// it once as the baseline, recording the outcome in result.Baseline. It is
+// the one block Run and RunPreflight share after Preflight, so --no-verify
+// skips the baseline identically for both.
+func resolveVerifyAndBaseline(ctx context.Context, o Options, root string, result *Result) string {
+	command := o.VerifyCommand
+	if o.NoVerify {
+		command = ""
+	} else if command == "" {
+		command = checks.Detect(root)
+		if command == "" {
+			o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "no verification command could be detected for %s: the change will be "+
+				"reported as unverified", root)
+		} else {
+			o.Progress.Detail("verification command: %s", command)
+		}
+	}
+
+	result.Baseline = runChecks(ctx, o, root, command, "baseline")
+	return command
+}
+
 // Preflight runs every check that can refuse the run.
 //
 // It happens before the model is called and before anything is posted, which
@@ -437,6 +462,99 @@ func Preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (i
 
 func preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (issuex.Repo, string, *Failure) {
 	return Preflight(ctx, o, git, result)
+}
+
+// RunPreflight is fix --preflight: every check Run performs before its first
+// model call, reported and then stopped at. It calls the same Preflight and
+// the same verify-and-baseline block Run calls, never a copy of either, so a
+// run that would refuse refuses here with the identical stage, category and
+// message, and the run is never started: no branch, no commit, no forge write
+// and no model phase. The one thing it runs is the baseline verification
+// command, which Run runs at the same point.
+//
+// A refusal returns the failure with a result carrying none of the checklist:
+// a partial list of what passed before the refusal would be a second answer
+// to "would this run start".
+func RunPreflight(ctx context.Context, o Options) (*Result, error) {
+	if o.Workspace == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
+	}
+	if o.Runner == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
+	}
+	root := o.Workspace.Root
+	git := o.Git
+	if git == nil {
+		git = gitx.New(root, nil)
+	}
+	o.applyDefaults()
+
+	result := newResult(o)
+	target, base, pfErr := preflight(ctx, o, git, result)
+	if pfErr != nil {
+		return result, pfErr
+	}
+	result.Repo = target.String()
+	result.BaseBranch = base
+
+	command := resolveVerifyAndBaseline(ctx, o, root, result)
+
+	var list []toolio.PreflightCheck
+	add := func(check string, ok bool, detail string) {
+		list = append(list, toolio.PreflightCheck{Check: check, OK: ok, Detail: detail})
+	}
+	add("git_repository", true, "")
+	add("clean_tree", true, "")
+	add("base_branch", true, base)
+	if o.Pull || o.PullBranch != "" {
+		add("pull", true, "checked out and pulled "+base)
+	}
+	// The conditions below are the ones Preflight refuses on, so reaching
+	// this line means each of them held.
+	if !o.DryRun && (o.Input.Issue != nil || o.Land == LandPR) {
+		add("forge_credential", true, "")
+	}
+	if o.Land == LandPR && !o.DryRun {
+		add("land_target", true, target.String())
+	}
+	if o.Land.Pushes() && !o.DryRun {
+		add("remote_configured", true, "origin")
+	}
+	switch {
+	case command != "":
+		add("verify_command", true, command)
+	case o.NoVerify:
+		add("verify_command", false, "none: --no-verify was given")
+	default:
+		add("verify_command", false, "none detected")
+	}
+	if !o.NoVerify {
+		b := result.Baseline
+		switch {
+		case !b.Ran():
+			add("verify_baseline", false, "not run: no verification command")
+		case b.OK:
+			add("verify_baseline", true, "passed")
+		default:
+			add("verify_baseline", false, fmt.Sprintf("failed (exit %d)", b.ExitCode))
+		}
+	}
+	result.Preflight = list
+
+	maxTurns, maxBudget := o.Runner.ResolvedBounds()
+	const phases = 2 // analyse and implement, fixed
+	result.Estimate = &toolio.Estimate{
+		Phases:               phases,
+		MaxTurnsPerPhase:     maxTurns,
+		MaxBudgetPerPhaseUSD: maxBudget,
+		MaxTotalUSD:          phases * maxBudget,
+	}
+
+	// --preflight already means "make no remote change", so --dry-run adds
+	// nothing to it and must not change the envelope (11-REQ-1.4). Refusals
+	// above keep the real DryRun: they are the ordinary run's own result.
+	result.DryRun = false
+	return result, nil
 }
 
 // stopOnAmbiguity ends the run with a question rather than a change.

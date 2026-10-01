@@ -1,5 +1,7 @@
 package issuetriage
 
+import "github.com/agent-fox-dev/agentfox/internal/toolio"
+
 // summaryResult is the trimmed view of Result kept under --detail summary
 // (06-REQ-3.1): action, repo, url, number, title, severity, confidence,
 // affected_files reduced to bare paths, labels, and rejected_path_calls.
@@ -18,7 +20,13 @@ type summaryResult struct {
 	AffectedFiles     []string `json:"affected_files" trust:"fact"`
 	Labels            []string `json:"labels,omitempty" trust:"fact"`
 	RejectedPathCalls int      `json:"rejected_path_calls"`
-	Detail            string   `json:"detail" trust:"fact"`
+	// Stage, Preflight and Estimate are the whole point of a --preflight
+	// run, so the default view keeps them. They are absent on every
+	// ordinary run.
+	Stage     string                  `json:"stage,omitempty" trust:"fact"`
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty"`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty"`
+	Detail    string                  `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable.
@@ -38,6 +46,9 @@ func (r *Result) SummaryView() any {
 		AffectedFiles:     paths,
 		Labels:            r.Labels,
 		RejectedPathCalls: r.RejectedPathCalls,
+		Stage:             r.Stage,
+		Preflight:         r.Preflight,
+		Estimate:          r.Estimate,
 		Detail:            "summary",
 	}
 }

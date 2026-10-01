@@ -81,8 +81,18 @@ type Result struct {
 	RejectedPathCalls int      `json:"rejected_path_calls" description:"How many file_issue calls were refused for citing a path that is not in the workspace."`
 	RejectedPaths     []string `json:"rejected_paths,omitempty" trust:"model" description:"The paths those calls cited."`
 
+	// Stage is "preflight" on a --preflight run, which stops before the
+	// model phase; it is absent on an ordinary run.
+	Stage string `json:"stage,omitempty" trust:"fact" description:"preflight on a --preflight run, which stops before the model phase; absent on an ordinary run."`
+
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty" description:"True when no remote change was made."`
+
+	// Preflight and Estimate are set only by a --preflight run whose checks
+	// all passed (RunPreflight): the checks that were performed, and what the
+	// real run would spend at most.
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty" description:"Every check a --preflight run performed and its outcome. Present only under --preflight, when every refusing check passed."`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty" description:"What the real run would spend at most: phases, per-phase ceilings and total. Present only under --preflight, when every refusing check passed."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both.
@@ -94,6 +104,11 @@ func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in issue's vocabulary.
 func (r Result) Summary() string {
+	// An ordinary run never sets a stage, so "preflight" here is a
+	// --preflight run, and only a run whose checks passed has a checklist.
+	if r.Stage == "preflight" && len(r.Preflight) > 0 {
+		return fmt.Sprintf("issue: preflight passed (%d checks)", len(r.Preflight))
+	}
 	action := r.Action
 	if action == "" {
 		action = "triaged"
@@ -124,6 +139,7 @@ func (r Result) Summary() string {
 // Resumable implements toolio.Resumabler. For issuetriage, this is always false
 // because issue has no notion of continuing a prior run.
 func (r Result) Resumable() bool {
+	// A preflight result is no exception: there is nothing to continue.
 	return false
 }
 
@@ -166,12 +182,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, failf("preflight", "internal", "no runner configured")
 	}
 
-	target, err := ResolveTarget(o)
-	if err != nil {
-		return nil, err
-	}
-	if err := CheckWriteCredential(o, target); err != nil {
-		return nil, err
+	target, f := Preflight(o)
+	if f != nil {
+		return nil, f
 	}
 
 	t := &triager{ws: o.Workspace}
@@ -243,6 +256,56 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+// Preflight is every check Run performs before its model phase, in the order
+// Run performs them: the target repository, then the forge credential.
+func Preflight(o Options) (issuex.Repo, *Failure) {
+	target, err := ResolveTarget(o)
+	if err != nil {
+		return issuex.Repo{}, err
+	}
+	if err := CheckWriteCredential(o, target); err != nil {
+		return issuex.Repo{}, err
+	}
+	return target, nil
+}
+
+// RunPreflight is issue --preflight: every check Run performs before its model
+// phase, reported and then stopped at. It calls the one Preflight Run calls,
+// never a copy of it, so a run that would refuse refuses here with the
+// identical stage, category and message. A refusal returns no result: a
+// partial checklist of what passed before it would be a second answer to
+// "would this run start".
+//
+// Nothing is written to the forge and no phase is run.
+func RunPreflight(o Options) (*Result, error) {
+	if o.Workspace == nil {
+		return nil, failf("preflight", "internal", "no workspace configured")
+	}
+	if o.Runner == nil {
+		return nil, failf("preflight", "internal", "no runner configured")
+	}
+	target, f := Preflight(o)
+	if f != nil {
+		return nil, f
+	}
+
+	// Preflight returned no failure, so each condition it refuses on held.
+	detail := target.String()
+	if !target.Valid() {
+		detail = "none (dry run)"
+	}
+	list := []toolio.PreflightCheck{{Check: "target_repository", OK: true, Detail: detail}}
+	if !o.DryRun {
+		list = append(list, toolio.PreflightCheck{Check: "forge_credential", OK: true})
+	}
+
+	est := &toolio.Estimate{Phases: 1}
+	est.MaxTurnsPerPhase, est.MaxBudgetPerPhaseUSD = o.Runner.ResolvedBounds()
+	est.MaxTotalUSD = float64(est.Phases) * est.MaxBudgetPerPhaseUSD
+
+	return &Result{Stage: "preflight", DryRun: o.DryRun, Preflight: list, Estimate: est}, nil
 }
 
 // ResolveTarget decides which repository the issue belongs to.

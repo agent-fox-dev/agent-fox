@@ -126,6 +126,12 @@ type App struct {
 	// Exec is the tool. It returns the exit code, the result to put in the
 	// envelope, and the error object when there is one.
 	Exec func(context.Context, Deps) (int, any, *ErrorInfo)
+	// PreflightExec runs every check that would refuse the run and reports
+	// the outcome, without calling the model or making any change beyond a
+	// verification baseline. Required when the tool registers --preflight
+	// support; a tool that leaves it nil and is asked for --preflight reports
+	// an internal error rather than silently running Exec instead.
+	PreflightExec func(context.Context, Deps) (int, any, *ErrorInfo)
 }
 
 // Main parses, resolves and runs. It returns the process exit code.
@@ -577,7 +583,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 	}
 
-	return a.Exec(ctx, Deps{
+	deps := Deps{
 		Common:    e.common,
 		Input:     in,
 		Workspace: ws,
@@ -587,7 +593,20 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Progress:  e.progress,
 		Model:     choice,
 		runner:    cfg,
-	})
+	}
+	// The one branch --preflight adds: every check above has run exactly as
+	// for an ordinary run, and the Runner is built (building one makes no
+	// network call), so only what runs next differs.
+	if e.common.Preflight {
+		if a.PreflightExec == nil {
+			err := fmt.Errorf("%s does not support --preflight: no PreflightExec is configured", a.Name)
+			return ExitFailed, nil, &ErrorInfo{
+				Stage: "preflight", Category: agentrun.CategoryInternal, Message: err.Error(), err: err,
+			}
+		}
+		return a.PreflightExec(ctx, deps)
+	}
+	return a.Exec(ctx, deps)
 }
 
 // usage reports a UsageError as the envelope's error object, without

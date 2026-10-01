@@ -443,6 +443,11 @@ type Result struct {
 	CostUSD float64 `json:"cost_usd" description:"The run spend across every phase in US dollars."`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty" description:"True when no remote change was made."`
+	// Preflight and Estimate are set only by a --preflight run whose checks
+	// all passed (RunPreflight): the checks that were performed, and what the
+	// real run would spend at most. An ordinary run leaves both empty.
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty" description:"Every check a --preflight run performed and its outcome. Present only under --preflight, when every refusing check passed."`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty" description:"What the real run would spend at most: phases, per-phase ceilings and total. Present only under --preflight, when every refusing check passed."`
 	// Land records the land mode this run was asked for (pr, branch or
 	// none), so a --dry-run run that reached --land=pr can report the pull
 	// request it would have opened as hypothetical (06-REQ-4.3) even though
@@ -459,6 +464,9 @@ func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in impl's vocabulary.
 func (r Result) Summary() string {
+	if r.preflightPassed() {
+		return fmt.Sprintf("impl: preflight passed; %d of %d tasks remain", r.TasksRemaining, r.TasksTotal)
+	}
 	var parts []string
 	taskPart := fmt.Sprintf("impl: %d/%d tasks done", r.TasksDone, r.TasksTotal)
 	if r.Branch != "" {
@@ -498,9 +506,29 @@ func (r Result) NeedsHuman() (question string, options []toolio.Option, needed s
 	return r.Blocker.Reason, nil, r.Blocker.Needed, true
 }
 
+// preflightPassed reports whether r is the result of a --preflight run whose
+// checks all passed. Stage is "preflight" for an ordinary run that refused in
+// its own preflight too, so the stage alone cannot say: a --preflight run
+// that passed carries its checklist, and a refusal never does. A result with
+// tasks remaining and no baseline run is also a pass — the only refusal after
+// the tasks are selected is a baseline that could not run, which leaves its
+// checks in Baseline, and every refusal before it leaves TasksRemaining at
+// zero.
+func (r Result) preflightPassed() bool {
+	if r.Stage != "preflight" {
+		return false
+	}
+	return len(r.Preflight) > 0 || (r.TasksRemaining > 0 && len(r.Baseline.Checks) == 0)
+}
+
 // Resumable implements toolio.Resumabler. For codeimpl, this is true whenever
-// Branch is non-empty.
+// Branch is non-empty — except at the preflight stage, where Branch is the name
+// the branch would have, not something to resume. That also covers an ordinary
+// run that refused at its preflight stage: nothing was written.
 func (r Result) Resumable() bool {
+	if r.Stage == "preflight" {
+		return false
+	}
 	return r.Branch != ""
 }
 

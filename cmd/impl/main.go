@@ -85,27 +85,92 @@ Exit codes:
 Flags:
 `
 
+// implFlags holds the values of impl's own flags. Both the ordinary Exec and
+// the --preflight PreflightExec read them through implOptions, so the two
+// paths build identical codeimpl.Options and a check run under --preflight
+// cannot pass against a configuration the real run would not use.
+type implFlags struct {
+	specsDir      string
+	task          int
+	branch        string
+	repo          string
+	land          string
+	verify        string
+	noVerify      bool
+	verifyTimeout time.Duration
+	pushAttempts  int
+	allow         string
+	draft         bool
+	pull          bool
+	noSurvey      bool
+	noTestFirst   bool
+	attempts      int
+	repair        bool
+	repairTries   int
+	repairModel   string
+}
+
+// implOptions builds the codeimpl.Options for one run from the parsed flags,
+// what App.execute resolved and the repair runner (nil without --repair-model).
+func (f *implFlags) implOptions(d toolio.Deps, repairRunner *agentrun.Runner) codeimpl.Options {
+	mode, _ := codeimpl.ParseLandMode(f.land)
+	target, _ := issuex.ParseRepo(f.repo)
+
+	return codeimpl.Options{
+		Input:          d.Input,
+		Workspace:      d.Workspace,
+		SpecsDir:       f.specsDir,
+		Task:           f.task,
+		Branch:         f.branch,
+		Repo:           target,
+		Land:           mode,
+		DryRun:         d.Common.DryRun,
+		VerifyCommand:  f.verify,
+		NoVerify:       f.noVerify,
+		VerifyTimeout:  f.verifyTimeout,
+		PushAttempts:   f.pushAttempts,
+		AllowPrograms:  splitList(f.allow),
+		Draft:          f.draft,
+		Pull:           f.pull,
+		NoSurvey:       f.noSurvey,
+		NoTestFirst:    f.noTestFirst,
+		TaskAttempts:   f.attempts,
+		TotalBudgetUSD: d.Common.TotalBudgetUSD,
+		Repair:         f.repair,
+		RepairAttempts: f.repairTries,
+		RepairRunner:   repairRunner,
+		Runner:         d.Runner,
+		Forge:          d.Forge,
+		CheckRunner:    gitx.ReducedEnvRunner,
+		Run:            d.Run,
+		Progress:       d.Progress,
+	}
+}
+
+// resolveRepairRunner resolves --repair-model — and checks its credential —
+// before anything runs, the way the run's own model is. Both Exec and
+// PreflightExec call it. An empty model resolves to nothing: the repair phase
+// then runs on the run's own runner.
+func resolveRepairRunner(d toolio.Deps, repairModel string) (*agentrun.Runner, *toolio.ModelChoice, error) {
+	if repairModel == "" {
+		return nil, nil, nil
+	}
+	r, choice, err := d.RunnerFor(repairModel)
+	if err != nil {
+		return nil, nil, err
+	}
+	d.Progress.Detail("repair model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+	return r, choice, nil
+}
+
+// repairModelFailure is the envelope error for a repair model that could not
+// be resolved or whose credential is missing.
+func repairModelFailure(err error) *toolio.ErrorInfo {
+	return &toolio.ErrorInfo{Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error()}
+}
+
 func newApp() toolio.App {
-	var (
-		specsDir      string
-		task          int
-		branch        string
-		repo          string
-		land          string
-		verify        string
-		noVerify      bool
-		verifyTimeout time.Duration
-		pushAttempts  int
-		allow         string
-		draft         bool
-		pull          bool
-		noSurvey      bool
-		noTestFirst   bool
-		attempts      int
-		repair        bool
-		repairTries   int
-		repairModel   string
-	)
+	f := &implFlags{}
 
 	return toolio.App{
 		Name:             "impl",
@@ -122,25 +187,25 @@ func newApp() toolio.App {
 		},
 		ResultSample: codeimpl.Result{},
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+codeimpl.DefaultSpecDirName+" or $"+codeimpl.SpecDirEnv)
-			fs.IntVar(&task, "task", 0, "implement only this task id; default every task that is not done")
-			fs.StringVar(&branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
-			fs.StringVar(&land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
+			fs.StringVar(&f.specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+codeimpl.DefaultSpecDirName+" or $"+codeimpl.SpecDirEnv)
+			fs.IntVar(&f.task, "task", 0, "implement only this task id; default every task that is not done")
+			fs.StringVar(&f.branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
+			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
+			fs.StringVar(&f.land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
 			toolio.DeclareEnum(fs, "land", codeimpl.LandModes)
-			fs.StringVar(&verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
-			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
-			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one check command")
-			fs.IntVar(&pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
-			fs.StringVar(&allow, "allow", "", "comma-separated extra programs the implementation phases' shell may run")
-			fs.BoolVar(&draft, "draft", false, "open the pull request as a draft")
-			fs.BoolVar(&pull, "pull", false, "checkout and pull the base branch from origin before anything else")
-			fs.BoolVar(&noSurvey, "no-survey", false, "skip the read-only survey phase")
-			fs.BoolVar(&noTestFirst, "no-test-first", false, "do not require red-first evidence (red_evidence or test_first_deviation) when a task is submitted")
-			fs.IntVar(&attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
-			fs.BoolVar(&repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
-			fs.IntVar(&repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
-			fs.StringVar(&repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
+			fs.StringVar(&f.verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
+			fs.BoolVar(&f.noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
+			fs.DurationVar(&f.verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one check command")
+			fs.IntVar(&f.pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
+			fs.StringVar(&f.allow, "allow", "", "comma-separated extra programs the implementation phases' shell may run")
+			fs.BoolVar(&f.draft, "draft", false, "open the pull request as a draft")
+			fs.BoolVar(&f.pull, "pull", false, "checkout and pull the base branch from origin before anything else")
+			fs.BoolVar(&f.noSurvey, "no-survey", false, "skip the read-only survey phase")
+			fs.BoolVar(&f.noTestFirst, "no-test-first", false, "do not require red-first evidence (red_evidence or test_first_deviation) when a task is submitted")
+			fs.IntVar(&f.attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
+			fs.BoolVar(&f.repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
+			fs.IntVar(&f.repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
+			fs.StringVar(&f.repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
 		},
 		// A task is roughly a fix's worth of work, and there are several of
 		// them: the per-phase ceilings are fix's, and --total-budget caps the
@@ -148,30 +213,30 @@ func newApp() toolio.App {
 		DefaultBounds: agentrun.Bounds{MaxTurns: 150, MaxBudgetUSD: 5.00},
 
 		PreCheck: func(*toolio.Common) error {
-			if _, ok := codeimpl.ParseLandMode(land); !ok {
-				return toolio.Usagef("--land %q is not one of %s", land, strings.Join(codeimpl.LandModes, ", "))
+			if _, ok := codeimpl.ParseLandMode(f.land); !ok {
+				return toolio.Usagef("--land %q is not one of %s", f.land, strings.Join(codeimpl.LandModes, ", "))
 			}
-			if repo != "" {
-				if _, ok := issuex.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
+			if f.repo != "" {
+				if _, ok := issuex.ParseRepo(f.repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", f.repo)
 				}
 			}
-			if noVerify && verify != "" {
+			if f.noVerify && f.verify != "" {
 				return toolio.Usagef("--no-verify and --verify cannot both be given")
 			}
-			if task < 0 {
-				return toolio.Usagef("--task %d is not a task id", task)
+			if f.task < 0 {
+				return toolio.Usagef("--task %d is not a task id", f.task)
 			}
-			if attempts < 1 {
+			if f.attempts < 1 {
 				return toolio.Usagef("--task-attempts must be at least 1")
 			}
-			if repairModel != "" {
-				repair = true
+			if f.repairModel != "" {
+				f.repair = true
 			}
-			if repair && noVerify {
+			if f.repair && f.noVerify {
 				return toolio.Usagef("--repair and --no-verify cannot both be given: nothing runs, so nothing can be repaired")
 			}
-			if repairTries < 1 {
+			if f.repairTries < 1 {
 				return toolio.Usagef("--repair-attempts must be at least 1")
 			}
 			return nil
@@ -184,52 +249,29 @@ func newApp() toolio.App {
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			mode, _ := codeimpl.ParseLandMode(land)
-			target, _ := issuex.ParseRepo(repo)
-
-			// The repair model is resolved — and its credential checked —
-			// before anything runs, the way the run's own model is.
-			var repairRunner *agentrun.Runner
-			if repairModel != "" {
-				r, choice, err := d.RunnerFor(repairModel)
-				if err != nil {
-					return toolio.ExitFailed, nil, &toolio.ErrorInfo{
-						Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(),
-					}
-				}
-				repairRunner = r
-				d.Progress.Detail("repair model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+			repairRunner, _, err := resolveRepairRunner(d, f.repairModel)
+			if err != nil {
+				return toolio.ExitFailed, nil, repairModelFailure(err)
 			}
 
-			result, err := codeimpl.Run(ctx, codeimpl.Options{
-				Input:          d.Input,
-				Workspace:      d.Workspace,
-				SpecsDir:       specsDir,
-				Task:           task,
-				Branch:         branch,
-				Repo:           target,
-				Land:           mode,
-				DryRun:         d.Common.DryRun,
-				VerifyCommand:  verify,
-				NoVerify:       noVerify,
-				VerifyTimeout:  verifyTimeout,
-				PushAttempts:   pushAttempts,
-				AllowPrograms:  splitList(allow),
-				Draft:          draft,
-				Pull:           pull,
-				NoSurvey:       noSurvey,
-				NoTestFirst:    noTestFirst,
-				TaskAttempts:   attempts,
-				TotalBudgetUSD: d.Common.TotalBudgetUSD,
-				Repair:         repair,
-				RepairAttempts: repairTries,
-				RepairRunner:   repairRunner,
-				Runner:         d.Runner,
-				Forge:          d.Forge,
-				CheckRunner:    gitx.ReducedEnvRunner,
-				Run:            d.Run,
-				Progress:       d.Progress,
-			})
+			result, err := codeimpl.Run(ctx, f.implOptions(d, repairRunner))
+			if err != nil {
+				info := toolio.ErrorFrom("run", err)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+
+		// --preflight: every check the ordinary run makes before its first
+		// model call, against the identical options and the identically
+		// resolved repair model, then stop.
+		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			repairRunner, _, err := resolveRepairRunner(d, f.repairModel)
+			if err != nil {
+				return toolio.ExitFailed, nil, repairModelFailure(err)
+			}
+
+			result, err := codeimpl.RunPreflight(ctx, f.implOptions(d, repairRunner))
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
 				return toolio.ExitCodeFor(info.Category), result, info

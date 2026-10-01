@@ -83,6 +83,9 @@ type Common struct {
 	// written. Empty means no copy. It is resolved against the process's
 	// working directory, never --dir; see ResolveOutput.
 	Output string
+	// Preflight runs every check that would refuse the run, then stops
+	// before any model phase: see App.PreflightExec.
+	Preflight bool
 }
 
 // DryRunUsage is the one definition of --dry-run, shared by every tool.
@@ -150,6 +153,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	DeclareEnum(fs, "events", []string{EventsText, EventsJSONL})
 	fs.StringVar(&c.EventsFile, "events-file", "", "also write the JSONL event stream to this file (truncated), whatever --events says about stderr")
 	fs.StringVar(&c.Output, "output", "", "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory")
+	fs.BoolVar(&c.Preflight, "preflight", false, "run every check that would refuse the run, then stop; makes no change beyond a verification baseline")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
 }
 

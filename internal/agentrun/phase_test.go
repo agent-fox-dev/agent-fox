@@ -84,6 +84,35 @@ func newWorkspace(t *testing.T) *tools.Workspace {
 	return ws
 }
 
+// TS-11-15 (unit): ResolvedBounds reports the configured per-phase ceilings
+// without starting a phase.
+func TestTS11_15_ResolvedBoundsReportsCeilings(t *testing.T) {
+	p := faux.New()
+	cfg := fauxConfig(p, newWorkspace(t))
+	cfg.Bounds = Bounds{MaxTurns: 12, MaxBudgetUSD: 3.5}
+	obs := &recObserver{}
+	cfg.Observer = obs
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, budget := r.ResolvedBounds()
+	if turns != 12 || budget != 3.5 {
+		t.Errorf("ResolvedBounds = (%d, %v), want (12, 3.5)", turns, budget)
+	}
+	if len(obs.starts) != 0 {
+		t.Errorf("a phase was started: %v", obs.starts)
+	}
+
+	// A zero Bounds takes the same defaults Run applies.
+	cfg.Bounds = Bounds{}
+	r, _ = NewRunner(cfg)
+	turns, budget = r.ResolvedBounds()
+	if turns != (Bounds{}).maxTurns() || budget != (Bounds{}).maxBudget() || turns == 0 || budget == 0 {
+		t.Errorf("default ResolvedBounds = (%d, %v)", turns, budget)
+	}
+}
+
 func TestRunReachesTheTerminator(t *testing.T) {
 	var got string
 	var calls int

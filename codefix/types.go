@@ -227,6 +227,11 @@ type Result struct {
 	Ambiguity *Ambiguity `json:"ambiguity,omitempty" description:"Set when the run stopped to ask a question."`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty" description:"True when no remote change was made."`
+	// Preflight and Estimate are set only by a --preflight run whose checks
+	// all passed. A refusing check produces the ordinary failing envelope
+	// instead, with neither field.
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty" description:"Each check a --preflight run performed and its outcome. Absent on an ordinary run and on a refused one."`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty" description:"What the real run would spend at most, from the plan already decided. Present only on a --preflight run that passed."`
 	// Land records the land mode this run was asked for (pr, branch or
 	// none), so a --dry-run run that reached --land=pr can report the pull
 	// request it would have opened as hypothetical (06-REQ-4.3) even though
@@ -243,6 +248,11 @@ func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in fix's vocabulary.
 func (r Result) Summary() string {
+	// Only a passing --preflight run populates Preflight, so an ordinary run
+	// that refused at its own preflight stage (empty checklist) falls through.
+	if r.Stage == "preflight" && len(r.Preflight) > 0 {
+		return fmt.Sprintf("fix: preflight passed (%d checks)", len(r.Preflight))
+	}
 	if r.Ambiguity != nil {
 		return "fix: stopped on ambiguity; asked a question"
 	}
@@ -294,7 +304,8 @@ func (r Result) NeedsHuman() (question string, options []toolio.Option, needed s
 }
 
 // Resumable implements toolio.Resumabler. For codefix, this is always false
-// because branch names are non-deterministic.
+// because branch names are non-deterministic, and a preflight stage creates
+// no branch at all.
 func (r Result) Resumable() bool {
 	return false
 }
