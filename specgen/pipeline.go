@@ -579,7 +579,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				bf.TotalBudget = o.TotalBudgetUSD
 				return result, scoped(label, bf)
 			}
-			prd, err = env.writePRD(ctx, &splitContext{Plan: plan, Index: i})
+			prd, err = env.writePRD(ctx, &splitContext{Plan: plan, Index: i, SpecsDir: specsDir, SpecRoot: relativeTo(root, specsDir)})
 			if err != nil {
 				result.setSplit(splitReport(root, specsDir, plan, i))
 				return result, scoped(label, err)
@@ -667,6 +667,7 @@ func (e *runEnv) writePRD(ctx context.Context, split *splitContext) (PRD, error)
 		Input:        o.Input.Body,
 		Profile:      e.profile,
 		Landscape:    e.landscape,
+		SpecRoot:     relativeTo(e.root, e.specsDir),
 		Split:        split,
 	})
 	scope := prd.SpecName
@@ -745,6 +746,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 			PRD:       spec.PRDBody,
 			Profile:   e.profile,
 			Landscape: e.landscape,
+			SpecRoot:  relativeTo(e.root, e.specsDir),
 			Partial:   &partial,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)

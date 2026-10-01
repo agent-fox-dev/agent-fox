@@ -133,17 +133,28 @@ func priorArtifactsBlock(partial afspec.PartialSpec, step afspec.GenerationStep)
 //
 // Without it a spec is written as though the repository had none, which is
 // how two specs end up owning the same behaviour under different names. It is
-// metadata only — a name and a status — because the full text of every spec is
-// more than a prompt can carry and more than this decision needs.
-func landscapeBlock(metas []afspec.SpecMeta) string {
+// metadata only — a name, a status and where it lives — because the full text
+// of every spec is more than a prompt can carry and more than this decision
+// needs. Naming the directory spares a phase the `list_files` and `find_files`
+// guesses it would otherwise make to find them. specRoot is where the specs
+// live, relative to the repository root.
+func landscapeBlock(metas []afspec.SpecMeta, specRoot string) string {
 	if len(metas) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n## Existing specs in this repository\n\n")
-	b.WriteString("| Spec | Status |\n|---|---|\n")
+	if specRoot != "" {
+		fmt.Fprintf(&b, "They live under `%s/`, relative to the repository root.\n\n", specRoot)
+	}
+	b.WriteString("| Spec | Status | Directory |\n|---|---|---|\n")
 	for _, m := range metas {
-		fmt.Fprintf(&b, "| `%s_%s` | %s |\n", m.SpecID, m.SpecName, m.Status)
+		name := m.SpecID + "_" + m.SpecName
+		dir := name
+		if specRoot != "" {
+			dir = specRoot + "/" + name
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | `%s/` |\n", name, m.Status, dir)
 	}
 	b.WriteString("\nDo not restate what an existing spec already covers. If this work depends on " +
 		"one, name it in the PRD's `## Dependencies` section with a reason, and the tasks " +

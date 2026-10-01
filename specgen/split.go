@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -233,6 +234,11 @@ func checkPlanSlot(p *SplitPlan, specsDir string) error {
 type splitContext struct {
 	Plan  *SplitPlan
 	Index int
+	// SpecsDir is the spec root on disk and SpecRoot the same directory
+	// relative to the repository root, for naming it in the prompt. Both may
+	// be empty, which leaves the earlier scopes' content out of the block.
+	SpecsDir string
+	SpecRoot string
 }
 
 // Scope is the scope being written.
@@ -266,6 +272,11 @@ func splitBlock(c *splitContext) string {
 		}
 		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", i+1, label, oneLine(s.Scope), state)
 	}
+	if c.SpecRoot != "" {
+		fmt.Fprintf(&b, "\nThe written packages are directories under `%s/`, relative to the repository root.\n",
+			c.SpecRoot)
+	}
+	b.WriteString(earlierScopesBlock(c))
 	fmt.Fprintf(&b, "\nWrite the PRD for scope %d only: **%s** — %s\n\n", c.Index+1, sc.Name, oneLine(sc.Scope))
 	fmt.Fprintf(&b, "- Its `spec_name` is `%s`. Submit exactly that name.\n", sc.Name)
 	b.WriteString("- Cover nothing an earlier spec of this split already covers, and nothing a " +
@@ -276,6 +287,58 @@ func splitBlock(c *splitContext) string {
 	b.WriteString("- The split has been decided. Do not report a `recommended_split`; if this scope " +
 		"still feels large, keep it to its foundations and say so in `## Non-goals`.\n")
 	return b.String()
+}
+
+// earlierBytes bounds what one earlier scope contributes to the block: its
+// intent, goals and non-goals are what the next PRD builds on, and the rest of
+// a PRD is more than it needs.
+const earlierBytes = 2500
+
+// earlierScopesBlock inlines the Intent, Goals and Non-goals of the scopes
+// already written to disk, so a later scope neither re-reads those PRDs nor
+// restates them.
+func earlierScopesBlock(c *splitContext) string {
+	if c.SpecsDir == "" {
+		return ""
+	}
+	var b strings.Builder
+	for i, s := range c.Plan.Scopes {
+		if i >= c.Index || !s.Written() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(c.SpecsDir, s.Dir, "prd.md"))
+		if err != nil {
+			continue
+		}
+		text := prdSections(string(raw), "Intent", "Goals", "Non-goals")
+		if text == "" {
+			continue
+		}
+		if len(text) > earlierBytes {
+			text = text[:earlierBytes] + "\n[…cut; the full PRD is in " + s.Dir + "/prd.md]"
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n### What the earlier scopes deliver\n\n" +
+				"Taken from their PRDs, so you need not read them.\n")
+		}
+		fmt.Fprintf(&b, "\n**`%s`**\n\n%s\n", s.Dir, text)
+	}
+	return b.String()
+}
+
+// prdSections returns the named `## ` sections of a PRD, headings included.
+func prdSections(prd string, names ...string) string {
+	var out []string
+	var keep bool
+	for _, line := range strings.Split(prd, "\n") {
+		if h, ok := strings.CutPrefix(line, "## "); ok {
+			keep = slices.Contains(names, strings.TrimSpace(h))
+		}
+		if keep {
+			out = append(out, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func oneLine(s string) string {
