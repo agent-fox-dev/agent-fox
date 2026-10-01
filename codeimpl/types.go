@@ -325,6 +325,9 @@ type RepairReport struct {
 	// attempt), blocked, failed or aborted.
 	Outcome  string `json:"outcome" trust:"fact" description:"done, unverified, blocked, failed or aborted."`
 	Attempts int    `json:"attempts,omitempty" description:"How many repair attempts were made."`
+	// Verdict labels a repair that landed: baseline_repaired for the repair
+	// of a red baseline.
+	Verdict string `json:"verdict,omitempty" trust:"fact" description:"baseline_repaired when the repair landed on a baseline that was red before any task ran."`
 	// Failing is the gate that was red before the repair.
 	Failing *GateResult `json:"failing,omitempty" description:"The gate that was red before the repair."`
 	// Model is the model the repair phase ran on, when it differs from the

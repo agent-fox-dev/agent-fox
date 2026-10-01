@@ -1231,6 +1231,12 @@ broke it".
 
 ### Repairing the checks
 
+With `--repair`, a baseline that was red is fixed in a commit of its own, first on
+the branch. The run labels it `baseline_repaired` (in `result.repair.verdict` and
+`result.verdict` at that point) rather than `pass_was_already_failing`, and the
+pull request body opens a section saying it is not part of the specification,
+with the cause, the model's summary and git's diff stat of the repair.
+
 A repository whose checks fail before any change is not refused: the run
 records the red baseline and judges every task by comparison, so a task that
 leaves the failure exactly as it found it lands as `pass_was_already_failing`

@@ -20,6 +20,13 @@ import (
 // model's work was never measured.
 const VerdictGateFailed = "gate_failed"
 
+// VerdictBaselineRepaired labels the repair of a baseline that was red before
+// any task ran. It is not a task's verdict: the generic
+// pass_was_already_failing reads like a property of the work the spec asked
+// for, and this commit is a fix to the repository that the spec did not ask
+// for.
+const VerdictBaselineRepaired = "baseline_repaired"
+
 // gateCommands picks the commands one run is judged by.
 func gateCommands(tc afspec.TestCommands, override string, none bool) []string {
 	if none {

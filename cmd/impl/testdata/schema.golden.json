@@ -747,6 +747,11 @@
                       "type": "integer",
                       "description": "How many repair attempts were made."
                     },
+                    "verdict": {
+                      "type": "string",
+                      "description": "baseline_repaired when the repair landed on a baseline that was red before any task ran.",
+                      "x-trust": "fact"
+                    },
                     "failing": {
                       "type": "object",
                       "description": "The gate that was red before the repair.",
@@ -1123,6 +1128,11 @@
               "attempts": {
                 "type": "integer",
                 "description": "How many repair attempts were made."
+              },
+              "verdict": {
+                "type": "string",
+                "description": "baseline_repaired when the repair landed on a baseline that was red before any task ran.",
+                "x-trust": "fact"
               },
               "failing": {
                 "type": "object",
