@@ -247,7 +247,7 @@
       "done_when": [
         "cmd/impl/testdata/schema.golden.json, cmd/issue/testdata/schema.golden.json and cmd/spec/testdata/schema.golden.json exist alongside cmd/fix/testdata/schema.golden.json and all four TestSchemaGolden tests pass"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
