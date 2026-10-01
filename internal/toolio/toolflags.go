@@ -28,7 +28,7 @@ var toolFlags = map[string][]string{
 	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",
-		"task-attempts", "repair", "repair-attempts", "repair-model"},
+		"no-test-first", "task-attempts", "repair", "repair-attempts", "repair-model"},
 }
 
 // ToolFlags returns the names of tool's own flags (those beside Common's), for

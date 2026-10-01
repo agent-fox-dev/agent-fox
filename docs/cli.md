@@ -960,6 +960,19 @@ run exits 3 with the question, and no branch exists. A task phase may raise
 the same blocker; the work so far stays on the branch. `--no-survey` skips
 it, for a driver that runs one task at a time.
 
+### Test-first
+
+A task that owns tests is expected to write and run them red before it
+implements. `submit_task` enforces what it can see: every test verdict needs
+`red_evidence` (the command run and the failure seen before the
+implementation), or the submission needs a `test_first_deviation` reason — for
+example a pure refactor. A task that owns no tests is not checked. A deviation
+is rendered in the pull request under its task as "Test-first not followed".
+When tests need a new signature or interface method to compile, the prompt
+tells the model to stub it first and see the tests fail on behaviour. The
+evidence is the model's own claim; the run does not re-run the tests red.
+`--no-test-first` stops the tool requiring it.
+
 | Flag | Default | Effect |
 |---|---|---|
 | `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
@@ -975,6 +988,7 @@ it, for a driver that runs one task at a time.
 | `--draft` | off | open the pull request as a draft |
 | `--pull` | off | checkout and pull the base branch from `origin` first |
 | `--no-survey` | off | skip the survey phase |
+| `--no-test-first` | off | do not require red-first evidence when a task is submitted |
 | `--task-attempts` | `2` | implementation attempts per task before the run parks |
 | `--repair` | off | repair the checks when they fail before the first task or after the integration task; the run stops if it cannot |
 | `--repair-attempts` | `3` | repair attempts before the run gives up |

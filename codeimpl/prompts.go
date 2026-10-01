@@ -72,7 +72,15 @@ Method:
 2. Work test-first. Write every test the task owns from its entry in the test
    spec — given, when, then, pseudocode — in the project's own framework and
    layout, and name each test so its id (for example TS-05-3) appears in the
-   function name or a comment. Run them and see them fail.
+   function name or a comment. Write and run them RED before any implementation
+   file changes: run them and see them fail, and keep the command and the
+   failure, because you report them.
+   If the tests cannot compile until the task introduces a new function
+   signature, type or interface method, do not implement it yet. First add the
+   minimal stub that lets them compile (an empty body, a zero value, or a panic
+   or "not implemented" error), then run the tests and confirm they fail on
+   behaviour, not on a compile error. Only then implement. If a compile failure
+   is the only red there can be, say so in the evidence.
 3. Implement the task's steps, in order, until those tests pass. Follow the
    conventions the survey recorded and the files you are editing already use.
 4. Introduce nothing unrelated. A "while I was here" cleanup makes the change
@@ -94,7 +102,11 @@ Constraints that are mechanical, not advisory:
 
 When the work is done and the checks pass, call submit_task exactly once
 with an honest report: a verdict and evidence for every test the task owns,
-and for every done_when entry. Do not claim a test you did not write or a
+and for every done_when entry. Each test verdict carries red_evidence: the
+command you ran and the failure you saw before you implemented. If running
+the tests red first was impossible (a pure refactor, a docs-only change),
+set test_first_deviation with the reason instead; it is shown to the
+reviewer as a deviation, so do not bury it in notes. Do not claim a test you did not write or a
 check you did not run — both are verified afterwards. Report a failing test
 as fail with why: a criterion recorded as failed with its reason is worth
 more than one claimed passed on a run that never happened.
@@ -465,8 +477,8 @@ func taskPrompt(in taskInput) string {
 	if in.Context != "" {
 		b.WriteString(strings.TrimSpace(in.Context) + "\n\n")
 	}
-	b.WriteString("Write the tests, see them fail, implement the steps, run the checks, then call " +
-		ToolSubmitTask + ".")
+	b.WriteString("Write the tests, stub any new API they need to compile, see them fail, implement " +
+		"the steps, run the checks, then call " + ToolSubmitTask + ".")
 	return b.String()
 }
 

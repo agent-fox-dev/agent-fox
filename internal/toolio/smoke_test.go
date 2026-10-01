@@ -849,9 +849,10 @@ func TestTS0439_GitLabNestedProjectImpl_Smoke(t *testing.T) {
 			testVerdicts := make([]map[string]any, len(task1.Tests))
 			for i, tID := range task1.Tests {
 				testVerdicts[i] = map[string]any{
-					"id":       tID,
-					"verdict":  "pass",
-					"evidence": "lib_test.go: TestFunction passes verification cleanly",
+					"id":           tID,
+					"verdict":      "pass",
+					"evidence":     "lib_test.go: TestFunction passes verification cleanly",
+					"red_evidence": "go test ./... failed before the change: TestFunction got the zero value",
 				}
 			}
 
@@ -1376,9 +1377,10 @@ func TestTS0546_ImplBudgetCeilingResumesOnSameBranch_Smoke(t *testing.T) {
 			testVerdicts := make([]map[string]any, len(task1.Tests))
 			for i, tID := range task1.Tests {
 				testVerdicts[i] = map[string]any{
-					"id":       tID,
-					"verdict":  "pass",
-					"evidence": "lib_test.go: TestFunction passes verification cleanly",
+					"id":           tID,
+					"verdict":      "pass",
+					"evidence":     "lib_test.go: TestFunction passes verification cleanly",
+					"red_evidence": "go test ./... failed before the change: TestFunction got the zero value",
 				}
 			}
 			turnWrite := toolCallTurn("t0", "write_file", map[string]any{
@@ -2568,7 +2570,8 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 			verdicts := make([]map[string]any, len(task1.Tests))
 			for i, id := range task1.Tests {
 				verdicts[i] = map[string]any{"id": id, "verdict": "pass",
-					"evidence": "lib_test.go: TestFunction passes verification cleanly"}
+					"evidence":     "lib_test.go: TestFunction passes verification cleanly",
+					"red_evidence": "go test ./... failed before the change: TestFunction got the zero value"}
 			}
 			write := toolCallTurn("t0", "write_file", map[string]any{
 				"path": "task1.go", "content": "package repo\nfunc Loaded() bool { return true }\n",

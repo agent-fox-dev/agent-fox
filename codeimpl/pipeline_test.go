@@ -96,7 +96,8 @@ func passingReport(task afspec.Task, subject string) Submission {
 	}
 	for _, id := range task.Tests {
 		sub.TestVerdicts = append(sub.TestVerdicts, Verdict{ID: id, Verdict: VerdictPass,
-			Evidence: "task" + itoa(task.Id) + "_test.go Test" + id + " passes when run with make test"})
+			Evidence:    "task" + itoa(task.Id) + "_test.go Test" + id + " passes when run with make test",
+			RedEvidence: "go test failed before the change: Test" + id + " got the zero value"})
 	}
 	for i := range task.DoneWhen {
 		sub.DoneWhenVerdicts = append(sub.DoneWhenVerdicts, Verdict{ID: "DW-" + itoa(i+1), Verdict: VerdictPass,
