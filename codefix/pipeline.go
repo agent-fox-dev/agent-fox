@@ -29,6 +29,9 @@ type Options struct {
 	Repo issuex.Repo
 	// Land decides what happens once the change is verified.
 	Land LandMode
+	// BranchPrefix replaces the classification's prefix (fix/ for a bug,
+	// feature/ otherwise) in the branch name. Empty keeps the default.
+	BranchPrefix string
 	// DryRun makes no REMOTE change: nothing is pushed, no pull request is
 	// opened, and comments are reported instead of posted. The branch and the
 	// commit are still made locally — the implementation phase edits real
@@ -218,7 +221,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// ----------------------------------------------------------- branch --
 	branch := gitx.UniqueBranchName(ctx, git,
-		gitx.BranchName(analysis.Classification.BranchPrefix(), result.IssueNumber, analysis.Title))
+		gitx.BranchName(branchPrefix(o, analysis.Classification), result.IssueNumber, analysis.Title))
 	if err := git.CreateBranch(ctx, branch); err != nil {
 		return result, fail("branch", CategoryGit, err)
 	}
@@ -733,4 +736,13 @@ func recordPhase(run *toolio.Run, res agentrun.Result) {
 		return
 	}
 	run.AddPhase(toolio.PhaseFromResult(res, ""))
+}
+
+// branchPrefix is the first segment of the branch name: the configured one,
+// else the classification's.
+func branchPrefix(o Options, c Classification) string {
+	if o.BranchPrefix != "" {
+		return o.BranchPrefix
+	}
+	return c.BranchPrefix()
 }

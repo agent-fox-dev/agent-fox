@@ -256,6 +256,8 @@ directories up that changes what the same command does.
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
+| `AF_LAND` | the default for `--land` (`fix` and `impl`): `pr`, `branch` or `none`; `AF_LAND=none` keeps every run on the machine. The flag wins; an invalid value is a usage error |
+| `AF_BRANCH_PREFIX` | the default for `fix --branch-prefix`, e.g. `feature`; the flag wins |
 | `XDG_STATE_HOME` | where report files go (`$XDG_STATE_HOME/agent-fox/runs`); `~/.local/state` when unset; `--report-file` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
