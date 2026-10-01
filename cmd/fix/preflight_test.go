@@ -65,6 +65,14 @@ func stable(env map[string]any) []byte {
 	for _, k := range []string{"duration_ms", "started_at", "report_file", "artifacts"} {
 		delete(env, k)
 	}
+	// timings[] carries wall-clock durations; its names and kinds stay.
+	if ts, ok := env["timings"].([]any); ok {
+		for _, t := range ts {
+			if m, ok := t.(map[string]any); ok {
+				delete(m, "duration_ms")
+			}
+		}
+	}
 	if res, ok := env["result"].(map[string]any); ok {
 		for _, key := range []string{"baseline", "verification"} {
 			if b, ok := res[key].(map[string]any); ok {
