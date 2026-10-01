@@ -293,7 +293,7 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	var turn int
 	var toolErrs toolErrorCounter
 	for e := range stream.Events() {
-		r.trace(p.Name, &turn, &toolErrs, e)
+		r.trace(p.Name, &turn, &toolErrs, blocked, e)
 	}
 	res, runErr := stream.RunResult()
 
@@ -368,9 +368,8 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			ProtectedPaths: p.ProtectedPaths,
 			ResolvePath:    r.cfg.Workspace.Resolve,
 			OnBlock: func(name, reason string) {
-				counter.inc()
+				counter.inc(name)
 				r.detail("blocked %s: %s", name, reason)
-				r.toolCall(p.Name, name, true)
 			},
 		})
 	} else {
@@ -469,7 +468,7 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 
 // trace reports one stream event. turn is the phase's turn counter, which
 // the loop's own TurnEndEvent advances.
-func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, e core.Event) {
+func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *blockCounter, e core.Event) {
 	switch v := e.(type) {
 	case core.TurnEndEvent:
 		*turn++
@@ -477,16 +476,25 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, e core.E
 			r.cfg.Observer.Turn(phase, *turn, v.Usage.CostUSD, v.Usage.InputTokens, v.Usage.OutputTokens)
 		}
 	case core.ToolCallEndEvent:
-		r.toolCall(phase, v.Block.Name, false)
 		r.detail("→ %s %s", v.Block.Name, firstLine(string(v.Block.Input), 100))
 	case core.ToolExecutionEndEvent:
+		// A refused call was already reported as "blocked <tool>: <reason>";
+		// repeating it here as an ERROR would make a refusal look like a
+		// tool failure.
+		if blocks.isPending(v.Name) {
+			break
+		}
 		status := "ok"
 		if v.IsError {
 			status = "ERROR"
 		}
 		r.detail("← %s: %s (%dms)", v.Name, status, v.ElapsedMS)
 	case core.ToolResultEvent:
-		if v.Message.IsError {
+		// Every call ends in exactly one result, so this is where the one
+		// tool_call event per call is emitted, with whether it was refused.
+		refused := blocks.take(v.Message.ToolName)
+		r.toolCall(phase, v.Message.ToolName, refused)
+		if v.Message.IsError && !refused {
 			// Counted here and not at ToolExecutionEndEvent: a call to a tool
 			// that does not exist never executes, and still costs a turn.
 			errs.add(v.Message.ToolName, v.Message.Content.Text())
@@ -638,12 +646,44 @@ func (c *toolErrorCounter) snapshot() map[string]int {
 type blockCounter struct {
 	mu sync.Mutex
 	n  int
+	// pending counts, per tool, refusals whose tool result has not been
+	// traced yet. A refused call still ends in an errored result; knowing it
+	// was a refusal keeps it from being reported a second and third time.
+	pending map[string]int
 }
 
-func (b *blockCounter) inc() {
+func (b *blockCounter) inc(tool string) {
 	b.mu.Lock()
 	b.n++
+	if b.pending == nil {
+		b.pending = map[string]int{}
+	}
+	b.pending[tool]++
 	b.mu.Unlock()
+}
+
+// isPending reports whether a refusal of tool is awaiting its result.
+func (b *blockCounter) isPending(tool string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.pending[tool] > 0
+}
+
+// take consumes one pending refusal of tool, reporting whether there was one.
+func (b *blockCounter) take(tool string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending[tool] == 0 {
+		return false
+	}
+	b.pending[tool]--
+	return true
 }
 
 func (b *blockCounter) count() int {

@@ -104,15 +104,12 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 				}
 			}
 			vectors := CommandVectors(in.ToolName, in.Arguments)
-			for _, argv := range vectors {
-				if reason, blocked := guardProgram(argv); blocked {
-					return block(in.ToolName, reason)
-				}
-			}
-			if reason, blocked := o.disallowedPrograms(vectors); blocked {
+			cmd, _ := in.Arguments["command"].(string)
+			if reason, blocked := o.refusal(vectors, cmd); blocked {
 				return block(in.ToolName, reason)
 			}
 			if d := base(ctx, in); d.Block {
+				d.Reason = o.restate(d.Reason)
 				log(in.ToolName, d.Reason)
 				return d
 			}
@@ -124,6 +121,7 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 				if segs := ShellSegments(cmd); len(segs) > 1 {
 					for _, seg := range segs[1:] {
 						if d := base(ctx, withCommand(in, seg)); d.Block {
+							d.Reason = o.restate(d.Reason)
 							log(in.ToolName, d.Reason)
 							return d
 						}
@@ -136,11 +134,55 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 	}
 }
 
+// refusal judges every command on the line and returns every reason in one
+// message: the git and gh rules and the allowlist are checked together, so a
+// line with `git push` and `curl` is told about both, and the model fixes it
+// in one retry instead of two.
+func (o GuardOptions) refusal(vectors [][]string, cmd string) (string, bool) {
+	var reasons []string
+	seen := map[string]bool{}
+	for _, argv := range vectors {
+		if reason, blocked := guardProgram(argv); blocked && !seen[reason] {
+			seen[reason] = true
+			reasons = append(reasons, reason)
+		}
+	}
+	if reason, blocked := o.disallowedPrograms(vectors, cmd); blocked {
+		reasons = append(reasons, reason)
+	}
+	if len(reasons) == 0 {
+		return "", false
+	}
+	return strings.Join(reasons, " Also: "), true
+}
+
+// allowedList is the allowlist, sorted, for a reason that says what would have
+// been accepted.
+func (o GuardOptions) allowedList() []string {
+	list := append([]string(nil), o.Programs...)
+	sort.Strings(list)
+	return list
+}
+
+// restate puts a refusal from AgentKit's floor policy in the shape this
+// guard's own refusals have: no `guard.Restricted:` prefix, and an allowlist
+// refusal that names what is allowed.
+func (o GuardOptions) restate(reason string) string {
+	reason = strings.TrimPrefix(reason, "guard.Restricted: ")
+	if strings.Contains(reason, "is not on the allowlist") && len(o.Programs) > 0 {
+		reason += ". Allowed: " + strings.Join(o.allowedList(), ", ") + "."
+	}
+	return reason
+}
+
 // disallowedPrograms names every program in the vectors that is not on the
 // allowlist, and the allowlist itself, in one reason. The shipped policy stops
 // at the first offender and does not say what would have been accepted, so a
-// model fixes one command per retry.
-func (o GuardOptions) disallowedPrograms(vectors [][]string) (string, bool) {
+// model fixes one command per retry. The write_file hint is added only when
+// the command wrote a file by heredoc or redirection and the phase has the
+// tool: telling a read-only phase, or someone who ran `curl`, to use it is
+// noise.
+func (o GuardOptions) disallowedPrograms(vectors [][]string, cmd string) (string, bool) {
 	if len(o.Programs) == 0 {
 		return "", false
 	}
@@ -161,15 +203,10 @@ func (o GuardOptions) disallowedPrograms(vectors [][]string) (string, bool) {
 	if len(bad) == 0 {
 		return "", false
 	}
-	list := make([]string, 0, len(allowed))
-	for p := range allowed {
-		list = append(list, p)
-	}
-	sort.Strings(list)
 	reason := fmt.Sprintf("programs not allowed: %s. Allowed: %s.",
-		strings.Join(bad, ", "), strings.Join(list, ", "))
-	if !o.ReadOnlyFiles {
-		reason += " To create a file use write_file, not a heredoc."
+		strings.Join(bad, ", "), strings.Join(o.allowedList(), ", "))
+	if !o.ReadOnlyFiles && (strings.Contains(cmd, "<<") || strings.Contains(cmd, ">")) {
+		reason += " To create a file use write_file, not a heredoc or redirection."
 	}
 	return reason, true
 }

@@ -222,15 +222,45 @@ func TestTS07_28_TurnOncePerBoundary(t *testing.T) {
 	}
 }
 
-// TS-07-29: a traced ToolCallEndEvent reports a non-blocked call, verbose only.
+// TS-07-29: a traced tool result reports one non-blocked call, verbose only.
+// The event is emitted when the result arrives, once per call.
 func TestTS07_29_TraceReportsToolCallWhenVerbose(t *testing.T) {
 	obs := &recObserver{verbose: true}
 	r := &Runner{cfg: Config{Observer: obs}}
 	var turn int
-	r.trace("implement", &turn, &toolErrorCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
+	if len(obs.toolCalls) != 0 {
+		t.Fatalf("a call was reported before its result: %+v", obs.toolCalls)
+	}
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, core.ToolResultEvent{Message: core.ToolResultMessage{ToolName: "write_file"}})
 	want := []toolCall{{"implement", "write_file", false}}
 	if !reflect.DeepEqual(obs.toolCalls, want) {
 		t.Fatalf("ToolCall calls = %+v, want %+v", obs.toolCalls, want)
+	}
+}
+
+// A refused call is reported once: one tool_call event, flagged blocked, and
+// no ERROR or reason line repeating what "blocked <tool>: <reason>" said (#64).
+func TestARefusedCallIsReportedOnce(t *testing.T) {
+	obs := &recObserver{verbose: true}
+	r := &Runner{cfg: Config{Observer: obs}}
+	var turn int
+	blocks := &blockCounter{}
+	errs := &toolErrorCounter{}
+	blocks.inc("execute")
+	r.trace("p", &turn, errs, blocks, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("p", &turn, errs, blocks, core.ToolResultEvent{Message: core.ToolResultMessage{
+		ToolName: "execute", IsError: true, Content: core.Content{core.TextBlock{Text: "guard refused"}}}})
+	if want := []toolCall{{"p", "execute", true}}; !reflect.DeepEqual(obs.toolCalls, want) {
+		t.Errorf("tool calls = %+v, want %+v", obs.toolCalls, want)
+	}
+	for _, d := range obs.details {
+		if strings.Contains(d, "ERROR") || strings.Contains(d, "guard refused") {
+			t.Errorf("a refusal was reported again: %q", d)
+		}
+	}
+	if errs.snapshot() != nil {
+		t.Errorf("a refusal was counted as a tool error: %v", errs.snapshot())
 	}
 }
 

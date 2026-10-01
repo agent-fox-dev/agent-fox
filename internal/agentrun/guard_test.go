@@ -301,10 +301,14 @@ func TestGuardReportsEveryDisallowedProgram(t *testing.T) {
 	if !d.Block {
 		t.Fatal("curl and wget were allowed")
 	}
-	for _, want := range []string{"curl, wget", "Allowed: cat, ls", "write_file"} {
+	for _, want := range []string{"curl, wget", "Allowed: cat, ls"} {
 		if !strings.Contains(d.Reason, want) {
 			t.Errorf("Reason = %q; want it to contain %q", d.Reason, want)
 		}
+	}
+	// The hint is for a command that tried to write a file (#64), not for curl.
+	if strings.Contains(d.Reason, "write_file") {
+		t.Errorf("Reason = %q; the write_file hint does not belong on a curl refusal", d.Reason)
 	}
 	if strings.Count(d.Reason, "curl") != 1 {
 		t.Errorf("Reason = %q; a program should be named once", d.Reason)
@@ -450,5 +454,35 @@ func TestShellSegmentsHostileHeredocInputs(t *testing.T) {
 		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
 			t.Errorf("%s: ShellSegments(%q) = %q, want %q", c.name, c.in, got, c.want)
 		}
+	}
+}
+
+func TestGuardRefusalReasonsAreConsistent(t *testing.T) {
+	ctx := context.Background()
+	write := Guard(GuardOptions{Programs: []string{"ls", "git"}, AllowOperators: true})
+	readOnly := Guard(GuardOptions{Programs: []string{"ls", "git"}, ReadOnlyFiles: true})
+
+	// The write_file hint is for a phase that has it and a command that tried
+	// to write a file.
+	if d := write(ctx, execCall("curl x")); !d.Block || strings.Contains(d.Reason, "write_file") {
+		t.Errorf("curl reason = %q", d.Reason)
+	}
+	if d := write(ctx, execCall("cat <<EOF > f\nx\nEOF")); !strings.Contains(d.Reason, "write_file") {
+		t.Errorf("heredoc reason = %q", d.Reason)
+	}
+	if d := readOnly(ctx, execCall("cat > f")); strings.Contains(d.Reason, "write_file") {
+		t.Errorf("a read-only phase was pointed at write_file: %q", d.Reason)
+	}
+
+	// git and the allowlist are reported together.
+	d := write(ctx, execCall("git push && curl x"))
+	if !strings.Contains(d.Reason, "git") || !strings.Contains(d.Reason, "curl") {
+		t.Errorf("combined reason = %q", d.Reason)
+	}
+
+	// The floor policy's wording is restated.
+	d = readOnly(ctx, execCall("ls | wc"))
+	if !d.Block || strings.Contains(d.Reason, "guard.Restricted") {
+		t.Errorf("operator reason = %q", d.Reason)
 	}
 }
