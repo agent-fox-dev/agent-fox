@@ -28,7 +28,7 @@ type ValidationEntry struct {
 	Artifact string // the artifact file the issue was found in
 	Path     string // JSON path (InstanceLocation) for schema errors
 	Keyword  string // KeywordLocation for schema errors
-	Check    string // rule name: "json_schema", "completeness", "C1".."C11", …
+	Check    string // rule name: "json_schema", "completeness", "C1".."C11", "scope_limit", "vague_language", …
 	EntityID string // the entity the entry is about
 	Value    string // optional value context
 }
@@ -918,20 +918,20 @@ func (s *Spec) checkC11() []ValidationEntry {
 // outcome without a contract.
 func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 	var warnings []ValidationEntry
-	warn := func(artifact, entity, msg string) {
+	warn := func(check, artifact, entity, msg string) {
 		warnings = append(warnings, ValidationEntry{
-			Category: "warning", Artifact: artifact, EntityID: entity, Message: msg,
+			Category: "warning", Check: check, Artifact: artifact, EntityID: entity, Message: msg,
 		})
 	}
 
 	// §6.5.3 — spec and requirement scope.
 	if n := len(requirementsOf(s)); n > maxRequirementsPerSpec {
-		warn("requirements.json", s.SpecID,
+		warn("scope_limit", "requirements.json", s.SpecID,
 			fmt.Sprintf("spec has %d requirements (limit %d); consider splitting it", n, maxRequirementsPerSpec))
 	}
 	for _, r := range requirementsOf(s) {
 		if n := len(r.Criteria); n > maxCriteriaPerReq {
-			warn("requirements.json", r.Id,
+			warn("scope_limit", "requirements.json", r.Id,
 				fmt.Sprintf("requirement %s has %d criteria (limit %d); consider splitting it", r.Id, n, maxCriteriaPerReq))
 		}
 	}
@@ -953,13 +953,13 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 			sort.Strings(names)
 			for _, name := range names {
 				for _, match := range vagueLanguageRe.FindAllString(fields[name], -1) {
-					warn("requirements.json", c.Id,
+					warn("vague_language", "requirements.json", c.Id,
 						fmt.Sprintf("vague term %q in field %s of criterion %s", strings.ToLower(match), name, c.Id))
 				}
 			}
 
 			if c.Pattern != CriterionPatternUnwanted && c.ContractText() == "" && errorKeywordRe.MatchString(c.Action) {
-				warn("requirements.json", c.Id,
+				warn("missing_contract", "requirements.json", c.Id,
 					fmt.Sprintf("criterion %s describes an error outcome but has no contract", c.Id))
 			}
 		}
@@ -974,23 +974,23 @@ func (s *Spec) crossFileWarnings(idx specIndex) []ValidationEntry {
 			}
 		}
 		if criteriaCount > maxCriteriaPerTest {
-			warn("test_spec.json", t.Id,
+			warn("scope_limit", "test_spec.json", t.Id,
 				fmt.Sprintf("test %s verifies %d criteria (limit %d); it is probably two tests", t.Id, criteriaCount, maxCriteriaPerTest))
 		}
 	}
 
 	// §8.6.4-5 — task size and count.
 	if n := len(tasksOf(s)); n > maxTasksPerSpec {
-		warn("tasks.json", s.SpecID,
+		warn("scope_limit", "tasks.json", s.SpecID,
 			fmt.Sprintf("spec has %d tasks (limit %d); consider splitting it", n, maxTasksPerSpec))
 	}
 	for _, task := range tasksOf(s) {
 		if n := len(task.Tests); n > maxTestsPerTask {
-			warn("tasks.json", fmt.Sprint(task.Id),
+			warn("scope_limit", "tasks.json", fmt.Sprint(task.Id),
 				fmt.Sprintf("task %d owns %d tests (limit %d); consider splitting it", task.Id, n, maxTestsPerTask))
 		}
 		if n := len(task.Steps); n > maxStepsPerTask {
-			warn("tasks.json", fmt.Sprint(task.Id),
+			warn("scope_limit", "tasks.json", fmt.Sprint(task.Id),
 				fmt.Sprintf("task %d has %d steps (limit %d); consider splitting it", task.Id, n, maxStepsPerTask))
 		}
 	}
@@ -1037,7 +1037,7 @@ func (s *Spec) glossaryHints() []ValidationEntry {
 	warnings := make([]ValidationEntry, 0, len(terms))
 	for _, term := range terms {
 		warnings = append(warnings, ValidationEntry{
-			Category: "warning", Artifact: "requirements.json", EntityID: term,
+			Category: "warning", Check: "glossary_hint", Artifact: "requirements.json", EntityID: term,
 			Message: fmt.Sprintf("term %q appears in %d criteria but has no glossary entry", term, counts[term]),
 		})
 	}

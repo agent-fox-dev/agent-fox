@@ -472,3 +472,22 @@ func TestLegacySpecIsReportedAsAVersionMismatch(t *testing.T) {
 		t.Errorf("the message does not name the command that converts it: %q", result.Errors[0].Message)
 	}
 }
+
+// Every cross-file warning names the check that raised it, so a consumer
+// printing "check: message" never renders a leading ": ".
+func TestCrossFileWarningsCarryACheckName(t *testing.T) {
+	spec := mutateFixture(t, func(s *Spec) {
+		c := &s.Requirements.Requirements[0].Criteria[2]
+		c.Action = "for any malformed input, reject the request as invalid"
+		c.Contract = nil
+	})
+	result := spec.ValidateCrossFile()
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected a warning")
+	}
+	for _, w := range result.Warnings {
+		if w.Check == "" {
+			t.Errorf("warning without a check: %+v", w)
+		}
+	}
+}
