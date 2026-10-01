@@ -192,23 +192,9 @@ func projectInstructions(root string) string {
 	return ""
 }
 
-// steeringPlaceholder marks a steering file that has nothing to say yet.
-const steeringPlaceholder = "<!-- steering:placeholder -->"
-
-// steering reads .specs/steering.md, the project-level directives the
-// legacy runtime injected into every session and this repository's own
-// instructions say to read. A file that holds only the placeholder is
-// nothing.
-func steering(specsDir string) string {
-	s := readSmall(filepath.Join(specsDir, "steering.md"))
-	if strings.Contains(s, steeringPlaceholder) {
-		return ""
-	}
-	if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "# Steering")) == "" {
-		return ""
-	}
-	return s
-}
+// steering reads .specs/steering.md, the project-level directives this
+// repository's own instructions say every agent must read.
+func steering(specsDir string) string { return project.Steering(specsDir) }
 
 func readSmall(path string) string {
 	info, err := os.Lstat(path)

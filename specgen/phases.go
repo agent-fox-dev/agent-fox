@@ -57,6 +57,8 @@ type prdRequest struct {
 	Landscape    []afspec.SpecMeta
 	// SpecRoot is the directory the specs live in, relative to Root.
 	SpecRoot string
+	// Steering is the project's steering.md, or "".
+	Steering string
 	// Split is set when the PRD is one scope of a decided split: the plan
 	// and the index of the scope to write. Nil for an undivided input.
 	Split *splitContext
@@ -72,6 +74,8 @@ type artifactRequest struct {
 	Landscape []afspec.SpecMeta
 	// SpecRoot is the directory the specs live in, relative to Root.
 	SpecRoot string
+	// Steering is the project's steering.md, or "".
+	Steering string
 	// Partial carries the artifacts produced so far. The submit handler
 	// validates against it and writes the accepted artifact back into it.
 	Partial *afspec.PartialSpec
@@ -96,7 +100,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		Name:   "prd",
 		System: prdSystemPrompt(),
 		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input,
-			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), splitBlock(req.Split)),
+			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split)),
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
@@ -131,7 +135,7 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 		Name:   "generate:" + string(req.Step),
 		System: generationSystemPrompt(),
 		User: generationUserPrompt(req.Step, req.SpecID, req.SpecName, req.Root, req.PRD,
-			landscapeBlock(req.Landscape, req.SpecRoot),
+			landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering),
 			priorArtifactsBlock(*req.Partial, req.Step),
 			req.Profile.LanguageBlock()),
 		Terminator:         name,
