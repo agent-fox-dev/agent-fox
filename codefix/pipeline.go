@@ -187,7 +187,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
 	analysis, stats, err := b.Analyze(ctx, analysisInput{
 		Input: o.Input, Baseline: baseline, VerifyCommand: command, Root: root,
-		Criteria: criteria,
+		Criteria: criteria, Instructions: projectInstructions(root),
 	})
 	recordPhase(o.Run, stats)
 	done(toolio.PhaseSummary(stats))

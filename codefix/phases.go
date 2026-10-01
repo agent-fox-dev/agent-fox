@@ -195,6 +195,9 @@ type analysisInput struct {
 	// Criteria is what the report defined as done, extracted from its own
 	// text. Empty for the common case of a report that defined nothing.
 	Criteria []Criterion
+	// Instructions is the project's AGENTS.md or CLAUDE.md, as for the
+	// implement phase.
+	Instructions string
 }
 
 type implementInput struct {
@@ -209,9 +212,9 @@ type implementInput struct {
 	// tool boundary rather than asked for in the prompt.
 	Criteria []Criterion
 	// Instructions is the project's AGENTS.md or CLAUDE.md when one exists
-	// and is small enough to inline. It is rendered into the task prompt for
-	// the phase that writes code, because an AgentKit agent has no implicit
-	// behaviour that picks such a file up.
+	// and is small enough to inline. It is rendered into the task prompt,
+	// because an AgentKit agent has no implicit behaviour that picks such a
+	// file up.
 	Instructions string
 }
 
