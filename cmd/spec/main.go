@@ -98,6 +98,18 @@ func (f *specFlags) specOptions(d toolio.Deps) specgen.Options {
 	}
 }
 
+// failureResponse maps a pipeline error onto the exit code and error object,
+// the same way for the ordinary run and for --preflight. A refusal at the
+// preflight stage has no result, and a nil *Result in the interface is not a
+// nil result: the shell would call SetDetail on it.
+func failureResponse(result *specgen.Result, err error) (int, any, *toolio.ErrorInfo) {
+	info := toolio.ErrorFrom("run", err)
+	if result == nil {
+		return toolio.ExitCodeFor(info.Category), nil, info
+	}
+	return toolio.ExitCodeFor(info.Category), result, info
+}
+
 func newApp() toolio.App {
 	f := &specFlags{}
 	var common *toolio.Common
@@ -148,8 +160,7 @@ func newApp() toolio.App {
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			result, err := specgen.Run(ctx, f.specOptions(d))
 			if err != nil {
-				info := toolio.ErrorFrom("run", err)
-				return toolio.ExitCodeFor(info.Category), result, info
+				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
 		},
@@ -159,8 +170,7 @@ func newApp() toolio.App {
 		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			result, err := specgen.RunPreflight(ctx, f.specOptions(d))
 			if err != nil {
-				info := toolio.ErrorFrom("run", err)
-				return toolio.ExitCodeFor(info.Category), result, info
+				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
 		},

@@ -50,12 +50,51 @@ Exit codes:
 Flags:
 `
 
+// issueFlags holds the values of issue's own flags. Both the ordinary Exec
+// and the --preflight PreflightExec read them through issueOptions, so the
+// two paths build identical issuetriage.Options.
+type issueFlags struct {
+	repo      string
+	labels    string
+	overwrite bool
+}
+
+// issueOptions builds the issuetriage.Options for one run from the parsed
+// flags and what App.execute resolved.
+func (f *issueFlags) issueOptions(d toolio.Deps) issuetriage.Options {
+	target, _ := issuex.ParseRepo(f.repo)
+	return issuetriage.Options{
+		Input:     d.Input,
+		Workspace: d.Workspace,
+		Repo:      target,
+		Labels:    splitLabels(f.labels),
+		DryRun:    d.Common.DryRun,
+		Overwrite: f.overwrite,
+		Runner:    d.Runner,
+		Forge:     d.Forge,
+		Run:       d.Run,
+		Progress:  d.Progress,
+	}
+}
+
+// failureResponse maps a pipeline error onto the exit code and error object,
+// the same way for the ordinary run and for --preflight.
+func failureResponse(result *issuetriage.Result, err error) (int, any, *toolio.ErrorInfo) {
+	var f *issuetriage.Failure
+	info := toolio.ErrorFrom("run", err)
+	if errors.As(err, &f) {
+		info.Stage, info.Category = f.Stage, f.Category
+	}
+	// A refusal before the model phase has no result. A nil *Result in the
+	// interface is not a nil result: the shell would call SetDetail on it.
+	if result == nil {
+		return toolio.ExitCodeFor(info.Category), nil, info
+	}
+	return toolio.ExitCodeFor(info.Category), result, info
+}
+
 func newApp() toolio.App {
-	var (
-		repo      string
-		labels    string
-		overwrite bool
-	)
+	f := &issueFlags{}
 
 	return toolio.App{
 		Name:             "issue",
@@ -70,9 +109,9 @@ func newApp() toolio.App {
 		},
 		ResultSample: issuetriage.Result{},
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
-			fs.StringVar(&labels, "label", "", "comma-separated labels for the created issue, e.g. af:fix")
-			fs.BoolVar(&overwrite, "overwrite", false, "rewrite the input issue in place instead of creating a new one")
+			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
+			fs.StringVar(&f.labels, "label", "", "comma-separated labels for the created issue, e.g. af:fix")
+			fs.BoolVar(&f.overwrite, "overwrite", false, "rewrite the input issue in place instead of creating a new one")
 		},
 		// A triage reads: 100 turns is a lot of files, and $2 is more than
 		// any single diagnosis has cost. Both are ceilings, not targets.
@@ -81,19 +120,19 @@ func newApp() toolio.App {
 		SinglePhase: true,
 
 		PreCheck: func(*toolio.Common) error {
-			if overwrite && (repo != "" || labels != "") {
+			if f.overwrite && (f.repo != "" || f.labels != "") {
 				return toolio.Usagef("--overwrite rewrites the issue it was given, so it " +
 					"cannot be combined with --repo or --label")
 			}
-			if repo != "" {
-				if _, ok := issuex.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
+			if f.repo != "" {
+				if _, ok := issuex.ParseRepo(f.repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", f.repo)
 				}
 			}
 			return nil
 		},
 		CheckInput: func(in toolio.Input) error {
-			if overwrite && in.Issue == nil {
+			if f.overwrite && in.Issue == nil {
 				return toolio.Usagef("--overwrite needs a forge issue URL (GitHub or GitLab) as the input; "+
 					"%s is %s", in.Origin, in.Kind)
 			}
@@ -101,26 +140,19 @@ func newApp() toolio.App {
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			target, _ := issuex.ParseRepo(repo)
-			result, err := issuetriage.Run(ctx, issuetriage.Options{
-				Input:     d.Input,
-				Workspace: d.Workspace,
-				Repo:      target,
-				Labels:    splitLabels(labels),
-				DryRun:    d.Common.DryRun,
-				Overwrite: overwrite,
-				Runner:    d.Runner,
-				Forge:     d.Forge,
-				Run:       d.Run,
-				Progress:  d.Progress,
-			})
+			result, err := issuetriage.Run(ctx, f.issueOptions(d))
 			if err != nil {
-				var f *issuetriage.Failure
-				info := toolio.ErrorFrom("run", err)
-				if errors.As(err, &f) {
-					info.Stage, info.Category = f.Stage, f.Category
-				}
-				return toolio.ExitCodeFor(info.Category), result, info
+				return failureResponse(result, err)
+			}
+			return toolio.ExitOK, result, nil
+		},
+
+		// --preflight: every check the ordinary run makes before its model
+		// phase, against the identical options, then stop.
+		PreflightExec: func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			result, err := issuetriage.RunPreflight(f.issueOptions(d))
+			if err != nil {
+				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
 		},
