@@ -56,19 +56,26 @@ func GoldenFile(root, tool string) string {
 	return filepath.Join(root, "cmd", tool, "testdata", "schema.golden.json")
 }
 
+// Build compiles cmd/<tool> into a fresh temporary directory and returns the
+// path of the binary.
+func Build(t *testing.T, tool string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), tool)
+	build := exec.Command("go", "build", "-o", bin, "./cmd/"+tool)
+	build.Dir = Root(t)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%s: go build ./cmd/%s failed: %v\n%s", tool, tool, err, out)
+	}
+	return bin
+}
+
 // Live builds cmd/<tool> and returns the bytes it writes to stdout when run
 // with only --schema. The tool runs with no credentials and an empty state
 // directory: --schema must need neither.
 func Live(t *testing.T, tool string) []byte {
 	t.Helper()
-	root := Root(t)
+	bin := Build(t, tool)
 	dir := t.TempDir()
-	bin := filepath.Join(dir, tool)
-	build := exec.Command("go", "build", "-o", bin, "./cmd/"+tool)
-	build.Dir = root
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%s: go build ./cmd/%s failed: %v\n%s", tool, tool, err, out)
-	}
 	cmd := exec.Command(bin, "--schema")
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + dir, "XDG_STATE_HOME=" + dir, "PATH=" + os.Getenv("PATH")}
