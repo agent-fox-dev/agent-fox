@@ -13,7 +13,7 @@ import (
 // documentedFields is the per-type field table from the spec (07-REQ-2), not
 // including the shared ts/tool/type envelope.
 var documentedFields = map[string][]string{
-	"run_start":   {"input_kind", "model"},
+	"run_start":   {"input_kind", "model", "schema_version"},
 	"step":        {"stage", "message"},
 	"phase_start": {"phase", "task", "max_turns", "budget_usd"},
 	"turn":        {"phase", "turn", "cost_usd", "input_tokens", "output_tokens"},

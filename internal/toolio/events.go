@@ -60,8 +60,9 @@ type event interface {
 // resolved.
 type RunStartEvent struct {
 	eventHeader
-	InputKind string         `json:"input_kind"`
-	Model     EventModelInfo `json:"model"`
+	InputKind     string         `json:"input_kind"`
+	Model         EventModelInfo `json:"model"`
+	SchemaVersion string         `json:"schema_version"`
 }
 
 // EventModelInfo is the (spec, id, vendor) triple Envelope.Model carries,
@@ -161,7 +162,7 @@ type TextEvent struct {
 // with the wrong type string.
 
 func newRunStartEvent(inputKind string, m EventModelInfo) *RunStartEvent {
-	e := &RunStartEvent{InputKind: inputKind, Model: m}
+	e := &RunStartEvent{InputKind: inputKind, Model: m, SchemaVersion: SchemaVersion}
 	e.Type = EventRunStart
 	return e
 }

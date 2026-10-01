@@ -62,6 +62,7 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
 {
   "tool": "fix",
   "version": "0.4.0",
+  "schema_version": "2.0.0",
   "ok": true,
   "status": "done",
   "exit_code": 0,
@@ -363,7 +364,7 @@ for every type:
 
 | `type` | Fields | Emitted |
 |---|---|---|
-| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`) | once, after the input is classified and the model resolved |
+| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`), `schema_version` (as in the envelope) | once, after the input is classified and the model resolved |
 | `step` | `stage`, `message` | wherever the human progress prints a line; `stage` is the same vocabulary as the envelope's `stage` |
 | `phase_start` | `phase`, `task`, `max_turns`, `budget_usd` | when a model phase begins; `task` is present only for `impl`'s per-task `implement` phase; the ceilings are the ones the run actually resolved |
 | `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
@@ -409,7 +410,7 @@ baseline check failing, two analyse turns and a heartbeat during the wait
 before the next phase:
 
 ```
-{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"}}
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"},"schema_version":"2.0.0"}
 {"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"step","stage":"branch","message":"branched fix/rate-limit-retry from main"}
 {"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"check","command":"go test ./...","ok":false,"exit_code":1,"duration_ms":4210}
 {"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"phase_start","phase":"analyse","max_turns":40,"budget_usd":2}

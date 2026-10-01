@@ -308,6 +308,11 @@ type Warning struct {
 	Message  string   `json:"message" description:"Human-readable explanation of what went differently than intended."`
 }
 
+// SchemaVersion is the version of the envelope interface shared by all four
+// tools: one shell, one envelope shape, one version. The compatibility rule
+// is in docs/cli.md (Interface versions) and ADR 06.
+const SchemaVersion = "2.0.0"
+
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
 // It is written exactly once, on every path including the failing ones,
@@ -320,6 +325,9 @@ type Envelope struct {
 	// Version is the build identity, so a surprising result can be traced to
 	// a build.
 	Version string `json:"version" description:"The build identity of the tool, so a surprising result can be traced to a build."`
+	// SchemaVersion names the version of the envelope interface, separate
+	// from the build identity in Version.
+	SchemaVersion string `json:"schema_version" description:"The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."`
 	// OK is the one field a caller has to read. It is true only when the
 	// tool did the whole job it was asked to do.
 	OK bool `json:"ok" description:"True only when the tool did the whole job it was asked to do."`
@@ -696,18 +704,19 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 	defer r.mu.Unlock()
 
 	env := Envelope{
-		Tool:       r.tool,
-		Version:    r.version,
-		OK:         code == ExitOK,
-		Status:     StatusFor(code),
-		ExitCode:   code,
-		Error:      failure,
-		Input:      r.input,
-		Model:      r.model,
-		Result:     presentOrNil(result),
-		Warnings:   append([]Warning(nil), r.warnings...),
-		DurationMS: time.Since(r.started).Milliseconds(),
-		StartedAt:  r.started.UTC().Format(time.RFC3339),
+		Tool:          r.tool,
+		Version:       r.version,
+		SchemaVersion: SchemaVersion,
+		OK:            code == ExitOK,
+		Status:        StatusFor(code),
+		ExitCode:      code,
+		Error:         failure,
+		Input:         r.input,
+		Model:         r.model,
+		Result:        presentOrNil(result),
+		Warnings:      append([]Warning(nil), r.warnings...),
+		DurationMS:    time.Since(r.started).Milliseconds(),
+		StartedAt:     r.started.UTC().Format(time.RFC3339),
 	}
 	if len(r.effects) > 0 {
 		env.SideEffects = append([]SideEffect(nil), r.effects...)
@@ -814,7 +823,7 @@ func Emit(w io.Writer, env Envelope) int {
 		// Marshalling cannot be allowed to lose the exit code, so fall back
 		// to an envelope that is guaranteed to encode.
 		fallback, _ := json.MarshalIndent(Envelope{
-			Tool: env.Tool, Version: env.Version, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
+			Tool: env.Tool, Version: env.Version, SchemaVersion: SchemaVersion, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
 			Summary: "the result could not be encoded as JSON: " + err.Error(),
 			Error: &ErrorInfo{
 				Stage: "emit", Category: "internal",
