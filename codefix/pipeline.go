@@ -302,7 +302,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	o.Progress.Step("commit", "committed %s", commit)
 
 	if o.Land.Pushes() && !o.DryRun {
+		stopTiming := o.Run.Time("git", "push")
 		err := git.Push(ctx, branch, o.PushAttempts, func(m string) { o.Progress.Step("push", "%s", m) })
+		stopTiming()
 		// A failed push is the run's error, not a Run.Warn: no warning code.
 		o.Run.RecordSideEffect("push", "origin "+branch, err == nil, "")
 		if err != nil {
@@ -621,6 +623,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 		o.Run.RecordSideEffect("open_pr", target.String(), false, toolio.WarnPullRequestNotOpened)
 		return
 	}
+	stopTiming := o.Run.Time("forge", "open_pr")
 	pr, err := o.Forge.CreatePullRequest(ctx, target, issuex.CreatePullRequestRequest{
 		Title: pullRequestTitle(analysis.Classification, impl, o.Input.Issue),
 		Body:  pullRequestBody(result),
@@ -628,6 +631,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 		Base:  base,
 		Draft: o.Draft,
 	})
+	stopTiming()
 	if err != nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", branch, base, err)
@@ -665,7 +669,9 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 		o.Run.RecordSideEffectOf("comment", kind, o.Input.Issue.String(), "", false, toolio.WarnCommentNotPosted)
 		return
 	}
+	stopTiming := o.Run.Time("forge", "comment:"+kind)
 	url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
+	stopTiming()
 	if err != nil {
 		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
 		o.Run.RecordSideEffectOf("comment", kind, o.Input.Issue.String(), "", false, toolio.WarnCommentNotPosted)
@@ -685,6 +691,7 @@ func runChecks(ctx context.Context, o Options, root, command, label string) chec
 	done := o.Progress.Begin("%s: %s", label, command)
 	res := checks.Run(ctx, o.CheckRunner, root, command, o.VerifyTimeout)
 	o.Progress.Check(res)
+	o.Run.AddTiming("check", label, time.Duration(res.DurationMS)*time.Millisecond)
 	status := "passed"
 	if !res.OK {
 		status = fmt.Sprintf("failed (exit %d)", res.ExitCode)

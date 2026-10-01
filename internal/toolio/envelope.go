@@ -374,6 +374,9 @@ type Envelope struct {
 	// always the case under --dry-run (06-REQ-5).
 	SideEffects []SideEffect `json:"side_effects,omitempty" description:"Every write the run made to a forge or a remote, in the order it happened. Absent when there were none, always the case under --dry-run."`
 
+	// Timings is the time spent outside model phases.
+	Timings []TimingInfo `json:"timings,omitempty" description:"Time spent outside model phases: the project checks, git and forge calls, in the order they ran. With usage.phases[] it accounts for most of duration_ms."`
+
 	// Next is the invocations a caller would plausibly make next, derived
 	// from the result in Go. Omitted when there is nothing to suggest
 	// (06-REQ-6).
@@ -425,6 +428,15 @@ type UsageInfo struct {
 	CostUSD             float64     `json:"cost_usd" description:"Cost in US dollars summed over every phase."`
 	Turns               int         `json:"turns" description:"Model turns summed over every phase."`
 	Phases              []PhaseInfo `json:"phases,omitempty" description:"The cost of each model-facing step, in order."`
+}
+
+// TimingInfo is time the run spent outside any model phase: the project's own
+// checks, git, and the forge. usage.phases[] covers model time only, so
+// without these the envelope's duration_ms cannot be reconciled with it.
+type TimingInfo struct {
+	Name       string `json:"name" description:"What was timed: baseline, verification, push, open_pr, comment:<kind>, ..."`
+	Kind       string `json:"kind" description:"check, git or forge."`
+	DurationMS int64  `json:"duration_ms" description:"How long it took in milliseconds."`
 }
 
 // PhaseInfo is one model-facing step of a pipeline.
@@ -535,6 +547,7 @@ type Run struct {
 	mu       sync.Mutex
 	warnings []Warning
 	effects  []SideEffect
+	timings  []TimingInfo
 	phases   []PhaseInfo
 	model    *ModelInfo
 	input    *InputInfo
@@ -681,6 +694,24 @@ func (r *Run) SideEffects() []SideEffect {
 	return append([]SideEffect(nil), r.effects...)
 }
 
+// AddTiming records time spent outside a model phase.
+func (r *Run) AddTiming(kind, name string, d time.Duration) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.timings = append(r.timings, TimingInfo{Name: name, Kind: kind, DurationMS: d.Milliseconds()})
+}
+
+// Time starts timing a step and returns the function that records it:
+//
+//	defer run.Time("git", "push")()
+func (r *Run) Time(kind, name string) func() {
+	start := time.Now()
+	return func() { r.AddTiming(kind, name, time.Since(start)) }
+}
+
 // AddPhase records one model-facing step's cost.
 func (r *Run) AddPhase(p PhaseInfo) {
 	if r == nil {
@@ -777,6 +808,9 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 	}
 	if len(r.effects) > 0 {
 		env.SideEffects = append([]SideEffect(nil), r.effects...)
+	}
+	if len(r.timings) > 0 {
+		env.Timings = append([]TimingInfo(nil), r.timings...)
 	}
 	if len(r.phases) > 0 {
 		u := &UsageInfo{Phases: append([]PhaseInfo(nil), r.phases...)}

@@ -90,3 +90,27 @@ func TestAddPhaseWarnsOnManyToolErrors(t *testing.T) {
 		t.Errorf("phase = %+v", p)
 	}
 }
+
+// Time outside the model phases is reported, so duration_ms can be reconciled
+// with usage.phases[] (#71).
+func TestEnvelopeReportsTimingsOutsideModelPhases(t *testing.T) {
+	run := toolio.NewRun("fix", "test")
+	run.AddTiming("check", "baseline", 75*time.Second)
+	stop := run.Time("git", "push")
+	stop()
+	env := run.Envelope(toolio.ExitOK, nil, nil)
+	if len(env.Timings) != 2 {
+		t.Fatalf("timings = %+v", env.Timings)
+	}
+	if env.Timings[0] != (toolio.TimingInfo{Name: "baseline", Kind: "check", DurationMS: 75000}) {
+		t.Errorf("timing 0 = %+v", env.Timings[0])
+	}
+	if env.Timings[1].Name != "push" || env.Timings[1].Kind != "git" || env.Timings[1].DurationMS < 0 {
+		t.Errorf("timing 1 = %+v", env.Timings[1])
+	}
+	if toolio.NewRun("fix", "t").Envelope(toolio.ExitOK, nil, nil).Timings != nil {
+		t.Error("a run with no timings carried some")
+	}
+	var nilRun *toolio.Run
+	nilRun.AddTiming("git", "x", time.Second) // must not panic
+}

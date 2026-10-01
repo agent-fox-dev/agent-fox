@@ -845,7 +845,9 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	// ---------------------------------------------------------- comment --
 	if o.Comment && !o.DryRun && o.Input.Issue != nil {
 		body := prdComment(validated, pkg)
+		stopTiming := o.Run.Time("forge", "comment:prd")
 		url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
+		stopTiming()
 		if err != nil {
 			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the PRD could not be posted on %s: %v", o.Input.Issue, err)
 			o.Run.RecordSideEffectOf("comment", "prd", o.Input.Issue.String(), "", false, toolio.WarnCommentNotPosted)

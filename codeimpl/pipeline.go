@@ -176,7 +176,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// ------------------------------------------------------------- land --
 	result.Stage = "committed"
 	if o.Land.Pushes() && !o.DryRun {
+		stopTiming := o.Run.Time("git", "push")
 		err := st.git.Push(ctx, st.branch, o.PushAttempts, func(m string) { o.Progress.Step("push", "%s", m) })
+		stopTiming()
 		// A failed push is the run's error, not a Run.Warn: no warning code.
 		o.Run.RecordSideEffect("push", "origin "+st.branch, err == nil, "")
 		if err != nil {
@@ -243,6 +245,7 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		o.Run.RecordSideEffect("open_pr", st.target.String(), false, toolio.WarnPullRequestNotOpened)
 		return result, failf("land", CategoryForge, "no forge client configured")
 	}
+	stopTiming := o.Run.Time("forge", "open_pr")
 	pr, err := o.Forge.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
 		Title: pullRequestTitle(st.spec),
 		Body:  pullRequestBody(result),
@@ -250,6 +253,7 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		Base:  st.base,
 		Draft: o.Draft,
 	})
+	stopTiming()
 	if err != nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", st.branch, st.base, err)
