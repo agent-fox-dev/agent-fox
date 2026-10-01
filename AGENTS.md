@@ -3,137 +3,78 @@
 Instructions for coding agents (Cursor, Claude Code, Codex, etc.) working on
 this repository. Treat this file as mandatory policy for every coding session.
 
-## Understand Before You Code (MANDATORY)
+## Understand Before You Code
 
 Before making any changes, orient yourself:
 
-1. **Read `README.md`** for project overview and quick-start.
-2. **Read `.specs/steering.md`** if it exists — project-level directives that
-   apply to all agents and skills. Follow any instructions found there.
-3. **Read ADRs and errata** in `docs/` for architectural context.
-4. **Explore the codebase:** see the layout below; Go tests sit beside the code
-   they cover.
-5. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
+1. Read `README.md` for the project overview and quick-start.
+2. Read `.specs/steering.md` if it exists: project-level directives that apply
+   to every agent.
+3. Read the architectural decisions and errata under `docs/`.
+4. Look at the code layout and at the tests beside the code you will touch.
+5. Check git state: `git log --oneline -20`, `git status --short --branch`.
 
-**Important:** Read all documents and code in depth — don't skim.
-
-**Important:** Only read files tracked by git. Skip anything matched by
-`.gitignore`. When in doubt, run `git ls-files` to see what's tracked.
-
-Do not implement anything before completing these steps.
-
-## Project Structure
-
-```
-afspec/                 # Spec format library (package afspec)
-  legacy/               # Read-only version 1 types
-  schemas/              # Bundled JSON Schemas, embedded at compile time
-specgen/                # The spec pipeline: PRD, three generation phases, project audit
-issuetriage/            # The issue triage pipeline
-codefix/                # The fix pipeline
-codeimpl/               # The implementation pipeline: a spec, task by task, on a branch
-issuex/                 # The forge client: issues, comments and pull/merge requests on GitHub and GitLab
-internal/               # Shared, not importable from outside this repo
-  toolio/               # Input classification, the JSON envelope, the shared CLI shell
-  agentrun/             # Model resolution, the phase runner, the read-only invariant, the shell guard
-  project/              # What the repository is written in, and the test-command audit
-  gitx/  checks/        # git, and the command that decides whether a change is correct
-cmd/                    # Executables: spec, issue, fix, impl (plus af and nightshift stubs)
-containers/             # Containerfiles for the sandbox and tools images
-docs/                   # Documentation, ADRs, errata, PRDs and drafts
-skills/                 # A note on the markdown skills the tools replaced (the files are gone)
-testdata/               # Shared test fixtures
-.specs/                 # Specs to be implemented
-.specs/archive/         # Old specs. Ignore for coding tasks, except for reference
-```
-
-The four tools share one interface: one positional input (text, a file path, a
-GitHub or GitLab issue URL, or `-`), one JSON object on stdout, progress on
-stderr, one exit-code table. Every call to a forge — reading an issue, filing
-one, commenting, opening a pull or merge request — goes through `issuex`; no
-tool or pipeline talks to GitHub or GitLab on its own. Adding a subcommand to any of them is a change to that
-interface — see [ADR 03](docs/adr/03-rebuild-the-skills-as-tools.md) before
-proposing one.
-
-Tests live beside the code they cover, as `*_test.go`.
+Read in depth, not by skimming. Read only files tracked by git (`git ls-files`);
+skip anything `.gitignore` covers. Do not implement anything before finishing
+these steps.
 
 ## Spec-Driven Workflow
 
-This project uses spec-driven development. Specifications live in
-`.specs/NN_name/` (numbered by creation order) and contain:
+Work is specified in `.specs/NN_name/` (numbered by creation order):
+`prd.md` (intent), `requirements.json`, `test_spec.json`, `tasks.json`, and
+optionally `architecture.md`. A spec is valid only when every criterion is
+verified by a test, every test is owned by a task, and every execution path is
+exercised by a smoke test. Specs in `.specs/archive/` are history: read them
+for reference only.
 
-- `prd.md` — narrative intent: the "why" and "what"
-- `requirements.json` — EARS criteria and end-to-end execution paths
-- `test_spec.json` — one flat list of tests, each with a `kind` and a `verifies` list
-- `tasks.json` — one flat list of tasks, each owning criteria and tests
-- `architecture.md` — (optional) modules, interfaces, data models, technology choices
-
-The format is version 2, specified in the
-[`spec`](https://github.com/agent-fox-dev/spec) repository
-(`specification/spec-format-v2.md`). A spec is valid only when every criterion
-is verified by a test, every test is owned by a task, every execution path is
-exercised by a smoke test, and the final integration task owns every smoke
-test. Coverage and traceability are derived, never stored.
-
-Cross-reference `external_apis` in `requirements.json` against installed
-libraries — API signatures in specs may be unverified assumptions.
+Check any `external_apis` named in a spec against the libraries actually
+installed; signatures in a spec may be unverified assumptions.
 
 ## Quality Commands
 
 | Command | What it does |
-|---------|-------------|
-| `make check` | Run lint + all tests (use before committing) |
-| `make test` | Run all tests (`go test ./... -count=1`) |
-| `make lint` | `gofmt` + `go vet` |
+|---|---|
+| `make check` | lint + all tests; run before committing |
+| `make test` | all tests |
+| `make lint` | formatting and static checks |
 
-Run the full quality suite before committing:
-
-```
-make check
-```
-
-**Important:** If `make check` or `make test` are not present, look for language specific test suites.
+If a target is missing, find the project's own test and lint commands.
 
 ## Git Workflow
 
-- **Branch from `main`: `feature/<descriptive-name>`.
-- **Never commit directly** to `main`.
-- **Conventional commits:** `<type>: <description>` (e.g. `feat:`, `fix:`,
+- Branch from `main` as `feature/<descriptive-name>`. Never commit to `main`
+  directly.
+- Use conventional commits: `<type>: <description>` (`feat:`, `fix:`,
   `refactor:`, `docs:`, `test:`, `chore:`).
-- **Commit discipline:** only commit files relevant to the current change.
-- **Never add `Co-Authored-By` lines.** No AI attribution in commits — ever.
-- **Feature branches are local-only** — do not push them to origin. Only `main` is pushed to the remote.
+- Commit only files that belong to the current change.
+- No AI attribution in commits: no `Co-Authored-By` lines.
+- **Branches you create by hand stay local.** Do not push a feature branch to
+  origin; only `main` is pushed. This rule is about you, the coding agent. It
+  does not govern the project's own tools: `impl` and `fix` push the
+  branches they create (`impl/*`, `fix/*`) and open a pull request by default
+  (`--land pr`). `--land branch` pushes without a pull request and `--land
+  none` commits locally and pushes nothing. The default stays `pr`; use
+  `--land none` for a run that must not leave the machine.
 
-## Scope Discipline
+## Scope
 
-- Focus on one coherent change per session.
-- Do not include unrelated "while here" fixes.
-- Priority: fix broken behavior before adding new behavior.
+- One coherent change per session; no unrelated "while here" fixes.
+- Fix broken behavior before adding new behavior.
 
 ## Documentation
 
-- **PRDs** live in `docs/prds/NN-imperative-verb-phrase.md`. To choose NN,
-  list existing files, find the max numeric prefix, and use the next number
-  zero-padded to two digits for consistency (three digits once past 99). The
-  two unnumbered files there predate this rule and are kept as history.
-- **PRD drafts** that are inputs for `spec` live in `docs/drafts/`.
-- **ADRs** live in `docs/adr/NN-imperative-verb-phrase.md`. To choose NN,
-  list existing files, find the max numeric prefix, and use the next number
-  zero-padded to two digits for consistency (three digits once past 99).
-- **Errata** live in `docs/errata/NN_snake_case_topic.md` — for spec
-  divergences. NN is the spec number the erratum relates to (e.g.
-  `28_github_issue_rest_api.md` for spec 28). For project-wide errata not
-  tied to a specific spec, omit the numeric prefix.
-- **Other docs** live in `docs/{topic}.md`.
-- When you add or change user-facing behavior, public APIs, configuration, or
-  architecture, update the relevant documentation in the same session.
+- When you add or change user-facing behavior, public APIs, configuration or
+  architecture, update the relevant docs in the same session.
+- Product requirement docs live in `docs/prds/`, decisions in `docs/adr/`,
+  spec divergences in `docs/errata/`, other docs in `docs/`. Number new PRDs
+  and ADRs with the next free two-digit prefix.
 
 ## Session Completion
 
-A session is not complete until:
+A session is complete when:
 
-1. `make lint` and `make test` passes (no regressions).
-2. Changes are committed with a clear conventional commit message.
-3. Changes are merged into `main` locally.
-4. `git status` shows a clean working tree.
-5. You provide a brief handoff note summarizing what was done and what remains.
+1. `make lint` and `make test` pass.
+2. The change is committed with a conventional message.
+3. The change is merged into `main` locally.
+4. `git status` is clean.
+5. You have left a brief handoff note: what was done, what remains.

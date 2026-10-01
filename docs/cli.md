@@ -1174,6 +1174,13 @@ impl 09_agent_mode --dry-run --total-budget 20
 impl 09 --repair --repair-model ADVANCED
 ```
 
+**What leaves the machine.** By default (`--land pr`) `impl` pushes its
+`impl/<NN>-<slug>` branch to `origin` and opens a pull request. `--land branch`
+pushes the branch and opens nothing; `--land none` commits locally and pushes
+nothing. This is the tool's behaviour, and it is separate from the repository
+rule that coding agents working by hand keep their feature branches local (see
+`AGENTS.md`). `fix` lands the same way with `fix/*` branches.
+
 The input names a spec package rather than describing a problem: a directory,
 a spec id, a spec name, a directory name, or a file inside the package. It is
 resolved against the spec root (`--specs-dir`, else `$AF_SPEC_DIR`, else
