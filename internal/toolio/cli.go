@@ -77,6 +77,10 @@ type Common struct {
 	// EventsFile names a file that receives the JSONL event stream whatever
 	// Events says about stderr. Empty means no file.
 	EventsFile string
+	// Output is where a second, atomic copy of the stdout envelope is
+	// written. Empty means no copy. It is resolved against the process's
+	// working directory, never --dir; see ResolveOutput.
+	Output string
 }
 
 // DryRunUsage is the one definition of --dry-run, shared by every tool.
@@ -140,7 +144,32 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
 	fs.StringVar(&c.Events, "events", EventsText, "what stderr carries: text (default, human-readable progress) or jsonl (one JSON event object per line)")
 	fs.StringVar(&c.EventsFile, "events-file", "", "also write the JSONL event stream to this file (truncated), whatever --events says about stderr")
+	fs.StringVar(&c.Output, "output", "", "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
+}
+
+// ResolveOutput validates --output and returns the absolute path it names,
+// or "" when none was given. "-" (which already means stdin for the
+// positional input) and a path that is an existing directory are usage
+// errors. The path is resolved against the process's working directory, not
+// --dir: it names a destination on the machine running the tool, not a file
+// inside the sandboxed workspace. A missing parent is not an error; it is
+// created when the envelope is written.
+func (c *Common) ResolveOutput() (string, error) {
+	if c.Output == "" {
+		return "", nil
+	}
+	if c.Output == "-" {
+		return "", Usagef("--output cannot be %q: that means stdin for the input, not a file", "-")
+	}
+	abs, err := filepath.Abs(c.Output)
+	if err != nil {
+		return "", Usagef("resolving --output %q: %v", c.Output, err)
+	}
+	if info, serr := os.Stat(abs); serr == nil && info.IsDir() {
+		return "", Usagef("--output %s is a directory, not a file", abs)
+	}
+	return abs, nil
 }
 
 // ValidInputKind refuses any --input-kind value other than the four source

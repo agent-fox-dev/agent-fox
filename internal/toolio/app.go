@@ -3,6 +3,7 @@ package toolio
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -214,6 +215,16 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
+	// --output is validated here, once: after the two purely human-driven
+	// returns (-h, bare on a terminal) that produce no envelope, and before
+	// openEvents, PreCheck, Workspace(), Resolve or model resolution.
+	if _, oerr := common.ResolveOutput(); oerr != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, oerr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: oerr.Error(), err: oerr,
+		})
+	}
+
 	sink, closeSink, serr := a.openEvents(&common, stderr)
 	if serr != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, serr)
@@ -298,12 +309,29 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		next = np.Next()
 	}
 
+	// --output is resolved here, at the one funnel every envelope passes
+	// through, so each branch of Main is covered. A malformed value (refused
+	// as a usage error, or not yet reached by an earlier usage failure)
+	// names nothing to write to, so it yields "".
+	outPath, _ := common.ResolveOutput()
+
+	path, perr := reportPath(common, a.Name, run)
+	// A collision is decided from the two configured destinations alone,
+	// before either write is attempted, so its verdict never depends on
+	// whether a write succeeds (08-REQ-4.2). It is recorded before the
+	// report envelope is built so every envelope carries it. When they
+	// collide only the complete report is written there: --output's own
+	// write is skipped entirely (08-REQ-4.3).
+	if perr == nil && configuredDestinationsCollide(outPath, path) {
+		run.Warn(WarnOutputMatchesReportFile, "low", "--output and the report file both name %s: the file there holds the complete report, not the --detail view --output alone would have written", path)
+		outPath = ""
+	}
+
 	fileEnv := run.Envelope(code, full, failure)
 	fileEnv.Artifacts = artifacts
 	fileEnv.Next = next
 
 	reportFile := ""
-	path, perr := reportPath(common, a.Name, run)
 	if perr != nil {
 		run.Warn(WarnReportFileNotWritten, "low", "the report file's path could not be determined: %v", perr)
 	} else {
@@ -321,23 +349,46 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		}
 	}
 
-	env := run.Envelope(code, full, failure)
-	env.ReportFile = reportFile
-	env.Artifacts = artifacts
-	env.Next = next
-	if reportFile != "" {
-		env.Artifacts = withReportFileArtifact(artifacts, reportFile)
-	}
-	if env.Result != nil && wantsSummary(common.Detail) {
-		if s, ok := full.(Summarizable); ok {
-			env.Result = s.SummaryView()
+	buildEnv := func() Envelope {
+		env := run.Envelope(code, full, failure)
+		env.ReportFile = reportFile
+		env.Artifacts = artifacts
+		env.Next = next
+		if reportFile != "" {
+			env.Artifacts = withReportFileArtifact(artifacts, reportFile)
 		}
+		if env.Result != nil && wantsSummary(common.Detail) {
+			if s, ok := full.(Summarizable); ok {
+				env.Result = s.SummaryView()
+			}
+		}
+		return env
+	}
+	env := buildEnv()
+
+	if outPath != "" {
+		if b, merr := json.MarshalIndent(env, "", "  "); merr == nil {
+			// The write is attempted before the stdout envelope is final, so a
+			// failure can be recorded as a warning that the same envelope
+			// carries (08-REQ-3.3). Only the warning changes: ok, status and
+			// exit_code are derived from code, never from this write.
+			if werr := writeAtomic(outPath, append(b, '\n')); werr != nil {
+				run.Warn(WarnOutputNotWritten, "low", "the --output file could not be written to %s: %v", outPath, werr)
+				env = buildEnv()
+			}
+			// Written (or failed and warned) here; EmitWithOutput must not
+			// write it a second time.
+			outPath = ""
+		}
+		// A marshal failure falls through: EmitWithOutput writes Emit's
+		// fallback envelope to outPath and, having no further envelope to
+		// carry a warning, ignores a failure of its own (08-REQ-3.4).
 	}
 	// run_end goes out immediately before the envelope, from the same code
 	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
 	// inactive sink (the paths that return before one is built) is a no-op.
 	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
-	return Emit(stdout, env)
+	return EmitWithOutput(stdout, outPath, env)
 }
 
 // withReportFileArtifact appends a report_file entry naming path, without

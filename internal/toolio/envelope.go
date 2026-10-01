@@ -773,10 +773,17 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 // for one to quote accurately than the same object over 120 lines. Machines
 // that prefer compact JSON can pipe it through anything.
 func Emit(w io.Writer, env Envelope) int {
+	return EmitWithOutput(w, "", env)
+}
+
+// marshalEnvelope renders env as the one document a run writes: indented
+// JSON and a trailing newline. It returns the exit code the run must report
+// with it. Marshalling cannot be allowed to lose the exit code, so when env
+// cannot be encoded it falls back to an envelope that is guaranteed to
+// encode, carrying just the failure, and reports ExitFailed.
+func marshalEnvelope(env Envelope) ([]byte, int) {
 	b, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
-		// Marshalling cannot be allowed to lose the exit code, so fall back
-		// to an envelope that is guaranteed to encode.
 		fallback, _ := json.MarshalIndent(Envelope{
 			Tool: env.Tool, Version: env.Version, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
 			Summary: "the result could not be encoded as JSON: " + err.Error(),
@@ -787,11 +794,9 @@ func Emit(w io.Writer, env Envelope) int {
 				Resumable: false,
 			},
 		}, "", "  ")
-		_, _ = w.Write(append(fallback, '\n'))
-		return ExitFailed
+		return append(fallback, '\n'), ExitFailed
 	}
-	_, _ = w.Write(append(b, '\n'))
-	return env.ExitCode
+	return append(b, '\n'), env.ExitCode
 }
 
 // presentOrNil drops a typed nil pointer.

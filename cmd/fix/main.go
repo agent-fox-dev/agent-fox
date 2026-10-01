@@ -201,6 +201,7 @@ var knownFixValueFlags = map[string]bool{
 	"total-budget":   true,
 	"detail":         true,
 	"report-file":    true,
+	"output":         true,
 	"events":         true,
 	"events-file":    true,
 	"context":        true,
