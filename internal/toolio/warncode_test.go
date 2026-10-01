@@ -47,6 +47,8 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"rejected_path_calls":        "analyse",
 		"report_file_not_written":    "report",
 		"input_looks_like_path":      "input",
+		"scratch_file_removed":       "task",
+		"scratch_file_suspected":     "task",
 		"output_not_written":         "emit",
 		"output_matches_report_file": "emit",
 	}
