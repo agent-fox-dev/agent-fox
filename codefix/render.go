@@ -61,6 +61,12 @@ func analysisComment(a Analysis, criteria []Criterion, branch, verifyCommand str
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
 	p("## Analysis\n\n")
+	if t := strings.TrimSpace(a.Title); t != "" {
+		p("**%s**\n\n", t)
+	}
+	if sm := strings.TrimSpace(a.Summary); sm != "" {
+		p("%s\n\n", sm)
+	}
 	p("**Classification:** %s\n\n", a.Classification)
 	p("### Diagnosis\n\n%s\n\n", strings.TrimSpace(a.RootCause))
 	p("### Planned fix\n\n%s\n\n", strings.TrimSpace(a.Approach))
