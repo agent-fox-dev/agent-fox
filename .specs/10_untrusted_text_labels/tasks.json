@@ -163,7 +163,7 @@
         "internal/toolio/trust.go",
         "internal/toolio/trust_check_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
