@@ -62,18 +62,53 @@ Exit codes:
 Flags:
 `
 
+// fixFlags holds the values of fix's own flags. Both the ordinary Exec and
+// the --preflight PreflightExec read them through fixOptions, so the two
+// paths build identical codefix.Options and a check run under --preflight
+// cannot pass against a configuration the real run would not use.
+type fixFlags struct {
+	repo          string
+	land          string
+	verify        string
+	noVerify      bool
+	verifyTimeout time.Duration
+	pushAttempts  int
+	allow         string
+	draft         bool
+	pull          pullFlag
+}
+
+// fixOptions builds the codefix.Options for one run from the parsed flags and
+// what App.execute resolved.
+func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
+	mode, _ := codefix.ParseLandMode(f.land)
+	target, _ := issuex.ParseRepo(f.repo)
+
+	return codefix.Options{
+		Input:          d.Input,
+		Workspace:      d.Workspace,
+		Repo:           target,
+		Land:           mode,
+		DryRun:         d.Common.DryRun,
+		TotalBudgetUSD: d.Common.TotalBudgetUSD,
+		VerifyCommand:  f.verify,
+		NoVerify:       f.noVerify,
+		VerifyTimeout:  f.verifyTimeout,
+		PushAttempts:   f.pushAttempts,
+		AllowPrograms:  splitList(f.allow),
+		Draft:          f.draft,
+		Pull:           f.pull.set,
+		PullBranch:     f.pull.branch,
+		Runner:         d.Runner,
+		Forge:          d.Forge,
+		CheckRunner:    gitx.ReducedEnvRunner,
+		Run:            d.Run,
+		Progress:       d.Progress,
+	}
+}
+
 func newApp() toolio.App {
-	var (
-		repo          string
-		land          string
-		verify        string
-		noVerify      bool
-		verifyTimeout time.Duration
-		pushAttempts  int
-		allow         string
-		draft         bool
-		pull          pullFlag
-	)
+	f := &fixFlags{}
 
 	return toolio.App{
 		Name: "fix",
@@ -91,61 +126,49 @@ func newApp() toolio.App {
 		},
 		ResultSample: codefix.Result{},
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
-			fs.StringVar(&land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
+			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
+			fs.StringVar(&f.land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
 			toolio.DeclareEnum(fs, "land", codefix.LandModes)
-			fs.StringVar(&verify, "verify", "", "the command that decides success; default detected from the project")
-			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; the result is then reported as unverified, not as a pass")
-			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one verification run")
-			fs.IntVar(&pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
-			fs.StringVar(&allow, "allow", "", "comma-separated extra programs the implementation phase's shell may run")
-			fs.BoolVar(&draft, "draft", false, "open the pull request as a draft")
-			fs.Var(&pull, "pull", "checkout and pull origin before branching; optional branch name, default origin's default branch")
+			fs.StringVar(&f.verify, "verify", "", "the command that decides success; default detected from the project")
+			fs.BoolVar(&f.noVerify, "no-verify", false, "run no checks; the result is then reported as unverified, not as a pass")
+			fs.DurationVar(&f.verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one verification run")
+			fs.IntVar(&f.pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
+			fs.StringVar(&f.allow, "allow", "", "comma-separated extra programs the implementation phase's shell may run")
+			fs.BoolVar(&f.draft, "draft", false, "open the pull request as a draft")
+			fs.Var(&f.pull, "pull", "checkout and pull origin before branching; optional branch name, default origin's default branch")
 		},
 		// Implementing is the expensive phase: it reads, writes, and runs the
 		// suite repeatedly. Both numbers are ceilings, not targets.
 		DefaultBounds: agentrun.Bounds{MaxTurns: 150, MaxBudgetUSD: 5.00},
 
 		PreCheck: func(*toolio.Common) error {
-			if _, ok := codefix.ParseLandMode(land); !ok {
-				return toolio.Usagef("--land %q is not one of %s", land, strings.Join(codefix.LandModes, ", "))
+			if _, ok := codefix.ParseLandMode(f.land); !ok {
+				return toolio.Usagef("--land %q is not one of %s", f.land, strings.Join(codefix.LandModes, ", "))
 			}
-			if repo != "" {
-				if _, ok := issuex.ParseRepo(repo); !ok {
-					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", repo)
+			if f.repo != "" {
+				if _, ok := issuex.ParseRepo(f.repo); !ok {
+					return toolio.Usagef("--repo %q cannot be parsed as a repository identifier", f.repo)
 				}
 			}
-			if noVerify && verify != "" {
+			if f.noVerify && f.verify != "" {
 				return toolio.Usagef("--no-verify and --verify cannot both be given")
 			}
 			return nil
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			mode, _ := codefix.ParseLandMode(land)
-			target, _ := issuex.ParseRepo(repo)
+			result, err := codefix.Run(ctx, f.fixOptions(d))
+			if err != nil {
+				info := toolio.ErrorFrom("run", err)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
 
-			result, err := codefix.Run(ctx, codefix.Options{
-				Input:          d.Input,
-				Workspace:      d.Workspace,
-				Repo:           target,
-				Land:           mode,
-				DryRun:         d.Common.DryRun,
-				TotalBudgetUSD: d.Common.TotalBudgetUSD,
-				VerifyCommand:  verify,
-				NoVerify:       noVerify,
-				VerifyTimeout:  verifyTimeout,
-				PushAttempts:   pushAttempts,
-				AllowPrograms:  splitList(allow),
-				Draft:          draft,
-				Pull:           pull.set,
-				PullBranch:     pull.branch,
-				Runner:         d.Runner,
-				Forge:          d.Forge,
-				CheckRunner:    gitx.ReducedEnvRunner,
-				Run:            d.Run,
-				Progress:       d.Progress,
-			})
+		// --preflight: every check the ordinary run makes before its first
+		// model call, against the identical options, then stop.
+		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			result, err := codefix.RunPreflight(ctx, f.fixOptions(d))
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
 				return toolio.ExitCodeFor(info.Category), result, info

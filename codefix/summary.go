@@ -1,6 +1,9 @@
 package codefix
 
-import "github.com/agent-fox-dev/agentfox/internal/checks"
+import (
+	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
+)
 
 // summaryResult is the trimmed view of Result kept under --detail summary
 // (06-REQ-3.2). Verification — the failing command's tail output — is
@@ -20,7 +23,11 @@ type summaryResult struct {
 	PullRequestURL  string         `json:"pull_request_url,omitempty" trust:"fact"`
 	DryRun          bool           `json:"dry_run"`
 	Verification    *checks.Result `json:"verification,omitempty"`
-	Detail          string         `json:"detail" trust:"fact"`
+	// Preflight and Estimate are what a --preflight run exists to report, so
+	// they survive the default view.
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty"`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty"`
+	Detail    string                  `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable.
@@ -35,6 +42,8 @@ func (r *Result) SummaryView() any {
 		CriteriaOutcome: r.CriteriaOutcome,
 		PullRequestURL:  r.PullRequestURL,
 		DryRun:          r.DryRun,
+		Preflight:       r.Preflight,
+		Estimate:        r.Estimate,
 		Detail:          "summary",
 	}
 	if !checks.Verdict(r.Verdict).Landable() {
