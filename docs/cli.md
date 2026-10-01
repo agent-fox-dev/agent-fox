@@ -91,7 +91,7 @@ or written to the cache are `cache_read_tokens` and `cache_creation_tokens`
 (omitted when zero), and `cost_usd` includes them. Each entry of
 `usage.phases[]` carries the same three figures, and `spec` also gives it a
 `scope` — the spec name — so the phases a split repeats once per scope can be
-told apart. `impl` labels each per-task phase with `task` (the task id), and a phase that had tool calls refused by the guard carries `blocked_calls`. The phase footer on stderr shows the cached tokens as
+told apart. `impl` labels each per-task phase with `task` (the task id), and a phase that had tool calls refused by the guard carries `blocked_calls`, and one whose tool calls failed carries `tool_errors` (counts by tool or tool/error-code; five or more in a phase also raise a `tool_errors` warning). The phase footer on stderr shows the cached tokens as
 `(+212.0k cached)`.
 
 `ok` is the one field a caller has to read. It is true only when the tool did
@@ -295,6 +295,7 @@ quite what it appears to be; `low` is informational.
 | `spec_edit_reverted` | high | task | impl |
 | `state_not_saved` | high | park | impl |
 | `gate_edited` | high | task | impl |
+| `tool_errors` | low | task | fix, impl, issue, spec |
 | `scratch_file_removed` | high | task | impl |
 | `scratch_file_suspected` | low | task | impl |
 | `draft_package` | low | preflight | impl |

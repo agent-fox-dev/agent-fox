@@ -227,7 +227,7 @@ func TestTS07_29_TraceReportsToolCallWhenVerbose(t *testing.T) {
 	obs := &recObserver{verbose: true}
 	r := &Runner{cfg: Config{Observer: obs}}
 	var turn int
-	r.trace("implement", &turn, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
+	r.trace("implement", &turn, &toolErrorCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
 	want := []toolCall{{"implement", "write_file", false}}
 	if !reflect.DeepEqual(obs.toolCalls, want) {
 		t.Fatalf("ToolCall calls = %+v, want %+v", obs.toolCalls, want)

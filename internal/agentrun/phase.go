@@ -2,7 +2,10 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -197,6 +200,10 @@ type Result struct {
 	// nonzero count is the guard working; a large one usually means the
 	// phase's allowlist is too narrow for the project.
 	Blocked int
+	// ToolErrors counts the tool calls that came back as errors, keyed
+	// "tool" or "tool/code" when the error carries a code. Each one cost the
+	// model a turn, and none of it shows in the transcript the report keeps.
+	ToolErrors map[string]int
 }
 
 // Runner builds and drives one agent per phase.
@@ -284,8 +291,9 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 		return Result{Name: p.Name, Elapsed: time.Since(start)}, r.wrap(p, core.RunResult{}, err)
 	}
 	var turn int
+	var toolErrs toolErrorCounter
 	for e := range stream.Events() {
-		r.trace(p.Name, &turn, e)
+		r.trace(p.Name, &turn, &toolErrs, e)
 	}
 	res, runErr := stream.RunResult()
 
@@ -297,6 +305,7 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 		Usage:      res.Usage,
 		Elapsed:    time.Since(start),
 		Blocked:    blocked.count(),
+		ToolErrors: toolErrs.snapshot(),
 	}
 	return out, r.wrap(p, res, runErr)
 }
@@ -342,6 +351,8 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	cfg.SystemPrompt += toolsNote(registered)
 
 	counter := &blockCounter{}
 	if hasShell(registered) {
@@ -458,7 +469,7 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 
 // trace reports one stream event. turn is the phase's turn counter, which
 // the loop's own TurnEndEvent advances.
-func (r *Runner) trace(phase string, turn *int, e core.Event) {
+func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, e core.Event) {
 	switch v := e.(type) {
 	case core.TurnEndEvent:
 		*turn++
@@ -476,6 +487,9 @@ func (r *Runner) trace(phase string, turn *int, e core.Event) {
 		r.detail("← %s: %s (%dms)", v.Name, status, v.ElapsedMS)
 	case core.ToolResultEvent:
 		if v.Message.IsError {
+			// Counted here and not at ToolExecutionEndEvent: a call to a tool
+			// that does not exist never executes, and still costs a turn.
+			errs.add(v.Message.ToolName, v.Message.Content.Text())
 			r.detail("   %s", firstLine(v.Message.Content.Text(), 160))
 		}
 	case core.TextDeltaEvent:
@@ -579,9 +593,44 @@ func firstLine(s string, limit int) string {
 		for cut > 0 && !utf8.RuneStart(s[cut]) {
 			cut--
 		}
-		return s[:cut] + "…"
+		return fmt.Sprintf("%s…[+%d bytes]", s[:cut], len(s)-cut)
 	}
 	return s
+}
+
+// toolErrorCounter counts a phase's tool errors by tool and error code.
+type toolErrorCounter struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *toolErrorCounter) add(tool, text string) {
+	key := tool
+	var body struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(text), &body) == nil && body.Error != "" {
+		key += "/" + body.Error
+	}
+	c.mu.Lock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	c.n[key]++
+	c.mu.Unlock()
+}
+
+func (c *toolErrorCounter) snapshot() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.n) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(c.n))
+	for k, v := range c.n {
+		out[k] = v
+	}
+	return out
 }
 
 // blockCounter counts guard refusals across the goroutines the loop uses to
@@ -604,4 +653,21 @@ func (b *blockCounter) count() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.n
+}
+
+// toolsNote closes a phase's system prompt with the tools it has, generated
+// from the registered set so it cannot drift from it, and says so when none of
+// them is a shell. A model that is not told reaches for `bash`: one read-only
+// run called it, got an unknown-tool error, and lost a turn.
+func toolsNote(registered []core.Tool) string {
+	names := make([]string, 0, len(registered))
+	for _, t := range registered {
+		names = append(names, t.Name)
+	}
+	sort.Strings(names)
+	note := "\n\nYour tools are exactly: " + strings.Join(names, ", ") + ". Calling any other tool is an error."
+	if !hasShell(registered) {
+		note += " There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`."
+	}
+	return note
 }
