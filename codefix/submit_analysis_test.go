@@ -108,3 +108,22 @@ func TestAnalysisCommentLeadsWithTitleAndSummary(t *testing.T) {
 		t.Errorf("comment = %s", got)
 	}
 }
+
+func TestBranchPrefixIsConfigurable(t *testing.T) {
+	if got := branchPrefix(Options{}, ClassBug); got != "fix" {
+		t.Errorf("default bug prefix = %q", got)
+	}
+	if got := branchPrefix(Options{BranchPrefix: "feature"}, ClassBug); got != "feature" {
+		t.Errorf("configured prefix = %q", got)
+	}
+	for _, ok := range []string{"feature", "agent/fix", "team-a/hotfix_1.0"} {
+		if !ValidBranchPrefix(ok) {
+			t.Errorf("%q was refused", ok)
+		}
+	}
+	for _, bad := range []string{"", "/feature", "feature/", "a//b", "a b", "../x", "a/../b", "-x", "feat~1"} {
+		if ValidBranchPrefix(bad) {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}

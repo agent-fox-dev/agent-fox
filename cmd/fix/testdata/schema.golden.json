@@ -20,6 +20,11 @@
         "default": "",
         "description": "comma-separated extra programs the implementation phase's shell may run"
       },
+      "branch-prefix": {
+        "type": "string",
+        "default": "",
+        "description": "first segments of the branch name, e.g. feature; default $AF_BRANCH_PREFIX, else fix for a bug and feature otherwise"
+      },
       "budget": {
         "type": "number",
         "default": 0,
@@ -81,7 +86,7 @@
           "none"
         ],
         "default": "pr",
-        "description": "what to do with a verified change: pr, branch, none"
+        "description": "what to do with a verified change: pr, branch, none; default $AF_LAND, else pr"
       },
       "max-turns": {
         "type": "integer",

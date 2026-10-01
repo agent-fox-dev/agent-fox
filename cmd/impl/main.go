@@ -171,6 +171,7 @@ func repairModelFailure(err error) *toolio.ErrorInfo {
 
 func newApp() toolio.App {
 	f := &implFlags{}
+	var flags *flag.FlagSet
 
 	return toolio.App{
 		Name:             "impl",
@@ -187,11 +188,13 @@ func newApp() toolio.App {
 		},
 		ResultSample: codeimpl.Result{},
 		Flags: func(fs *flag.FlagSet) {
+			flags = fs
 			fs.StringVar(&f.specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+codeimpl.DefaultSpecDirName+" or $"+codeimpl.SpecDirEnv)
 			fs.IntVar(&f.task, "task", 0, "implement only this task id; default every task that is not done")
 			fs.StringVar(&f.branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
 			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
-			fs.StringVar(&f.land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
+			fs.StringVar(&f.land, "land", string(codeimpl.LandPR),
+				"what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", ")+"; default $"+landEnv+", else pr")
 			toolio.DeclareEnum(fs, "land", codeimpl.LandModes)
 			fs.StringVar(&f.verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
 			fs.BoolVar(&f.noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
@@ -213,6 +216,7 @@ func newApp() toolio.App {
 		DefaultBounds: agentrun.Bounds{MaxTurns: 150, MaxBudgetUSD: 5.00},
 
 		PreCheck: func(*toolio.Common) error {
+			applyEnvDefaults(flags, map[string]*string{"land": &f.land})
 			if _, ok := codeimpl.ParseLandMode(f.land); !ok {
 				return toolio.Usagef("--land %q is not one of %s", f.land, strings.Join(codeimpl.LandModes, ", "))
 			}
@@ -293,4 +297,33 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// landEnv sets the default for --land, so a repository or a shell can say once
+// that a run should not leave the machine (AF_LAND=none).
+const landEnv = "AF_LAND"
+
+// envDefaults maps a flag to the environment variable that supplies its value
+// when the flag was not given. The flag's own default stays fixed, so --schema
+// does not depend on the environment.
+var envDefaults = map[string]string{"land": landEnv}
+
+// applyEnvDefaults sets each flag the command line left alone from its
+// environment variable, when that is set. An invalid value is then refused by
+// the same check as a flag, so a mistyped AF_LAND=nnone cannot fall back to
+// pushing.
+func applyEnvDefaults(fs *flag.FlagSet, targets map[string]*string) {
+	if fs == nil {
+		return
+	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	for name, dst := range targets {
+		if given[name] {
+			continue
+		}
+		if v := os.Getenv(envDefaults[name]); v != "" {
+			*dst = v
+		}
+	}
 }

@@ -86,7 +86,7 @@
           "none"
         ],
         "default": "pr",
-        "description": "what to do once every task is done: pr, branch, none"
+        "description": "what to do once every task is done: pr, branch, none; default $AF_LAND, else pr"
       },
       "max-turns": {
         "type": "integer",

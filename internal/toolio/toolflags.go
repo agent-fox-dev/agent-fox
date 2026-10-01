@@ -24,7 +24,7 @@ var toolOrder = []string{"issue", "fix", "spec", "impl"}
 var toolFlags = map[string][]string{
 	"issue": {"repo", "label", "overwrite"},
 	"fix": {"repo", "land", "verify", "no-verify", "verify-timeout", "push-attempts",
-		"allow", "draft", "pull"},
+		"allow", "draft", "pull", "branch-prefix"},
 	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",

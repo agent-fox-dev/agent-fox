@@ -939,7 +939,8 @@ wrapped items are all read; at most 30 criteria are taken.
 | Flag | Default | Effect |
 |---|---|---|
 | `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
-| `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
+| `--land` | `$AF_LAND`, else `pr` | `pr` · `branch` (push only) · `none` (commit only) |
+| `--branch-prefix` | `$AF_BRANCH_PREFIX`, else `fix` for a bug and `feature` otherwise | first segments of the branch name, e.g. `feature` gives `feature/issue-42-nil-map`; slash-separated words of letters, digits, `.`, `_`, `-` |
 | `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
 | `--verify` | detected | the command that decides success |
 | `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
@@ -1400,7 +1401,7 @@ evidence is the model's own claim; the run does not re-run the tests red.
 | `--specs-dir` | `<dir>/.specs`, or `$AF_SPEC_DIR` | where `NN_name` packages live |
 | `--task N` | every task not done | implement only task `N`; its dependencies must be done |
 | `--branch` | `impl/<NN>-<slug>` | the branch to work on, created if missing and continued if present |
-| `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
+| `--land` | `$AF_LAND`, else `pr` | `pr` · `branch` (push only) · `none` (commit only) |
 | `--repo owner/repo` | the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
 | `--verify` | the spec's `linter` and `all_tests` | one command that decides success instead |
 | `--no-verify` | off | run nothing; every task is then `unverified`, not a pass |

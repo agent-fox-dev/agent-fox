@@ -22,6 +22,7 @@ package codefix
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -63,6 +64,19 @@ func (c Classification) BranchPrefix() string {
 		return "fix"
 	}
 	return "feature"
+}
+
+// BranchPrefixEnv is the environment variable that sets the branch prefix for
+// a repository or a shell, under --branch-prefix.
+const BranchPrefixEnv = "AF_BRANCH_PREFIX"
+
+var branchPrefixRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
+
+// ValidBranchPrefix reports whether p can be the first segments of a branch
+// name: slash-separated words of letters, digits, dot, underscore and dash,
+// with no empty segment, no trailing slash and no `..`.
+func ValidBranchPrefix(p string) bool {
+	return branchPrefixRe.MatchString(p) && !strings.Contains(p, "..")
 }
 
 // CommitType is the conventional-commit type for the landed change.

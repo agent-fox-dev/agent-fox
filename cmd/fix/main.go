@@ -69,6 +69,7 @@ Flags:
 type fixFlags struct {
 	repo          string
 	land          string
+	branchPrefix  string
 	verify        string
 	noVerify      bool
 	verifyTimeout time.Duration
@@ -89,6 +90,7 @@ func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
 		Workspace:      d.Workspace,
 		Repo:           target,
 		Land:           mode,
+		BranchPrefix:   f.branchPrefix,
 		DryRun:         d.Common.DryRun,
 		TotalBudgetUSD: d.Common.TotalBudgetUSD,
 		VerifyCommand:  f.verify,
@@ -109,6 +111,7 @@ func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
 
 func newApp() toolio.App {
 	f := &fixFlags{}
+	var flags *flag.FlagSet
 
 	return toolio.App{
 		Name: "fix",
@@ -126,9 +129,13 @@ func newApp() toolio.App {
 		},
 		ResultSample: codefix.Result{},
 		Flags: func(fs *flag.FlagSet) {
+			flags = fs
 			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
-			fs.StringVar(&f.land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
+			fs.StringVar(&f.land, "land", string(codefix.LandPR),
+				"what to do with a verified change: "+strings.Join(codefix.LandModes, ", ")+"; default $"+landEnv+", else pr")
 			toolio.DeclareEnum(fs, "land", codefix.LandModes)
+			fs.StringVar(&f.branchPrefix, "branch-prefix", "",
+				"first segments of the branch name, e.g. feature; default $"+codefix.BranchPrefixEnv+", else fix for a bug and feature otherwise")
 			fs.StringVar(&f.verify, "verify", "", "the command that decides success; default detected from the project")
 			fs.BoolVar(&f.noVerify, "no-verify", false, "run no checks; the result is then reported as unverified, not as a pass")
 			fs.DurationVar(&f.verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one verification run")
@@ -142,8 +149,13 @@ func newApp() toolio.App {
 		DefaultBounds: agentrun.Bounds{MaxTurns: 150, MaxBudgetUSD: 5.00},
 
 		PreCheck: func(*toolio.Common) error {
+			applyEnvDefaults(flags, map[string]*string{"land": &f.land, "branch-prefix": &f.branchPrefix})
 			if _, ok := codefix.ParseLandMode(f.land); !ok {
 				return toolio.Usagef("--land %q is not one of %s", f.land, strings.Join(codefix.LandModes, ", "))
+			}
+			if f.branchPrefix != "" && !codefix.ValidBranchPrefix(f.branchPrefix) {
+				return toolio.Usagef("--branch-prefix %q is not a valid branch prefix: use slash-separated words of "+
+					"letters, digits, dot, underscore and dash", f.branchPrefix)
 			}
 			if f.repo != "" {
 				if _, ok := issuex.ParseRepo(f.repo); !ok {
@@ -220,6 +232,7 @@ func (p *pullFlag) IsBoolFlag() bool {
 var knownFixValueFlags = map[string]bool{
 	"repo":           true,
 	"land":           true,
+	"branch-prefix":  true,
 	"verify":         true,
 	"verify-timeout": true,
 	"push-attempts":  true,
@@ -331,4 +344,33 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// landEnv sets the default for --land, so a repository or a shell can say once
+// that a run should not leave the machine (AF_LAND=none).
+const landEnv = "AF_LAND"
+
+// envDefaults maps a flag to the environment variable that supplies its value
+// when the flag was not given. The flag's own default stays fixed, so --schema
+// does not depend on the environment.
+var envDefaults = map[string]string{"land": landEnv, "branch-prefix": codefix.BranchPrefixEnv}
+
+// applyEnvDefaults sets each flag the command line left alone from its
+// environment variable, when that is set. An invalid value is then refused by
+// the same check as a flag, so a mistyped AF_LAND=nnone cannot fall back to
+// pushing.
+func applyEnvDefaults(fs *flag.FlagSet, targets map[string]*string) {
+	if fs == nil {
+		return
+	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	for name, dst := range targets {
+		if given[name] {
+			continue
+		}
+		if v := os.Getenv(envDefaults[name]); v != "" {
+			*dst = v
+		}
+	}
 }
