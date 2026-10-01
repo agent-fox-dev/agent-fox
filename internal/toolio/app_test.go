@@ -364,6 +364,54 @@ func TestDeps_ForgeField_TS_04_9(t *testing.T) {
 	var _ issuex.Client = d.Forge
 }
 
+// A GitHub issue URL must be fetched from the API host (api.github.com),
+// not the web host (github.com).
+func TestApp_Execute_GitHubIssueURLUsesAPIHost(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("GITHUB_API_URL", "")
+	dir := t.TempDir()
+
+	oldTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	var hosts []string
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		hosts = append(hosts, req.URL.Host)
+		body := `{"number": 34, "title": "T", "body": "b", "state": "open", "user": {"login": "alice"}}`
+		if strings.HasSuffix(req.URL.Path, "/comments") {
+			body = `[]`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+
+	app := &App{
+		Name:    "testapp",
+		Version: "1.0",
+		Usage:   "usage\n",
+		Exec: func(ctx context.Context, d Deps) (int, any, *ErrorInfo) {
+			return ExitOK, map[string]string{"stage": "done"}, nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", dir, "https://github.com/agent-fox-dev/hub/issues/34"}, strings.NewReader(""), &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("code = %d stderr = %s", code, stderr.String())
+	}
+	if len(hosts) == 0 {
+		t.Fatal("expected at least one API request")
+	}
+	for _, h := range hosts {
+		if h != "api.github.com" {
+			t.Errorf("request host = %q, want api.github.com", h)
+		}
+	}
+}
+
 // TS-04-10: App.execute instantiates host-specific forge client for recognized issue URLs (04-REQ-3.2, 04-REQ-3.5).
 func TestApp_Execute_HostSpecificForgeClient_TS_04_10(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")

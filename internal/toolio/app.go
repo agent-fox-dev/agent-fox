@@ -411,7 +411,9 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	var forge issuex.Client
 	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
 		forge, _ = issuex.NewWithOptions(issuex.Options{
-			BaseURL:   "https://" + ref.Repo.Host,
+			// Pass the repo, not a BaseURL: the web host (github.com) is
+			// not the API host (api.github.com); detectForge derives it.
+			Repo:      ref.Repo,
 			UserAgent: a.Name + "/" + a.Version,
 		})
 	}
