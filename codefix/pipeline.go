@@ -190,7 +190,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		Criteria: criteria,
 	})
 	recordPhase(o.Run, stats)
-	done(phaseSummary(stats))
+	done(toolio.PhaseSummary(stats))
 	if err != nil {
 		return result, fail("analyse", agentrun.CategoryOf(err), err)
 	}
@@ -238,7 +238,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		Criteria: criteria,
 	})
 	recordPhase(o.Run, stats)
-	done(phaseSummary(stats))
+	done(toolio.PhaseSummary(stats))
 	if err != nil {
 		return result, fail("implement", agentrun.CategoryOf(err), err)
 	}
@@ -706,31 +706,6 @@ func overBudget(o Options) *Failure {
 	return nil
 }
 
-func recordPhase(run *toolio.Run, res agentrun.Result) {
-	if run == nil || res.Name == "" {
-		return
-	}
-	run.AddPhase(toolio.PhaseInfo{
-		Name:         res.Name,
-		Turns:        res.Turns,
-		StopReason:   string(res.StopReason),
-		InputTokens:  int64(res.Usage.InputTokens),
-		OutputTokens: int64(res.Usage.OutputTokens),
-		CostUSD:      res.Usage.CostUSD,
-		DurationMS:   res.Elapsed.Milliseconds(),
-	})
-}
-
-func phaseSummary(res agentrun.Result) string {
-	s := fmt.Sprintf("· %d turns · %s↑ %s↓", res.Turns,
-		toolio.FormatTokens(int64(res.Usage.InputTokens)),
-		toolio.FormatTokens(int64(res.Usage.OutputTokens)))
-	if res.Blocked > 0 {
-		s += fmt.Sprintf(" · %d tools blocked", res.Blocked)
-	}
-	return s
-}
-
 // unmetCriteriaWarning names the criteria that were not met.
 func unmetCriteriaWarning(criteria []Criterion, verdicts []CriterionVerdict) string {
 	byID := verdictsByID(verdicts)
@@ -743,4 +718,11 @@ func unmetCriteriaWarning(criteria []Criterion, verdicts []CriterionVerdict) str
 	return fmt.Sprintf("acceptance criteria reported as not met: %s (%d of %d); the change is "+
 		"reported with the verdict and the evidence for each",
 		strings.Join(unmet, ", "), len(unmet), len(criteria))
+}
+
+func recordPhase(run *toolio.Run, res agentrun.Result) {
+	if run == nil || res.Name == "" {
+		return
+	}
+	run.AddPhase(toolio.PhaseFromResult(res, ""))
 }

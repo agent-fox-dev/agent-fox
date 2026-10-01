@@ -409,7 +409,7 @@ type ModelInfo struct {
 
 // UsageInfo is the run's cost, summed over every phase.
 type UsageInfo struct {
-	InputTokens         int64       `json:"input_tokens" description:"Input tokens summed over every phase."`
+	InputTokens         int64       `json:"input_tokens" description:"Input tokens summed over every phase, not counting those read from or written to the prompt cache."`
 	OutputTokens        int64       `json:"output_tokens" description:"Output tokens summed over every phase."`
 	CacheReadTokens     int64       `json:"cache_read_tokens,omitempty" description:"Tokens read from the prompt cache, when any were."`
 	CacheCreationTokens int64       `json:"cache_creation_tokens,omitempty" description:"Tokens written to the prompt cache, when any were."`
@@ -420,13 +420,16 @@ type UsageInfo struct {
 
 // PhaseInfo is one model-facing step of a pipeline.
 type PhaseInfo struct {
-	Name         string  `json:"name" description:"The phase name, in the tool own vocabulary."`
-	Turns        int     `json:"turns" description:"Model turns the phase took."`
-	StopReason   string  `json:"stop_reason" description:"Why the phase ended."`
-	InputTokens  int64   `json:"input_tokens" description:"Input tokens the phase used."`
-	OutputTokens int64   `json:"output_tokens" description:"Output tokens the phase used."`
-	CostUSD      float64 `json:"cost_usd" description:"Cost of the phase in US dollars."`
-	DurationMS   int64   `json:"duration_ms" description:"Duration of the phase in milliseconds."`
+	Name                string  `json:"name" description:"The phase name, in the tool own vocabulary."`
+	Scope               string  `json:"scope,omitempty" description:"The spec the phase worked on, when a run covers several, such as the scopes of a split."`
+	Turns               int     `json:"turns" description:"Model turns the phase took."`
+	StopReason          string  `json:"stop_reason" description:"Why the phase ended."`
+	InputTokens         int64   `json:"input_tokens" description:"Input tokens the phase used, not counting those read from or written to the prompt cache."`
+	OutputTokens        int64   `json:"output_tokens" description:"Output tokens the phase used."`
+	CacheReadTokens     int64   `json:"cache_read_tokens,omitempty" description:"Tokens the phase read from the prompt cache, when any were."`
+	CacheCreationTokens int64   `json:"cache_creation_tokens,omitempty" description:"Tokens the phase wrote to the prompt cache, when any were."`
+	CostUSD             float64 `json:"cost_usd" description:"Cost of the phase in US dollars, cache reads and writes included."`
+	DurationMS          int64   `json:"duration_ms" description:"Duration of the phase in milliseconds."`
 }
 
 // FixHint is a machine-usable remedy for a failure.
@@ -731,6 +734,8 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		for _, p := range r.phases {
 			u.InputTokens += p.InputTokens
 			u.OutputTokens += p.OutputTokens
+			u.CacheReadTokens += p.CacheReadTokens
+			u.CacheCreationTokens += p.CacheCreationTokens
 			u.CostUSD += p.CostUSD
 			u.Turns += p.Turns
 		}

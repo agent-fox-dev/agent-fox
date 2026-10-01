@@ -1726,7 +1726,7 @@
         "properties": {
           "input_tokens": {
             "type": "integer",
-            "description": "Input tokens summed over every phase."
+            "description": "Input tokens summed over every phase, not counting those read from or written to the prompt cache."
           },
           "output_tokens": {
             "type": "integer",
@@ -1758,6 +1758,10 @@
                   "type": "string",
                   "description": "The phase name, in the tool own vocabulary."
                 },
+                "scope": {
+                  "type": "string",
+                  "description": "The spec the phase worked on, when a run covers several, such as the scopes of a split."
+                },
                 "turns": {
                   "type": "integer",
                   "description": "Model turns the phase took."
@@ -1768,15 +1772,23 @@
                 },
                 "input_tokens": {
                   "type": "integer",
-                  "description": "Input tokens the phase used."
+                  "description": "Input tokens the phase used, not counting those read from or written to the prompt cache."
                 },
                 "output_tokens": {
                   "type": "integer",
                   "description": "Output tokens the phase used."
                 },
+                "cache_read_tokens": {
+                  "type": "integer",
+                  "description": "Tokens the phase read from the prompt cache, when any were."
+                },
+                "cache_creation_tokens": {
+                  "type": "integer",
+                  "description": "Tokens the phase wrote to the prompt cache, when any were."
+                },
                 "cost_usd": {
                   "type": "number",
-                  "description": "Cost of the phase in US dollars."
+                  "description": "Cost of the phase in US dollars, cache reads and writes included."
                 },
                 "duration_ms": {
                   "type": "integer",
