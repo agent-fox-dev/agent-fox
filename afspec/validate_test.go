@@ -491,3 +491,28 @@ func TestCrossFileWarningsCarryACheckName(t *testing.T) {
 		}
 	}
 }
+
+// The ownership errors say how to fix them, not just what is wrong (#62).
+func TestOwnershipErrorsCarryARemedy(t *testing.T) {
+	spec := mutateFixture(t, func(s *Spec) {
+		for i := range s.Tasks.Tasks {
+			s.Tasks.Tasks[i].Tests = nil
+			s.Tasks.Tasks[i].Criteria = nil
+		}
+	})
+	var c7, c8 string
+	for _, e := range spec.ValidateCrossFile().Errors {
+		switch e.Check {
+		case "C7":
+			c7 = e.Message
+		case "C8":
+			c8 = e.Message
+		}
+	}
+	if !strings.Contains(c7, "add ") || !strings.Contains(c7, "tests of an existing task") {
+		t.Errorf("C7 = %q", c7)
+	}
+	if !strings.Contains(c8, "implement task that builds it") || !strings.Contains(c8, "not the integration task") {
+		t.Errorf("C8 = %q", c8)
+	}
+}

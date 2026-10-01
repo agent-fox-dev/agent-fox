@@ -3,6 +3,7 @@ package specgen
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -359,5 +360,26 @@ func TestPromptsAdmitThatDependencySourceIsOutOfReach(t *testing.T) {
 	}
 	if !strings.Contains(generationSystemPrompt(), `"verified": false`) {
 		t.Error("the generation prompt does not say how to record an unreachable package")
+	}
+}
+
+// A phase that ends without an accepted artifact says what it was stuck on
+// (#62).
+func TestRejectionDetailNamesTheCountAndTheLastFailure(t *testing.T) {
+	var sink artifactSink
+	if sink.rejectionDetail() != "" {
+		t.Error("nothing was rejected, so there is no detail")
+	}
+	sink.reject("the tasks artifact has 2 validation error(s):\n[C7] test TS-01-3 is not owned by any task\n[C8] criterion X")
+	sink.reject("the tasks artifact has 1 validation error(s):\n[C7] test TS-01-4 is not owned by any task")
+	got := sink.rejectionDetail()
+	for _, want := range []string{"2 submission(s) were rejected", "1 validation error(s)", "TS-01-4"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("detail lacks %q: %s", want, got)
+		}
+	}
+	err := withRejections(errors.New("no result"), &sink)
+	if errors.Unwrap(err) == nil || !strings.Contains(err.Error(), "no result (2 submission(s)") {
+		t.Errorf("err = %v", err)
 	}
 }
