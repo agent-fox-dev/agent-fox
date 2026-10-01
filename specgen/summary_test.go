@@ -2,6 +2,7 @@ package specgen
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -70,7 +71,8 @@ func TestTS06_19_SummaryViewReducesValidationAndTraceabilityAndDropsFollowOnAndS
 	if !ok {
 		t.Fatalf("traceability is not an object: %v", m["traceability"])
 	}
-	wantTrace := map[string]bool{"criteria_uncovered": true, "paths_uncovered": true, "tests_unowned": true}
+	wantTrace := map[string]bool{"criteria_covered": true, "paths_covered": true,
+		"criteria_uncovered": true, "paths_uncovered": true, "tests_unowned": true}
 	for k := range traceAny {
 		if !wantTrace[k] {
 			t.Errorf("unexpected key %q in traceability summary: %v", k, traceAny)
@@ -96,5 +98,33 @@ func TestTS06_19_SummaryViewReducesValidationAndTraceabilityAndDropsFollowOnAndS
 		if _, ok := m[key]; !ok {
 			t.Errorf("summary view is missing %q: %v", key, m)
 		}
+	}
+}
+
+// In a split run result describes the first package, so split[] carries every
+// written package's own state (#57).
+func TestSplitReportCarriesEachPackagesState(t *testing.T) {
+	r := &Result{
+		Package: Package{SpecDir: ".specs/02_a", Validation: ValidationReport{Valid: true},
+			OpenQuestions: []OpenQuestion{{Question: "q"}}},
+		FollowOnSpecs: []Package{{SpecDir: ".specs/03_b", Validation: ValidationReport{ErrorCount: 2},
+			OpenQuestions: []OpenQuestion{{Question: "x"}, {Question: "y"}},
+			Traceability:  TraceReport{CriteriaUncovered: []string{"C-1"}}}},
+	}
+	r.setSplit([]ScopeReport{
+		{Name: "a", SpecDir: ".specs/02_a"}, {Name: "b", SpecDir: ".specs/03_b"}, {Name: "c"},
+	})
+	a, b, c := r.Split[0], r.Split[1], r.Split[2]
+	if a.Valid == nil || !*a.Valid || a.OpenQuestionsCount != 1 {
+		t.Errorf("scope a = %+v", a)
+	}
+	if b.Valid == nil || *b.Valid || b.ErrorCount != 2 || b.OpenQuestionsCount != 2 || b.TraceGaps != 1 {
+		t.Errorf("scope b = %+v", b)
+	}
+	if c.Valid != nil {
+		t.Errorf("an unwritten scope has no state: %+v", c)
+	}
+	if got := r.Summary(); !strings.Contains(got, "3 open questions across 2 packages") {
+		t.Errorf("summary = %q", got)
 	}
 }

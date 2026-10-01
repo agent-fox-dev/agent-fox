@@ -1,10 +1,14 @@
 package specgen
 
-import "github.com/agent-fox-dev/agentfox/internal/toolio"
+import (
+	"fmt"
+
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
+)
 
 // Next implements toolio.NextProvider (06-REQ-6.2, 06-REQ-6.3). It suggests
-// impl on the first written package that validates, and spec again on the
-// same input when the split is unfinished. Every value is a fact the
+// impl on every written package that validates, in split order, and spec
+// again on the same input when the split is unfinished. Every value is a fact the
 // pipeline established — SpecDir, Validation.Valid, SplitPlan and the input's
 // own origin — never anything a model wrote.
 func (r *Result) Next() []toolio.Next {
@@ -18,14 +22,18 @@ func (r *Result) Next() []toolio.Next {
 		pkgs = append(pkgs, r.Package)
 	}
 	pkgs = append(pkgs, r.FollowOnSpecs...)
+	var ready []Package
 	for _, p := range pkgs {
 		if p.Validation.Valid && p.SpecDir != "" {
-			out = append(out, toolio.Next{
-				Tool: "impl", Input: p.SpecDir, Flags: []string{},
-				Why: "the package validates and is ready to implement",
-			})
-			break
+			ready = append(ready, p)
 		}
+	}
+	for _, p := range ready {
+		why := "the package validates and is ready to implement"
+		if len(ready) > 1 {
+			why = fmt.Sprintf("the package validates and is ready to implement (%d of this run's packages are ready, in split order)", len(ready))
+		}
+		out = append(out, toolio.Next{Tool: "impl", Input: p.SpecDir, Flags: []string{}, Why: why})
 	}
 
 	if r.Resumable() {

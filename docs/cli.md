@@ -1122,6 +1122,12 @@ and:
   `criteria_uncovered`, `paths_covered`, `paths_uncovered`, `tests_unowned`
 - `open_questions` — the decisions made under uncertainty
 
+In a split run that means the first scope only. The state of every other
+package this run wrote is in `split[]` (`valid`, `error_count`,
+`open_questions_count`, `trace_gaps`); the summary line's open-question count
+adds up every package, and `next[]` lists `impl` for each valid package in
+split order.
+
 When the input was more than one spec's worth of work, three fields join them:
 
 - `follow_on_specs` — the further packages this run wrote, in order, each
