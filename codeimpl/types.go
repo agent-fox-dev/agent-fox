@@ -223,12 +223,12 @@ var Verdicts = []string{VerdictPass, VerdictFail}
 // Verdict is the model's judgement on one of the task's tests or done_when
 // entries, with the evidence for it.
 type Verdict struct {
-	ID       string `json:"id" description:"The id of the test or done_when entry this verdict answers."`
-	Verdict  string `json:"verdict" description:"pass or fail."`
-	Evidence string `json:"evidence" description:"The evidence for the verdict."`
+	ID       string `json:"id" trust:"fact" description:"The id of the test or done_when entry this verdict answers."`
+	Verdict  string `json:"verdict" trust:"model" description:"pass or fail."`
+	Evidence string `json:"evidence" trust:"model" description:"The evidence for the verdict."`
 	// RedEvidence is, for a test verdict, the command run and the failure
 	// seen before the implementation existed. It is the model's own claim.
-	RedEvidence string `json:"red_evidence,omitempty" description:"For a test verdict, the command run and the failure seen before the implementation existed. The model own claim."`
+	RedEvidence string `json:"red_evidence,omitempty" trust:"model" description:"For a test verdict, the command run and the failure seen before the implementation existed. The model own claim."`
 }
 
 // Passed reports whether v is a pass.
@@ -236,8 +236,8 @@ func (v Verdict) Passed() bool { return strings.EqualFold(strings.TrimSpace(v.Ve
 
 // FileChange is one file the model reports having changed.
 type FileChange struct {
-	Path   string `json:"path" description:"Path of the file, relative to the repository root."`
-	Change string `json:"change" description:"What was done to the file."`
+	Path   string `json:"path" trust:"model" description:"Path of the file, relative to the repository root."`
+	Change string `json:"change" trust:"model" description:"What was done to the file."`
 }
 
 // Blocker is a reason the run cannot proceed without a person.
@@ -247,16 +247,16 @@ type FileChange struct {
 // implemented as written — it names a module the PRD does not say to
 // create, or contradicts an invariant the code enforces.
 type Blocker struct {
-	Reason string `json:"reason" description:"Why the work cannot proceed without a person."`
-	Needed string `json:"needed" description:"What a person has to decide or change."`
+	Reason string `json:"reason" trust:"model" description:"Why the work cannot proceed without a person."`
+	Needed string `json:"needed" trust:"model" description:"What a person has to decide or change."`
 }
 
 // Survey is the read-only phase's brief: where the things the spec names
 // actually live, the conventions a coder must follow, and every place the
 // spec's assumptions and the code disagree.
 type Survey struct {
-	Summary     string     `json:"summary" description:"Summary of what the read-only survey found."`
-	Conventions []string   `json:"conventions,omitempty" description:"Conventions a coder must follow."`
+	Summary     string     `json:"summary" trust:"model" description:"Summary of what the read-only survey found."`
+	Conventions []string   `json:"conventions,omitempty" trust:"model" description:"Conventions a coder must follow."`
 	Locations   []Location `json:"locations,omitempty" description:"Where the names the spec uses live in the code."`
 	Drift       []Drift    `json:"drift,omitempty" description:"Every place the spec assumptions and the code disagree."`
 	Blocker     *Blocker   `json:"blocker,omitempty" description:"Set when the spec cannot be implemented as written."`
@@ -264,17 +264,17 @@ type Survey struct {
 
 // Location maps a name the spec uses onto the code.
 type Location struct {
-	Name string `json:"name" description:"A name the spec uses."`
-	Path string `json:"path" description:"Where it lives in the code."`
-	Note string `json:"note,omitempty" description:"Anything worth knowing about it."`
+	Name string `json:"name" trust:"model" description:"A name the spec uses."`
+	Path string `json:"path" trust:"model" description:"Where it lives in the code."`
+	Note string `json:"note,omitempty" trust:"model" description:"Anything worth knowing about it."`
 }
 
 // Drift is one disagreement between the spec and the code, with the
 // resolution the tasks should follow.
 type Drift struct {
-	SpecRef    string `json:"spec_ref" description:"The part of the spec that disagrees with the code."`
-	Finding    string `json:"finding" description:"What the code does instead."`
-	Resolution string `json:"resolution" description:"What the tasks should follow."`
+	SpecRef    string `json:"spec_ref" trust:"model" description:"The part of the spec that disagrees with the code."`
+	Finding    string `json:"finding" trust:"model" description:"What the code does instead."`
+	Resolution string `json:"resolution" trust:"model" description:"What the tasks should follow."`
 }
 
 // Submission is the model's report of one task's work.
@@ -282,8 +282,8 @@ type Drift struct {
 // It is the model's account and never the evidence that the task is done.
 // The evidence is the gate and the diff, both produced by this package.
 type Submission struct {
-	Summary       string       `json:"summary" description:"The model account of the task work."`
-	CommitSubject string       `json:"commit_subject" description:"The commit subject the model proposed."`
+	Summary       string       `json:"summary" trust:"model" description:"The model account of the task work."`
+	CommitSubject string       `json:"commit_subject" trust:"model" description:"The commit subject the model proposed."`
 	Changes       []FileChange `json:"changes" description:"The files the model reports having changed."`
 	// TestVerdicts answers for every test the task owns, by id. The submit
 	// tool refuses a submission that skips one.
@@ -293,11 +293,11 @@ type Submission struct {
 	// TestFirstDeviation is the reason the tests could not be written and
 	// run red before the implementation. It stands in for per-test red
 	// evidence and is shown to the reviewer.
-	TestFirstDeviation string `json:"test_first_deviation,omitempty" description:"Why the tests could not be written and run red first, when that was the case."`
+	TestFirstDeviation string `json:"test_first_deviation,omitempty" trust:"model" description:"Why the tests could not be written and run red first, when that was the case."`
 	// Notes is what a reviewer or the next task should know.
-	Notes string `json:"notes,omitempty" description:"What a reviewer or the next task should know."`
+	Notes string `json:"notes,omitempty" trust:"model" description:"What a reviewer or the next task should know."`
 	// Gotchas are the surprises — the things the next task's prompt carries.
-	Gotchas []string `json:"gotchas,omitempty" description:"Surprises the next task prompt carries."`
+	Gotchas []string `json:"gotchas,omitempty" trust:"model" description:"Surprises the next task prompt carries."`
 	// Blocker is set when the task cannot be implemented as specified.
 	Blocker *Blocker `json:"blocker,omitempty" description:"Set when the task cannot be implemented as specified."`
 }
@@ -308,11 +308,11 @@ type Submission struct {
 // the evidence is the gate running green afterwards.
 type RepairSubmission struct {
 	// Cause is what was wrong before the change, in the model's reading.
-	Cause         string       `json:"cause" description:"What was wrong before the change, in the model reading."`
-	Summary       string       `json:"summary" description:"The model account of the repair."`
-	CommitSubject string       `json:"commit_subject" description:"The commit subject the model proposed."`
+	Cause         string       `json:"cause" trust:"model" description:"What was wrong before the change, in the model reading."`
+	Summary       string       `json:"summary" trust:"model" description:"The model account of the repair."`
+	CommitSubject string       `json:"commit_subject" trust:"model" description:"The commit subject the model proposed."`
 	Changes       []FileChange `json:"changes" description:"The files the model reports having changed."`
-	Notes         string       `json:"notes,omitempty" description:"What a reviewer should know."`
+	Notes         string       `json:"notes,omitempty" trust:"model" description:"What a reviewer should know."`
 	// Blocker is set when the failure cannot be repaired in code: a
 	// credential, a service, a tool the machine lacks.
 	Blocker *Blocker `json:"blocker,omitempty" description:"Set when the failure cannot be repaired in code."`
@@ -323,25 +323,25 @@ type RepairSubmission struct {
 type RepairReport struct {
 	// Outcome is done, unverified (the checks still fail after the last
 	// attempt), blocked, failed or aborted.
-	Outcome  string `json:"outcome" description:"done, unverified, blocked, failed or aborted."`
+	Outcome  string `json:"outcome" trust:"fact" description:"done, unverified, blocked, failed or aborted."`
 	Attempts int    `json:"attempts,omitempty" description:"How many repair attempts were made."`
 	// Failing is the gate that was red before the repair.
 	Failing *GateResult `json:"failing,omitempty" description:"The gate that was red before the repair."`
 	// Model is the model the repair phase ran on, when it differs from the
 	// run's.
-	Model string `json:"model,omitempty" description:"The model the repair phase ran on, when it differs from the run."`
+	Model string `json:"model,omitempty" trust:"fact" description:"The model the repair phase ran on, when it differs from the run."`
 	// Commit is the repair's commit on the branch: the fix when it landed,
 	// the parked attempt when it did not.
-	Commit string `json:"commit,omitempty" description:"The commit of the repair, or of the parked attempt."`
+	Commit string `json:"commit,omitempty" trust:"fact" description:"The commit of the repair, or of the parked attempt."`
 	// ChangedFiles and DiffStat come from git, not from the model.
-	ChangedFiles []string `json:"changed_files,omitempty" description:"The files in the diff, from git."`
-	DiffStat     string   `json:"diff_stat,omitempty" description:"The diff stat, from git."`
+	ChangedFiles []string `json:"changed_files,omitempty" trust:"fact" description:"The files in the diff, from git."`
+	DiffStat     string   `json:"diff_stat,omitempty" trust:"fact" description:"The diff stat, from git."`
 	// Verification is the gate after the last attempt.
 	Verification *GateResult `json:"verification,omitempty" description:"The gate after the last attempt."`
 	// Submission is the model's report, kept separate from the facts above.
 	Submission *RepairSubmission `json:"submission,omitempty" description:"The model report, kept separate from the facts above."`
 	// Error says why the repair did not land.
-	Error string `json:"error,omitempty" description:"Why the repair did not land."`
+	Error string `json:"error,omitempty" trust:"fact" description:"Why the repair did not land."`
 }
 
 // GateResult is one run of the spec's check commands, in order.
@@ -364,33 +364,33 @@ const (
 // TaskReport is what happened to one task.
 type TaskReport struct {
 	ID    int    `json:"id" description:"The task number within the spec."`
-	Kind  string `json:"kind" description:"The kind of task."`
-	Title string `json:"title" description:"The task title."`
+	Kind  string `json:"kind" trust:"fact" description:"The kind of task."`
+	Title string `json:"title" trust:"fact" description:"The task title."`
 	// Outcome is pending (the run never reached it), done, skipped (already
 	// done or dropped before the run), unverified, blocked, failed or
 	// aborted.
-	Outcome  string `json:"outcome" description:"pending, done, skipped, unverified, blocked, failed or aborted."`
+	Outcome  string `json:"outcome" trust:"fact" description:"pending, done, skipped, unverified, blocked, failed or aborted."`
 	Attempts int    `json:"attempts,omitempty" description:"How many attempts the task took."`
 	// Commit is the task's commit on the branch.
-	Commit string `json:"commit,omitempty" description:"The commit of the task on the branch."`
+	Commit string `json:"commit,omitempty" trust:"fact" description:"The commit of the task on the branch."`
 	// ChangedFiles and DiffStat come from git, not from the model.
-	ChangedFiles []string `json:"changed_files,omitempty" description:"The files in the diff, from git."`
-	DiffStat     string   `json:"diff_stat,omitempty" description:"The diff stat, from git."`
+	ChangedFiles []string `json:"changed_files,omitempty" trust:"fact" description:"The files in the diff, from git."`
+	DiffStat     string   `json:"diff_stat,omitempty" trust:"fact" description:"The diff stat, from git."`
 	// Verification is the gate after the task, and Verdict its comparison
 	// with the gate before it.
 	Verification *GateResult `json:"verification,omitempty" description:"The gate after the task."`
-	Verdict      string      `json:"verdict,omitempty" description:"How that gate compares with the gate before the task."`
+	Verdict      string      `json:"verdict,omitempty" trust:"fact" description:"How that gate compares with the gate before the task."`
 	// TestsOutcome is "pass" when every owned test was answered pass and
 	// "fail" otherwise. It is derived from the verdicts, never stored beside
 	// them.
-	TestsOutcome string `json:"tests_outcome,omitempty" description:"pass when every owned test was answered pass, fail otherwise."`
+	TestsOutcome string `json:"tests_outcome,omitempty" trust:"fact" description:"pass when every owned test was answered pass, fail otherwise."`
 	// Submission is the model's report, kept separate from the facts above.
 	Submission *Submission `json:"submission,omitempty" description:"The model report, kept separate from the facts above."`
 	// Repair is the repair of the checks after this task, when the run was
 	// asked for one and this is the integration task whose checks failed.
 	Repair *RepairReport `json:"repair,omitempty" description:"The repair of the checks after this task, when one was run."`
 	// Error says why a task did not land.
-	Error string `json:"error,omitempty" description:"Why the task did not land."`
+	Error string `json:"error,omitempty" trust:"fact" description:"Why the task did not land."`
 }
 
 // Result is what the tool reports as JSON.
@@ -398,17 +398,17 @@ type Result struct {
 	// Stage is how far the run got: preflight, surveyed, repairing,
 	// repaired, implementing, complete, parked, stopped, committed, pushed
 	// or landed.
-	Stage string `json:"stage" description:"How far the run got: preflight, surveyed, repairing, repaired, implementing, complete, parked, stopped, committed, pushed or landed."`
+	Stage string `json:"stage" trust:"fact" description:"How far the run got: preflight, surveyed, repairing, repaired, implementing, complete, parked, stopped, committed, pushed or landed."`
 
-	SpecDir  string `json:"spec_dir" description:"The spec package directory."`
-	SpecID   string `json:"spec_id" description:"The spec identifier."`
-	SpecName string `json:"spec_name" description:"The spec name."`
-	Title    string `json:"title" description:"The spec title."`
-	Status   string `json:"status" description:"The spec status."`
+	SpecDir  string `json:"spec_dir" trust:"fact" description:"The spec package directory."`
+	SpecID   string `json:"spec_id" trust:"fact" description:"The spec identifier."`
+	SpecName string `json:"spec_name" trust:"fact" description:"The spec name."`
+	Title    string `json:"title" trust:"fact" description:"The spec title."`
+	Status   string `json:"status" trust:"fact" description:"The spec status."`
 
-	Repo       string `json:"repo,omitempty" description:"The repository worked on."`
-	Branch     string `json:"branch,omitempty" description:"The branch the work was written on."`
-	BaseBranch string `json:"base_branch,omitempty" description:"The branch it was cut from."`
+	Repo       string `json:"repo,omitempty" trust:"fact" description:"The repository worked on."`
+	Branch     string `json:"branch,omitempty" trust:"fact" description:"The branch the work was written on."`
+	BaseBranch string `json:"base_branch,omitempty" trust:"fact" description:"The branch it was cut from."`
 	// Resumed records that the branch existed and the run continued it.
 	Resumed bool `json:"resumed,omitempty" description:"True when the branch existed and the run continued it."`
 
@@ -419,15 +419,15 @@ type Result struct {
 	Tasks          []TaskReport `json:"tasks" description:"What happened to each task."`
 
 	// Gate is what runs before and after every task.
-	Gate []string `json:"gate,omitempty" description:"The commands that run before and after every task."`
+	Gate []string `json:"gate,omitempty" trust:"fact" description:"The commands that run before and after every task."`
 	// Baseline is the gate before any change; Verification is the last gate
 	// that ran, and Verdict its comparison with the gate before it.
 	Baseline     GateResult `json:"baseline" description:"The gate before any change."`
 	Verification GateResult `json:"verification" description:"The last gate that ran."`
-	Verdict      string     `json:"verdict" description:"How the last gate compares with the gate before it."`
+	Verdict      string     `json:"verdict" trust:"fact" description:"How the last gate compares with the gate before it."`
 
 	Pushed            bool   `json:"pushed" description:"True when the branch was pushed."`
-	PullRequestURL    string `json:"pull_request_url,omitempty" description:"The pull request that was opened."`
+	PullRequestURL    string `json:"pull_request_url,omitempty" trust:"fact" description:"The pull request that was opened."`
 	PullRequestNumber int    `json:"pull_request_number,omitempty" description:"The number of that pull request."`
 
 	// Repair is the baseline repair, when the run was asked for one and
@@ -447,11 +447,11 @@ type Result struct {
 	// none), so a --dry-run run that reached --land=pr can report the pull
 	// request it would have opened as hypothetical (06-REQ-4.3) even though
 	// PullRequestURL, its only other trace, stays empty either way.
-	Land string `json:"land,omitempty" description:"The land mode the run was asked for: pr, branch or none."`
+	Land string `json:"land,omitempty" trust:"fact" description:"The land mode the run was asked for: pr, branch or none."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both.
-	Detail string `json:"detail" description:"Which view of this result was emitted: summary or full."`
+	Detail string `json:"detail" trust:"fact" description:"Which view of this result was emitted: summary or full."`
 }
 
 // SetDetail implements toolio.DetailedResult.
