@@ -662,17 +662,18 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 	}
 	if o.Forge == nil {
 		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: no forge client configured", kind, o.Input.Issue)
-		o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
+		o.Run.RecordSideEffectOf("comment", kind, o.Input.Issue.String(), "", false, toolio.WarnCommentNotPosted)
 		return
 	}
 	url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 	if err != nil {
 		o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the %s comment could not be posted on %s: %v", kind, o.Input.Issue, err)
-		o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
+		o.Run.RecordSideEffectOf("comment", kind, o.Input.Issue.String(), "", false, toolio.WarnCommentNotPosted)
 		return
 	}
-	o.Run.RecordSideEffect("comment", o.Input.Issue.String(), true, "")
+	o.Run.RecordSideEffectOf("comment", kind, o.Input.Issue.String(), url, true, "")
 	result.Comments = append(result.Comments, url)
+	result.CommentRefs = append(result.CommentRefs, CommentRef{Kind: kind, URL: url})
 	o.Progress.Detail("posted the %s comment", kind)
 }
 

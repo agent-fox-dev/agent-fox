@@ -27,8 +27,12 @@ func (r *Result) Artifacts() []toolio.Artifact {
 		// opened; the entry reports what would have happened (06-REQ-4.3).
 		out = append(out, toolio.Artifact{Kind: toolio.ArtifactPullRequest, DryRun: true})
 	}
+	roles := map[string]string{}
+	for _, c := range r.CommentRefs {
+		roles[c.URL] = c.Kind
+	}
 	for _, url := range r.Comments {
-		out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: url})
+		out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: url, Role: roles[url]})
 	}
 	return out
 }

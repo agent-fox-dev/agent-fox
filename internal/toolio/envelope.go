@@ -107,9 +107,11 @@ type Artifact struct {
 	SHA    string
 	Branch string
 
-	// pull_request, issue: URL and Number. comment: URL only.
+	// pull_request, issue: URL and Number. comment: URL, and Role when the
+	// run posts more than one.
 	URL    string
 	Number int
+	Role   string
 
 	// spec_package
 	Path  string
@@ -143,6 +145,9 @@ func (a Artifact) MarshalJSON() ([]byte, error) {
 		m["number"] = a.Number
 	case ArtifactComment:
 		m["url"] = a.URL
+		if a.Role != "" {
+			m["role"] = a.Role
+		}
 	case ArtifactIssue:
 		m["url"] = a.URL
 		m["number"] = a.Number
@@ -214,8 +219,12 @@ type ArtifactsProvider interface {
 // OK is false and the call site recorded a Run.Warn for the same failure: the
 // two come from one call site, so they cannot disagree.
 type SideEffect struct {
-	Action  string   `json:"action" description:"What was written: one of create_issue, update_issue, comment, push, open_pr."`
-	Target  string   `json:"target" description:"What it was written to: origin <branch> for a push, <owner>/<repo>#<number> for a comment, an issue update or a pull request, <owner>/<repo> for an issue that has no number yet."`
+	Action string `json:"action" description:"What was written: one of create_issue, update_issue, comment, push, open_pr."`
+	Target string `json:"target" description:"What it was written to: origin <branch> for a push, <owner>/<repo>#<number> for a comment, an issue update or a pull request, <owner>/<repo> for an issue that has no number yet."`
+	// Kind and URL tell two writes of the same action apart: which comment it
+	// was, and where it went when it was posted.
+	Kind    string   `json:"kind,omitempty" description:"For a comment, which one: analysis, summary, failure, clarification or prd. Absent for other actions."`
+	URL     string   `json:"url,omitempty" description:"Where the write landed, when it succeeded and the forge returned a URL. Matches the url of the artifact it produced."`
 	OK      bool     `json:"ok" description:"True when the write succeeded."`
 	Warning WarnCode `json:"warning,omitempty" description:"Code of the warning recorded for this same failure. Present only when ok is false. An open set, like warnings[].code."`
 }
@@ -640,15 +649,23 @@ func (r *Run) Warn(code WarnCode, severity string, format string, args ...any) {
 // warning's code as warn when ok is false. An ok entry never carries a
 // warning, whatever was passed, so the two cannot disagree (06-REQ-5.4).
 func (r *Run) RecordSideEffect(action, target string, ok bool, warn WarnCode) {
+	r.RecordSideEffectOf(action, "", target, "", ok, warn)
+}
+
+// RecordSideEffectOf is RecordSideEffect for a write that has a kind and, once
+// done, a URL: two comments on one issue are otherwise indistinguishable.
+func (r *Run) RecordSideEffectOf(action, kind, target, url string, ok bool, warn WarnCode) {
 	if r == nil {
 		return
 	}
 	if ok {
 		warn = ""
+	} else {
+		url = ""
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.effects = append(r.effects, SideEffect{Action: action, Target: target, OK: ok, Warning: warn})
+	r.effects = append(r.effects, SideEffect{Action: action, Kind: kind, Target: target, URL: url, OK: ok, Warning: warn})
 }
 
 // SideEffects returns a copy of the writes recorded so far, in order.

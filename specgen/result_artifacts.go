@@ -34,7 +34,7 @@ func (r *Result) Artifacts() []toolio.Artifact {
 			Valid: p.Validation.Valid,
 		})
 		if p.CommentURL != "" {
-			out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: p.CommentURL})
+			out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: p.CommentURL, Role: "prd"})
 		}
 	}
 	return out

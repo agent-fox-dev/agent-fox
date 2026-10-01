@@ -185,3 +185,33 @@ func TestSummaryViewOmitsVerdictAndVerificationWhenNoCheckRan(t *testing.T) {
 		t.Errorf("a skipped verification vanished from the summary view: %s", b)
 	}
 }
+
+// Two comments on one issue are told apart by kind, in the artifacts and in
+// the side effects (#69).
+func TestCommentsAreLabelled(t *testing.T) {
+	run := toolio.NewRun("fix", "test")
+	run.RecordSideEffectOf("comment", "analysis", "acme/w#42", "https://x/1", true, "")
+	run.RecordSideEffectOf("comment", "summary", "acme/w#42", "https://x/2", false, toolio.WarnCommentNotPosted)
+	effects := run.SideEffects()
+	if effects[0].Kind != "analysis" || effects[0].URL != "https://x/1" {
+		t.Errorf("effect 0 = %+v", effects[0])
+	}
+	if effects[1].Kind != "summary" || effects[1].URL != "" || effects[1].OK {
+		t.Errorf("a failed comment keeps its kind and has no url: %+v", effects[1])
+	}
+
+	r := &Result{
+		Comments:    []string{"https://x/1", "https://x/3"},
+		CommentRefs: []CommentRef{{Kind: "analysis", URL: "https://x/1"}, {Kind: "summary", URL: "https://x/3"}},
+	}
+	var roles []string
+	for _, a := range r.Artifacts() {
+		if a.Kind == toolio.ArtifactComment {
+			b, _ := json.Marshal(a)
+			roles = append(roles, string(b))
+		}
+	}
+	if len(roles) != 2 || !strings.Contains(roles[0], `"role":"analysis"`) || !strings.Contains(roles[1], `"role":"summary"`) {
+		t.Errorf("comment artifacts = %v", roles)
+	}
+}
