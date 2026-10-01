@@ -259,19 +259,42 @@ func TestAssertReadOnlyNamesTheOffender(t *testing.T) {
 	}
 }
 
-// A read-only phase that keeps `execute` gets a description that matches what
-// its policy allows: a model told pipes work wastes turns finding out.
-func TestSelectToolsRewritesExecuteForAReadOnlyPhase(t *testing.T) {
-	all := []core.Tool{{Name: "execute", Description: "Run a command with pipes and redirection"}}
-	got := SelectTools(all, true, "execute")
-	if len(got) != 1 {
-		t.Fatal("execute was dropped")
+// A phase's tool descriptions state its own rules, generated from its
+// allowlist: a model that is not told them learns them from refusals.
+func TestSelectToolsTellsThePhaseItsRules(t *testing.T) {
+	all := []core.Tool{
+		{Name: "execute", Description: "Run a command with pipes and redirection."},
+		{Name: "write_file", Description: "Write a file."},
+		{Name: "edit_file", Description: "Edit a file."},
+		{Name: "read_file", Description: "Read a file."},
 	}
-	if !strings.Contains(got[0].Description, "refused in this phase") {
-		t.Errorf("Description = %q", got[0].Description)
+	programs := []string{"go", "git", "make"}
+
+	ro := SelectTools(all, true, programs, "execute")
+	if !strings.Contains(ro[0].Description, "refused in this phase") ||
+		!strings.Contains(ro[0].Description, "go, git, make") ||
+		strings.Contains(ro[0].Description, "pipes and redirection") {
+		t.Errorf("read-only execute = %q", ro[0].Description)
 	}
-	if same := SelectTools(all, false, "execute"); same[0].Description != all[0].Description {
-		t.Error("a write phase's execute description should be left alone")
+
+	w := SelectTools(all, false, programs, "execute", "write_file", "edit_file", "read_file")
+	byName := map[string]string{}
+	for _, tl := range w {
+		byName[tl.Name] = tl.Description
+	}
+	for name, wants := range map[string][]string{
+		"execute":    {"go, git, make", "repository root", "do not `cd`", "write_file"},
+		"write_file": {"inside the repository", "/tmp", "heredoc"},
+		"edit_file":  {"JSON array", "old_string", "new_string"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(byName[name], want) {
+				t.Errorf("%s description lacks %q: %s", name, want, byName[name])
+			}
+		}
+	}
+	if byName["read_file"] != "Read a file." {
+		t.Errorf("read_file was rewritten: %q", byName["read_file"])
 	}
 }
 
