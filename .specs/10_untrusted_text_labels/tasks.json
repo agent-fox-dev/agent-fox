@@ -54,7 +54,7 @@
         "internal/checks/checks.go",
         "internal/checks/trust_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
