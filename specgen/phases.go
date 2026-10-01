@@ -147,11 +147,11 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 		LoadProjectContext: true,
 	})
 	if err != nil {
-		return nil, res, err
+		return nil, res, withRejections(err, &sink)
 	}
 	content, ok := sink.get()
 	if !ok {
-		return nil, res, agentrun.NoResultError(string(req.Step), name, res)
+		return nil, res, withRejections(agentrun.NoResultError(string(req.Step), name, res), &sink)
 	}
 	return content, res, nil
 }
@@ -248,4 +248,14 @@ func submitArchitectureTool(sink *textSink) core.Tool {
 			return res
 		},
 	}
+}
+
+// withRejections adds what a generation phase was stuck on to the error that
+// ended it, so "no result" says that the model's submissions kept failing
+// validation and why. The category is kept.
+func withRejections(err error, sink *artifactSink) error {
+	if d := sink.rejectionDetail(); d != "" {
+		return fmt.Errorf("%w (%s)", err, d)
+	}
+	return err
 }

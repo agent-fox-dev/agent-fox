@@ -155,6 +155,38 @@ type artifactSink struct {
 	mu      sync.Mutex
 	content map[string]any
 	done    bool
+	// rejected counts the submissions the handler turned back, and last is
+	// the most recent reason, so a phase that ends without an accepted
+	// artifact can say what it was stuck on.
+	rejected int
+	last     string
+}
+
+func (a *artifactSink) reject(reason string) {
+	a.mu.Lock()
+	a.rejected++
+	a.last = reason
+	a.mu.Unlock()
+}
+
+// rejectionDetail is "" when nothing was rejected, else a sentence naming how
+// many submissions failed and the first line of the last reason.
+func (a *artifactSink) rejectionDetail() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.rejected == 0 {
+		return ""
+	}
+	last := a.last
+	if i := strings.Index(last, "\n"); i >= 0 {
+		// Keep the count line and the first error, not the whole list.
+		rest := strings.TrimSpace(last[i+1:])
+		if j := strings.Index(rest, "\n"); j >= 0 {
+			rest = rest[:j]
+		}
+		last = strings.TrimSpace(last[:i]) + " " + rest
+	}
+	return fmt.Sprintf("%d submission(s) were rejected; the last failure: %s", a.rejected, last)
 }
 
 func (a *artifactSink) set(c map[string]any) {
@@ -225,10 +257,12 @@ func submitArtifactTool(step afspec.GenerationStep, s *schema.Schema,
 				content["spec_name"] = partial.SpecName
 			}
 			if err := validateArtifactContent(content, step, partial); err != nil {
+				sink.reject(err.Error())
 				return core.ErrResult("validation_failed", err.Error())
 			}
 			if audit != nil {
 				if err := audit(content); err != nil {
+					sink.reject(err.Error())
 					return core.ErrResult("project_mismatch", err.Error())
 				}
 			}

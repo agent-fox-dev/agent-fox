@@ -21,6 +21,7 @@ Every task carries an implicit definition of done that you do not need to write 
 ## Rules that make the plan invalid
 
 - **Every test in the test spec is listed in the `tests` of at least one task.** Nothing may be left unowned — that is the single most common way a plan ships with holes.
+- **Before you submit, check ownership explicitly.** Go through the test spec and write down each test id next to the task whose `tests` lists it; then go through the requirements and do the same for each criterion id and the implement task whose `criteria` lists it. An id with no owner is rejected, and each rejection costs a full regeneration of this file. Criteria belong to implement tasks, never to the integration task.
 - **Every criterion is covered by the `criteria` of at least one `implement` task**, directly or through its requirement ID.
 - Every ID in `criteria`, `tests` and `depends_on` resolves.
 - The `integration` task's `tests` include **every** test of kind `smoke`.

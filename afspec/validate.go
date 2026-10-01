@@ -789,7 +789,8 @@ func (s *Spec) checkC6C9(idx specIndex) []ValidationEntry {
 			errors = append(errors, ValidationEntry{
 				Category: "integrity", Check: "C7", Artifact: "test_spec.json",
 				EntityID: id,
-				Message:  fmt.Sprintf("test %s is not owned by any task", id),
+				Message: fmt.Sprintf("test %s is not owned by any task; add %s to the tests of an existing "+
+					"task (the task that builds what it checks)", id, id),
 			})
 		}
 	}
@@ -799,7 +800,8 @@ func (s *Spec) checkC6C9(idx specIndex) []ValidationEntry {
 			errors = append(errors, ValidationEntry{
 				Category: "integrity", Check: "C8", Artifact: "requirements.json",
 				EntityID: id,
-				Message:  fmt.Sprintf("criterion %s is not owned by any implement task", id),
+				Message: fmt.Sprintf("criterion %s is not owned by any implement task; add %s to the criteria "+
+					"of the implement task that builds it (not the integration task, which owns smoke tests)", id, id),
 			})
 		}
 	}
