@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -121,4 +122,25 @@ func flagGateEdits(ctx context.Context, o Options, st *runState, head string) {
 	for _, msg := range gateEdits(nameStatus, patch, st.relSpecDir) {
 		o.Run.Warn(toolio.WarnGateEdited, "high", "%s", msg)
 	}
+	if msg := project.MissingDocs(st.root, changedNames(nameStatus, st.relSpecDir)); msg != "" {
+		o.Run.Warn(toolio.WarnDocsNotUpdated, "low", "%s", msg)
+	}
+}
+
+// changedNames are the paths in git's name-status lines, the spec package
+// excluded: it is the tool's own and says nothing about the code's docs.
+func changedNames(nameStatus, specDir string) []string {
+	var out []string
+	for _, line := range strings.Split(nameStatus, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) < 2 {
+			continue
+		}
+		name := f[len(f)-1]
+		if specDir != "" && (name == specDir || strings.HasPrefix(name, specDir+"/")) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }

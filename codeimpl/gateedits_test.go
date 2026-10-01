@@ -35,3 +35,11 @@ func TestGateEditsIsQuietForAnOrdinaryChange(t *testing.T) {
 		t.Errorf("findings for an ordinary change: %v", got)
 	}
 }
+
+func TestChangedNamesSkipsTheSpecPackage(t *testing.T) {
+	ns := "M\tcmd/fix/main.go\nR100\told.go\tnew.go\nM\t.specs/10_x/tasks.json\n"
+	got := strings.Join(changedNames(ns, ".specs/10_x"), ",")
+	if got != "cmd/fix/main.go,new.go" {
+		t.Errorf("changedNames = %q", got)
+	}
+}
