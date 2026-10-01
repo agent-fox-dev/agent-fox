@@ -311,6 +311,7 @@ quite what it appears to be; `low` is informational.
 | `spec_edit_reverted` | high | task | impl |
 | `state_not_saved` | high | park | impl |
 | `gate_edited` | high | task | impl |
+| `docs_not_updated` | low | task | fix, impl |
 | `tool_errors` | low | task | fix, impl, issue, spec |
 | `scratch_file_removed` | high | task | impl |
 | `scratch_file_suspected` | low | task | impl |

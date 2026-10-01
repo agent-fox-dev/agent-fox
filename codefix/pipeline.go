@@ -11,6 +11,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -279,6 +280,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				"nothing was committed", base)
 	}
 	result.ChangedFiles = changed
+	if msg := project.MissingDocs(root, changed); msg != "" {
+		o.Run.Warn(toolio.WarnDocsNotUpdated, "low", "%s", msg)
+	}
 	if stat, err := git.DiffStat(ctx, "HEAD"); err == nil {
 		result.DiffStat = stat
 	}
