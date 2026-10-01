@@ -168,3 +168,24 @@ func TestAuditTestCommandsRefusesAnotherEcosystem(t *testing.T) {
 		t.Errorf("without a profile the audit must be inert: %v", err)
 	}
 }
+
+func TestSteeringSkipsPlaceholdersAndMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+	if Steering(dir) != "" {
+		t.Error("a missing file produced steering")
+	}
+	for _, body := range []string{"", "# Steering\n", "# Steering\n<!-- steering:placeholder -->\n"} {
+		if err := os.WriteFile(filepath.Join(dir, "steering.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := Steering(dir); got != "" {
+			t.Errorf("body %q produced %q", body, got)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "steering.md"), []byte("# Steering\n\nUse make check.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Steering(dir); !strings.Contains(got, "Use make check.") {
+		t.Errorf("Steering = %q", got)
+	}
+}

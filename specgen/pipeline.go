@@ -668,6 +668,7 @@ func (e *runEnv) writePRD(ctx context.Context, split *splitContext) (PRD, error)
 		Profile:      e.profile,
 		Landscape:    e.landscape,
 		SpecRoot:     relativeTo(e.root, e.specsDir),
+		Steering:     project.Steering(e.specsDir),
 		Split:        split,
 	})
 	scope := prd.SpecName
@@ -747,6 +748,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 			Profile:   e.profile,
 			Landscape: e.landscape,
 			SpecRoot:  relativeTo(e.root, e.specsDir),
+			Steering:  project.Steering(e.specsDir),
 			Partial:   &partial,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)

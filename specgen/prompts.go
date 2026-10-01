@@ -50,7 +50,7 @@ func prdSystemPrompt() string { return template("prd_system.md") }
 // splitBlock is empty for an undivided input. For one scope of a split it
 // carries the decided plan, so the same phase writes a follow-on PRD without
 // a second template.
-func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscapeBlock, splitBlock string) string {
+func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscapeBlock, steeringBlock, splitBlock string) string {
 	return fill(template("prd_user.md"), map[string]string{
 		"root":            root,
 		"source_kind":     sourceKind,
@@ -58,6 +58,7 @@ func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscap
 		"input":           strings.TrimSpace(input),
 		"project_block":   projectBlock,
 		"landscape_block": landscapeBlock,
+		"steering_block":  steeringBlock,
 		"split_block":     splitBlock,
 	})
 }
@@ -69,7 +70,7 @@ func generationSystemPrompt() string { return template("generation_system.md") }
 
 // generationUserPrompt assembles one generation step's task.
 func generationUserPrompt(step afspec.GenerationStep, specID, specName, root, prd string,
-	landscapeBlock, priorBlock, languageBlock string) string {
+	landscapeBlock, steeringBlock, priorBlock, languageBlock string) string {
 
 	base := fill(template("generation_user_base.md"), map[string]string{
 		"artifact":        string(step),
@@ -78,6 +79,7 @@ func generationUserPrompt(step afspec.GenerationStep, specID, specName, root, pr
 		"root":            root,
 		"prd":             strings.TrimSpace(prd),
 		"landscape_block": landscapeBlock,
+		"steering_block":  steeringBlock,
 		"prior_block":     priorBlock,
 		"language_block":  languageBlock,
 	})
@@ -127,6 +129,19 @@ func priorArtifactsBlock(partial afspec.PartialSpec, step afspec.GenerationStep)
 		render("test_spec.json", partial.TestSpec)
 	}
 	return b.String()
+}
+
+// steeringBlock carries the project's steering.md into a phase. The file is
+// the project's own directives to every agent working on it, and a phase that
+// is not given it reads it only if it happens to look: in one five-scope run
+// one scope did. It is fenced like the other project text a prompt quotes.
+func steeringBlock(steering string) string {
+	if strings.TrimSpace(steering) == "" {
+		return ""
+	}
+	return "\n## Steering\n\nThe project's own directives to every agent working on it. " +
+		"Follow them where they apply to this spec.\n\n--- BEGIN STEERING ---\n" +
+		strings.TrimSpace(steering) + "\n--- END STEERING ---\n"
 }
 
 // landscapeBlock lists the specs that already exist.
