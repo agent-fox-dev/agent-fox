@@ -78,6 +78,11 @@
         "default": "",
         "description": "model tier (SIMPLE, STANDARD, ADVANCED) or catalog spec; default $AF_MODEL, else STANDARD"
       },
+      "output": {
+        "type": "string",
+        "default": "",
+        "description": "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory"
+      },
       "overwrite": {
         "type": "boolean",
         "default": false,

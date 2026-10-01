@@ -93,6 +93,11 @@
         "default": false,
         "description": "leave a valid package in draft instead of activating it"
       },
+      "output": {
+        "type": "string",
+        "default": "",
+        "description": "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory"
+      },
       "phase-timeout": {
         "type": "string",
         "format": "duration",

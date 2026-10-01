@@ -98,6 +98,11 @@
         "default": false,
         "description": "run no checks; the result is then reported as unverified, not as a pass"
       },
+      "output": {
+        "type": "string",
+        "default": "",
+        "description": "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory"
+      },
       "phase-timeout": {
         "type": "string",
         "format": "duration",
