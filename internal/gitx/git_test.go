@@ -505,3 +505,20 @@ func TestResetSoftKeepsTheWork(t *testing.T) {
 		t.Errorf("ChangedFiles = %v, want the held and the loose file", changed)
 	}
 }
+
+func TestUntrackedFilesSkipsTrackedAndIgnored(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	for name, body := range map[string]string{".gitignore": "ignored.log\n", "ignored.log": "x", "mid.go.txt": "x"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := g.UntrackedFiles(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != ".gitignore,mid.go.txt" {
+		t.Errorf("UntrackedFiles = %v", got)
+	}
+}

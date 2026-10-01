@@ -57,6 +57,16 @@ func (g *Git) DirtyFiles(ctx context.Context) ([]string, error) {
 	return nonEmptyLines(out), nil
 }
 
+// UntrackedFiles lists the files git does not track and does not ignore, one
+// path per entry, relative to the repository root.
+func (g *Git) UntrackedFiles(ctx context.Context) ([]string, error) {
+	out, err := g.must(ctx, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return nonEmptyLines(out), nil
+}
+
 // Head is the short hash of the current commit.
 func (g *Git) Head(ctx context.Context) (string, error) {
 	return g.must(ctx, "rev-parse", "--short", "HEAD")

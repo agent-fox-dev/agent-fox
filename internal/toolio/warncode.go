@@ -19,6 +19,8 @@ const (
 	WarnCommentNotPosted       WarnCode = "comment_not_posted"
 	WarnSpecEditReverted       WarnCode = "spec_edit_reverted"
 	WarnStateNotSaved          WarnCode = "state_not_saved"
+	WarnScratchFileRemoved     WarnCode = "scratch_file_removed"
+	WarnScratchFileSuspected   WarnCode = "scratch_file_suspected"
 	WarnDraftPackage           WarnCode = "draft_package"
 	WarnUpstreamMissing        WarnCode = "upstream_missing"
 	WarnParkedAttemptDiscarded WarnCode = "parked_attempt_discarded"
@@ -73,6 +75,8 @@ var warnStages = map[WarnCode]string{
 	WarnCommentNotPosted:        "report",
 	WarnSpecEditReverted:        "task",
 	WarnStateNotSaved:           "park",
+	WarnScratchFileRemoved:      "task",
+	WarnScratchFileSuspected:    "task",
 	WarnDraftPackage:            "preflight",
 	WarnUpstreamMissing:         "preflight",
 	WarnParkedAttemptDiscarded:  "preflight",
@@ -117,6 +121,8 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnCommentNotPosted,
 		WarnSpecEditReverted,
 		WarnStateNotSaved,
+		WarnScratchFileRemoved,
+		WarnScratchFileSuspected,
 		WarnDraftPackage,
 		WarnUpstreamMissing,
 		WarnParkedAttemptDiscarded,
