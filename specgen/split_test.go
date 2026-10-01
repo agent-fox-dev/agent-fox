@@ -342,3 +342,39 @@ func TestAPlanForAnotherInputIsLeftAlone(t *testing.T) {
 		t.Errorf("the stray plan should be reported: %q", warnings)
 	}
 }
+
+// A later scope is told where the specs live and what the earlier ones
+// deliver, so it does not go looking for them (#58).
+func TestSplitBlockNamesTheSpecRootAndInlinesEarlierScopes(t *testing.T) {
+	specsDir := t.TempDir()
+	dir := "01_widget_core"
+	if err := os.MkdirAll(filepath.Join(specsDir, dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prd := "---\nspec_id: \"01\"\n---\n\n## Intent\n\nA widget core.\n\n## Goals\n\n- ship it\n\n## Design Decisions\n\n1. SECRET-DETAIL\n\n## Non-goals\n\n- no UI\n"
+	if err := os.WriteFile(filepath.Join(specsDir, dir, "prd.md"), []byte(prd), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := &SplitPlan{Scopes: []PlanScope{
+		{Name: "widget_core", Scope: "core", SpecID: "01", Dir: dir},
+		{Name: "widget_github", Scope: "github"},
+	}}
+	block := splitBlock(&splitContext{Plan: plan, Index: 1, SpecsDir: specsDir, SpecRoot: ".specs"})
+	for _, want := range []string{"under `.specs/`", "A widget core.", "ship it", "no UI"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the block lacks %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "SECRET-DETAIL") {
+		t.Error("a section outside intent, goals and non-goals was inlined")
+	}
+}
+
+func TestLandscapeBlockNamesTheDirectoryOfEachSpec(t *testing.T) {
+	got := landscapeBlock([]afspec.SpecMeta{{SpecID: "01", SpecName: "core", Status: "draft"}}, ".specs")
+	for _, want := range []string{"under `.specs/`", "`.specs/01_core/`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the landscape lacks %q:\n%s", want, got)
+		}
+	}
+}
