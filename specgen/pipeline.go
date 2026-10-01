@@ -86,7 +86,7 @@ type Result struct {
 	Split []ScopeReport `json:"split,omitempty" description:"Every scope of the split with its state: done, invalid, failed or pending."`
 	// SplitPlan is the plan file left in the spec root while the split is
 	// unfinished. Running spec on the same input again resumes from it.
-	SplitPlan string `json:"split_plan,omitempty" description:"The plan file left in the spec root while the split is unfinished."`
+	SplitPlan string `json:"split_plan,omitempty" trust:"fact" description:"The plan file left in the spec root while the split is unfinished."`
 	// DryRun records that nothing was written.
 	DryRun bool `json:"dry_run,omitempty" description:"True when nothing was written."`
 
@@ -151,14 +151,14 @@ func (r Result) Resumable() bool {
 type Package struct {
 	// SpecDir is the created package, relative to the repository root when
 	// it is inside it.
-	SpecDir  string `json:"spec_dir" description:"The created package directory."`
-	SpecID   string `json:"spec_id" description:"The spec identifier."`
-	SpecName string `json:"spec_name" description:"The spec name."`
-	Title    string `json:"title" description:"The spec title."`
-	Status   string `json:"status" description:"The spec status."`
-	Source   string `json:"source" description:"Where the spec came from."`
+	SpecDir  string `json:"spec_dir" trust:"fact" description:"The created package directory."`
+	SpecID   string `json:"spec_id" trust:"fact" description:"The spec identifier."`
+	SpecName string `json:"spec_name" trust:"fact" description:"The spec name."`
+	Title    string `json:"title" trust:"model" description:"The spec title."`
+	Status   string `json:"status" trust:"fact" description:"The spec status."`
+	Source   string `json:"source" trust:"fact" description:"Where the spec came from."`
 	// Artifacts are the files written, in the order they were produced.
-	Artifacts []string `json:"artifacts" description:"The files written, in the order they were produced."`
+	Artifacts []string `json:"artifacts" trust:"fact" description:"The files written, in the order they were produced."`
 
 	// Counts summarize the package without reproducing it. A caller that
 	// wants the content reads the files.
@@ -181,13 +181,13 @@ type Package struct {
 	OpenQuestions []OpenQuestion `json:"open_questions,omitempty" description:"Decisions made under uncertainty that a person should check."`
 
 	// CommentURL is set when the finished PRD was posted back to the issue.
-	CommentURL string `json:"comment_url,omitempty" description:"The comment the finished PRD was posted as, when it was."`
+	CommentURL string `json:"comment_url,omitempty" trust:"fact" description:"The comment the finished PRD was posted as, when it was."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both. It lives on Package (rather than on
 	// Result, which embeds it) so it is set once for the first package and
 	// carried the same way every other Package field is.
-	Detail string `json:"detail" description:"Which view of this result was emitted: summary or full."`
+	Detail string `json:"detail" trust:"fact" description:"Which view of this result was emitted: summary or full."`
 }
 
 // SetDetail implements toolio.DetailedResult.
@@ -209,11 +209,11 @@ const (
 
 // ScopeReport is one scope of a split and where it stands.
 type ScopeReport struct {
-	Name    string `json:"name" description:"The scope name."`
-	Scope   string `json:"scope" description:"What the scope covers."`
-	Status  string `json:"status" description:"done, invalid, failed or pending."`
-	SpecID  string `json:"spec_id,omitempty" description:"The spec identifier, once the package exists."`
-	SpecDir string `json:"spec_dir,omitempty" description:"The package directory, once it exists."`
+	Name    string `json:"name" trust:"model" description:"The scope name."`
+	Scope   string `json:"scope" trust:"model" description:"What the scope covers."`
+	Status  string `json:"status" trust:"fact" description:"done, invalid, failed or pending."`
+	SpecID  string `json:"spec_id,omitempty" trust:"fact" description:"The spec identifier, once the package exists."`
+	SpecDir string `json:"spec_dir,omitempty" trust:"fact" description:"The package directory, once it exists."`
 }
 
 // ValidationReport is afspec's verdict, flattened for JSON.
@@ -227,19 +227,19 @@ type ValidationReport struct {
 
 // ValidationItem is one finding, carrying the rule that produced it.
 type ValidationItem struct {
-	Check    string `json:"check" description:"The rule that produced the finding."`
-	Artifact string `json:"artifact" description:"The artifact file the finding is about."`
-	Entity   string `json:"entity,omitempty" description:"The entity within the artifact, when there is one."`
-	Message  string `json:"message" description:"What is wrong."`
+	Check    string `json:"check" trust:"fact" description:"The rule that produced the finding."`
+	Artifact string `json:"artifact" trust:"fact" description:"The artifact file the finding is about."`
+	Entity   string `json:"entity,omitempty" trust:"fact" description:"The entity within the artifact, when there is one."`
+	Message  string `json:"message" trust:"fact" description:"What is wrong."`
 }
 
 // TraceReport is the derived coverage summary.
 type TraceReport struct {
 	CriteriaCovered   int      `json:"criteria_covered" description:"How many criteria a test verifies."`
-	CriteriaUncovered []string `json:"criteria_uncovered,omitempty" description:"The criteria no test verifies."`
+	CriteriaUncovered []string `json:"criteria_uncovered,omitempty" trust:"fact" description:"The criteria no test verifies."`
 	PathsCovered      int      `json:"paths_covered" description:"How many execution paths a test exercises."`
-	PathsUncovered    []string `json:"paths_uncovered,omitempty" description:"The execution paths no test exercises."`
-	TestsUnowned      []string `json:"tests_unowned,omitempty" description:"The tests no task owns."`
+	PathsUncovered    []string `json:"paths_uncovered,omitempty" trust:"fact" description:"The execution paths no test exercises."`
+	TestsUnowned      []string `json:"tests_unowned,omitempty" trust:"fact" description:"The tests no task owns."`
 }
 
 // Failure carries the stage and category of a failed run.

@@ -137,7 +137,7 @@
         "specgen/trust_test.go",
         "internal/toolio/trust_property_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,

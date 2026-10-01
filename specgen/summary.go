@@ -12,9 +12,9 @@ type summaryValidation struct {
 // summaryTrace is TraceReport reduced to the gaps a caller would act on.
 // Dropped: criteria_covered and paths_covered (06-REQ-3.4).
 type summaryTrace struct {
-	CriteriaUncovered []string `json:"criteria_uncovered,omitempty"`
-	PathsUncovered    []string `json:"paths_uncovered,omitempty"`
-	TestsUnowned      []string `json:"tests_unowned,omitempty"`
+	CriteriaUncovered []string `json:"criteria_uncovered,omitempty" trust:"fact"`
+	PathsUncovered    []string `json:"paths_uncovered,omitempty" trust:"fact"`
+	TestsUnowned      []string `json:"tests_unowned,omitempty" trust:"fact"`
 }
 
 // summaryResult is the trimmed view of Result kept under --detail summary
@@ -24,16 +24,16 @@ type summaryTrace struct {
 // exactly as under --detail full, and is still written in full to the
 // report file (06-REQ-3.5).
 type summaryResult struct {
-	SpecDir       string            `json:"spec_dir"`
-	SpecID        string            `json:"spec_id"`
-	SpecName      string            `json:"spec_name"`
-	Status        string            `json:"status"`
-	Artifacts     []string          `json:"artifacts"`
+	SpecDir       string            `json:"spec_dir" trust:"fact"`
+	SpecID        string            `json:"spec_id" trust:"fact"`
+	SpecName      string            `json:"spec_name" trust:"fact"`
+	Status        string            `json:"status" trust:"fact"`
+	Artifacts     []string          `json:"artifacts" trust:"fact"`
 	Validation    summaryValidation `json:"validation"`
 	Traceability  summaryTrace      `json:"traceability"`
 	OpenQuestions []OpenQuestion    `json:"open_questions,omitempty"`
 	Split         []ScopeReport     `json:"split,omitempty"`
-	Detail        string            `json:"detail"`
+	Detail        string            `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable. It is defined on Result
