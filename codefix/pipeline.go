@@ -293,7 +293,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// ------------------------------------------------------------- land --
 	commit, err := git.CommitAll(ctx, commitMessage(analysis.Classification, impl, o.Input.Issue,
-		strings.TrimSpace(impl.Summary)))
+		commitBody(impl.Summary, after)))
 	if err != nil {
 		return result, fail("commit", CategoryGit, err)
 	}

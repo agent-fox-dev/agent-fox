@@ -336,10 +336,10 @@ func TestParkedTaskIsRecognizedByItsTrailer(t *testing.T) {
 	if _, ok := parkedTask("wip: something a person wrote\n"); ok {
 		t.Error("a person's wip commit was mistaken for a parked attempt")
 	}
-	if _, ok := parkedTask(commitMessage(spec, task, Submission{CommitSubject: "x.", Summary: "s"}, nil)); ok {
+	if _, ok := parkedTask(commitMessage(spec, task, Submission{CommitSubject: "x.", Summary: "s"}, nil, GateResult{})); ok {
 		t.Error("a landed commit was mistaken for a parked attempt")
 	}
-	if got := commitMessage(spec, task, Submission{CommitSubject: "route output to stderr.", Summary: "Done."}, nil); got !=
+	if got := commitMessage(spec, task, Submission{CommitSubject: "route output to stderr.", Summary: "Done."}, nil, GateResult{}); got !=
 		"feat: route output to stderr\n\nDone.\n\nSpec: 09_agent_mode, task 2\n" {
 		t.Errorf("commit message =\n%s", got)
 	}
@@ -553,5 +553,22 @@ func TestPullRequestBodyGroupsDriftByKind(t *testing.T) {
 	}
 	if strings.Index(body, "11-REQ-4") < strings.Index(body, "### Spec gaps") {
 		t.Error("an unclassified item should fall under spec gaps")
+	}
+}
+
+func TestCommitMessageStatesTheGateNotTheModel(t *testing.T) {
+	spec := &afspec.Spec{SpecID: "09", SpecName: "agent_mode", Dir: ".specs/09_agent_mode"}
+	task := afspec.Task{Id: 2}
+	gate := GateResult{Checks: []checks.Result{
+		{Command: "make lint", OK: true}, {Command: "make test", OK: true}}}
+	got := commitMessage(spec, task, Submission{CommitSubject: "x.", Summary: "Routes output. `make check` passes."}, nil, gate)
+	if strings.Contains(got, "make check") {
+		t.Errorf("the model's verification claim survived:\n%s", got)
+	}
+	if !strings.Contains(got, "Checks (run by the tool): `make lint`, `make test` passed.") {
+		t.Errorf("the measured result is missing:\n%s", got)
+	}
+	if strings.Contains(commitMessage(spec, task, Submission{CommitSubject: "x."}, nil, GateResult{}), "Checks (run by the tool)") {
+		t.Error("a result was stated for a gate that did not run")
 	}
 }

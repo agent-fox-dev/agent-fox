@@ -98,6 +98,10 @@ Method:
    reports: there is no benefit in leaving it failing.
 6. Update the documentation the change makes wrong.
 
+Do not write in your summary that tests or checks pass. The program runs them
+and states the result itself; a sentence of yours that asserts one is removed
+from the commit message.
+
 Constraints that are mechanical, not advisory:
 
 - git is limited to its read-only subcommands. The branch already exists and

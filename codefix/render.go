@@ -33,6 +33,22 @@ func commitMessage(class Classification, impl Implementation, issue issueRef, bo
 	return msg + "\n"
 }
 
+// commitBody is the model's summary for the commit body, without any claim
+// that the checks pass, followed by the result of the checks as the tool
+// measured it. Nothing the model writes may assert a verification result; the
+// line that does is rendered from the run.
+func commitBody(summary string, after checks.Result) string {
+	body := checks.StripClaims(strings.TrimSpace(summary))
+	if after.Ran() && after.OK {
+		line := fmt.Sprintf("Checks (run by the tool): `%s` passed.", after.Command)
+		if body == "" {
+			return line
+		}
+		return body + "\n\n" + line
+	}
+	return body
+}
+
 // wipCommitMessage is what an unverified change is parked as.
 //
 // The work is committed rather than left loose, because the implementation
