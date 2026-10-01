@@ -10,6 +10,11 @@ func (r *Result) Artifacts() []toolio.Artifact {
 	if r == nil {
 		return nil
 	}
+	if r.Stage == "preflight" && len(r.Preflight) > 0 {
+		// A passed --preflight run created nothing: Branch is the name the
+		// branch would have, not a branch this run made (11-REQ-7.2).
+		return nil
+	}
 	var out []toolio.Artifact
 	if r.Branch != "" {
 		// The branch and every commit below happened locally, dry run or

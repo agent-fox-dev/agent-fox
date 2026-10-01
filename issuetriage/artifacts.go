@@ -10,6 +10,11 @@ func (r *Result) Artifacts() []toolio.Artifact {
 	if r == nil {
 		return nil
 	}
+	if r.Stage == "preflight" && len(r.Preflight) > 0 {
+		// A passed --preflight run files nothing, not even hypothetically
+		// (11-REQ-7.2).
+		return nil
+	}
 	if r.Action == "none" && !r.DryRun {
 		// Nothing was written, and nothing was going to be: there is
 		// nothing to report, hypothetical or otherwise.
