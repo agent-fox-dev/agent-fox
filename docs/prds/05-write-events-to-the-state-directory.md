@@ -190,11 +190,10 @@ Settled while drafting, recorded so the implementation does not reopen them:
 2. `text` events are batched per model turn.
 3. `tool_call` records arguments and the outcome, never the call's result.
 4. The session id replaces the pid in both file names.
+5. `--events` and `--events-file` are removed outright, with no deprecation
+   period: a caller still passing either gets the usage error in §3.
 
 ## Open questions
 
-1. **Old `--events` / `--events-file` users.** The flags are removed without a
-   deprecation period. A caller still passing them gets a usage error
-   (exit 2) before any work, which is loud but non-destructive.
-2. **Existing files.** Reports already in `runs/` keep their pid-based names.
+1. **Existing files.** Reports already in `runs/` keep their pid-based names.
    Nothing renames them.
