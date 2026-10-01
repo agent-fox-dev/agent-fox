@@ -222,10 +222,11 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 	defer closeSink()
-	run.AttachEvents(sink)
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
+	// The run and its progress share one sink, attached once, before execute.
+	run.AttachEvents(sink)
 	progress.SetShowText(common.ShowText)
 	code, result, failure := a.execute(ctx, execArgs{
 		common:   &common,

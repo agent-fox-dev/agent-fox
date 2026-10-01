@@ -478,17 +478,26 @@ type Run struct {
 	// events is the JSONL sink the run reports its own start and end through,
 	// nil on a bare Run.
 	events *eventsSink
+	// eventsSet records that AttachEvents has been called, so it takes
+	// effect once.
+	eventsSet bool
 }
 
-// AttachEvents gives the run the JSONL sink it emits run_end through. It is
-// set once in App.Main; a Run without one is unaffected.
+// AttachEvents gives the run the JSONL sink it emits run_start, warning and
+// run_end events through. It is set exactly once, in App.Main, with the same
+// sink that backs the run's Progress; a second call is ignored. A Run without
+// one is unaffected.
 func (r *Run) AttachEvents(s *eventsSink) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.eventsSet {
+		return
+	}
 	r.events = s
+	r.eventsSet = true
 }
 
 // eventSink returns the attached sink, nil when none is.
@@ -555,14 +564,19 @@ func (r *Run) Warn(code WarnCode, severity string, format string, args ...any) {
 		return
 	}
 	stage, _ := WarnStage(code)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, Warning{
+	w := Warning{
 		Code:     code,
 		Severity: severity,
 		Stage:    stage,
 		Message:  strings.TrimSpace(fmt.Sprintf(format, args...)),
-	})
+	}
+	r.mu.Lock()
+	r.warnings = append(r.warnings, w)
+	sink := r.events
+	r.mu.Unlock()
+	// Emitted after r.mu is released: the sink takes its own lock and may be
+	// a writer that blocks. The event carries the very Warning recorded above.
+	sink.Emit(newWarningEvent(w))
 }
 
 // RecordSideEffect records one write to a forge or a remote, in the order it
