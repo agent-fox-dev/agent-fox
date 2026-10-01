@@ -65,3 +65,21 @@ func EmitWithOutput(w io.Writer, outPath string, env Envelope) int {
 	_, _ = w.Write(b)
 	return code
 }
+
+// configuredDestinationsCollide reports whether two configured destinations
+// (--output and the report file) name the same file. It compares the two
+// strings as absolute, cleaned paths and nothing else: symlinks are not
+// resolved (neither file need exist yet), and whether either write later
+// succeeds is not consulted (08-REQ-4.1, 08-REQ-4.2). An empty destination
+// is "not configured" and never collides.
+func configuredDestinationsCollide(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return filepath.Clean(absA) == filepath.Clean(absB)
+}

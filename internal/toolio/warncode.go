@@ -51,6 +51,11 @@ const (
 	// the envelope requested with --output could not be written. It never
 	// changes the run's exit code or ok.
 	WarnOutputNotWritten WarnCode = "output_not_written"
+	// WarnOutputMatchesReportFile is recorded (08-REQ-4.4) when --output and
+	// the report file name the same configured destination: --output's own
+	// write is skipped and the file there, when the report write succeeds,
+	// holds the complete report rather than the --detail view.
+	WarnOutputMatchesReportFile WarnCode = "output_matches_report_file"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -58,36 +63,37 @@ const (
 // rather than accepting it as a call-site parameter, so a code can never be
 // recorded against two different stages.
 var warnStages = map[WarnCode]string{
-	WarnInputTruncated:         "input",
-	WarnCommentsUnreadable:     "input",
-	WarnNoVerifyCommand:        "preflight",
-	WarnCriteriaUnmet:          "implement",
-	WarnCommitNotParked:        "park",
-	WarnCheckoutNotRestored:    "park",
-	WarnPullRequestNotOpened:   "land",
-	WarnCommentNotPosted:       "report",
-	WarnSpecEditReverted:       "task",
-	WarnStateNotSaved:          "park",
-	WarnDraftPackage:           "preflight",
-	WarnUpstreamMissing:        "preflight",
-	WarnParkedAttemptDiscarded: "preflight",
-	WarnSpecValidationWarning:  "preflight",
-	WarnSpecsDirUnreadable:     "preflight",
-	WarnProjectLanguageUnknown: "preflight",
-	WarnNameFlagIgnored:        "usage",
-	WarnScopeRenamed:           "prd",
-	WarnScopeCountMismatch:     "prd",
-	WarnSplitPlanForeign:       "split",
-	WarnSplitPlanUnreadable:    "split",
-	WarnSplitPlanStale:         "split",
-	WarnSplitPlanUpdateFailed:  "split",
-	WarnSplitPlanNotRemoved:    "split",
-	WarnArchitectureNotWritten: "write",
-	WarnActivationFailed:       "activate",
-	WarnRejectedPathCalls:      "analyse",
-	WarnReportFileNotWritten:   "report",
-	WarnInputLooksLikePath:     "input",
-	WarnOutputNotWritten:       "emit",
+	WarnInputTruncated:          "input",
+	WarnCommentsUnreadable:      "input",
+	WarnNoVerifyCommand:         "preflight",
+	WarnCriteriaUnmet:           "implement",
+	WarnCommitNotParked:         "park",
+	WarnCheckoutNotRestored:     "park",
+	WarnPullRequestNotOpened:    "land",
+	WarnCommentNotPosted:        "report",
+	WarnSpecEditReverted:        "task",
+	WarnStateNotSaved:           "park",
+	WarnDraftPackage:            "preflight",
+	WarnUpstreamMissing:         "preflight",
+	WarnParkedAttemptDiscarded:  "preflight",
+	WarnSpecValidationWarning:   "preflight",
+	WarnSpecsDirUnreadable:      "preflight",
+	WarnProjectLanguageUnknown:  "preflight",
+	WarnNameFlagIgnored:         "usage",
+	WarnScopeRenamed:            "prd",
+	WarnScopeCountMismatch:      "prd",
+	WarnSplitPlanForeign:        "split",
+	WarnSplitPlanUnreadable:     "split",
+	WarnSplitPlanStale:          "split",
+	WarnSplitPlanUpdateFailed:   "split",
+	WarnSplitPlanNotRemoved:     "split",
+	WarnArchitectureNotWritten:  "write",
+	WarnActivationFailed:        "activate",
+	WarnRejectedPathCalls:       "analyse",
+	WarnReportFileNotWritten:    "report",
+	WarnInputLooksLikePath:      "input",
+	WarnOutputNotWritten:        "emit",
+	WarnOutputMatchesReportFile: "emit",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -131,5 +137,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnReportFileNotWritten,
 		WarnInputLooksLikePath,
 		WarnOutputNotWritten,
+		WarnOutputMatchesReportFile,
 	}
 }

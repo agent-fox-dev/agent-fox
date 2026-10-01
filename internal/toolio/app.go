@@ -309,12 +309,29 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		next = np.Next()
 	}
 
+	// --output is resolved here, at the one funnel every envelope passes
+	// through, so each branch of Main is covered. A malformed value (refused
+	// as a usage error, or not yet reached by an earlier usage failure)
+	// names nothing to write to, so it yields "".
+	outPath, _ := common.ResolveOutput()
+
+	path, perr := reportPath(common, a.Name, run)
+	// A collision is decided from the two configured destinations alone,
+	// before either write is attempted, so its verdict never depends on
+	// whether a write succeeds (08-REQ-4.2). It is recorded before the
+	// report envelope is built so every envelope carries it. When they
+	// collide only the complete report is written there: --output's own
+	// write is skipped entirely (08-REQ-4.3).
+	if perr == nil && configuredDestinationsCollide(outPath, path) {
+		run.Warn(WarnOutputMatchesReportFile, "low", "--output and the report file both name %s: the file there holds the complete report, not the --detail view --output alone would have written", path)
+		outPath = ""
+	}
+
 	fileEnv := run.Envelope(code, full, failure)
 	fileEnv.Artifacts = artifacts
 	fileEnv.Next = next
 
 	reportFile := ""
-	path, perr := reportPath(common, a.Name, run)
 	if perr != nil {
 		run.Warn(WarnReportFileNotWritten, "low", "the report file's path could not be determined: %v", perr)
 	} else {
@@ -349,11 +366,6 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 	}
 	env := buildEnv()
 
-	// --output is resolved here, at the one funnel every envelope passes
-	// through, so each branch of Main is covered. A malformed value (refused
-	// as a usage error, or not yet reached by an earlier usage failure)
-	// names nothing to write to, so it yields "".
-	outPath, _ := common.ResolveOutput()
 	if outPath != "" {
 		if b, merr := json.MarshalIndent(env, "", "  "); merr == nil {
 			// The write is attempted before the stdout envelope is final, so a
