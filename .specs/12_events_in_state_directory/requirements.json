@@ -1,0 +1,693 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "12",
+  "spec_name": "events_in_state_directory",
+  "schema_version": 2,
+  "introduction": "Every run of the spec, issue, fix and impl tools that reaches the event sink writes its complete event stream to a per-run JSONL file in the state directory. The file is joined to the run's report by a host-independent session_id. --emit-events puts the identical stream on stderr, and tests are isolated from the developer's real state directory.",
+  "glossary": {
+    "envelope": "The JSON result document a tool prints on stdout and writes to the report file.",
+    "events file": "<state>/events/<tool>-<started_at>-<session_id>.jsonl, holding one JSON event per line for one run.",
+    "human progress": "The spinner, step, detail and live-prose lines written to stderr when --emit-events is not set.",
+    "removed flag": "--events or --events-file, which are no longer defined.",
+    "session_id": "A per-run identifier of 32 lowercase hex characters (16 bytes from crypto/rand). It is the fourth key of every event, a top-level envelope key, and the last part of the report and events file names.",
+    "shell tools": "The tools named execute, run_command and powershell in guard.go.",
+    "sink": "The component in internal/toolio that stamps each event with the shared header and writes it to the events file and, under --emit-events, to stderr.",
+    "state directory": "$XDG_STATE_HOME/agent-fox when XDG_STATE_HOME is non-empty, else $HOME/.local/state/agent-fox. It holds runs/ (reports) and events/ (event streams).",
+    "turn": "One model request/response cycle inside a phase, ended by a TurnEndEvent."
+  },
+  "requirements": [
+    {
+      "id": "12-REQ-1",
+      "title": "Session id",
+      "rationale": "A pid repeats across hosts and reboots, so a join key between an events file and its report must come from a source that does not.",
+      "criteria": [
+        {
+          "id": "12-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "NewRun is called",
+          "system": "Run",
+          "action": "generate a session_id before any other work, once per run, from 16 bytes read from crypto/rand and hex-encoded to 32 lowercase characters, and expose it on the Run for the sink, the envelope and the file-name functions to read",
+          "contract": "Run exposes a session_id string matching ^[0-9a-f]{32}$; NewRun keeps its existing signature"
+        },
+        {
+          "id": "12-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "Run",
+          "action": "for any two runs created by NewRun, produce session_ids that each match ^[0-9a-f]{32}$ and differ from each other, with no part derived from the pid, the clock or the host"
+        },
+        {
+          "id": "12-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "a run returns before the sink exists, such as a flag-parse failure that still emits an envelope",
+          "system": "Run",
+          "action": "carry the same session_id in that envelope as the run generated in NewRun",
+          "contract": "the usage-error envelope on stdout and in the report file has a 32-hex-character session_id"
+        },
+        {
+          "id": "12-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "session id generator",
+          "action": "add no module to go.mod and read randomness only from crypto/rand"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-2",
+      "title": "Where session_id and the file names appear",
+      "rationale": "Each file must name the other so that jq and ls are enough to pair an events file with its report.",
+      "criteria": [
+        {
+          "id": "12-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "sink",
+          "action": "stamp every event with a shared header whose keys are, in this order, ts, tool, session_id, type, taking session_id from the run"
+        },
+        {
+          "id": "12-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "envelope",
+          "action": "carry a required top-level session_id string placed immediately after schema_version, identical on stdout and in the report file and present on every envelope including usage-error ones, and describe it in the --schema document",
+          "contract": "the stdout envelope, the report file and the --schema output all show session_id; the --schema required list includes it"
+        },
+        {
+          "id": "12-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "run_end event",
+          "action": "carry a report_file key that is always present and holds the path the report was written to, or the empty string when it was not written, emitted from the same code that decides the envelope's report_file",
+          "contract": "run_end.report_file equals envelope.report_file for every run"
+        },
+        {
+          "id": "12-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "the events file was actually created",
+          "system": "envelope",
+          "action": "append an artifact of kind events_file with a path after the report_file artifact, in stdout, in the report file and under --dry-run, and omit the artifact when the file was not created",
+          "contract": "artifacts contains {kind: events_file, path} only when the file exists; the artifact-kind enum in the --schema description includes events_file"
+        },
+        {
+          "id": "12-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "file-name functions",
+          "action": "name the report <tool>-<started_at>-<session_id>.json through DefaultReportPath, which takes the session id string in place of the pid, and the events file <tool>-<started_at>-<session_id>.jsonl under events/ through the new DefaultEventsPath, both with the same colon-free timestamp and both resolving their base directory through the one stateHome()",
+          "contract": "DefaultReportPath and DefaultEventsPath return paths whose stems are identical and whose directories are runs/ and events/ under the same state directory"
+        },
+        {
+          "id": "12-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "stateHome() fails",
+          "system": "emit",
+          "action": "record the existing report_file_not_written warning at stage report, record events_file_not_written for the events open, and carry on with the run",
+          "contract": "the exit code is unchanged and the envelope warnings list contains both codes at stage report"
+        },
+        {
+          "id": "12-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any run that wrote both files, give the report file name, the events file name and the envelope session_id the same session_id, and make envelope artifacts events_file.path name the events file written and run_end.report_file name the report written"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-3",
+      "title": "The state directory",
+      "rationale": "One state directory, relocatable through the variable the tools already honour, lets tests redirect all writes.",
+      "criteria": [
+        {
+          "id": "12-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "stateHome",
+          "action": "resolve the state directory as $XDG_STATE_HOME/agent-fox when XDG_STATE_HOME is non-empty and as $HOME/.local/state/agent-fox via os.UserHomeDir otherwise, write reports to runs/ and events to events/, create both as needed, and introduce no new environment variable"
+        },
+        {
+          "id": "12-REQ-3.2",
+          "pattern": "state_driven",
+          "condition": "XDG_STATE_HOME is set to the empty string",
+          "system": "stateHome",
+          "action": "treat it as unset and use $HOME/.local/state/agent-fox"
+        },
+        {
+          "id": "12-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "the caller passes --report-file",
+          "system": "toolio",
+          "action": "change only the report path and keep the events file at its default path under <state>/events/, whose stem is the report's default stem <tool>-<started_at>-<session_id>",
+          "contract": "ls <state>/events/*-<session_id>.jsonl finds the events file for a run with an explicit --report-file"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-4",
+      "title": "The events file is always written",
+      "rationale": "A post-mortem record that exists only when someone remembered a flag is missing exactly when it is needed.",
+      "criteria": [
+        {
+          "id": "12-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "a run reaches the point where openEvents builds the sink",
+          "system": "openEvents",
+          "action": "create the events file once with O_CREATE|O_EXCL|O_WRONLY|O_APPEND and mode 0600, never truncating an existing file",
+          "contract": "a pre-existing file at the path is left byte-for-byte unchanged and produces the events_file_not_written warning"
+        },
+        {
+          "id": "12-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "create the events/ directory with mode 0700, create its parents (agent-fox/ and the state home) with mode 0755, leave an existing events/ directory's mode unchanged, and keep the report modes at 0755 for its directory and 0644 for its file"
+        },
+        {
+          "id": "12-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "sink",
+          "action": "write each event as one whole-line Write so that a killed process leaves a file made only of complete lines"
+        },
+        {
+          "id": "12-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "a run passes the sink build and then ends through a later usage error, a failing input, a refused preflight, --preflight or --dry-run",
+          "system": "toolio",
+          "action": "leave an events file whose last line is the run_end event",
+          "contract": "the final line of the events file parses as JSON with type run_end"
+        },
+        {
+          "id": "12-REQ-4.5",
+          "pattern": "unwanted",
+          "condition": "the invocation is -h/--help, --version, --schema, a bare invocation on a terminal, or a usage error refused before the sink is built (a flag-parse failure including a removed flag, an invalid --detail, --total-budget or --input-kind, a bare invocation off-terminal, or an invalid --output)",
+          "system": "toolio",
+          "action": "create no events file and no empty events file, and still write the report as before",
+          "contract": "no new file appears under <state>/events/, and the envelope artifacts has no events_file entry"
+        },
+        {
+          "id": "12-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "the events path cannot be resolved or the events file cannot be created (permissions, read-only filesystem, a collision)",
+          "system": "toolio",
+          "action": "record a low warning events_file_not_written at stage report after the sink is attached to the run, register the code in the warning-code list and the code-to-stage table in warncode.go, and neither fail the run nor change its exit code",
+          "contract": "the envelope warnings list holds events_file_not_written with severity low and stage report; under --emit-events a warning event for it appears on stderr; the exit code equals that of the same run with a writable state directory"
+        },
+        {
+          "id": "12-REQ-4.7",
+          "pattern": "unwanted",
+          "condition": "the events file cannot be created and --emit-events is not set",
+          "system": "sink",
+          "action": "have no writer and be inactive, and start no heartbeat ticker",
+          "contract": "sink.Active() is false and no goroutine ticks; the run output is otherwise unchanged"
+        },
+        {
+          "id": "12-REQ-4.8",
+          "pattern": "state_driven",
+          "condition": "the run has an events file",
+          "system": "heartbeat",
+          "action": "keep running every 15 seconds for the life of the run"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-5",
+      "title": "--emit-events replaces --events and --events-file",
+      "rationale": "Where the stream goes is one boolean decision; the file location is fixed.",
+      "criteria": [
+        {
+          "id": "12-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "accept --emit-events as a shared boolean flag; without it stderr carries the human progress exactly as the default did before this change, and with it stderr carries one JSON event per line and no human line",
+          "contract": "Common.EmitEvents is true exactly when the flag is given"
+        },
+        {
+          "id": "12-REQ-5.2",
+          "pattern": "state_driven",
+          "condition": "--quiet is set",
+          "system": "toolio",
+          "action": "write nothing to stderr under either value of --emit-events and leave the events file unaffected",
+          "contract": "stderr is empty and the events file holds the full stream"
+        },
+        {
+          "id": "12-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "remove --events, --events-file, Common.Events, Common.EventsFile, ValidEvents, EventsText, EventsJSONL and the events enum, remove the events and events-file entries from the value-taking-flag table in cmd/fix/main.go, and not add --emit-events to that table"
+        },
+        {
+          "id": "12-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "a caller passes --events-file, as --events-file value or --events-file=value",
+          "system": "unsupportedFlagMessage",
+          "action": "reject the invocation through the existing flag-not-defined parse-failure path",
+          "contract": "exit code 2, stage \"usage\", message \"--events-file was removed; events are always written to <state>/events/\" with <state>/events/ as literal text; a report is written and no events file is"
+        },
+        {
+          "id": "12-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "a caller passes --events, as --events value or --events=value",
+          "system": "unsupportedFlagMessage",
+          "action": "reject the invocation through the existing flag-not-defined parse-failure path",
+          "contract": "exit code 2, stage \"usage\", message \"--events was renamed --emit-events\"; a report is written and no events file is"
+        },
+        {
+          "id": "12-REQ-5.6",
+          "pattern": "unwanted",
+          "condition": "a caller passes both removed flags",
+          "system": "unsupportedFlagMessage",
+          "action": "name only the first removed flag encountered, because flag parsing stops at the first unknown flag",
+          "contract": "the usage-error message contains the text for exactly one of the two removed flags"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-6",
+      "title": "The stream is complete and independent of the human flags",
+      "rationale": "A record filtered by --verbose or --show-text cannot serve as a post-mortem, and Progress must not mistake an always-active sink for JSONL on stderr.",
+      "criteria": [
+        {
+          "id": "12-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "sink",
+          "action": "for any run with --emit-events, write to stderr exactly the bytes it writes to the events file"
+        },
+        {
+          "id": "12-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "Runner",
+          "action": "emit a tool_call event for every model tool call and a text event for model prose whether or not --verbose or --show-text is set"
+        },
+        {
+          "id": "12-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "sink",
+          "action": "record every event field in full, without cutting, abbreviating, dropping for size or sanitising its content"
+        },
+        {
+          "id": "12-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "Progress",
+          "action": "for any combination of --verbose, --show-text and --quiet, produce an events file with the same sequence of event types and field values apart from ts and durations"
+        },
+        {
+          "id": "12-REQ-6.5",
+          "pattern": "ubiquitous",
+          "system": "Progress.Begin",
+          "action": "print the spinner and duration lines unless --emit-events or --quiet is set, deciding this from the explicit --emit-events setting and not from whether the sink is active",
+          "contract": "with an active sink and no --emit-events or --quiet, Begin prints; with --emit-events or --quiet it prints nothing and returns a no-op"
+        },
+        {
+          "id": "12-REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "Raw is called with prose while --show-text is set and neither --emit-events nor --quiet is",
+          "system": "Progress",
+          "action": "write the prose live to stderr and emit no event, and write nothing and emit no event when --show-text is unset or --emit-events or --quiet is set",
+          "contract": "stderr receives the prose bytes in the first case; the sink receives no event from Raw in any case"
+        },
+        {
+          "id": "12-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "for any run without --emit-events, write to stderr the same bytes as before this change, apart from the differences caused by the removed flags"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-7",
+      "title": "text is one event per model turn",
+      "rationale": "Per-delta events bloat the file and are not readable; one event per turn carries the whole prose.",
+      "criteria": [
+        {
+          "id": "12-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "text event",
+          "action": "carry the keys phase, turn and text after the shared header and no delta key"
+        },
+        {
+          "id": "12-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "Runner",
+          "action": "accumulate the prose of each turn whether or not ShowText is set, join consecutive text blocks of a turn with \"\\n\", and add no trailing newline"
+        },
+        {
+          "id": "12-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "a turn ends with accumulated prose",
+          "system": "Runner",
+          "action": "emit one text event immediately before that turn's turn event, with the same turn number",
+          "contract": "in the stream the text event is the line directly before the turn event and both have the same turn value"
+        },
+        {
+          "id": "12-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "a turn ends with no prose",
+          "system": "Runner",
+          "action": "emit no text event for that turn"
+        },
+        {
+          "id": "12-REQ-7.5",
+          "pattern": "unwanted",
+          "condition": "a phase ends with prose still buffered and no turn end (cancellation or a stream error)",
+          "system": "Runner",
+          "action": "emit the buffered prose once as a text event before phase_end, with the turn number of the interrupted turn (the last completed turn plus one)",
+          "contract": "the text event precedes phase_end, carries turn = completed turns + 1, and the buffer is empty afterwards so the prose is never emitted twice"
+        },
+        {
+          "id": "12-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "Observer",
+          "action": "gain a method for the per-turn text, which Progress implements by emitting the text event"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-8",
+      "title": "tool_call says what happened",
+      "rationale": "A tool_call that records only the tool name cannot explain what the model asked for or how it ended.",
+      "criteria": [
+        {
+          "id": "12-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "tool_call event",
+          "action": "carry phase, name and blocked as before and add arguments, ok, exit_code and error, and apply omitempty only to exit_code and error, updating the comment in events.go about omitempty",
+          "contract": "arguments and ok are always present; exit_code and error are present only under the rules of 12-REQ-8.4 and 12-REQ-8.5"
+        },
+        {
+          "id": "12-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "a tool call has arguments",
+          "system": "Runner",
+          "action": "record arguments as the JSON the model sent, verbatim apart from insignificant whitespace, and as {} when the model's input is empty",
+          "contract": "arguments is valid JSON equal to the model input after whitespace compaction"
+        },
+        {
+          "id": "12-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "the model's tool input is not valid JSON",
+          "system": "Runner",
+          "action": "record arguments as the raw input text encoded as a JSON string, so the event line stays valid and is not dropped",
+          "contract": "the line parses as JSON and arguments is a string equal to the raw input"
+        },
+        {
+          "id": "12-REQ-8.4",
+          "pattern": "ubiquitous",
+          "system": "Runner",
+          "action": "set ok to true when the call's result was not an error result and to false for an error result or a call the shell guard refused, independent of any exit status"
+        },
+        {
+          "id": "12-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "a call to execute, run_command or powershell returns a result from which the exit status can be read",
+          "system": "Runner",
+          "action": "record exit_code, and omit it for a refused call, for a non-shell tool and when the status cannot be read, never guessing or defaulting it to 0",
+          "contract": "exit_code is absent from the line in every case except a readable shell exit status"
+        },
+        {
+          "id": "12-REQ-8.6",
+          "pattern": "state_driven",
+          "condition": "ok is false",
+          "system": "Runner",
+          "action": "include error holding the text of the error result the call returned, or the guard's message for a refused call, and omit error when ok is true",
+          "contract": "error is present exactly when ok is false"
+        },
+        {
+          "id": "12-REQ-8.7",
+          "pattern": "event_driven",
+          "condition": "a tool call's result arrives",
+          "system": "Runner",
+          "action": "emit exactly one tool_call event for the call, taking arguments from the ToolCallEndEvent with the same tool-call id and not matching by tool name, with no Verbose() check, and never record the result content",
+          "contract": "for two parallel calls to the same tool, each event carries its own call's arguments"
+        },
+        {
+          "id": "12-REQ-8.8",
+          "pattern": "ubiquitous",
+          "system": "Observer.ToolCall",
+          "action": "take a single struct carrying phase, name, blocked, arguments, ok, exit code and error in place of the former three positional parameters"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-9",
+      "title": "Tests do not touch the real state directory",
+      "rationale": "With the events file always written, every test that reaches App.Main would otherwise write to the developer's real state.",
+      "criteria": [
+        {
+          "id": "12-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "internal/statetest",
+          "action": "provide one function used from TestMain in internal/toolio, cmd/fix, cmd/impl, cmd/issue and cmd/spec that sets XDG_STATE_HOME to a directory made by os.MkdirTemp, runs m.Run(), removes that directory, and then compares the listing of the real default state directories with a listing taken before the run",
+          "contract": "the existing TestMain functions are extended and cmd/impl, cmd/issue and cmd/spec gain one"
+        },
+        {
+          "id": "12-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "internal/statetest",
+          "action": "take the real directories to be $HOME/.local/state/agent-fox resolved with XDG_STATE_HOME ignored, plus the developer's own $XDG_STATE_HOME/agent-fox when it was set before the run"
+        },
+        {
+          "id": "12-REQ-9.3",
+          "pattern": "unwanted",
+          "condition": "a file appears under runs/ or events/ of a real directory during the package's test run",
+          "system": "internal/statetest",
+          "action": "fail the package's test run with a message naming the new files",
+          "contract": "the test binary exits non-zero and the message lists each new path"
+        },
+        {
+          "id": "12-REQ-9.4",
+          "pattern": "unwanted",
+          "condition": "no home directory can be resolved",
+          "system": "internal/statetest",
+          "action": "skip the comparison",
+          "contract": "the test run result is decided by the tests alone"
+        },
+        {
+          "id": "12-REQ-9.5",
+          "pattern": "ubiquitous",
+          "system": "tests",
+          "action": "keep their own t.Setenv(\"XDG_STATE_HOME\", t.TempDir()) when they assert on a directory's contents, keep HOME pointing at a temp dir in tests that deliberately unset XDG_STATE_HOME (TestTS06_7), and let tests that start a built binary inherit the isolated environment"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-10",
+      "title": "Interface version, existing tests and documentation",
+      "rationale": "Removing text.delta and two flags is a major change under PRD 03, and the steering file requires docs to change in the same change.",
+      "criteria": [
+        {
+          "id": "12-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "set SchemaVersion to 3.0.0 and regenerate and review each cmd/*/testdata/schema.golden.json so that it lists --emit-events and neither --events nor --events-file, the envelope session_id property, and events_file in the artifact-kind enum",
+          "contract": "the --schema output of each tool equals its golden file"
+        },
+        {
+          "id": "12-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "replace the --events and --events-file Shared flags rows with an --emit-events row, state the new default report file name in the --report-file row, update the Machine-readable progress section (header with session_id, run_end.report_file, tool_call, text, removal of the --verbose and --show-text gates, the usage-error paragraph and the worked example) and the --schema paragraph, add events_file_not_written to the warnings table and events_file to the artifact kinds, and add a 3.0.0 entry to the schema-version changelog"
+        },
+        {
+          "id": "12-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "docs/configuration.md",
+          "action": "rename the \"Report files\" section to \"State directory\" covering runs/ and events/, the new file names, the 0700 and 0600 modes, and an XDG_STATE_HOME row stating that tests set it, and update the heading assertion in docs_test.go (TS-06-63) with it"
+        },
+        {
+          "id": "12-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "name --emit-events or the events file, and not --events jsonl or --events-file, as the way to watch spend"
+        },
+        {
+          "id": "12-REQ-10.5",
+          "pattern": "ubiquitous",
+          "system": "existing tests",
+          "action": "use the new behaviour in every test that used the removed flags, the pid file name, the delta field, the --verbose gating of tool_call or the sink-only-when-requested behaviour, in internal/toolio, internal/agentrun/hooks_test.go, cmd/fix/preflight_detail_test.go, docs_events_test.go and docs_test.go, and make the byte-comparison normalisation of TS-06-13 drop session_id as well",
+          "contract": "make test passes with no reference to --events, --events-file, text.delta or the pid-based report name outside tests of the removed-flag errors"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "12-PATH-1",
+      "title": "A default run writes an events file and a report that name each other",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs a tool such as `impl` with no events flag and XDG_STATE_HOME pointing at a state directory"
+        },
+        {
+          "actor": "Run",
+          "action": "generates a 32-hex-character session_id in NewRun"
+        },
+        {
+          "actor": "openEvents",
+          "action": "creates <state>/events/<tool>-<started_at>-<session_id>.jsonl exclusively with mode 0600 inside an events/ directory of mode 0700, and starts the heartbeat"
+        },
+        {
+          "actor": "sink",
+          "action": "writes every event with the header ts, tool, session_id, type, one whole line per event, ending with run_end carrying report_file"
+        },
+        {
+          "actor": "emit",
+          "action": "writes <state>/runs/<tool>-<started_at>-<session_id>.json and prints the envelope with session_id and an events_file artifact"
+        },
+        {
+          "actor": "operator",
+          "action": "pairs the two files with ls and jq through the shared session_id"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-2",
+      "title": "--emit-events streams the complete model activity to stderr and the file",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs a model-backed tool with --emit-events and without --verbose or --show-text"
+        },
+        {
+          "actor": "Runner",
+          "action": "accumulates a turn's prose and matches each ToolCallEndEvent to its ToolResultEvent by tool-call id"
+        },
+        {
+          "actor": "Runner",
+          "action": "emits one tool_call event per call with arguments, ok and, when readable, exit_code, then one text event immediately before the turn event"
+        },
+        {
+          "actor": "sink",
+          "action": "writes each event line to stderr and to the events file, with no human progress line"
+        },
+        {
+          "actor": "operator",
+          "action": "finds the stderr bytes identical to the events file content"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-3",
+      "title": "A caller passes a removed flag",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs a tool with --events-file out.jsonl or --events jsonl"
+        },
+        {
+          "actor": "flag parser",
+          "action": "fails with flag provided but not defined"
+        },
+        {
+          "actor": "unsupportedFlagMessage",
+          "action": "rewrites the failure into the removal or rename message"
+        },
+        {
+          "actor": "emit",
+          "action": "writes a usage-error envelope with session_id and a report file, exits 2, and creates no events file"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-4",
+      "title": "The events file cannot be created and the run carries on",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs a tool with --emit-events while <state>/events cannot be written"
+        },
+        {
+          "actor": "openEvents",
+          "action": "fails to create the events file and leaves the sink with stderr as its only writer"
+        },
+        {
+          "actor": "Run",
+          "action": "records the low warning events_file_not_written at stage report after the sink is attached"
+        },
+        {
+          "actor": "sink",
+          "action": "emits the warning as an event on stderr"
+        },
+        {
+          "actor": "emit",
+          "action": "finishes with the unchanged exit code and an envelope without an events_file artifact"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-5",
+      "title": "A package test run leaves the real state directory untouched",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs make test"
+        },
+        {
+          "actor": "statetest",
+          "action": "lists the real state directories, sets XDG_STATE_HOME to a MkdirTemp directory and calls m.Run()"
+        },
+        {
+          "actor": "tests",
+          "action": "call App.Main, which writes reports and events files into the temporary directory"
+        },
+        {
+          "actor": "statetest",
+          "action": "removes the temporary directory and compares the real listing with the earlier one, failing the package with the new file names if they differ"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-6",
+      "title": "A default run without --emit-events keeps the human progress",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs a model-backed tool with --show-text and no --emit-events on a terminal"
+        },
+        {
+          "actor": "Progress",
+          "action": "decides stderr behaviour from --emit-events and --quiet and not from the always-active sink"
+        },
+        {
+          "actor": "Progress",
+          "action": "prints the spinner and duration lines and streams the model prose live through Raw without emitting an event from it"
+        },
+        {
+          "actor": "sink",
+          "action": "records the same run's complete event stream in the events file"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go",
+      "version": "replace ../agentkit-go (outside the repository)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ToolCallEndEvent",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type ToolCallEndEvent struct { Block core.ToolUseBlock }",
+          "notes": "phase.go reads Block.Name and string(Block.Input). Source not readable; signature taken from call sites."
+        },
+        {
+          "name": "ToolUseBlock",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type ToolUseBlock struct { ID string; Name string; Input []byte-or-string }",
+          "notes": "The ID field is assumed and not used in the repo; R8 needs it to pair a result with its call. Use whatever the SDK provides if it is named differently."
+        },
+        {
+          "name": "ToolResultEvent",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type ToolResultEvent struct { Message core.ToolResultMessage }",
+          "notes": "Message has ToolName, IsError, Content (Content.Text()); ToolCallID is assumed."
+        },
+        {
+          "name": "ToolExecutionEndEvent",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type ToolExecutionEndEvent struct { Name string; IsError bool; ElapsedMS int64 }",
+          "notes": "Whether it or the result carries a shell exit status is not known."
+        },
+        {
+          "name": "TextDeltaEvent",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type TextDeltaEvent struct { Delta string }",
+          "notes": "Also core.TextEndEvent and core.TurnEndEvent{Usage}; a turn's text events are assumed to precede its TurnEndEvent."
+        }
+      ]
+    }
+  ]
+}

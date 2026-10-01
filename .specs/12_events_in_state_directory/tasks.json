@@ -1,0 +1,448 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "12",
+  "spec_name": "events_in_state_directory",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/toolio/... ./internal/agentrun/... ./internal/statetest/... ./cmd/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "07",
+      "reason": "modifies its --events/--events-file flags, event types, sink and heartbeat"
+    },
+    {
+      "spec": "06",
+      "reason": "modifies the report file name, DefaultReportPath, artifact kinds and report_file_not_written"
+    },
+    {
+      "spec": "09",
+      "reason": "modifies --schema, the golden files and schema_version"
+    },
+    {
+      "spec": "05",
+      "reason": "session_id and run_end.report_file sit beside the envelope fields and run_end status/exit_code derivation"
+    },
+    {
+      "spec": "08",
+      "reason": "--output validation ordering and output_matches_report_file must stay unchanged"
+    },
+    {
+      "spec": "10",
+      "reason": "arguments and text carry unsanitised model text like the rest of the stream"
+    },
+    {
+      "spec": "11",
+      "reason": "--preflight runs reach the sink and now write an events file"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add internal/statetest and isolate every TestMain from the real state directory",
+      "criteria": [
+        "12-REQ-9"
+      ],
+      "tests": [
+        "TS-12-50",
+        "TS-12-51",
+        "TS-12-52",
+        "TS-12-53",
+        "TS-12-54"
+      ],
+      "steps": [
+        "Write TS-12-50..54 and confirm they fail",
+        "Create internal/statetest/statetest.go (model on internal/schematest) with an exported function taking a *testing.M-like interface (m.Run() int) and returning the exit code; keep an unexported variant (e.g. runCheck) that takes a run func and returns code and message so tests can drive it with fakes",
+        "Before the run: record the XDG_STATE_HOME value, compute real dirs = $HOME/.local/state/agent-fox via os.UserHomeDir with XDG_STATE_HOME ignored, plus $XDG_STATE_HOME/agent-fox if it was set; list files under runs/ and events/ of each; skip the comparison when os.UserHomeDir fails",
+        "os.MkdirTemp a directory, os.Setenv XDG_STATE_HOME to it, call m.Run(), remove the directory, restore the previous env, then re-list and fail (non-zero code and a message naming each new path) if any new file appeared",
+        "Extend TestMain in internal/toolio/app_test.go and cmd/fix/main_test.go to call statetest (keep their existing env-unsetting and binary-building work)",
+        "Create TestMain in cmd/impl/main_test.go, cmd/issue/main_test.go and cmd/spec/main_test.go calling statetest",
+        "Audit tests that read runs/ or events/ contents so each keeps t.Setenv(\"XDG_STATE_HOME\", t.TempDir()); make TestTS06_7 unset XDG_STATE_HOME and set HOME to a t.TempDir()",
+        "Write TS-12-54 as a go/parser or text scan of the _test.go files for those rules; run make test and make lint"
+      ],
+      "touches": [
+        "internal/statetest/statetest.go",
+        "internal/statetest/statetest_test.go",
+        "internal/toolio/app_test.go",
+        "internal/toolio/report_test.go",
+        "cmd/fix/main_test.go",
+        "cmd/impl/main_test.go",
+        "cmd/issue/main_test.go",
+        "cmd/spec/main_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Generate session_id in NewRun; add it to the envelope; rename report path to use it",
+      "criteria": [
+        "12-REQ-1",
+        "12-REQ-2.2",
+        "12-REQ-2.5",
+        "12-REQ-3.1",
+        "12-REQ-3.2"
+      ],
+      "tests": [
+        "TS-12-1",
+        "TS-12-2",
+        "TS-12-3",
+        "TS-12-4",
+        "TS-12-6",
+        "TS-12-9",
+        "TS-12-12",
+        "TS-12-13"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "In internal/toolio/envelope.go NewRun: first thing, read 16 bytes from crypto/rand.Read, hex.EncodeToString into 32 lowercase chars, store on Run and expose via a SessionID() accessor; keep NewRun's signature; import only crypto/rand and encoding/hex and add no go.mod entry",
+        "Add a required top-level session_id string to the envelope struct immediately after schema_version, filled from the Run on every envelope including usage errors",
+        "Describe session_id in the --schema document (schemadoc.go / selfdescribe.go) as a string property and in the required list; regenerate cmd/*/testdata/schema.golden.json and review the diff (SchemaVersion bump comes in a later task)",
+        "Change DefaultReportPath in report.go to take the session id string instead of the pid: <tool>-<started_at>-<session_id>.json with the same colon-free timestamp; update reportPath/emit callers",
+        "Add DefaultEventsPath returning <state>/events/<tool>-<started_at>-<session_id>.jsonl; both functions resolve base via the single stateHome() (unchanged semantics: non-empty XDG_STATE_HOME else os.UserHomeDir/.local/state, plus agent-fox)",
+        "Update existing tests that use the pid report name (report_test.go, app_test.go etc.) and byte-comparison normalisation TS-06-13 to also drop session_id",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/report.go",
+        "internal/toolio/schemadoc.go",
+        "internal/toolio/selfdescribe.go",
+        "internal/toolio/report_test.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json",
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Replace --events/--events-file with --emit-events and re-key Progress to it",
+      "criteria": [
+        "12-REQ-5.1",
+        "12-REQ-5.3",
+        "12-REQ-5.4",
+        "12-REQ-5.5",
+        "12-REQ-5.6",
+        "12-REQ-6.5",
+        "12-REQ-6.6",
+        "12-REQ-6.7"
+      ],
+      "tests": [
+        "TS-12-23",
+        "TS-12-25",
+        "TS-12-26",
+        "TS-12-27",
+        "TS-12-28",
+        "TS-12-33",
+        "TS-12-34",
+        "TS-12-35"
+      ],
+      "steps": [
+        "Write the listed tests (for TS-12-35 capture baseline stderr bytes from the pre-change behaviour first) and confirm they fail",
+        "In cli.go remove --events, --events-file, Common.Events, Common.EventsFile, ValidEvents, EventsText, EventsJSONL and the events enum; add Common.EmitEvents bool and the shared --emit-events boolean flag; drop events validation from app.go",
+        "In cmd/fix/main.go remove events and events-file from the value-taking-flag table for normalizeArgs and do not add emit-events",
+        "In toolflags.go unsupportedFlagMessage: map `events-file` to `--events-file was removed; events are always written to <state>/events/` (literal text) and `events` to `--events was renamed --emit-events`, for both `--flag value` and `--flag=value`; only the first unknown flag is reported",
+        "Change openEvents/Progress construction so the sink exists when EmitEvents is true (stderr writer only for now); pass an explicit emitEvents setting into Progress",
+        "In progress.go stop using `sink() != nil` as a proxy for JSONL on stderr: Begin is silent only under EmitEvents or Quiet; Raw writes live prose only when ShowText is set and neither EmitEvents nor Quiet is, and never emits an event; leave Step/Detail as they are",
+        "Update --emit-events in the --schema flag listing and regenerate the four schema.golden.json files, reviewing the diff",
+        "Rewrite existing tests using the removed flags (app_test.go, events_test.go, heartbeat_test.go, progress_test.go, flagschema_test.go, schemaflag_test.go, smoke_test.go, cmd/fix/preflight_detail_test.go) to --emit-events; keep removed-flag error tests",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/app.go",
+        "internal/toolio/toolflags.go",
+        "internal/toolio/progress.go",
+        "internal/toolio/flagschema.go",
+        "cmd/fix/main.go",
+        "cmd/fix/preflight_detail_test.go",
+        "internal/toolio/app_test.go",
+        "internal/toolio/events_test.go",
+        "internal/toolio/heartbeat_test.go",
+        "internal/toolio/progress_test.go",
+        "internal/toolio/flagschema_test.go",
+        "internal/toolio/schemaflag_test.go",
+        "internal/toolio/smoke_test.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json",
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Always open the events file in the state directory with the new header, modes and warning",
+      "criteria": [
+        "12-REQ-2.1",
+        "12-REQ-2.6",
+        "12-REQ-3.3",
+        "12-REQ-4.1",
+        "12-REQ-4.2",
+        "12-REQ-4.3",
+        "12-REQ-4.6",
+        "12-REQ-4.7",
+        "12-REQ-4.8"
+      ],
+      "tests": [
+        "TS-12-5",
+        "TS-12-10",
+        "TS-12-14",
+        "TS-12-15",
+        "TS-12-16",
+        "TS-12-17",
+        "TS-12-20",
+        "TS-12-21",
+        "TS-12-22"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "In events.go change eventHeader to ts, tool, session_id, type in that order; the sink stamps session_id from the Run",
+        "In app.go openEvents: resolve DefaultEventsPath; MkdirAll parents with 0755 then create only events/ with 0700 (os.Mkdir after MkdirAll of the parent; leave an existing events/ mode untouched); os.OpenFile with O_CREATE|O_EXCL|O_WRONLY|O_APPEND, mode 0600; never truncate",
+        "The sink writes each event as one whole-line Write (marshal plus newline in a single buffer) to the file and, when EmitEvents and not Quiet, the same bytes to stderr",
+        "On resolve or create failure (including stateHome failure and a collision) return a failure and record, after the sink is attached to the Run, a low warning events_file_not_written at stage report so it is also emitted as a warning event under --emit-events; add the code to the list and code-to-stage table in warncode.go (and update warncode tests)",
+        "When no file exists and EmitEvents is false the sink has no writer, Active() is false, and no heartbeat ticker starts; with a file the 15s heartbeat runs for the life of the run, stopped at run_end",
+        "When stateHome fails, emit still records report_file_not_written and carries on with the same exit code",
+        "--report-file changes only the report path; the events file keeps DefaultEventsPath",
+        "Update existing tests that assumed a sink only when requested (app_test, events_test, heartbeat_test, warn_events_test); run make test and make lint"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/events.go",
+        "internal/toolio/warncode.go",
+        "internal/toolio/report.go",
+        "internal/toolio/warncode_test.go",
+        "internal/toolio/heartbeat_test.go",
+        "internal/toolio/app_test.go",
+        "internal/toolio/events_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Emit one text event per model turn from the Runner",
+      "criteria": [
+        "12-REQ-7"
+      ],
+      "tests": [
+        "TS-12-36",
+        "TS-12-37",
+        "TS-12-38",
+        "TS-12-39",
+        "TS-12-40",
+        "TS-12-41"
+      ],
+      "steps": [
+        "Write the listed tests against the recording fake in internal/agentrun/hooks_test.go and against Progress, and confirm they fail",
+        "In events.go change TextEvent to phase, turn, text (no delta)",
+        "Add a per-turn text method to the Observer interface in internal/agentrun/phase.go and implement it on toolio.Progress by emitting the text event; update the hooks_test.go fake",
+        "In Runner.trace accumulate prose from TextDeltaEvent always (not only under Config.ShowText), joining blocks at TextEndEvent with \"\\n\" and adding no trailing newline; stop calling Observer.Raw from the Runner for the sink, keeping the live ShowText stream through Raw unchanged",
+        "At TurnEndEvent emit the text event (if the buffer is non-empty) immediately before the turn call with the same turn number, then clear the buffer",
+        "When the phase ends without a turn end (cancellation, stream error) flush the buffer once before phase_end with turn = completed turns + 1",
+        "Update existing tests that reference the delta field (events_test.go, progress_test.go, hooks_test.go); run make test and make lint"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/hooks_test.go",
+        "internal/toolio/events.go",
+        "internal/toolio/progress.go",
+        "internal/toolio/events_test.go",
+        "internal/toolio/progress_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Record arguments, ok, exit_code and error in tool_call, unfiltered",
+      "criteria": [
+        "12-REQ-6.2",
+        "12-REQ-8"
+      ],
+      "tests": [
+        "TS-12-30",
+        "TS-12-42",
+        "TS-12-43",
+        "TS-12-44",
+        "TS-12-45",
+        "TS-12-46",
+        "TS-12-47",
+        "TS-12-48",
+        "TS-12-49"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Define a struct (e.g. ToolCallInfo) with Phase, Name, Blocked, Arguments, OK, ExitCode *int, Error and change Observer.ToolCall to take it; update toolio.Progress and the hooks_test.go fake",
+        "In events.go extend ToolCallEvent with arguments (json.RawMessage), ok, exit_code (omitempty) and error (omitempty); update the header comment about omitempty; the arguments field is raw JSON compacted with whitespace removed, {} when empty, and the raw input encoded as a JSON string when it is not valid JSON so the line is never dropped",
+        "In Runner.trace remember each ToolCallEndEvent's block by its tool-call id (read the id from core.ToolUseBlock.ID; confirm the real field name by compiling against the SDK and adapt) and look it up from the ToolResultEvent by the result's tool-call id, never by tool name; parallel calls must not mix",
+        "Emit exactly one ToolCall per result, remove the Verbose() check in Runner.toolCall; ok = !IsError, false for a guard-refused call with error = the guard message; error = result text only when ok is false; never record result content",
+        "exit_code only for execute, run_command and powershell (names from guard.go), only when the status can be parsed from the result; omit it otherwise and never default to 0 (isolate the parser in a small function and document the format it handles)",
+        "Update existing tool_call tests that relied on --verbose gating; run make test and make lint"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/hooks_test.go",
+        "internal/toolio/events.go",
+        "internal/toolio/progress.go",
+        "internal/toolio/events_test.go",
+        "internal/toolio/progress_test.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Join envelope and events: run_end.report_file, events_file artifact, pre-sink refusals",
+      "criteria": [
+        "12-REQ-2.3",
+        "12-REQ-2.4",
+        "12-REQ-2.7",
+        "12-REQ-4.4",
+        "12-REQ-4.5",
+        "12-REQ-5.2",
+        "12-REQ-6.1",
+        "12-REQ-6.3",
+        "12-REQ-6.4"
+      ],
+      "tests": [
+        "TS-12-7",
+        "TS-12-8",
+        "TS-12-11",
+        "TS-12-18",
+        "TS-12-19",
+        "TS-12-24",
+        "TS-12-29",
+        "TS-12-31",
+        "TS-12-32"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Add report_file (always present, no omitempty) to RunEndEvent; compute it in the same code in emit that decides the envelope's report_file so they cannot disagree, emitting run_end before the envelope is printed",
+        "Keep the Run's events path on success and append an artifact {kind: events_file, path} after report_file in stdout and the report file, including under --dry-run; omit it when the file was not created; add events_file to the artifact-kind enum in the --schema description and regenerate the four schema.golden.json files",
+        "Ensure the file's last line is run_end for later usage errors, failing input, refused preflight, --preflight and --dry-run",
+        "Ensure -h/--help, --version, --schema, bare invocation on a terminal and usage errors before the sink (flag-parse including removed flags, invalid --detail/--total-budget/--input-kind, bare off-terminal, invalid --output) create no events file and no empty file, still write the report and have no events_file artifact",
+        "Verify --quiet silences stderr under both --emit-events settings while the file keeps the full stream; stderr equals file bytes under --emit-events regardless of --verbose and --show-text; the sink never truncates, sanitises or abbreviates fields",
+        "Write TS-12-29 and TS-12-32 using the scripted fake model backend already used by the smoke tests, with a fake clock",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/envelope.go",
+        "internal/toolio/events.go",
+        "internal/toolio/schemadoc.go",
+        "internal/toolio/artifacts_test.go",
+        "internal/toolio/events_test.go",
+        "internal/toolio/smoke_test.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json",
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        4,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Bump interface to 3.0.0, regenerate goldens and update docs and doc tests",
+      "criteria": [
+        "12-REQ-10"
+      ],
+      "tests": [
+        "TS-12-55",
+        "TS-12-56",
+        "TS-12-57",
+        "TS-12-58",
+        "TS-12-59"
+      ],
+      "steps": [
+        "Write the listed tests and confirm they fail",
+        "Set SchemaVersion to 3.0.0 in internal/toolio; update schemaversion tests in internal/toolio and cmd/issue; regenerate each cmd/*/testdata/schema.golden.json and review that it lists --emit-events, no --events/--events-file, envelope session_id, and events_file in the artifact-kind enum",
+        "docs/cli.md: replace the --events/--events-file Shared flags rows with an --emit-events row; state <tool>-<started_at>-<session_id>.json in the --report-file row; update Machine-readable progress (header with session_id, run_end.report_file, richer tool_call, per-turn text, no --verbose/--show-text gates, usage-error paragraph, worked example) and the --schema paragraph; add events_file_not_written to the warnings table, events_file to artifact kinds and a 3.0.0 changelog entry listing the removed flags, removed text.delta and the additions",
+        "docs/configuration.md: rename \"Report files\" to \"State directory\" covering runs/ and events/, new file names, 0700/0600 modes, and an XDG_STATE_HOME row saying tests set it; update docs_test.go TS-06-63 heading assertion",
+        "docs/model-usage.md line 46: name --emit-events or the events file instead of --events jsonl / --events-file",
+        "Rewrite docs_events_test.go (TS-07-42) to assert --emit-events rather than --events/--events-file/jsonl",
+        "Write TS-12-59 as a scan of Go sources, tests and docs for --events-file, '--events ', EventsJSONL, text.delta and DefaultReportPath(..., os.Getpid()), allowing only removed-flag error tests and the 3.0.0 changelog; check TS-06-13 normalisation drops session_id",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/schemaversion_test.go",
+        "internal/toolio/docs_test.go",
+        "internal/toolio/docs_events_test.go",
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "cmd/issue/schemaversion_test.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json",
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "integration",
+      "title": "Verify all six execution paths end to end through App.Main",
+      "tests": [
+        "TS-12-60",
+        "TS-12-61",
+        "TS-12-62",
+        "TS-12-63",
+        "TS-12-64",
+        "TS-12-65"
+      ],
+      "steps": [
+        "Write TS-12-60..65 (smoke tests) with real components: App.Main, a scripted fake model backend, a pty for TS-12-65, a throwaway package with go test for TS-12-64, XDG_STATE_HOME under a temp dir; confirm they pass",
+        "Trace 12-PATH-1..6 through production code: NewRun -> openEvents -> sink/heartbeat -> emit -> report writer; Runner -> Progress -> sink; flag parser -> unsupportedFlagMessage -> emit; openEvents failure -> warning -> envelope; statetest -> TestMain; Progress Begin/Raw keyed to --emit-events; confirm each step calls the next and no stub remains",
+        "For every criterion with a contract (e.g. 12-REQ-2.3 run_end.report_file, 12-REQ-2.4 events_file artifact, 12-REQ-1.1 SessionID, 12-REQ-8.1 tool_call fields, 12-REQ-9.3 statetest failure), confirm the producer's result is consumed by production code and not only tests",
+        "Confirm statetest is called from TestMain in internal/toolio, cmd/fix, cmd/impl, cmd/issue and cmd/spec and that after make test nothing exists under the real $HOME/.local/state/agent-fox",
+        "Grep every file in the tasks' touches lists for panic(\"not implemented\"), TODO and bare return nil on non-trivial paths, and remove any",
+        "Run make check"
+      ],
+      "touches": [
+        "internal/toolio/smoke_test.go",
+        "internal/statetest/statetest_test.go",
+        "cmd/impl/main_test.go",
+        "cmd/fix/main_test.go"
+      ],
+      "depends_on": [
+        8
+      ],
+      "done_when": [
+        "`make test` and `make lint` pass and leave nothing under the real $HOME/.local/state/agent-fox"
+      ],
+      "state": "pending"
+    }
+  ]
+}

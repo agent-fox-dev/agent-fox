@@ -1,0 +1,1249 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "12",
+  "spec_name": "events_in_state_directory",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-12-1",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-1.1"
+      ],
+      "title": "NewRun exposes a 32-lowercase-hex session_id and keeps its signature",
+      "given": [
+        "a clock and tool name for NewRun"
+      ],
+      "when": "NewRun is called",
+      "then": [
+        "Run exposes a session_id string matching ^[0-9a-f]{32}$",
+        "NewRun compiles with its existing signature and returns no error",
+        "the id is set before the sink, envelope or file-name functions are used"
+      ],
+      "pseudocode": "r = NewRun(tool, args...); assert regex('^[0-9a-f]{32}$').match(r.SessionID()); assert len(r.SessionID()) == 32"
+    },
+    {
+      "id": "TS-12-2",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-1.2"
+      ],
+      "title": "Session ids from distinct runs are well-formed and differ, with no pid/clock/host component",
+      "given": [
+        "NewRun called with a frozen clock, and the same pid and host throughout"
+      ],
+      "when": "for any N in 2..500 runs created by NewRun in the same process at the same instant",
+      "then": [
+        "every session_id matches ^[0-9a-f]{32}$",
+        "all N session_ids are pairwise distinct",
+        "no id contains the hex of the pid or of the formatted started_at"
+      ],
+      "pseudocode": "ids = [NewRun(...).SessionID() for _ in range(N)]; assert len(set(ids)) == N; for id in ids: assert re.match('^[0-9a-f]{32}$', id); assert hex(pid) not in id[:8]"
+    },
+    {
+      "id": "TS-12-3",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-1.3"
+      ],
+      "title": "A flag-parse failure still emits an envelope with a session_id, on stdout and in the report",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "the App is real"
+      ],
+      "when": "App.Main is run with an undefined flag --bogus",
+      "then": [
+        "exit code is 2 and stage is usage",
+        "the stdout envelope has a session_id of 32 hex characters",
+        "the report file envelope has the same session_id",
+        "the report file name ends with that session_id and .json"
+      ],
+      "pseudocode": "code = app.Main(['--bogus']); env = json(stdout); assert code == 2; assert re('^[0-9a-f]{32}$').match(env.session_id); assert json(read(report)).session_id == env.session_id"
+    },
+    {
+      "id": "TS-12-4",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-1.4"
+      ],
+      "title": "The session id generator uses crypto/rand only and adds no module",
+      "given": [
+        "go.mod and the source file that defines the generator"
+      ],
+      "when": "the file's imports and go.mod's require block are inspected",
+      "then": [
+        "the generator file imports crypto/rand and encoding/hex",
+        "it does not import math/rand or math/rand/v2",
+        "go.mod's require set is the same as the set recorded before this spec"
+      ],
+      "pseudocode": "imports = parse_imports(file); assert 'crypto/rand' in imports; assert 'math/rand' not in imports; assert requires(go.mod) == EXPECTED"
+    },
+    {
+      "id": "TS-12-5",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-2.1"
+      ],
+      "title": "Every event carries the header ts, tool, session_id, type in that key order",
+      "given": [
+        "a sink built for a run with a known session_id and a buffer writer"
+      ],
+      "when": "one event of each type is emitted through the sink",
+      "then": [
+        "each line's first four keys are, in order, ts, tool, session_id, type",
+        "session_id equals the run's session id on every line"
+      ],
+      "pseudocode": "for ev in ALL_EVENT_TYPES: sink.emit(ev); for line in lines: keys = ordered_keys(line); assert keys[:4] == ['ts','tool','session_id','type']; assert json(line).session_id == run.sid"
+    },
+    {
+      "id": "TS-12-6",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.2"
+      ],
+      "title": "The envelope has a required session_id right after schema_version, identical on stdout and in the report, and described by --schema",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "a tool is run with an invalid input (usage error), a successful run, and with --schema",
+      "then": [
+        "session_id is the key immediately after schema_version in stdout and the report file",
+        "stdout and report session_id are equal for each run",
+        "the --schema document lists session_id as a string property and in required"
+      ],
+      "pseudocode": "out = run(...); keys = ordered_keys(out.stdout); assert keys[keys.index('schema_version')+1] == 'session_id'; assert out.stdout.session_id == read(report).session_id; schema = run('--schema'); assert 'session_id' in schema.envelope.required"
+    },
+    {
+      "id": "TS-12-7",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.3"
+      ],
+      "title": "run_end.report_file equals envelope.report_file, including the empty string when no report is written",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "one case where the report is written and one where --report-file points at an unwritable path"
+      ],
+      "when": "each run completes and the last events line and the envelope are compared",
+      "then": [
+        "run_end has a report_file key in both cases",
+        "it equals the envelope's report_file in both cases",
+        "it is the empty string when the report was not written"
+      ],
+      "pseudocode": "for case in cases: env = stdout; last = json(lines(events)[-1]); assert last.type == 'run_end'; assert 'report_file' in last; assert last.report_file == env.report_file"
+    },
+    {
+      "id": "TS-12-8",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.4"
+      ],
+      "title": "The events_file artifact follows report_file and appears only when the file was created, also under --dry-run",
+      "given": [
+        "XDG_STATE_HOME is a temp dir for the normal and dry-run cases",
+        "an unwritable events parent for the no-file case"
+      ],
+      "when": "a normal run, a --dry-run run and a run whose events file cannot be created finish",
+      "then": [
+        "in the first two, artifacts ends with {kind: report_file} then {kind: events_file, path} in stdout and in the report file, and path names an existing file",
+        "in the third, artifacts has no events_file entry",
+        "the --schema artifact-kind enum contains events_file"
+      ],
+      "pseudocode": "kinds = [a.kind for a in env.artifacts]; assert kinds.index('events_file') == kinds.index('report_file')+1; assert exists(artifact('events_file').path)"
+    },
+    {
+      "id": "TS-12-9",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-2.5"
+      ],
+      "title": "DefaultReportPath and DefaultEventsPath share stem, timestamp format and state base",
+      "given": [
+        "XDG_STATE_HOME=/s, started_at 2025-01-02T03:04:05Z, session id S"
+      ],
+      "when": "both functions are called",
+      "then": [
+        "report path is /s/agent-fox/runs/<tool>-<started_at>-S.json",
+        "events path is /s/agent-fox/events/<tool>-<started_at>-S.jsonl",
+        "the timestamp contains no colon",
+        "both stems are identical and both bases derive from the same stateHome()"
+      ],
+      "pseudocode": "r = DefaultReportPath(tool, t, S); e = DefaultEventsPath(tool, t, S); assert stem(r) == stem(e); assert dir(dir(r)) == dir(dir(e)); assert ':' not in base(r)"
+    },
+    {
+      "id": "TS-12-10",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-2.6"
+      ],
+      "title": "When stateHome() fails the run records both not-written warnings and keeps its exit code",
+      "given": [
+        "XDG_STATE_HOME is unset and HOME is unset so os.UserHomeDir fails"
+      ],
+      "when": "App.Main runs a valid dry-run invocation, and the same invocation runs with a good state dir",
+      "then": [
+        "the exit codes of both runs are equal",
+        "the failing run's envelope warnings contain report_file_not_written and events_file_not_written, both stage report",
+        "no file is created"
+      ],
+      "pseudocode": "bad = run(env={}); good = run(env={XDG_STATE_HOME: tmp}); assert bad.code == good.code; codes = {w.code:w.stage for w in bad.env.warnings}; assert codes['report_file_not_written']=='report' and codes['events_file_not_written']=='report'"
+    },
+    {
+      "id": "TS-12-11",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-2.7"
+      ],
+      "title": "Report name, events name and envelope session_id always share the session id, and each file names the other",
+      "given": [
+        "XDG_STATE_HOME is a temp dir per case"
+      ],
+      "when": "for any tool in {spec, issue, fix, impl} and any valid invocation (normal, --dry-run, --preflight, --emit-events, --quiet)",
+      "then": [
+        "the report file name, events file name and envelope session_id carry the same session id",
+        "envelope artifacts events_file.path is the events file on disk",
+        "run_end.report_file is the report on disk"
+      ],
+      "pseudocode": "sid = env.session_id; assert base(report).endswith(sid+'.json'); assert base(events).endswith(sid+'.jsonl'); assert artifact('events_file').path == events; assert last_event.report_file == report"
+    },
+    {
+      "id": "TS-12-12",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-3.1"
+      ],
+      "title": "The state directory resolves from XDG_STATE_HOME, else from the home directory, with runs/ and events/ beneath",
+      "given": [
+        "case A: XDG_STATE_HOME=/x; case B: XDG_STATE_HOME unset and HOME=/h"
+      ],
+      "when": "stateHome(), DefaultReportPath and DefaultEventsPath are called, and a run creates both",
+      "then": [
+        "case A base is /x/agent-fox",
+        "case B base is /h/.local/state/agent-fox",
+        "reports live under runs/, events under events/, both created on demand",
+        "no environment variable other than XDG_STATE_HOME and HOME is read for this"
+      ],
+      "pseudocode": "setenv(XDG_STATE_HOME,'/x'); assert stateHome() == '/x/agent-fox'; unsetenv; setenv(HOME,'/h'); assert stateHome() == '/h/.local/state/agent-fox'"
+    },
+    {
+      "id": "TS-12-13",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-3.2"
+      ],
+      "title": "An empty XDG_STATE_HOME is treated as unset",
+      "given": [
+        "XDG_STATE_HOME is the empty string and HOME is a temp dir"
+      ],
+      "when": "stateHome() is called and a run writes its files",
+      "then": [
+        "the base is $HOME/.local/state/agent-fox",
+        "files appear under that directory"
+      ],
+      "pseudocode": "t.Setenv('XDG_STATE_HOME',''); t.Setenv('HOME',tmp); assert stateHome() == tmp+'/.local/state/agent-fox'"
+    },
+    {
+      "id": "TS-12-14",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-3.3"
+      ],
+      "title": "--report-file moves only the report; the events file keeps its default path",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "--report-file points at another temp dir file"
+      ],
+      "when": "App.Main runs with --report-file",
+      "then": [
+        "the report is written at the given path",
+        "the events file exists at <state>/events/<tool>-<started_at>-<session_id>.jsonl",
+        "a glob events/*-<session_id>.jsonl finds exactly one file"
+      ],
+      "pseudocode": "run(['--report-file', p, ...]); assert exists(p); assert len(glob(state+'/events/*-'+sid+'.jsonl')) == 1"
+    },
+    {
+      "id": "TS-12-15",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.1"
+      ],
+      "title": "The events file is created exclusively with mode 0600 and a pre-existing file is never truncated",
+      "given": [
+        "a run whose session id is fixed",
+        "a pre-existing file at the computed events path holding known bytes"
+      ],
+      "when": "openEvents runs for a fresh path and then for the occupied path",
+      "then": [
+        "the fresh file has mode 0600 and was opened with O_CREATE|O_EXCL|O_WRONLY|O_APPEND semantics",
+        "the occupied file is byte-for-byte unchanged",
+        "a events_file_not_written warning is recorded for the collision"
+      ],
+      "pseudocode": "os.WriteFile(path, B, 0644); sink, warn = openEvents(run); assert read(path) == B; assert warn.code == 'events_file_not_written'; assert mode(freshPath) == 0600"
+    },
+    {
+      "id": "TS-12-16",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.2"
+      ],
+      "title": "Directory and file modes: events/ 0700, parents 0755, existing events/ untouched, report modes unchanged",
+      "given": [
+        "an empty state home in a temp dir; a second case with events/ pre-created with mode 0755"
+      ],
+      "when": "a run completes in each case",
+      "then": [
+        "events/ is 0700 and agent-fox/ and the state home created by the run are 0755",
+        "runs/ is 0755 and the report file 0644",
+        "the pre-existing events/ keeps 0755"
+      ],
+      "pseudocode": "run(); assert mode(state+'/events') == 0700; assert mode(state) == 0755; assert mode(state+'/runs') == 0755; assert mode(report) == 0644"
+    },
+    {
+      "id": "TS-12-17",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-4.3"
+      ],
+      "title": "Each event is exactly one Write call ending with a newline",
+      "given": [
+        "a sink writing to a recording io.Writer that logs each Write call"
+      ],
+      "when": "several events, including one with a very large field, are emitted",
+      "then": [
+        "each recorded Write holds exactly one complete JSON line ending in \\n with no embedded raw newline",
+        "the number of Writes equals the number of events",
+        "truncating the stream at any Write boundary leaves only complete lines"
+      ],
+      "pseudocode": "for ev in events: sink.emit(ev); assert len(w.calls) == len(events); for c in w.calls: assert c.endswith('\\n') and c.count('\\n') == 1"
+    },
+    {
+      "id": "TS-12-18",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.4"
+      ],
+      "title": "Runs that pass the sink build and end early leave an events file whose last line is run_end",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "App.Main runs for: a later usage error, a failing input, a refused preflight, --preflight, and --dry-run",
+      "then": [
+        "each run has one events file",
+        "the final line of each parses as JSON with type run_end",
+        "every line of the file is complete JSON"
+      ],
+      "pseudocode": "for case in cases: run(case); lines = readlines(only_file(events)); assert json(lines[-1]).type == 'run_end'"
+    },
+    {
+      "id": "TS-12-19",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.5"
+      ],
+      "title": "Invocations refused before the sink is built create no events file but still report",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "App.Main runs with -h, --version, --schema, a bare invocation on a terminal, an undefined flag, --events-file x, --events jsonl, an invalid --detail, --total-budget, --input-kind, a bare invocation off-terminal, and an invalid --output",
+      "then": [
+        "the events/ directory has no file after each run, and no empty file",
+        "for the usage-error cases a report is written and its artifacts have no events_file entry",
+        "exit codes are as before this change"
+      ],
+      "pseudocode": "for case in cases: run(case); assert glob(state+'/events/*') == []; if case.is_usage_error: assert 'events_file' not in kinds(env.artifacts) and exists(report)"
+    },
+    {
+      "id": "TS-12-20",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-4.6"
+      ],
+      "title": "An uncreatable events file yields a low events_file_not_written warning and an unchanged exit code",
+      "given": [
+        "XDG_STATE_HOME/agent-fox/events is a regular file so the directory cannot be made",
+        "a reference run with a writable state directory"
+      ],
+      "when": "App.Main runs with --emit-events",
+      "then": [
+        "the envelope warnings hold events_file_not_written with severity low and stage report",
+        "stderr carries a warning event for it",
+        "the exit code equals the reference run's exit code",
+        "warncode.go lists the code and maps it to stage report"
+      ],
+      "pseudocode": "writeFile(state+'/agent-fox/events','x'); r = run(['--emit-events',...]); w = find(r.env.warnings,'events_file_not_written'); assert w.severity=='low' and w.stage=='report'; assert any(json(l).type=='warning' for l in r.stderr_lines); assert r.code == ref.code"
+    },
+    {
+      "id": "TS-12-21",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-4.7"
+      ],
+      "title": "With no file and no --emit-events the sink is inactive and no heartbeat starts",
+      "given": [
+        "the events path cannot be created",
+        "EmitEvents is false"
+      ],
+      "when": "openEvents builds the sink and the run proceeds past the heartbeat start point",
+      "then": [
+        "sink.Active() is false",
+        "no heartbeat ticker or goroutine is started",
+        "stderr and stdout are the same as for a run without a sink"
+      ],
+      "pseudocode": "s = openEvents(run_with_bad_dir, emit=false); assert not s.Active(); assert heartbeatStarted == 0"
+    },
+    {
+      "id": "TS-12-22",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-4.8"
+      ],
+      "title": "The heartbeat ticks every 15 seconds for the whole run when an events file exists",
+      "given": [
+        "a sink with an events file and a fake clock and ticker"
+      ],
+      "when": "the fake clock advances by 15s three times, then the run ends",
+      "then": [
+        "three heartbeat events are written to the file",
+        "none is written after run_end",
+        "the interval used is 15 seconds even in a run with no --emit-events"
+      ],
+      "pseudocode": "for i in 1..3: clock.advance(15s); assert count('heartbeat') == 3; run.end(); clock.advance(15s); assert count('heartbeat') == 3"
+    },
+    {
+      "id": "TS-12-23",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.1"
+      ],
+      "title": "--emit-events parses as a shared boolean flag setting Common.EmitEvents",
+      "given": [
+        "the shared flag registration used by all four tools"
+      ],
+      "when": "flags are parsed with and without --emit-events",
+      "then": [
+        "Common.EmitEvents is true exactly when the flag is given",
+        "the flag takes no value and a following positional argument is not consumed",
+        "--help output lists --emit-events"
+      ],
+      "pseudocode": "c = parse(['--emit-events']); assert c.EmitEvents; assert not parse([]).EmitEvents"
+    },
+    {
+      "id": "TS-12-24",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.2"
+      ],
+      "title": "--quiet silences stderr under both --emit-events settings and leaves the file complete",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "App.Main runs with --quiet, and with --quiet --emit-events",
+      "then": [
+        "stderr is empty in both runs",
+        "each events file holds the full stream ending with run_end"
+      ],
+      "pseudocode": "for flags in [['--quiet'],['--quiet','--emit-events']]: r = run(flags); assert r.stderr == ''; assert json(last(lines(events))).type == 'run_end'"
+    },
+    {
+      "id": "TS-12-25",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.3"
+      ],
+      "title": "The removed flags and symbols no longer exist and the fix flag table is updated",
+      "given": [
+        "the toolio source, cmd/fix/main.go and the flag set of each tool"
+      ],
+      "when": "the package is inspected with go/parser and the flag sets are queried",
+      "then": [
+        "there is no --events or --events-file flag definition",
+        "Common has no Events or EventsFile field and no ValidEvents, EventsText, EventsJSONL or events enum exists",
+        "the value-taking-flag table in cmd/fix/main.go has neither events nor events-file and has no emit-events entry"
+      ],
+      "pseudocode": "assert fs.Lookup('events') is nil and fs.Lookup('events-file') is nil; assert 'EventsFile' not in fields(Common); assert 'emit-events' not in fixValueFlags"
+    },
+    {
+      "id": "TS-12-26",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.4"
+      ],
+      "title": "--events-file in both spellings yields the removal usage error and no events file",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "each tool runs with `--events-file out.jsonl` and with `--events-file=out.jsonl`",
+      "then": [
+        "exit code is 2 and stage is usage",
+        "the message is exactly `--events-file was removed; events are always written to <state>/events/` with the literal text <state>/events/",
+        "a report is written and no events file is created"
+      ],
+      "pseudocode": "for tool in TOOLS: for args in [['--events-file','o'],['--events-file=o']]: r = run(tool,args); assert r.code == 2 and r.env.stage == 'usage'; assert r.env.message == MSG; assert glob(events) == []"
+    },
+    {
+      "id": "TS-12-27",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-5.5"
+      ],
+      "title": "--events in both spellings yields the rename usage error and no events file",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "each tool runs with `--events jsonl` and with `--events=jsonl`",
+      "then": [
+        "exit code is 2 and stage is usage",
+        "the message is `--events was renamed --emit-events`",
+        "a report is written and no events file is created"
+      ],
+      "pseudocode": "r = run(['--events','jsonl']); assert r.code == 2 and r.env.stage == 'usage'; assert r.env.message == '--events was renamed --emit-events'; assert glob(events) == []"
+    },
+    {
+      "id": "TS-12-28",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-5.6"
+      ],
+      "title": "With both removed flags only the first encountered is named",
+      "given": [
+        "unsupportedFlagMessage and the flag-parse failure path"
+      ],
+      "when": "args are `--events-file f --events jsonl` and then `--events jsonl --events-file f`",
+      "then": [
+        "the first case's message contains the --events-file text and not the --events rename text",
+        "the second case's message contains the rename text and not the removal text",
+        "exactly one of the two texts appears in each message"
+      ],
+      "pseudocode": "m1 = msg(['--events-file','f','--events','jsonl']); assert 'was removed' in m1 and 'was renamed' not in m1; m2 = msg(['--events','jsonl','--events-file','f']); assert 'was renamed' in m2 and 'was removed' not in m2"
+    },
+    {
+      "id": "TS-12-29",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-6.1"
+      ],
+      "title": "Under --emit-events the stderr bytes equal the events file bytes",
+      "given": [
+        "XDG_STATE_HOME is a temp dir and a scripted fake model"
+      ],
+      "when": "for any run with --emit-events and any combination of --verbose, --show-text and a generated sequence of turns, tool calls and prose",
+      "then": [
+        "stderr bytes are byte-for-byte equal to the events file content"
+      ],
+      "pseudocode": "for scenario in gen_scenarios(): r = run(['--emit-events'] + flags); assert r.stderr == read(events_file(r))"
+    },
+    {
+      "id": "TS-12-30",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-6.2"
+      ],
+      "title": "tool_call and text events are emitted without --verbose or --show-text",
+      "given": [
+        "a Runner with Config.ShowText false and an Observer whose Verbose() is false, scripted to make two tool calls and produce prose"
+      ],
+      "when": "the phase runs",
+      "then": [
+        "two tool_call events and one text event reach the observer",
+        "the ToolCall hook is invoked for each call regardless of Verbose()"
+      ],
+      "pseudocode": "obs = RecordingObserver(verbose=False); runner.Run(script); assert len(obs.toolCalls) == 2; assert len(obs.texts) == 1"
+    },
+    {
+      "id": "TS-12-31",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-6.3"
+      ],
+      "title": "The sink records fields in full, unsanitised and unabbreviated",
+      "given": [
+        "a sink with a buffer writer"
+      ],
+      "when": "a text event holding 1 MiB of prose with ANSI escapes, tabs, unicode and a label-like prefix, and a tool_call with a 100 KiB arguments object, are emitted",
+      "then": [
+        "the decoded text equals the input exactly",
+        "the decoded arguments equal the input exactly",
+        "no ellipsis, truncation marker or removed field is present"
+      ],
+      "pseudocode": "sink.emit(Text{Text: big}); assert json(line).text == big; assert len(json(line2).arguments_raw) == len(args)"
+    },
+    {
+      "id": "TS-12-32",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-6.4"
+      ],
+      "title": "The events file does not depend on --verbose, --show-text or --quiet",
+      "given": [
+        "a deterministic scripted run and a fake clock"
+      ],
+      "when": "for any combination of --verbose, --show-text and --quiet (8 combinations)",
+      "then": [
+        "the events file has the same sequence of event types and the same field values apart from ts and durations in all combinations"
+      ],
+      "pseudocode": "base = normalise(events(run([]))); for combo in subsets(['--verbose','--show-text','--quiet']): assert normalise(events(run(combo))) == base"
+    },
+    {
+      "id": "TS-12-33",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-6.5"
+      ],
+      "title": "Begin prints unless --emit-events or --quiet is set, regardless of the sink",
+      "given": [
+        "a Progress with an active sink and a captured stderr"
+      ],
+      "when": "Begin is called with {neither, --emit-events, --quiet, both}",
+      "then": [
+        "with neither it prints the spinner and a (duration) line on end",
+        "with --emit-events or --quiet it prints nothing and returns a usable no-op",
+        "the result does not change when the sink is made inactive"
+      ],
+      "pseudocode": "p = NewProgress(sink=active, emit=False, quiet=False); end = p.Begin('x'); end(); assert stderr != ''; p2 = NewProgress(sink=active, emit=True); p2.Begin('x')(); assert stderr2 == ''"
+    },
+    {
+      "id": "TS-12-34",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-6.6"
+      ],
+      "title": "Raw streams prose live only with --show-text and without --emit-events/--quiet, and never emits an event",
+      "given": [
+        "a Progress with an active recording sink and captured stderr"
+      ],
+      "when": "Raw('hello') is called for each combination of --show-text, --emit-events and --quiet",
+      "then": [
+        "stderr receives exactly 'hello' only when --show-text is set and neither --emit-events nor --quiet is",
+        "stderr is empty in every other combination",
+        "the sink receives zero events from Raw in all combinations"
+      ],
+      "pseudocode": "for st,em,q in product([0,1],repeat=3): p.Raw('hello'); assert stderr == ('hello' if st and not em and not q else ''); assert sink.events == []"
+    },
+    {
+      "id": "TS-12-35",
+      "kind": "property",
+      "verifies": [
+        "12-REQ-6.7"
+      ],
+      "title": "Without --emit-events stderr bytes match the pre-change baseline",
+      "given": [
+        "recorded baseline stderr outputs captured from the pre-change code for a scripted run, with a fake clock and non-terminal and terminal modes"
+      ],
+      "when": "for any combination of --verbose, --show-text and --quiet without --emit-events",
+      "then": [
+        "stderr bytes equal the baseline for that combination, even though the events file is now always active"
+      ],
+      "pseudocode": "for combo in combos: assert run(combo).stderr == BASELINE[combo]"
+    },
+    {
+      "id": "TS-12-36",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.1"
+      ],
+      "title": "The text event has keys phase, turn, text after the header and no delta",
+      "given": [
+        "a sink with a buffer writer"
+      ],
+      "when": "Progress's per-turn text method is called with phase p, turn 2, text 'hi'",
+      "then": [
+        "the line's keys in order are ts, tool, session_id, type, phase, turn, text",
+        "type is text",
+        "there is no delta key"
+      ],
+      "pseudocode": "line = emitText('p',2,'hi'); assert keys(line) == ['ts','tool','session_id','type','phase','turn','text']"
+    },
+    {
+      "id": "TS-12-37",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.2"
+      ],
+      "title": "A turn's text blocks are accumulated and joined with a newline, with no trailing newline, regardless of ShowText",
+      "given": [
+        "a Runner with ShowText false fed TextDeltaEvent 'a', 'b', TextEndEvent, TextDeltaEvent 'c', TextEndEvent, then TurnEndEvent"
+      ],
+      "when": "the events are processed",
+      "then": [
+        "the text event's text is 'ab\\nc'",
+        "it has no trailing newline",
+        "the result is identical with ShowText true"
+      ],
+      "pseudocode": "feed(delta('a'),delta('b'),end,delta('c'),end,turnEnd); assert obs.texts[0].text == 'ab\\nc'"
+    },
+    {
+      "id": "TS-12-38",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.3"
+      ],
+      "title": "The text event is emitted directly before its turn event with the same turn number",
+      "given": [
+        "a recording observer and a two-turn scripted stream, each turn with prose"
+      ],
+      "when": "the phase runs to completion",
+      "then": [
+        "in the sequence of observer calls each text call is immediately followed by the turn call",
+        "both carry the same turn number (1 then 2)"
+      ],
+      "pseudocode": "seq = obs.calls; for i,c in enumerate(seq): if c.kind=='text': assert seq[i+1].kind=='turn' and seq[i+1].n == c.turn"
+    },
+    {
+      "id": "TS-12-39",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.4"
+      ],
+      "title": "A turn with no prose emits no text event",
+      "given": [
+        "a scripted stream with a turn containing only a tool call"
+      ],
+      "when": "the turn ends",
+      "then": [
+        "no text event is emitted for that turn",
+        "the turn event is still emitted"
+      ],
+      "pseudocode": "feed(toolCallEnd, toolResult, turnEnd); assert obs.texts == []; assert len(obs.turns) == 1"
+    },
+    {
+      "id": "TS-12-40",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.5"
+      ],
+      "title": "Prose buffered when a phase ends without a turn end is flushed once before phase_end with turn = completed+1",
+      "given": [
+        "a stream with one completed turn, then prose in a second turn and then cancellation (and a variant with a stream error)"
+      ],
+      "when": "the phase ends",
+      "then": [
+        "a text event with turn 2 and the buffered prose precedes phase_end",
+        "exactly one such text event is emitted, never twice",
+        "the buffer is empty afterwards"
+      ],
+      "pseudocode": "feed(turn1, delta('x')); cancel(); assert obs.calls[-2] == Text(turn=2,text='x'); assert obs.calls[-1].kind=='phase_end'; assert count(texts, 'x') == 1"
+    },
+    {
+      "id": "TS-12-41",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-7.6"
+      ],
+      "title": "Observer has a per-turn text method that Progress implements by emitting a text event",
+      "given": [
+        "the Observer interface, toolio.Progress and the hooks_test fake"
+      ],
+      "when": "the new method is called on Progress with an active sink",
+      "then": [
+        "toolio.Progress satisfies Observer at compile time",
+        "one text event reaches the sink",
+        "the fake in hooks_test records the call"
+      ],
+      "pseudocode": "var _ agentrun.Observer = (*toolio.Progress)(nil); p.Text('ph', 3, 'body'); assert sink.last.type == 'text'"
+    },
+    {
+      "id": "TS-12-42",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.1"
+      ],
+      "title": "tool_call carries phase, name, blocked, arguments, ok always, and exit_code/error only when set",
+      "given": [
+        "a sink with a buffer writer"
+      ],
+      "when": "tool_call events are marshalled for (a) an ok non-shell call, (b) an ok shell call with exit 0, (c) an error shell call with exit 1",
+      "then": [
+        "arguments and ok are always present",
+        "exit_code is absent in (a) and present with value 0 in (b)",
+        "error is absent in (a)/(b) and present in (c)",
+        "omitempty is on exit_code and error only"
+      ],
+      "pseudocode": "assert 'arguments' in a and 'ok' in a and 'exit_code' not in a and 'error' not in a; assert b.exit_code == 0 and 'error' not in b"
+    },
+    {
+      "id": "TS-12-43",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.2"
+      ],
+      "title": "Arguments are recorded verbatim apart from whitespace and {} when empty",
+      "given": [
+        "a Runner and a recording observer"
+      ],
+      "when": "a ToolCallEndEvent arrives with input '{ \"path\": \"a b\",  \"n\": 1 }', then another with empty input",
+      "then": [
+        "the first arguments is valid JSON equal to the compacted input",
+        "the second arguments is {}"
+      ],
+      "pseudocode": "assert compact(in) == obs.calls[0].arguments; assert obs.calls[1].arguments == '{}'"
+    },
+    {
+      "id": "TS-12-44",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.3"
+      ],
+      "title": "Invalid JSON tool input is recorded as a JSON string and the line is kept",
+      "given": [
+        "a Runner, a recording observer and a real sink"
+      ],
+      "when": "a tool call has input `{\"a\": ` (truncated)",
+      "then": [
+        "the written line parses as JSON",
+        "arguments is a string equal to the raw input",
+        "the line is not dropped"
+      ],
+      "pseudocode": "line = lastLine(); v = json(line); assert isinstance(v.arguments, str) and v.arguments == raw"
+    },
+    {
+      "id": "TS-12-45",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.4"
+      ],
+      "title": "ok follows the result's error flag, not the exit status, and is false for a guard-refused call",
+      "given": [
+        "results for: a non-error read, an error result, a shell result with IsError false and exit 1, a call refused by the shell guard"
+      ],
+      "when": "each ToolResultEvent is processed",
+      "then": [
+        "ok is true for the non-error read and the shell exit 1 with IsError false",
+        "ok is false for the error result and for the guard-refused call",
+        "blocked is true for the refused call"
+      ],
+      "pseudocode": "assert [c.ok for c in calls] == [True, False, True, False]"
+    },
+    {
+      "id": "TS-12-46",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.5"
+      ],
+      "title": "exit_code is recorded only for a shell call with a readable status, never guessed",
+      "given": [
+        "shell results with a readable status 3, a shell result with no readable status, a refused shell call, and a non-shell tool result"
+      ],
+      "when": "each is processed by the Runner",
+      "then": [
+        "exit_code is 3 in the first case",
+        "exit_code is absent (key missing from the line) in the other three",
+        "no case defaults exit_code to 0"
+      ],
+      "pseudocode": "assert calls[0].exit_code == 3; for c in calls[1:]: assert c.exit_code is None and 'exit_code' not in line(c)"
+    },
+    {
+      "id": "TS-12-47",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.6"
+      ],
+      "title": "error is present exactly when ok is false and holds the result text or guard message",
+      "given": [
+        "an error result with text 'boom', a refused call with guard message G, and a successful call"
+      ],
+      "when": "each is processed",
+      "then": [
+        "error is 'boom' for the error result",
+        "error is G for the refused call",
+        "error is absent for the successful call, and its result content is not recorded anywhere in the line"
+      ],
+      "pseudocode": "assert calls[0].error == 'boom'; assert calls[1].error == G; assert 'error' not in line(calls[2]); assert RESULT_TEXT not in line(calls[2])"
+    },
+    {
+      "id": "TS-12-48",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-8.7",
+        "12-REQ-8.8"
+      ],
+      "title": "Parallel calls to the same tool each carry their own arguments, matched by tool-call id, one event per call, without Verbose()",
+      "given": [
+        "a Runner and an observer with Verbose() false",
+        "two ToolCallEndEvents for the tool 'read' with ids c1, c2 and different inputs, with results arriving in the order c2, c1"
+      ],
+      "when": "the results arrive",
+      "then": [
+        "exactly two ToolCall invocations, each taking a single struct argument",
+        "the c2 result event carries c2's arguments and the c1 event carries c1's",
+        "no result content appears in either"
+      ],
+      "pseudocode": "feed(end(c1,'{\"p\":1}'), end(c2,'{\"p\":2}'), result(c2), result(c1)); assert [c.arguments for c in obs.calls] == ['{\"p\":2}','{\"p\":1}']"
+    },
+    {
+      "id": "TS-12-49",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-8.8"
+      ],
+      "title": "Observer.ToolCall takes one struct with phase, name, blocked, arguments, ok, exit code and error",
+      "given": [
+        "the Observer interface, the hooks_test fake and Progress"
+      ],
+      "when": "the struct-based ToolCall is invoked with every field set",
+      "then": [
+        "the code compiles with a single struct parameter",
+        "Progress writes a tool_call event with all supplied fields",
+        "the fake records the whole struct"
+      ],
+      "pseudocode": "p.ToolCall(ToolCallInfo{Phase:'p',Name:'execute',Blocked:false,Arguments:raw,OK:false,ExitCode:ptr(2),Error:'e'}); assert line.exit_code == 2 and line.error == 'e'"
+    },
+    {
+      "id": "TS-12-50",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.1"
+      ],
+      "title": "The statetest helper isolates XDG_STATE_HOME, runs m.Run, cleans up and compares listings",
+      "given": [
+        "a temp HOME with no pre-existing state",
+        "a fake m.Run whose body records os.Getenv(\"XDG_STATE_HOME\") and writes a file there"
+      ],
+      "when": "the helper function is called with the fake",
+      "then": [
+        "XDG_STATE_HOME during the run is a directory created by os.MkdirTemp",
+        "the directory is removed after the run",
+        "the returned code is the fake's code when the real directories are unchanged",
+        "TestMain in internal/toolio, cmd/fix, cmd/impl, cmd/issue and cmd/spec each call the helper"
+      ],
+      "pseudocode": "code = statetest.Run(fake); assert not exists(seen); assert code == 0; for pkg in PKGS: assert 'statetest.' in read(pkg+'/main_test.go')"
+    },
+    {
+      "id": "TS-12-51",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-9.2"
+      ],
+      "title": "The real directories are the HOME default ignoring XDG_STATE_HOME plus the developer's own XDG directory",
+      "given": [
+        "HOME=/h; case A: XDG_STATE_HOME unset before the run; case B: XDG_STATE_HOME=/dev/x before the run"
+      ],
+      "when": "the helper computes the real directory list",
+      "then": [
+        "case A list is [/h/.local/state/agent-fox]",
+        "case B list is [/h/.local/state/agent-fox, /dev/x/agent-fox]",
+        "the temp dir the helper sets as XDG_STATE_HOME is never in the list"
+      ],
+      "pseudocode": "assert realDirs(home='/h', xdg='') == ['/h/.local/state/agent-fox']; assert realDirs('/h','/dev/x') == [..., '/dev/x/agent-fox']"
+    },
+    {
+      "id": "TS-12-52",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-9.3"
+      ],
+      "title": "A new file under a real runs/ or events/ fails the package run and names the files",
+      "given": [
+        "HOME is a temp dir standing in for the real home",
+        "a fake m.Run that writes <HOME>/.local/state/agent-fox/events/x.jsonl and runs/y.json"
+      ],
+      "when": "the helper runs the fake",
+      "then": [
+        "the returned exit code is non-zero",
+        "the message lists each new path (events/x.jsonl and runs/y.json)",
+        "a fake that writes nothing there yields the fake's own code"
+      ],
+      "pseudocode": "code, msg = statetest.runCheck(fake); assert code != 0; assert 'events/x.jsonl' in msg and 'runs/y.json' in msg"
+    },
+    {
+      "id": "TS-12-53",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-9.4"
+      ],
+      "title": "With no resolvable home directory the comparison is skipped",
+      "given": [
+        "HOME unset and XDG_STATE_HOME unset before the run so os.UserHomeDir fails",
+        "a fake m.Run returning 0"
+      ],
+      "when": "the helper runs",
+      "then": [
+        "no failure is reported",
+        "the result equals the code returned by m.Run"
+      ],
+      "pseudocode": "unsetenv(HOME); code = statetest.Run(fake_returning(0)); assert code == 0"
+    },
+    {
+      "id": "TS-12-54",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-9.5"
+      ],
+      "title": "Tests that assert on directory contents keep their own XDG_STATE_HOME, and TestTS06_7 points HOME at a temp dir",
+      "given": [
+        "the _test.go files in internal/toolio and cmd/*"
+      ],
+      "when": "the source is scanned for tests that read runs/ or events/ contents and for TestTS06_7",
+      "then": [
+        "each such test calls t.Setenv(\"XDG_STATE_HOME\", t.TempDir())",
+        "TestTS06_7 unsets XDG_STATE_HOME and sets HOME to a temp dir",
+        "no test unsets HOME to the real home"
+      ],
+      "pseudocode": "for fn in tests_reading_state_dirs: assert 't.Setenv(\"XDG_STATE_HOME\"' in body(fn); assert 'Setenv(\"HOME\"' in body('TestTS06_7')"
+    },
+    {
+      "id": "TS-12-55",
+      "kind": "integration",
+      "verifies": [
+        "12-REQ-10.1"
+      ],
+      "title": "SchemaVersion is 3.0.0 and each tool's --schema output equals its regenerated golden file",
+      "given": [
+        "the four cmd/*/testdata/schema.golden.json files"
+      ],
+      "when": "each tool is run with --schema",
+      "then": [
+        "the output equals the golden file byte for byte",
+        "schema_version is 3.0.0",
+        "the golden lists --emit-events, neither --events nor --events-file, the envelope session_id property and events_file in the artifact-kind enum"
+      ],
+      "pseudocode": "for tool in TOOLS: out = run(tool,'--schema'); assert out == read(golden); g = json(out); assert g.version == '3.0.0' and 'events_file' in g.artifact_kinds and 'emit-events' in flag_names(g)"
+    },
+    {
+      "id": "TS-12-56",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.2"
+      ],
+      "title": "docs/cli.md describes --emit-events, the new names, events and the 3.0.0 changelog",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "its text is inspected",
+      "then": [
+        "the Shared flags table has an --emit-events row and no --events or --events-file row",
+        "the --report-file row states <tool>-<started_at>-<session_id>.json",
+        "the Machine-readable progress section mentions session_id, run_end.report_file, the richer tool_call, the per-turn text and has no --verbose/--show-text gate",
+        "the warnings table has events_file_not_written, the artifact kinds have events_file, and a 3.0.0 changelog entry exists"
+      ],
+      "pseudocode": "d = read('docs/cli.md'); assert '--emit-events' in d and 'events_file_not_written' in d and 'events_file' in d and '3.0.0' in d; assert '| `--events-file`' not in d"
+    },
+    {
+      "id": "TS-12-57",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.3"
+      ],
+      "title": "docs/configuration.md has a State directory section and docs_test asserts it",
+      "given": [
+        "docs/configuration.md and docs_test.go"
+      ],
+      "when": "the heading and content are inspected",
+      "then": [
+        "the heading '## State directory' exists and '## Report files' does not",
+        "the section mentions runs/, events/, 0700, 0600 and the new file names",
+        "the XDG_STATE_HOME row says tests set it",
+        "TS-06-63 asserts '## State directory' and $XDG_STATE_HOME/agent-fox"
+      ],
+      "pseudocode": "d = read('docs/configuration.md'); assert '## State directory' in d and '0700' in d and '0600' in d and 'events/' in d"
+    },
+    {
+      "id": "TS-12-58",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.4"
+      ],
+      "title": "docs/model-usage.md names --emit-events or the events file for watching spend",
+      "given": [
+        "docs/model-usage.md"
+      ],
+      "when": "its text is searched",
+      "then": [
+        "it mentions --emit-events or the events file",
+        "it contains neither '--events jsonl' nor '--events-file'"
+      ],
+      "pseudocode": "d = read('docs/model-usage.md'); assert '--emit-events' in d or 'events file' in d; assert '--events jsonl' not in d and '--events-file' not in d"
+    },
+    {
+      "id": "TS-12-59",
+      "kind": "unit",
+      "verifies": [
+        "12-REQ-10.5"
+      ],
+      "title": "No file outside removed-flag tests references the removed flags, text.delta or the pid-based report name",
+      "given": [
+        "the repository's Go sources, tests and docs"
+      ],
+      "when": "they are scanned for '--events-file', '--events ', 'EventsJSONL', '\"delta\"' on text events, and DefaultReportPath(…, os.Getpid())",
+      "then": [
+        "the only matches are in tests of the removed-flag errors and in the 3.0.0 changelog",
+        "TS-06-13's normalisation drops session_id as well as the other run-specific fields",
+        "docs_events_test.go asserts --emit-events rather than --events/--events-file/jsonl"
+      ],
+      "pseudocode": "hits = grep(REMOVED_PATTERNS); assert all(h.file in ALLOWED for h in hits); assert 'session_id' in normaliseFunc('TS-06-13')"
+    },
+    {
+      "id": "TS-12-60",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-1",
+        "12-REQ-2.7",
+        "12-REQ-4.4"
+      ],
+      "title": "A default run writes an events file and a report that name each other and pair via ls and jq",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "the real tool binary or App.Main with a scripted fake model backend and no events flag"
+      ],
+      "when": "the tool is run to completion, then the state directory is listed and the events file and report are read",
+      "then": [
+        "events/<tool>-<started_at>-<session_id>.jsonl exists with mode 0600 inside events/ at 0700",
+        "runs/<tool>-<started_at>-<session_id>.json exists",
+        "every event line has ts, tool, session_id, type in order and the same session_id",
+        "the last line is run_end with report_file equal to the report path",
+        "the envelope has session_id and an events_file artifact naming the events file",
+        "a glob on the session id finds both files"
+      ],
+      "real_components": [
+        "Run and NewRun",
+        "openEvents",
+        "events sink",
+        "heartbeat",
+        "emit and report writer",
+        "App.Main",
+        "filesystem under XDG_STATE_HOME"
+      ]
+    },
+    {
+      "id": "TS-12-61",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-2",
+        "12-REQ-6.1",
+        "12-REQ-7.3",
+        "12-REQ-8.7"
+      ],
+      "title": "--emit-events streams complete model activity to stderr identical to the file, without --verbose or --show-text",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "a scripted model session that makes two parallel calls to the same tool then replies with prose, and one shell call that returns a readable exit status"
+      ],
+      "when": "the tool is run with --emit-events and no --verbose or --show-text",
+      "then": [
+        "stderr contains only JSON event lines and no human progress",
+        "each tool_call carries its own arguments, ok and, for the shell call, exit_code",
+        "one text event appears directly before the turn event with the same turn",
+        "stderr bytes equal the events file bytes"
+      ],
+      "real_components": [
+        "agentrun.Runner",
+        "toolio.Progress",
+        "events sink",
+        "events file",
+        "App.Main",
+        "filesystem under XDG_STATE_HOME"
+      ]
+    },
+    {
+      "id": "TS-12-62",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-3",
+        "12-REQ-5.4",
+        "12-REQ-5.5"
+      ],
+      "title": "A removed flag produces a usage error with a report, session_id and no events file",
+      "given": [
+        "XDG_STATE_HOME is a temp dir"
+      ],
+      "when": "the tool is run with `--events-file out.jsonl`, and again with `--events jsonl`",
+      "then": [
+        "both runs exit with code 2 and stage usage",
+        "the messages are the removal and rename messages respectively",
+        "each envelope has a 32-hex session_id and a report file with the same id is written",
+        "events/ contains no file"
+      ],
+      "real_components": [
+        "flag parser",
+        "unsupportedFlagMessage",
+        "emit and report writer",
+        "App.Main",
+        "filesystem under XDG_STATE_HOME"
+      ]
+    },
+    {
+      "id": "TS-12-63",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-4",
+        "12-REQ-4.6",
+        "12-REQ-4.7"
+      ],
+      "title": "A run whose events file cannot be created warns, streams on stderr and keeps its exit code",
+      "given": [
+        "XDG_STATE_HOME/agent-fox/events is a regular file so no events file can be created",
+        "a reference run with a writable state dir and the same inputs"
+      ],
+      "when": "the tool is run with --emit-events",
+      "then": [
+        "a warning event for events_file_not_written (low, stage report) appears on stderr",
+        "the envelope warnings contain events_file_not_written and artifacts has no events_file",
+        "the exit code equals the reference run's",
+        "the report file is still written"
+      ],
+      "real_components": [
+        "openEvents",
+        "events sink",
+        "Run warning recording",
+        "emit and report writer",
+        "App.Main",
+        "filesystem under XDG_STATE_HOME"
+      ]
+    },
+    {
+      "id": "TS-12-64",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-5",
+        "12-REQ-9.1",
+        "12-REQ-9.3"
+      ],
+      "title": "A package test run that calls App.Main leaves the real state directory untouched",
+      "given": [
+        "a throwaway Go test package whose TestMain uses statetest and whose tests call App.Main",
+        "HOME points at a temp dir standing in for the real home"
+      ],
+      "when": "`go test` is run on the package, once with tests that call App.Main and once with a test that writes directly under $HOME/.local/state/agent-fox/events",
+      "then": [
+        "the first run passes and $HOME/.local/state/agent-fox does not exist afterwards",
+        "the second run exits non-zero and names the stray file",
+        "the XDG_STATE_HOME temp directory is removed after the run"
+      ],
+      "real_components": [
+        "internal/statetest",
+        "TestMain",
+        "App.Main",
+        "go test",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "TS-12-65",
+      "kind": "smoke",
+      "verifies": [
+        "12-PATH-6",
+        "12-REQ-6.5",
+        "12-REQ-6.6"
+      ],
+      "title": "A default run with --show-text and no --emit-events keeps the spinner and live prose while the file records the stream",
+      "given": [
+        "XDG_STATE_HOME is a temp dir",
+        "a pseudo-terminal stderr and a scripted model session with prose and a tool call"
+      ],
+      "when": "the tool is run with --show-text and no --emit-events",
+      "then": [
+        "stderr shows the spinner/duration lines and the live prose",
+        "stderr holds no JSON event line",
+        "the events file holds the text and tool_call events and ends with run_end",
+        "Raw produced no event; the text event holds the whole turn prose"
+      ],
+      "real_components": [
+        "toolio.Progress",
+        "agentrun.Runner",
+        "events sink",
+        "events file",
+        "App.Main",
+        "filesystem under XDG_STATE_HOME"
+      ]
+    }
+  ]
+}
