@@ -528,6 +528,10 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 
 	v := spec.Validate()
 	for _, w := range v.Warnings {
+		if w.Check == "" {
+			o.Run.Warn(toolio.WarnSpecValidationWarning, "low", "%s", w.Message)
+			continue
+		}
 		o.Run.Warn(toolio.WarnSpecValidationWarning, "low", "%s: %s", w.Check, w.Message)
 	}
 	if !v.Valid {
