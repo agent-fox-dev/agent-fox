@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -299,5 +300,46 @@ func TestTheSubmitHandlerWritesTheArtifactsSchemaField(t *testing.T) {
 	}
 	if s.Properties["$schema"] != nil {
 		t.Error("the tool schema declares $schema; a vendor rejects the whole request over it")
+	}
+}
+
+// The spec's identity and the format version are the pipeline's to supply
+// too: a submission without them is accepted and stored with the right
+// values, and the tool schema does not require them.
+func TestTheSubmitHandlerWritesTheSpecIdentityAndSchemaVersion(t *testing.T) {
+	ws := goWorkspace(t)
+	artifacts, _ := loadFixture(t, "01", "test_feature")
+
+	submitted := deepCopy(t, artifacts[afspec.StepRequirements])
+	for _, f := range []string{"$schema", "spec_id", "spec_name", "schema_version"} {
+		delete(submitted, f)
+	}
+
+	runner, _ := fauxRunner(t, ws,
+		toolCall("c1", ArtifactToolName(afspec.StepRequirements), submitted))
+
+	partial := afspec.PartialSpec{SpecID: "01", SpecName: "test_feature"}
+	a := &agentAuthor{runner: runner}
+	if _, _, err := a.GenerateArtifact(context.Background(), artifactRequest{
+		Step: afspec.StepRequirements, SpecID: "01", SpecName: "test_feature",
+		Root: ws.Root, PRD: "## Intent\n\nx\n", Partial: &partial,
+	}); err != nil {
+		t.Fatalf("GenerateArtifact: %v", err)
+	}
+	r := partial.Requirements
+	if r == nil || r.SpecId != "01" || r.SpecName != "test_feature" || r.SchemaVersion != afspec.SchemaVersion {
+		t.Errorf("the recorded artifact lacks the program-supplied fields: %+v", r)
+	}
+
+	for _, step := range []afspec.GenerationStep{afspec.StepRequirements, afspec.StepTestSpec, afspec.StepTasks} {
+		s, err := ArtifactSchema(step)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range programFields {
+			if slices.Contains(s.Required, f) {
+				t.Errorf("%s: the tool schema still requires %s", step, f)
+			}
+		}
 	}
 }

@@ -46,9 +46,6 @@ An execution path that is not live in production code fails this task. Errata an
 
 ```json
 {
-  "spec_id": "07",
-  "spec_name": "recipe_manager",
-  "schema_version": 2,
   "test_commands": {
     "all_tests": "go test ./... -count=1",
     "linter": "go vet ./...",
