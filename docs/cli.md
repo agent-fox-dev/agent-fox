@@ -1174,6 +1174,14 @@ impl 09_agent_mode --dry-run --total-budget 20
 impl 09 --repair --repair-model ADVANCED
 ```
 
+**The pull request's deviations section.** Mismatches the survey found between
+the spec and the code are listed under "Spec deviations and how the tasks
+handled them", grouped by the survey's `kind` — behavior changes and open items
+first, then spec inconsistencies and spec gaps — each with what the spec
+assumed, what the code did, and the decision the tasks followed. The survey
+runs before any task, so the section is the plan the tasks were given, not a
+list of defects in the merged code, and it says so.
+
 **What leaves the machine.** By default (`--land pr`) `impl` pushes its
 `impl/<NN>-<slug>` branch to `origin` and opens a pull request. `--land branch`
 pushes the branch and opens nothing; `--land none` commits locally and pushes

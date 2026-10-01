@@ -37,7 +37,11 @@ Method:
    file rather than guessing a style.
 4. Compare the spec's assumptions with the code as it stands. Every place
    they disagree is drift: record what the spec assumes, what the code does,
-   and how the tasks should proceed. Prefer the code's reality over the
+   the decision (written in the past tense, as it will read in the pull
+   request: "Followed the code: ..."), and its kind: spec_gap for a detail
+   the tasks adapt to, behavior_change for work that alters what existing
+   code does, inconsistency for a spec that contradicts itself, open for an
+   edge case nothing settles. Prefer the code's reality over the
    spec's assumption when the spec is merely wrong about a detail, and the
    spec's intent over the code when the code is what the spec changes.
 5. Look at every task's touches and steps and say what a coder will need to

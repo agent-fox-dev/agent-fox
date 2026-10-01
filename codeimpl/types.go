@@ -269,9 +269,31 @@ type Location struct {
 	Note string `json:"note,omitempty" trust:"model" description:"Anything worth knowing about it."`
 }
 
+// The kinds of drift a survey records.
+const (
+	// DriftSpecGap is a detail the spec omits or gets wrong and the tasks
+	// simply adapt to.
+	DriftSpecGap = "spec_gap"
+	// DriftBehaviorChange is a change to what existing code does, which a
+	// reviewer should look at.
+	DriftBehaviorChange = "behavior_change"
+	// DriftInconsistency is a spec that contradicts itself; the resolution
+	// says which side was followed.
+	DriftInconsistency = "inconsistency"
+	// DriftOpen is an edge case the spec leaves unresolved and the run did
+	// not settle.
+	DriftOpen = "open"
+)
+
+// DriftKinds is the enum the survey schema declares.
+var DriftKinds = []string{DriftSpecGap, DriftBehaviorChange, DriftInconsistency, DriftOpen}
+
 // Drift is one disagreement between the spec and the code, with the
 // resolution the tasks should follow.
 type Drift struct {
+	// Kind sorts the item for a reviewer; see the DriftKind constants. Empty
+	// is read as a spec gap.
+	Kind       string `json:"kind,omitempty" trust:"model" description:"spec_gap, behavior_change, inconsistency or open: what kind of disagreement this is."`
 	SpecRef    string `json:"spec_ref" trust:"model" description:"The part of the spec that disagrees with the code."`
 	Finding    string `json:"finding" trust:"model" description:"What the code does instead."`
 	Resolution string `json:"resolution" trust:"model" description:"What the tasks should follow."`

@@ -3,6 +3,7 @@ package codeimpl
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
@@ -152,11 +153,7 @@ func pullRequestBody(r *Result) string {
 	}
 
 	if r.Survey != nil && len(r.Survey.Drift) > 0 {
-		p("## Where the spec and the code disagreed\n\n")
-		for _, d := range r.Survey.Drift {
-			p("- **%s:** %s → %s\n", d.SpecRef, strings.TrimSpace(d.Finding), strings.TrimSpace(d.Resolution))
-		}
-		p("\n")
+		b.WriteString(driftSection(r.Survey.Drift))
 	}
 
 	for _, t := range r.Tasks {
@@ -179,6 +176,47 @@ func pullRequestBody(r *Result) string {
 
 	p("## Verification\n\n%s\n\n", verificationLines(r.Gate, r.Baseline, r.Verification))
 	p("---\n%s\n", footer)
+	return b.String()
+}
+
+// driftGroups orders the kinds of drift for a reader: what needs a
+// reviewer's attention first.
+var driftGroups = []struct{ kind, heading string }{
+	{DriftBehaviorChange, "Behavior changes (review these)"},
+	{DriftOpen, "Open items (not resolved by this change)"},
+	{DriftInconsistency, "Inconsistencies in the spec"},
+	{DriftSpecGap, "Spec gaps the tasks adapted to"},
+}
+
+// driftSection is the pull request's account of where the spec and the code
+// disagreed. The survey found these before any task ran, so the section says
+// so, and says what the section is not: a list of defects in the merged code.
+func driftSection(drift []Drift) string {
+	var b strings.Builder
+	b.WriteString("## Spec deviations and how the tasks handled them\n\n")
+	b.WriteString("These are mismatches between the spec and the code, found by a survey before any task " +
+		"ran; they are not defects in the merged code. Each shows what the spec assumed, what the code did, " +
+		"and the decision the tasks were given to follow.\n\n")
+	byKind := map[string][]Drift{}
+	for _, d := range drift {
+		k := d.Kind
+		if !slices.Contains(DriftKinds, k) {
+			k = DriftSpecGap
+		}
+		byKind[k] = append(byKind[k], d)
+	}
+	for _, g := range driftGroups {
+		items := byKind[g.kind]
+		if len(items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "### %s\n\n", g.heading)
+		for _, d := range items {
+			fmt.Fprintf(&b, "- **%s:** %s\n  - Decision: %s\n", d.SpecRef,
+				strings.TrimSpace(d.Finding), strings.TrimSpace(d.Resolution))
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 

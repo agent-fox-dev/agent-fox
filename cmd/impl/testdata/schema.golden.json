@@ -1401,6 +1401,11 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "spec_gap, behavior_change, inconsistency or open: what kind of disagreement this is.",
+                      "x-trust": "model"
+                    },
                     "spec_ref": {
                       "type": "string",
                       "description": "The part of the spec that disagrees with the code.",
