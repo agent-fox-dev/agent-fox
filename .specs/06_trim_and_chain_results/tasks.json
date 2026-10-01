@@ -48,7 +48,7 @@
         "codeimpl/types.go",
         "specgen/pipeline.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -87,7 +87,7 @@
         "internal/toolio/report_test.go",
         "internal/toolio/app_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -129,7 +129,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -173,7 +173,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -212,7 +212,7 @@
       "depends_on": [
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -257,7 +257,7 @@
       "depends_on": [
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -290,7 +290,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -329,7 +329,7 @@
       "depends_on": [
         7
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -375,7 +375,7 @@
       "depends_on": [
         8
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 10,
@@ -407,7 +407,7 @@
       "depends_on": [
         9
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 11,
@@ -440,7 +440,7 @@
         "`make test` passes with TS-06-64..67 exercising real git, internal/checks, a fake forge server and the filesystem, not mocks",
         "`make lint` passes"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

@@ -38,6 +38,9 @@ type scriptedBrain struct {
 	// analyzeErr and implementErr fail a phase.
 	analyzeErr, implementErr error
 
+	// analyzeCost is the spend the analyse phase reports.
+	analyzeCost float64
+
 	analyzed, implemented int
 	implementPrompt       string
 }
@@ -45,6 +48,7 @@ type scriptedBrain struct {
 func (b *scriptedBrain) Analyze(_ context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
 	b.analyzed++
 	res := agentrun.Result{Name: "analyse", Turns: 2}
+	res.Usage.CostUSD = b.analyzeCost
 	if b.analyzeErr != nil {
 		return Analysis{}, res, b.analyzeErr
 	}
@@ -434,6 +438,179 @@ func TestIssueCommentsAndPullRequestAreWrittenByTheProgram(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Errorf("the summary comment is missing %q:\n%s", want, summary)
 		}
+	}
+}
+
+// sideEffectFixture wires a real repository to a bare origin and a forge
+// served by httptest. pullStatus is what the pulls endpoint answers; the
+// returned log records every forge call in arrival order.
+func sideEffectFixture(t *testing.T, pullStatus int) (Options, *[]string) {
+	t.Helper()
+	var log []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/comments"):
+			log = append(log, "comment")
+			_ = json.NewEncoder(w).Encode(map[string]any{"html_url": "https://github.com/acme/widgets/issues/1#c"})
+		case strings.HasSuffix(r.URL.Path, "/pulls"):
+			log = append(log, "open_pr")
+			if pullStatus != http.StatusOK {
+				http.Error(w, "denied", pullStatus)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "html_url": "https://github.com/acme/widgets/pull/5"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	ws, g := newRepo(t, 0)
+	ctx := context.Background()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	for _, argv := range [][]string{
+		{"git", "init", "-q", "--bare", origin},
+		{"git", "remote", "add", "origin", origin},
+	} {
+		if out, code, err := gitx.ExecRunner(ctx, ws.Root, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+	repo := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
+	ref := issuex.IssueRef{Repo: repo, Number: 1}
+	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: srv.URL, Repo: repo, Token: "t", UserAgent: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := newOptions(ws, g, defaultBrain())
+	o.Input.Kind = toolio.KindIssue
+	o.Input.Origin = ref.URL()
+	o.Input.Issue = &ref
+	o.Repo = repo
+	o.Forge = client
+	o.Land = LandPR
+	o.PushAttempts = 1
+	return o, &log
+}
+
+// TS-06-27 (integration): a fix run that comments, pushes and opens a pull
+// request records each write with the documented target, in the order the
+// writes happened.
+// TS-06-29 (integration): the recorded order is the order the forge saw its
+// calls in, because each entry is recorded at the write itself.
+func TestTS06_27_29_FixRecordsPushPullRequestAndCommentsInOrder(t *testing.T) {
+	o, forgeLog := sideEffectFixture(t, http.StatusOK)
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	se := o.Run.SideEffects()
+	wantActions := []string{"comment", "push", "open_pr", "comment"}
+	if len(se) != len(wantActions) {
+		t.Fatalf("SideEffects = %+v, want actions %v", se, wantActions)
+	}
+	for i, e := range se {
+		if e.Action != wantActions[i] || !e.OK || e.Warning != "" {
+			t.Errorf("entry %d = %+v, want ok %s", i, e, wantActions[i])
+		}
+	}
+	if want := "origin " + got.Branch; se[1].Target != want {
+		t.Errorf("push target = %q, want %q", se[1].Target, want)
+	}
+	if se[0].Target != "acme/widgets#1" || se[3].Target != "acme/widgets#1" {
+		t.Errorf("comment targets = %q, %q", se[0].Target, se[3].Target)
+	}
+	if se[2].Target != "acme/widgets#5" {
+		t.Errorf("open_pr target = %q, want acme/widgets#5", se[2].Target)
+	}
+	// The forge saw comment, open_pr, comment: the entries for the forge's
+	// writes appear in the same relative order.
+	var forgeSeen []string
+	for _, e := range se {
+		if e.Action != "push" {
+			forgeSeen = append(forgeSeen, e.Action)
+		}
+	}
+	if strings.Join(forgeSeen, ",") != strings.Join(*forgeLog, ",") {
+		t.Errorf("recorded %v, forge saw %v", forgeSeen, *forgeLog)
+	}
+}
+
+// TS-06-28 (integration): a pull request the forge refuses is recorded
+// ok:false with the WarnCode the same call site recorded.
+func TestTS06_28_FailedPullRequestSharesTheRecordedWarnCode(t *testing.T) {
+	o, _ := sideEffectFixture(t, http.StatusForbidden)
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var pr *toolio.SideEffect
+	se := o.Run.SideEffects()
+	for i := range se {
+		if se[i].Action == "open_pr" {
+			pr = &se[i]
+		}
+	}
+	if pr == nil {
+		t.Fatalf("no open_pr entry in %+v", se)
+	}
+	if pr.OK || pr.Warning != toolio.WarnPullRequestNotOpened || pr.Target != "acme/widgets" {
+		t.Errorf("open_pr entry = %+v", *pr)
+	}
+	var warned bool
+	for _, w := range o.Run.Warnings() {
+		if w.Code == pr.Warning {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("no Run.Warn carries the entry's code %q: %+v", pr.Warning, o.Run.Warnings())
+	}
+}
+
+// TS-06-28 (integration): a failed push is recorded ok:false. The push site
+// records no Run.Warn (the failure is the run's error), so the entry carries
+// no warning code.
+func TestTS06_28_FailedPushIsRecordedNotOK(t *testing.T) {
+	o, _ := sideEffectFixture(t, http.StatusOK)
+	o.Land = LandBranch
+	ctx := context.Background()
+	if out, code, err := gitx.ExecRunner(ctx, o.Workspace.Root,
+		[]string{"git", "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git")}); err != nil || code != 0 {
+		t.Fatalf("set-url: %v %s", err, out)
+	}
+	if _, err := Run(ctx, o); err == nil {
+		t.Fatal("want the push to fail the run")
+	}
+	var push *toolio.SideEffect
+	se := o.Run.SideEffects()
+	for i := range se {
+		if se[i].Action == "push" {
+			push = &se[i]
+		}
+	}
+	if push == nil || push.OK || push.Warning != "" || !strings.HasPrefix(push.Target, "origin ") {
+		t.Fatalf("push entry = %+v in %+v", push, se)
+	}
+}
+
+// TS-06-30 (integration): --dry-run --land=pr records nothing, because every
+// recording call site is skipped under a dry run.
+func TestTS06_30_DryRunRecordsNoSideEffects(t *testing.T) {
+	o, forgeLog := sideEffectFixture(t, http.StatusOK)
+	o.DryRun = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if se := o.Run.SideEffects(); len(se) != 0 {
+		t.Errorf("dry run recorded %+v", se)
+	}
+	if len(*forgeLog) != 0 {
+		t.Errorf("dry run reached the forge: %v", *forgeLog)
+	}
+	env := o.Run.Envelope(toolio.ExitOK, nil, nil)
+	if env.SideEffects != nil {
+		t.Errorf("envelope side_effects = %+v", env.SideEffects)
 	}
 }
 

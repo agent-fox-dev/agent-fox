@@ -80,7 +80,17 @@ type Result struct {
 	// nonzero count is the citation check working.
 	RejectedPathCalls int      `json:"rejected_path_calls"`
 	RejectedPaths     []string `json:"rejected_paths,omitempty"`
+
+	// DryRun records that no remote change was made.
+	DryRun bool `json:"dry_run,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in issue's vocabulary.
 func (r Result) Summary() string {
@@ -214,6 +224,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		Labels:             o.Labels,
 		RejectedPathCalls:  rejected,
 		RejectedPaths:      toolio.SortedUnique(badPaths),
+		DryRun:             o.DryRun,
 	}
 	if o.Input.Issue != nil {
 		out.UpstreamURL = o.Input.Issue.URL()
@@ -301,6 +312,10 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 			Title: out.Title,
 			Body:  out.Body,
 		})
+		// The write is recorded where it happens. A failure here is the
+		// run's error rather than a Run.Warn, so there is no warning code
+		// to pair with it.
+		o.Run.RecordSideEffect("update_issue", ref.String(), err == nil, "")
 		if err != nil {
 			if issuex.IsNoToken(err) {
 				return fail("write", "auth", err)
@@ -322,6 +337,7 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 		Body:   out.Body,
 		Labels: o.Labels,
 	})
+	o.Run.RecordSideEffect("create_issue", target.String(), err == nil, "")
 	if err != nil {
 		if issuex.IsNoToken(err) {
 			return fail("write", "auth", err)

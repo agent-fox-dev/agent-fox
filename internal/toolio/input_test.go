@@ -38,7 +38,7 @@ func (m *mockForgeClient) ReadIssue(ctx context.Context, ref issuex.IssueRef) (i
 }
 
 func TestResolveClassifiesText(t *testing.T) {
-	in, err := Resolve(context.Background(), "the widget counter double-counts on retry", nil, nil)
+	in, err := Resolve(context.Background(), "the widget counter double-counts on retry", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestResolveReadsAFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("panic: nil map\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	in, err := Resolve(context.Background(), path, nil, nil)
+	in, err := Resolve(context.Background(), path, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestResolveReadsAFile(t *testing.T) {
 // A path that exists but is a directory is not an error: "src/" is a
 // plausible thing to name in a bug report, so it falls through to text.
 func TestResolveTreatsADirectoryAsText(t *testing.T) {
-	in, err := Resolve(context.Background(), t.TempDir(), nil, nil)
+	in, err := Resolve(context.Background(), t.TempDir(), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestResolveTreatsADirectoryAsText(t *testing.T) {
 // A path that does NOT exist is text too. Refusing it as a missing file would
 // reject "the widget/ package panics".
 func TestResolveTreatsAMissingPathAsText(t *testing.T) {
-	in, err := Resolve(context.Background(), "internal/nope/missing.go panics on empty input", nil, nil)
+	in, err := Resolve(context.Background(), "internal/nope/missing.go panics on empty input", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestResolveTreatsAMissingPathAsText(t *testing.T) {
 }
 
 func TestResolveReadsStdin(t *testing.T) {
-	in, err := Resolve(context.Background(), "-", strings.NewReader("piped report\n"), nil)
+	in, err := Resolve(context.Background(), "-", strings.NewReader("piped report\n"), nil, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -107,11 +107,11 @@ func TestResolveReadsStdin(t *testing.T) {
 
 func TestResolveRejectsEmptyInput(t *testing.T) {
 	for _, arg := range []string{"", "   "} {
-		if _, err := Resolve(context.Background(), arg, nil, nil); !errors.Is(err, ErrNoInput) {
+		if _, err := Resolve(context.Background(), arg, nil, nil, nil); !errors.Is(err, ErrNoInput) {
 			t.Errorf("Resolve(%q) = %v, want ErrNoInput", arg, err)
 		}
 	}
-	if _, err := Resolve(context.Background(), "-", strings.NewReader("  \n"), nil); !errors.Is(err, ErrNoInput) {
+	if _, err := Resolve(context.Background(), "-", strings.NewReader("  \n"), nil, nil); !errors.Is(err, ErrNoInput) {
 		t.Errorf("empty stdin: want ErrNoInput, got %v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestResolveFetchesAnIssue(t *testing.T) {
 		t.Fatalf("NewWithOptions: %v", err)
 	}
 
-	in, err := Resolve(context.Background(), "https://github.com/acme/widgets/issues/42", nil, client)
+	in, err := Resolve(context.Background(), "https://github.com/acme/widgets/issues/42", nil, client, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestTS0402_ResolveParsesGitHubAndGitLabURLs(t *testing.T) {
 	}
 
 	// GitHub issue URL
-	inGH, errGH := Resolve(ctx, "https://github.com/org/repo/issues/42", nil, client)
+	inGH, errGH := Resolve(ctx, "https://github.com/org/repo/issues/42", nil, client, nil)
 	if errGH != nil {
 		t.Fatalf("Resolve GitHub issue: %v", errGH)
 	}
@@ -253,7 +253,7 @@ func TestTS0402_ResolveParsesGitHubAndGitLabURLs(t *testing.T) {
 	}
 
 	// GitLab merge request URL
-	inGL, errGL := Resolve(ctx, "https://gitlab.com/group/sub/project/-/merge_requests/99", nil, client)
+	inGL, errGL := Resolve(ctx, "https://gitlab.com/group/sub/project/-/merge_requests/99", nil, client, nil)
 	if errGL != nil {
 		t.Fatalf("Resolve GitLab MR: %v", errGL)
 	}
@@ -274,7 +274,7 @@ func TestTS0402_ResolveParsesGitHubAndGitLabURLs(t *testing.T) {
 // TS-04-3 (unit): Resolve rejects issue URLs when no forge client is configured
 // Verifies: 04-REQ-1.3
 func TestTS0403_ResolveRejectsNilForgeClient(t *testing.T) {
-	_, err := Resolve(context.Background(), "https://github.com/owner/repo/issues/10", nil, nil)
+	_, err := Resolve(context.Background(), "https://github.com/owner/repo/issues/10", nil, nil, nil)
 	if err == nil {
 		t.Fatal("Resolve with nil forge client should return an error")
 	}
@@ -290,7 +290,7 @@ func TestTS0404_ResolveAnnotatesUnauthenticated404(t *testing.T) {
 		authenticated: false,
 		readErr:       issuex.ErrNotFound,
 	}
-	_, err := Resolve(context.Background(), "https://github.com/private/repo/issues/1", nil, client)
+	_, err := Resolve(context.Background(), "https://github.com/private/repo/issues/1", nil, client, nil)
 	if err == nil {
 		t.Fatal("Resolve should fail on 404")
 	}
@@ -331,7 +331,7 @@ func TestTS0405_ResolvePullRequestAndTruncation(t *testing.T) {
 		},
 	}
 
-	in, err := Resolve(context.Background(), "https://github.com/org/repo/issues/5", nil, client)
+	in, err := Resolve(context.Background(), "https://github.com/org/repo/issues/5", nil, client, nil)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

@@ -202,9 +202,13 @@ boundary rather than aborting mid-call.
 | Attempts per model call | — | 3 | 3 | 3 | 3 |
 
 `impl` runs one phase per task, so its per-phase ceilings multiply by the
-number of tasks. `--total-budget` caps the whole run; a run that reaches it
-stops between tasks with everything landed so far committed on the branch.
-Its `--repair` phase, when it runs, is bounded like any other phase and
+number of tasks. `--total-budget`, a shared flag, caps the whole run; zero
+(the default) means no ceiling beyond `--budget`. `impl` stops between tasks
+with everything landed so far committed on the branch; `fix` checks between
+its analyse and implement phases; `spec` checks before each scope's PRD phase
+after the first, leaving the split plan in place to resume from; `issue`, and
+a `spec` input that is not split, have one phase, so the lower of
+`--total-budget` and `--budget` is that phase's ceiling. Its `--repair` phase, when it runs, is bounded like any other phase and
 counts toward the total; `--repair-model` changes its model and nothing
 else about its bounds.
 
@@ -218,6 +222,22 @@ loop's first step, and the intended ending is the handler accepting one.
 
 A phase that hits a ceiling is reported with `category: "max_turns"` or
 `"budget"`, and its stop reason appears in `usage.phases[]`.
+
+## Report files
+
+Every run writes the complete envelope — the `full` view of `result`,
+whatever `--detail` was given — to a report file, and names it in the
+envelope's `report_file` field. By default the file is
+`$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<pid>.json`, where
+`<started_at>` is the run's start in a colon-free form
+(`20260909T132030Z`). When `$XDG_STATE_HOME` is unset the directory is
+`~/.local/state/agent-fox/runs/`. The directory is created as needed.
+
+`--report-file <path>` overrides the computed path. A run that cannot write
+the file (a permission error, a read-only filesystem) records a `low`
+`report_file_not_written` warning and omits `report_file`; it does not fail.
+`--dry-run` runs still write it, since it is local state. Nothing prunes the
+directory.
 
 ## No configuration file
 
@@ -236,6 +256,7 @@ directories up that changes what the same command does.
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
+| `XDG_STATE_HOME` | where report files go (`$XDG_STATE_HOME/agent-fox/runs`); `~/.local/state` when unset; `--report-file` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
 | `GITLAB_TOKEN` | GitLab credential, on the same terms |

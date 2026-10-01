@@ -49,6 +49,12 @@ type Options struct {
 	// DryRun writes nothing to disk and nothing to the forge. The generated
 	// artifacts are still produced and reported.
 	DryRun bool
+	// TotalBudgetUSD caps the spend of the whole run. It is checked before
+	// each scope's PRD phase after the first, the way codeimpl checks between
+	// tasks; an input that does not split has no interior boundary and is
+	// bound by the one phase's ceiling alone. Zero means no cap beyond the
+	// per-phase bound.
+	TotalBudgetUSD float64
 
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
@@ -83,6 +89,12 @@ type Result struct {
 	SplitPlan string `json:"split_plan,omitempty"`
 	// DryRun records that nothing was written.
 	DryRun bool `json:"dry_run,omitempty"`
+
+	// inputRef is how a next[] entry names the input to re-run it: the
+	// literal file path or issue URL when the input had one, and the
+	// needs_human.resume placeholder for raw text or stdin. It is not part
+	// of the JSON result.
+	inputRef string
 }
 
 // Summary returns one sentence describing the outcome in spec's vocabulary.
@@ -170,7 +182,16 @@ type Package struct {
 
 	// CommentURL is set when the finished PRD was posted back to the issue.
 	CommentURL string `json:"comment_url,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both. It lives on Package (rather than on
+	// Result, which embeds it) so it is set once for the first package and
+	// carried the same way every other Package field is.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (p *Package) SetDetail(d string) { p.Detail = d }
 
 // Scope states, as reported in Result.Split.
 const (
@@ -226,7 +247,13 @@ type Failure struct {
 	Stage    string
 	Category string
 	Err      error
+	// TotalBudget is the --total-budget ceiling a budget stop was checked
+	// against, so the envelope's fix_hint can name it. Zero otherwise.
+	TotalBudget float64
 }
+
+// TotalBudgetUSD is the run-level ceiling behind a stage "budget" failure.
+func (f *Failure) TotalBudgetUSD() float64 { return f.TotalBudget }
 
 func (f *Failure) Error() string        { return f.Err.Error() }
 func (f *Failure) Unwrap() error        { return f.Err }
@@ -247,7 +274,7 @@ func failf(stage, category, format string, args ...any) *Failure {
 func scoped(label string, err error) error {
 	var f *Failure
 	if errors.As(err, &f) {
-		return &Failure{Stage: f.Stage, Category: f.Category, Err: fmt.Errorf("%s: %w", label, f.Err)}
+		return &Failure{Stage: f.Stage, Category: f.Category, Err: fmt.Errorf("%s: %w", label, f.Err), TotalBudget: f.TotalBudget}
 	}
 	return fmt.Errorf("%s: %w", label, err)
 }
@@ -342,7 +369,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			"commands cannot be checked against it", root)
 	}
 
-	result := &Result{DryRun: o.DryRun}
+	result := &Result{DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
 
 	// ---------------------------------------------------- resume or PRD --
 	//
@@ -421,6 +448,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if first != nil && i == 0 {
 			prd, first = *first, nil
 		} else {
+			// The interior boundary: this scope's PRD phase has not begun. A
+			// run already over its ceiling stops here with the plan in place,
+			// so the next run on the same input resumes from this scope.
+			if spent := o.Run.CostUSD(); o.TotalBudgetUSD > 0 && spent >= o.TotalBudgetUSD {
+				result.Split = splitReport(root, specsDir, plan, -1)
+				if !o.DryRun && result.SplitPlan == "" {
+					result.SplitPlan = relativeTo(root, plan.Path(specsDir))
+				}
+				bf := failf("budget", agentrun.CategoryBudget,
+					"the run has spent $%.2f of its $%.2f total budget; the packages written so far "+
+						"are on disk, re-run on the same input to continue", spent, o.TotalBudgetUSD)
+				bf.TotalBudget = o.TotalBudgetUSD
+				return result, scoped(label, bf)
+			}
 			prd, err = env.writePRD(ctx, &splitContext{Plan: plan, Index: i})
 			if err != nil {
 				result.Split = splitReport(root, specsDir, plan, i)
@@ -682,7 +723,9 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		url, err := o.Forge.AddComment(ctx, *o.Input.Issue, body)
 		if err != nil {
 			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the PRD could not be posted on %s: %v", o.Input.Issue, err)
+			o.Run.RecordSideEffect("comment", o.Input.Issue.String(), false, toolio.WarnCommentNotPosted)
 		} else {
+			o.Run.RecordSideEffect("comment", o.Input.Issue.String(), true, "")
 			pkg.CommentURL = url
 			o.Progress.Step("posted the PRD to %s", url)
 		}

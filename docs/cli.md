@@ -25,8 +25,9 @@ gets one JSON object to parse — see [Exit codes](#exit-codes).
 
 ## The input
 
-The single argument is classified in Go, before anything else happens. There is
-no flag that selects the kind; the argument's shape decides.
+The single argument is classified in Go, before anything else happens. By
+default the argument's shape decides; `--input-kind` (see
+[Shared flags](#shared-flags)) forces the classification instead.
 
 | The argument is | Then it is | What is used |
 |---|---|---|
@@ -37,7 +38,10 @@ no flag that selects the kind; the argument's shape decides.
 
 Two consequences worth stating. A path that does **not** exist is text, not an
 error — "the `widget/` package panics" is a plausible report. And a directory
-is text too, for the same reason.
+is text too, for the same reason. When the text is a single line with no
+whitespace that looks like a path and nothing exists there, the run says so
+with a `high`-severity `input_looks_like_path` warning rather than staying
+silent; `--input-kind file` turns the same mistake into a usage error.
 
 Input is bounded at 256 KB, cut at a line boundary, with the cut marked in the
 text and reported as `input.truncated` in the envelope. An input that ends
@@ -70,8 +74,12 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "result": { /* tool-specific; see below */ },
   "warnings": [ { "code": "comment_not_posted", "severity": "low", "stage": "report",
                   "message": "the summary comment could not be posted on acme/widgets#42: 403" } ],
+  "artifacts": [ /* what the run produced; see below */ ],
+  "side_effects": [ /* what it changed on a forge or remote */ ],
+  "next": [ /* what a caller would plausibly run next */ ],
   "duration_ms": 214003,
-  "started_at": "2026-09-09T13:20:30Z"
+  "started_at": "2026-09-09T13:20:30Z",
+  "report_file": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json"
 }
 ```
 
@@ -131,6 +139,86 @@ Only `api` and `aborted` are retryable: re-running the identical command,
 unchanged, could succeed. Every other category needs something to change
 first — the input, a flag, a credential, or a person's answer.
 
+### Summary and full results, and the report file
+
+`result` is trimmed by default. `--detail summary` keeps only the fields a
+caller acts on — each tool's section below lists its subset — and
+`--detail full` prints everything the tool computed. Both record which view
+they are in `result.detail`.
+
+Every run, whichever `--detail` it was given, also writes the **complete**
+envelope — the `full` view of `result`, byte for byte what `--detail full`
+would have printed for the same run — to a report file, and names it in
+`report_file`. The default location is described under
+[Report files](configuration.md#report-files); `--report-file <path>` picks
+another. A run that cannot write the file records a `low`
+`report_file_not_written` warning and omits `report_file`. A `--dry-run` run
+still writes it: it is local state, not a remote change.
+
+### `artifacts`, `side_effects` and `next`
+
+Three top-level arrays give every tool one uniform view of what it did. All
+three are built in Go from facts the tool already holds (git, the forge's own
+response, the file it wrote), never from the model's report of its own work.
+
+`artifacts` lists what the run produced, over the closed set `issue`,
+`pull_request`, `comment`, `branch`, `commit`, `spec_package` and
+`report_file`. A `pull_request`, `comment` or `issue` entry that would have
+been made but for `--dry-run` carries `"dry_run": true`; a branch or commit,
+which a dry run still makes, does not.
+
+```jsonc
+"artifacts": [
+  { "kind": "branch",       "name": "fix/issue-42-nil-map", "base": "main" },
+  { "kind": "commit",       "sha": "a3f9c1e", "branch": "fix/issue-42-nil-map" },
+  { "kind": "pull_request", "url": "https://github.com/acme/widgets/pull/57", "number": 57 },
+  { "kind": "comment",      "url": "https://github.com/acme/widgets/issues/42#issuecomment-9" },
+  { "kind": "report_file",  "path": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json" }
+]
+```
+
+`spec` reports `{"kind": "spec_package", "path", "id", "valid"}` for each
+package it wrote, and `issue` reports `{"kind": "issue", "url", "number"}`.
+
+`side_effects` lists every write to a forge or a remote, in the order it
+happened: `action` is `create_issue`, `update_issue`, `comment`, `push` or
+`open_pr`; `target` names what was written to; `ok` says whether it
+succeeded, and a failed write carries the `warning` code the run recorded for
+it. The array is absent when the run made no remote write, which is always the
+case under `--dry-run`.
+
+```jsonc
+"side_effects": [
+  { "action": "push",   "target": "origin fix/issue-42-nil-map", "ok": true },
+  { "action": "open_pr", "target": "acme/widgets#57", "ok": true },
+  { "action": "comment", "target": "acme/widgets#42", "ok": false,
+    "warning": "comment_not_posted" }
+]
+```
+
+`next` suggests the invocations a caller would plausibly make next, as
+`{tool, input, flags, why}`; it is omitted when there is nothing to suggest.
+An `input` that names a small, stable thing — an issue URL, a spec directory —
+is runnable exactly as printed. Where the original input was raw text or
+stdin, or the suggestion is `fix`'s answer to an ambiguity, `input` is the
+placeholder `<same input>`, as in `needs_human.resume`.
+
+```jsonc
+"next": [
+  { "tool": "impl", "input": ".specs/09_agent_mode", "flags": [],
+    "why": "the package validates and is ready to implement" },
+  { "tool": "spec", "input": "./docs/prds/agent-mode.md", "flags": [],
+    "why": "the split is unfinished; running spec on the same input continues from the next scope" }
+]
+```
+
+| Tool | Suggests |
+|---|---|
+| `issue` | `fix` on the issue's URL, when one was filed or updated (nothing under `--dry-run`) |
+| `spec` | `impl` on the first package that validates; `spec` again on the same input while a split is unfinished |
+| `impl` | `impl` again on the same spec when the run parked, with `--repair` when it parked on a red baseline and no repair was attempted |
+| `fix` | nothing on success; on an ambiguity, `fix <same input> --context "<answer>"`, identical to `needs_human.resume` |
+
 ### `needs_human`
 
 When `status` is `needs_human` (exit `3`), the envelope carries a
@@ -185,6 +273,7 @@ quite what it appears to be; `low` is informational.
 | Code | Severity | Stage | Tool(s) |
 |---|---|---|---|
 | `input_truncated` | high | input | shared |
+| `input_looks_like_path` | high | input | shared |
 | `comments_unreadable` | low | input | shared |
 | `no_verify_command` | high | preflight | fix, impl |
 | `criteria_unmet` | high | implement | fix |
@@ -211,6 +300,12 @@ quite what it appears to be; `low` is informational.
 | `architecture_not_written` | low | write | spec |
 | `activation_failed` | high | activate | spec |
 | `rejected_path_calls` | low | analyse | issue |
+| `report_file_not_written` | low | report | shared |
+
+`input_looks_like_path` is raised when the argument was read as text but is a
+single line with no whitespace that contains a `/` or ends in a short
+extension (`widget/report.txt`) and nothing exists at that path — most likely
+a typo. An existing directory is never flagged.
 
 ## Shared flags
 
@@ -228,6 +323,10 @@ quite what it appears to be; `low` is informational.
 | `--verbose` | off | trace tool calls and timings on stderr |
 | `--quiet` | off | print nothing on stderr |
 | `--show-text` | off | stream the model's own prose to stderr |
+| `--detail` · `--report-file` | `summary` · see below | `--detail summary\|full` picks the `result` view on stdout: `summary` (the default) keeps the subset each tool's section lists, `full` prints everything the tool computed; any other value is a usage error. `--report-file <path>` names where the complete envelope is written; by default `$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<pid>.json` (see [Report files](configuration.md#report-files)). The file is always the `full` view, whichever `--detail` was given |
+| `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `issue` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
+| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
+| `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--version` | — | print the build identity and exit |
 
 `--context` does not change `input.bytes` — it is rendered separately and
@@ -236,6 +335,11 @@ bound as the input itself: when the two together exceed it, the run is
 refused as a usage error before anything is fetched. Resuming a `needs_human`
 stop is `<tool> <same input> --context "<answer>"`, as given in the prior
 run's `needs_human.resume`.
+
+A flag one tool does not accept is a usage error that names the flag and the
+tool or tools that do accept it — `fix does not accept --label; it is an issue
+flag` — rather than Go's generic "flag provided but not defined". A flag that
+belongs to none of the four tools keeps the generic message.
 
 ---
 
@@ -267,14 +371,31 @@ than from the code.
 |---|---|---|
 | `--repo owner/repo` | the input issue's, else the `origin` remote of `--dir` | where the issue is filed; `group/subgroup/project` for a nested GitLab path |
 | `--label a,b` | — | labels for the created issue, e.g. `af:fix` |
-| `--dry-run` | off | make no change on the forge; report the diagnosis only |
 | `--overwrite` | off | rewrite the input issue in place instead of creating a new one; needs an issue URL, and cannot be combined with `--repo` or `--label` |
 
-Bounds: 100 turns, $2.00 per phase.
+Bounds: 100 turns, $2.00 per phase. With `--dry-run`, `issue` makes no change
+on the forge and does nothing locally either: it reports the diagnosis only.
 
 `result` carries `action` (`created` · `updated` · `none`), `url`, `number`,
 the rendered `body`, and the diagnosis as fields: `severity`, `confidence`,
 `root_cause`, `affected_files`, `suggested_fix`, `acceptance_criteria`.
+
+Under `--detail summary` (the default) `result` keeps only:
+
+| Field | Kept as |
+|---|---|
+| `action` | unchanged |
+| `repo` | unchanged |
+| `url` | unchanged |
+| `number` | unchanged |
+| `title` | unchanged |
+| `severity` | unchanged |
+| `confidence` | unchanged |
+| `affected_files` | paths only — the citation, not the role or the rest of the diagnosis |
+| `labels` | unchanged |
+| `rejected_path_calls` | unchanged |
+
+The rest of the diagnosis and the rendered `body` are in the report file.
 
 ---
 
@@ -344,7 +465,6 @@ wrapped items are all read; at most 30 criteria are taken.
 | `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
 | `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
 | `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
-| `--dry-run` | off | make no *remote* change: push nothing, open nothing, post nothing. The branch and the commit are still made locally |
 | `--verify` | detected | the command that decides success |
 | `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
 | `--verify-timeout` | `10m` | timeout for one verification run |
@@ -352,7 +472,9 @@ wrapped items are all read; at most 30 criteria are taken.
 | `--allow a,b` | — | extra programs the implementation phase's shell may run |
 | `--draft` | off | open the pull request as a draft |
 
-Bounds: 150 turns, $5.00 per phase.
+Bounds: 150 turns, $5.00 per phase. With `--dry-run`, `fix` makes no remote
+change — push nothing, open nothing, post nothing — but still makes the
+branch and the commit locally.
 
 Detection order for `--verify`: a `Makefile` target `check`, then `test`
 (`make check` · `make test`); then by manifest — `go.mod` → `go test ./...
@@ -376,6 +498,24 @@ from the facts. When the report defined acceptance criteria it also carries
 `acceptance_criteria` (the criteria, as extracted), `criteria_outcome`
 (`pass` when every one was met, `fail` otherwise), and the verdict and
 evidence for each under `implementation.criteria_verdicts`.
+
+Under `--detail summary` (the default) `result` keeps only:
+
+| Field | Kept as |
+|---|---|
+| `stage` | unchanged |
+| `branch` | unchanged |
+| `base_branch` | unchanged |
+| `commit` | unchanged |
+| `changed_files` | unchanged |
+| `verdict` | unchanged |
+| `criteria_outcome` | unchanged |
+| `pull_request_url` | unchanged |
+| `dry_run` | unchanged |
+| `verification` | only when the verdict is not landable (`regressed`, `still_failing`, …), with the failing command's tail output — the one place the summary is deliberately not smaller |
+
+The baseline, the model's `implementation` report, the analysis and the
+comments are in the report file. A passing run's envelope is under 3 KB.
 
 ### What the model may and may not do
 
@@ -484,9 +624,10 @@ and `result.split` showing what exists.
 | `--architecture` | off | also write the optional `architecture.md` |
 | `--no-activate` | off | leave a valid package in `draft` instead of activating it |
 | `--comment` | off | post the finished PRD back to the issue the input came from |
-| `--dry-run` | off | write nothing to disk or the forge; report the package that would be written |
 
-Bounds: 60 turns, $5.00 per phase.
+Bounds: 60 turns, $5.00 per phase. With `--dry-run`, `spec` makes no remote
+change and does nothing locally either: it writes no files, and reports the
+package that would be written.
 
 ### The project audit
 
@@ -539,6 +680,24 @@ to know what happened reads `split`; a caller that wants the rest written runs
 A package that does not validate is still written, and the run exits 1 with
 `category: "invalid_spec"`. A spec you can read and fix is worth more than no
 spec at all, and the errors name the rules that broke. It is not activated.
+
+Under `--detail summary` (the default) `result` keeps only:
+
+| Field | Kept as |
+|---|---|
+| `spec_dir` | unchanged |
+| `spec_id` | unchanged |
+| `spec_name` | unchanged |
+| `status` | unchanged |
+| `artifacts` | unchanged (the list of file names) |
+| `validation` | `{valid, error_count, errors}` — `warning_count` and `warnings` dropped |
+| `traceability` | `{criteria_uncovered, paths_uncovered, tests_unowned}` — the covered counts dropped |
+| `open_questions` | unchanged |
+| `split` | unchanged; it already names every scope with its status |
+
+`follow_on_specs` and `split_plan` are dropped from the summary view; the
+report file has them. The top-level `artifacts` array (one `spec_package`
+entry per package written) is separate from `result.artifacts`.
 
 ---
 
@@ -727,7 +886,6 @@ it, for a driver that runs one task at a time.
 | `--branch` | `impl/<NN>-<slug>` | the branch to work on, created if missing and continued if present |
 | `--land` | `pr` | `pr` · `branch` (push only) · `none` (commit only) |
 | `--repo owner/repo` | the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
-| `--dry-run` | off | make no *remote* change: push nothing, open nothing. The branch and the commits are still made |
 | `--verify` | the spec's `linter` and `all_tests` | one command that decides success instead |
 | `--no-verify` | off | run nothing; every task is then `unverified`, not a pass |
 | `--verify-timeout` | `10m` | timeout for one check command |
@@ -737,14 +895,16 @@ it, for a driver that runs one task at a time.
 | `--pull` | off | checkout and pull the base branch from `origin` first |
 | `--no-survey` | off | skip the survey phase |
 | `--task-attempts` | `2` | implementation attempts per task before the run parks |
-| `--total-budget` | none | spend ceiling for the whole run; a run that reaches it stops between tasks, with everything landed so far committed |
 | `--repair` | off | repair the checks when they fail before the first task or after the integration task; the run stops if it cannot |
 | `--repair-attempts` | `3` | repair attempts before the run gives up |
 | `--repair-model` | the run's model | model tier or catalog spec for the repair phase alone; implies `--repair` |
 
 Bounds: 150 turns, $5.00 per phase — and there is one phase per task, so a
 twelve-task spec can cost twelve times what a `fix` does. `--total-budget`
-caps the run.
+(a [shared flag](#shared-flags)) caps the run: a run that reaches it stops
+between tasks, with everything landed so far committed. With `--dry-run`,
+`impl` makes no remote change — push nothing, open nothing — but still makes
+the branch and the commits locally.
 
 `result` carries `stage`, the package (`spec_dir`, `spec_id`, `spec_name`,
 `title`, `status`), `branch`, `base_branch`, `resumed`, the counts
@@ -759,6 +919,29 @@ way — `outcome`, `attempts`, `model` when it differed, the `failing` gate,
 `commit`, `changed_files`, `diff_stat`, `verification`, and the model's
 `submission` with its `cause` — as `repair` at the top level for the
 baseline and on the integration task's entry for the one after it.
+
+Under `--detail summary` (the default) `result` keeps only:
+
+| Field | Kept as |
+|---|---|
+| `stage` | unchanged |
+| `spec_dir` | unchanged |
+| `spec_id` | unchanged |
+| `spec_name` | unchanged |
+| `title` | unchanged |
+| `status` | unchanged |
+| `branch` | unchanged |
+| `tasks_total` | unchanged |
+| `tasks_done` | unchanged |
+| `tasks_skipped` | unchanged |
+| `tasks_remaining` | unchanged |
+| `tasks` | one entry per task, `{id, outcome, commit, verdict}` only |
+| `verdict` | unchanged |
+| `pull_request_url` | unchanged |
+| `verification` | only when the run stopped on a verdict that is not landable, with the gate's checks and their tail output |
+
+The per-task gates, diff stats and submissions, the `survey`, the `baseline`
+and the `repair` report are in the report file.
 
 ### What the model may and may not do
 

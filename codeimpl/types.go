@@ -432,7 +432,19 @@ type Result struct {
 	CostUSD float64 `json:"cost_usd"`
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty"`
+	// Land records the land mode this run was asked for (pr, branch or
+	// none), so a --dry-run run that reached --land=pr can report the pull
+	// request it would have opened as hypothetical (06-REQ-4.3) even though
+	// PullRequestURL, its only other trace, stays empty either way.
+	Land string `json:"land,omitempty"`
+
+	// Detail records which view of this result was emitted: "summary" or
+	// "full". It is present on both.
+	Detail string `json:"detail"`
 }
+
+// SetDetail implements toolio.DetailedResult.
+func (r *Result) SetDetail(d string) { r.Detail = d }
 
 // Summary returns one sentence describing the outcome in impl's vocabulary.
 func (r Result) Summary() string {

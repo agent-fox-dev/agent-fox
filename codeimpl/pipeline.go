@@ -89,7 +89,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		o.RepairAttempts = DefaultRepairAttempts
 	}
 
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Verdict: string(checks.VerdictUnverified)}
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
 	st, pfErr := preflight(ctx, o, result)
 	if pfErr != nil {
 		return result, pfErr
@@ -187,7 +187,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// ------------------------------------------------------------- land --
 	result.Stage = "committed"
 	if o.Land.Pushes() && !o.DryRun {
-		if err := st.git.Push(ctx, st.branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) }); err != nil {
+		err := st.git.Push(ctx, st.branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) })
+		// A failed push is the run's error, not a Run.Warn: no warning code.
+		o.Run.RecordSideEffect("push", "origin "+st.branch, err == nil, "")
+		if err != nil {
 			return result, fail("push", CategoryGit, err)
 		}
 		result.Pushed = true
@@ -220,6 +223,7 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 	if o.Forge == nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): no forge client configured", st.branch, st.base)
+		o.Run.RecordSideEffect("open_pr", st.target.String(), false, toolio.WarnPullRequestNotOpened)
 		return result, failf("land", CategoryForge, "no forge client configured")
 	}
 	pr, err := o.Forge.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
@@ -232,8 +236,10 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 	if err != nil {
 		o.Run.Warn(toolio.WarnPullRequestNotOpened, "high", "the pull request could not be opened (the branch is pushed; open it by "+
 			"hand from %s into %s): %v", st.branch, st.base, err)
+		o.Run.RecordSideEffect("open_pr", st.target.String(), false, toolio.WarnPullRequestNotOpened)
 		return result, err
 	}
+	o.Run.RecordSideEffect("open_pr", fmt.Sprintf("%s#%d", st.target, pr.Number), true, "")
 	result.PullRequestURL = pr.URL
 	result.PullRequestNumber = pr.Number
 	if o.Progress != nil {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -21,12 +21,10 @@ import (
 func newApp(t *testing.T, exec func(context.Context, Deps) (int, any, *ErrorInfo)) (*App, *Deps) {
 	t.Helper()
 	var seen Deps
-	var dryRun bool
 	app := &App{
 		Name:    "tool",
 		Version: "test",
 		Usage:   "usage\n",
-		Flags:   func(fs *flag.FlagSet) { fs.BoolVar(&dryRun, "dry-run", false, "") },
 		Exec: func(ctx context.Context, d Deps) (int, any, *ErrorInfo) {
 			seen = d
 			if exec != nil {
@@ -48,6 +46,106 @@ func runApp(t *testing.T, app *App, argv []string, stdin string) (Envelope, int,
 		t.Fatalf("stdout is not one JSON object (%v):\n%s", err, stdout.String())
 	}
 	return env, code, stderr.String()
+}
+
+// TS-06-55 (unit, App half): a one-phase tool's effective per-phase ceiling is
+// min(--budget, --total-budget), and it is the ceiling the runner and the
+// envelope's bounds carry.
+func TestTS06_55_AppAppliesTheLowerCeilingToTheOnePhase(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, tc := range []struct{ budget, total string }{{"10", "4"}, {"4", "10"}} {
+		app, seen := newApp(t, nil)
+		app.SinglePhase = true
+		app.DefaultBounds = agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 2}
+		_, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "--budget", tc.budget, "--total-budget", tc.total, "x"}, "")
+		if code != ExitOK {
+			t.Fatalf("code = %d", code)
+		}
+		if got := seen.runner.Bounds.MaxBudgetUSD; got != 4 {
+			t.Errorf("--budget %s --total-budget %s: runner ceiling = %v, want 4", tc.budget, tc.total, got)
+		}
+	}
+
+	// A multi-phase tool (SinglePhase unset) keeps the per-phase ceiling.
+	app, seen := newApp(t, nil)
+	app.DefaultBounds = agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 2}
+	_, _, _ = runApp(t, app, []string{"--dir", t.TempDir(), "--budget", "10", "--total-budget", "4", "x"}, "")
+	if got := seen.runner.Bounds.MaxBudgetUSD; got != 10 {
+		t.Errorf("multi-phase runner ceiling = %v, want 10", got)
+	}
+}
+
+// A negative --total-budget is a usage error, refused before anything runs.
+func TestNegativeTotalBudgetIsAUsageError(t *testing.T) {
+	app, _ := newApp(t, nil)
+	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "--total-budget", "-1", "x"}, "")
+	if code != ExitUsage || env.OK {
+		t.Fatalf("code=%d env=%+v", code, env)
+	}
+	if !strings.Contains(env.Error.Message, "--total-budget") {
+		t.Errorf("Error = %+v", env.Error)
+	}
+}
+
+// TS-06-58 (unit): a flag another tool defines, given to a tool that does not
+// use it, is rejected naming both the flag and the accepting tool.
+func TestTS06_58_UnsupportedFlagNamesTheAcceptingTool(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cases := []struct {
+		tool, flag string
+		accepting  []string
+	}{
+		{"impl", "label", []string{"issue"}},
+		{"fix", "specs-dir", []string{"spec", "impl"}},
+		{"issue", "land", []string{"fix", "impl"}},
+		{"spec", "repair", []string{"impl"}},
+	}
+	for _, tc := range cases {
+		app, _ := newApp(t, nil)
+		app.Name = tc.tool
+		env, code, stderr := runApp(t, app, []string{"--dir", t.TempDir(), "--" + tc.flag, "x", "input"}, "")
+		if code != ExitUsage || env.OK {
+			t.Fatalf("%s --%s: code=%d env=%+v", tc.tool, tc.flag, code, env)
+		}
+		if env.Error == nil || env.Error.Category != "usage" {
+			t.Fatalf("%s --%s: Error = %+v", tc.tool, tc.flag, env.Error)
+		}
+		for _, msg := range []string{env.Error.Message, stderr} {
+			if !strings.Contains(msg, "--"+tc.flag) {
+				t.Errorf("%s --%s: %q does not name the flag", tc.tool, tc.flag, msg)
+			}
+			if !strings.Contains(msg, tc.tool+" does not accept") {
+				t.Errorf("%s --%s: %q does not name the rejecting tool", tc.tool, tc.flag, msg)
+			}
+			for _, a := range tc.accepting {
+				if !strings.Contains(msg, a) {
+					t.Errorf("%s --%s: %q does not name %s", tc.tool, tc.flag, msg, a)
+				}
+			}
+		}
+		if strings.Contains(env.Error.Message, "flag provided but not defined") {
+			t.Errorf("%s --%s: the generic message leaked: %q", tc.tool, tc.flag, env.Error.Message)
+		}
+	}
+}
+
+// TS-06-59 (unit): a flag no tool defines keeps Go's own message.
+func TestTS06_59_UnknownFlagKeepsGoMessage(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	app, _ := newApp(t, nil)
+	app.Name = "impl"
+	env, code, stderr := runApp(t, app, []string{"--dir", t.TempDir(), "--nonexistent-flag", "x", "input"}, "")
+	if code != ExitUsage || env.OK {
+		t.Fatalf("code=%d env=%+v", code, env)
+	}
+	want := "flag provided but not defined: -nonexistent-flag"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr %q lacks %q", stderr, want)
+	}
+	if env.Error == nil || env.Error.Message != want {
+		t.Errorf("Error = %+v, want message %q exactly", env.Error, want)
+	}
 }
 
 func TestAppEmitsJSONOnEveryPath(t *testing.T) {
@@ -569,6 +667,25 @@ func TestTS_05_5(t *testing.T) {
 	const expected = "no input: give a report, a file path, a GitHub or GitLab issue URL, or - to read stdin"
 	if envBare.Error.Message != expected {
 		t.Errorf("expected message %q, got %q", expected, envBare.Error.Message)
+	}
+}
+
+// TS-06-2 (unit): An unrecognized --detail value is a usage error before any input is resolved
+func TestTS06_2_UnrecognizedDetailIsUsageError(t *testing.T) {
+	var execCalled bool
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		execCalled = true
+		return ExitOK, nil, nil
+	})
+	env, code, _ := runApp(t, app, []string{"--detail", "wrong", "some text"}, "")
+	if code != ExitUsage {
+		t.Fatalf("expected exit code %d, got %d", ExitUsage, code)
+	}
+	if env.Error == nil || env.Error.Category != "usage" {
+		t.Errorf("expected error.category == usage, got %+v", env.Error)
+	}
+	if execCalled {
+		t.Error("Exec ran with an invalid --detail: nothing should have been resolved")
 	}
 }
 

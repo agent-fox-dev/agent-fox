@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -76,23 +78,17 @@ var ErrNoInput = errors.New("no input given")
 // path that exists and is a regular file is read. Everything else is text —
 // including a path that does not exist, because "the widget/ package panics"
 // is a plausible thing to say and refusing it as a missing file would be
-// wrong.
-func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Client) (Input, error) {
+// wrong. A text argument that is shaped like a path, though, is called out
+// with a high-severity input_looks_like_path warning on run (06-REQ-7.1); a
+// nil run records nothing.
+func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Client, run *Run) (Input, error) {
 	arg = strings.TrimSpace(arg)
 	switch {
 	case arg == "":
 		return Input{}, ErrNoInput
 
 	case arg == "-":
-		b, err := io.ReadAll(io.LimitReader(stdin, MaxInputBytes+1))
-		if err != nil {
-			return Input{}, fmt.Errorf("reading stdin: %w", err)
-		}
-		body, cut := Truncate(string(b))
-		if strings.TrimSpace(body) == "" {
-			return Input{}, ErrNoInput
-		}
-		return Input{Kind: KindStdin, Origin: "stdin", Body: body, Truncated: cut}, nil
+		return readStdin(stdin)
 	}
 
 	if ref, ok := issuex.ParseIssueURL(arg); ok {
@@ -103,8 +99,109 @@ func Resolve(ctx context.Context, arg string, stdin io.Reader, forge issuex.Clie
 	} else if ok {
 		return Input{Kind: KindFile, Origin: filepath.Clean(arg), Body: body, Truncated: cut}, nil
 	}
+	if looksLikePath(arg) {
+		if _, err := os.Stat(arg); err != nil {
+			run.Warn(WarnInputLooksLikePath, "high",
+				"the input %q looks like a file path but nothing exists there; it was read as text", arg)
+		}
+	}
 	body, cut := Truncate(arg)
 	return Input{Kind: KindText, Origin: "argument", Body: body, Truncated: cut}, nil
+}
+
+// readStdin reads the piped input, bounded at MaxInputBytes.
+func readStdin(stdin io.Reader) (Input, error) {
+	b, err := io.ReadAll(io.LimitReader(stdin, MaxInputBytes+1))
+	if err != nil {
+		return Input{}, fmt.Errorf("reading stdin: %w", err)
+	}
+	body, cut := Truncate(string(b))
+	if strings.TrimSpace(body) == "" {
+		return Input{}, ErrNoInput
+	}
+	return Input{Kind: KindStdin, Origin: "stdin", Body: body, Truncated: cut}, nil
+}
+
+// ResolveForced loads arg as the given kind instead of guessing, for
+// --input-kind (06-REQ-8). It skips Resolve's auto-classification entirely
+// rather than running it and checking the outcome, so nothing is fetched or
+// read on the way to a refusal. Every mismatch is a *UsageError, which the
+// shell turns into exit 2 before a model is resolved.
+//
+//   - file: the argument must stat as a regular file; a missing path and a
+//     directory are refused by name, before Resolve's file-vs-text fallback.
+//   - text: the argument is the body, verbatim: no file, URL or path-shape
+//     check, and no warning.
+//   - issue: the argument must parse as a forge issue or pull-request URL,
+//     checked before any HTTP request.
+//   - stdin: the argument must be exactly "-".
+//
+// A nil run is safe; forced modes record no warnings.
+func ResolveForced(ctx context.Context, kind, arg string, stdin io.Reader, forge issuex.Client, run *Run) (Input, error) {
+	_ = run
+	switch SourceKind(kind) {
+	case KindText:
+		if strings.TrimSpace(arg) == "" {
+			return Input{}, ErrNoInput
+		}
+		body, cut := Truncate(arg)
+		return Input{Kind: KindText, Origin: "argument", Body: body, Truncated: cut}, nil
+
+	case KindFile:
+		path := strings.TrimSpace(arg)
+		if path == "" {
+			return Input{}, ErrNoInput
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return Input{}, Usagef("--input-kind file: %s does not exist", path)
+			}
+			return Input{}, Usagef("--input-kind file: %s cannot be read: %v", path, err)
+		}
+		if info.IsDir() {
+			return Input{}, Usagef("--input-kind file: %s is a directory, not a file", path)
+		}
+		if !info.Mode().IsRegular() {
+			return Input{}, Usagef("--input-kind file: %s is not a regular file", path)
+		}
+		body, cut, ok, err := readIfFile(path)
+		if err != nil {
+			return Input{}, Usagef("--input-kind file: %v", err)
+		}
+		if !ok {
+			return Input{}, Usagef("--input-kind file: %s is not a readable regular file", path)
+		}
+		return Input{Kind: KindFile, Origin: filepath.Clean(path), Body: body, Truncated: cut}, nil
+
+	case KindIssue:
+		ref, ok := issuex.ParseIssueURL(arg)
+		if !ok {
+			return Input{}, Usagef("--input-kind issue: %q is not a GitHub or GitLab issue or pull-request URL", strings.TrimSpace(arg))
+		}
+		return resolveIssue(ctx, ref, forge)
+
+	case KindStdin:
+		if strings.TrimSpace(arg) != "-" {
+			return Input{}, Usagef("--input-kind stdin: the argument must be \"-\", got %q", strings.TrimSpace(arg))
+		}
+		return readStdin(stdin)
+	}
+	return Input{}, Usagef("--input-kind must be one of %q, %q, %q or %q, got %q",
+		KindFile, KindText, KindIssue, KindStdin, kind)
+}
+
+// extensionSuffix matches the short alphanumeric suffix of a file name.
+var extensionSuffix = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
+
+// looksLikePath reports whether arg is shaped like a path a person could
+// have mistyped: one line, no whitespace, and either a slash or a short
+// extension. Prose almost always has a space; a bare word has neither.
+func looksLikePath(arg string) bool {
+	if arg == "" || strings.ContainsFunc(arg, unicode.IsSpace) {
+		return false
+	}
+	return strings.Contains(arg, "/") || extensionSuffix.MatchString(arg)
 }
 
 // readIfFile reports whether arg names a readable regular file and returns

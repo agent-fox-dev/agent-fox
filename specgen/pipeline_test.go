@@ -88,6 +88,9 @@ type scriptedAuthor struct {
 	followOn    map[string]PRD
 	followOnErr map[string]error
 
+	// prdCost is the spend every PRD phase reports.
+	prdCost float64
+
 	steps       []afspec.GenerationStep
 	prdRequests []prdRequest
 }
@@ -95,6 +98,7 @@ type scriptedAuthor struct {
 func (a *scriptedAuthor) WritePRD(_ context.Context, req prdRequest) (PRD, agentrun.Result, error) {
 	a.prdRequests = append(a.prdRequests, req)
 	res := agentrun.Result{Name: "prd", Turns: 3}
+	res.Usage.CostUSD = a.prdCost
 	if req.Split == nil {
 		return a.prd, res, a.prdErr
 	}
@@ -687,6 +691,64 @@ func TestTS0431_PostsPRDCommentAndWarnsOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(warnings[0].Message, "the PRD could not be posted") {
 		t.Errorf("warning %q should contain 'the PRD could not be posted'", warnings[0].Message)
+	}
+}
+
+// TS-06-27 / TS-06-28 (integration): the PRD comment is recorded as a
+// comment on "<owner>/<repo>#<n>" — ok when posted, ok:false carrying the
+// warning code the same site recorded when it was not.
+func TestTS06_27_28_PRDCommentIsRecordedAsASideEffect(t *testing.T) {
+	ctx := context.Background()
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+	for _, tc := range []struct {
+		name    string
+		forge   *mockForgeClient
+		wantOK  bool
+		wantWrn toolio.WarnCode
+	}{
+		{"posted", &mockForgeClient{authenticated: true, commentURL: "https://forge/c"}, true, ""},
+		{"refused", &mockForgeClient{authenticated: true, commentErr: errors.New("forbidden")}, false, toolio.WarnCommentNotPosted},
+	} {
+		run := toolio.NewRun("spec", "test")
+		opts := newOptions(newWorkspace(t), newAuthor(t, "01", "test_feature"))
+		opts.Comment = true
+		opts.DryRun = false
+		opts.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+		opts.Forge = tc.forge
+		opts.Run = run
+		if _, _, err := GeneratePRD(ctx, opts); err != nil {
+			t.Fatalf("%s: GeneratePRD: %v", tc.name, err)
+		}
+		se := run.SideEffects()
+		if len(se) != 1 || se[0].Action != "comment" || se[0].Target != "acme/widgets#42" ||
+			se[0].OK != tc.wantOK || se[0].Warning != tc.wantWrn {
+			t.Errorf("%s: SideEffects = %+v", tc.name, se)
+		}
+	}
+}
+
+// TS-06-30 (unit): under --dry-run the PRD comment is never attempted, so
+// nothing is recorded.
+func TestTS06_30_DryRunPRDCommentRecordsNothing(t *testing.T) {
+	issueRef := issuex.IssueRef{
+		Repo:   issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+		Number: 42,
+	}
+	run := toolio.NewRun("spec", "test")
+	opts := newOptions(newWorkspace(t), newAuthor(t, "01", "test_feature"))
+	opts.Comment = true
+	opts.DryRun = true
+	opts.Input = toolio.Input{Kind: toolio.KindIssue, Issue: &issueRef}
+	opts.Forge = &mockForgeClient{authenticated: true, commentURL: "https://forge/c"}
+	opts.Run = run
+	if _, _, err := GeneratePRD(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if se := run.SideEffects(); len(se) != 0 {
+		t.Errorf("dry run recorded %+v", se)
 	}
 }
 

@@ -65,6 +65,180 @@ type Resumabler interface {
 	Resumable() bool
 }
 
+// Summarizable is implemented by Result types that supply a trimmed
+// "summary" view of themselves — the shape emitted on stdout by default,
+// under --detail summary (06-REQ-3). Only the fields a caller acts on next
+// are kept; every other field of the full Result is still computed exactly
+// as under --detail full, and is still written in full to the report file
+// (06-REQ-3.5). A Result that has nothing worth trimming need not implement
+// this: ApplyDetail falls back to the full value.
+type Summarizable interface {
+	SummaryView() any
+}
+
+// ArtifactKind is the closed set of shapes an Artifact can take (06-REQ-4.1).
+// A caller chaining tools switches on this rather than guessing which
+// fields are meaningful.
+type ArtifactKind string
+
+// The closed set of artifact kinds. There is no other.
+const (
+	ArtifactBranch      ArtifactKind = "branch"
+	ArtifactCommit      ArtifactKind = "commit"
+	ArtifactPullRequest ArtifactKind = "pull_request"
+	ArtifactComment     ArtifactKind = "comment"
+	ArtifactIssue       ArtifactKind = "issue"
+	ArtifactSpecPackage ArtifactKind = "spec_package"
+	ArtifactReportFile  ArtifactKind = "report_file"
+)
+
+// Artifact is one thing a run produced. Every field below is meaningful for
+// some kinds and not others; MarshalJSON emits only the fields fixed for
+// this entry's own Kind (plus dry_run when it is set), so a caller reading
+// one never has to know which fields to ignore (06-REQ-4.1).
+type Artifact struct {
+	Kind ArtifactKind
+
+	// branch
+	Name string
+	Base string
+
+	// commit
+	SHA    string
+	Branch string
+
+	// pull_request, issue: URL and Number. comment: URL only.
+	URL    string
+	Number int
+
+	// spec_package
+	Path  string
+	ID    string
+	Valid bool
+
+	// report_file: Path (above).
+
+	// DryRun marks an entry as hypothetical: something that would have
+	// happened on a forge or a remote under --dry-run, but did not
+	// (06-REQ-4.3). Never marshalled when false, since an entry for
+	// something that actually happened locally — a branch, a commit —
+	// carries no marker at all (06-REQ-4.4).
+	DryRun bool
+}
+
+// MarshalJSON emits exactly the fields fixed for a's own Kind, so a branch
+// entry is {kind,name,base} and nothing else, never the zero values of the
+// fields other kinds use (06-REQ-4.1).
+func (a Artifact) MarshalJSON() ([]byte, error) {
+	m := map[string]any{"kind": string(a.Kind)}
+	switch a.Kind {
+	case ArtifactBranch:
+		m["name"] = a.Name
+		m["base"] = a.Base
+	case ArtifactCommit:
+		m["sha"] = a.SHA
+		m["branch"] = a.Branch
+	case ArtifactPullRequest:
+		m["url"] = a.URL
+		m["number"] = a.Number
+	case ArtifactComment:
+		m["url"] = a.URL
+	case ArtifactIssue:
+		m["url"] = a.URL
+		m["number"] = a.Number
+	case ArtifactSpecPackage:
+		m["path"] = a.Path
+		m["id"] = a.ID
+		m["valid"] = a.Valid
+	case ArtifactReportFile:
+		m["path"] = a.Path
+	}
+	if a.DryRun {
+		m["dry_run"] = true
+	}
+	return json.Marshal(m)
+}
+
+// ArtifactsProvider is implemented by Result types that supply what the run
+// produced, in the uniform shape Artifact fixes (06-REQ-4). Every entry
+// must be read off a fact the Result already holds — Branch, Commit,
+// PullRequestURL, Comments, SpecDir, Validation.Valid and the rest — never
+// from a field that is the model's own account of its work.
+type ArtifactsProvider interface {
+	Artifacts() []Artifact
+}
+
+// SideEffect is one write a run made to a forge or a remote (06-REQ-5).
+//
+// Action is one of create_issue, update_issue, comment, push, open_pr.
+// Target names what was written to: "origin <branch>" for a push,
+// "<owner>/<repo>#<number>" for a comment or an issue update,
+// "<owner>/<repo>" for an issue that has no number yet, and
+// "<owner>/<repo>#<pr-number>" for a pull request. Warning is set only when
+// OK is false and the call site recorded a Run.Warn for the same failure: the
+// two come from one call site, so they cannot disagree.
+type SideEffect struct {
+	Action  string   `json:"action"`
+	Target  string   `json:"target"`
+	OK      bool     `json:"ok"`
+	Warning WarnCode `json:"warning,omitempty"`
+}
+
+// SameInputPlaceholder stands for the original input in a suggested
+// invocation whose input may be arbitrarily large (raw text, stdin, a
+// report too long to repeat). needs_human.resume and a next[] entry that
+// must agree with it both use it.
+const SameInputPlaceholder = "<same input>"
+
+// AnswerPlaceholder stands for the caller's answer to a needs_human question
+// in a resume command.
+const AnswerPlaceholder = "\"<answer>\""
+
+// Next is one suggested follow-up invocation (06-REQ-6): the tool to run,
+// the single input to give it, the flags to add, and why. It is derived in
+// Go from a tool's own Result, never from the model.
+type Next struct {
+	Tool  string   `json:"tool"`
+	Input string   `json:"input"`
+	Flags []string `json:"flags"`
+	Why   string   `json:"why"`
+}
+
+// Command renders n as one command line: tool, input, flags, space-joined.
+func (n Next) Command() string {
+	parts := append([]string{n.Tool, n.Input}, n.Flags...)
+	return strings.Join(parts, " ")
+}
+
+// ResumeNext is the suggestion to run tool again on the same input with an
+// answer to its question: the one shape needs_human.resume and a tool's own
+// next[] ambiguity entry share, so the two cannot disagree. Its input is the
+// placeholder, not the literal argument, because a report can be up to
+// 256 KB and is not runnable as given in a JSON array.
+func ResumeNext(tool, why string) Next {
+	return Next{Tool: tool, Input: SameInputPlaceholder, Flags: []string{"--context", AnswerPlaceholder}, Why: why}
+}
+
+// ResumePlaceholder is how a next[] entry names in to re-run it: the
+// literal origin (a file path or an issue URL) when the input had a small,
+// stable one, and SameInputPlaceholder when it was raw text or stdin.
+func ResumePlaceholder(in Input) string {
+	switch in.Kind {
+	case KindFile, KindIssue:
+		if in.Origin != "" {
+			return in.Origin
+		}
+	}
+	return SameInputPlaceholder
+}
+
+// NextProvider is implemented by Result types that suggest their own
+// follow-up invocations (06-REQ-6). Every entry must be derived from fact
+// fields the Result already holds, never from the model's own report.
+type NextProvider interface {
+	Next() []Next
+}
+
 // Option is one possible answer to a question in needs_human.
 type Option struct {
 	ID   string `json:"id"`
@@ -132,12 +306,35 @@ type Envelope struct {
 	Warnings []Warning `json:"warnings,omitempty"`
 	Result   any       `json:"result,omitempty"`
 
+	// Artifacts is what the run produced, in one uniform shape across every
+	// tool, over the closed ArtifactKind set. Present whenever the run
+	// produced anything (06-REQ-4).
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+
+	// SideEffects is every write the run made to a forge or a remote, in
+	// the order it happened. Omitted when there were none — which is
+	// always the case under --dry-run (06-REQ-5).
+	SideEffects []SideEffect `json:"side_effects,omitempty"`
+
+	// Next is the invocations a caller would plausibly make next, derived
+	// from the result in Go. Omitted when there is nothing to suggest
+	// (06-REQ-6).
+	Next []Next `json:"next,omitempty"`
+
 	Input *InputInfo `json:"input,omitempty"`
 	Usage *UsageInfo `json:"usage,omitempty"`
 	Model *ModelInfo `json:"model,omitempty"`
 
 	DurationMS int64  `json:"duration_ms"`
 	StartedAt  string `json:"started_at"`
+
+	// ReportFile is the path the complete envelope was written to, present
+	// whenever that write succeeded. Absent when the write failed (a
+	// low-severity report_file_not_written warning explains why) or when
+	// this envelope is never written to a report file at all (the two
+	// purely human-driven paths: a bare invocation on a terminal, and
+	// -h/--help/--version).
+	ReportFile string `json:"report_file,omitempty"`
 }
 
 // InputInfo records what the single argument turned out to be. A caller
@@ -273,6 +470,7 @@ type Run struct {
 
 	mu       sync.Mutex
 	warnings []Warning
+	effects  []SideEffect
 	phases   []PhaseInfo
 	model    *ModelInfo
 	input    *InputInfo
@@ -343,6 +541,36 @@ func (r *Run) Warn(code WarnCode, severity string, format string, args ...any) {
 	})
 }
 
+// RecordSideEffect records one write to a forge or a remote, in the order it
+// happened. It is called at the one place each write actually happens,
+// beside the Run.Warn the same site makes on failure, and passes that
+// warning's code as warn when ok is false. An ok entry never carries a
+// warning, whatever was passed, so the two cannot disagree (06-REQ-5.4).
+func (r *Run) RecordSideEffect(action, target string, ok bool, warn WarnCode) {
+	if r == nil {
+		return
+	}
+	if ok {
+		warn = ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.effects = append(r.effects, SideEffect{Action: action, Target: target, OK: ok, Warning: warn})
+}
+
+// SideEffects returns a copy of the writes recorded so far, in order.
+func (r *Run) SideEffects() []SideEffect {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.effects) == 0 {
+		return nil
+	}
+	return append([]SideEffect(nil), r.effects...)
+}
+
 // AddPhase records one model-facing step's cost.
 func (r *Run) AddPhase(p PhaseInfo) {
 	if r == nil {
@@ -351,6 +579,21 @@ func (r *Run) AddPhase(p PhaseInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.phases = append(r.phases, p)
+}
+
+// CostUSD is the cumulative spend of every phase recorded so far. It is what
+// a run-level ceiling (--total-budget) is checked against between phases.
+func (r *Run) CostUSD() float64 {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var total float64
+	for _, p := range r.phases {
+		total += p.CostUSD
+	}
+	return total
 }
 
 // Warnings returns a copy of the warnings recorded so far.
@@ -392,6 +635,9 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		DurationMS: time.Since(r.started).Milliseconds(),
 		StartedAt:  r.started.UTC().Format(time.RFC3339),
 	}
+	if len(r.effects) > 0 {
+		env.SideEffects = append([]SideEffect(nil), r.effects...)
+	}
 	if len(r.phases) > 0 {
 		u := &UsageInfo{Phases: append([]PhaseInfo(nil), r.phases...)}
 		for _, p := range r.phases {
@@ -422,7 +668,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 					Options:  opts,
 					Needed:   needed,
 					Stage:    stage,
-					Resume:   fmt.Sprintf("%s <same input> --context \"<answer>\"", r.tool),
+					Resume:   ResumeNext(r.tool, "").Command(),
 				}
 			}
 		}
