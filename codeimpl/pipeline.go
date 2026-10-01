@@ -114,7 +114,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
-		done(phaseSummary(stats))
+		done(toolio.PhaseSummary(stats))
 		result.CostUSD = st.cost
 		if err != nil {
 			return stopped(ctx, o, st, result, fail(PhaseSurvey, agentrun.CategoryOf(err), err))
@@ -745,7 +745,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
 		sub, stats, err := st.brain.Repair(ctx, in)
 		recordPhase(o.Run, st, stats)
-		done(phaseSummary(stats))
+		done(toolio.PhaseSummary(stats))
 		result.CostUSD = st.cost
 		revertSpecDir(ctx, o, st, head)
 		dropScratchFiles(ctx, o, st)
@@ -964,7 +964,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			Context: o.Input.Context,
 		})
 		recordPhase(o.Run, st, stats)
-		done(phaseSummary(stats))
+		done(toolio.PhaseSummary(stats))
 
 		// Whatever the phase did under the spec package is taken back
 		// before anything is measured: the state file is the program's.
@@ -1287,34 +1287,16 @@ func setReport(result *Result, r TaskReport) {
 	result.Tasks = append(result.Tasks, r)
 }
 
+// IsBlocked reports whether err is the run stopping to ask a person.
+func IsBlocked(err error) bool {
+	var f *Failure
+	return errors.As(err, &f) && f.Category == CategoryBlocked
+}
+
 func recordPhase(run *toolio.Run, st *runState, res agentrun.Result) {
 	st.cost += res.Usage.CostUSD
 	if run == nil || res.Name == "" {
 		return
 	}
-	run.AddPhase(toolio.PhaseInfo{
-		Name:         res.Name,
-		Turns:        res.Turns,
-		StopReason:   string(res.StopReason),
-		InputTokens:  int64(res.Usage.InputTokens),
-		OutputTokens: int64(res.Usage.OutputTokens),
-		CostUSD:      res.Usage.CostUSD,
-		DurationMS:   res.Elapsed.Milliseconds(),
-	})
-}
-
-func phaseSummary(res agentrun.Result) string {
-	s := fmt.Sprintf("· %d turns · %s↑ %s↓", res.Turns,
-		toolio.FormatTokens(int64(res.Usage.InputTokens)),
-		toolio.FormatTokens(int64(res.Usage.OutputTokens)))
-	if res.Blocked > 0 {
-		s += fmt.Sprintf(" · %d tools blocked", res.Blocked)
-	}
-	return s
-}
-
-// IsBlocked reports whether err is the run stopping to ask a person.
-func IsBlocked(err error) bool {
-	var f *Failure
-	return errors.As(err, &f) && f.Category == CategoryBlocked
+	run.AddPhase(toolio.PhaseFromResult(res, ""))
 }

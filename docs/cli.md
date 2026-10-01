@@ -70,7 +70,8 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "input":  { "kind": "issue", "origin": "https://github.com/acme/widgets/issues/42", "bytes": 3184 },
   "model":  { "spec": "STANDARD", "id": "claude-sonnet-5-5", "vendor": "anthropic",
               "api": "anthropic-messages", "thinking": "high" },
-  "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cost_usd": 0.19, "turns": 23,
+  "usage":  { "input_tokens": 48211, "output_tokens": 3104, "cache_read_tokens": 212000,
+              "cache_creation_tokens": 18400, "cost_usd": 0.19, "turns": 23,
               "phases": [ { "name": "analyse", "turns": 9, "stop_reason": "tool_terminate", … } ] },
   "result": { /* tool-specific; see below */ },
   "warnings": [ { "code": "comment_not_posted", "severity": "low", "stage": "report",
@@ -83,6 +84,15 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "report_file": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json"
 }
 ```
+
+`usage.input_tokens` is what the provider reports **net of the prompt cache**:
+on a run that caches well it is small beside the cost. The tokens served from
+or written to the cache are `cache_read_tokens` and `cache_creation_tokens`
+(omitted when zero), and `cost_usd` includes them. Each entry of
+`usage.phases[]` carries the same three figures, and `spec` also gives it a
+`scope` — the spec name — so the phases a split repeats once per scope can be
+told apart. The phase footer on stderr shows the cached tokens as
+`(+212.0k cached)`.
 
 `ok` is the one field a caller has to read. It is true only when the tool did
 the whole job it was asked to do, and it is never true alongside a non-zero

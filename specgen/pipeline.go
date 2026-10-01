@@ -632,8 +632,12 @@ func (e *runEnv) writePRD(ctx context.Context, split *splitContext) (PRD, error)
 		Landscape:    e.landscape,
 		Split:        split,
 	})
-	recordPhase(o.Run, stats)
-	done(phaseSummary(stats))
+	scope := prd.SpecName
+	if split != nil {
+		scope = split.Scope().Name
+	}
+	recordPhase(o.Run, stats, scope)
+	done(toolio.PhaseSummary(stats))
 	if err != nil {
 		return PRD{}, fail("prd", agentrun.CategoryOf(err), err)
 	}
@@ -706,8 +710,8 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 			Landscape: e.landscape,
 			Partial:   &partial,
 		})
-		recordPhase(o.Run, stats)
-		done(phaseSummary(stats))
+		recordPhase(o.Run, stats, prd.SpecName)
+		done(toolio.PhaseSummary(stats))
 		if err != nil {
 			return pkg, dirName, wrap(fail(string(step), agentrun.CategoryOf(err), err))
 		}
@@ -722,8 +726,8 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		doc, stats, err := e.author.WriteArchitecture(ctx, architectureRequest{
 			SpecID: specID, SpecName: prd.SpecName, Root: e.root, PRD: spec.PRDBody, Partial: &partial,
 		})
-		recordPhase(o.Run, stats)
-		done(phaseSummary(stats))
+		recordPhase(o.Run, stats, prd.SpecName)
+		done(toolio.PhaseSummary(stats))
 		if err != nil {
 			// The architecture document is optional by the format's own
 			// definition, so failing to write it degrades the package rather
@@ -1075,23 +1079,12 @@ func relativeTo(root, path string) string {
 	return path
 }
 
-func recordPhase(run *toolio.Run, res agentrun.Result) {
+// recordPhase puts a finished phase in the envelope, labelled with the spec
+// it worked on: a split runs the same phases once per scope, and without the
+// label the report cannot say what any one spec cost.
+func recordPhase(run *toolio.Run, res agentrun.Result, scope string) {
 	if run == nil || res.Name == "" {
 		return
 	}
-	run.AddPhase(toolio.PhaseInfo{
-		Name:         res.Name,
-		Turns:        res.Turns,
-		StopReason:   string(res.StopReason),
-		InputTokens:  int64(res.Usage.InputTokens),
-		OutputTokens: int64(res.Usage.OutputTokens),
-		CostUSD:      res.Usage.CostUSD,
-		DurationMS:   res.Elapsed.Milliseconds(),
-	})
-}
-
-func phaseSummary(res agentrun.Result) string {
-	return fmt.Sprintf("· %d turns · %s↑ %s↓", res.Turns,
-		toolio.FormatTokens(int64(res.Usage.InputTokens)),
-		toolio.FormatTokens(int64(res.Usage.OutputTokens)))
+	run.AddPhase(toolio.PhaseFromResult(res, scope))
 }

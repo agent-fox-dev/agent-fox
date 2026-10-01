@@ -190,19 +190,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	t := &triager{ws: o.Workspace}
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
 	res, runErr := o.Runner.Run(ctx, t.phase(o.Input, o.Workspace.Root))
-	o.Run.AddPhase(toolio.PhaseInfo{
-		Name:         res.Name,
-		Turns:        res.Turns,
-		StopReason:   string(res.StopReason),
-		InputTokens:  int64(res.Usage.InputTokens),
-		OutputTokens: int64(res.Usage.OutputTokens),
-		CostUSD:      res.Usage.CostUSD,
-		DurationMS:   res.Elapsed.Milliseconds(),
-	})
-	done(fmt.Sprintf("· %d turns · %s↑ %s↓",
-		res.Turns,
-		toolio.FormatTokens(int64(res.Usage.InputTokens)),
-		toolio.FormatTokens(int64(res.Usage.OutputTokens))))
+	o.Run.AddPhase(toolio.PhaseFromResult(res, ""))
+	done(toolio.PhaseSummary(res))
 
 	if runErr != nil {
 		return nil, fail("analyse", agentrun.CategoryOf(runErr), runErr)
