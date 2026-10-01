@@ -527,24 +527,40 @@ func ShellSegments(cmd string) []string {
 				flush()
 				if len(pending) > 0 {
 					pos := i + 1
+					skipped := true
 					for _, h := range pending {
 						end, body, ok := h.body(cmd, pos)
 						if !ok {
 							break
 						}
-						pos = end
 						if !h.quoted {
-							for _, inner := range substitutions(body) {
+							subs, clear := substitutions(body)
+							if !clear {
+								// The body has an expansion this scanner
+								// cannot delimit with certainty. Leave it
+								// unskipped: its lines are read as commands,
+								// which is the safe direction.
+								skipped = false
+								break
+							}
+							for _, inner := range subs {
 								segs = append(segs, ShellSegments(inner)...)
 							}
 						}
+						pos = end
 					}
 					pending = nil
-					i = pos - 1
+					if skipped {
+						i = pos - 1
+					}
 				}
 			case '(':
 				if arith > 0 {
 					arith++
+				} else if next == '(' && strings.TrimSpace(cur.String()) == "" {
+					// `((expr))` at the start of a command is arithmetic, in
+					// which `<<` is a shift and not a heredoc.
+					arith = 1
 				}
 				flush()
 			case ')':
@@ -554,6 +570,18 @@ func ShellSegments(cmd string) []string {
 				flush()
 			case ';', '|', '`':
 				flush()
+			case '#':
+				// An unquoted # at the start of a word comments out the rest
+				// of the line, `<<` included: bash runs the lines after it as
+				// commands, so a heredoc operator in the comment must not make
+				// the scanner skip them.
+				if i == 0 || strings.IndexByte(" \t\n;|&()", cmd[i-1]) >= 0 {
+					for i+1 < len(cmd) && cmd[i+1] != '\n' {
+						i++
+					}
+				} else {
+					cur.WriteByte(c)
+				}
 			case '<':
 				if next != '<' {
 					cur.WriteByte(c)
@@ -690,9 +718,13 @@ func (h heredoc) body(cmd string, start int) (end int, body string, ok bool) {
 
 // substitutions returns the text inside each `$(...)` and backtick pair of an
 // unquoted heredoc body, where the shell expands them. A backslash escapes the
-// character after it.
-func substitutions(body string) []string {
-	var out []string
+// character after it, and inside a `$(...)` quotes and escapes hide a `)`.
+//
+// clear is false when a substitution is one this scan cannot delimit with
+// certainty — an unterminated one, or one holding a `case` (whose patterns
+// carry unbalanced parentheses), a comment, or a nested heredoc. The caller
+// then does not skip the body.
+func substitutions(body string) (out []string, clear bool) {
 	for i := 0; i < len(body); i++ {
 		switch body[i] {
 		case '\\':
@@ -705,8 +737,8 @@ func substitutions(body string) []string {
 				}
 				j++
 			}
-			if j > len(body) {
-				j = len(body)
+			if j >= len(body) {
+				return nil, false
 			}
 			out = append(out, body[i+1:j])
 			i = j
@@ -714,25 +746,71 @@ func substitutions(body string) []string {
 			if i+1 >= len(body) || body[i+1] != '(' {
 				continue
 			}
-			depth, j := 1, i+2
-			for j < len(body) && depth > 0 {
-				switch body[j] {
-				case '(':
-					depth++
-				case ')':
-					depth--
-				}
-				j++
+			end := substitutionEnd(body, i+2)
+			if end < 0 {
+				return nil, false
 			}
-			end := j
-			if depth == 0 {
-				end = j - 1
+			inner := body[i+2 : end]
+			if ambiguousSubstitution(inner) {
+				return nil, false
 			}
-			out = append(out, body[i+2:end])
-			i = j - 1
+			out = append(out, inner)
+			i = end
 		}
 	}
-	return out
+	return out, true
+}
+
+// substitutionEnd returns the index of the `)` closing a `$(` whose contents
+// start at from, or -1. Parentheses inside single quotes, double quotes and
+// after a backslash do not count.
+func substitutionEnd(body string, from int) int {
+	depth := 1
+	for j := from; j < len(body); j++ {
+		switch body[j] {
+		case '\\':
+			j++
+		case '\'':
+			k := strings.IndexByte(body[j+1:], '\'')
+			if k < 0 {
+				return -1
+			}
+			j += k + 1
+		case '"':
+			for j++; j < len(body) && body[j] != '"'; j++ {
+				if body[j] == '\\' {
+					j++
+				}
+			}
+			if j >= len(body) {
+				return -1
+			}
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return j
+			}
+		}
+	}
+	return -1
+}
+
+// ambiguousSubstitution reports a `$(...)` body whose extent the quote-aware
+// scan cannot be trusted with: a `case` statement, a comment, or a heredoc.
+func ambiguousSubstitution(inner string) bool {
+	if strings.Contains(inner, "<<") || strings.Contains(inner, "#") {
+		return true
+	}
+	for _, w := range strings.FieldsFunc(inner, func(r rune) bool {
+		return strings.ContainsRune(" \t\n;|&()", r)
+	}) {
+		if w == "case" {
+			return true
+		}
+	}
+	return false
 }
 
 // withCommand is the interceptor context for one segment of a command.
