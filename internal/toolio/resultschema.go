@@ -43,6 +43,9 @@ var (
 // A field's description is read from its description tag. A field without
 // one gets none; the exhaustiveness check, not this function, is what keeps
 // that from happening.
+//
+// A field's provenance is read from its trust tag and set as "x-trust" right
+// after the description. A field with no trust tag gets no such key.
 func SchemaFor(t reflect.Type) SchemaObject {
 	return schemaFor(t, nil)
 }
@@ -146,6 +149,7 @@ func structSchema(t reflect.Type, stack []reflect.Type) SchemaObject {
 	required := []string{}
 	for _, jf := range jsonFields(t) {
 		node := withDescription(schemaFor(jf.field.Type, stack), jf.field.Tag.Get(DescriptionTag))
+		node = withTrust(node, strings.TrimSpace(jf.field.Tag.Get(TrustTag)))
 		props = append(props, SchemaField{Key: jf.name, Value: node})
 		if jf.required {
 			required = append(required, jf.name)
@@ -179,6 +183,36 @@ func withDescription(node SchemaObject, desc string) SchemaObject {
 	}
 	if !placed {
 		out = append(SchemaObject{{Key: "description", Value: desc}}, out...)
+	}
+	return out
+}
+
+// withTrust returns node with "x-trust" set to trust, placed right after
+// description, or after type when node has no description. An empty trust
+// leaves node as it is: a field with no trust tag gets no x-trust key, and
+// that absence means "not applicable", never "fact".
+func withTrust(node SchemaObject, trust string) SchemaObject {
+	if trust == "" {
+		return node
+	}
+	anchor := "type"
+	if _, ok := node.Get("description"); ok {
+		anchor = "description"
+	}
+	out := make(SchemaObject, 0, len(node)+1)
+	placed := false
+	for _, f := range node {
+		if f.Key == "x-trust" {
+			continue
+		}
+		out = append(out, f)
+		if f.Key == anchor && !placed {
+			out = append(out, SchemaField{Key: "x-trust", Value: trust})
+			placed = true
+		}
+	}
+	if !placed {
+		out = append(SchemaObject{{Key: "x-trust", Value: trust}}, out...)
 	}
 	return out
 }

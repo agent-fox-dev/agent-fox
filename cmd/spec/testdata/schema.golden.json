@@ -334,31 +334,38 @@
         "properties": {
           "spec_dir": {
             "type": "string",
-            "description": "The created package directory."
+            "description": "The created package directory.",
+            "x-trust": "fact"
           },
           "spec_id": {
             "type": "string",
-            "description": "The spec identifier."
+            "description": "The spec identifier.",
+            "x-trust": "fact"
           },
           "spec_name": {
             "type": "string",
-            "description": "The spec name."
+            "description": "The spec name.",
+            "x-trust": "fact"
           },
           "title": {
             "type": "string",
-            "description": "The spec title."
+            "description": "The spec title.",
+            "x-trust": "model"
           },
           "status": {
             "type": "string",
-            "description": "The spec status."
+            "description": "The spec status.",
+            "x-trust": "fact"
           },
           "source": {
             "type": "string",
-            "description": "Where the spec came from."
+            "description": "Where the spec came from.",
+            "x-trust": "fact"
           },
           "artifacts": {
             "type": "array",
             "description": "The files written, in the order they were produced.",
+            "x-trust": "fact",
             "items": {
               "type": "string"
             }
@@ -407,19 +414,23 @@
                   "properties": {
                     "check": {
                       "type": "string",
-                      "description": "The rule that produced the finding."
+                      "description": "The rule that produced the finding.",
+                      "x-trust": "fact"
                     },
                     "artifact": {
                       "type": "string",
-                      "description": "The artifact file the finding is about."
+                      "description": "The artifact file the finding is about.",
+                      "x-trust": "fact"
                     },
                     "entity": {
                       "type": "string",
-                      "description": "The entity within the artifact, when there is one."
+                      "description": "The entity within the artifact, when there is one.",
+                      "x-trust": "fact"
                     },
                     "message": {
                       "type": "string",
-                      "description": "What is wrong."
+                      "description": "What is wrong.",
+                      "x-trust": "fact"
                     }
                   },
                   "required": [
@@ -437,19 +448,23 @@
                   "properties": {
                     "check": {
                       "type": "string",
-                      "description": "The rule that produced the finding."
+                      "description": "The rule that produced the finding.",
+                      "x-trust": "fact"
                     },
                     "artifact": {
                       "type": "string",
-                      "description": "The artifact file the finding is about."
+                      "description": "The artifact file the finding is about.",
+                      "x-trust": "fact"
                     },
                     "entity": {
                       "type": "string",
-                      "description": "The entity within the artifact, when there is one."
+                      "description": "The entity within the artifact, when there is one.",
+                      "x-trust": "fact"
                     },
                     "message": {
                       "type": "string",
-                      "description": "What is wrong."
+                      "description": "What is wrong.",
+                      "x-trust": "fact"
                     }
                   },
                   "required": [
@@ -477,6 +492,7 @@
               "criteria_uncovered": {
                 "type": "array",
                 "description": "The criteria no test verifies.",
+                "x-trust": "fact",
                 "items": {
                   "type": "string"
                 }
@@ -488,6 +504,7 @@
               "paths_uncovered": {
                 "type": "array",
                 "description": "The execution paths no test exercises.",
+                "x-trust": "fact",
                 "items": {
                   "type": "string"
                 }
@@ -495,6 +512,7 @@
               "tests_unowned": {
                 "type": "array",
                 "description": "The tests no task owns.",
+                "x-trust": "fact",
                 "items": {
                   "type": "string"
                 }
@@ -513,15 +531,18 @@
               "properties": {
                 "question": {
                   "type": "string",
-                  "description": "What the PRD phase was unsure about."
+                  "description": "What the PRD phase was unsure about.",
+                  "x-trust": "model"
                 },
                 "decision": {
                   "type": "string",
-                  "description": "What it decided."
+                  "description": "What it decided.",
+                  "x-trust": "model"
                 },
                 "why_unsure": {
                   "type": "string",
-                  "description": "Why it was unsure."
+                  "description": "Why it was unsure.",
+                  "x-trust": "model"
                 }
               },
               "required": [
@@ -533,11 +554,13 @@
           },
           "comment_url": {
             "type": "string",
-            "description": "The comment the finished PRD was posted as, when it was."
+            "description": "The comment the finished PRD was posted as, when it was.",
+            "x-trust": "fact"
           },
           "detail": {
             "type": "string",
-            "description": "Which view of this result was emitted: summary or full."
+            "description": "Which view of this result was emitted: summary or full.",
+            "x-trust": "fact"
           },
           "follow_on_specs": {
             "type": "array",
@@ -547,31 +570,38 @@
               "properties": {
                 "spec_dir": {
                   "type": "string",
-                  "description": "The created package directory."
+                  "description": "The created package directory.",
+                  "x-trust": "fact"
                 },
                 "spec_id": {
                   "type": "string",
-                  "description": "The spec identifier."
+                  "description": "The spec identifier.",
+                  "x-trust": "fact"
                 },
                 "spec_name": {
                   "type": "string",
-                  "description": "The spec name."
+                  "description": "The spec name.",
+                  "x-trust": "fact"
                 },
                 "title": {
                   "type": "string",
-                  "description": "The spec title."
+                  "description": "The spec title.",
+                  "x-trust": "model"
                 },
                 "status": {
                   "type": "string",
-                  "description": "The spec status."
+                  "description": "The spec status.",
+                  "x-trust": "fact"
                 },
                 "source": {
                   "type": "string",
-                  "description": "Where the spec came from."
+                  "description": "Where the spec came from.",
+                  "x-trust": "fact"
                 },
                 "artifacts": {
                   "type": "array",
                   "description": "The files written, in the order they were produced.",
+                  "x-trust": "fact",
                   "items": {
                     "type": "string"
                   }
@@ -620,19 +650,23 @@
                         "properties": {
                           "check": {
                             "type": "string",
-                            "description": "The rule that produced the finding."
+                            "description": "The rule that produced the finding.",
+                            "x-trust": "fact"
                           },
                           "artifact": {
                             "type": "string",
-                            "description": "The artifact file the finding is about."
+                            "description": "The artifact file the finding is about.",
+                            "x-trust": "fact"
                           },
                           "entity": {
                             "type": "string",
-                            "description": "The entity within the artifact, when there is one."
+                            "description": "The entity within the artifact, when there is one.",
+                            "x-trust": "fact"
                           },
                           "message": {
                             "type": "string",
-                            "description": "What is wrong."
+                            "description": "What is wrong.",
+                            "x-trust": "fact"
                           }
                         },
                         "required": [
@@ -650,19 +684,23 @@
                         "properties": {
                           "check": {
                             "type": "string",
-                            "description": "The rule that produced the finding."
+                            "description": "The rule that produced the finding.",
+                            "x-trust": "fact"
                           },
                           "artifact": {
                             "type": "string",
-                            "description": "The artifact file the finding is about."
+                            "description": "The artifact file the finding is about.",
+                            "x-trust": "fact"
                           },
                           "entity": {
                             "type": "string",
-                            "description": "The entity within the artifact, when there is one."
+                            "description": "The entity within the artifact, when there is one.",
+                            "x-trust": "fact"
                           },
                           "message": {
                             "type": "string",
-                            "description": "What is wrong."
+                            "description": "What is wrong.",
+                            "x-trust": "fact"
                           }
                         },
                         "required": [
@@ -690,6 +728,7 @@
                     "criteria_uncovered": {
                       "type": "array",
                       "description": "The criteria no test verifies.",
+                      "x-trust": "fact",
                       "items": {
                         "type": "string"
                       }
@@ -701,6 +740,7 @@
                     "paths_uncovered": {
                       "type": "array",
                       "description": "The execution paths no test exercises.",
+                      "x-trust": "fact",
                       "items": {
                         "type": "string"
                       }
@@ -708,6 +748,7 @@
                     "tests_unowned": {
                       "type": "array",
                       "description": "The tests no task owns.",
+                      "x-trust": "fact",
                       "items": {
                         "type": "string"
                       }
@@ -726,15 +767,18 @@
                     "properties": {
                       "question": {
                         "type": "string",
-                        "description": "What the PRD phase was unsure about."
+                        "description": "What the PRD phase was unsure about.",
+                        "x-trust": "model"
                       },
                       "decision": {
                         "type": "string",
-                        "description": "What it decided."
+                        "description": "What it decided.",
+                        "x-trust": "model"
                       },
                       "why_unsure": {
                         "type": "string",
-                        "description": "Why it was unsure."
+                        "description": "Why it was unsure.",
+                        "x-trust": "model"
                       }
                     },
                     "required": [
@@ -746,11 +790,13 @@
                 },
                 "comment_url": {
                   "type": "string",
-                  "description": "The comment the finished PRD was posted as, when it was."
+                  "description": "The comment the finished PRD was posted as, when it was.",
+                  "x-trust": "fact"
                 },
                 "detail": {
                   "type": "string",
-                  "description": "Which view of this result was emitted: summary or full."
+                  "description": "Which view of this result was emitted: summary or full.",
+                  "x-trust": "fact"
                 }
               },
               "required": [
@@ -780,23 +826,28 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "description": "The scope name."
+                  "description": "The scope name.",
+                  "x-trust": "model"
                 },
                 "scope": {
                   "type": "string",
-                  "description": "What the scope covers."
+                  "description": "What the scope covers.",
+                  "x-trust": "model"
                 },
                 "status": {
                   "type": "string",
-                  "description": "done, invalid, failed or pending."
+                  "description": "done, invalid, failed or pending.",
+                  "x-trust": "fact"
                 },
                 "spec_id": {
                   "type": "string",
-                  "description": "The spec identifier, once the package exists."
+                  "description": "The spec identifier, once the package exists.",
+                  "x-trust": "fact"
                 },
                 "spec_dir": {
                   "type": "string",
-                  "description": "The package directory, once it exists."
+                  "description": "The package directory, once it exists.",
+                  "x-trust": "fact"
                 }
               },
               "required": [
@@ -808,7 +859,8 @@
           },
           "split_plan": {
             "type": "string",
-            "description": "The plan file left in the spec root while the split is unfinished."
+            "description": "The plan file left in the spec root while the split is unfinished.",
+            "x-trust": "fact"
           },
           "dry_run": {
             "type": "boolean",

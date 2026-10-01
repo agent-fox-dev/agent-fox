@@ -360,15 +360,18 @@
         "properties": {
           "stage": {
             "type": "string",
-            "description": "How far the run got: analysed, implemented, verified, committed, pushed, landed or stopped."
+            "description": "How far the run got: analysed, implemented, verified, committed, pushed, landed or stopped.",
+            "x-trust": "fact"
           },
           "repo": {
             "type": "string",
-            "description": "The repository worked on, when the input was an issue URL."
+            "description": "The repository worked on, when the input was an issue URL.",
+            "x-trust": "fact"
           },
           "issue_url": {
             "type": "string",
-            "description": "The issue the input came from, when it was one."
+            "description": "The issue the input came from, when it was one.",
+            "x-trust": "fact"
           },
           "issue_number": {
             "type": "integer",
@@ -376,27 +379,33 @@
           },
           "classification": {
             "type": "string",
-            "description": "What the input turned out to be about: bug, feature, refactor or performance."
+            "description": "What the input turned out to be about: bug, feature, refactor or performance.",
+            "x-trust": "model"
           },
           "title": {
             "type": "string",
-            "description": "What the branch, the commit and the pull request are named after."
+            "description": "What the branch, the commit and the pull request are named after.",
+            "x-trust": "model"
           },
           "summary": {
             "type": "string",
-            "description": "One-paragraph summary of the fix."
+            "description": "One-paragraph summary of the fix.",
+            "x-trust": "model"
           },
           "root_cause": {
             "type": "string",
-            "description": "The root cause of the problem."
+            "description": "The root cause of the problem.",
+            "x-trust": "model"
           },
           "approach": {
             "type": "string",
-            "description": "How the change fixes it."
+            "description": "How the change fixes it.",
+            "x-trust": "model"
           },
           "assumptions": {
             "type": "array",
             "description": "Minor ambiguities resolved by assumption.",
+            "x-trust": "model",
             "items": {
               "type": "string"
             }
@@ -409,11 +418,13 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "The label the report used, or one derived from the position."
+                  "description": "The label the report used, or one derived from the position.",
+                  "x-trust": "fact"
                 },
                 "text": {
                   "type": "string",
-                  "description": "The criterion itself, with its label and markdown emphasis stripped."
+                  "description": "The criterion itself, with its label and markdown emphasis stripped.",
+                  "x-trust": "external"
                 }
               },
               "required": [
@@ -424,19 +435,23 @@
           },
           "criteria_outcome": {
             "type": "string",
-            "description": "pass when every criterion was answered pass, fail when any was not, empty when the report stated none."
+            "description": "pass when every criterion was answered pass, fail when any was not, empty when the report stated none.",
+            "x-trust": "fact"
           },
           "branch": {
             "type": "string",
-            "description": "The branch the change was written on."
+            "description": "The branch the change was written on.",
+            "x-trust": "fact"
           },
           "base_branch": {
             "type": "string",
-            "description": "The branch it was cut from."
+            "description": "The branch it was cut from.",
+            "x-trust": "fact"
           },
           "commit": {
             "type": "string",
-            "description": "The commit SHA of the change."
+            "description": "The commit SHA of the change.",
+            "x-trust": "fact"
           },
           "pushed": {
             "type": "boolean",
@@ -445,13 +460,15 @@
           "changed_files": {
             "type": "array",
             "description": "The files in the diff, from git.",
+            "x-trust": "fact",
             "items": {
               "type": "string"
             }
           },
           "diff_stat": {
             "type": "string",
-            "description": "The diff stat, from git."
+            "description": "The diff stat, from git.",
+            "x-trust": "fact"
           },
           "baseline": {
             "type": "object",
@@ -459,7 +476,8 @@
             "properties": {
               "command": {
                 "type": "string",
-                "description": "What ran. Empty together with skipped means nothing did."
+                "description": "What ran. Empty together with skipped means nothing did.",
+                "x-trust": "fact"
               },
               "skipped": {
                 "type": "boolean",
@@ -475,7 +493,8 @@
               },
               "output": {
                 "type": "string",
-                "description": "The bounded tail of the combined output."
+                "description": "The bounded tail of the combined output.",
+                "x-trust": "external"
               },
               "timed_out": {
                 "type": "boolean",
@@ -499,7 +518,8 @@
             "properties": {
               "command": {
                 "type": "string",
-                "description": "What ran. Empty together with skipped means nothing did."
+                "description": "What ran. Empty together with skipped means nothing did.",
+                "x-trust": "fact"
               },
               "skipped": {
                 "type": "boolean",
@@ -515,7 +535,8 @@
               },
               "output": {
                 "type": "string",
-                "description": "The bounded tail of the combined output."
+                "description": "The bounded tail of the combined output.",
+                "x-trust": "external"
               },
               "timed_out": {
                 "type": "boolean",
@@ -535,11 +556,13 @@
           },
           "verdict": {
             "type": "string",
-            "description": "How the verification compares with the baseline."
+            "description": "How the verification compares with the baseline.",
+            "x-trust": "fact"
           },
           "pull_request_url": {
             "type": "string",
-            "description": "The pull request that was opened, when --land=pr opened one."
+            "description": "The pull request that was opened, when --land=pr opened one.",
+            "x-trust": "fact"
           },
           "pull_request_number": {
             "type": "integer",
@@ -548,6 +571,7 @@
           "comments": {
             "type": "array",
             "description": "URLs of the comments posted on the issue.",
+            "x-trust": "fact",
             "items": {
               "type": "string"
             }
@@ -558,11 +582,13 @@
             "properties": {
               "summary": {
                 "type": "string",
-                "description": "The model account of what it did."
+                "description": "The model account of what it did.",
+                "x-trust": "model"
               },
               "commit_subject": {
                 "type": "string",
-                "description": "The commit subject the model proposed."
+                "description": "The commit subject the model proposed.",
+                "x-trust": "model"
               },
               "changes": {
                 "type": "array",
@@ -572,11 +598,13 @@
                   "properties": {
                     "path": {
                       "type": "string",
-                      "description": "Path of the file, relative to the repository root."
+                      "description": "Path of the file, relative to the repository root.",
+                      "x-trust": "model"
                     },
                     "change": {
                       "type": "string",
-                      "description": "What was done to the file or is proposed for it."
+                      "description": "What was done to the file or is proposed for it.",
+                      "x-trust": "model"
                     }
                   },
                   "required": [
@@ -588,13 +616,15 @@
               "tests": {
                 "type": "array",
                 "description": "The tests the model reports having added or run.",
+                "x-trust": "model",
                 "items": {
                   "type": "string"
                 }
               },
               "notes": {
                 "type": "string",
-                "description": "Anything a reviewer should know."
+                "description": "Anything a reviewer should know.",
+                "x-trust": "model"
               },
               "criteria_verdicts": {
                 "type": "array",
@@ -604,15 +634,18 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": "The id of the criterion this verdict answers."
+                      "description": "The id of the criterion this verdict answers.",
+                      "x-trust": "fact"
                     },
                     "verdict": {
                       "type": "string",
-                      "description": "pass or fail."
+                      "description": "pass or fail.",
+                      "x-trust": "model"
                     },
                     "evidence": {
                       "type": "string",
-                      "description": "The evidence for the verdict."
+                      "description": "The evidence for the verdict.",
+                      "x-trust": "model"
                     }
                   },
                   "required": [
@@ -635,15 +668,18 @@
             "properties": {
               "question": {
                 "type": "string",
-                "description": "The question the run cannot answer for itself."
+                "description": "The question the run cannot answer for itself.",
+                "x-trust": "model"
               },
               "interpretation_a": {
                 "type": "string",
-                "description": "The first reading of the input."
+                "description": "The first reading of the input.",
+                "x-trust": "model"
               },
               "interpretation_b": {
                 "type": "string",
-                "description": "The second reading, leading to a fundamentally different fix."
+                "description": "The second reading, leading to a fundamentally different fix.",
+                "x-trust": "model"
               }
             },
             "required": [
@@ -658,11 +694,13 @@
           },
           "land": {
             "type": "string",
-            "description": "The land mode the run was asked for: pr, branch or none."
+            "description": "The land mode the run was asked for: pr, branch or none.",
+            "x-trust": "fact"
           },
           "detail": {
             "type": "string",
-            "description": "Which view of this result was emitted: summary or full."
+            "description": "Which view of this result was emitted: summary or full.",
+            "x-trust": "fact"
           }
         },
         "required": [

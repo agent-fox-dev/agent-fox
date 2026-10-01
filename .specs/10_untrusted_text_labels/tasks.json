@@ -196,7 +196,7 @@
         "cmd/fix/testdata/schema.golden.json",
         "cmd/impl/testdata/schema.golden.json"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
