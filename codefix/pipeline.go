@@ -353,7 +353,7 @@ func (o *Options) applyDefaults() {
 // newResult is the result both Run and RunPreflight start from, so a run that
 // refuses at its preflight stage reports the same fields either way.
 func newResult(o Options) *Result {
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land)}
 	if o.Input.Issue != nil {
 		result.IssueURL = o.Input.Issue.URL()
 		result.IssueNumber = o.Input.Issue.Number

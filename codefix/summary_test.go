@@ -2,6 +2,7 @@ package codefix
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -57,7 +58,7 @@ func TestTS06_16_SummaryViewIncludesVerificationWhenNotLandable(t *testing.T) {
 		Stage:        "unverified",
 		Branch:       "fix/stop-double-counting",
 		Verdict:      string(checks.VerdictRegressed),
-		Verification: checks.Result{OK: false, ExitCode: 1, Output: "FAIL: TestX\nassertion failed"},
+		Verification: checks.Result{Command: "make test", OK: false, ExitCode: 1, Output: "FAIL: TestX\nassertion failed"},
 	}
 	if checks.Verdict(r.Verdict).Landable() {
 		t.Fatalf("fixture verdict %q must not be landable", r.Verdict)
@@ -153,5 +154,34 @@ func TestTS06_20_TrimmedFieldsStillComputedAndPresentInReportFile(t *testing.T) 
 	if string(wantJSON) != string(gotJSON) {
 		t.Errorf("report file's verification diverges from the computed one:\nwant %s\ngot  %s",
 			wantJSON, gotJSON)
+	}
+}
+
+// A run that failed before verification ran has no verdict and no
+// verification: the zero-valued check would read as a failed one (#70).
+func TestSummaryViewOmitsVerdictAndVerificationWhenNoCheckRan(t *testing.T) {
+	for _, stage := range []string{"analyse", "branch", "implement"} {
+		r := &Result{Stage: stage}
+		b, err := json.Marshal(r.SummaryView())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"verdict", "verification"} {
+			if _, ok := m[field]; ok {
+				t.Errorf("stage %s: the summary view carries %q though no check ran: %s", stage, field, b)
+			}
+		}
+	}
+
+	// A skipped verification is an outcome, and stays visible.
+	r := &Result{Stage: "committed", Verdict: string(checks.VerdictUnverified),
+		Verification: checks.Result{Skipped: true}}
+	b, _ := json.Marshal(r.SummaryView())
+	if !strings.Contains(string(b), `"verification"`) || !strings.Contains(string(b), `"unverified"`) {
+		t.Errorf("a skipped verification vanished from the summary view: %s", b)
 	}
 }

@@ -881,6 +881,8 @@ any change and once after, and the two are compared:
 | `still_failing` | red before, red after | no |
 | `unverified` | nothing ran | only with `--no-verify` |
 
+A run that stops before verification — an analyse, branch or implement failure, or an ambiguity stop — has no verdict: `result.verdict` is absent, and the summary view leaves out `verification` instead of showing an all-zero check.
+
 A run that does not land parks the work as a `wip:` commit on its branch,
 returns the checkout to the base branch, and exits 4. A run that reports a fix
 and changed no file exits 1 rather than committing an empty tree — the diff

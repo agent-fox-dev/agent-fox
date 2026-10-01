@@ -212,7 +212,7 @@ type Result struct {
 	// checks, and Verdict is how they compare.
 	Baseline     checks.Result `json:"baseline" description:"The project checks before the change."`
 	Verification checks.Result `json:"verification" description:"The project checks after the change."`
-	Verdict      string        `json:"verdict" trust:"fact" description:"How the verification compares with the baseline."`
+	Verdict      string        `json:"verdict,omitempty" trust:"fact" description:"How the verification compares with the baseline. Empty when the run stopped before any comparison was made."`
 
 	// PullRequestURL is set when --land=pr opened one.
 	PullRequestURL    string `json:"pull_request_url,omitempty" trust:"fact" description:"The pull request that was opened, when --land=pr opened one."`
