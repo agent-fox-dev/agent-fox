@@ -183,10 +183,15 @@ which a dry run still makes, does not.
   { "kind": "branch",       "name": "fix/issue-42-nil-map", "base": "main" },
   { "kind": "commit",       "sha": "a3f9c1e", "branch": "fix/issue-42-nil-map" },
   { "kind": "pull_request", "url": "https://github.com/acme/widgets/pull/57", "number": 57 },
-  { "kind": "comment",      "url": "https://github.com/acme/widgets/issues/42#issuecomment-9" },
+  { "kind": "comment",      "url": "https://github.com/acme/widgets/issues/42#issuecomment-9",
+    "role": "analysis" },
   { "kind": "report_file",  "path": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json" }
 ]
 ```
+
+A `comment` entry carries a `role` saying which comment it is — `analysis`,
+`summary`, `failure` or `clarification` for `fix`, `prd` for `spec` — so a run
+that posts two can be read without relying on order.
 
 `spec` reports `{"kind": "spec_package", "path", "id", "valid"}` for each
 package it wrote, and `issue` reports `{"kind": "issue", "url", "number"}`.
@@ -195,14 +200,18 @@ package it wrote, and `issue` reports `{"kind": "issue", "url", "number"}`.
 happened: `action` is `create_issue`, `update_issue`, `comment`, `push` or
 `open_pr`; `target` names what was written to; `ok` says whether it
 succeeded, and a failed write carries the `warning` code the run recorded for
-it. The array is absent when the run made no remote write, which is always the
+it. A `comment` write also carries its `kind` (the same as the artifact's
+`role`) and, once posted, its `url`, so a side effect can be matched to its
+artifact and a failed one to the comment that was lost. The array is absent when the run made no remote write, which is always the
 case under `--dry-run`.
 
 ```jsonc
 "side_effects": [
   { "action": "push",   "target": "origin fix/issue-42-nil-map", "ok": true },
   { "action": "open_pr", "target": "acme/widgets#57", "ok": true },
-  { "action": "comment", "target": "acme/widgets#42", "ok": false,
+  { "action": "comment", "kind": "analysis", "target": "acme/widgets#42",
+    "url": "https://github.com/acme/widgets/issues/42#issuecomment-9", "ok": true },
+  { "action": "comment", "kind": "summary", "target": "acme/widgets#42", "ok": false,
     "warning": "comment_not_posted" }
 ]
 ```

@@ -219,6 +219,8 @@ type Result struct {
 	PullRequestNumber int    `json:"pull_request_number,omitempty" description:"The number of that pull request."`
 	// Comments are the URLs of what was posted on the issue.
 	Comments []string `json:"comments,omitempty" trust:"fact" description:"URLs of the comments posted on the issue."`
+	// CommentRefs says which comment each URL is.
+	CommentRefs []CommentRef `json:"comment_refs,omitempty" description:"The comments posted on the issue, each with its kind, in the order posted."`
 
 	// Implementation is the model's report of the work, kept separate from
 	// the facts above.
@@ -320,3 +322,10 @@ const (
 // issueRef is the reference a run may comment on, or nil when the input was
 // text or a file.
 type issueRef = *issuex.IssueRef
+
+// CommentRef is one comment the run posted: its kind (analysis, summary,
+// failure or clarification) and where it is.
+type CommentRef struct {
+	Kind string `json:"kind" trust:"fact" description:"Which comment: analysis, summary, failure or clarification."`
+	URL  string `json:"url" trust:"fact" description:"Where it was posted."`
+}

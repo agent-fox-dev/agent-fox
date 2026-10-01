@@ -581,6 +581,29 @@
               "type": "string"
             }
           },
+          "comment_refs": {
+            "type": "array",
+            "description": "The comments posted on the issue, each with its kind, in the order posted.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "Which comment: analysis, summary, failure or clarification.",
+                  "x-trust": "fact"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Where it was posted.",
+                  "x-trust": "fact"
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ]
+            }
+          },
           "implementation": {
             "type": "object",
             "description": "The model report of the work, kept separate from the facts above.",
@@ -859,6 +882,14 @@
             "target": {
               "type": "string",
               "description": "What it was written to: origin \u003cbranch\u003e for a push, \u003cowner\u003e/\u003crepo\u003e#\u003cnumber\u003e for a comment, an issue update or a pull request, \u003cowner\u003e/\u003crepo\u003e for an issue that has no number yet."
+            },
+            "kind": {
+              "type": "string",
+              "description": "For a comment, which one: analysis, summary, failure, clarification or prd. Absent for other actions."
+            },
+            "url": {
+              "type": "string",
+              "description": "Where the write landed, when it succeeded and the forge returned a URL. Matches the url of the artifact it produced."
             },
             "ok": {
               "type": "boolean",
