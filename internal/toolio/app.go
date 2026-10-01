@@ -347,7 +347,12 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
 	// inactive sink (the paths that return before one is built) is a no-op.
 	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
-	return Emit(stdout, env)
+	// --output is resolved here, at the one funnel every envelope passes
+	// through, so each branch of Main is covered. A malformed value (refused
+	// as a usage error, or not yet reached by an earlier usage failure)
+	// names nothing to write to, so it yields "".
+	outPath, _ := common.ResolveOutput()
+	return EmitWithOutput(stdout, outPath, env)
 }
 
 // withReportFileArtifact appends a report_file entry naming path, without
