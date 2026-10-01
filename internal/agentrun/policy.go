@@ -39,7 +39,13 @@ var WriteFileTools = []string{"write_file", "edit_file"}
 // `find` is not here on purpose — its -exec and -delete make it a write tool,
 // and find_files covers the reading half. The guard refuses those flags
 // anyway, for a phase that adds find back through --allow.
-var ReadOnlyPrograms = []string{"git", "ls", "cat", "head", "tail", "wc", "rg", "grep", "file"}
+//
+// echo, printf, pwd, true, test and du only print or compare. env, rm and perl
+// are left out: env runs any program, perl any code, and rm deletes.
+var ReadOnlyPrograms = []string{
+	"git", "ls", "cat", "head", "tail", "wc", "rg", "grep", "file",
+	"echo", "printf", "pwd", "true", "test", "du",
+}
 
 // BuildPrograms is what an implementing phase needs on top of that: the
 // toolchains that compile, format and test. The verification command's own

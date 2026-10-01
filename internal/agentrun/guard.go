@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/agentfox/agentkit-go/core"
@@ -93,10 +94,23 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 			return base(ctx, in)
 
 		case "execute", "run_command", "powershell":
-			for _, argv := range CommandVectors(in.ToolName, in.Arguments) {
+			// A leading `cd <workspace>` changes nothing the guard protects,
+			// and it is the first thing most calls do, so it is not judged.
+			if in.ToolName != "run_command" {
+				if cmd, _ := in.Arguments["command"].(string); cmd != "" {
+					if stripped, ok := o.stripLeadingCd(cmd); ok {
+						in = withCommand(in, stripped)
+					}
+				}
+			}
+			vectors := CommandVectors(in.ToolName, in.Arguments)
+			for _, argv := range vectors {
 				if reason, blocked := guardProgram(argv); blocked {
 					return block(in.ToolName, reason)
 				}
+			}
+			if reason, blocked := o.disallowedPrograms(vectors); blocked {
+				return block(in.ToolName, reason)
 			}
 			if d := base(ctx, in); d.Block {
 				log(in.ToolName, d.Reason)
@@ -120,6 +134,122 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 		}
 		return base(ctx, in)
 	}
+}
+
+// disallowedPrograms names every program in the vectors that is not on the
+// allowlist, and the allowlist itself, in one reason. The shipped policy stops
+// at the first offender and does not say what would have been accepted, so a
+// model fixes one command per retry.
+func (o GuardOptions) disallowedPrograms(vectors [][]string) (string, bool) {
+	if len(o.Programs) == 0 {
+		return "", false
+	}
+	allowed := make(map[string]bool, len(o.Programs))
+	for _, p := range o.Programs {
+		allowed[p] = true
+	}
+	seen := map[string]bool{}
+	var bad []string
+	for _, argv := range vectors {
+		name := baseName(argv[0])
+		if allowed[name] || allowed[strings.TrimSuffix(name, ".exe")] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		bad = append(bad, name)
+	}
+	if len(bad) == 0 {
+		return "", false
+	}
+	list := make([]string, 0, len(allowed))
+	for p := range allowed {
+		list = append(list, p)
+	}
+	sort.Strings(list)
+	reason := fmt.Sprintf("programs not allowed: %s. Allowed: %s.",
+		strings.Join(bad, ", "), strings.Join(list, ", "))
+	if !o.ReadOnlyFiles {
+		reason += " To create a file use write_file, not a heredoc."
+	}
+	return reason, true
+}
+
+// stripLeadingCd removes leading `cd <dir>` commands, joined to what follows by
+// `&&`, `;` or a newline, when <dir> is the workspace root or under it. It
+// reports whether it removed anything.
+//
+// cd is on no allowlist: it is a shell builtin that reads and writes nothing.
+// It is ignored only where its target is knowable — a plain word, with no
+// expansion, that resolves inside the workspace — so `cd /etc && ls` and
+// `cd $X && ls` are still refused. A cd that is not the first command stays
+// refused, as does one with no command after it.
+func (o GuardOptions) stripLeadingCd(cmd string) (string, bool) {
+	resolve := o.ResolvePath
+	if resolve == nil {
+		resolve = filepath.Abs
+	}
+	root, err := resolve(".")
+	if err != nil {
+		return cmd, false
+	}
+	rest := cmd
+	stripped := false
+	for {
+		dir, after, ok := leadingCd(rest)
+		if !ok {
+			break
+		}
+		abs, err := resolve(dir)
+		if err != nil {
+			break
+		}
+		if rel, err := filepath.Rel(root, abs); err != nil || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			break
+		}
+		rest, stripped = after, true
+	}
+	if !stripped || strings.TrimSpace(rest) == "" {
+		return cmd, false
+	}
+	return rest, true
+}
+
+// leadingCd parses `cd <word>` followed by `&&`, `;` or a newline at the start
+// of cmd. It returns the target and what follows the separator.
+func leadingCd(cmd string) (dir, rest string, ok bool) {
+	s := strings.TrimLeft(cmd, " \t\n")
+	if len(s) < 3 || s[:2] != "cd" || (s[2] != ' ' && s[2] != '\t') {
+		return "", "", false
+	}
+	s = strings.TrimLeft(s[2:], " \t")
+	if s == "" {
+		return "", "", false
+	}
+	i := 0
+	if q := s[0]; q == '\'' || q == '"' {
+		end := strings.IndexByte(s[1:], q)
+		if end < 0 {
+			return "", "", false
+		}
+		dir, i = s[1:1+end], end+2
+	} else {
+		for i < len(s) && !strings.ContainsRune(" \t\n;&|()<>", rune(s[i])) {
+			i++
+		}
+		dir = s[:i]
+	}
+	if dir == "" || strings.HasPrefix(dir, "-") || strings.ContainsAny(dir, "$`~\\*?[{!\"'") {
+		return "", "", false
+	}
+	s = strings.TrimLeft(s[i:], " \t")
+	switch {
+	case strings.HasPrefix(s, "&&"):
+		return dir, s[2:], true
+	case strings.HasPrefix(s, ";") || strings.HasPrefix(s, "\n"):
+		return dir, s[1:], true
+	}
+	return "", "", false
 }
 
 // protectedDir reports whether p resolves to a file under one of the
@@ -323,6 +453,13 @@ func commandWords(words []string) []string {
 //
 // It is a classifier, not a parser: an odd construct yields a fragment that
 // looks like a program name and gets refused, which is the safe direction.
+//
+// A heredoc is the exception to "every newline is a boundary": the lines
+// between `<<DELIM` and the line that is DELIM are data, not commands, and are
+// skipped. A quoted delimiter (`<<'EOF'`) makes the body inert. An unquoted
+// one still expands `$(...)` and backticks, so those are segments of their
+// own. A heredoc with no terminating line is not skipped at all — reading it
+// as ordinary commands is the safe direction.
 func ShellSegments(cmd string) []string {
 	var segs []string
 	var cur strings.Builder
@@ -333,6 +470,10 @@ func ShellSegments(cmd string) []string {
 		cur.Reset()
 	}
 	inSingle, inDouble := false, false
+	var pending []heredoc
+	// arith is the number of parentheses still open in a `$((...))`, inside
+	// which `<<` is a shift and not a heredoc.
+	arith := 0
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		var next byte
@@ -382,8 +523,56 @@ func ShellSegments(cmd string) []string {
 					i++
 					cur.WriteByte(cmd[i])
 				}
-			case ';', '\n', '|', '(', ')', '`':
+			case '\n':
 				flush()
+				if len(pending) > 0 {
+					pos := i + 1
+					for _, h := range pending {
+						end, body, ok := h.body(cmd, pos)
+						if !ok {
+							break
+						}
+						pos = end
+						if !h.quoted {
+							for _, inner := range substitutions(body) {
+								segs = append(segs, ShellSegments(inner)...)
+							}
+						}
+					}
+					pending = nil
+					i = pos - 1
+				}
+			case '(':
+				if arith > 0 {
+					arith++
+				}
+				flush()
+			case ')':
+				if arith > 0 {
+					arith--
+				}
+				flush()
+			case ';', '|', '`':
+				flush()
+			case '<':
+				if next != '<' {
+					cur.WriteByte(c)
+					break
+				}
+				if i+2 < len(cmd) && cmd[i+2] == '<' { // <<< is a here-string
+					cur.WriteString("<<<")
+					i += 2
+					break
+				}
+				h, end, ok := parseHeredoc(cmd, i)
+				if !ok || arith > 0 {
+					cur.WriteString("<<")
+					i++
+					break
+				}
+				pending = append(pending, h)
+				cur.WriteString(cmd[i:end])
+				i = end - 1
 			case '&':
 				var prev byte
 				if i > 0 {
@@ -396,6 +585,13 @@ func ShellSegments(cmd string) []string {
 				}
 			case '$':
 				if next == '(' {
+					if arith > 0 || (i+2 < len(cmd) && cmd[i+2] == '(') {
+						if arith == 0 {
+							arith = 1 // the second parenthesis is counted when reached
+						} else {
+							arith++
+						}
+					}
 					flush()
 					i++
 				} else {
@@ -408,6 +604,135 @@ func ShellSegments(cmd string) []string {
 	}
 	flush()
 	return segs
+}
+
+// heredoc is one pending `<<DELIM` on the line being scanned.
+type heredoc struct {
+	delim  string
+	strip  bool // <<-: leading tabs are ignored when looking for the terminator
+	quoted bool // any part of the delimiter was quoted or escaped: the body is inert
+}
+
+// parseHeredoc reads the operator at cmd[i:] (which starts with `<<`, not
+// `<<<`) and its delimiter word. end is the index after the word. It declines
+// a delimiter that is empty or starts with a digit or `$`, which is more likely
+// arithmetic or an expansion than a heredoc.
+func parseHeredoc(cmd string, i int) (h heredoc, end int, ok bool) {
+	j := i + 2
+	if j < len(cmd) && cmd[j] == '-' {
+		h.strip = true
+		j++
+	}
+	for j < len(cmd) && (cmd[j] == ' ' || cmd[j] == '\t') {
+		j++
+	}
+	if j >= len(cmd) || strings.IndexByte("0123456789$", cmd[j]) >= 0 {
+		return h, 0, false
+	}
+	var word strings.Builder
+scan:
+	for j < len(cmd) {
+		c := cmd[j]
+		switch {
+		case c == '\'' || c == '"':
+			k := strings.IndexByte(cmd[j+1:], c)
+			if k < 0 {
+				return h, 0, false
+			}
+			word.WriteString(cmd[j+1 : j+1+k])
+			h.quoted = true
+			j += k + 2
+		case c == '\\':
+			h.quoted = true
+			if j+1 < len(cmd) {
+				word.WriteByte(cmd[j+1])
+			}
+			j += 2
+		case strings.IndexByte(" \t\r\n;|&()<>", c) >= 0:
+			break scan
+		default:
+			word.WriteByte(c)
+			j++
+		}
+	}
+	if j > len(cmd) {
+		j = len(cmd)
+	}
+	h.delim = word.String()
+	if h.delim == "" {
+		return h, 0, false
+	}
+	return h, j, true
+}
+
+// body finds the terminating line at or after start. end is the index just
+// past that line and its newline; body is what lay between. ok is false when
+// no line is the delimiter.
+func (h heredoc) body(cmd string, start int) (end int, body string, ok bool) {
+	for pos := start; pos < len(cmd); {
+		eol := strings.IndexByte(cmd[pos:], '\n')
+		next := len(cmd)
+		line := cmd[pos:]
+		if eol >= 0 {
+			line, next = cmd[pos:pos+eol], pos+eol+1
+		}
+		line = strings.TrimSuffix(line, "\r")
+		if h.strip {
+			line = strings.TrimLeft(line, "\t")
+		}
+		if line == h.delim {
+			return next, cmd[start:pos], true
+		}
+		pos = next
+	}
+	return 0, "", false
+}
+
+// substitutions returns the text inside each `$(...)` and backtick pair of an
+// unquoted heredoc body, where the shell expands them. A backslash escapes the
+// character after it.
+func substitutions(body string) []string {
+	var out []string
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '\\':
+			i++
+		case '`':
+			j := i + 1
+			for j < len(body) && body[j] != '`' {
+				if body[j] == '\\' {
+					j++
+				}
+				j++
+			}
+			if j > len(body) {
+				j = len(body)
+			}
+			out = append(out, body[i+1:j])
+			i = j
+		case '$':
+			if i+1 >= len(body) || body[i+1] != '(' {
+				continue
+			}
+			depth, j := 1, i+2
+			for j < len(body) && depth > 0 {
+				switch body[j] {
+				case '(':
+					depth++
+				case ')':
+					depth--
+				}
+				j++
+			}
+			end := j
+			if depth == 0 {
+				end = j - 1
+			}
+			out = append(out, body[i+2:end])
+			i = j - 1
+		}
+	}
+	return out
 }
 
 // withCommand is the interceptor context for one segment of a command.
