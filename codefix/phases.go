@@ -86,9 +86,12 @@ Method:
    files you are editing.
 3. Introduce nothing unrelated. A "while I was here" cleanup makes the change
    harder to review and harder to revert.
-4. Run the project's checks yourself and fix what they report. The command is
-   named in your task; you are judged by it afterwards, so there is no benefit
-   in leaving it failing.
+4. Check your work with targeted runs: the test you wrote, then the package you
+   changed. The program runs the project's full check command itself after you
+   submit, and the fix is judged by that run alone, so running the whole suite
+   here only repeats it — often for minutes. Run the full command yourself
+   only when a failure cannot be reproduced any smaller, and fix what it
+   reports: there is no benefit in leaving it failing.
 5. Update the documentation the change makes wrong: a README, a doc comment, a
    configuration reference.
 

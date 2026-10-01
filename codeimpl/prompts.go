@@ -85,9 +85,13 @@ Method:
    conventions the survey recorded and the files you are editing already use.
 4. Introduce nothing unrelated. A "while I was here" cleanup makes the change
    harder to review and harder to revert. Do not touch other tasks' work.
-5. Run the checks yourself — the task names them — and fix what they report.
-   You are judged by them afterwards, so there is no benefit in leaving them
-   failing.
+5. Check your work with targeted runs: the tests you wrote, then the package
+   you changed (` + "`go test ./pkg -run Name`" + `, or the equivalent). The program runs
+   the task's full check command itself after you submit, and a task is judged
+   by that run alone, so running the whole suite or the linter here only
+   repeats it — at a minute or more per run. Run the full command yourself
+   only when a failure cannot be reproduced any smaller, and fix what it
+   reports: there is no benefit in leaving it failing.
 6. Update the documentation the change makes wrong.
 
 Constraints that are mechanical, not advisory:
