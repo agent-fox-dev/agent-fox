@@ -119,6 +119,8 @@ func analysisPrompt(in analysisInput) string {
 	}
 	b.WriteString(criteriaBlock(in.Criteria, false))
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))
+	b.WriteString(instructionsBlock(in.Instructions,
+		"Follow them where they apply, and let them tell you how the repository is laid out."))
 	b.WriteString("\nRead the code, decide the smallest correct change, and call " +
 		ToolSubmitAnalysis + ".")
 	return b.String()
@@ -162,17 +164,22 @@ func implementPrompt(in implementInput) string {
 	b.WriteString("## Verification\n\n")
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))
 
-	if in.Instructions != "" {
-		b.WriteString("\n## Project instructions\n\n")
-		b.WriteString("The repository ships these. Follow them where they apply to the change.\n\n")
-		b.WriteString("--- BEGIN PROJECT INSTRUCTIONS ---\n")
-		b.WriteString(strings.TrimSpace(in.Instructions))
-		b.WriteString("\n--- END PROJECT INSTRUCTIONS ---\n")
-	}
+	b.WriteString(instructionsBlock(in.Instructions, "Follow them where they apply to the change."))
 
 	b.WriteString("\nWrite the test, make the change, run the checks, then call " +
 		ToolSubmitImplementation + ".")
 	return b.String()
+}
+
+// instructionsBlock renders the project's own instructions as labelled
+// material in a task prompt, or nothing when there are none.
+func instructionsBlock(instructions, guidance string) string {
+	if instructions == "" {
+		return ""
+	}
+	return "\n## Project instructions\n\nThe repository ships these. " + guidance + "\n\n" +
+		"--- BEGIN PROJECT INSTRUCTIONS ---\n" + strings.TrimSpace(instructions) +
+		"\n--- END PROJECT INSTRUCTIONS ---\n"
 }
 
 // maxInstructionBytes bounds what a project's own instruction file may
@@ -183,9 +190,11 @@ const maxInstructionBytes = 24 << 10
 // projectInstructions reads the repository's own agent instructions, if it
 // has one that is small enough to inline.
 //
-// It is rendered into the prompt of the phase that writes code, and only that
-// one. AgentKit has no implicit behaviour that picks such a file up, and a
-// phase that reads or runs commands does not need the house style.
+// It is rendered into the task prompt of the analyse and implement phases.
+// AgentKit has no implicit behaviour that picks such a file up, and the phase
+// that diagnoses needs the layout and conventions in it as much as the one
+// that writes: without them it spent turns on probes the repository's own
+// instructions would have made unnecessary.
 //
 // This is separate from --trust-project, which admits the same files into the
 // SYSTEM prompt through AgentKit's own trust gate. Here the file arrives as
