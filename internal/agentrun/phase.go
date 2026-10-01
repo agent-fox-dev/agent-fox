@@ -91,6 +91,15 @@ type Observer interface {
 	Detail(format string, args ...any)
 	// Raw writes model prose verbatim, shown only under --show-text.
 	Raw(s string)
+	// PhaseStart reports that a model phase begins, with the ceilings its
+	// run resolved. task is empty except for impl's per-task phase.
+	PhaseStart(phase, task string, maxTurns int, budgetUSD float64)
+	// PhaseEnd reports that the phase ended.
+	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64)
+	// Turn reports one finished model turn.
+	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
+	// ToolCall reports one model tool call, shown only under --verbose.
+	ToolCall(phase, name string, blocked bool)
 }
 
 // Config is what a Runner is built with: everything that is the same for
@@ -135,6 +144,11 @@ type Config struct {
 type Phase struct {
 	// Name identifies the step in errors, events and the cost report.
 	Name string
+	// Task labels the phase with the unit of work it serves, for progress
+	// events only. It is set only by impl's per-task phase and is empty
+	// everywhere else. It is a separate field because Name is the prompt
+	// cache key shared across every task of a run.
+	Task string
 	// System and User are the two prompts.
 	System string
 	User   string
@@ -221,6 +235,19 @@ func (r *Runner) Model() *core.Model { return r.cfg.Model }
 // terminator is what "there is a result" means, and the error names the stop
 // reason when there is not one.
 func (r *Runner) Run(ctx context.Context, p Phase) (Result, error) {
+	if o := r.cfg.Observer; o != nil {
+		o.PhaseStart(p.Name, p.Task, r.cfg.Bounds.maxTurns(), r.cfg.Bounds.maxBudget())
+	}
+	out, err := r.run(ctx, p)
+	if o := r.cfg.Observer; o != nil {
+		o.PhaseEnd(p.Name, string(out.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds())
+	}
+	return out, err
+}
+
+// run is Run's body; Run reports the phase's start and end around it, so
+// every return path is paired.
+func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{Name: p.Name}, err
 	}
@@ -244,8 +271,9 @@ func (r *Runner) Run(ctx context.Context, p Phase) (Result, error) {
 	if err != nil {
 		return Result{Name: p.Name, Elapsed: time.Since(start)}, r.wrap(p, core.RunResult{}, err)
 	}
+	var turn int
 	for e := range stream.Events() {
-		r.trace(e)
+		r.trace(p.Name, &turn, e)
 	}
 	res, runErr := stream.RunResult()
 
@@ -315,9 +343,10 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			ReadOnlyFiles:  p.ReadOnly,
 			ProtectedPaths: p.ProtectedPaths,
 			ResolvePath:    r.cfg.Workspace.Resolve,
-			OnBlock: func(msg string) {
+			OnBlock: func(name, reason string) {
 				counter.inc()
-				r.detail("blocked %s", msg)
+				r.detail("blocked %s: %s", name, reason)
+				r.toolCall(p.Name, name, true)
 			},
 		})
 	} else {
@@ -414,9 +443,17 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 	return prompt.SkillBlocks(selected, files, agent.Tools())
 }
 
-func (r *Runner) trace(e core.Event) {
+// trace reports one stream event. turn is the phase's turn counter, which
+// the loop's own TurnEndEvent advances.
+func (r *Runner) trace(phase string, turn *int, e core.Event) {
 	switch v := e.(type) {
+	case core.TurnEndEvent:
+		*turn++
+		if r.cfg.Observer != nil {
+			r.cfg.Observer.Turn(phase, *turn, v.Usage.CostUSD, v.Usage.InputTokens, v.Usage.OutputTokens)
+		}
 	case core.ToolCallEndEvent:
+		r.toolCall(phase, v.Block.Name, false)
 		r.detail("→ %s %s", v.Block.Name, firstLine(string(v.Block.Input), 100))
 	case core.ToolExecutionEndEvent:
 		status := "ok"
@@ -439,6 +476,18 @@ func (r *Runner) trace(e core.Event) {
 	case core.ErrorEvent:
 		r.detail("[stream error] %s", v.Message)
 	}
+}
+
+// toolCall reports one model tool call to an observer that is tracing
+// verbosely. Without --verbose it makes no call at all.
+func (r *Runner) toolCall(phase, name string, blocked bool) {
+	if r.cfg.Observer == nil {
+		return
+	}
+	if v, ok := r.cfg.Observer.(interface{ Verbose() bool }); !ok || !v.Verbose() {
+		return
+	}
+	r.cfg.Observer.ToolCall(phase, name, blocked)
 }
 
 func (r *Runner) detail(format string, args ...any) {

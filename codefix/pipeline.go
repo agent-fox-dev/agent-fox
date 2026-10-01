@@ -248,7 +248,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return result, fail("branch", CategoryGit, err)
 	}
 	result.Branch = branch
-	o.Progress.Step("branched %s from %s", branch, base)
+	o.Progress.Step("branch", "branched %s from %s", branch, base)
 
 	// The analysis comment goes up now: the run is known to be able to
 	// start, a branch exists, and the comment can name it.
@@ -286,7 +286,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if result.CriteriaOutcome == CriterionFail {
 		unmet := unmetCriteriaWarning(criteria, impl.CriteriaVerdicts)
 		o.Run.Warn(toolio.WarnCriteriaUnmet, "high", "%s", unmet)
-		o.Progress.Step("%s", unmet)
+		o.Progress.Step("implement", "%s", unmet)
 	}
 
 	// A run that reports a fix and changed nothing is a failed run, not an
@@ -324,10 +324,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	result.Commit = commit
 	result.Stage = "committed"
-	o.Progress.Step("committed %s", commit)
+	o.Progress.Step("commit", "committed %s", commit)
 
 	if o.Land.Pushes() && !o.DryRun {
-		err := git.Push(ctx, branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) })
+		err := git.Push(ctx, branch, o.PushAttempts, func(m string) { o.Progress.Step("push", "%s", m) })
 		// A failed push is the run's error, not a Run.Warn: no warning code.
 		o.Run.RecordSideEffect("push", "origin "+branch, err == nil, "")
 		if err != nil {
@@ -335,7 +335,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		result.Pushed = true
 		result.Stage = "pushed"
-		o.Progress.Step("pushed origin/%s", branch)
+		o.Progress.Step("push", "pushed origin/%s", branch)
 	}
 
 	if o.Land == LandPR && result.Pushed && target.Valid() {
@@ -448,7 +448,7 @@ func stopOnAmbiguity(ctx context.Context, o Options, result *Result, a Ambiguity
 	result.Stage = "stopped"
 	result.Ambiguity = &a
 	postComment(ctx, o, result, ambiguityComment(a), "clarification")
-	o.Progress.Step("stopped: the report reads two ways and the code cannot settle which")
+	o.Progress.Step("analyse", "stopped: the report reads two ways and the code cannot settle which")
 	return result, fail("analyse", CategoryAmbiguous, fmt.Errorf(
 		"the input is ambiguous and the codebase cannot settle it: %s", strings.TrimSpace(a.Question)))
 }
@@ -474,7 +474,7 @@ func parkUnverified(ctx context.Context, o Options, git *gitx.Git, result *Resul
 	}
 	postComment(ctx, o, result, failureComment(result), "failure")
 
-	o.Progress.Step("checks did not pass (%s); work parked on %s", verdict, result.Branch)
+	o.Progress.Step("verify", "checks did not pass (%s); work parked on %s", verdict, result.Branch)
 	return result, failf("verify", CategoryUnverified,
 		"`%s` did not pass after the change (%s); the work is on %s and was not landed",
 		result.Verification.Command, verdict, result.Branch)
@@ -519,7 +519,7 @@ func openPullRequest(ctx context.Context, o Options, target issuex.Repo, result 
 	o.Run.RecordSideEffect("open_pr", fmt.Sprintf("%s#%d", target, pr.Number), true, "")
 	result.PullRequestURL = pr.URL
 	result.PullRequestNumber = pr.Number
-	o.Progress.Step("opened %s", pr.URL)
+	o.Progress.Step("land", "opened %s", pr.URL)
 }
 
 // PostComment writes one comment to the issue, or reports what it would have
@@ -565,6 +565,7 @@ func runChecks(ctx context.Context, o Options, root, command, label string) chec
 	}
 	done := o.Progress.Begin("%s: %s", label, command)
 	res := checks.Run(ctx, o.CheckRunner, root, command, o.VerifyTimeout)
+	o.Progress.Check(res)
 	status := "passed"
 	if !res.OK {
 		status = fmt.Sprintf("failed (exit %d)", res.ExitCode)

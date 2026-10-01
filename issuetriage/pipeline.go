@@ -235,7 +235,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	if o.DryRun {
 		if o.Progress != nil {
-			o.Progress.Step("dry run: nothing was written to the forge")
+			o.Progress.Step("write", "dry run: nothing was written to the forge")
 		}
 		return out, nil
 	}
@@ -327,7 +327,7 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 			out.URL = updated.HTMLURL
 		}
 		if o.Progress != nil {
-			o.Progress.Step("rewrote %s", out.URL)
+			o.Progress.Step("write", "rewrote %s", out.URL)
 		}
 		return nil
 	}
@@ -349,7 +349,7 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 		out.URL = created.HTMLURL
 	}
 	if o.Progress != nil {
-		o.Progress.Step("filed %s", out.URL)
+		o.Progress.Step("write", "filed %s", out.URL)
 	}
 	return nil
 }

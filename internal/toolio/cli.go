@@ -71,6 +71,12 @@ type Common struct {
 	// across every phase. Zero means no ceiling beyond the per-phase
 	// --budget.
 	TotalBudgetUSD float64
+	// Events selects what stderr carries: "text" (the default, the human
+	// progress lines) or "jsonl" (one JSON event object per line).
+	Events string
+	// EventsFile names a file that receives the JSONL event stream whatever
+	// Events says about stderr. Empty means no file.
+	EventsFile string
 }
 
 // DryRunUsage is the one definition of --dry-run, shared by every tool.
@@ -132,6 +138,8 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.StringVar(&c.InputKind, "input-kind", "", "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)")
 	fs.BoolVar(&c.DryRun, "dry-run", false, DryRunUsage)
 	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
+	fs.StringVar(&c.Events, "events", EventsText, "what stderr carries: text (default, human-readable progress) or jsonl (one JSON event object per line)")
+	fs.StringVar(&c.EventsFile, "events-file", "", "also write the JSONL event stream to this file (truncated), whatever --events says about stderr")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
 }
 
@@ -144,6 +152,24 @@ func (c *Common) ValidInputKind() error {
 	default:
 		return fmt.Errorf("--input-kind must be one of %q, %q, %q or %q, got %q",
 			KindFile, KindText, KindIssue, KindStdin, c.InputKind)
+	}
+}
+
+// The two values --events accepts.
+const (
+	EventsText  = "text"
+	EventsJSONL = "jsonl"
+)
+
+// ValidEvents refuses any --events value other than "text" or "jsonl". An
+// empty value (the zero Common, before Register runs) is treated as the
+// default.
+func (c *Common) ValidEvents() error {
+	switch c.Events {
+	case "", EventsText, EventsJSONL:
+		return nil
+	default:
+		return fmt.Errorf("--events must be %q or %q, got %q", EventsText, EventsJSONL, c.Events)
 	}
 }
 

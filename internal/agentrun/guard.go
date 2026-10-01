@@ -33,8 +33,9 @@ type GuardOptions struct {
 	// workspace would write to, symlinks included. Nil means filepath.Abs,
 	// which is right for a test and wrong for a workspace under a symlink.
 	ResolvePath func(string) (string, error)
-	// OnBlock is called with the reason for each refusal.
-	OnBlock func(string)
+	// OnBlock is called with the tool's name and the reason for each
+	// refusal.
+	OnBlock func(name, reason string)
 }
 
 // Guard is the authorization boundary for a phase that has a shell.
@@ -67,10 +68,10 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 	})
 	log := o.OnBlock
 	if log == nil {
-		log = func(string) {}
+		log = func(string, string) {}
 	}
 	block := func(name, reason string) core.BeforeToolCallDecision {
-		log(name + ": " + reason)
+		log(name, reason)
 		return core.BeforeToolCallDecision{Block: true, Reason: reason}
 	}
 
@@ -98,7 +99,7 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 				}
 			}
 			if d := base(ctx, in); d.Block {
-				log(in.ToolName + ": " + d.Reason)
+				log(in.ToolName, d.Reason)
 				return d
 			}
 			// The shipped policy inspects only the first program once
@@ -109,7 +110,7 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 				if segs := ShellSegments(cmd); len(segs) > 1 {
 					for _, seg := range segs[1:] {
 						if d := base(ctx, withCommand(in, seg)); d.Block {
-							log(in.ToolName + ": " + d.Reason)
+							log(in.ToolName, d.Reason)
 							return d
 						}
 					}

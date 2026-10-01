@@ -44,7 +44,7 @@
         "internal/toolio/events.go",
         "internal/toolio/events_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -79,7 +79,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -110,7 +110,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -156,7 +156,7 @@
         1,
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -201,7 +201,7 @@
       "depends_on": [
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -232,7 +232,7 @@
         1,
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -265,7 +265,7 @@
         3,
         6
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -290,7 +290,7 @@
       "depends_on": [
         7
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -316,7 +316,7 @@
       "depends_on": [
         8
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

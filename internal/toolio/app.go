@@ -188,6 +188,14 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: kerr.Error(), err: kerr,
 		})
 	}
+	if eerr := common.ValidEvents(); eerr != nil {
+		// Refused before --version, the bare-invocation check or anything
+		// fetched, and before any file or sink exists, so no event is emitted.
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, eerr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: eerr.Error(), err: eerr,
+		})
+	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
@@ -206,7 +214,26 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
+	sink, closeSink, serr := a.openEvents(&common, stderr)
+	if serr != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, serr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: serr.Error(), err: serr,
+		})
+	}
+	defer closeSink()
+	// One heartbeat ticker for the run's lifetime, reading spend off the run's
+	// own running total. run_end stops it; the deferred stop covers a path
+	// that never reaches one.
+	sink.StartHeartbeat(run.CostUSD)
+	defer sink.StopHeartbeat()
+
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
+	progress.SetEvents(sink)
+	progress.SetEventsOnStderr(common.Events == EventsJSONL)
+	// The run and its progress share one sink, attached once, before execute.
+	run.AttachEvents(sink)
+	progress.SetShowText(common.ShowText)
 	code, result, failure := a.execute(ctx, execArgs{
 		common:   &common,
 		argument: input,
@@ -215,6 +242,29 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		stdin:    stdin,
 	})
 	return a.emit(stdout, &common, run, code, result, failure)
+}
+
+// openEvents builds the JSONL sink for a run. The file, when --events-file
+// names one, is opened once and truncated, and always carries the stream; the
+// stderr writer is active only under --events jsonl and not --quiet. Each
+// event is one Write call, so a killed process leaves whole lines only. The
+// returned function closes the file. With neither destination the sink is
+// inactive.
+func (a App) openEvents(common *Common, stderr io.Writer) (*eventsSink, func(), error) {
+	var writers []io.Writer
+	closeFn := func() {}
+	if common.EventsFile != "" {
+		f, err := os.OpenFile(common.EventsFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, closeFn, Usagef("--events-file %s: %v", common.EventsFile, err)
+		}
+		writers = append(writers, f)
+		closeFn = func() { _ = f.Close() }
+	}
+	if common.Events == EventsJSONL && !common.Quiet {
+		writers = append(writers, stderr)
+	}
+	return newEventsSink(a.Name, writers...), closeFn, nil
 }
 
 // emit builds the envelope, writes the complete (full-view) envelope to the
@@ -283,6 +333,10 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 			env.Result = s.SummaryView()
 		}
 	}
+	// run_end goes out immediately before the envelope, from the same code
+	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
+	// inactive sink (the paths that return before one is built) is a no-op.
+	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
 	return Emit(stdout, env)
 }
 
@@ -417,6 +471,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
 	e.progress.Detail("model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+	// run_start is the stream's first event: the input is known and the model
+	// resolved, and no Runner exists yet to emit anything of its own.
+	e.run.eventSink().Emit(newRunStartEvent(in.Kind.String(), EventModelInfo{
+		Spec: choice.Spec, ID: choice.Model.ID, Vendor: choice.Model.Provider,
+	}))
 
 	cfg := agentrun.Config{
 		Model:         choice.Model,

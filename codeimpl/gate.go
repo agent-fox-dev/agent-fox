@@ -68,6 +68,7 @@ func runGate(ctx context.Context, o Options, root string, cmds []string, label s
 	for _, cmd := range cmds {
 		done := o.Progress.Begin("%s: %s", label, cmd)
 		res := checks.Run(ctx, o.CheckRunner, root, cmd, o.VerifyTimeout)
+		o.Progress.Check(res)
 		status := "passed"
 		switch {
 		case res.TimedOut:

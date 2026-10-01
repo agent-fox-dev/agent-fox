@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -686,6 +688,540 @@ func TestTS06_2_UnrecognizedDetailIsUsageError(t *testing.T) {
 	}
 	if execCalled {
 		t.Error("Exec ran with an invalid --detail: nothing should have been resolved")
+	}
+}
+
+// ---- 07 progress_event_stream: --events / --events-file (task 2) ----
+
+// eventsRun runs app with argv and returns the exit code, stdout and stderr.
+func eventsRun(t *testing.T, app *App, argv []string) (int, string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+// fileLines reads path and returns its lines, requiring every one to be
+// complete valid JSON and the content to end in a newline.
+func fileLines(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	if raw[len(raw)-1] != '\n' {
+		t.Fatalf("%s ends in a partial line: %q", path, raw)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	for _, l := range lines {
+		if !json.Valid([]byte(l)) {
+			t.Fatalf("line is not valid JSON: %q", l)
+		}
+	}
+	return lines
+}
+
+// stepLines keeps only the step events among lines, dropping the run_start and
+// run_end the shared shell wraps around every run.
+func stepLines(t *testing.T, lines []string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range lines {
+		var ev struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(l), &ev); err != nil {
+			t.Fatalf("line is not JSON: %q", l)
+		}
+		if ev.Type == "step" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// emitSteps emits n step events through the sink Main attached to Progress.
+func emitSteps(d Deps, n int) {
+	for i := 0; i < n; i++ {
+		d.Progress.events.Emit(newStepEvent("analyse", fmt.Sprintf("step %d", i)))
+	}
+}
+
+// TS-07-1 (unit): Common.Register adds --events (default text) and
+// --events-file next to the other shared flags.
+func TestTS07_1_RegisterAddsEventsFlags(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	var c Common
+	c.Register(fs)
+	ev := fs.Lookup("events")
+	if ev == nil || ev.DefValue != "text" {
+		t.Fatalf("--events = %+v, want default text", ev)
+	}
+	ef := fs.Lookup("events-file")
+	if ef == nil || ef.DefValue != "" {
+		t.Fatalf("--events-file = %+v, want default empty", ef)
+	}
+	for _, name := range []string{"verbose", "quiet", "show-text", "report-file"} {
+		if fs.Lookup(name) == nil {
+			t.Errorf("--%s missing from the shared flag set", name)
+		}
+	}
+	if c.Events != "text" {
+		t.Errorf("Common.Events = %q, want text", c.Events)
+	}
+}
+
+// TS-07-2 (unit): an invalid --events value is a usage error before anything
+// is fetched or resolved, and nothing is written as an event.
+func TestTS07_2_InvalidEventsIsUsageErrorBeforeAnything(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var execCalled bool
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		execCalled = true
+		return ExitOK, nil, nil
+	})
+	eventsPath := filepath.Join(t.TempDir(), "run.jsonl")
+	// --version would exit 0, so a usage envelope here shows the check came
+	// first.
+	code, stdout, stderr := eventsRun(t, app, []string{"--events", "yaml", "--events-file", eventsPath, "--version"})
+	if code != ExitUsage {
+		t.Fatalf("code = %d, want %d", code, ExitUsage)
+	}
+	var env Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("stdout is not an envelope: %v\n%s", err, stdout)
+	}
+	if env.Error == nil || env.Error.Stage != "usage" {
+		t.Errorf("error = %+v, want stage usage", env.Error)
+	}
+	if execCalled {
+		t.Error("Exec ran with an invalid --events")
+	}
+	if strings.Contains(stderr, `"type":`) {
+		t.Errorf("stderr carries an event: %s", stderr)
+	}
+	if _, err := os.Stat(eventsPath); err == nil {
+		t.Error("the events file was opened despite the usage error")
+	}
+
+	// A bare invocation with a bad --events is still the events error.
+	code, stdout, _ = eventsRun(t, app, []string{"--events", "yaml"})
+	if code != ExitUsage || strings.Contains(stdout, NoInputMessage) {
+		t.Errorf("bare invocation: code %d, stdout %s; want the --events error", code, stdout)
+	}
+}
+
+// TS-07-3 (integration): --events-file is opened once, truncated, and each
+// line is visible before the run exits.
+func TestTS07_3_EventsFileTruncatedAndFlushedPerLine(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	if err := os.WriteFile(path, []byte("stale content that is long enough to survive a short write"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var midRun []string
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		emitSteps(d, 3)
+		// Read while the run is still going: every line must already be there.
+		midRun = stepLines(t, fileLines(t, path))
+		return ExitOK, nil, nil
+	})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events-file", path, "x"})
+	if code != ExitOK {
+		t.Fatalf("code = %d\n%s", code, stderr)
+	}
+	if len(midRun) != 3 {
+		t.Fatalf("lines visible mid-run = %d, want 3: %v", len(midRun), midRun)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "stale") {
+		t.Errorf("stale content survived: %s", raw)
+	}
+}
+
+// TS-07-4 (integration): under --events text the file carries the JSONL stream
+// and stderr stays free of JSON.
+func TestTS07_4_EventsFileWithTextKeepsStderrHuman(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		emitSteps(d, 2)
+		return ExitOK, nil, nil
+	})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events", "text", "--events-file", path, "x"})
+	if code != ExitOK {
+		t.Fatalf("code = %d\n%s", code, stderr)
+	}
+	if strings.Contains(stderr, `{"ts"`) {
+		t.Errorf("stderr carries JSON under --events text: %s", stderr)
+	}
+	lines := stepLines(t, fileLines(t, path))
+	if len(lines) != 2 {
+		t.Fatalf("events file has %d step lines, want the 2 emitted events", len(lines))
+	}
+	for _, l := range lines {
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(l), &ev); err != nil || ev["type"] != "step" || ev["tool"] != "tool" {
+			t.Errorf("bad event line %q (%v)", l, err)
+		}
+	}
+}
+
+// --events jsonl puts the stream on stderr as well as in the file.
+func TestEventsJSONLWritesStderrAndFile(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		emitSteps(d, 2)
+		return ExitOK, nil, nil
+	})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events", "jsonl", "--events-file", path, "x"})
+	if code != ExitOK {
+		t.Fatalf("code = %d", code)
+	}
+	file, _ := os.ReadFile(path)
+	if len(file) == 0 || !strings.Contains(stderr, string(file)) {
+		t.Errorf("stderr does not carry the file's stream.\nstderr: %s\nfile: %s", stderr, file)
+	}
+}
+
+// An events file that cannot be opened is a usage error, not a silent loss.
+func TestEventsFileThatCannotBeOpenedIsAUsageError(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	app, _ := newApp(t, nil)
+	env, code, _ := runApp(t, app, []string{"--events-file", filepath.Join(t.TempDir(), "no", "such", "dir.jsonl"), "x"}, "")
+	if code != ExitUsage || env.Error == nil || env.Error.Stage != "usage" {
+		t.Errorf("code %d error %+v, want a usage error", code, env.Error)
+	}
+}
+
+// TS-07-5 (unit): --quiet silences stderr under both --events values and
+// leaves the events file whole.
+func TestTS07_5_QuietSuppressesStderrNotTheFile(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, mode := range []string{"jsonl", "text"} {
+		path := filepath.Join(t.TempDir(), "run.jsonl")
+		app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+			d.Progress.Step("preflight", "hello")
+			emitSteps(d, 2)
+			return ExitOK, nil, nil
+		})
+		code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--quiet", "--events", mode, "--events-file", path, "x"})
+		if code != ExitOK {
+			t.Fatalf("%s: code = %d", mode, code)
+		}
+		if stderr != "" {
+			t.Errorf("--events %s --quiet: stderr = %q, want empty", mode, stderr)
+		}
+		if n := len(stepLines(t, fileLines(t, path))); n != 3 {
+			t.Errorf("--events %s --quiet: events file has %d step lines, want the full stream (3)", mode, n)
+		}
+	}
+}
+
+// TS-07-6 (integration): a run whose context is cancelled mid-stream leaves
+// the events file as exactly the lines emitted before, none partial.
+func TestTS07_6_CancelledRunLeavesAValidPrefix(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const n = 5
+	var seen []string
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		emitSteps(d, n)
+		cancel()
+		seen = stepLines(t, fileLines(t, path))
+		return ExitFailed, nil, &ErrorInfo{Stage: "analyse", Category: "internal", Message: "cancelled"}
+	})
+	var stdout, stderr bytes.Buffer
+	app.Main(ctx, []string{"--dir", t.TempDir(), "--events-file", path, "x"}, strings.NewReader(""), &stdout, &stderr)
+	if len(seen) != n {
+		t.Fatalf("lines at cancellation = %d, want %d", len(seen), n)
+	}
+	for i, l := range seen {
+		var ev StepEvent
+		if err := json.Unmarshal([]byte(l), &ev); err != nil || ev.Message != fmt.Sprintf("step %d", i) {
+			t.Errorf("line %d = %q, want step %d", i, l, i)
+		}
+	}
+}
+
+// ---- 07 progress_event_stream: run_start / run_end (task 3) ----
+
+// parseEventLines returns every JSON object line in s, in order.
+func parseEventLines(t *testing.T, s string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, l := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(l, "{") {
+			continue
+		}
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(l), &ev); err != nil {
+			t.Fatalf("event line is not JSON: %q (%v)", l, err)
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// runCapturingEvents runs app under --events jsonl with an events file and
+// returns the events read from stderr, the envelope and the exit code. It
+// requires the file to carry the same stream as stderr.
+func runCapturingEvents(t *testing.T, app *App, extra ...string) ([]map[string]any, Envelope, int) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	argv := append([]string{"--dir", t.TempDir(), "--events", "jsonl", "--events-file", path}, extra...)
+	argv = append(argv, "x")
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+	var env Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not one JSON object (%v):\n%s", err, stdout.String())
+	}
+	events := parseEventLines(t, stderr.String())
+	fromFile := parseEventLines(t, strings.Join(fileLines(t, path), "\n"))
+	if len(events) != len(fromFile) {
+		t.Fatalf("stderr carries %d events, the file %d", len(events), len(fromFile))
+	}
+	if len(events) == 0 {
+		t.Fatal("no events were written")
+	}
+	return events, env, code
+}
+
+func eventTypes(events []map[string]any) []string {
+	var out []string
+	for _, ev := range events {
+		out = append(out, fmt.Sprint(ev["type"]))
+	}
+	return out
+}
+
+// TS-07-12 (unit): run_start is written right after the model is resolved,
+// before the first phase_start, carrying input_kind and model.
+func TestTS07_12_RunStartRightAfterTheModelIsResolved(t *testing.T) {
+	app, seen := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		// What a pipeline's first phase would emit: run_start must precede it.
+		d.Progress.events.Emit(newPhaseStartEvent("analyse", "", 10, 1))
+		return ExitOK, nil, nil
+	})
+	events, _, code := runCapturingEvents(t, app)
+	if code != ExitOK {
+		t.Fatalf("code = %d", code)
+	}
+	if len(events) < 2 || events[0]["type"] != "run_start" {
+		t.Fatalf("events = %v, want run_start first", eventTypes(events))
+	}
+	if events[1]["type"] != "phase_start" {
+		t.Errorf("second event = %v, want the first phase_start", events[1]["type"])
+	}
+	start := events[0]
+	if start["input_kind"] != seen.Input.Kind.String() {
+		t.Errorf("input_kind = %v, want %s", start["input_kind"], seen.Input.Kind)
+	}
+	model, ok := start["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("model = %v, want an object", start["model"])
+	}
+	if model["id"] != seen.Model.Model.ID || model["vendor"] != seen.Model.Model.Provider || model["spec"] != seen.Model.Spec {
+		t.Errorf("model = %v, want spec %q id %q vendor %q", model, seen.Model.Spec, seen.Model.Model.ID, seen.Model.Model.Provider)
+	}
+	if len(model) != 3 {
+		t.Errorf("model has keys beyond spec/id/vendor: %v", model)
+	}
+}
+
+// TS-07-13 (unit): run_end is the last event and carries the exit code and
+// status the envelope carries.
+func TestTS07_13_RunEndImmediatelyBeforeTheEnvelope(t *testing.T) {
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		emitSteps(d, 2)
+		return ExitFailed, nil, &ErrorInfo{Stage: "analyse", Category: "internal", Message: "boom"}
+	})
+	events, env, code := runCapturingEvents(t, app)
+	last := events[len(events)-1]
+	if last["type"] != "run_end" {
+		t.Fatalf("last event = %v, want run_end: %v", last["type"], eventTypes(events))
+	}
+	if int(last["exit_code"].(float64)) != code || code != ExitFailed {
+		t.Errorf("run_end.exit_code = %v, exit code %d", last["exit_code"], code)
+	}
+	if last["status"] != env.Status || last["status"] != "failed" {
+		t.Errorf("run_end.status = %v, envelope status %q", last["status"], env.Status)
+	}
+	if len(last) != 5 { // ts, tool, type, status, exit_code
+		t.Errorf("run_end carries unexpected fields: %v", last)
+	}
+}
+
+// run_end lands before a byte of the envelope: the stdout writer sees an
+// already-complete stream.
+func TestTS07_13_RunEndIsWrittenBeforeStdout(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	app, _ := newApp(t, nil)
+	var stderr bytes.Buffer
+	var atFirstWrite string
+	stdout := writerFunc(func(p []byte) (int, error) {
+		if atFirstWrite == "" {
+			atFirstWrite = stderr.String()
+		}
+		return len(p), nil
+	})
+	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--events", "jsonl", "x"}, strings.NewReader(""), stdout, &stderr)
+	events := parseEventLines(t, atFirstWrite)
+	if len(events) == 0 || events[len(events)-1]["type"] != "run_end" {
+		t.Errorf("events before the envelope = %v, want a stream ending in run_end", eventTypes(events))
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// TS-07-14 (unit): neither event is emitted on -h/--help or on a bare
+// invocation on a terminal; and a bare invocation whose stdout is not a
+// terminal emits its usage envelope but still no event, because no sink has
+// been built by then.
+func TestTS07_14_NoRunStartOrRunEndOnHumanDrivenPaths(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	app, _ := newApp(t, nil)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "run.jsonl")
+	tty, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tty.Close()
+
+	for _, argv := range [][]string{
+		{"--events", "jsonl", "--events-file", path, "-h"},
+		{"--events", "jsonl", "--events-file", path},
+	} {
+		var stdout, stderr bytes.Buffer
+		app.Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+		if n := len(parseEventLines(t, stderr.String())); n != 0 {
+			t.Errorf("%v: %d event lines on stderr, want 0", argv, n)
+		}
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("%v: the events file was created", argv)
+		}
+		if argv[len(argv)-1] == "-h" && stdout.Len() != 0 {
+			t.Errorf("-h wrote to stdout: %s", stdout.String())
+		}
+	}
+
+	// A bare invocation on a terminal writes nothing to stdout either.
+	var stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--events", "jsonl", "--events-file", path}, strings.NewReader(""), tty, &stderr)
+	if code != ExitUsage {
+		t.Errorf("bare invocation on a terminal: code %d, want %d", code, ExitUsage)
+	}
+	if n := len(parseEventLines(t, stderr.String())); n != 0 {
+		t.Errorf("bare invocation on a terminal: %d event lines, want 0", n)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("bare invocation on a terminal created the events file")
+	}
+}
+
+// TS-07-15 (property): run_end.status is read off the exit code that decides
+// the envelope's ok field, for every exit code.
+func TestTS07_15_RunEndStatusMatchesEnvelopeForEveryExitCode(t *testing.T) {
+	for _, code := range []int{ExitOK, ExitFailed, ExitUsage, ExitNeedsHuman, ExitUnverified} {
+		code := code
+		t.Run(StatusFor(code), func(t *testing.T) {
+			app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+				if code == ExitOK {
+					return code, nil, nil
+				}
+				return code, nil, &ErrorInfo{Stage: "analyse", Category: "internal", Message: "stop"}
+			})
+			events, env, got := runCapturingEvents(t, app)
+			if got != code {
+				t.Fatalf("exit code = %d, want %d", got, code)
+			}
+			end := events[len(events)-1]
+			if end["type"] != "run_end" {
+				t.Fatalf("last event = %v, want run_end", end["type"])
+			}
+			if (end["status"] == "done") != env.OK {
+				t.Errorf("run_end.status = %v but envelope ok = %v", end["status"], env.OK)
+			}
+			if end["status"] != env.Status || end["status"] != StatusFor(code) {
+				t.Errorf("run_end.status = %v, envelope status %q, want %q", end["status"], env.Status, StatusFor(code))
+			}
+			if int(end["exit_code"].(float64)) != env.ExitCode {
+				t.Errorf("run_end.exit_code = %v, envelope %d", end["exit_code"], env.ExitCode)
+			}
+		})
+	}
+}
+
+// TS-07-16 (property): across runs of varying length and outcome, run_start is
+// the first event, exactly once, and run_end is the last.
+func TestTS07_16_RunStartFirstAndRunEndLast(t *testing.T) {
+	fail := func(code int) (int, any, *ErrorInfo) {
+		return code, nil, &ErrorInfo{Stage: "verify", Category: "internal", Message: "stop"}
+	}
+	scenarios := []struct {
+		name string
+		exec func(context.Context, Deps) (int, any, *ErrorInfo)
+	}{
+		{"empty success", func(context.Context, Deps) (int, any, *ErrorInfo) { return ExitOK, nil, nil }},
+		{"long success", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+			emitSteps(d, 50)
+			d.Progress.events.Emit(newPhaseStartEvent("implement", "1", 5, 1))
+			d.Progress.events.Emit(newPhaseEndEvent("implement", "end_turn", 3, 0.1, 10))
+			return ExitOK, nil, nil
+		}},
+		{"failure", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+			emitSteps(d, 3)
+			return fail(ExitFailed)
+		}},
+		{"blocked", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+			emitSteps(d, 1)
+			return fail(ExitNeedsHuman)
+		}},
+		{"unverified", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+			emitSteps(d, 7)
+			return fail(ExitUnverified)
+		}},
+	}
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			app, _ := newApp(t, sc.exec)
+			events, _, _ := runCapturingEvents(t, app)
+			types := eventTypes(events)
+			if len(types) < 2 || types[0] != "run_start" || types[len(types)-1] != "run_end" {
+				t.Fatalf("events = %v, want run_start first and run_end last", types)
+			}
+			starts, ends := 0, 0
+			for _, ty := range types {
+				switch ty {
+				case "run_start":
+					starts++
+				case "run_end":
+					ends++
+				}
+			}
+			if starts != 1 || ends != 1 {
+				t.Errorf("run_start x%d, run_end x%d, want one of each", starts, ends)
+			}
+		})
 	}
 }
 

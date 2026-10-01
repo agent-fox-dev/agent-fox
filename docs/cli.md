@@ -325,6 +325,7 @@ a typo. An existing directory is never flagged.
 | `--show-text` | off | stream the model's own prose to stderr |
 | `--detail` · `--report-file` | `summary` · see below | `--detail summary\|full` picks the `result` view on stdout: `summary` (the default) keeps the subset each tool's section lists, `full` prints everything the tool computed; any other value is a usage error. `--report-file <path>` names where the complete envelope is written; by default `$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<pid>.json` (see [Report files](configuration.md#report-files)). The file is always the `full` view, whichever `--detail` was given |
 | `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `issue` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
+| `--events` · `--events-file` | `text` · none | `--events text\|jsonl` picks what stderr carries: `text` (the default) is the human progress lines, unchanged; `jsonl` is one JSON event object per line instead. Any other value is a usage error (exit 2), refused before anything is fetched. `--events-file <path>` also writes the JSONL stream to that file — opened once, truncated, one whole line per write so a killed process leaves a valid prefix — whatever `--events` says about stderr, so `--events text --events-file run.jsonl` lets a person watch the terminal while a supervisor tails the file. `--quiet` silences stderr under both `--events` values and does not affect the file |
 | `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--version` | — | print the build identity and exit |
@@ -340,6 +341,86 @@ A flag one tool does not accept is a usage error that names the flag and the
 tool or tools that do accept it — `fix does not accept --label; it is an issue
 flag` — rather than Go's generic "flag provided but not defined". A flag that
 belongs to none of the four tools keeps the generic message.
+
+---
+
+## Machine-readable progress: the event types
+
+A caller that is itself a program — a model running a tool under a timeout, a
+supervisor tailing a log — cannot tell a long `fix` or `impl` run from a hung
+one by reading prefixed text. `--events jsonl` gives it the same progress as
+one JSON object per line, and `--events-file <path>` writes that same stream to
+a file while stderr keeps its default form (see the `--events` row in
+[Shared flags](#shared-flags)). The default, `--events text`, is unchanged.
+
+Every event is one JSON object on one line. Its first three keys are the same
+for every type:
+
+- `ts` — RFC 3339, UTC, the same convention as the envelope's `started_at`
+- `tool` — the program name (`spec`, `issue`, `fix`, `impl`), as in the envelope
+- `type` — one of the closed set below; nothing else is ever emitted, and a
+  field not listed for a type is never present on it
+
+| `type` | Fields | Emitted |
+|---|---|---|
+| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`) | once, after the input is classified and the model resolved |
+| `step` | `stage`, `message` | wherever the human progress prints a line; `stage` is the same vocabulary as the envelope's `stage` |
+| `phase_start` | `phase`, `task`, `max_turns`, `budget_usd` | when a model phase begins; `task` is present only for `impl`'s per-task `implement` phase; the ceilings are the ones the run actually resolved |
+| `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
+| `tool_call` | `phase`, `name`, `blocked` | under `--verbose` only, per model tool call; `blocked` is true when the shell guard refused it |
+| `check` | `command`, `ok`, `exit_code`, `duration_ms` | after every verification command (`fix`'s baseline and post-change runs; `impl`'s gate before and after every task and in the repair loop) |
+| `phase_end` | `phase`, `stop_reason`, `turns`, `cost_usd`, `duration_ms` | when a model phase ends; `cost_usd` is the phase's total |
+| `warning` | `code`, `severity`, `stage`, `message` | when a warning is recorded; the same object as an entry of the envelope's `warnings` |
+| `heartbeat` | `stage`, `elapsed_ms`, `cost_usd` | every 15 seconds in which no other event was emitted; `stage` is the last one a `step` or `phase_start` named, `cost_usd` the run's spend so far |
+| `run_end` | `status`, `exit_code` | once, immediately before the envelope is written to stdout; `status` is the envelope's `status` |
+
+Under `--show-text` the stream also carries a `text` event (`phase`, `delta`)
+in place of the model's raw prose on stderr. Without `--show-text` it is never
+emitted.
+
+What a parser can rely on, and what it must not:
+
+- A run produces at least one event every 15 seconds, so silence longer than
+  that means the process is hung or gone.
+- `run_end` is the last event of a run that gets as far as writing an envelope.
+  A run that fails before the model is resolved (a missing input, a refused
+  forge) writes `run_end` without a preceding `run_start`. A run refused as a
+  usage error before anything was fetched — a bad `--events` value, for one —
+  emits no events at all, and neither do `-h`/`--help` or a bare invocation on
+  a terminal.
+- `phase_start` and `phase_end` pair. A `phase_end` with an empty
+  `stop_reason` is a phase that never got as far as calling the model
+  (cancelled, or built without a terminating tool).
+- Spend is visible live: sum `turn.cost_usd` while a phase runs; `phase_end`
+  carries the phase's total, which is what the envelope's `usage.phases[]`
+  entry for it reports.
+- Under an active event stream (`jsonl`, or `--events-file`) the labelled
+  spinner spans that `Begin` prints on a terminal are not printed: a phase and
+  a check already have `phase_start`/`phase_end` and `check`. `--verbose`
+  trace lines have no event counterpart, apart from `tool_call`.
+- `--quiet` silences stderr under both `--events` values and does not affect
+  `--events-file`.
+- Event content is not sanitised, any more than the envelope is: `message`,
+  `command` and `delta` can carry text from the input, the repository or the
+  model.
+
+A worked example — the start of `fix --events jsonl` on an issue, with the
+baseline check failing, two analyse turns and a heartbeat during the wait
+before the next phase:
+
+```
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"}}
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"step","stage":"branch","message":"branched fix/rate-limit-retry from main"}
+{"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"check","command":"go test ./...","ok":false,"exit_code":1,"duration_ms":4210}
+{"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"phase_start","phase":"analyse","max_turns":40,"budget_usd":2}
+{"ts":"2025-03-04T09:12:11Z","tool":"fix","type":"turn","phase":"analyse","turn":1,"cost_usd":0.0412,"input_tokens":9120,"output_tokens":311}
+{"ts":"2025-03-04T09:12:19Z","tool":"fix","type":"tool_call","phase":"analyse","name":"read_file","blocked":false}
+{"ts":"2025-03-04T09:12:24Z","tool":"fix","type":"turn","phase":"analyse","turn":2,"cost_usd":0.0587,"input_tokens":11840,"output_tokens":402}
+{"ts":"2025-03-04T09:12:31Z","tool":"fix","type":"phase_end","phase":"analyse","stop_reason":"tool_terminate","turns":2,"cost_usd":0.0999,"duration_ms":25100}
+{"ts":"2025-03-04T09:12:46Z","tool":"fix","type":"heartbeat","stage":"analyse","elapsed_ms":45000,"cost_usd":0.0999}
+{"ts":"2025-03-04T09:13:02Z","tool":"fix","type":"warning","code":"no_verify_command","severity":"high","stage":"preflight","message":"no verification command could be determined"}
+{"ts":"2025-03-04T09:13:03Z","tool":"fix","type":"run_end","status":"failed","exit_code":1}
+```
 
 ---
 

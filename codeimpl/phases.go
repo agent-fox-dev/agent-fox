@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -220,23 +221,31 @@ func (b *agentBrain) RepairModel() string {
 	return ""
 }
 
-func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, agentrun.Result, error) {
-	var out sink[Submission]
+// implementPhase builds the per-task implement phase. Name stays the stable
+// cache key across every task; Task is the separate per-task label that
+// progress events carry.
+func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentrun.Phase {
 	programs, tools := b.writingPhase()
-
-	res, err := b.runner.Run(ctx, agentrun.Phase{
+	return agentrun.Phase{
 		Name:               PhaseImplement,
+		Task:               strconv.Itoa(in.Task.Id),
 		System:             implementSystemPrompt,
 		User:               taskPrompt(in),
 		Terminator:         ToolSubmitTask,
-		Custom:             []core.Tool{submitTaskTool(&out, in.Task)},
+		Custom:             []core.Tool{submitTaskTool(out, in.Task)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
 		Temperature:        0.2,
 		LoadProjectContext: true,
-	})
+	}
+}
+
+func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, agentrun.Result, error) {
+	var out sink[Submission]
+
+	res, err := b.runner.Run(ctx, b.implementPhase(in, &out))
 	if err != nil {
 		return Submission{}, res, err
 	}

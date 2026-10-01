@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/agent-fox-dev/agentfox/internal/checks"
 )
 
 // Progress writes human-readable progress to stderr.
@@ -22,6 +24,18 @@ type Progress struct {
 	verbose bool
 	quiet   bool
 	spin    *spinner
+	// events is the JSONL sink, nil or inactive unless --events jsonl or
+	// --events-file asked for one.
+	events *eventsSink
+	// showText mirrors --show-text: Raw writes (or emits a text event) only
+	// when it is set.
+	showText bool
+	// phase is the model phase now running, named on a text event.
+	phase string
+	// eventsOnStderr is set under --events jsonl: the JSONL stream is what
+	// stderr carries, so no human line is written beside it (a caller that
+	// parses stderr line by line must never meet prose).
+	eventsOnStderr bool
 }
 
 // NewProgress returns a Progress writing to w, prefixing each line with the
@@ -33,24 +47,86 @@ func NewProgress(w io.Writer, tool string, verbose, quiet bool) *Progress {
 	return &Progress{w: w, tool: tool, verbose: verbose, quiet: quiet}
 }
 
+// SetEvents attaches the JSONL sink Progress's methods emit through.
+func (p *Progress) SetEvents(s *eventsSink) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.events = s
+	p.mu.Unlock()
+}
+
+// SetEventsOnStderr records that stderr carries the JSONL stream (--events
+// jsonl), which replaces the human lines Step and Detail would write there.
+func (p *Progress) SetEventsOnStderr(on bool) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.eventsOnStderr = on
+	p.mu.Unlock()
+}
+
+// humanSuppressed reports whether stderr is given over to the JSONL stream.
+func (p *Progress) humanSuppressed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.eventsOnStderr
+}
+
+// SetShowText records whether --show-text was given. Raw does nothing
+// without it, under every --events value.
+func (p *Progress) SetShowText(on bool) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.showText = on
+	p.mu.Unlock()
+}
+
+// sink returns the attached sink when it is active, nil otherwise.
+func (p *Progress) sink() *eventsSink {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	s := p.events
+	p.mu.Unlock()
+	if s.Active() {
+		return s
+	}
+	return nil
+}
+
 // Verbose reports whether detailed tracing was asked for.
 func (p *Progress) Verbose() bool { return p != nil && p.verbose }
 
-// Step prints one line of progress.
-func (p *Progress) Step(format string, args ...any) {
-	if p == nil || p.quiet {
+// Step prints one line of progress. stage names the pipeline step in the
+// vocabulary Result.Stage and error.Stage use; it is never shown on the
+// human line, only carried on the step event under an active JSONL sink.
+func (p *Progress) Step(stage, format string, args ...any) {
+	if p == nil {
+		return
+	}
+	msg := strings.TrimSpace(fmt.Sprintf(format, args...))
+	if s := p.sink(); s != nil {
+		s.Emit(newStepEvent(stage, msg))
+	}
+	if p.quiet || p.humanSuppressed() {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stopSpinnerLocked()
-	fmt.Fprintf(p.w, "[%s] %s\n", p.tool, strings.TrimSpace(fmt.Sprintf(format, args...)))
+	fmt.Fprintf(p.w, "[%s] %s\n", p.tool, msg)
 }
 
 // Detail prints one line only under --verbose. It is indented, because a
 // detail line belongs to the step above it.
 func (p *Progress) Detail(format string, args ...any) {
-	if p == nil || !p.verbose || p.quiet {
+	if p == nil || !p.verbose || p.quiet || p.humanSuppressed() {
 		return
 	}
 	p.mu.Lock()
@@ -60,9 +136,24 @@ func (p *Progress) Detail(format string, args ...any) {
 }
 
 // Raw writes text with no prefix and no trailing newline. It is how a
-// model's own prose is streamed under --show-text.
+// model's own prose is streamed under --show-text; without --show-text it
+// does nothing. Under an active JSONL sink the prose becomes a text event
+// instead of being written.
 func (p *Progress) Raw(s string) {
-	if p == nil || p.quiet || s == "" {
+	if p == nil || s == "" {
+		return
+	}
+	p.mu.Lock()
+	show, phase := p.showText, p.phase
+	p.mu.Unlock()
+	if !show {
+		return
+	}
+	if sk := p.sink(); sk != nil {
+		sk.Emit(newTextEvent(phase, s))
+		return
+	}
+	if p.quiet {
 		return
 	}
 	p.mu.Lock()
@@ -74,9 +165,11 @@ func (p *Progress) Raw(s string) {
 // Begin starts a step that will take a while, returning the function that
 // ends it. Under --verbose the step is a plain line and the detail lines
 // beneath it are the progress; otherwise a spinner runs so an operator can
-// tell a ten-minute model call from a hang.
+// tell a ten-minute model call from a hang. Under an active JSONL sink it
+// prints nothing and returns a no-op: the spans it wraps already have
+// phase_start/phase_end or check events.
 func (p *Progress) Begin(format string, args ...any) func(summary string) {
-	if p == nil || p.quiet {
+	if p == nil || p.quiet || p.sink() != nil {
 		return func(string) {}
 	}
 	label := strings.TrimSpace(fmt.Sprintf(format, args...))
@@ -110,6 +203,57 @@ func (p *Progress) Begin(format string, args ...any) func(summary string) {
 		} else {
 			fmt.Fprintf(p.w, "%s\n", line)
 		}
+	}
+}
+
+// Check reports a finished verification command as a check event. It does
+// nothing without an active JSONL sink.
+func (p *Progress) Check(res checks.Result) {
+	if s := p.sink(); s != nil {
+		s.Emit(newCheckEvent(res.Command, res.OK, res.ExitCode, res.DurationMS))
+	}
+}
+
+// PhaseStart records the phase now running and emits phase_start.
+func (p *Progress) PhaseStart(phase, task string, maxTurns int, budgetUSD float64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.phase = phase
+	p.mu.Unlock()
+	if s := p.sink(); s != nil {
+		s.Emit(newPhaseStartEvent(phase, task, maxTurns, budgetUSD))
+	}
+}
+
+// PhaseEnd emits phase_end and forgets the current phase.
+func (p *Progress) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64) {
+	if p == nil {
+		return
+	}
+	if s := p.sink(); s != nil {
+		s.Emit(newPhaseEndEvent(phase, stopReason, turns, costUSD, durationMS))
+	}
+	p.mu.Lock()
+	p.phase = ""
+	p.mu.Unlock()
+}
+
+// Turn emits a turn event after a model turn.
+func (p *Progress) Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64) {
+	if s := p.sink(); s != nil {
+		s.Emit(newTurnEvent(phase, turn, costUSD, inputTokens, outputTokens))
+	}
+}
+
+// ToolCall emits a tool_call event, under --verbose only.
+func (p *Progress) ToolCall(phase, name string, blocked bool) {
+	if !p.Verbose() {
+		return
+	}
+	if s := p.sink(); s != nil {
+		s.Emit(newToolCallEvent(phase, name, blocked))
 	}
 }
 
