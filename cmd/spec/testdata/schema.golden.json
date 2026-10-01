@@ -853,6 +853,22 @@
                   "type": "string",
                   "description": "The package directory, once it exists.",
                   "x-trust": "fact"
+                },
+                "valid": {
+                  "type": "boolean",
+                  "description": "True when the package validates; absent when this run did not write it."
+                },
+                "error_count": {
+                  "type": "integer",
+                  "description": "How many validation errors the package has."
+                },
+                "open_questions_count": {
+                  "type": "integer",
+                  "description": "How many open questions the package's PRD recorded."
+                },
+                "trace_gaps": {
+                  "type": "integer",
+                  "description": "Criteria and paths no test covers plus tests no task owns."
                 }
               },
               "required": [

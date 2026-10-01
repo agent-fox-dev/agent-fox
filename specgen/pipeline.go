@@ -142,9 +142,15 @@ func (r Result) Summary() string {
 		totalQuestions += len(f.OpenQuestions)
 	}
 	if totalQuestions > 0 {
-		if totalQuestions == 1 {
+		switch {
+		case totalQuestions == 1:
 			parts = append(parts, "1 open question")
-		} else {
+		case len(r.FollowOnSpecs) > 0:
+			// result.open_questions is the first package's; the rest are
+			// counted per scope in split[].
+			parts = append(parts, fmt.Sprintf("%d open questions across %d packages (per package in split[])",
+				totalQuestions, 1+len(r.FollowOnSpecs)))
+		default:
 			parts = append(parts, fmt.Sprintf("%d open questions", totalQuestions))
 		}
 	}
@@ -228,6 +234,37 @@ type ScopeReport struct {
 	Status  string `json:"status" trust:"fact" description:"done, invalid, failed or pending."`
 	SpecID  string `json:"spec_id,omitempty" trust:"fact" description:"The spec identifier, once the package exists."`
 	SpecDir string `json:"spec_dir,omitempty" trust:"fact" description:"The package directory, once it exists."`
+	// The package's own state, so the summary view, which describes only the
+	// first package under result, still says whether every other one is
+	// ready. Absent for a scope this run did not write.
+	Valid              *bool `json:"valid,omitempty" description:"True when the package validates; absent when this run did not write it."`
+	ErrorCount         int   `json:"error_count,omitempty" description:"How many validation errors the package has."`
+	OpenQuestionsCount int   `json:"open_questions_count,omitempty" description:"How many open questions the package's PRD recorded."`
+	TraceGaps          int   `json:"trace_gaps,omitempty" description:"Criteria and paths no test covers plus tests no task owns."`
+}
+
+// setSplit records the split report and fills each written scope's state from
+// the package this run wrote for it.
+func (r *Result) setSplit(report []ScopeReport) {
+	pkgs := append([]Package{r.Package}, r.FollowOnSpecs...)
+	for i := range report {
+		if report[i].SpecDir == "" {
+			continue
+		}
+		for _, p := range pkgs {
+			if p.SpecDir != report[i].SpecDir {
+				continue
+			}
+			valid := p.Validation.Valid
+			report[i].Valid = &valid
+			report[i].ErrorCount = p.Validation.ErrorCount
+			report[i].OpenQuestionsCount = len(p.OpenQuestions)
+			report[i].TraceGaps = len(p.Traceability.CriteriaUncovered) +
+				len(p.Traceability.PathsUncovered) + len(p.Traceability.TestsUnowned)
+			break
+		}
+	}
+	r.Split = report
 }
 
 // ValidationReport is afspec's verdict, flattened for JSON.
@@ -532,7 +569,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			// run already over its ceiling stops here with the plan in place,
 			// so the next run on the same input resumes from this scope.
 			if spent := o.Run.CostUSD(); o.TotalBudgetUSD > 0 && spent >= o.TotalBudgetUSD {
-				result.Split = splitReport(root, specsDir, plan, -1)
+				result.setSplit(splitReport(root, specsDir, plan, -1))
 				if !o.DryRun && result.SplitPlan == "" {
 					result.SplitPlan = relativeTo(root, plan.Path(specsDir))
 				}
@@ -544,7 +581,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			prd, err = env.writePRD(ctx, &splitContext{Plan: plan, Index: i})
 			if err != nil {
-				result.Split = splitReport(root, specsDir, plan, i)
+				result.setSplit(splitReport(root, specsDir, plan, i))
 				return result, scoped(label, err)
 			}
 			// The plan names the package, not the model: a name the model
@@ -573,7 +610,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if err != nil {
 			var f *Failure
 			if !errors.As(err, &f) || f.Category != CategoryInvalid {
-				result.Split = splitReport(root, specsDir, plan, i)
+				result.setSplit(splitReport(root, specsDir, plan, i))
 				return result, err
 			}
 			invalid = append(invalid, pkg.SpecDir)
@@ -588,7 +625,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
-	result.Split = splitReport(root, specsDir, plan, -1)
+	result.setSplit(splitReport(root, specsDir, plan, -1))
 	if !o.DryRun {
 		if err := plan.remove(specsDir); err != nil {
 			o.Run.Warn(toolio.WarnSplitPlanNotRemoved, "low", "the split is complete and its plan could not be removed: %v", err)

@@ -11,18 +11,23 @@ type summaryValidation struct {
 	Errors     []ValidationItem `json:"errors,omitempty"`
 }
 
-// summaryTrace is TraceReport reduced to the gaps a caller would act on.
-// Dropped: criteria_covered and paths_covered (06-REQ-3.4).
+// summaryTrace is TraceReport reduced to the gaps a caller would act on, plus
+// the covered counts: without them a package with no gaps prints `{}`, which
+// looks the same as a trace nobody computed.
 type summaryTrace struct {
+	CriteriaCovered   int      `json:"criteria_covered"`
+	PathsCovered      int      `json:"paths_covered"`
 	CriteriaUncovered []string `json:"criteria_uncovered,omitempty" trust:"fact"`
 	PathsUncovered    []string `json:"paths_uncovered,omitempty" trust:"fact"`
 	TestsUnowned      []string `json:"tests_unowned,omitempty" trust:"fact"`
 }
 
 // summaryResult is the trimmed view of Result kept under --detail summary
-// (06-REQ-3.4). follow_on_specs and split_plan are dropped: split[] already
-// names every scope with its status, which is what a caller needs to know
-// whether to run spec again. Every other field of Result is still computed
+// (06-REQ-3.4). Everything under result but split[] describes the first
+// package of a split. follow_on_specs and split_plan are dropped: split[]
+// names every scope with its status and, for the packages this run wrote,
+// whether it validates, its error and open-question counts and its trace
+// gaps. Every other field of Result is still computed
 // exactly as under --detail full, and is still written in full to the
 // report file (06-REQ-3.5).
 type summaryResult struct {
@@ -60,6 +65,8 @@ func (r *Result) SummaryView() any {
 			Errors:     r.Validation.Errors,
 		},
 		Traceability: summaryTrace{
+			CriteriaCovered:   r.Traceability.CriteriaCovered,
+			PathsCovered:      r.Traceability.PathsCovered,
 			CriteriaUncovered: r.Traceability.CriteriaUncovered,
 			PathsUncovered:    r.Traceability.PathsUncovered,
 			TestsUnowned:      r.Traceability.TestsUnowned,

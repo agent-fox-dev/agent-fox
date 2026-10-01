@@ -1,6 +1,7 @@
 package specgen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -16,32 +17,38 @@ func findNext(ns []toolio.Next, tool string) []toolio.Next {
 	return out
 }
 
-// TS-06-32 (unit): spec suggests impl on the first written package that
-// validates (06-REQ-6.2).
-func TestTS06_32_NextSuggestsImplOnFirstValidPackage(t *testing.T) {
+// TS-06-32 (unit): spec suggests impl on every written package that
+// validates, in split order (06-REQ-6.2, widened by #57: the first package
+// alone left the rest of a split unmentioned).
+func TestTS06_32_NextSuggestsImplOnEveryValidPackage(t *testing.T) {
 	r := &Result{
 		Package: Package{SpecDir: ".specs/01_a", SpecID: "01_a"},
 		FollowOnSpecs: []Package{
 			{SpecDir: ".specs/02_b", SpecID: "02_b", Validation: ValidationReport{Valid: true}},
 			{SpecDir: ".specs/03_c", SpecID: "03_c", Validation: ValidationReport{Valid: true}},
+			{SpecDir: ".specs/04_d", SpecID: "04_d"},
 		},
 	}
 	impl := findNext(r.Next(), "impl")
-	if len(impl) != 1 {
-		t.Fatalf("impl entries = %+v, want exactly one", impl)
+	if len(impl) != 2 || impl[0].Input != ".specs/02_b" || impl[1].Input != ".specs/03_c" {
+		t.Fatalf("impl entries = %+v, want 02_b then 03_c", impl)
 	}
-	e := impl[0]
-	if e.Input != ".specs/02_b" {
-		t.Errorf("input = %q, want the first validating package's spec_dir", e.Input)
+	if !strings.Contains(impl[0].Why, "2 of this run's packages are ready") {
+		t.Errorf("why = %q, want the ready count", impl[0].Why)
 	}
-	if e.Why != "the package validates and is ready to implement" {
-		t.Errorf("why = %q", e.Why)
-	}
-	if e.Flags == nil || len(e.Flags) != 0 {
-		t.Errorf("flags = %#v, want a non-nil empty slice", e.Flags)
+	if impl[0].Flags == nil || len(impl[0].Flags) != 0 {
+		t.Errorf("flags = %#v, want a non-nil empty slice", impl[0].Flags)
 	}
 
-	// The first package, when it validates, is the one suggested.
+	// A single ready package keeps the plain reason.
+	r.FollowOnSpecs = r.FollowOnSpecs[:1]
+	r.Package.Validation.Valid = false
+	one := findNext(r.Next(), "impl")
+	if len(one) != 1 || one[0].Why != "the package validates and is ready to implement" {
+		t.Errorf("single ready package = %+v", one)
+	}
+
+	// The first package, when it validates, comes first.
 	r.Package.Validation.Valid = true
 	if got := findNext(r.Next(), "impl")[0].Input; got != ".specs/01_a" {
 		t.Errorf("input = %q, want .specs/01_a", got)
