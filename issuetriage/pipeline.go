@@ -52,41 +52,41 @@ type Options struct {
 // Result is what the tool reports as JSON.
 type Result struct {
 	// Action is what happened on the forge: created, updated, or none.
-	Action string `json:"action" description:"What happened on the forge: created, updated or none."`
+	Action string `json:"action" trust:"fact" description:"What happened on the forge: created, updated or none."`
 	// Repo is the repository the issue was filed in or would be.
-	Repo string `json:"repo,omitempty" description:"The repository the issue was filed in, or would be."`
+	Repo string `json:"repo,omitempty" trust:"fact" description:"The repository the issue was filed in, or would be."`
 	// URL and Number identify the issue, when one was written.
-	URL    string `json:"url,omitempty" description:"The URL of the issue, when one was written."`
+	URL    string `json:"url,omitempty" trust:"fact" description:"The URL of the issue, when one was written."`
 	Number int    `json:"number,omitempty" description:"The number of the issue, when one was written."`
 	// UpstreamURL is the issue the report was read from, when it was one.
-	UpstreamURL string `json:"upstream_url,omitempty" description:"The issue the report was read from, when it was one."`
+	UpstreamURL string `json:"upstream_url,omitempty" trust:"fact" description:"The issue the report was read from, when it was one."`
 
-	Title              string    `json:"title" description:"The issue title."`
-	Body               string    `json:"body" description:"The issue body as rendered."`
-	Severity           string    `json:"severity" description:"How severe the problem is."`
-	SeverityRationale  string    `json:"severity_rationale" description:"Why that severity."`
-	Confidence         string    `json:"confidence" description:"How confident the triage is in its diagnosis."`
-	Problem            string    `json:"problem" description:"What is wrong."`
-	Reproduction       string    `json:"reproduction" description:"How to reproduce it."`
-	RootCause          string    `json:"root_cause" description:"The root cause."`
-	RelatedInstances   []string  `json:"related_instances,omitempty" description:"Other places with the same problem."`
+	Title              string    `json:"title" trust:"model" description:"The issue title."`
+	Body               string    `json:"body" trust:"model" description:"The issue body as rendered."`
+	Severity           string    `json:"severity" trust:"model" description:"How severe the problem is."`
+	SeverityRationale  string    `json:"severity_rationale" trust:"model" description:"Why that severity."`
+	Confidence         string    `json:"confidence" trust:"model" description:"How confident the triage is in its diagnosis."`
+	Problem            string    `json:"problem" trust:"model" description:"What is wrong."`
+	Reproduction       string    `json:"reproduction" trust:"model" description:"How to reproduce it."`
+	RootCause          string    `json:"root_cause" trust:"model" description:"The root cause."`
+	RelatedInstances   []string  `json:"related_instances,omitempty" trust:"model" description:"Other places with the same problem."`
 	AffectedFiles      []FileRef `json:"affected_files" description:"The files the problem touches, each with its role."`
 	SuggestedFix       Fix       `json:"suggested_fix" description:"The proposed fix."`
-	AcceptanceCriteria []string  `json:"acceptance_criteria" description:"What a fix has to satisfy."`
-	Labels             []string  `json:"labels,omitempty" description:"The labels applied to the issue."`
+	AcceptanceCriteria []string  `json:"acceptance_criteria" trust:"model" description:"What a fix has to satisfy."`
+	Labels             []string  `json:"labels,omitempty" trust:"fact" description:"The labels applied to the issue."`
 
 	// RejectedPathCalls counts the file_issue calls refused for citing a
 	// path that is not in the workspace, and RejectedPaths names them. A
 	// nonzero count is the citation check working.
 	RejectedPathCalls int      `json:"rejected_path_calls" description:"How many file_issue calls were refused for citing a path that is not in the workspace."`
-	RejectedPaths     []string `json:"rejected_paths,omitempty" description:"The paths those calls cited."`
+	RejectedPaths     []string `json:"rejected_paths,omitempty" trust:"model" description:"The paths those calls cited."`
 
 	// DryRun records that no remote change was made.
 	DryRun bool `json:"dry_run,omitempty" description:"True when no remote change was made."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both.
-	Detail string `json:"detail" description:"Which view of this result was emitted: summary or full."`
+	Detail string `json:"detail" trust:"fact" description:"Which view of this result was emitted: summary or full."`
 }
 
 // SetDetail implements toolio.DetailedResult.

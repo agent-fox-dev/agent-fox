@@ -107,7 +107,7 @@
         "issuetriage/pipeline.go",
         "issuetriage/trust_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,

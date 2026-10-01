@@ -8,17 +8,17 @@ package issuetriage
 // (06-REQ-3.5) — this is a second, deliberately smaller view over the same
 // facts, not a replacement for them.
 type summaryResult struct {
-	Action            string   `json:"action"`
-	Repo              string   `json:"repo,omitempty"`
-	URL               string   `json:"url,omitempty"`
+	Action            string   `json:"action" trust:"fact"`
+	Repo              string   `json:"repo,omitempty" trust:"fact"`
+	URL               string   `json:"url,omitempty" trust:"fact"`
 	Number            int      `json:"number,omitempty"`
-	Title             string   `json:"title"`
-	Severity          string   `json:"severity"`
-	Confidence        string   `json:"confidence"`
-	AffectedFiles     []string `json:"affected_files"`
-	Labels            []string `json:"labels,omitempty"`
+	Title             string   `json:"title" trust:"model"`
+	Severity          string   `json:"severity" trust:"model"`
+	Confidence        string   `json:"confidence" trust:"model"`
+	AffectedFiles     []string `json:"affected_files" trust:"fact"`
+	Labels            []string `json:"labels,omitempty" trust:"fact"`
 	RejectedPathCalls int      `json:"rejected_path_calls"`
-	Detail            string   `json:"detail"`
+	Detail            string   `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable.
