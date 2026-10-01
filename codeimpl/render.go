@@ -134,7 +134,8 @@ func pullRequestBody(r *Result) string {
 
 	if r.Repair != nil && r.Repair.Outcome == OutcomeDone && r.Repair.Submission != nil {
 		p("## The checks were repaired first\n\n")
-		p("They failed before any change, and `%s` restores them", r.Repair.Commit)
+		p("**This is a baseline repair, not part of the specification.** The checks failed on the base "+
+			"branch before any task ran, and `%s` restores them", r.Repair.Commit)
 		if r.Repair.Model != "" {
 			p(" (repaired on %s)", r.Repair.Model)
 		}
@@ -142,6 +143,11 @@ func pullRequestBody(r *Result) string {
 			strings.TrimSpace(r.Repair.Submission.Summary))
 		if strings.TrimSpace(r.Repair.Submission.Notes) != "" {
 			p("**Notes:** %s\n\n", strings.TrimSpace(r.Repair.Submission.Notes))
+		}
+		if stat := strings.TrimSpace(r.Repair.DiffStat); stat != "" {
+			p("What the repair changed, from git:\n\n```\n%s\n```\n\n", stat)
+		} else if len(r.Repair.ChangedFiles) > 0 {
+			p("Files the repair changed, from git: `%s`\n\n", strings.Join(r.Repair.ChangedFiles, "`, `"))
 		}
 	}
 

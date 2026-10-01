@@ -884,6 +884,7 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 	}
 	report.Commit = commit
 	report.Outcome = OutcomeDone
+	report.Verdict, result.Verdict = VerdictBaselineRepaired, VerdictBaselineRepaired
 	// The green gate is what the first task is compared with. The result
 	// keeps the red one as the run's baseline, which is the truth about
 	// where the branch started.

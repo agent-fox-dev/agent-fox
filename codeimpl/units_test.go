@@ -507,3 +507,21 @@ func TestCodeimplResultSummary(t *testing.T) {
 		t.Errorf("got %q, want %q", rRepair.Summary(), wantRepair)
 	}
 }
+
+func TestPullRequestBodySeparatesTheBaselineRepairFromTheSpec(t *testing.T) {
+	r := &Result{
+		SpecDir: ".specs/10_x", Title: "X", TasksTotal: 1, TasksDone: 1,
+		Repair: &RepairReport{
+			Outcome: OutcomeDone, Commit: "2dd5ede", Verdict: VerdictBaselineRepaired,
+			DiffStat:   " cmd/fix/testdata/schema.golden.json | 4 ++--\n 1 file changed",
+			Submission: &RepairSubmission{Cause: "goldens were stale", Summary: "regenerated"},
+		},
+	}
+	body := pullRequestBody(r)
+	for _, want := range []string{"baseline repair, not part of the specification", "2dd5ede",
+		"goldens were stale", "schema.golden.json | 4 ++--"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the PR body lacks %q:\n%s", want, body)
+		}
+	}
+}
