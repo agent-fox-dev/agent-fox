@@ -997,26 +997,84 @@ comments are in the report file. A passing run's envelope is under 3 KB.
 
 ### What the model may and may not do
 
-The implementation phase has the file tools and a shell. On top of AgentKit's
-program allowlist:
+The phases that run commands give the model one `execute` tool. A guard sits
+between it and the shell, on top of AgentKit's own restricted policy, and every
+phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 
-- **git is read-only.** `status`, `log`, `diff`, `show`, `blame`, `rev-parse`,
-  `ls-files`, `grep`, `cat-file`, `describe`, `branch --list`, `remote -v`,
-  `config --get` and a few more. The branch, the commit and the push belong to
-  the tool, so "committed as `abc123`" means one thing.
-- **`gh` is refused outright**, so every write to the issue goes through the
-  audited path.
-- **`find -exec` and `-delete` are refused**, because they turn `find` into a
-  write tool.
-- Every simple command on a line is checked, not only the first: `ls; git push`
-  is two commands, and `GIT_AUTHOR_NAME=x git push` does not hide the program.
+**Allowlists, per phase.** A command whose program is not on the phase's list is
+refused. The lists are generated from the same source the guard enforces, so the
+`execute` tool description the model sees names them.
 
-A refusal is a blocked tool result, so the model adapts rather than dying, and
-the count is reported per phase.
+| Phase | Programs |
+|---|---|
+| read-only (`fix` analyse, `impl` survey) | `git`, `ls`, `cat`, `head`, `tail`, `wc`, `rg`, `grep`, `file`, `echo`, `printf`, `pwd`, `true`, `test`, `du` |
+| implementing (`fix` implement, `impl` task and repair) | the read-only list plus `go`, `gofmt`, `goimports`, `make`, `npm`, `npx`, `node`, `yarn`, `pnpm`, `python`, `python3`, `pytest`, `uv`, `pip`, `cargo`, `rustfmt`, `mkdir`, `cp`, `mv`, `sed`, `awk`, `diff`, `sort`, `uniq`, `touch`, the verification command's own program, and whatever `--allow` adds |
+
+`find` is on neither: `find_files` covers the reading, and `-exec`, `-execdir`,
+`-ok`, `-okdir`, `-delete` and the `-fprint*` family are refused for a phase that
+adds `find` back with `--allow`. `env`, `rm` and `perl` are on neither either:
+they run any program, delete, or run any code.
+
+**Operators.** A read-only phase gets no shell operators: pipes, redirection,
+`&&`, `;` and `$(...)` are refused, so it runs one program per call. An
+implementing phase may use them.
+
+**Every command on a line is judged**, not only the first: `ls; git push` is two
+commands, and an environment assignment in front of a program
+(`GIT_AUTHOR_NAME=x git push`) does not hide it.
+
+**git is read-only.** `status`, `log`, `diff`, `show`, `blame`, `rev-parse`,
+`rev-list`, `ls-files`, `ls-tree`, `grep`, `cat-file`, `describe`, `shortlog`,
+`name-rev`, `branch` (listing only), `remote -v` and `config --get`. `-c`,
+`--config-env` and `--exec-path` are refused, because they make git run a
+program of the model's choosing. The branch, the commit and the push belong to
+the tool, so "committed as `abc123`" means one thing. **`gh` is refused
+outright**, so every write to an issue goes through the audited path.
+
+**Leading `cd`.** The shell already starts at the repository root, so a leading
+`cd <dir> &&` (or `;`, or a newline) is ignored when `<dir>` is a plain word that
+resolves inside the workspace. `cd /etc && ls`, `cd $X && ls` and a `cd` that is
+not first are still refused.
+
+**Heredocs.** The lines between `<<DELIM` and the line that is `DELIM` are data,
+not commands, and are skipped. A quoted delimiter (`<<'EOF'`) makes the body
+inert. An unquoted one still expands `$(...)` and backticks, so those are judged
+as commands of their own; when the body holds an expansion the scanner cannot
+delimit with certainty (a `case` statement, a comment, a nested heredoc, an
+unterminated one), the body is not skipped and its lines are read as commands,
+which is the safe direction. A `#` at the start of a word comments out the rest
+of the line, `<<` included, and `<<` inside `((...))` or `$((...))` is a shift,
+not a heredoc. The model is still told to write multi-line files with
+`write_file`, not a heredoc.
+
+**Paths in a read-only phase.** The shell is held to the workspace like the file
+tools: for `cat`, `head`, `tail`, `wc`, `ls`, `file`, `du`, `rg`, `grep`, `tree`
+and `stat`, an operand that is absolute, starts with `~` or `$`, or climbs with
+`..` is resolved (symlinks included) and refused when it lands outside. The
+pattern operand of `grep` and `rg` is not a path and is skipped. An implementing
+phase is not held to this, because a build legitimately reads outside the
+repository.
+
+**Files.** `write_file` and `edit_file` are refused in a read-only phase and for
+any path under a protected directory (the spec package, in `impl`). The file
+tools resolve every path against the workspace, so a path outside it, `/tmp`
+included, is refused.
+
+**The refusal.** A refusal is a blocked tool result, so the model adapts rather
+than dying. It is one message that names every problem on the line, git and
+allowlist together, and says what would have been accepted:
+`programs not allowed: curl, wget. Allowed: cat, git, ls, ….` The `write_file`
+hint is added only when the command tried to write a file by heredoc or
+redirection. Refusals from AgentKit's floor policy are restated in the same
+shape. Under `--verbose` a refusal is printed once, as
+`blocked <tool>: <reason>`, with one `tool_call` event flagged blocked; the count
+is `blocked_calls` on the phase in `usage.phases[]`, and is not counted again as
+a tool error.
 
 This is a classifier over shell syntax, not a sandbox. `go`, `make` and `uv`
-can run arbitrary code from the repository. Anything genuinely untrusted
-belongs in a container.
+can run arbitrary code from the repository, and a construct the scanner does not
+understand yields a fragment that looks like a program name and is refused.
+Anything genuinely untrusted belongs in a container.
 
 ---
 
@@ -1466,8 +1524,9 @@ and the `repair` report are in the report file.
 
 The survey phase is read-only, with `execute` under the reporting allowlist.
 The implementation and repair phases have the file tools and a shell under the
-same guard as `fix`'s — `git` read-only, `gh` refused, `find -exec` refused —
-with one addition: `write_file` and `edit_file` refuse any path under the spec
+same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
+allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one
+addition: `write_file` and `edit_file` refuse any path under the spec
 package, so "do not modify the spec" is a refusal rather than a request. A
 change that reaches the package through the shell anyway is reverted before
 the gate runs, with a warning. The task's state, the commit, the push and the

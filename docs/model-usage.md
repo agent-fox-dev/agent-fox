@@ -29,7 +29,9 @@ one's *conclusion* rather than from how it got there.
 The "four read tools" are `read_file`, `list_files`, `find_files` and
 `search_files`. The build allowlist is the read-only one plus the toolchains
 (`go`, `make`, `npm`, `python`, `cargo`, …), the verification command's own
-program, and whatever `--allow` adds.
+program, and whatever `--allow` adds. The exact lists, the heredoc and `cd`
+handling and the refusal format are in the
+[tool reference](cli.md#what-the-model-may-and-may-not-do).
 
 `max_tokens` is an upper bound, clamped to the resolved model's own ceiling.
 Temperature is 0.2 everywhere, because every phase produces a structured
