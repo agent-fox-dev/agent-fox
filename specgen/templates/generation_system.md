@@ -41,7 +41,7 @@ prefix of the ids you write.
 }
 ```
 
-`external_apis` is optional. There is no `correctness_properties` array (a property is a `ubiquitous` criterion verified by a `property` test) and no `error_handling` array (an error case is an `unwanted` criterion with a `contract`).
+`external_apis` is optional. Your file tools cannot read outside the repository, so a package whose source you cannot reach there is recorded with `"verified": false` and the signatures the PRD gives; set `"verified": true` only for symbols whose source you read. Do not retry a path the tools refused. There is no `correctness_properties` array (a property is a `ubiquitous` criterion verified by a `property` test) and no `error_handling` array (an error case is an `unwanted` criterion with a `contract`).
 
 ### test_spec.json
 
