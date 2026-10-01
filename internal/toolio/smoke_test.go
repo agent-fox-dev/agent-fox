@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
+	"github.com/agent-fox-dev/agentfox/internal/schematest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -2787,4 +2789,706 @@ func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
 	if env.Model != nil {
 		t.Errorf("a model was resolved (%+v) before the refusal", *env.Model)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 11_preflight_checks: the four execution paths, end to end.
+//
+// Each test runs twice over the same scenario. "in-process" drives toolio.App
+// with the tool's real pipeline functions (Run, RunPreflight and everything
+// they call) and a scripted model that records every request it is sent.
+// "binary" builds the real cmd/<tool> and runs it as a process against a
+// stand-in model API that counts every request, which is what catches a hook
+// the production main forgot to wire. Neither may ever see a model request.
+// ---------------------------------------------------------------------------
+
+// smokeFauxRunner builds the Runner a tool's closures hand to the pipeline: a
+// faux provider with no script, so any request it receives is a bug the test
+// reports through p.Requests().
+func smokeFauxRunner(d toolio.Deps, prefix string, p **faux.Provider) (*agentrun.Runner, error) {
+	fp := faux.New()
+	*p = fp
+	return agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: fp.APIProvider()},
+		Workspace:     d.Workspace,
+		Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 1, MaxAttempts: 1},
+		Observer:      d.Progress,
+		SessionPrefix: prefix,
+	})
+}
+
+// smokeExit maps a pipeline's (result, error) the way every cmd/<tool> does,
+// handing the shell an untyped nil when the pipeline returned no result.
+func smokeExit[T any](r *T, err error) (int, any, *toolio.ErrorInfo) {
+	var res any
+	if r != nil {
+		res = r
+	}
+	if err != nil {
+		info := toolio.ErrorFrom("run", err)
+		return toolio.ExitCodeFor(info.Category), res, info
+	}
+	return toolio.ExitOK, res, nil
+}
+
+func smokeRunnerFailed(err error) (int, any, *toolio.ErrorInfo) {
+	return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
+}
+
+// smokeBranches lists the local branches of a repository.
+func smokeBranches(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "branch", "--format=%(refname:short)").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// smokeMain runs one app invocation and decodes its single envelope.
+func smokeMain(t *testing.T, app toolio.App, args ...string) (int, map[string]any) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
+	var env map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not one JSON envelope: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	return code, env
+}
+
+// smokeModelAPI is a stand-in for the model vendor's API that answers every
+// request with an error and counts them. A --preflight run must leave the
+// count at zero.
+func smokeModelAPI(t *testing.T) (string, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "no model call is expected", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &calls
+}
+
+// smokeRunBinary runs a built tool in dir with exactly env, and decodes the one
+// JSON object it must write to stdout.
+func smokeRunBinary(t *testing.T, bin, dir string, env []string, args ...string) (int, map[string]any) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	cmd.Env = env
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("%s %v: %v", filepath.Base(bin), args, err)
+		}
+		code = ee.ExitCode()
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("%s %v: stdout is not a JSON object: %v\nstdout: %s\nstderr: %s", filepath.Base(bin), args, err, stdout.String(), stderr.String())
+	}
+	return code, doc
+}
+
+// smokeBinaryEnv is the whole environment of a tool process: a model
+// credential, the stand-in API as the model endpoint, and nothing else.
+func smokeBinaryEnv(t *testing.T, apiURL string, extra ...string) []string {
+	t.Helper()
+	return append([]string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + t.TempDir(),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"ANTHROPIC_API_KEY=test-key",
+		"ANTHROPIC_BASE_URL=" + apiURL,
+	}, extra...)
+}
+
+// smokeResult is the envelope's result object, failing the test when there is none.
+func smokeResult(t *testing.T, env map[string]any) map[string]any {
+	t.Helper()
+	res, ok := env["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("the envelope has no result object: %v", env)
+	}
+	return res
+}
+
+// smokeChecklist returns the names of result.preflight, in order.
+func smokeChecklist(t *testing.T, res map[string]any) []string {
+	t.Helper()
+	list, ok := res["preflight"].([]any)
+	if !ok || len(list) == 0 {
+		t.Fatalf("result.preflight is missing or empty: %v", res)
+	}
+	var names []string
+	for _, e := range list {
+		m, _ := e.(map[string]any)
+		name, _ := m["check"].(string)
+		names = append(names, name)
+	}
+	return names
+}
+
+func smokeHas(names []string, want ...string) bool {
+	for _, w := range want {
+		found := false
+		for _, n := range names {
+			found = found || n == w
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// smokeFixPreflightApp is fix wired the way cmd/fix wires it: one options
+// builder shared by Exec (codefix.Run) and PreflightExec (codefix.RunPreflight).
+func smokeFixPreflightApp(p **faux.Provider) toolio.App {
+	opts := func(d toolio.Deps, r *agentrun.Runner) codefix.Options {
+		return codefix.Options{
+			Input:         d.Input,
+			Workspace:     d.Workspace,
+			Land:          codefix.LandNone,
+			DryRun:        d.Common.DryRun,
+			VerifyCommand: "true",
+			Runner:        r,
+			Forge:         d.Forge,
+			CheckRunner:   gitx.ReducedEnvRunner,
+			Run:           d.Run,
+			Progress:      d.Progress,
+		}
+	}
+	return toolio.App{
+		Name:    "fix",
+		Version: agentfox.Version,
+		Usage:   "fix [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			r, err := smokeFauxRunner(d, "fix", p)
+			if err != nil {
+				return smokeRunnerFailed(err)
+			}
+			return smokeExit(codefix.Run(ctx, opts(d, r)))
+		},
+		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			r, err := smokeFauxRunner(d, "fix", p)
+			if err != nil {
+				return smokeRunnerFailed(err)
+			}
+			return smokeExit(codefix.RunPreflight(ctx, opts(d, r)))
+		},
+	}
+}
+
+// smokeAssertSameRefusal checks that the --preflight envelope refuses exactly as
+// the ordinary one does: same exit code, status and error object, byte for byte,
+// and no checklist or estimate in a refusal.
+func smokeAssertSameRefusal(t *testing.T, codeA int, envA map[string]any, codeB int, envB map[string]any) {
+	t.Helper()
+	if codeA != toolio.ExitUsage {
+		t.Errorf("the ordinary run exited %d, want the usage code %d: %v", codeA, toolio.ExitUsage, envA)
+	}
+	if codeA != codeB {
+		t.Errorf("exit code %d without --preflight, %d with", codeA, codeB)
+	}
+	a, _ := json.Marshal(envA["error"])
+	b, _ := json.Marshal(envB["error"])
+	if string(a) == "null" || len(a) == 0 {
+		t.Fatalf("the ordinary run carries no error object: %v", envA)
+	}
+	if !bytes.Equal(a, b) {
+		t.Errorf("error objects differ:\n  fix:             %s\n  fix --preflight: %s", a, b)
+	}
+	if envA["status"] != envB["status"] {
+		t.Errorf("status = %v without --preflight, %v with", envA["status"], envB["status"])
+	}
+	if res, ok := envB["result"].(map[string]any); ok {
+		for _, k := range []string{"preflight", "estimate"} {
+			if _, has := res[k]; has {
+				t.Errorf("a refused --preflight run carries result.%s: %v", k, res)
+			}
+		}
+	}
+}
+
+// TS-11-50 (smoke): A caller learns a fix run would refuse on a dirty tree, before any model call, through the real CLI shell
+// Verifies: 11-PATH-1, 11-REQ-4.1, 11-REQ-4.2
+// Real components: toolio.App, codefix.RunPreflight, codefix.Preflight, internal/gitx.Git, the built cmd/fix
+func TestTS1150_FixPreflightRefusesADirtyTreeBeforeAnyModelCall_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	dirtyRepo := func(t *testing.T) string {
+		dir := smokeWidgetRepo(t, "")
+		if err := os.WriteFile(filepath.Join(dir, "widget.go"), []byte("package widget\nfunc Count() int { return 3 }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	t.Run("in-process", func(t *testing.T) {
+		dir := dirtyRepo(t)
+		var p *faux.Provider
+		app := smokeFixPreflightApp(&p)
+		args := []string{"--dir", dir, "the counter double-counts"}
+
+		codeA, envA := smokeMain(t, app, args...)
+		codeB, envB := smokeMain(t, app, append([]string{"--preflight"}, args...)...)
+		smokeAssertSameRefusal(t, codeA, envA, codeB, envB)
+
+		if n := len(p.Requests()); n != 0 {
+			t.Errorf("the model was sent %d requests", n)
+		}
+		if got := smokeBranches(t, dir); got != "main" {
+			t.Errorf("branches = %q, want only main", got)
+		}
+	})
+
+	t.Run("binary", func(t *testing.T) {
+		bin := schematest.Build(t, "fix")
+		dir := dirtyRepo(t)
+		api, calls := smokeModelAPI(t)
+		env := smokeBinaryEnv(t, api)
+		args := []string{"--dir", dir, "--land", "none", "--verify", "true", "the counter double-counts"}
+
+		codeA, envA := smokeRunBinary(t, bin, dir, env, args...)
+		codeB, envB := smokeRunBinary(t, bin, dir, env, append([]string{"--preflight"}, args...)...)
+		smokeAssertSameRefusal(t, codeA, envA, codeB, envB)
+
+		if n := calls.Load(); n != 0 {
+			t.Errorf("the model API received %d requests", n)
+		}
+		if got := smokeBranches(t, dir); got != "main" {
+			t.Errorf("branches = %q, want only main", got)
+		}
+	})
+}
+
+// smokeImplRepo makes a clean repository on main holding the active v2 example
+// package as .specs/09_agent_mode with pending tasks and test commands that
+// resolve to a Makefile whose targets pass, so the baseline gate passes.
+func smokeImplRepo(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	initGitRepo(t, dir, "", "")
+	put := func(path string, body []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(filepath.Join(dir, "go.mod"), []byte("module x\n"))
+	put(filepath.Join(dir, "Makefile"), []byte("test:\n\t@exit 0\nlint:\n\t@exit 0\n"))
+
+	specDir := filepath.Join(dir, ".specs", "09_agent_mode")
+	src := filepath.Join(findWorkspaceRoot(t), "testdata", "v2_example")
+	for _, name := range []string{"prd.md", "requirements.json", "test_spec.json", "tasks.json"} {
+		b, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "tasks.json" {
+			var doc map[string]any
+			if err := json.Unmarshal(b, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc["test_commands"] = map[string]any{"all_tests": "make test", "linter": "make lint"}
+			if b, err = json.MarshalIndent(doc, "", "  "); err != nil {
+				t.Fatal(err)
+			}
+		}
+		put(filepath.Join(specDir, name), b)
+	}
+	spec, err := afspec.LoadSpec(specDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spec.Transition("active", specDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, argv := range [][]string{
+		{"git", "-C", dir, "add", "-A"},
+		{"git", "-C", dir, "commit", "-q", "-m", "chore: initial commit"},
+	} {
+		if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", argv, err, out)
+		}
+	}
+	return dir, specDir
+}
+
+// smokeAssertImplPreflight checks a passed impl --preflight envelope.
+func smokeAssertImplPreflight(t *testing.T, code int, env map[string]any) {
+	t.Helper()
+	if code != toolio.ExitOK || env["ok"] != true {
+		t.Fatalf("code = %d, want 0; envelope: %v", code, env)
+	}
+	res := smokeResult(t, env)
+	if res["stage"] != "preflight" {
+		t.Errorf("result.stage = %v, want preflight", res["stage"])
+	}
+	names := smokeChecklist(t, res)
+	if !smokeHas(names, "git_repository", "clean_tree", "spec_resolved", "branch", "spec_valid", "verify_baseline") {
+		t.Errorf("result.preflight = %v lacks an expected check", names)
+	}
+	est, ok := res["estimate"].(map[string]any)
+	if !ok {
+		t.Fatalf("result.estimate is missing: %v", res)
+	}
+	if phases, _ := est["phases"].(float64); phases < 1 {
+		t.Errorf("estimate.phases = %v, want at least the pending tasks", est["phases"])
+	}
+	if turns, _ := est["max_turns_per_phase"].(float64); turns < 1 {
+		t.Errorf("estimate.max_turns_per_phase = %v", est["max_turns_per_phase"])
+	}
+	if total, _ := est["max_total_usd"].(float64); total <= 0 {
+		t.Errorf("estimate.max_total_usd = %v", est["max_total_usd"])
+	}
+	if _, has := env["usage"]; has {
+		t.Errorf("the envelope carries usage although no phase ran: %v", env["usage"])
+	}
+}
+
+// TS-11-51 (smoke): A caller confirms an impl run would proceed and reads its estimate, through the real CLI shell, before spending anything
+// Verifies: 11-PATH-2, 11-REQ-5.2, 11-REQ-5.5
+// Real components: toolio.App, codeimpl.RunPreflight, internal/gitx.Git, afspec.LoadSpec, the built cmd/impl
+func TestTS1151_ImplPreflightConfirmsTheRunAndReportsItsEstimate_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	t.Run("in-process", func(t *testing.T) {
+		dir, specDir := smokeImplRepo(t)
+		var p *faux.Provider
+		app := toolio.App{
+			Name:          "impl",
+			Version:       agentfox.Version,
+			Usage:         "impl [flags] <spec>\n",
+			DefaultBounds: agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5},
+		}
+		opts := func(d toolio.Deps, r *agentrun.Runner) codeimpl.Options {
+			return codeimpl.Options{
+				Input:       d.Input,
+				Workspace:   d.Workspace,
+				Land:        codeimpl.LandNone,
+				DryRun:      d.Common.DryRun,
+				Runner:      r,
+				Forge:       d.Forge,
+				CheckRunner: gitx.ReducedEnvRunner,
+				Run:         d.Run,
+				Progress:    d.Progress,
+			}
+		}
+		app.Exec = func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			r, err := smokeFauxRunner(d, "impl", &p)
+			if err != nil {
+				return smokeRunnerFailed(err)
+			}
+			return smokeExit(codeimpl.Run(ctx, opts(d, r)))
+		}
+		app.PreflightExec = func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			r, err := smokeFauxRunner(d, "impl", &p)
+			if err != nil {
+				return smokeRunnerFailed(err)
+			}
+			return smokeExit(codeimpl.RunPreflight(ctx, opts(d, r)))
+		}
+
+		before := smokeBranches(t, dir)
+		code, env := smokeMain(t, app, "--preflight", "--dir", dir, specDir)
+		smokeAssertImplPreflight(t, code, env)
+		if n := len(p.Requests()); n != 0 {
+			t.Errorf("the model was sent %d requests", n)
+		}
+		if got := smokeBranches(t, dir); got != before {
+			t.Errorf("branches = %q, want %q: --preflight created one", got, before)
+		}
+	})
+
+	t.Run("binary", func(t *testing.T) {
+		bin := schematest.Build(t, "impl")
+		dir, specDir := smokeImplRepo(t)
+		api, calls := smokeModelAPI(t)
+		env := smokeBinaryEnv(t, api)
+
+		before := smokeBranches(t, dir)
+		code, doc := smokeRunBinary(t, bin, dir, env, "--preflight", "--dir", dir, "--land", "none", specDir)
+		smokeAssertImplPreflight(t, code, doc)
+		if n := calls.Load(); n != 0 {
+			t.Errorf("the model API received %d requests", n)
+		}
+		if got := smokeBranches(t, dir); got != before {
+			t.Errorf("branches = %q, want %q: --preflight created one", got, before)
+		}
+	})
+}
+
+// smokeSpecDirEntries lists a directory's entry names, or nothing when it is absent.
+func smokeSpecDirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// smokeAssertSpecPreflight checks a passed spec --preflight envelope against a
+// split plan with two pending scopes: one package is four phases, so eight.
+func smokeAssertSpecPreflight(t *testing.T, code int, env map[string]any) {
+	t.Helper()
+	if code != toolio.ExitOK || env["ok"] != true {
+		t.Fatalf("code = %d, want 0; envelope: %v", code, env)
+	}
+	res := smokeResult(t, env)
+	if names := smokeChecklist(t, res); !smokeHas(names, "schemas_valid", "split_plan") {
+		t.Errorf("result.preflight = %v, want schemas_valid and split_plan", names)
+	}
+	est, ok := res["estimate"].(map[string]any)
+	if !ok {
+		t.Fatalf("result.estimate is missing: %v", res)
+	}
+	if est["phases"] != float64(len(afspec.GenerationSteps)+1)*2 {
+		t.Errorf("estimate.phases = %v, want %d (one package's phases x 2 pending scopes)", est["phases"], (len(afspec.GenerationSteps)+1)*2)
+	}
+	if _, has := env["usage"]; has {
+		t.Errorf("the envelope carries usage although no phase ran: %v", env["usage"])
+	}
+}
+
+// TS-11-52 (smoke): spec --preflight resumes a real split plan and reports a phase estimate multiplied by the pending scope count
+// Verifies: 11-PATH-3, 11-REQ-5.3, 11-REQ-5.5
+// Real components: toolio.App, specgen.RunPreflight, specgen.Preflight, afspec split plan, the built cmd/spec
+func TestTS1152_SpecPreflightResumesASplitPlanAndMultipliesTheEstimate_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(specgen.SpecDirEnv, "")
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	if err := os.WriteFile(filepath.Join(wsDir, "go.mod"), []byte("module example.com/widgets\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(wsDir, "docs", "drafts", "widgets.md")
+	if err := os.MkdirAll(filepath.Dir(draft), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(draft, []byte("widgets: a model, a store, and the switch-over\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	specs := filepath.Join(wsDir, ".specs")
+
+	// A real ordinary run records the split plan: three scopes, a total-budget
+	// ceiling that stops it after the first, so two stay pending.
+	split := []map[string]any{
+		{"name": "widget_core", "scope": "The widget model and its loader."},
+		{"name": "widget_github", "scope": "The GitHub-backed widget store."},
+		{"name": "widget_adopt", "scope": "Switching the tools over to the new store."},
+	}
+	var p1 *faux.Provider
+	first := smokeSpecApp(t, smokeSpecTurns(t, "01", "widget_core", 0.10, split), &p1)
+	var out1, err1 bytes.Buffer
+	if code := first.Main(context.Background(), []string{"--dir", wsDir, "--total-budget", "0.3", draft}, strings.NewReader(""), &out1, &err1); code == toolio.ExitOK {
+		t.Fatalf("the setup run should stop at the ceiling; stdout:\n%s", out1.String())
+	}
+	plan := filepath.Join(specs, "widget_core"+specgen.SplitPlanSuffix)
+	if _, err := os.Stat(plan); err != nil {
+		t.Fatalf("the setup run left no split plan: %v", err)
+	}
+	before := smokeSpecDirEntries(t, specs)
+
+	t.Run("in-process", func(t *testing.T) {
+		var p *faux.Provider
+		opts := func(d toolio.Deps, r *agentrun.Runner) specgen.Options {
+			return specgen.Options{
+				Input:          d.Input,
+				Workspace:      d.Workspace,
+				Activate:       true,
+				DryRun:         d.Common.DryRun,
+				TotalBudgetUSD: d.Common.TotalBudgetUSD,
+				Runner:         r,
+				Forge:          d.Forge,
+				Run:            d.Run,
+				Progress:       d.Progress,
+			}
+		}
+		app := toolio.App{
+			Name:        "spec",
+			Version:     agentfox.Version,
+			Usage:       "spec [flags] <input>\n",
+			SinglePhase: true,
+			Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				r, err := smokeFauxRunner(d, "spec", &p)
+				if err != nil {
+					return smokeRunnerFailed(err)
+				}
+				return smokeExit(specgen.Run(ctx, opts(d, r)))
+			},
+			PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				r, err := smokeFauxRunner(d, "spec", &p)
+				if err != nil {
+					return smokeRunnerFailed(err)
+				}
+				return smokeExit(specgen.RunPreflight(ctx, opts(d, r)))
+			},
+		}
+		code, env := smokeMain(t, app, "--preflight", "--dir", wsDir, draft)
+		smokeAssertSpecPreflight(t, code, env)
+		if n := len(p.Requests()); n != 0 {
+			t.Errorf("the model was sent %d requests", n)
+		}
+		if after := smokeSpecDirEntries(t, specs); strings.Join(after, ",") != strings.Join(before, ",") {
+			t.Errorf("%s holds %v after --preflight, was %v: a package was written", specs, after, before)
+		}
+	})
+
+	t.Run("binary", func(t *testing.T) {
+		bin := schematest.Build(t, "spec")
+		api, calls := smokeModelAPI(t)
+		env := smokeBinaryEnv(t, api)
+		code, doc := smokeRunBinary(t, bin, wsDir, env, "--preflight", "--dir", wsDir, draft)
+		smokeAssertSpecPreflight(t, code, doc)
+		if n := calls.Load(); n != 0 {
+			t.Errorf("the model API received %d requests", n)
+		}
+		if after := smokeSpecDirEntries(t, specs); strings.Join(after, ",") != strings.Join(before, ",") {
+			t.Errorf("%s holds %v after --preflight, was %v: a package was written", specs, after, before)
+		}
+	})
+}
+
+// smokeAssertIssuePreflight checks a passed issue --preflight envelope.
+func smokeAssertIssuePreflight(t *testing.T, code int, env map[string]any) {
+	t.Helper()
+	if code != toolio.ExitOK || env["ok"] != true {
+		t.Fatalf("code = %d, want 0; envelope: %v", code, env)
+	}
+	res := smokeResult(t, env)
+	list, _ := res["preflight"].([]any)
+	var target string
+	for _, e := range list {
+		if m, _ := e.(map[string]any); m["check"] == "target_repository" {
+			target, _ = m["detail"].(string)
+		}
+	}
+	if !strings.Contains(target, "acme/widgets") {
+		t.Errorf("target_repository detail = %q, want the origin remote's acme/widgets (checklist %v)", target, list)
+	}
+	if names := smokeChecklist(t, res); !smokeHas(names, "target_repository", "forge_credential") {
+		t.Errorf("result.preflight = %v, want target_repository and forge_credential", names)
+	}
+	if res["action"] == "created" || res["url"] != nil {
+		t.Errorf("--preflight reports an issue written: %v", res)
+	}
+	if est, ok := res["estimate"].(map[string]any); !ok || est["phases"] != float64(1) {
+		t.Errorf("result.estimate = %v, want one phase", res["estimate"])
+	}
+}
+
+// TS-11-53 (smoke): issue --preflight reports the resolved target repository through the real CLI shell without writing to the forge
+// Verifies: 11-PATH-4, 11-REQ-5.4
+// Real components: toolio.App, issuetriage.RunPreflight, issuetriage.ResolveTarget, issuex.Client, the built cmd/issue
+func TestTS1153_IssuePreflightReportsTheTargetWithoutWritingToTheForge_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GITHUB_TOKEN", "gh-smoke-token")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITLAB_TOKEN", "")
+
+	workspace := func(t *testing.T) string {
+		dir := t.TempDir()
+		initGitRepo(t, dir, "https://github.com/acme/widgets.git", "")
+		if err := os.WriteFile(filepath.Join(dir, "widget.go"), []byte("package widget\nfunc Count() int { return 1 }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	report := "Count() in widget.go returns 1 where it should return 2 after a retry"
+
+	t.Run("in-process", func(t *testing.T) {
+		dir := workspace(t)
+		// Every request the forge client makes goes through this transport.
+		var mu sync.Mutex
+		var requests []string
+		oldTransport := http.DefaultTransport
+		t.Cleanup(func() { http.DefaultTransport = oldTransport })
+		http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+			mu.Lock()
+			requests = append(requests, req.Method+" "+req.URL.String())
+			mu.Unlock()
+			return nil, fmt.Errorf("no forge call is expected")
+		})
+
+		var p *faux.Provider
+		opts := func(d toolio.Deps, r *agentrun.Runner) issuetriage.Options {
+			return issuetriage.Options{
+				Input:     d.Input,
+				Workspace: d.Workspace,
+				DryRun:    d.Common.DryRun,
+				Runner:    r,
+				Forge:     d.Forge,
+				Run:       d.Run,
+				Progress:  d.Progress,
+			}
+		}
+		app := toolio.App{
+			Name:    "issue",
+			Version: agentfox.Version,
+			Usage:   "issue [flags] <input>\n",
+			Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				r, err := smokeFauxRunner(d, "issue", &p)
+				if err != nil {
+					return smokeRunnerFailed(err)
+				}
+				return smokeExit(issuetriage.Run(ctx, opts(d, r)))
+			},
+			PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				r, err := smokeFauxRunner(d, "issue", &p)
+				if err != nil {
+					return smokeRunnerFailed(err)
+				}
+				return smokeExit(issuetriage.RunPreflight(opts(d, r)))
+			},
+		}
+
+		code, env := smokeMain(t, app, "--preflight", "--dir", dir, report)
+		smokeAssertIssuePreflight(t, code, env)
+		if n := len(p.Requests()); n != 0 {
+			t.Errorf("the model was sent %d requests", n)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for _, r := range requests {
+			if !strings.HasPrefix(r, http.MethodGet+" ") {
+				t.Errorf("the forge client recorded a write call: %s", r)
+			}
+		}
+	})
+
+	t.Run("binary", func(t *testing.T) {
+		bin := schematest.Build(t, "issue")
+		dir := workspace(t)
+		api, calls := smokeModelAPI(t)
+		env := smokeBinaryEnv(t, api, "GITHUB_TOKEN=gh-smoke-token")
+		code, doc := smokeRunBinary(t, bin, dir, env, "--preflight", "--dir", dir, report)
+		smokeAssertIssuePreflight(t, code, doc)
+		if n := calls.Load(); n != 0 {
+			t.Errorf("the model API received %d requests", n)
+		}
+	})
 }
