@@ -3,6 +3,7 @@ package toolio
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -331,27 +332,50 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		}
 	}
 
-	env := run.Envelope(code, full, failure)
-	env.ReportFile = reportFile
-	env.Artifacts = artifacts
-	env.Next = next
-	if reportFile != "" {
-		env.Artifacts = withReportFileArtifact(artifacts, reportFile)
-	}
-	if env.Result != nil && wantsSummary(common.Detail) {
-		if s, ok := full.(Summarizable); ok {
-			env.Result = s.SummaryView()
+	buildEnv := func() Envelope {
+		env := run.Envelope(code, full, failure)
+		env.ReportFile = reportFile
+		env.Artifacts = artifacts
+		env.Next = next
+		if reportFile != "" {
+			env.Artifacts = withReportFileArtifact(artifacts, reportFile)
 		}
+		if env.Result != nil && wantsSummary(common.Detail) {
+			if s, ok := full.(Summarizable); ok {
+				env.Result = s.SummaryView()
+			}
+		}
+		return env
 	}
-	// run_end goes out immediately before the envelope, from the same code
-	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
-	// inactive sink (the paths that return before one is built) is a no-op.
-	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
+	env := buildEnv()
+
 	// --output is resolved here, at the one funnel every envelope passes
 	// through, so each branch of Main is covered. A malformed value (refused
 	// as a usage error, or not yet reached by an earlier usage failure)
 	// names nothing to write to, so it yields "".
 	outPath, _ := common.ResolveOutput()
+	if outPath != "" {
+		if b, merr := json.MarshalIndent(env, "", "  "); merr == nil {
+			// The write is attempted before the stdout envelope is final, so a
+			// failure can be recorded as a warning that the same envelope
+			// carries (08-REQ-3.3). Only the warning changes: ok, status and
+			// exit_code are derived from code, never from this write.
+			if werr := writeAtomic(outPath, append(b, '\n')); werr != nil {
+				run.Warn(WarnOutputNotWritten, "low", "the --output file could not be written to %s: %v", outPath, werr)
+				env = buildEnv()
+			}
+			// Written (or failed and warned) here; EmitWithOutput must not
+			// write it a second time.
+			outPath = ""
+		}
+		// A marshal failure falls through: EmitWithOutput writes Emit's
+		// fallback envelope to outPath and, having no further envelope to
+		// carry a warning, ignores a failure of its own (08-REQ-3.4).
+	}
+	// run_end goes out immediately before the envelope, from the same code
+	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
+	// inactive sink (the paths that return before one is built) is a no-op.
+	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
 	return EmitWithOutput(stdout, outPath, env)
 }
 

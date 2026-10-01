@@ -47,6 +47,10 @@ const (
 	// like a path and nothing exists there: a plausible typo that would
 	// otherwise silently become prose.
 	WarnInputLooksLikePath WarnCode = "input_looks_like_path"
+	// WarnOutputNotWritten is recorded (08-REQ-3.1) when the second copy of
+	// the envelope requested with --output could not be written. It never
+	// changes the run's exit code or ok.
+	WarnOutputNotWritten WarnCode = "output_not_written"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -83,6 +87,7 @@ var warnStages = map[WarnCode]string{
 	WarnRejectedPathCalls:      "analyse",
 	WarnReportFileNotWritten:   "report",
 	WarnInputLooksLikePath:     "input",
+	WarnOutputNotWritten:       "emit",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -125,5 +130,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnRejectedPathCalls,
 		WarnReportFileNotWritten,
 		WarnInputLooksLikePath,
+		WarnOutputNotWritten,
 	}
 }
