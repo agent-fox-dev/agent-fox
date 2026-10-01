@@ -97,7 +97,7 @@
         "internal/checks/checks.go",
         "specgen/pipeline.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
