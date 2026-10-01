@@ -749,6 +749,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		result.CostUSD = st.cost
 		revertSpecDir(ctx, o, st, head)
 		dropScratchFiles(ctx, o, st)
+		flagGateEdits(ctx, o, st, head)
 
 		if err != nil {
 			cat := agentrun.CategoryOf(err)
@@ -970,6 +971,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		// before anything is measured: the state file is the program's.
 		revertSpecDir(ctx, o, st, head)
 		dropScratchFiles(ctx, o, st)
+		flagGateEdits(ctx, o, st, head)
 
 		if err != nil {
 			cat := agentrun.CategoryOf(err)

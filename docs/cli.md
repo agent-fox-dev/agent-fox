@@ -294,6 +294,7 @@ quite what it appears to be; `low` is informational.
 | `comment_not_posted` | low | report | fix, spec |
 | `spec_edit_reverted` | high | task | impl |
 | `state_not_saved` | high | park | impl |
+| `gate_edited` | high | task | impl |
 | `scratch_file_removed` | high | task | impl |
 | `scratch_file_suspected` | low | task | impl |
 | `draft_package` | low | preflight | impl |
