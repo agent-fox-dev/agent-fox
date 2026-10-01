@@ -1467,6 +1467,61 @@
             "type": "boolean",
             "description": "True when no remote change was made."
           },
+          "preflight": {
+            "type": "array",
+            "description": "Every check a --preflight run performed and its outcome. Present only under --preflight, when every refusing check passed.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "check": {
+                  "type": "string",
+                  "description": "the name of the check that was performed, such as clean_tree or forge_credential",
+                  "x-trust": "fact"
+                },
+                "ok": {
+                  "type": "boolean",
+                  "description": "whether the check passed; false only for an advisory check, since a refusing check that fails fails the run instead"
+                },
+                "detail": {
+                  "type": "string",
+                  "description": "a fact the program measured about the check, such as a branch name or a command's pass or fail summary",
+                  "x-trust": "fact"
+                }
+              },
+              "required": [
+                "check",
+                "ok"
+              ]
+            }
+          },
+          "estimate": {
+            "type": "object",
+            "description": "What the real run would spend at most: phases, per-phase ceilings and total. Present only under --preflight, when every refusing check passed.",
+            "properties": {
+              "phases": {
+                "type": "integer",
+                "description": "the number of model phases the plan on disk already decides on; a lower bound, since a repair phase or a split a model decides on is not counted"
+              },
+              "max_turns_per_phase": {
+                "type": "integer",
+                "description": "the turn ceiling applied to each phase"
+              },
+              "max_budget_per_phase_usd": {
+                "type": "number",
+                "description": "the spend ceiling applied to each phase, in US dollars"
+              },
+              "max_total_usd": {
+                "type": "number",
+                "description": "the most the phases counted in phases could spend in total, in US dollars"
+              }
+            },
+            "required": [
+              "phases",
+              "max_turns_per_phase",
+              "max_budget_per_phase_usd",
+              "max_total_usd"
+            ]
+          },
           "land": {
             "type": "string",
             "description": "The land mode the run was asked for: pr, branch or none.",

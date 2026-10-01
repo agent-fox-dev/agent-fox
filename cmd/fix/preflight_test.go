@@ -60,7 +60,9 @@ func runFix(t *testing.T, argv ...string) (int, map[string]any) {
 // stable drops the fields that differ between any two runs: wall-clock time
 // and the per-run report file.
 func stable(env map[string]any) []byte {
-	for _, k := range []string{"duration_ms", "started_at", "report_file"} {
+	// artifacts[] names the same per-run report file, whose name carries the
+	// start time to the second.
+	for _, k := range []string{"duration_ms", "started_at", "report_file", "artifacts"} {
 		delete(env, k)
 	}
 	if res, ok := env["result"].(map[string]any); ok {

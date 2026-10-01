@@ -73,23 +73,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Runner == nil && o.brain == nil {
 		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
 	}
-	if o.Land == "" {
-		o.Land = LandPR
-	}
-	if o.PushAttempts <= 0 {
-		o.PushAttempts = 4
-	}
-	if o.VerifyTimeout <= 0 {
-		o.VerifyTimeout = checks.DefaultTimeout
-	}
-	if o.TaskAttempts <= 0 {
-		o.TaskAttempts = DefaultTaskAttempts
-	}
-	if o.RepairAttempts <= 0 {
-		o.RepairAttempts = DefaultRepairAttempts
-	}
+	o.applyDefaults()
 
-	result := &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
+	result := newResult(o)
 	st, pfErr := preflight(ctx, o, result)
 	if pfErr != nil {
 		return result, pfErr
@@ -216,6 +202,34 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	return result, nil
 }
 
+// applyDefaults fills the options a caller may leave zero. Run and
+// RunPreflight both apply it, so the two see the same Land mode — which
+// decides whether a credential and a remote are checked — and the same
+// verification timeout.
+func (o *Options) applyDefaults() {
+	if o.Land == "" {
+		o.Land = LandPR
+	}
+	if o.PushAttempts <= 0 {
+		o.PushAttempts = 4
+	}
+	if o.VerifyTimeout <= 0 {
+		o.VerifyTimeout = checks.DefaultTimeout
+	}
+	if o.TaskAttempts <= 0 {
+		o.TaskAttempts = DefaultTaskAttempts
+	}
+	if o.RepairAttempts <= 0 {
+		o.RepairAttempts = DefaultRepairAttempts
+	}
+}
+
+// newResult is the result both Run and RunPreflight start from, so a run that
+// refuses at its preflight stage reports the same fields either way.
+func newResult(o Options) *Result {
+	return &Result{Stage: "preflight", DryRun: o.DryRun, Land: string(o.Land), Verdict: string(checks.VerdictUnverified)}
+}
+
 // LandPRChanges opens the pull request — or, on GitLab, the merge request —
 // for the pushed branch through the forge client, and degrades to a warning
 // when it cannot: the work is already on the remote, and a run that wrote and
@@ -247,6 +261,124 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		o.Progress.Step("land", "opened %s", pr.URL)
 	}
 	result.Stage = "landed"
+	return result, nil
+}
+
+// RunPreflight is impl --preflight: every check Run performs before its first
+// model call, reported and then stopped at. It calls the one preflight
+// function Run calls, never a copy of it, so a run that would refuse refuses
+// here with the identical stage, category and message. That function already
+// runs the baseline gate (the one command impl runs before any change), picks
+// the tasks and reports them in result.Tasks; branch creation, the survey and
+// every task happen in Run, which RunPreflight never reaches.
+//
+// What preflight itself does to the repository is therefore not suppressed:
+// --pull fetches and fast-forwards the base branch, an existing continuation
+// branch is checked out (and a parked wip: commit at its head discarded, as
+// the ordinary run does), and the checkout is left where preflight put it.
+//
+// A refusal returns the failure with a result carrying none of the checklist:
+// a partial list of what passed before the refusal would be a second answer
+// to "would this run start".
+func RunPreflight(ctx context.Context, o Options) (*Result, error) {
+	if o.Workspace == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
+	}
+	if o.Runner == nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
+	}
+	o.applyDefaults()
+
+	result := newResult(o)
+	st, pfErr := preflight(ctx, o, result)
+	if pfErr != nil {
+		return result, pfErr
+	}
+
+	var list []toolio.PreflightCheck
+	add := func(check string, ok bool, detail string) {
+		list = append(list, toolio.PreflightCheck{Check: check, OK: ok, Detail: detail})
+	}
+	// The conditions below are the ones preflight refuses on, so reaching this
+	// line means each of them held.
+	add("git_repository", true, "")
+	add("clean_tree", true, "")
+	if o.Pull {
+		add("pull", true, "checked out and pulled "+st.base)
+	}
+	add("spec_resolved", true, st.relSpecDir)
+	if o.Land == LandPR && !o.DryRun {
+		add("forge_credential", true, "")
+		add("land_target", true, st.target.String())
+	}
+	if o.Land.Pushes() && !o.DryRun {
+		add("remote_configured", true, "origin")
+	}
+	if st.exists {
+		add("branch", true, "continuing "+st.branch)
+	} else {
+		add("branch", true, st.branch+" (will be created)")
+	}
+	add("spec_valid", true, "")
+	add("spec_status", true, st.spec.Status)
+	switch {
+	case o.NoVerify:
+		add("test_commands", true, "skipped: --no-verify")
+	case o.VerifyCommand != "":
+		add("test_commands", true, "skipped: --verify replaces the spec's commands: "+o.VerifyCommand)
+	case len(st.gate) == 0:
+		add("test_commands", true, "the spec names no test commands")
+	default:
+		add("test_commands", true, strings.Join(st.gate, " · "))
+	}
+	if n := len(st.spec.Tasks.Dependencies); n > 0 {
+		add("dependencies", true, fmt.Sprintf("%d upstream spec(s) sealed or done", n))
+	} else {
+		add("dependencies", true, "no upstream specs")
+	}
+	// With nothing to implement preflight returns before the baseline runs,
+	// so st.baseline is empty: that is reported as not run, never as a pass.
+	// With no gate nothing could run, and the entry is absent.
+	if len(st.gate) > 0 {
+		switch failing := st.baseline.failing(); {
+		case len(st.todo) == 0:
+			add("verify_baseline", false, "not run: no task remains to implement")
+		case st.baseline.OK():
+			add("verify_baseline", true, "passed")
+		case len(failing) > 0:
+			parts := make([]string, len(failing))
+			for i, c := range failing {
+				parts[i] = fmt.Sprintf("`%s` (exit %d)", c.Command, c.ExitCode)
+			}
+			add("verify_baseline", false, "failed: "+strings.Join(parts, ", "))
+		default:
+			add("verify_baseline", false, "failed")
+		}
+	}
+	if o.RepairRunner != nil {
+		detail := ""
+		if m := o.RepairRunner.Model(); m != nil {
+			detail = fmt.Sprintf("%s (%s)", m.ID, m.Provider)
+		}
+		add("repair_model_credential", true, detail)
+	}
+	result.Preflight = list
+
+	// The phases the plan on disk already decides: the survey (unless
+	// skipped, and never when there is nothing to implement) and one per
+	// pending task. A repair phase is a decision the model makes once it
+	// runs, so it is not counted.
+	phases := len(st.todo)
+	if phases > 0 && !o.NoSurvey {
+		phases++
+	}
+	maxTurns, maxBudget := o.Runner.ResolvedBounds()
+	result.Estimate = &toolio.Estimate{
+		Phases:               phases,
+		MaxTurnsPerPhase:     maxTurns,
+		MaxBudgetPerPhaseUSD: maxBudget,
+		MaxTotalUSD:          float64(phases) * maxBudget,
+	}
 	return result, nil
 }
 
