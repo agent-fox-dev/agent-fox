@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -742,6 +744,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		done(phaseSummary(stats))
 		result.CostUSD = st.cost
 		revertSpecDir(ctx, o, st, head)
+		dropScratchFiles(ctx, o, st)
 
 		if err != nil {
 			cat := agentrun.CategoryOf(err)
@@ -962,6 +965,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		// Whatever the phase did under the spec package is taken back
 		// before anything is measured: the state file is the program's.
 		revertSpecDir(ctx, o, st, head)
+		dropScratchFiles(ctx, o, st)
 
 		if err != nil {
 			cat := agentrun.CategoryOf(err)
@@ -1141,6 +1145,33 @@ func revertSpecDir(ctx context.Context, o Options, st *runState, head string) {
 	}
 	o.Run.Warn(toolio.WarnSpecEditReverted, "high", "the phase changed the spec package (%s); the change was reverted — the package "+
 		"is the tool's to write", strings.Join(under, ", "))
+}
+
+// dropScratchFiles keeps the model's leftovers out of the commit. Untracked
+// backup files (*.bak, *.orig) and anything named *scratch* are deleted and
+// reported; an untracked .txt at the repository root is only reported, since
+// a task can legitimately add one (requirements.txt).
+func dropScratchFiles(ctx context.Context, o Options, st *runState) {
+	bg, cancel := background(ctx)
+	defer cancel()
+	files, err := st.git.UntrackedFiles(bg)
+	if err != nil {
+		return
+	}
+	for _, f := range files {
+		base := path.Base(f)
+		switch {
+		case strings.HasSuffix(base, ".bak"), strings.HasSuffix(base, ".orig"),
+			strings.Contains(strings.ToLower(base), "scratch"):
+			if err := os.Remove(filepath.Join(st.root, filepath.FromSlash(f))); err != nil {
+				o.Run.Warn(toolio.WarnScratchFileSuspected, "low", "%s looks like a scratch file and could not be removed: %v", f, err)
+				continue
+			}
+			o.Run.Warn(toolio.WarnScratchFileRemoved, "high", "the phase left the scratch file %s; it was removed before the commit", f)
+		case !strings.Contains(f, "/") && strings.HasSuffix(base, ".txt"):
+			o.Run.Warn(toolio.WarnScratchFileSuspected, "low", "%s is a new .txt file at the repository root; it is committed — check that it is not a scratch file", f)
+		}
+	}
 }
 
 // park commits the attempt as a wip: commit with the task recorded as in
