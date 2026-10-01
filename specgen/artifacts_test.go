@@ -343,3 +343,21 @@ func TestTheSubmitHandlerWritesTheSpecIdentityAndSchemaVersion(t *testing.T) {
 		}
 	}
 }
+
+// The file tools are confined to the repository, so the prompts must not send
+// the model to read dependency source on disk, and must say what to do with a
+// symbol it cannot reach.
+func TestPromptsAdmitThatDependencySourceIsOutOfReach(t *testing.T) {
+	prd := prdSystemPrompt()
+	for _, want := range []string{"confined to the repository", "path_not_allowed", "unverified"} {
+		if !strings.Contains(prd, want) {
+			t.Errorf("the PRD prompt does not mention %q", want)
+		}
+	}
+	if strings.Contains(prd, "find the package on disk") || strings.Contains(prd, "installed source") {
+		t.Error("the PRD prompt still sends the model to read dependency source on disk")
+	}
+	if !strings.Contains(generationSystemPrompt(), `"verified": false`) {
+		t.Error("the generation prompt does not say how to record an unreachable package")
+	}
+}
