@@ -97,8 +97,9 @@ func TestTS09_14_FlagsPropertyOrder(t *testing.T) {
 // TS-09-15 (unit): the schema and version flags are excluded.
 func TestTS09_15_FlagsExcludeSchemaAndVersion(t *testing.T) {
 	fs, _ := newCommonFlagSet()
-	var s bool
-	fs.BoolVar(&s, "schema", false, "print the self-description")
+	if fs.Lookup("schema") == nil {
+		t.Fatal("precondition: schema flag should be registered by Common")
+	}
 	if fs.Lookup("version") == nil {
 		t.Fatal("precondition: version flag should be registered")
 	}

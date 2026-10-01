@@ -111,6 +111,17 @@ type App struct {
 	// CheckInput runs after the input is classified and before the model is
 	// resolved, for the checks that need to know what the input was.
 	CheckInput func(Input) error
+	// Description is one sentence saying what the tool does, for --schema.
+	Description string
+	// InputDescription says what the tool's one positional input may be, for
+	// --schema.
+	InputDescription string
+	// ExitCodes lists only the exit codes this tool can return, with their
+	// names, for --schema.
+	ExitCodes map[int]string
+	// ResultSample is a zero value of the tool's concrete Result type, used
+	// purely for its type, to build the result document for --schema.
+	ResultSample any
 	// Exec is the tool. It returns the exit code, the result to put in the
 	// envelope, and the error object when there is one.
 	Exec func(context.Context, Deps) (int, any, *ErrorInfo)
@@ -198,6 +209,21 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	}
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
+		return ExitOK
+	}
+	if common.Schema {
+		// The tool describes itself and returns, before the bare-input check,
+		// PreCheck, Workspace, Resolve or model resolution, and before any
+		// Progress, events sink or report file exists: no run happens for
+		// them to describe. A positional argument is ignored.
+		doc, merr := renderSelfDescription(a.describe(fs))
+		if merr != nil {
+			fmt.Fprintf(stderr, "%s: building the --schema document: %v\n", a.Name, merr)
+			return ExitFailed
+		}
+		if _, werr := stdout.Write(doc); werr != nil {
+			return ExitFailed
+		}
 		return ExitOK
 	}
 	if strings.TrimSpace(input) == "" {
