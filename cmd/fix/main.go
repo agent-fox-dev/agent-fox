@@ -83,6 +83,7 @@ func newApp() toolio.App {
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
+			toolio.DeclareEnum(fs, "land", codefix.LandModes)
 			fs.StringVar(&verify, "verify", "", "the command that decides success; default detected from the project")
 			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; the result is then reported as unverified, not as a pass")
 			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one verification run")

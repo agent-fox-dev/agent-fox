@@ -117,6 +117,7 @@ func newApp() toolio.App {
 			fs.StringVar(&branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
+			toolio.DeclareEnum(fs, "land", codeimpl.LandModes)
 			fs.StringVar(&verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
 			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
 			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one check command")
