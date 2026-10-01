@@ -310,6 +310,50 @@ func TestNextSpecIDFollowsTheExistingPackages(t *testing.T) {
 	}
 }
 
+// An archived spec keeps its number, so the next package never reuses it.
+func TestMaxSpecNumberCountsArchivedSpecs(t *testing.T) {
+	mk := func(t *testing.T, dirs ...string) string {
+		root := t.TempDir()
+		for _, d := range dirs {
+			if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return root
+	}
+	cases := []struct {
+		name string
+		dirs []string
+		want int
+	}{
+		{"only archived", []string{"archive/01_a", "archive/02_b"}, 2},
+		{"archived above active", []string{"02_x", "archive/05_y"}, 5},
+		{"active above archived", []string{"07_x", "archive/05_y"}, 7},
+		{"no archive directory", []string{"01_a", "03_c"}, 3},
+		{"nothing at all", nil, 0},
+	}
+	for _, c := range cases {
+		if got := maxSpecNumber(mk(t, c.dirs...)); got != c.want {
+			t.Errorf("%s: maxSpecNumber = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAllocatedIDsSkipArchivedSpecsAndStayIncreasing(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"archive/01_a", "archive/02_b"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := &runEnv{specsDir: root}
+	for _, want := range []string{"03", "04", "05"} {
+		if got := e.allocateID(); got != want {
+			t.Errorf("allocateID = %s, want %s", got, want)
+		}
+	}
+}
+
 // A package that does not validate is still written: a spec you can read and
 // fix is worth more than no spec at all, and the errors name the rules.
 //

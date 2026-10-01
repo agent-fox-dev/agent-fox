@@ -902,26 +902,35 @@ func discoverLandscape(specsDir string) ([]afspec.SpecMeta, error) {
 }
 
 // maxSpecNumber is the highest numeric prefix among the packages on disk,
-// or 0 when there are none.
+// archived ones included, or 0 when there are none. An archived spec keeps
+// its number: reusing it would make two specs answer to one ID.
 func maxSpecNumber(specsDir string) int {
-	max := 0
-	entries, err := os.ReadDir(specsDir)
-	if err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			i := strings.IndexByte(name, '_')
-			if i <= 0 {
-				continue
-			}
-			if n, err := strconv.Atoi(name[:i]); err == nil && n > max {
-				max = n
-			}
+	return max(maxPrefixIn(specsDir), maxPrefixIn(filepath.Join(specsDir, "archive")))
+}
+
+// maxPrefixIn is the highest numeric prefix before the first `_` among the
+// direct subdirectories of dir. A directory that cannot be read counts as
+// empty.
+func maxPrefixIn(dir string) int {
+	highest := 0
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		i := strings.IndexByte(name, '_')
+		if i <= 0 {
+			continue
+		}
+		if n, err := strconv.Atoi(name[:i]); err == nil && n > highest {
+			highest = n
 		}
 	}
-	return max
+	return highest
 }
 
 // formatSpecID zero-pads a prefix to two digits (and to three once past 99,
