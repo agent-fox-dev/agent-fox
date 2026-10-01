@@ -227,6 +227,14 @@ func NewRunner(cfg Config) (*Runner, error) {
 // Model reports the model every phase runs on.
 func (r *Runner) Model() *core.Model { return r.cfg.Model }
 
+// ResolvedBounds reports the per-phase ceilings this Runner will apply —
+// the tool's own defaults after any --max-turns/--budget override, the same
+// defaulting Run applies internally. It is for a caller that needs to
+// report a ceiling before any phase runs, such as --preflight's estimate.
+func (r *Runner) ResolvedBounds() (maxTurns int, maxBudgetUSD float64) {
+	return r.cfg.Bounds.maxTurns(), r.cfg.Bounds.maxBudget()
+}
+
 // Run drives one phase to its terminating tool.
 //
 // The (Result, error) pair is the honest return: a run can end without a

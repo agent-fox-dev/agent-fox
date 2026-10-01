@@ -80,7 +80,7 @@
         "internal/agentrun/phase.go",
         "internal/agentrun/phase_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

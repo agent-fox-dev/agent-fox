@@ -94,6 +94,11 @@
         "default": "0s",
         "description": "wall-clock ceiling on one phase"
       },
+      "preflight": {
+        "type": "boolean",
+        "default": false,
+        "description": "run every check that would refuse the run, then stop; makes no change beyond a verification baseline"
+      },
       "quiet": {
         "type": "boolean",
         "default": false,
