@@ -134,7 +134,8 @@ func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
 	case "execute":
 		if readOnly {
 			return "Run one plain command from the repository root. Pipes, redirection, &&, ; and $() are " +
-				"refused in this phase, so run one program per call. The only programs allowed are: " + list +
+				"refused in this phase, so run one program per call. Paths must be inside the repository, as " +
+				"for the file tools. The only programs allowed are: " + list +
 				". Use find_files instead of find. Output is truncated from the END if it is large, so the " +
 				"tail of a long listing is preserved."
 		}

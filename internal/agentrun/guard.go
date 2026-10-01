@@ -150,10 +150,98 @@ func (o GuardOptions) refusal(vectors [][]string, cmd string) (string, bool) {
 	if reason, blocked := o.disallowedPrograms(vectors, cmd); blocked {
 		reasons = append(reasons, reason)
 	}
+	if reason, blocked := o.operandEscapes(vectors); blocked {
+		reasons = append(reasons, reason)
+	}
 	if len(reasons) == 0 {
 		return "", false
 	}
 	return strings.Join(reasons, " Also: "), true
+}
+
+// readOperandPrograms are the programs whose operands are paths they read. In a
+// read-only phase they are held to the workspace like the file tools are, so
+// the shell is not the unconfined route to what read_file refuses.
+var readOperandPrograms = map[string]bool{
+	"cat": true, "head": true, "tail": true, "wc": true, "ls": true, "file": true,
+	"du": true, "rg": true, "grep": true, "tree": true, "stat": true,
+}
+
+// operandEscapes refuses a read-only phase's command that names a path outside
+// the workspace. The file tools resolve every path against the workspace root,
+// symlinks included, and refuse an escape; without this check `cat` of an
+// absolute path through the shell reached the same file those tools refused.
+//
+// It is a classifier like the rest of this file: an operand that is absolute,
+// starts with `~` or `$`, or climbs with `..` is resolved (or, for an
+// expansion it cannot know, refused). The pattern operand of grep and rg is
+// not a path and is skipped, so `grep "/api/v1"` is fine. A phase that can
+// write files is not held to this, because a build legitimately reads outside
+// the repository.
+func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
+	if !o.ReadOnlyFiles {
+		return "", false
+	}
+	resolve := o.ResolvePath
+	if resolve == nil {
+		resolve = filepath.Abs
+	}
+	root, rootErr := resolve(".")
+	var bad []string
+	for _, argv := range vectors {
+		name := baseName(argv[0])
+		if !readOperandPrograms[name] {
+			continue
+		}
+		skipPattern := name == "grep" || name == "rg"
+		for _, a := range argv[1:] {
+			if a == "--" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				if skipPattern && (a == "-e" || a == "-f" || strings.HasPrefix(a, "--regexp") ||
+					strings.HasPrefix(a, "--file")) {
+					skipPattern = false // the pattern is given by flag; every operand is a path
+				}
+				continue
+			}
+			if skipPattern {
+				skipPattern = false
+				continue
+			}
+			if !pathLooksOutside(a) {
+				continue
+			}
+			if strings.HasPrefix(a, "$") || strings.HasPrefix(a, "~") {
+				bad = append(bad, a)
+				continue
+			}
+			abs, err := resolve(a)
+			if err != nil || rootErr != nil {
+				bad = append(bad, a)
+				continue
+			}
+			if rel, err := filepath.Rel(root, abs); err != nil || rel == ".." ||
+				strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				bad = append(bad, a)
+			}
+		}
+	}
+	if len(bad) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("path outside the workspace: %s. The shell is confined to the repository like "+
+		"the file tools: use paths inside it (relative paths start at the repository root).",
+		strings.Join(bad, ", ")), true
+}
+
+// pathLooksOutside reports an operand worth resolving: absolute, home- or
+// variable-relative, or climbing with `..`.
+func pathLooksOutside(a string) bool {
+	if strings.HasPrefix(a, "/") || strings.HasPrefix(a, "~") || strings.HasPrefix(a, "$") || a == ".." {
+		return true
+	}
+	return strings.HasPrefix(a, "../") || strings.Contains(a, "/../") || strings.HasSuffix(a, "/..")
 }
 
 // allowedList is the allowlist, sorted, for a reason that says what would have
