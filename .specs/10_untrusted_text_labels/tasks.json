@@ -230,7 +230,7 @@
         "internal/toolio/untrusted.go",
         "internal/toolio/untrusted_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,

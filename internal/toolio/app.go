@@ -386,6 +386,9 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		if env.Result != nil && wantsSummary(common.Detail) {
 			if s, ok := full.(Summarizable); ok {
 				env.Result = s.SummaryView()
+				// The list names fields of what is printed: the full view's
+				// pointers would name fields this envelope does not carry.
+				env.UntrustedFields = UntrustedFields(env.Result)
 			}
 		}
 		return env
