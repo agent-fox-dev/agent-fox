@@ -983,6 +983,13 @@
                   "type": "string",
                   "description": "The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."
                 },
+                "tool_errors": {
+                  "type": "object",
+                  "description": "Tool calls that came back as errors, counted by tool or tool/error-code. Each cost the model a turn.",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                },
                 "blocked_calls": {
                   "type": "integer",
                   "description": "Tool calls the authorization guard refused during the phase, when any were."

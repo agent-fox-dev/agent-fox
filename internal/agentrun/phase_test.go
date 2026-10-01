@@ -326,7 +326,39 @@ func TestFirstLineTruncatesOnARuneBoundary(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Errorf("firstLine produced invalid UTF-8: %q", got)
 	}
-	if got != "é…" {
+	if got != "é…[+8 bytes]" {
 		t.Errorf("firstLine = %q", got)
+	}
+}
+
+func TestToolErrorCounterKeysByToolAndCode(t *testing.T) {
+	var c toolErrorCounter
+	c.add("search_files", `{"ok":false,"error":"invalid_arguments"}`)
+	c.add("search_files", `{"ok":false,"error":"invalid_arguments"}`)
+	c.add("bash", "unknown tool")
+	got := c.snapshot()
+	if got["search_files/invalid_arguments"] != 2 || got["bash"] != 1 {
+		t.Errorf("snapshot = %v", got)
+	}
+	if (&toolErrorCounter{}).snapshot() != nil {
+		t.Error("no errors should snapshot to nil")
+	}
+}
+
+func TestToolsNoteListsTheToolsAndSaysWhenThereIsNoShell(t *testing.T) {
+	ro := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "find_files"}, {Name: "submit_prd"}})
+	if !strings.Contains(ro, "find_files, read_file, submit_prd") || !strings.Contains(ro, "no shell") {
+		t.Errorf("read-only note = %q", ro)
+	}
+	rw := toolsNote([]core.Tool{{Name: "execute"}, {Name: "read_file"}})
+	if strings.Contains(rw, "no shell") || !strings.Contains(rw, "execute, read_file") {
+		t.Errorf("shell note = %q", rw)
+	}
+}
+
+func TestSelectToolsDropsExecuteGuidelinesWithoutAShell(t *testing.T) {
+	all := []core.Tool{{Name: "search_files", PromptGuidelines: []string{"Prefer this over execute+grep.", "Use a glob."}}}
+	if got := SelectTools(all, true, nil, "search_files")[0].PromptGuidelines; len(got) != 1 || got[0] != "Use a glob." {
+		t.Errorf("guidelines = %v", got)
 	}
 }

@@ -70,3 +70,23 @@ func TestPhaseSummaryPluralisesBlockedTools(t *testing.T) {
 		t.Errorf("summary = %q", got)
 	}
 }
+
+func TestAddPhaseWarnsOnManyToolErrors(t *testing.T) {
+	run := toolio.NewRun("spec", "test")
+	few := toolio.PhaseInfo{Name: "prd", ToolErrors: map[string]int{"bash": 2}}
+	run.AddPhase(few)
+	if len(run.Warnings()) != 0 {
+		t.Fatalf("a handful of errors warned: %v", run.Warnings())
+	}
+	many := toolio.PhaseInfo{Name: "generate:tasks", ToolErrors: map[string]int{"search_files/invalid_arguments": 6}}
+	run.AddPhase(many)
+	ws := run.Warnings()
+	if len(ws) != 1 || ws[0].Code != toolio.WarnToolErrors || !strings.Contains(ws[0].Message, "search_files/invalid_arguments ×6") {
+		t.Errorf("warnings = %+v", ws)
+	}
+	res := cachedResult()
+	res.ToolErrors = map[string]int{"bash": 1}
+	if p := toolio.PhaseFromResult(res, ""); p.ToolErrors["bash"] != 1 {
+		t.Errorf("phase = %+v", p)
+	}
+}

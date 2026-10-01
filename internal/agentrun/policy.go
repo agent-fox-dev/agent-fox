@@ -3,6 +3,7 @@ package agentrun
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -100,12 +101,27 @@ func SelectTools(all []core.Tool, readOnly bool, programs []string, names ...str
 	for _, n := range names {
 		want[n] = true
 	}
+	shell := false
+	for _, n := range names {
+		shell = shell || slices.Contains(ShellTools, n)
+	}
 	out := make([]core.Tool, 0, len(names))
 	for _, t := range all {
 		if !want[t.Name] {
 			continue
 		}
 		t.Description = describeForPhase(t, readOnly, programs)
+		if !shell {
+			// A guideline like "prefer search_files over execute+grep" points
+			// at a tool this phase does not have.
+			kept := make([]string, 0, len(t.PromptGuidelines))
+			for _, g := range t.PromptGuidelines {
+				if !strings.Contains(g, "execute") {
+					kept = append(kept, g)
+				}
+			}
+			t.PromptGuidelines = kept
+		}
 		out = append(out, t)
 	}
 	return out
