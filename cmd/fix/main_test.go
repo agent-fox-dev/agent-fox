@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -268,8 +269,23 @@ func TestCLICommandsParseRepoAndForwardForge_TS_04_32(t *testing.T) {
 	}
 
 	// Verify valid multi-segment repository is accepted by PreCheck for fix, impl, issue (not rejected with ExitUsage)
-	for _, cmdName := range []string{"fix", "impl", "issue"} {
-		code, out := runCommand(t, cmdName, "--repo", repo, "test input")
+	// fix is checked in-process so a passing PreCheck never reaches the real
+	// codefix.Run pipeline (analyse/implement phases, branches, forge calls).
+	app := newApp()
+	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
+	app.Flags(fs)
+	if err := fs.Parse([]string{"--repo", repo}); err != nil {
+		t.Fatalf("parsing --repo %q: %v", repo, err)
+	}
+	if err := app.PreCheck(&toolio.Common{}); err != nil {
+		t.Errorf("cmd/fix PreCheck rejected valid multi-segment repo %q: %v", repo, err)
+	}
+
+	// impl and issue live in other main packages and cannot be imported, so
+	// they run as subprocesses. Keep them harmless: dry-run, in an empty
+	// directory that is not a repository.
+	for _, cmdName := range []string{"impl", "issue"} {
+		code, out := runCommand(t, cmdName, "--dry-run", "--dir", t.TempDir(), "--repo", repo, "test input")
 		if code == toolio.ExitUsage && strings.Contains(out, "cannot be parsed") {
 			t.Errorf("cmd/%s unexpectedly rejected valid multi-segment repo %q: %s", cmdName, repo, out)
 		}
