@@ -214,6 +214,16 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
+	// --output is validated here, once: after the two purely human-driven
+	// returns (-h, bare on a terminal) that produce no envelope, and before
+	// openEvents, PreCheck, Workspace(), Resolve or model resolution.
+	if _, oerr := common.ResolveOutput(); oerr != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", a.Name, oerr)
+		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
+			Stage: "usage", Category: "usage", Message: oerr.Error(), err: oerr,
+		})
+	}
+
 	sink, closeSink, serr := a.openEvents(&common, stderr)
 	if serr != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, serr)
