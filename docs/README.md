@@ -17,6 +17,7 @@
 | [03](adr/03-rebuild-the-skills-as-tools.md) | Rebuild the three skills as tools |
 | [04](adr/04-implement-a-spec-as-a-tool.md) | Implement a spec as a tool: `impl` |
 | [05](adr/05-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
+| [06](adr/06-version-the-envelope-interface.md) | Version the envelope interface: additive within a major version |
 
 ## Errata
 
