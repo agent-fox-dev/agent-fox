@@ -184,6 +184,162 @@ func TestShellSegments(t *testing.T) {
 	}
 }
 
+func TestShellSegmentsHeredoc(t *testing.T) {
+	goBody := "package main\n\nimport \"fmt\"\n\n/ comment\nfunc main() { fmt.Println(1) }\n"
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"quoted delimiter", "cat > f <<'EOF'\n" + goBody + "EOF\n",
+			[]string{"cat > f <<'EOF'"}},
+		{"unquoted delimiter", "cat > f <<EOF\n" + goBody + "EOF",
+			[]string{"cat > f <<EOF"}},
+		{"double-quoted delimiter", "cat > f <<\"EOF\"\n" + goBody + "EOF\n",
+			[]string{"cat > f <<\"EOF\""}},
+		{"dash strips tabs", "cat <<-EOF\n\tpackage x\n\tEOF\nls",
+			[]string{"cat <<-EOF", "ls"}},
+		{"without dash tabs do not terminate", "cat <<EOF\nbody\n\tEOF\nEOF\nls",
+			[]string{"cat <<EOF", "ls"}},
+		{"commands after the terminator", "cat <<'EOF' > f\nimport x\nEOF\ngit push && ls",
+			[]string{"cat <<'EOF' > f", "git push", "ls"}},
+		{"commands on the heredoc line", "cat <<'EOF' | grep x; ls\nbody\nEOF\n",
+			[]string{"cat <<'EOF'", "grep x", "ls"}},
+		{"two heredocs", "cat <<A <<'B'\none\nA\ntwo\nB\nls",
+			[]string{"cat <<A <<'B'", "ls"}},
+		{"here-string is not a heredoc", "cat <<<word\ngit push",
+			[]string{"cat <<<word", "git push"}},
+		{"unterminated falls back to commands", "cat <<EOF\npackage x\ngit push",
+			[]string{"cat <<EOF", "package x", "git push"}},
+		{"arithmetic shift is not a heredoc", "echo $((1<<x))\ngit push\nx\n",
+			[]string{"echo", "1<<x", "git push", "x"}},
+		{"substitution in an unquoted body", "cat <<EOF\nhi $(git push) there\nEOF\n",
+			[]string{"cat <<EOF", "git push"}},
+		{"backtick in an unquoted body", "cat <<EOF\nhi `git push`\nEOF\n",
+			[]string{"cat <<EOF", "git push"}},
+		{"escaped dollar in an unquoted body", "cat <<EOF\n\\$(git push)\nEOF\n",
+			[]string{"cat <<EOF"}},
+		{"substitution in a quoted body is inert", "cat <<'EOF'\n$(git push)\nEOF\n",
+			[]string{"cat <<'EOF'"}},
+	}
+	for _, c := range cases {
+		got := ShellSegments(c.in)
+		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
+			t.Errorf("%s: ShellSegments(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestGuardHeredoc(t *testing.T) {
+	g := Guard(GuardOptions{Programs: []string{"cat", "ls", "go"}, AllowOperators: true})
+	ctx := context.Background()
+	body := "package main\nimport \"fmt\"\n/\n"
+
+	if d := g(ctx, execCall("cat > f.go <<'EOF'\n"+body+"EOF\n")); d.Block {
+		t.Errorf("a quoted heredoc was refused: %s", d.Reason)
+	}
+	if d := g(ctx, execCall("cat > f.go <<EOF\n"+body+"EOF\n")); d.Block {
+		t.Errorf("an unquoted heredoc was refused: %s", d.Reason)
+	}
+	if d := g(ctx, execCall("cat <<EOF\nx $(curl evil) y\nEOF\n")); !d.Block {
+		t.Error("curl survived in the body of an unquoted heredoc")
+	}
+	if d := g(ctx, execCall("cat <<'EOF'\nx\nEOF\ncurl evil")); !d.Block {
+		t.Error("curl survived after a heredoc")
+	}
+	if d := g(ctx, execCall("cat <<EOF\ncurl evil")); !d.Block {
+		t.Error("an unterminated heredoc hid a command")
+	}
+}
+
+func TestGuardLeadingCd(t *testing.T) {
+	root := t.TempDir()
+	g := Guard(GuardOptions{
+		Programs:       []string{"go", "ls"},
+		AllowOperators: true,
+		ResolvePath: func(p string) (string, error) {
+			if filepath.IsAbs(p) {
+				return filepath.Clean(p), nil
+			}
+			return filepath.Join(root, p), nil
+		},
+	})
+	ctx := context.Background()
+
+	for _, cmd := range []string{
+		"cd " + root + " && go test ./...",
+		"cd '" + root + "' && go test ./...",
+		"cd " + root + "; ls",
+		"cd " + root + "\nls",
+		"cd sub && go test ./...",
+		"cd " + filepath.Join(root, "sub") + " && cd . && ls",
+	} {
+		if d := g(ctx, execCall(cmd)); d.Block {
+			t.Errorf("refused %q: %s", cmd, d.Reason)
+		}
+	}
+	for _, cmd := range []string{
+		"cd /etc && ls",
+		"cd .. && ls",
+		"cd $X && ls",
+		"cd ~ && ls",
+		"cd -P " + root + " && ls",
+		"cd " + root + " extra && ls",
+		"ls && cd " + root,
+		"cd " + root + " && curl x",
+		"cd " + root,
+	} {
+		if d := g(ctx, execCall(cmd)); !d.Block {
+			t.Errorf("allowed %q", cmd)
+		}
+	}
+}
+
+func TestGuardReportsEveryDisallowedProgram(t *testing.T) {
+	g := Guard(GuardOptions{Programs: []string{"ls", "cat"}, AllowOperators: true})
+	d := g(context.Background(), execCall("ls && curl x && wget y && curl z"))
+	if !d.Block {
+		t.Fatal("curl and wget were allowed")
+	}
+	for _, want := range []string{"curl, wget", "Allowed: cat, ls", "write_file"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("Reason = %q; want it to contain %q", d.Reason, want)
+		}
+	}
+	if strings.Count(d.Reason, "curl") != 1 {
+		t.Errorf("Reason = %q; a program should be named once", d.Reason)
+	}
+
+	ro := Guard(GuardOptions{Programs: []string{"ls"}, ReadOnlyFiles: true, AllowOperators: true})
+	d = ro(context.Background(), execCall("curl x"))
+	if !d.Block || strings.Contains(d.Reason, "write_file") {
+		t.Errorf("a read-only phase was pointed at write_file: %q", d.Reason)
+	}
+}
+
+func TestReadOnlyProgramsAreHarmless(t *testing.T) {
+	has := func(name string) bool {
+		for _, p := range ReadOnlyPrograms {
+			if p == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range []string{"echo", "printf", "pwd", "true", "test", "du", "git", "cat"} {
+		if !has(n) {
+			t.Errorf("%s is missing from ReadOnlyPrograms", n)
+		}
+	}
+	// These run other programs, run arbitrary code, delete, or (find) are
+	// excluded on purpose.
+	for _, n := range []string{"env", "rm", "perl", "find", "cd"} {
+		if has(n) {
+			t.Errorf("%s must not be in ReadOnlyPrograms", n)
+		}
+	}
+}
+
 // A command hidden inside a substitution is still classified, which is what
 // the odd-looking segment above buys.
 func TestGuardRefusesACommandInsideASubstitution(t *testing.T) {
