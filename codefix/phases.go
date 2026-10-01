@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -65,7 +66,11 @@ that lead to fundamentally different changes AND the codebase cannot settle
 which was meant — that stops the run and asks a person, which is expensive and
 is the right answer perhaps one time in twenty.
 
-When the diagnosis is complete, call submit_analysis exactly once.`
+When the diagnosis is complete, call submit_analysis exactly once. Its fields are
+classification, title, summary, root_cause, approach (steps 4-5: what changes
+and why it fixes the cause), files (step 5: every file and what changes in it,
+tests included, as repository-relative paths) and, only if you must stop to
+ask, ambiguity. Plan the test from step 6 inside approach.`
 
 // implementSystemPrompt is the implementation mandate.
 //
@@ -122,13 +127,16 @@ func analysisSchema() *schema.Schema {
 			"Under 70 characters, imperative, naming the defect or the capability. "+
 				"It becomes the branch name and the commit subject, so write it as one.")),
 		schema.Prop("summary", schema.String("1-3 sentences: what is wrong and what you will do")),
-		schema.Prop("root_cause", schema.String(
+		schema.Opt("root_cause", schema.String(
 			"For a defect: why it happens, citing files and functions you read. "+
-				"For a feature or refactor: the gap in the code as it stands.")),
-		schema.Prop("approach", schema.String(
-			"What to change, where, and why this addresses the cause rather than the symptom")),
-		schema.Prop("files", schema.Array(fileChange,
-			"Every file the change touches, including the test files").MinItemsN(1)),
+				"For a feature or refactor: the gap in the code as it stands. "+
+				"Required unless you set ambiguity.")),
+		schema.Opt("approach", schema.String(
+			"What to change, where, and why this addresses the cause rather than the symptom. "+
+				"Required unless you set ambiguity.")),
+		schema.Opt("files", schema.Array(fileChange,
+			"Every file the change touches, including the test files, as repository-relative "+
+				"paths. At least one unless you set ambiguity.")),
 		schema.Opt("assumptions", schema.Array(schema.String(),
 			"Decisions you made where the report was unclear, and why. Omit if none.")),
 		schema.Opt("ambiguity", schema.Object(
@@ -230,6 +238,7 @@ type agentBrain struct {
 
 func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
 	var out analysis
+	var rej rejections
 	programs := append([]string(nil), agentrun.ReadOnlyPrograms...)
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
@@ -237,7 +246,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		System:             analysisSystemPrompt,
 		User:               analysisPrompt(in),
 		Terminator:         ToolSubmitAnalysis,
-		Custom:             []core.Tool{submitAnalysisTool(&out)},
+		Custom:             []core.Tool{rej.track(submitAnalysisTool(&out))},
 		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
 		ReadOnly:           true,
 		Programs:           programs,
@@ -245,17 +254,18 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		LoadProjectContext: true,
 	})
 	if err != nil {
-		return Analysis{}, res, err
+		return Analysis{}, res, rej.wrap(err)
 	}
 	got, ok := out.get()
 	if !ok {
-		return Analysis{}, res, agentrun.NoResultError("analyse", ToolSubmitAnalysis, res)
+		return Analysis{}, res, rej.wrap(agentrun.NoResultError("analyse", ToolSubmitAnalysis, res))
 	}
 	return got, res, nil
 }
 
 func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implementation, agentrun.Result, error) {
 	var out implementation
+	var rej rejections
 	programs := append(append([]string(nil), agentrun.ReadOnlyPrograms...), agentrun.BuildPrograms...)
 	programs = append(programs, b.extraPrograms...)
 
@@ -267,7 +277,7 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 		System:             implementSystemPrompt,
 		User:               implementPrompt(in),
 		Terminator:         ToolSubmitImplementation,
-		Custom:             []core.Tool{submitImplementationTool(&out, in.Criteria)},
+		Custom:             []core.Tool{rej.track(submitImplementationTool(&out, in.Criteria))},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
@@ -275,11 +285,11 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 		LoadProjectContext: true,
 	})
 	if err != nil {
-		return Implementation{}, res, err
+		return Implementation{}, res, rej.wrap(err)
 	}
 	got, ok := out.get()
 	if !ok {
-		return Implementation{}, res, agentrun.NoResultError("implement", ToolSubmitImplementation, res)
+		return Implementation{}, res, rej.wrap(agentrun.NoResultError("implement", ToolSubmitImplementation, res))
 	}
 	return got, res, nil
 }
@@ -355,10 +365,33 @@ func submitAnalysisTool(dest *analysis) core.Tool {
 					"classification %q is not one of %s", a.Classification,
 					strings.Join(Classifications, ", ")))
 			}
+			if strings.TrimSpace(a.Summary) == "" {
+				return core.ErrResult("missing_summary", "summary is empty")
+			}
 			if a.Ambiguity != nil && strings.TrimSpace(a.Ambiguity.Question) == "" {
 				return core.ErrResult("empty_ambiguity",
 					"ambiguity was set with no question. Either state the question and the two "+
 						"interpretations, or omit ambiguity and record your decision as an assumption.")
+			}
+			// A run that stops to ask implements nothing, so the plan is not
+			// required of it: demanding one invites an invented plan. Without
+			// an ambiguity the plan is the whole point.
+			if a.Ambiguity == nil {
+				for name, v := range map[string]string{"root_cause": a.RootCause, "approach": a.Approach} {
+					if strings.TrimSpace(v) == "" {
+						return core.ErrResult("missing_"+name, name+" is empty; the diagnosis needs it "+
+							"unless you set ambiguity")
+					}
+				}
+				if len(a.Files) == 0 {
+					return core.ErrResult("missing_files", "files is empty; name every file the change "+
+						"touches, tests included, unless you set ambiguity")
+				}
+			}
+			for _, f := range a.Files {
+				if err := checkPlannedPath(f.Path); err != nil {
+					return core.ErrResult("invalid_path", err.Error())
+				}
 			}
 			dest.set(a)
 			res := core.OKResult(map[string]any{"accepted": true, "title": a.Title})
@@ -421,4 +454,61 @@ func criteriaGuideline(criteria []Criterion) []string {
 		"criteria_verdicts must answer every acceptance criterion (%s), each with a verdict "+
 			"and the evidence for it; the submission is refused until it does.",
 		strings.Join(criteriaIDs(criteria), ", "))}
+}
+
+// checkPlannedPath refuses a planned file path that is empty, absolute or
+// climbs out of the repository: the plan names repository-relative files.
+func checkPlannedPath(p string) error {
+	p = strings.TrimSpace(p)
+	switch {
+	case p == "":
+		return fmt.Errorf("a file in files has an empty path")
+	case filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~"):
+		return fmt.Errorf("files path %q must be relative to the repository root", p)
+	}
+	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+		if part == ".." {
+			return fmt.Errorf("files path %q must stay inside the repository (no ..)", p)
+		}
+	}
+	return nil
+}
+
+// rejections records the submissions a tool turned back, so a phase that ends
+// without an accepted one can say what it was stuck on rather than that it
+// "ended without calling" the tool.
+type rejections struct {
+	mu   sync.Mutex
+	n    int
+	last string
+}
+
+// track wraps a terminating tool so that each rejected call is counted.
+func (r *rejections) track(t core.Tool) core.Tool {
+	exec := t.Execute
+	t.Execute = func(ctx context.Context, in json.RawMessage) core.ToolResult {
+		res := exec(ctx, in)
+		if !res.OK {
+			r.mu.Lock()
+			r.n++
+			r.last = strings.TrimSpace(res.Error + ": " + res.Detail)
+			r.mu.Unlock()
+		}
+		return res
+	}
+	return t
+}
+
+// wrap adds the rejection history to the error that ended a phase.
+func (r *rejections) wrap(err error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.n == 0 {
+		return err
+	}
+	last := r.last
+	if i := strings.IndexByte(last, '\n'); i >= 0 {
+		last = last[:i]
+	}
+	return fmt.Errorf("%w (%d submission(s) were rejected; the last: %s)", err, r.n, last)
 }
