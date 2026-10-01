@@ -909,7 +909,7 @@ func TestTS07_5_QuietSuppressesStderrNotTheFile(t *testing.T) {
 	for _, mode := range []string{"jsonl", "text"} {
 		path := filepath.Join(t.TempDir(), "run.jsonl")
 		app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
-			d.Progress.Step("hello")
+			d.Progress.Step("preflight", "hello")
 			emitSteps(d, 2)
 			return ExitOK, nil, nil
 		})
@@ -920,8 +920,8 @@ func TestTS07_5_QuietSuppressesStderrNotTheFile(t *testing.T) {
 		if stderr != "" {
 			t.Errorf("--events %s --quiet: stderr = %q, want empty", mode, stderr)
 		}
-		if n := len(stepLines(t, fileLines(t, path))); n != 2 {
-			t.Errorf("--events %s --quiet: events file has %d step lines, want the full stream (2)", mode, n)
+		if n := len(stepLines(t, fileLines(t, path))); n != 3 {
+			t.Errorf("--events %s --quiet: events file has %d step lines, want the full stream (3)", mode, n)
 		}
 	}
 }

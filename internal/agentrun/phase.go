@@ -91,6 +91,15 @@ type Observer interface {
 	Detail(format string, args ...any)
 	// Raw writes model prose verbatim, shown only under --show-text.
 	Raw(s string)
+	// PhaseStart reports that a model phase begins, with the ceilings its
+	// run resolved. task is empty except for impl's per-task phase.
+	PhaseStart(phase, task string, maxTurns int, budgetUSD float64)
+	// PhaseEnd reports that the phase ended.
+	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64)
+	// Turn reports one finished model turn.
+	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
+	// ToolCall reports one model tool call, shown only under --verbose.
+	ToolCall(phase, name string, blocked bool)
 }
 
 // Config is what a Runner is built with: everything that is the same for

@@ -96,7 +96,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	if len(st.todo) == 0 {
 		result.Stage = "complete"
-		o.Progress.Step("every task of %s is done; nothing to implement", filepath.Base(st.specDir))
+		o.Progress.Step("preflight", "every task of %s is done; nothing to implement", filepath.Base(st.specDir))
 		return result, nil
 	}
 
@@ -135,7 +135,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		result.Stage = "surveyed"
 		if survey.Blocker != nil {
 			result.Blocker = survey.Blocker
-			o.Progress.Step("stopped: the spec cannot be implemented as written")
+			o.Progress.Step("survey", "stopped: the spec cannot be implemented as written")
 			return stopped(ctx, o, st, result, failf(PhaseSurvey, CategoryBlocked,
 				"the spec cannot be implemented as written: %s", strings.TrimSpace(survey.Blocker.Reason)))
 		}
@@ -146,7 +146,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if err := st.git.CreateBranch(ctx, st.branch); err != nil {
 			return result, fail("branch", CategoryGit, err)
 		}
-		o.Progress.Step("branched %s from %s", st.branch, st.base)
+		o.Progress.Step("branch", "branched %s from %s", st.branch, st.base)
 	}
 
 	// ----------------------------------------------------------- repair --
@@ -187,7 +187,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// ------------------------------------------------------------- land --
 	result.Stage = "committed"
 	if o.Land.Pushes() && !o.DryRun {
-		err := st.git.Push(ctx, st.branch, o.PushAttempts, func(m string) { o.Progress.Step("%s", m) })
+		err := st.git.Push(ctx, st.branch, o.PushAttempts, func(m string) { o.Progress.Step("push", "%s", m) })
 		// A failed push is the run's error, not a Run.Warn: no warning code.
 		o.Run.RecordSideEffect("push", "origin "+st.branch, err == nil, "")
 		if err != nil {
@@ -195,7 +195,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		result.Pushed = true
 		result.Stage = "pushed"
-		o.Progress.Step("pushed origin/%s", st.branch)
+		o.Progress.Step("push", "pushed origin/%s", st.branch)
 	}
 	if o.Land == LandPR && result.Pushed && st.target.Valid() {
 		// A failed pull request is not a failed run: the branch is pushed
@@ -211,7 +211,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	case o.Land == LandNone:
 		result.Stage = "landed"
 	}
-	o.Progress.Step("%d task(s) landed on %s", result.TasksDone, st.branch)
+	o.Progress.Step("land", "%d task(s) landed on %s", result.TasksDone, st.branch)
 	return result, nil
 }
 
@@ -243,7 +243,7 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 	result.PullRequestURL = pr.URL
 	result.PullRequestNumber = pr.Number
 	if o.Progress != nil {
-		o.Progress.Step("opened %s", pr.URL)
+		o.Progress.Step("land", "opened %s", pr.URL)
 	}
 	result.Stage = "landed"
 	return result, nil
@@ -361,7 +361,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 		}
 		st.exists = true
 		result.Resumed = true
-		o.Progress.Step("continuing on %s", st.branch)
+		o.Progress.Step("preflight", "continuing on %s", st.branch)
 		if msg, err := git.HeadMessage(ctx); err == nil {
 			what := ""
 			if n, parked := parkedTask(msg); parked {
@@ -636,7 +636,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 
 		if sub.Blocker != nil {
 			result.Blocker = sub.Blocker
-			o.Progress.Step("stopped: the checks cannot be repaired in code")
+			o.Progress.Step("task", "stopped: the checks cannot be repaired in code")
 			return GateResult{}, &repairFailure{
 				reason:   "the checks cannot be repaired in code: " + strings.TrimSpace(sub.Blocker.Reason),
 				outcome:  OutcomeBlocked,
@@ -683,7 +683,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 			}
 			if attempt < o.RepairAttempts {
 				previous = failure
-				o.Progress.Step("repair attempt %d did not make the checks pass (%s); discarding it", attempt, result.Verdict)
+				o.Progress.Step("task", "repair attempt %d did not make the checks pass (%s); discarding it", attempt, result.Verdict)
 				if err := discard(ctx, st, head); err != nil {
 					return gitErr(err)
 				}
@@ -747,7 +747,7 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 	// keeps the red one as the run's baseline, which is the truth about
 	// where the branch started.
 	st.baseline = after
-	o.Progress.Step("the checks were repaired and committed as %s (%s)", commit, result.Verdict)
+	o.Progress.Step("task", "the checks were repaired and committed as %s (%s)", commit, result.Verdict)
 	return nil
 }
 
@@ -764,7 +764,7 @@ func repairAfterTask(ctx context.Context, o Options, st *runState, result *Resul
 
 	rr := newRepairReport(st, failing)
 	report.Repair = rr
-	o.Progress.Step("task %d: the checks failed after the integration task; repairing them before it lands", task.Id)
+	o.Progress.Step("task", "task %d: the checks failed after the integration task; repairing them before it lands", task.Id)
 
 	if _, err := st.git.CommitAllNoVerify(ctx, holdCommitMessage(st.spec, task)); err != nil {
 		return GateResult{}, fail("task", CategoryGit, err)
@@ -858,7 +858,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 
 		if sub.Blocker != nil {
 			result.Blocker = sub.Blocker
-			o.Progress.Step("stopped: task %d cannot be implemented as specified", task.Id)
+			o.Progress.Step("task", "stopped: task %d cannot be implemented as specified", task.Id)
 			return park(ctx, o, st, result, report, task,
 				"the task cannot be implemented as specified: "+strings.TrimSpace(sub.Blocker.Reason),
 				OutcomeBlocked, CategoryBlocked, "task")
@@ -927,7 +927,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			}
 			if attempt < o.TaskAttempts {
 				previous = failure
-				o.Progress.Step("task %d attempt %d did not land: %s; discarding it", task.Id, attempt, failure.Reason)
+				o.Progress.Step("task", "task %d attempt %d did not land: %s; discarding it", task.Id, attempt, failure.Reason)
 				if err := discard(ctx, st, head); err != nil {
 					return report, fail("task", CategoryGit, err)
 				}
@@ -964,7 +964,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		st.prior = append(st.prior, priorTask{
 			ID: task.Id, Title: task.Title, Summary: sub.Summary, Gotchas: sub.Gotchas, Files: changed,
 		})
-		o.Progress.Step("task %d landed as %s (%s)", task.Id, commit, verdict)
+		o.Progress.Step("task", "task %d landed as %s (%s)", task.Id, commit, verdict)
 		return report, nil
 	}
 	return report, failf("task", agentrun.CategoryInternal, "task %d ended without an outcome", task.Id)
@@ -1033,7 +1033,7 @@ func park(ctx context.Context, o Options, st *runState, result *Result, report T
 			"and could not be committed", task.Id, reason, st.branch)
 	}
 	report.Commit = commit
-	o.Progress.Step("task %d parked on %s as %s; the checkout is back on %s", task.Id, st.branch, commit, st.base)
+	o.Progress.Step("park", "task %d parked on %s as %s; the checkout is back on %s", task.Id, st.branch, commit, st.base)
 	return report, failf(stage, category, "task %d did not land: %s. The work is parked on %s (%s) "+
 		"and the checkout is back on %s", task.Id, reason, st.branch, commit, st.base)
 }
@@ -1051,7 +1051,7 @@ func parkRepair(ctx context.Context, o Options, st *runState, result *Result, re
 			"and could not be committed", reason, st.branch)
 	}
 	report.Commit = commit
-	o.Progress.Step("the repair is parked on %s as %s; the checkout is back on %s", st.branch, commit, st.base)
+	o.Progress.Step("park", "the repair is parked on %s as %s; the checkout is back on %s", st.branch, commit, st.base)
 	return failf(PhaseRepair, category, "the checks could not be repaired: %s. The last attempt is parked on "+
 		"%s (%s) and the checkout is back on %s; no task was implemented", reason, st.branch, commit, st.base)
 }

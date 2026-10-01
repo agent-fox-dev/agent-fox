@@ -226,6 +226,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
+	progress.SetShowText(common.ShowText)
 	code, result, failure := a.execute(ctx, execArgs{
 		common:   &common,
 		argument: input,

@@ -390,7 +390,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if o.Name != "" {
 			o.Run.Warn(toolio.WarnNameFlagIgnored, "low", "--name %q is ignored while resuming a split: the planned names are used", o.Name)
 		}
-		o.Progress.Step("resuming the split planned for %s: %d of %d scopes to write",
+		o.Progress.Step("plan", "resuming the split planned for %s: %d of %d scopes to write",
 			plan.Input.Origin, plan.Pending(), len(plan.Scopes))
 	} else {
 		prd, err := env.writePRD(ctx, nil)
@@ -403,7 +403,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if len(prd.RecommendedSplit) > 0 {
 			plan = newSplitPlan(o.Input, prd.RecommendedSplit)
 			plan.Scopes[0].Name = prd.SpecName
-			o.Progress.Step("the input is %d specs' worth of work; writing every scope: %s",
+			o.Progress.Step("plan", "the input is %d specs' worth of work; writing every scope: %s",
 				len(plan.Scopes), scopeNames(plan))
 			if !o.DryRun {
 				if err := checkPlanSlot(plan, specsDir); err != nil {
@@ -442,7 +442,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			continue
 		}
 		label := fmt.Sprintf("scope %d of %d (%s)", i+1, len(plan.Scopes), sc.Name)
-		o.Progress.Step("%s: %s", label, oneLine(sc.Scope))
+		o.Progress.Step("write", "%s: %s", label, oneLine(sc.Scope))
 
 		var prd PRD
 		if first != nil && i == 0 {
@@ -521,7 +521,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			"%d of %d packages do not validate (%s); each is on disk and each error names the "+
 				"rule it broke", len(invalid), len(plan.Scopes), strings.Join(invalid, ", "))
 	}
-	o.Progress.Step("the split is complete: %d packages", len(plan.Scopes))
+	o.Progress.Step("validate", "the split is complete: %d packages", len(plan.Scopes))
 	return result, nil
 }
 
@@ -662,7 +662,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		if err := writeSpec(spec, e.specsDir, specPath); err != nil {
 			return pkg, dirName, wrap(err)
 		}
-		o.Progress.Step("wrote %s", specPath)
+		o.Progress.Step("write", "wrote %s", specPath)
 	}
 	pkg.Artifacts = append([]string{"prd.md"}, pkg.Artifacts...)
 
@@ -697,12 +697,12 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	})
 
 	if !report.Valid {
-		o.Progress.Step("the package does not validate: %d error(s)", report.ErrorCount)
+		o.Progress.Step("validate", "the package does not validate: %d error(s)", report.ErrorCount)
 		return pkg, dirName, wrap(failf("validate", CategoryInvalid,
 			"the generated package has %d validation error(s); it is on disk at %s and each "+
 				"error names the rule it broke", report.ErrorCount, pkg.SpecDir))
 	}
-	o.Progress.Step("valid: %d requirements, %d tests, %d tasks",
+	o.Progress.Step("validate", "valid: %d requirements, %d tests, %d tasks",
 		pkg.Requirements, pkg.Tests, pkg.Tasks)
 
 	// --------------------------------------------------------- activate --
@@ -713,7 +713,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		} else {
 			pkg.Status = activated.Status
 			e.landscape[len(e.landscape)-1].Status = activated.Status
-			o.Progress.Step("activated %s", dirName)
+			o.Progress.Step("activate", "activated %s", dirName)
 		}
 	}
 
@@ -727,7 +727,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		} else {
 			o.Run.RecordSideEffect("comment", o.Input.Issue.String(), true, "")
 			pkg.CommentURL = url
-			o.Progress.Step("posted the PRD to %s", url)
+			o.Progress.Step("prd", "posted the PRD to %s", url)
 		}
 	}
 	return pkg, dirName, nil
