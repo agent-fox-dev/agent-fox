@@ -26,3 +26,13 @@ built in order.
 | [03-make-the-tools-observable-and-self-describing.md](03-make-the-tools-observable-and-self-describing.md) | `--events jsonl` and `--output`; `--schema` and `schema_version`; trust labels on untrusted text; `--preflight` |
 | [04-serve-the-tools-over-mcp.md](04-serve-the-tools-over-mcp.md) | `af mcp`: an MCP server over the four binaries, with jobs for long runs, an operator policy the model cannot override, progress, cancellation and elicitation. Builds on 01–03 |
 | [05-write-events-to-the-state-directory.md](05-write-events-to-the-state-directory.md) | Events always written beside the report; `--emit-events` replaces `--events` and `--events-file`; a `session_id` joining events and reports; one overridable state directory |
+
+Proposed for how the phases read the codebase. The split between this
+repository and AgentKit, and the order of the work, is
+[ADR 07](../adr/07-split-code-navigation-between-agentkit-and-agent-fox.md).
+
+| Document | What it asks for |
+|---|---|
+| [06-stop-re-reading-the-codebase-every-phase.md](06-stop-re-reading-the-codebase-every-phase.md) | Per-phase `tool_calls` and `tool_result_bytes` in the envelope; a repository map computed once per run and given to every `spec` phase; `relevant_files` on `submit_prd`, handed to the later phases |
+| AgentKit [PRD 04](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/04-add-symbol-navigation-tools.md) | The `outline` package and an exported ignore-aware walk (which 06's map is built from); `file_outline` and `find_symbol` |
+| AgentKit [PRD 05](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/05-add-an-indexed-code-search-module.md) | Gated on 06's numbers: a zoekt-backed `code_search` tool in a separate `codesearch` module |
