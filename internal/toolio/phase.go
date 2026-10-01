@@ -17,6 +17,8 @@ func PhaseFromResult(res agentrun.Result, scope string) PhaseInfo {
 	return PhaseInfo{
 		Name:                res.Name,
 		Scope:               scope,
+		Task:                res.Task,
+		Blocked:             res.Blocked,
 		Turns:               res.Turns,
 		StopReason:          string(res.StopReason),
 		InputTokens:         res.Usage.InputTokens,
@@ -38,7 +40,11 @@ func PhaseSummary(res agentrun.Result) string {
 	}
 	s += fmt.Sprintf(" %s↓", FormatTokens(res.Usage.OutputTokens))
 	if res.Blocked > 0 {
-		s += fmt.Sprintf(" · %d tools blocked", res.Blocked)
+		noun := "tools"
+		if res.Blocked == 1 {
+			noun = "tool"
+		}
+		s += fmt.Sprintf(" · %d %s blocked", res.Blocked, noun)
 	}
 	return s
 }

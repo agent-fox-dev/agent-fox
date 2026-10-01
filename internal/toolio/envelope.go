@@ -421,6 +421,8 @@ type UsageInfo struct {
 // PhaseInfo is one model-facing step of a pipeline.
 type PhaseInfo struct {
 	Name                string  `json:"name" description:"The phase name, in the tool own vocabulary."`
+	Task                string  `json:"task,omitempty" description:"The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."`
+	Blocked             int     `json:"blocked_calls,omitempty" description:"Tool calls the authorization guard refused during the phase, when any were."`
 	Scope               string  `json:"scope,omitempty" description:"The spec the phase worked on, when a run covers several, such as the scopes of a split."`
 	Turns               int     `json:"turns" description:"Model turns the phase took."`
 	StopReason          string  `json:"stop_reason" description:"Why the phase ended."`

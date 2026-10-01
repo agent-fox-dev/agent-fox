@@ -979,6 +979,14 @@
                   "type": "string",
                   "description": "The phase name, in the tool own vocabulary."
                 },
+                "task": {
+                  "type": "string",
+                  "description": "The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."
+                },
+                "blocked_calls": {
+                  "type": "integer",
+                  "description": "Tool calls the authorization guard refused during the phase, when any were."
+                },
                 "scope": {
                   "type": "string",
                   "description": "The spec the phase worked on, when a run covers several, such as the scopes of a split."
