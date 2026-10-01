@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/provider/faux"
@@ -317,5 +318,15 @@ func TestNewRunnerRequiresAModel(t *testing.T) {
 		t.Fatal("want an error")
 	} else if CategoryOf(err) != CategoryModel {
 		t.Errorf("category = %s", CategoryOf(err))
+	}
+}
+
+func TestFirstLineTruncatesOnARuneBoundary(t *testing.T) {
+	got := firstLine("ééééé", 3) // each é is two bytes: byte 3 is mid-rune
+	if !utf8.ValidString(got) {
+		t.Errorf("firstLine produced invalid UTF-8: %q", got)
+	}
+	if got != "é…" {
+		t.Errorf("firstLine = %q", got)
 	}
 }

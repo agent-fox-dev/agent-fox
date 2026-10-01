@@ -49,3 +49,24 @@ func TestPhaseSummaryShowsCachedTokens(t *testing.T) {
 		t.Errorf("summary = %q, want no cache note without cache tokens", got)
 	}
 }
+
+func TestPhaseFromResultCarriesTheTaskAndBlockedCalls(t *testing.T) {
+	res := cachedResult()
+	res.Task, res.Blocked = "4", 7
+	p := toolio.PhaseFromResult(res, "")
+	if p.Task != "4" || p.Blocked != 7 {
+		t.Errorf("phase = %+v", p)
+	}
+}
+
+func TestPhaseSummaryPluralisesBlockedTools(t *testing.T) {
+	res := cachedResult()
+	res.Blocked = 1
+	if got := toolio.PhaseSummary(res); !strings.Contains(got, "1 tool blocked") {
+		t.Errorf("summary = %q", got)
+	}
+	res.Blocked = 2
+	if got := toolio.PhaseSummary(res); !strings.Contains(got, "2 tools blocked") {
+		t.Errorf("summary = %q", got)
+	}
+}

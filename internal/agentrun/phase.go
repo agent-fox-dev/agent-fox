@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	agentkit "github.com/agentfox/agentkit-go"
 	"github.com/agentfox/agentkit-go/compaction"
@@ -184,7 +185,10 @@ type Phase struct {
 
 // Result is what a finished phase reports.
 type Result struct {
-	Name       string
+	Name string
+	// Task is the unit of work the phase served (Phase.Task), empty for a
+	// phase that serves the whole run.
+	Task       string
 	Turns      int
 	StopReason core.RunStopReason
 	Usage      core.Usage
@@ -287,6 +291,7 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 
 	out := Result{
 		Name:       p.Name,
+		Task:       p.Task,
 		Turns:      res.TurnCount,
 		StopReason: res.StopReason,
 		Usage:      res.Usage,
@@ -568,7 +573,13 @@ func firstLine(s string, limit int) string {
 		s = s[:i]
 	}
 	if limit > 0 && len(s) > limit {
-		return s[:limit] + "…"
+		// Cut on a rune boundary: a byte offset can land inside a multi-byte
+		// character and leave invalid UTF-8 in the log.
+		cut := limit
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		return s[:cut] + "…"
 	}
 	return s
 }
