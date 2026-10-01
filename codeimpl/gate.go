@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -76,6 +77,7 @@ func runGate(ctx context.Context, o Options, root string, cmds []string, label s
 		done := o.Progress.Begin("%s: %s", label, cmd)
 		res := checks.Run(ctx, o.CheckRunner, root, cmd, o.VerifyTimeout)
 		o.Progress.Check(res)
+		o.Run.AddTiming("check", label+": "+cmd, time.Duration(res.DurationMS)*time.Millisecond)
 		status := "passed"
 		switch {
 		case res.TimedOut:

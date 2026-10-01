@@ -907,6 +907,32 @@
           ]
         }
       },
+      "timings": {
+        "type": "array",
+        "description": "Time spent outside model phases: the project checks, git and forge calls, in the order they ran. With usage.phases[] it accounts for most of duration_ms.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What was timed: baseline, verification, push, open_pr, comment:\u003ckind\u003e, ..."
+            },
+            "kind": {
+              "type": "string",
+              "description": "check, git or forge."
+            },
+            "duration_ms": {
+              "type": "integer",
+              "description": "How long it took in milliseconds."
+            }
+          },
+          "required": [
+            "name",
+            "kind",
+            "duration_ms"
+          ]
+        }
+      },
       "next": {
         "type": "array",
         "description": "Invocations a caller would plausibly make next, derived from the result. Absent when there is nothing to suggest.",

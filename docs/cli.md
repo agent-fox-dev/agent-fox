@@ -216,6 +216,13 @@ case under `--dry-run`.
 ]
 ```
 
+`timings` accounts for the time spent outside model phases, which
+`usage.phases[]` does not cover: `{name, kind, duration_ms}` for each of the
+project's own checks (`kind: check`, e.g. `baseline`, `verification`), the push
+(`git`) and the forge calls (`forge`: `open_pr`, `comment:<kind>`), in the
+order they ran. With the phases it accounts for most of `duration_ms`; time in
+the model's own shell calls is inside the phase that made them.
+
 `next` suggests the invocations a caller would plausibly make next, as
 `{tool, input, flags, why}`; it is omitted when there is nothing to suggest.
 An `input` that names a small, stable thing — an issue URL, a spec directory —
