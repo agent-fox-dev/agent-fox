@@ -332,6 +332,7 @@ a typo. An existing directory is never flagged.
 | `--events` · `--events-file` | `text` · none | `--events text\|jsonl` picks what stderr carries: `text` (the default) is the human progress lines, unchanged; `jsonl` is one JSON event object per line instead. Any other value is a usage error (exit 2), refused before anything is fetched. `--events-file <path>` also writes the JSONL stream to that file — opened once, truncated, one whole line per write so a killed process leaves a valid prefix — whatever `--events` says about stderr, so `--events text --events-file run.jsonl` lets a person watch the terminal while a supervisor tails the file. `--quiet` silences stderr under both `--events` values and does not affect the file |
 | `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
+| `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
 | `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream or `--report-file` written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
 | `--version` | — | print the build identity and exit |
 
@@ -346,6 +347,200 @@ A flag one tool does not accept is a usage error that names the flag and the
 tool or tools that do accept it — `fix does not accept --label; it is an issue
 flag` — rather than Go's generic "flag provided but not defined". A flag that
 belongs to none of the four tools keeps the generic message.
+
+---
+
+## Preflight (`--preflight`)
+
+`fix`, `impl`, `spec` and `issue` each refuse a run before the model is ever
+called for a list of reasons: a dirty tree, an unresolvable model, a missing
+credential, an invalid spec package, an unreachable repository. `--preflight`
+performs every one of those checks — the ones the ordinary run performs, by
+the same code — reports the outcome, and stops. It answers "would this run even
+start" without paying for the model call that follows.
+
+**What it runs.** Everything up to the first model call, in the ordinary run's
+order: flag combinations, `--dir`, input classification and fetch, model
+resolution and its credential check (and, for `impl`, the `--repair-model`'s),
+then the tool's own checks:
+
+- `fix`: the repository, the clean tree, `--pull`, the target repository, the
+  forge credential when the run would comment or open a pull request, the
+  verification command, and the baseline run of it.
+- `impl`: the repository, the clean tree, `--pull`, the spec package and its
+  validity and status, the `test_commands` audit, the upstream dependencies, the
+  work branch, and the baseline gate.
+- `spec`: `--name`, `--comment`'s preconditions, the schemas, and any split
+  plan to resume.
+- `issue`: the target repository and the forge credential.
+
+**A refusal is the ordinary run's refusal.** A run that would stop before its
+first model call stops identically under `--preflight`: the same `stage`,
+`category`, `message` and exit code, with no `preflight` or `estimate` field —
+never a partial list of what passed before the failure. A run every check of
+which passes exits `0`, with `result.stage` `preflight`, no `usage` (no phase
+ran), and two fields:
+
+- `result.preflight`: one `{check, ok, detail}` entry per check performed. `ok`
+  can be `false` on an exit-`0` run: an entry reports an advisory fact the
+  ordinary run tolerates — no verification command detected, a baseline that
+  currently fails — honestly, while a *refusing* check that fails is never
+  listed, because its failure is the run's.
+- `result.estimate`: what the real run would spend at most — `phases`,
+  `max_turns_per_phase`, `max_budget_per_phase_usd` and `max_total_usd`, from
+  the Runner's resolved ceilings (`--max-turns`, `--budget`). It counts the
+  phases the plan already decides; a repair phase (`impl --repair`) and a
+  split a not-yet-written PRD might call for (`spec`) are decisions a model
+  makes once it runs, so the figure is a lower bound on phases.
+
+Both fields survive `--detail summary`.
+
+**What it never does:** no branch, no commit, no push, no comment, no issue,
+and no pull request; no model phase is started, so there is no `usage`, and
+`artifacts` and `side_effects` hold nothing the run did. The one exception is
+the baseline/gate check: `fix` and `impl` run the project's verification
+command once to establish what they compare the model's work against, and
+`--preflight` runs it too (`--no-verify` skips it, as in the ordinary run).
+
+**What it does not suppress.** Two things the ordinary run does before its
+first model call happen identically here, so the checklist describes the tree
+the real run would start from:
+
+- a `--pull` fetch and fast-forward of the base branch (and the checkout of it);
+- the checkout of an existing `impl` continuation branch, which is left checked
+  out, and the discarding of a parked `wip:` commit at its head.
+
+`--preflight` composes with every other flag. `--dry-run` adds nothing to it —
+`--preflight` already makes no remote write — and neither implies the other.
+`--schema` wins when both are given, as `--version` wins over everything. It
+emits the same progress lines and `--events` types as the checks it reuses, and
+`--output` receives its envelope like any other. It leaves `next[]` empty.
+
+The examples below show `result` under the default `--detail summary`; the
+`status`, `summary`, `warnings` and the rest of the envelope are as usual.
+
+### `fix --preflight`
+
+```sh
+fix ./bug-report.md --preflight
+```
+
+```json
+{
+  "ok": true,
+  "tool": "fix",
+  "result": {
+    "stage": "preflight",
+    "preflight": [
+      {"check": "git_repository", "ok": true},
+      {"check": "clean_tree", "ok": true},
+      {"check": "base_branch", "ok": true, "detail": "main"},
+      {"check": "forge_credential", "ok": true},
+      {"check": "land_target", "ok": true, "detail": "acme/widgets"},
+      {"check": "remote_configured", "ok": true, "detail": "origin"},
+      {"check": "verify_command", "ok": true, "detail": "make test"},
+      {"check": "verify_baseline", "ok": true, "detail": "passed"}
+    ],
+    "estimate": {
+      "phases": 2,
+      "max_turns_per_phase": 150,
+      "max_budget_per_phase_usd": 5,
+      "max_total_usd": 10
+    }
+  }
+}
+```
+
+### `impl --preflight`
+
+```sh
+impl 09 --preflight
+```
+
+```json
+{
+  "ok": true,
+  "tool": "impl",
+  "result": {
+    "stage": "preflight",
+    "preflight": [
+      {"check": "git_repository", "ok": true},
+      {"check": "clean_tree", "ok": true},
+      {"check": "spec_resolved", "ok": true, "detail": ".specs/09_tool_self_schema"},
+      {"check": "branch", "ok": true, "detail": "impl/09-tool-self-schema (will be created)"},
+      {"check": "spec_valid", "ok": true},
+      {"check": "spec_status", "ok": true, "detail": "active"},
+      {"check": "test_commands", "ok": true, "detail": "make lint · make test"},
+      {"check": "dependencies", "ok": true, "detail": "no upstream specs"},
+      {"check": "verify_baseline", "ok": true, "detail": "passed"}
+    ],
+    "estimate": {
+      "phases": 4,
+      "max_turns_per_phase": 150,
+      "max_budget_per_phase_usd": 5,
+      "max_total_usd": 20
+    }
+  }
+}
+```
+
+`phases` is one per task still pending, plus the survey unless `--no-survey`.
+
+### `spec --preflight`
+
+```sh
+spec ./prd.md --preflight
+```
+
+```json
+{
+  "ok": true,
+  "tool": "spec",
+  "result": {
+    "stage": "preflight",
+    "preflight": [
+      {"check": "schemas_valid", "ok": true},
+      {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"}
+    ],
+    "estimate": {
+      "phases": 4,
+      "max_turns_per_phase": 60,
+      "max_budget_per_phase_usd": 5,
+      "max_total_usd": 20
+    }
+  }
+}
+```
+
+`phases` is the PRD phase plus one per generation step (requirements, test
+spec, tasks), plus one with `--architecture`, for the next package; when a
+split is being resumed, that figure times the scopes still to write.
+
+### `issue --preflight`
+
+```sh
+issue ./crash.log --preflight
+```
+
+```json
+{
+  "ok": true,
+  "tool": "issue",
+  "result": {
+    "stage": "preflight",
+    "preflight": [
+      {"check": "target_repository", "ok": true, "detail": "acme/widgets"},
+      {"check": "forge_credential", "ok": true}
+    ],
+    "estimate": {
+      "phases": 1,
+      "max_turns_per_phase": 100,
+      "max_budget_per_phase_usd": 2,
+      "max_total_usd": 2
+    }
+  }
+}
+```
 
 ---
 
