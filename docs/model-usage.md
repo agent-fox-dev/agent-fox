@@ -40,6 +40,14 @@ dropped by its provider rather than by a branch in this code.
 Every phase's turns, stop reason, tokens and cost appear in the envelope's
 `usage.phases[]`, so a surprising bill is a field rather than an investigation.
 
+That is the bill after the run. To watch spend while it accumulates, run with
+`--events jsonl` (or `--events-file <path>`): a `turn` event carries each model
+turn's cost and tokens as it happens, and a `phase_end` event carries the
+phase's total turns, cost and duration the moment it finishes — the same
+figures `usage.phases[]` will report. A `heartbeat` event carries the run's
+spend so far when nothing else has been emitted for 15 seconds. See
+[event types](cli.md#machine-readable-progress-the-event-types).
+
 ## The result is a tool call
 
 Every phase ends by calling one tool whose arguments *are* the result. The
