@@ -475,6 +475,30 @@ type Run struct {
 	model    *ModelInfo
 	input    *InputInfo
 	bounds   agentrun.Bounds
+	// events is the JSONL sink the run reports its own start and end through,
+	// nil on a bare Run.
+	events *eventsSink
+}
+
+// AttachEvents gives the run the JSONL sink it emits run_end through. It is
+// set once in App.Main; a Run without one is unaffected.
+func (r *Run) AttachEvents(s *eventsSink) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = s
+}
+
+// eventSink returns the attached sink, nil when none is.
+func (r *Run) eventSink() *eventsSink {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.events
 }
 
 // NewRun starts a run's bookkeeping.

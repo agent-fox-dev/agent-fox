@@ -222,6 +222,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 	defer closeSink()
+	run.AttachEvents(sink)
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
@@ -324,6 +325,10 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 			env.Result = s.SummaryView()
 		}
 	}
+	// run_end goes out immediately before the envelope, from the same code
+	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
+	// inactive sink (the paths that return before one is built) is a no-op.
+	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
 	return Emit(stdout, env)
 }
 
@@ -458,6 +463,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
 	e.progress.Detail("model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+	// run_start is the stream's first event: the input is known and the model
+	// resolved, and no Runner exists yet to emit anything of its own.
+	e.run.eventSink().Emit(newRunStartEvent(in.Kind.String(), EventModelInfo{
+		Spec: choice.Spec, ID: choice.Model.ID, Vendor: choice.Model.Provider,
+	}))
 
 	cfg := agentrun.Config{
 		Model:         choice.Model,
