@@ -300,7 +300,13 @@ func surveySchema() *schema.Schema {
 		schema.Prop("spec_ref", schema.String("The requirement, criterion, path, test or task id concerned")),
 		schema.Prop("finding", schema.String("What the spec assumes and what the code actually does")),
 		schema.Prop("resolution", schema.String(
-			"How the tasks should proceed: follow the spec, follow the code, or the specific adaptation")),
+			"The decision, in the past tense, as it will read in the pull request: \"Followed the code: "+
+				"...\", \"Followed the spec: ...\", or the specific adaptation")),
+		schema.Opt("kind", schema.Enum(
+			"spec_gap: the spec omits or misstates a detail and the tasks adapt to it. "+
+				"behavior_change: the work changes what existing code does, which a reviewer should check. "+
+				"inconsistency: the spec contradicts itself and the resolution says which side was followed. "+
+				"open: an edge case the spec leaves unresolved and you could not settle.", DriftKinds...)),
 	)
 	return schema.Object(
 		schema.Prop("summary", schema.String(

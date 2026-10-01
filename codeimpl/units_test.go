@@ -382,7 +382,7 @@ func TestPullRequestBodyIsRenderedFromFacts(t *testing.T) {
 	body := pullRequestBody(r)
 	for _, want := range []string{
 		"2 of 3 task(s) landed", "1 already done", "| 2 | b | done | `abc1234` | pass | pass |",
-		"**09-REQ-1:** no cobra → use flag", "✅ **TS-09-4**: PASS", "❌ **TS-09-6**: FAIL",
+		"**09-REQ-1:** no cobra", "Decision: use flag", "✅ **TS-09-4**: PASS", "❌ **TS-09-6**: FAIL",
 		"✅ `make lint` passes (exit 0, 12ms)", "✅ `make test` passes (exit 0, 2.3s). It was **already failing before this branch** (exit 2)",
 		footer,
 	} {
@@ -523,5 +523,35 @@ func TestPullRequestBodySeparatesTheBaselineRepairFromTheSpec(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("the PR body lacks %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestPullRequestBodyGroupsDriftByKind(t *testing.T) {
+	r := &Result{SpecDir: ".specs/11_x", Title: "X", TasksTotal: 1, TasksDone: 1,
+		Survey: &Survey{Drift: []Drift{
+			{SpecRef: "11-REQ-1", Finding: "summary lacks fields", Resolution: "Followed the code: added them", Kind: DriftSpecGap},
+			{SpecRef: "11-REQ-2", Finding: "Resumable() true at preflight", Resolution: "Followed the spec: now false", Kind: DriftBehaviorChange},
+			{SpecRef: "11-REQ-3", Finding: "budget can be exceeded", Resolution: "Left as is", Kind: DriftOpen},
+			{SpecRef: "11-REQ-4", Finding: "unclassified"},
+		}}}
+	body := pullRequestBody(r)
+	if strings.Contains(body, "Where the spec and the code disagreed") {
+		t.Error("the old section title is still used")
+	}
+	order := []string{"## Spec deviations and how the tasks handled them", "not defects in the merged code",
+		"### Behavior changes", "### Open items", "### Spec gaps", "11-REQ-4"}
+	last := -1
+	for _, want := range order {
+		i := strings.Index(body, want)
+		if i < 0 {
+			t.Fatalf("the PR body lacks %q:\n%s", want, body)
+		}
+		if i < last {
+			t.Errorf("%q appears out of order:\n%s", want, body)
+		}
+		last = i
+	}
+	if strings.Index(body, "11-REQ-4") < strings.Index(body, "### Spec gaps") {
+		t.Error("an unclassified item should fall under spec gaps")
 	}
 }

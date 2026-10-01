@@ -30,7 +30,7 @@ func TestTS10_4_ModelAccountTypesTaggedModel(t *testing.T) {
 		{reflect.TypeOf(codefix.FileChange{}), []string{"Path", "Change"}},
 		{reflect.TypeOf(Survey{}), []string{"Summary", "Conventions"}},
 		{reflect.TypeOf(Blocker{}), []string{"Reason", "Needed"}},
-		{reflect.TypeOf(Drift{}), []string{"SpecRef", "Finding", "Resolution"}},
+		{reflect.TypeOf(Drift{}), []string{"SpecRef", "Finding", "Resolution", "Kind"}},
 		{reflect.TypeOf(Location{}), []string{"Name", "Path", "Note"}},
 		{reflect.TypeOf(Submission{}), []string{"Summary", "CommitSubject", "Notes", "Gotchas", "TestFirstDeviation"}},
 		{reflect.TypeOf(RepairSubmission{}), []string{"Cause", "Summary", "CommitSubject", "Notes"}},
