@@ -85,13 +85,17 @@ func AssertReadOnly(resolved []core.Tool) error {
 	return fmt.Errorf("%w: %s reached the resolved tool set", ErrNotReadOnly, strings.Join(found, ", "))
 }
 
-// SelectTools picks the named tools out of a built set.
+// SelectTools picks the named tools out of a built set and tells each one the
+// rules of the phase it is in.
 //
-// A read-only phase that keeps `execute` has its description rewritten,
-// because the shipped one advertises pipes and redirection that the read-only
-// policy refuses — and a model told they work wastes turns finding out that
-// they do not.
-func SelectTools(all []core.Tool, readOnly bool, names ...string) []core.Tool {
+// A model that is not told the rules learns them from refusals: in one run
+// the first `execute` of nearly every task was `cd <repo> && ...`, refused,
+// and the same went for `find`, `env`, heredocs and a scratch file under
+// /tmp. The shipped descriptions say none of this, and a read-only phase's
+// even advertises pipes and redirection its policy refuses. programs is the
+// phase's allowlist, so the text is generated from the same list the guard
+// enforces and cannot drift from it.
+func SelectTools(all []core.Tool, readOnly bool, programs []string, names ...string) []core.Tool {
 	want := make(map[string]bool, len(names))
 	for _, n := range names {
 		want[n] = true
@@ -101,14 +105,38 @@ func SelectTools(all []core.Tool, readOnly bool, names ...string) []core.Tool {
 		if !want[t.Name] {
 			continue
 		}
-		if readOnly && t.Name == "execute" {
-			t.Description = "Run one plain command. Pipes, redirection, &&, ; and $() are " +
-				"refused in this phase, so run one program per call. Output is truncated " +
-				"from the END if it is large, so the tail of a long listing is preserved."
-		}
+		t.Description = describeForPhase(t, readOnly, programs)
 		out = append(out, t)
 	}
 	return out
+}
+
+// describeForPhase is a tool's description with the phase's rules in it.
+func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
+	list := strings.Join(programs, ", ")
+	switch t.Name {
+	case "execute":
+		if readOnly {
+			return "Run one plain command from the repository root. Pipes, redirection, &&, ; and $() are " +
+				"refused in this phase, so run one program per call. The only programs allowed are: " + list +
+				". Use find_files instead of find. Output is truncated from the END if it is large, so the " +
+				"tail of a long listing is preserved."
+		}
+		return t.Description + " The shell already starts at the repository root: do not `cd` to it. " +
+			"The only programs allowed are: " + list + "; anything else (find, rm, env, perl, curl) is " +
+			"refused. Heredocs are not for writing files: use write_file for a multi-line file. Do not " +
+			"leave scratch files or .bak copies in the repository."
+	case "run_command":
+		return t.Description + " It starts at the repository root. The only programs allowed are: " + list + "."
+	case "write_file":
+		return t.Description + " The path must be inside the repository: a path outside it (/tmp " +
+			"included) is refused, and there is no scratch directory. Use this, not a heredoc, for " +
+			"multi-line files."
+	case "edit_file":
+		return t.Description + ` The edits argument is a JSON array of {"old_string", "new_string"} ` +
+			"objects, never a string. The path must be inside the repository."
+	}
+	return t.Description
 }
 
 func hasShell(ts []core.Tool) bool {

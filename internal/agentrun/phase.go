@@ -411,7 +411,7 @@ func (r *Runner) registeredTools(p Phase) ([]core.Tool, error) {
 	if err != nil {
 		return nil, newError(p.Name, CategoryInternal, err, "building the file tools: %v", err)
 	}
-	return append(out, SelectTools(built, p.ReadOnly, p.BuiltinTools...)...), nil
+	return append(out, SelectTools(built, p.ReadOnly, p.Programs, p.BuiltinTools...)...), nil
 }
 
 // installCompaction summarizes the transcript in place once it passes a
