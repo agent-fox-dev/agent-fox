@@ -58,9 +58,17 @@ func newApp() toolio.App {
 	)
 
 	return toolio.App{
-		Name:    "issue",
-		Version: agentfox.Version,
-		Usage:   usage,
+		Name:             "issue",
+		Version:          agentfox.Version,
+		Usage:            usage,
+		Description:      "Triages a problem report read-only and files it as an issue on GitHub or GitLab.",
+		InputDescription: "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue and its comments are the report), a path to a readable file (its contents are the report), any other text (the text is the report), or - to read the report from stdin.",
+		ExitCodes: map[int]string{
+			toolio.ExitOK:     "triaged, and filed unless --dry-run",
+			toolio.ExitFailed: "failed",
+			toolio.ExitUsage:  "usage error; nothing was fetched and nothing was written",
+		},
+		ResultSample: issuetriage.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&labels, "label", "", "comma-separated labels for the created issue, e.g. af:fix")

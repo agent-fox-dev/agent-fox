@@ -77,9 +77,17 @@ func newApp() toolio.App {
 	)
 
 	return toolio.App{
-		Name:    "spec",
-		Version: agentfox.Version,
-		Usage:   usage,
+		Name:             "spec",
+		Version:          agentfox.Version,
+		Usage:            usage,
+		Description:      "Turns a product idea into a validated specification package written under the spec root.",
+		InputDescription: "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue and its comments are the idea), a path to a readable file (its contents are the idea), any other text (the text is the idea), or - to read the idea from stdin.",
+		ExitCodes: map[int]string{
+			toolio.ExitOK:     "a valid package was written",
+			toolio.ExitFailed: "failed; the stage is named in the JSON, and an invalid_spec failure still leaves the package on disk",
+			toolio.ExitUsage:  "usage error; nothing was fetched and nothing was written",
+		},
+		ResultSample: specgen.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+specgen.DefaultSpecDirName+" or $"+specgen.SpecDirEnv)
 			fs.StringVar(&name, "name", "", "override the spec name the model chooses; must match [a-z][a-z0-9_]*")

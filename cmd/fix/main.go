@@ -78,8 +78,18 @@ func newApp() toolio.App {
 	return toolio.App{
 		Name: "fix",
 
-		Version: agentfox.Version,
-		Usage:   usage,
+		Version:          agentfox.Version,
+		Usage:            usage,
+		Description:      "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
+		InputDescription: "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue is the problem), a path to a readable file (its contents are the problem), any other text (the text is the problem), or - to read the problem from stdin.",
+		ExitCodes: map[int]string{
+			toolio.ExitOK:         "fixed, verified, and landed as --land asked",
+			toolio.ExitFailed:     "failed; the stage is named in the JSON",
+			toolio.ExitUsage:      "usage error; nothing was fetched and nothing was written",
+			toolio.ExitNeedsHuman: "stopped on purpose because the problem reads two ways; the question was posted to the issue, with no branch and no code",
+			toolio.ExitUnverified: "code was written and the checks do not pass; the work is committed as a wip: commit and the checkout is back on the base branch",
+		},
+		ResultSample: codefix.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codefix.LandPR), "what to do with a verified change: "+strings.Join(codefix.LandModes, ", "))
