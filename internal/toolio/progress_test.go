@@ -61,6 +61,21 @@ func TestTS07_18_StepHumanLineUnchanged(t *testing.T) {
 	}
 }
 
+// Under --events jsonl stderr carries the stream, so Step and Detail write no
+// human line beside it, while the step event is still emitted.
+func TestProgressEventsOnStderrSuppressesHumanLines(t *testing.T) {
+	p, human, events := sinkProgress(true, false, true)
+	p.SetEventsOnStderr(true)
+	p.Step("verify", "running tests")
+	p.Detail("tracing")
+	if human.Len() != 0 {
+		t.Fatalf("human text written under jsonl: %q", human.String())
+	}
+	if ev := lastEvent(t, events); ev["type"] != "step" || ev["message"] != "running tests" {
+		t.Fatalf("event = %v", ev)
+	}
+}
+
 // TS-07-19 (unit): Begin prints nothing and returns a no-op end function while
 // a JSONL sink is active.
 func TestTS07_19_BeginSilentUnderSink(t *testing.T) {

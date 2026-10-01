@@ -254,8 +254,9 @@ type eventsSink struct {
 }
 
 // The heartbeat defaults: the ticker checks every second whether the stream
-// has been silent for fifteen.
-const (
+// has been silent for fifteen. They are variables only so a test of the whole
+// shell can shorten the window (see export_test.go); nothing else assigns them.
+var (
 	heartbeatInterval = time.Second
 	heartbeatIdle     = 15 * time.Second
 )

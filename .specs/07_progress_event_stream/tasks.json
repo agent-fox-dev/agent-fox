@@ -316,7 +316,7 @@
       "depends_on": [
         8
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

@@ -32,6 +32,10 @@ type Progress struct {
 	showText bool
 	// phase is the model phase now running, named on a text event.
 	phase string
+	// eventsOnStderr is set under --events jsonl: the JSONL stream is what
+	// stderr carries, so no human line is written beside it (a caller that
+	// parses stderr line by line must never meet prose).
+	eventsOnStderr bool
 }
 
 // NewProgress returns a Progress writing to w, prefixing each line with the
@@ -51,6 +55,24 @@ func (p *Progress) SetEvents(s *eventsSink) {
 	p.mu.Lock()
 	p.events = s
 	p.mu.Unlock()
+}
+
+// SetEventsOnStderr records that stderr carries the JSONL stream (--events
+// jsonl), which replaces the human lines Step and Detail would write there.
+func (p *Progress) SetEventsOnStderr(on bool) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.eventsOnStderr = on
+	p.mu.Unlock()
+}
+
+// humanSuppressed reports whether stderr is given over to the JSONL stream.
+func (p *Progress) humanSuppressed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.eventsOnStderr
 }
 
 // SetShowText records whether --show-text was given. Raw does nothing
@@ -92,7 +114,7 @@ func (p *Progress) Step(stage, format string, args ...any) {
 	if s := p.sink(); s != nil {
 		s.Emit(newStepEvent(stage, msg))
 	}
-	if p.quiet {
+	if p.quiet || p.humanSuppressed() {
 		return
 	}
 	p.mu.Lock()
@@ -104,7 +126,7 @@ func (p *Progress) Step(stage, format string, args ...any) {
 // Detail prints one line only under --verbose. It is indented, because a
 // detail line belongs to the step above it.
 func (p *Progress) Detail(format string, args ...any) {
-	if p == nil || !p.verbose || p.quiet {
+	if p == nil || !p.verbose || p.quiet || p.humanSuppressed() {
 		return
 	}
 	p.mu.Lock()

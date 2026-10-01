@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/provider/faux"
@@ -1673,6 +1675,7 @@ func smokeFixApp(turns []faux.Turn, verify string) toolio.App {
 				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
 				Workspace:     d.Workspace,
 				Bounds:        agentrun.Bounds{MaxTurns: 10, MaxBudgetUSD: 1, MaxAttempts: 1},
+				Observer:      d.Progress,
 				SessionPrefix: "fix",
 			})
 			if err != nil {
@@ -2311,5 +2314,451 @@ func TestTS0667_SplitSpecStopsAtTotalBudgetAndResumes_Smoke(t *testing.T) {
 		if s.Status != "done" {
 			t.Errorf("scope %s is %q, want done", s.Name, s.Status)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 07_progress_event_stream: the three execution paths, end to end.
+// ---------------------------------------------------------------------------
+
+// smokeEvent is one decoded event line: its type, and the whole object for the
+// fields that belong to one type.
+type smokeEvent struct {
+	Type string
+	Raw  map[string]any
+}
+
+// smokeParseEvents decodes JSONL, failing the test on any line that is not one
+// JSON object naming a type from the closed set, or that lacks the header.
+func smokeParseEvents(t *testing.T, tool, jsonl string) []smokeEvent {
+	t.Helper()
+	closed := map[string]bool{}
+	for _, ty := range toolio.EventTypes {
+		closed[string(ty)] = true
+	}
+	var out []smokeEvent
+	for i, line := range strings.Split(strings.TrimRight(jsonl, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("line %d is not one JSON object: %v\n%s", i+1, err, line)
+		}
+		ty, _ := m["type"].(string)
+		if !closed[ty] {
+			t.Errorf("line %d: type %q is outside the closed set: %s", i+1, ty, line)
+		}
+		if m["tool"] != tool {
+			t.Errorf("line %d: tool = %v, want %q", i+1, m["tool"], tool)
+		}
+		if ts, _ := m["ts"].(string); ts == "" {
+			t.Errorf("line %d: no ts: %s", i+1, line)
+		} else if _, err := time.Parse(time.RFC3339, ts); err != nil {
+			t.Errorf("line %d: ts %q is not RFC 3339: %v", i+1, ts, err)
+		}
+		out = append(out, smokeEvent{Type: ty, Raw: m})
+	}
+	return out
+}
+
+func smokeFirst(evs []smokeEvent, ty string) int {
+	for i, e := range evs {
+		if e.Type == ty {
+			return i
+		}
+	}
+	return -1
+}
+
+func smokeLast(evs []smokeEvent, ty string) int {
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Type == ty {
+			return i
+		}
+	}
+	return -1
+}
+
+func smokeCount(evs []smokeEvent, ty string) int {
+	n := 0
+	for _, e := range evs {
+		if e.Type == ty {
+			n++
+		}
+	}
+	return n
+}
+
+// smokeOrderedWriter lets stderr and stdout share one log, so a test can tell
+// which write came first across the two streams.
+type smokeOrderedWriter struct {
+	mu     *sync.Mutex
+	log    *[]smokeWrite
+	stream string
+}
+
+type smokeWrite struct {
+	stream string
+	data   string
+}
+
+func (w smokeOrderedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	*w.log = append(*w.log, smokeWrite{w.stream, string(p)})
+	return len(p), nil
+}
+
+// TS-07-44 (smoke): A supervisor watches a fix run live via --events jsonl and sees spend accumulate before it finishes
+// Verifies: 07-PATH-1, 07-REQ-3.1, 07-REQ-4.7, 07-REQ-5.3
+// Real components: toolio.App, toolio.Progress JSONL sink, internal/agentrun.Runner, codefix pipeline, internal/checks.Run, issuex.GitHubClient
+func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "gh-smoke-token")
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	smokeGitDates(t)
+
+	wsDir := smokeWidgetRepo(t, "https://github.com/acme/widgets.git")
+	forge := newSmokeGitHubForge(t)
+	forge.created = map[string]any{
+		"title": "Fix widget counter double-count",
+		"body":  "Count() in widget.go returns 1 where it should return 2",
+	}
+
+	turns := smokeFixTurns()
+	for i := range turns {
+		turns[i].Usage = core.Usage{CostUSD: 0.01, InputTokens: 100, OutputTokens: 20}
+	}
+	app := smokeFixApp(turns, "git --version")
+
+	var mu sync.Mutex
+	var log []smokeWrite
+	stdout := smokeOrderedWriter{&mu, &log, "stdout"}
+	stderr := smokeOrderedWriter{&mu, &log, "stderr"}
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "--events", "jsonl", "https://github.com/acme/widgets/issues/7"},
+		strings.NewReader(""), stdout, stderr)
+
+	var errText, outText strings.Builder
+	lastStderr, firstStdout := -1, -1
+	for i, w := range log {
+		if w.stream == "stderr" {
+			errText.WriteString(w.data)
+			lastStderr = i
+		} else {
+			outText.WriteString(w.data)
+			if firstStdout < 0 {
+				firstStdout = i
+			}
+		}
+	}
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, outText.String(), errText.String())
+	}
+	if forge.reads == 0 {
+		t.Error("the issue was never fetched from the forge")
+	}
+
+	// Every stderr line is an event: --events jsonl replaces the human form.
+	evs := smokeParseEvents(t, "fix", errText.String())
+
+	rs, ps := smokeFirst(evs, "run_start"), smokeFirst(evs, "phase_start")
+	if rs != 0 {
+		t.Fatalf("run_start is at index %d, want the first event:\n%s", rs, errText.String())
+	}
+	if ps < 0 || rs > ps {
+		t.Errorf("run_start (%d) must come before the first phase_start (%d)", rs, ps)
+	}
+	if k, _ := evs[rs].Raw["input_kind"].(string); k == "" {
+		t.Errorf("run_start has no input_kind: %v", evs[rs].Raw)
+	}
+	if m, _ := evs[rs].Raw["model"].(map[string]any); m == nil || m["id"] == "" {
+		t.Errorf("run_start has no model: %v", evs[rs].Raw)
+	}
+
+	var turnsSeen int
+	var spend float64
+	for _, e := range evs {
+		if e.Type != "turn" {
+			continue
+		}
+		turnsSeen++
+		c, _ := e.Raw["cost_usd"].(float64)
+		spend += c
+		if in, _ := e.Raw["input_tokens"].(float64); in != 100 {
+			t.Errorf("turn input_tokens = %v, want 100: %v", e.Raw["input_tokens"], e.Raw)
+		}
+	}
+	if turnsSeen == 0 || spend <= 0 {
+		t.Errorf("turn events = %d, summed cost_usd = %v, want at least one populated turn", turnsSeen, spend)
+	}
+
+	ci := smokeFirst(evs, "check")
+	if ci < 0 {
+		t.Fatalf("no check event in the stream:\n%s", errText.String())
+	}
+	chk := evs[ci].Raw
+	if ec, ok := chk["exit_code"].(float64); !ok || ec != 0 {
+		t.Errorf("check exit_code = %v, want 0: %v", chk["exit_code"], chk)
+	}
+	if chk["command"] != "git --version" || chk["ok"] != true {
+		t.Errorf("check = %v, want command %q ok true", chk, "git --version")
+	}
+
+	re := smokeLast(evs, "run_end")
+	if pe := smokeLast(evs, "phase_end"); pe < 0 || pe > re {
+		t.Errorf("phase_end (%d) must be emitted before run_end (%d)", pe, re)
+	}
+	if a, b := smokeCount(evs, "phase_start"), smokeCount(evs, "phase_end"); a == 0 || a != b {
+		t.Errorf("phase_start = %d, phase_end = %d, want equal and non-zero", a, b)
+	}
+	if re != len(evs)-1 || smokeCount(evs, "run_end") != 1 {
+		t.Errorf("run_end must be the one and last event; at %d of %d", re, len(evs))
+	}
+
+	// run_end sits immediately before the envelope: the final stderr write is
+	// the event, and nothing is written to stdout until it has been.
+	if firstStdout < 0 || lastStderr > firstStdout {
+		t.Fatalf("stderr writes continue after stdout began (last stderr %d, first stdout %d)", lastStderr, firstStdout)
+	}
+	if !strings.Contains(log[lastStderr].data, `"type":"run_end"`) {
+		t.Errorf("the last write before the envelope is %q, want run_end", log[lastStderr].data)
+	}
+	var env toolio.Envelope
+	if err := json.Unmarshal([]byte(outText.String()), &env); err != nil {
+		t.Fatalf("stdout is not one JSON envelope: %v\n%s", err, outText.String())
+	}
+	if env.Status != evs[re].Raw["status"] || evs[re].Raw["exit_code"] != float64(code) {
+		t.Errorf("run_end = %v, envelope status %q, exit %d", evs[re].Raw, env.Status, code)
+	}
+}
+
+// TS-07-45 (smoke): A human reading stderr and a supervisor tailing a file watch the same impl run through different streams, including a heartbeat
+// Verifies: 07-PATH-2, 07-REQ-4.1, 07-REQ-7.2
+// Real components: toolio.App, toolio.Progress JSONL sink, internal/agentrun.Runner, codeimpl pipeline, events file writer
+func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	// A window short enough for a half-second phase to cross.
+	toolio.ShortenHeartbeat(t, 20*time.Millisecond, 100*time.Millisecond)
+
+	wsDir := t.TempDir()
+	initGitRepo(t, wsDir, "", "")
+	specDir := filepath.Join(wsDir, ".specs", "09_events_spec")
+	writeSpecPackage(t, specDir, "09", "events_spec")
+	if out, err := exec.Command("git", "-C", wsDir, "add", ".specs").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", "chore: initial").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	loaded, err := afspec.LoadSpec(specDir)
+	if err != nil {
+		t.Fatalf("afspec.LoadSpec: %v", err)
+	}
+	task1 := loaded.Tasks.Tasks[0]
+
+	app := toolio.App{
+		Name:          "impl",
+		Version:       agentfox.Version,
+		Usage:         "impl [flags] <spec>\n",
+		DefaultBounds: agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5},
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			verdicts := make([]map[string]any, len(task1.Tests))
+			for i, id := range task1.Tests {
+				verdicts[i] = map[string]any{"id": id, "verdict": "pass",
+					"evidence": "lib_test.go: TestFunction passes verification cleanly"}
+			}
+			write := toolCallTurn("t0", "write_file", map[string]any{
+				"path": "task1.go", "content": "package repo\nfunc Loaded() bool { return true }\n",
+			})
+			// The long phase: the model takes half a second to answer, and
+			// nothing else is emitted while it does.
+			write.Delay = 500 * time.Millisecond
+			write.Usage = core.Usage{CostUSD: 0.02, InputTokens: 50, OutputTokens: 10}
+			submit := toolCallTurn("t1", "submit_task", map[string]any{
+				"summary":        "implemented task 1",
+				"commit_subject": "feat: implement task 1",
+				"test_verdicts":  verdicts,
+				"changes":        []map[string]any{{"path": "task1.go", "change": "added Loaded()"}},
+			})
+			submit.Usage = core.Usage{CostUSD: 0.03, InputTokens: 60, OutputTokens: 12}
+			p := faux.New(write, submit)
+			runner, rerr := agentrun.NewRunner(agentrun.Config{
+				Model:         faux.Model(),
+				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+				Workspace:     d.Workspace,
+				Bounds:        d.Common.Bounds(agentrun.Bounds{MaxTurns: 50, MaxBudgetUSD: 5}),
+				Observer:      d.Progress,
+				ShowText:      d.Common.ShowText,
+				SessionPrefix: "impl",
+			})
+			if rerr != nil {
+				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: rerr.Error()}
+			}
+			result, runErr := codeimpl.Run(ctx, codeimpl.Options{
+				Input:        d.Input,
+				Workspace:    d.Workspace,
+				Task:         task1.Id,
+				Land:         codeimpl.LandNone,
+				NoVerify:     true,
+				NoSurvey:     true,
+				TaskAttempts: 1,
+				Runner:       runner,
+				Forge:        issuex.NewNoOp(),
+				CheckRunner:  gitx.ReducedEnvRunner,
+				Run:          d.Run,
+				Progress:     d.Progress,
+			})
+			if runErr != nil {
+				info := toolio.ErrorFrom("run", runErr)
+				return toolio.ExitCodeFor(info.Category), result, info
+			}
+			return toolio.ExitOK, result, nil
+		},
+	}
+
+	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "--events", "text", "--events-file", eventsFile, specDir},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// stderr: human lines only, no JSON.
+	var human []string
+	for _, line := range strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "{") {
+			t.Errorf("JSON on stderr under --events text: %s", line)
+		}
+		if !strings.HasPrefix(line, "[impl] ") {
+			t.Errorf("stderr line is not a human [impl] line: %q", line)
+		}
+		human = append(human, strings.TrimPrefix(line, "[impl] "))
+	}
+	if len(human) == 0 {
+		t.Fatal("no human progress on stderr")
+	}
+
+	raw, err := os.ReadFile(eventsFile)
+	if err != nil {
+		t.Fatalf("the events file was not written: %v", err)
+	}
+	evs := smokeParseEvents(t, "impl", string(raw))
+	if len(evs) == 0 || evs[len(evs)-1].Type != "run_end" {
+		t.Fatalf("run_end must be the file's last line:\n%s", raw)
+	}
+
+	// Each human step has its step event, in order, with the same message.
+	var steps []string
+	for _, e := range evs {
+		if e.Type == "step" {
+			steps = append(steps, e.Raw["message"].(string))
+			if s, _ := e.Raw["stage"].(string); s == "" {
+				t.Errorf("step event without a stage: %v", e.Raw)
+			}
+		}
+	}
+	if strings.Join(steps, "\n") != strings.Join(human, "\n") {
+		t.Errorf("step events do not mirror the human lines\nsteps:\n%s\nhuman:\n%s",
+			strings.Join(steps, "\n"), strings.Join(human, "\n"))
+	}
+
+	// The long phase crossed the shortened window: a heartbeat landed in the
+	// file, naming the stage, the time elapsed and the spend so far.
+	var beats []smokeEvent
+	for _, e := range evs {
+		if e.Type == "heartbeat" {
+			beats = append(beats, e)
+		}
+	}
+	if len(beats) == 0 {
+		t.Fatalf("no heartbeat in the events file:\n%s", raw)
+	}
+	prev := float64(-1)
+	for _, b := range beats {
+		if s, _ := b.Raw["stage"].(string); s == "" {
+			t.Errorf("heartbeat without a stage: %v", b.Raw)
+		}
+		el, ok := b.Raw["elapsed_ms"].(float64)
+		if !ok || el <= prev {
+			t.Errorf("heartbeat elapsed_ms = %v after %v, want increasing: %v", b.Raw["elapsed_ms"], prev, b.Raw)
+		}
+		prev = el
+		if _, ok := b.Raw["cost_usd"].(float64); !ok {
+			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
+		}
+	}
+	// No heartbeat follows run_end, and the implement phase carried its task.
+	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {
+		t.Error("a heartbeat followed run_end")
+	}
+	var sawTask bool
+	for _, e := range evs {
+		if e.Type == "phase_start" && e.Raw["phase"] == "implement" && e.Raw["task"] != nil {
+			sawTask = true
+		}
+	}
+	if !sawTask {
+		t.Errorf("no phase_start for implement carrying a task:\n%s", raw)
+	}
+}
+
+// TS-07-46 (smoke): An invalid --events value is refused before any work happens, with no events emitted
+// Verifies: 07-PATH-3, 07-REQ-1.2
+// Real components: toolio.App, toolio.Common flag validation
+func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
+	// No credentials at all: if model resolution or a fetch ran, it would
+	// fail differently (or the Exec below would be reached).
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	execRan := false
+	app := toolio.App{
+		Name:    "spec",
+		Version: agentfox.Version,
+		Usage:   "spec [flags] <input>\n",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			execRan = true
+			return toolio.ExitOK, nil, nil
+		},
+	}
+	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--events", "yaml", "--events-file", eventsFile, "a report"},
+		strings.NewReader(""), &stdout, &stderr)
+
+	if code != toolio.ExitUsage {
+		t.Errorf("code = %d, want %d", code, toolio.ExitUsage)
+	}
+	if execRan {
+		t.Error("the tool ran despite an invalid --events value")
+	}
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not one JSON envelope: %v\n%s", err, stdout.String())
+	}
+	if env.Error == nil || env.Error.Stage != "usage" {
+		t.Errorf("envelope error = %+v, want stage usage", env.Error)
+	}
+	if env.Status != "usage" || env.OK {
+		t.Errorf("envelope status=%q ok=%v, want usage/false", env.Status, env.OK)
+	}
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		if strings.HasPrefix(line, "{") || strings.Contains(line, `"type"`) {
+			t.Errorf("an event line reached stderr: %s", line)
+		}
+	}
+	if _, err := os.Stat(eventsFile); err == nil {
+		t.Error("--events-file was created even though the invocation was refused")
+	}
+	if env.Model != nil {
+		t.Errorf("a model was resolved (%+v) before the refusal", *env.Model)
 	}
 }
