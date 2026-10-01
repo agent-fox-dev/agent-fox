@@ -63,11 +63,22 @@ func wipRepairMessage(spec *afspec.Spec, reason string) string {
 // repair, when set, is the repair of the checks after the task, which the
 // commit carries too: the body says so, with the cause, because a reader of
 // the one commit has to be able to tell the task's change from the fix.
-func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission, repair *RepairSubmission) string {
+//
+// The model's summary is stripped of any claim that the checks pass, and the
+// body ends with the result of the gate as the tool measured it: nothing the
+// model writes may assert a verification result.
+func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission, repair *RepairSubmission, gate GateResult) string {
 	subject := strings.TrimSuffix(strings.TrimSpace(sub.CommitSubject), ".")
 	msg := "feat: " + subject
-	if body := strings.TrimSpace(sub.Summary); body != "" {
+	if body := checks.StripClaims(strings.TrimSpace(sub.Summary)); body != "" {
 		msg += "\n\n" + body
+	}
+	if gate.Ran() && gate.OK() {
+		var cmds []string
+		for _, c := range gate.Checks {
+			cmds = append(cmds, "`"+c.Command+"`")
+		}
+		msg += "\n\nChecks (run by the tool): " + strings.Join(cmds, ", ") + " passed."
 	}
 	if repair != nil {
 		msg += "\n\nThe checks failed after the task and were repaired in the same commit. " +

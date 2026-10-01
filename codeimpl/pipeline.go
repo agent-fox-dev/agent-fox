@@ -1095,7 +1095,11 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		if report.Repair != nil && report.Repair.Outcome == OutcomeDone {
 			repaired = report.Repair.Submission
 		}
-		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired))
+		var landedGate GateResult
+		if report.Verification != nil {
+			landedGate = *report.Verification
+		}
+		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired, landedGate))
 		if err != nil {
 			return report, fail("commit", CategoryGit, err)
 		}
