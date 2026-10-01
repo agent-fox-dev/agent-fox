@@ -155,6 +155,22 @@ func (g *Git) ChangedFiles(ctx context.Context, since string) ([]string, error) 
 	return out, nil
 }
 
+// DiffSince is the change since a commit, untracked files included, as git's
+// name-status lines (`M\tpath`, `D\tpath`, `R100\told\tnew`) and the unified
+// patch. Untracked files are marked intent-to-add first so they appear in
+// both; the marking changes no content, and the commit that follows stages
+// everything anyway.
+func (g *Git) DiffSince(ctx context.Context, since string) (nameStatus, patch string, err error) {
+	if _, err = g.must(ctx, "add", "-N", "."); err != nil {
+		return "", "", err
+	}
+	if nameStatus, err = g.must(ctx, "diff", "--name-status", "--no-color", since); err != nil {
+		return "", "", err
+	}
+	patch, err = g.must(ctx, "diff", "--no-color", "-U0", since)
+	return nameStatus, patch, err
+}
+
 // DiffStat is the `--stat` summary of the change since a commit, for a run
 // summary that says how big the change was without printing it.
 func (g *Git) DiffStat(ctx context.Context, since string) (string, error) {

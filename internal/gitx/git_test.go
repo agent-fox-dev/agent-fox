@@ -522,3 +522,25 @@ func TestUntrackedFilesSkipsTrackedAndIgnored(t *testing.T) {
 		t.Errorf("UntrackedFiles = %v", got)
 	}
 }
+
+func TestDiffSinceIncludesUntrackedFiles(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	head, _ := g.Head(ctx)
+	if err := os.WriteFile(filepath.Join(dir, "new_test.go"), []byte("t.Skip()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	ns, patch, err := g.DiffSince(ctx, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ns, "A\tnew_test.go") || !strings.Contains(ns, "D\tREADME.md") {
+		t.Errorf("name-status = %q", ns)
+	}
+	if !strings.Contains(patch, "+++ b/new_test.go") || !strings.Contains(patch, "+t.Skip()") {
+		t.Errorf("patch = %q", patch)
+	}
+}
