@@ -49,6 +49,13 @@ tried once more from the last commit; a second failure parks the work as a
 wip: commit and returns the checkout to the base branch. A second run
 continues from the last landed task.
 
+A task that owns tests must show it worked test-first: submit_task is refused
+unless every test verdict carries red_evidence (the command and the failure
+seen before implementing) or the submission gives a test_first_deviation
+reason, which the pull request shows as "Test-first not followed". The evidence
+is the model's own claim, not a measured fact. --no-test-first stops the tool
+requiring it; the prompt still asks for test-first work.
+
 Checks that fail before any change are recorded and every task is judged by
 comparison. --repair makes them a phase of their own instead, at the two
 points where the whole suite is what matters: before the first task, when
@@ -93,6 +100,7 @@ func newApp() toolio.App {
 		draft         bool
 		pull          bool
 		noSurvey      bool
+		noTestFirst   bool
 		attempts      int
 		repair        bool
 		repairTries   int
@@ -117,6 +125,7 @@ func newApp() toolio.App {
 			fs.BoolVar(&draft, "draft", false, "open the pull request as a draft")
 			fs.BoolVar(&pull, "pull", false, "checkout and pull the base branch from origin before anything else")
 			fs.BoolVar(&noSurvey, "no-survey", false, "skip the read-only survey phase")
+			fs.BoolVar(&noTestFirst, "no-test-first", false, "do not require red-first evidence (red_evidence or test_first_deviation) when a task is submitted")
 			fs.IntVar(&attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
 			fs.BoolVar(&repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
 			fs.IntVar(&repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
@@ -198,6 +207,7 @@ func newApp() toolio.App {
 				Draft:          draft,
 				Pull:           pull,
 				NoSurvey:       noSurvey,
+				NoTestFirst:    noTestFirst,
 				TaskAttempts:   attempts,
 				TotalBudgetUSD: d.Common.TotalBudgetUSD,
 				Repair:         repair,

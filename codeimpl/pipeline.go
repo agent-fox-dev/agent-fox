@@ -108,7 +108,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				programs = append(programs, p)
 			}
 		}
-		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir}
+		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir,
+			noTestFirst: o.NoTestFirst}
 	}
 	st.brain = b
 	repair := o.Repair && len(st.baseline.failing()) > 0

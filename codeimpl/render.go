@@ -162,6 +162,9 @@ func pullRequestBody(r *Result) string {
 			p("**The checks failed after this task and were repaired in its commit.** Cause: %s %s\n\n",
 				strings.TrimSpace(t.Repair.Submission.Cause), strings.TrimSpace(t.Repair.Submission.Summary))
 		}
+		if dev := strings.TrimSpace(t.Submission.TestFirstDeviation); dev != "" {
+			p("> ⚠️ **Test-first not followed.** %s\n\n", dev)
+		}
 		b.WriteString(verdictSection(t.Submission.TestVerdicts))
 		if strings.TrimSpace(t.Submission.Notes) != "" {
 			p("**Notes:** %s\n\n", strings.TrimSpace(t.Submission.Notes))
@@ -188,6 +191,9 @@ func verdictSection(verdicts []Verdict) string {
 			mark, label = "❌", "FAIL"
 		}
 		fmt.Fprintf(&b, "- %s **%s**: %s — %s\n", mark, v.ID, label, strings.TrimSpace(v.Evidence))
+		if red := strings.TrimSpace(v.RedEvidence); red != "" {
+			fmt.Fprintf(&b, "  - red first: %s\n", red)
+		}
 	}
 	b.WriteString("\n")
 	return b.String()

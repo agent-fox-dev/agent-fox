@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentfox/agentkit-go/core"
+
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -128,13 +130,14 @@ func TestSubmitTaskToolEnforcesTheVerdicts(t *testing.T) {
 	task := afspec.Task{Id: 2, Kind: afspec.TaskKindImplement, Tests: []string{"TS-09-4", "TS-09-5"},
 		DoneWhen: []string{"the thing holds"}}
 	var out sink[Submission]
-	tool := submitTaskTool(&out, task)
+	tool := submitTaskTool(&out, task, true)
 	call := func(v any) (bool, string) {
 		raw, _ := json.Marshal(v)
 		res := tool.Execute(context.Background(), raw)
 		return res.OK, res.Detail
 	}
 	good := "cmd/spec/agent_test.go TestTS094 passes under make test"
+	red := "go test ./cmd/spec failed before the change: TestTS094 got exit 0, want 1"
 	base := map[string]any{
 		"summary": "did it", "commit_subject": "route output", "changes": []map[string]string{{"path": "a.go", "change": "x"}},
 	}
@@ -173,8 +176,8 @@ func TestSubmitTaskToolEnforcesTheVerdicts(t *testing.T) {
 		t.Errorf("a missing done_when verdict was accepted: %v %q", ok, msg)
 	}
 	ok, msg := call(with([]map[string]string{
-		{"id": "ts-09-5", "verdict": "FAIL", "evidence": "TestTS095 fails: the exit code is still 0 on a closed pipe"},
-		{"id": "TS-09-4", "verdict": "pass", "evidence": good}}, dw))
+		{"id": "ts-09-5", "verdict": "FAIL", "evidence": "TestTS095 fails: the exit code is still 0 on a closed pipe", "red_evidence": red},
+		{"id": "TS-09-4", "verdict": "pass", "evidence": good, "red_evidence": red}}, dw))
 	if !ok {
 		t.Fatalf("a complete, honest submission was refused: %q", msg)
 	}
@@ -185,16 +188,126 @@ func TestSubmitTaskToolEnforcesTheVerdicts(t *testing.T) {
 	if verdictsOutcome(task.Tests, got.TestVerdicts) != VerdictFail {
 		t.Error("an honest fail must make the outcome fail")
 	}
+	if got.TestVerdicts[0].RedEvidence != red {
+		t.Errorf("red evidence was dropped by normalization: %+v", got.TestVerdicts)
+	}
 
 	// A blocker needs no verdicts: the phase is stopping, not reporting work.
 	var blocked sink[Submission]
-	if res := submitTaskTool(&blocked, task).Execute(context.Background(), json.RawMessage(
+	if res := submitTaskTool(&blocked, task, true).Execute(context.Background(), json.RawMessage(
 		`{"blocker":{"reason":"the spec assumes cobra; there is no CLI","needed":"decide"}}`)); !res.OK {
 		t.Errorf("a blocker was refused: %s", res.Detail)
 	}
-	if res := submitTaskTool(&blocked, task).Execute(context.Background(), json.RawMessage(
+	if res := submitTaskTool(&blocked, task, true).Execute(context.Background(), json.RawMessage(
 		`{"blocker":{"reason":"","needed":"decide"}}`)); res.OK {
 		t.Error("an empty blocker was accepted")
+	}
+}
+
+func TestSubmitTaskToolRequiresRedEvidence(t *testing.T) {
+	task := afspec.Task{Id: 2, Kind: afspec.TaskKindImplement, Tests: []string{"TS-09-4", "TS-09-5"}}
+	good := "cmd/spec/agent_test.go TestTS094 passes under make test"
+	red := "go test ./cmd/spec failed before the change: TestTS094 got exit 0, want 1"
+	sub := func(red4, red5, deviation string) map[string]any {
+		m := map[string]any{
+			"summary": "did it", "commit_subject": "route output",
+			"changes": []map[string]string{{"path": "a.go", "change": "x"}},
+			"test_verdicts": []map[string]string{
+				{"id": "TS-09-4", "verdict": "pass", "evidence": good, "red_evidence": red4},
+				{"id": "TS-09-5", "verdict": "pass", "evidence": good, "red_evidence": red5},
+			},
+		}
+		if deviation != "" {
+			m["test_first_deviation"] = deviation
+		}
+		return m
+	}
+	run := func(require bool, v any) (core.ToolResult, *sink[Submission]) {
+		var out sink[Submission]
+		raw, _ := json.Marshal(v)
+		return submitTaskTool(&out, task, require).Execute(context.Background(), raw), &out
+	}
+
+	// AC-1: no red evidence and no deviation is refused, naming the tests.
+	res, out := run(true, sub("", red, ""))
+	if res.OK || res.Error != "missing_red_evidence" || !strings.Contains(res.Detail, "TS-09-4") ||
+		strings.Contains(res.Detail, "TS-09-5") {
+		t.Errorf("missing red evidence: ok=%v code=%q %q", res.OK, res.Error, res.Detail)
+	}
+	if _, done := out.get(); done {
+		t.Error("a refused submission reached the sink")
+	}
+	// Too short red evidence counts as missing.
+	if res, _ := run(true, sub("failed", red, "")); res.OK || res.Error != "missing_red_evidence" {
+		t.Errorf("a one-word red evidence was accepted: %q", res.Detail)
+	}
+	// A deviation that says too little is refused.
+	if res, _ := run(true, sub("", "", "n/a")); res.OK || !strings.Contains(res.Detail, "test_first_deviation") {
+		t.Errorf("a short deviation was accepted: ok=%v %q", res.OK, res.Detail)
+	}
+	// A real deviation stands in for the evidence and is kept.
+	dev := "pure refactor: behaviour is unchanged, so no test could fail first"
+	res, out = run(true, sub("", "", dev))
+	if !res.OK {
+		t.Fatalf("a recorded deviation was refused: %q", res.Detail)
+	}
+	if got, _ := out.get(); got.TestFirstDeviation != dev {
+		t.Errorf("deviation = %q", got.TestFirstDeviation)
+	}
+	// Full evidence is accepted and survives normalization.
+	res, out = run(true, sub(red, "  "+red+"  ", ""))
+	if !res.OK {
+		t.Fatalf("red evidence was refused: %q", res.Detail)
+	}
+	if got, _ := out.get(); len(got.TestVerdicts) != 2 || got.TestVerdicts[1].RedEvidence != red || got.TestFirstDeviation != "" {
+		t.Errorf("submission = %+v", got)
+	}
+	// The run-level opt-out accepts a submission without any.
+	if res, _ := run(false, sub("", "", "")); !res.OK {
+		t.Errorf("--no-test-first still refused: %q", res.Detail)
+	}
+	// A task that owns no tests is never enforced.
+	var none sink[Submission]
+	raw, _ := json.Marshal(map[string]any{"summary": "docs", "commit_subject": "docs",
+		"changes": []map[string]string{{"path": "README.md", "change": "x"}}})
+	if res := submitTaskTool(&none, afspec.Task{Id: 3}, true).Execute(context.Background(), raw); !res.OK {
+		t.Errorf("a task without tests was refused: %q", res.Detail)
+	}
+}
+
+// AC-3: a recorded deviation is shown under its own task, outside the notes.
+func TestPullRequestBodySurfacesATestFirstDeviation(t *testing.T) {
+	mk := func(dev string) *Result {
+		return &Result{
+			SpecDir: ".specs/09_x", Title: "X", TasksTotal: 2, TasksDone: 2,
+			Tasks: []TaskReport{
+				{ID: 1, Title: "a", Outcome: OutcomeDone, Submission: &Submission{Summary: "did a",
+					TestVerdicts: []Verdict{{ID: "TS-09-1", Verdict: "pass", Evidence: "ok in TestA",
+						RedEvidence: "go test ./x failed: undefined Foo before the stub"}}}},
+				{ID: 2, Title: "b", Outcome: OutcomeDone, Submission: &Submission{Summary: "did b",
+					TestFirstDeviation: dev, Notes: "wrote the code first"}},
+			},
+		}
+	}
+	body := pullRequestBody(mk("the API had to exist before any test compiled"))
+	i := strings.Index(body, "### Task 2")
+	if i < 0 {
+		t.Fatalf("no task 2 section:\n%s", body)
+	}
+	section := body[i:]
+	for _, want := range []string{"Test-first not followed", "the API had to exist before any test compiled", "**Notes:** wrote the code first"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("task 2 section lacks %q:\n%s", want, section)
+		}
+	}
+	if strings.Contains(body[:i], "Test-first not followed") {
+		t.Error("the deviation was attributed to the wrong task")
+	}
+	if !strings.Contains(body, "red first: go test ./x failed: undefined Foo before the stub") {
+		t.Errorf("red evidence is not rendered:\n%s", body)
+	}
+	if strings.Contains(pullRequestBody(mk("")), "Test-first not followed") {
+		t.Error("a deviation was rendered although none was recorded")
 	}
 }
 

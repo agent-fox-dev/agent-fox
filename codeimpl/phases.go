@@ -146,6 +146,8 @@ type agentBrain struct {
 	extraPrograms []string
 	// protected is the spec package's directory.
 	protected string
+	// noTestFirst relaxes submit_task: red-first evidence is not required.
+	noTestFirst bool
 }
 
 func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentrun.Result, error) {
@@ -232,7 +234,7 @@ func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentru
 		System:             implementSystemPrompt,
 		User:               taskPrompt(in),
 		Terminator:         ToolSubmitTask,
-		Custom:             []core.Tool{submitTaskTool(out, in.Task)},
+		Custom:             []core.Tool{submitTaskTool(out, in.Task, !b.noTestFirst)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
@@ -356,6 +358,10 @@ func submissionSchema(task afspec.Task) *schema.Schema {
 		schema.Prop("evidence", schema.String(
 			"The file and the test function that implement it, and the result you observed "+
 				"when you ran it. A verdict without a run says so.")),
+		schema.Opt("red_evidence", schema.String(
+			"The command you ran BEFORE writing the implementation and the failure you saw. When "+
+				"the test needs a new API to compile, stub it first: the failure is then a behavioural "+
+				"one against the stub. Required for every test unless test_first_deviation is set.")),
 	)
 	doneWhen := schema.Object(
 		schema.Prop("id", schema.String("DW-n, the entry's position in done_when")),
@@ -374,6 +380,10 @@ func submissionSchema(task afspec.Task) *schema.Schema {
 				"does not pass. The submission is refused until every id has an answer.")),
 		schema.Opt("done_when_verdicts", schema.Array(doneWhen,
 			"One entry per done_when item of the task, as DW-1, DW-2, … Omit when the task has none.")),
+		schema.Opt("test_first_deviation", schema.String(
+			"Set ONLY when the tests could not be written and run red before the implementation "+
+				"(for example a pure refactor or a docs-only change): the reason, in a sentence or two. "+
+				"It replaces red_evidence and is shown to the reviewer as a deviation.")),
 		schema.Opt("notes", schema.String(
 			"Anything a reviewer or the next task should know: a trade-off, a divergence from "+
 				"the spec and why, something left undone")),
@@ -482,7 +492,13 @@ func submitRepairTool(dest *sink[RepairSubmission]) core.Tool {
 // word is refused here, with the ids named, and the model corrects it. The
 // requirement is a property of the tool rather than a sentence in a prompt —
 // the phase cannot end without an answer for every test it owns.
-func submitTaskTool(dest *sink[Submission], task afspec.Task) core.Tool {
+//
+// requireTestFirst adds the red-first check: for a task that owns tests,
+// every test verdict must carry red_evidence, or the submission must give a
+// test_first_deviation reason. The evidence is the model's own claim — the
+// tool can only refuse its absence — and the deviation is rendered into the
+// pull request so a reviewer sees it.
+func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst bool) core.Tool {
 	doneWhenIDs := doneWhenIDs(task)
 	return core.Tool{
 		Name: ToolSubmitTask,
@@ -496,6 +512,9 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task) core.Tool {
 			fmt.Sprintf("test_verdicts must answer every test the task owns (%s), each with a "+
 				"verdict and the evidence for it; the submission is refused until it does.",
 				strings.Join(task.Tests, ", ")),
+			"Write and run the tests red before implementing: each test verdict carries red_evidence " +
+				"(the command and the failure seen). If that was impossible, set test_first_deviation " +
+				"with the reason instead.",
 		},
 		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
 			var s Submission
@@ -522,6 +541,16 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task) core.Tool {
 			}
 			if err := checkVerdicts("done_when_verdicts", doneWhenIDs, s.DoneWhenVerdicts); err != nil {
 				return core.ErrResult("incomplete_done_when_verdicts", err.Error())
+			}
+			s.TestFirstDeviation = strings.TrimSpace(s.TestFirstDeviation)
+			if requireTestFirst && len(task.Tests) > 0 {
+				if err := checkTestFirst(task.Tests, s.TestVerdicts, s.TestFirstDeviation); err != nil {
+					code := "missing_red_evidence"
+					if s.TestFirstDeviation != "" {
+						code = "thin_test_first_deviation"
+					}
+					return core.ErrResult(code, err.Error())
+				}
 			}
 			s.TestVerdicts = normalizeVerdicts(task.Tests, s.TestVerdicts)
 			s.DoneWhenVerdicts = normalizeVerdicts(doneWhenIDs, s.DoneWhenVerdicts)
@@ -583,6 +612,37 @@ func checkVerdicts(field string, ids []string, got []Verdict) error {
 	return nil
 }
 
+// checkTestFirst is the red-first check: a test_first_deviation of real
+// substance replaces the evidence; without one, every test needs red_evidence.
+// The verdicts have already passed checkVerdicts, so ids are known and unique.
+func checkTestFirst(ids []string, got []Verdict, deviation string) error {
+	if deviation != "" {
+		if len([]rune(deviation)) < minEvidenceRunes {
+			return fmt.Errorf("test_first_deviation says only %q; give the reason the tests could not "+
+				"be run red first, or omit it and give red_evidence for every test", deviation)
+		}
+		return nil
+	}
+	red := make(map[string]bool, len(got))
+	for _, v := range got {
+		red[strings.ToUpper(strings.TrimSpace(v.ID))] = len([]rune(strings.TrimSpace(v.RedEvidence))) >= minEvidenceRunes
+	}
+	var missing []string
+	for _, id := range ids {
+		if !red[strings.ToUpper(id)] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("test_verdicts has no red_evidence for %s. Tests are written and run red "+
+			"BEFORE the implementation: run them and record the command and the failure you saw. If "+
+			"they need a new function signature, type or interface method to compile, stub it first and "+
+			"see them fail on behaviour. If a red run was impossible, set test_first_deviation with "+
+			"the reason", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 // normalizeVerdicts canonicalises a submission once it has passed the check,
 // in the task's own order and spelling.
 func normalizeVerdicts(ids []string, got []Verdict) []Verdict {
@@ -600,9 +660,10 @@ func normalizeVerdicts(ids []string, got []Verdict) []Verdict {
 			continue
 		}
 		out = append(out, Verdict{
-			ID:       id,
-			Verdict:  strings.ToLower(strings.TrimSpace(v.Verdict)),
-			Evidence: strings.TrimSpace(v.Evidence),
+			ID:          id,
+			Verdict:     strings.ToLower(strings.TrimSpace(v.Verdict)),
+			Evidence:    strings.TrimSpace(v.Evidence),
+			RedEvidence: strings.TrimSpace(v.RedEvidence),
 		})
 	}
 	return out

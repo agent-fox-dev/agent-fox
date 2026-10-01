@@ -62,6 +62,10 @@ type Options struct {
 	// VerifyCommand replaces the spec's own test commands with one command.
 	// Empty means the spec's linter and all_tests.
 	VerifyCommand string
+	// NoTestFirst stops the submit tool from requiring red-first evidence
+	// (a failing run recorded before the implementation) for the tests a
+	// task owns. The prompt still asks for test-first work.
+	NoTestFirst bool
 	// NoVerify runs nothing. Every task is then reported as unverified — not
 	// as a pass.
 	NoVerify bool
@@ -222,6 +226,9 @@ type Verdict struct {
 	ID       string `json:"id"`
 	Verdict  string `json:"verdict"`
 	Evidence string `json:"evidence"`
+	// RedEvidence is, for a test verdict, the command run and the failure
+	// seen before the implementation existed. It is the model's own claim.
+	RedEvidence string `json:"red_evidence,omitempty"`
 }
 
 // Passed reports whether v is a pass.
@@ -283,6 +290,10 @@ type Submission struct {
 	TestVerdicts []Verdict `json:"test_verdicts,omitempty"`
 	// DoneWhenVerdicts answers for every done_when entry, as DW-n.
 	DoneWhenVerdicts []Verdict `json:"done_when_verdicts,omitempty"`
+	// TestFirstDeviation is the reason the tests could not be written and
+	// run red before the implementation. It stands in for per-test red
+	// evidence and is shown to the reviewer.
+	TestFirstDeviation string `json:"test_first_deviation,omitempty"`
 	// Notes is what a reviewer or the next task should know.
 	Notes string `json:"notes,omitempty"`
 	// Gotchas are the surprises — the things the next task's prompt carries.
