@@ -486,3 +486,52 @@ func TestGuardRefusalReasonsAreConsistent(t *testing.T) {
 		t.Errorf("operator reason = %q", d.Reason)
 	}
 }
+
+// In a read-only phase the shell is held to the workspace like the file
+// tools are (#67).
+func TestReadOnlyShellIsConfinedToTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	resolve := func(p string) (string, error) {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		return filepath.Clean(p), nil
+	}
+	g := Guard(GuardOptions{Programs: []string{"cat", "ls", "grep", "rg", "head"}, ReadOnlyFiles: true, ResolvePath: resolve})
+	ctx := context.Background()
+
+	for _, cmd := range []string{
+		"cat /etc/passwd",
+		"ls /root/go/pkg/mod",
+		"grep -r foo /root/go/pkg/mod",
+		"grep foo ../agentkit-go",
+		"cat ~/.ssh/config",
+		"cat $HOME/.bashrc",
+		"head -n 5 ../../outside.txt",
+		"rg -e foo /usr/lib",
+		"cat " + filepath.Join(root, "..", "other"),
+	} {
+		d := g(ctx, execCall(cmd))
+		if !d.Block || !strings.Contains(d.Reason, "outside the workspace") {
+			t.Errorf("%q: block=%v reason=%q", cmd, d.Block, d.Reason)
+		}
+	}
+	for _, cmd := range []string{
+		"cat go.mod",
+		"ls internal/agentrun",
+		"cat " + filepath.Join(root, "go.mod"),
+		`grep "/api/v1" -r .`,
+		"rg /usr/bin internal",
+		"head -n 5 README.md",
+	} {
+		if d := g(ctx, execCall(cmd)); d.Block {
+			t.Errorf("%q was refused: %s", cmd, d.Reason)
+		}
+	}
+
+	// A phase that writes is not held to it: a build reads outside the repo.
+	w := Guard(GuardOptions{Programs: []string{"cat"}, AllowOperators: true, ResolvePath: resolve})
+	if d := w(ctx, execCall("cat /etc/hosts")); d.Block {
+		t.Errorf("a write phase was confined: %s", d.Reason)
+	}
+}
