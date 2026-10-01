@@ -108,15 +108,26 @@ func newApp() toolio.App {
 	)
 
 	return toolio.App{
-		Name:    "impl",
-		Version: agentfox.Version,
-		Usage:   usage,
+		Name:             "impl",
+		Version:          agentfox.Version,
+		Usage:            usage,
+		Description:      "Implements a specification package task by task on a branch, verifying each task with the spec's own checks, and lands the branch.",
+		InputDescription: "Exactly one of: a spec directory, a spec id, name or directory name, a path to a file in the package, or - to read the reference from stdin. Issue URLs are refused.",
+		ExitCodes: map[int]string{
+			toolio.ExitOK:         "every task landed, and the branch was landed as --land asked",
+			toolio.ExitFailed:     "failed; the stage is named in the JSON",
+			toolio.ExitUsage:      "usage error; nothing was fetched and nothing was written",
+			toolio.ExitNeedsHuman: "stopped on purpose because the spec cannot be implemented as written or an upstream spec is not done; the question is in the JSON",
+			toolio.ExitUnverified: "a task was implemented and its checks do not pass, or could not be repaired; the work is parked on the branch as a wip: commit",
+		},
+		ResultSample: codeimpl.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&specsDir, "specs-dir", "", "where NN_name packages live; default <dir>/"+codeimpl.DefaultSpecDirName+" or $"+codeimpl.SpecDirEnv)
 			fs.IntVar(&task, "task", 0, "implement only this task id; default every task that is not done")
 			fs.StringVar(&branch, "branch", "", "the branch to work on, created if missing and continued if present; default impl/<NN>-<slug>")
 			fs.StringVar(&repo, "repo", "", "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir")
 			fs.StringVar(&land, "land", string(codeimpl.LandPR), "what to do once every task is done: "+strings.Join(codeimpl.LandModes, ", "))
+			toolio.DeclareEnum(fs, "land", codeimpl.LandModes)
 			fs.StringVar(&verify, "verify", "", "one command that decides success, replacing the spec's linter and all_tests")
 			fs.BoolVar(&noVerify, "no-verify", false, "run no checks; every task is then reported as unverified, not as a pass")
 			fs.DurationVar(&verifyTimeout, "verify-timeout", checks.DefaultTimeout, "timeout for one check command")

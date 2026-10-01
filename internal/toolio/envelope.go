@@ -159,6 +159,42 @@ func (a Artifact) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// JSONSchema implements SchemaProvider. Artifact marshals through MarshalJSON
+// into a shape that depends on its kind, so reflecting over its Go fields
+// would describe a document that is never produced. It describes the union
+// instead: kind is required, and every other field is present only for the
+// kinds that fix it (the kinds are the closed ArtifactKind set).
+func (Artifact) JSONSchema() SchemaObject {
+	prop := func(typ, desc string) SchemaObject {
+		return SchemaObject{{Key: "type", Value: typ}, {Key: "description", Value: desc}}
+	}
+	kinds := []string{
+		string(ArtifactBranch), string(ArtifactCommit), string(ArtifactPullRequest), string(ArtifactComment),
+		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile),
+	}
+	return SchemaObject{
+		{Key: "type", Value: "object"},
+		{Key: "properties", Value: SchemaObject{
+			{Key: "kind", Value: SchemaObject{
+				{Key: "type", Value: "string"},
+				{Key: "enum", Value: kinds},
+				{Key: "description", Value: "What kind of thing was produced. A closed set; it decides which of the other fields are present."},
+			}},
+			{Key: "name", Value: prop("string", "branch: the branch name.")},
+			{Key: "base", Value: prop("string", "branch: the branch it was cut from.")},
+			{Key: "sha", Value: prop("string", "commit: the commit SHA.")},
+			{Key: "branch", Value: prop("string", "commit: the branch the commit is on.")},
+			{Key: "url", Value: prop("string", "pull_request, issue, comment: the URL.")},
+			{Key: "number", Value: prop("integer", "pull_request, issue: the number.")},
+			{Key: "path", Value: prop("string", "spec_package, report_file: the path.")},
+			{Key: "id", Value: prop("string", "spec_package: the spec identifier.")},
+			{Key: "valid", Value: prop("boolean", "spec_package: true when the package validates.")},
+			{Key: "dry_run", Value: prop("boolean", "True only for an entry that is hypothetical under --dry-run: it would have happened on a forge or a remote, but did not. Absent otherwise.")},
+		}},
+		{Key: "required", Value: []string{"kind"}},
+	}
+}
+
 // ArtifactsProvider is implemented by Result types that supply what the run
 // produced, in the uniform shape Artifact fixes (06-REQ-4). Every entry
 // must be read off a fact the Result already holds — Branch, Commit,
@@ -178,10 +214,10 @@ type ArtifactsProvider interface {
 // OK is false and the call site recorded a Run.Warn for the same failure: the
 // two come from one call site, so they cannot disagree.
 type SideEffect struct {
-	Action  string   `json:"action"`
-	Target  string   `json:"target"`
-	OK      bool     `json:"ok"`
-	Warning WarnCode `json:"warning,omitempty"`
+	Action  string   `json:"action" description:"What was written: one of create_issue, update_issue, comment, push, open_pr."`
+	Target  string   `json:"target" description:"What it was written to: origin <branch> for a push, <owner>/<repo>#<number> for a comment, an issue update or a pull request, <owner>/<repo> for an issue that has no number yet."`
+	OK      bool     `json:"ok" description:"True when the write succeeded."`
+	Warning WarnCode `json:"warning,omitempty" description:"Code of the warning recorded for this same failure. Present only when ok is false. An open set, like warnings[].code."`
 }
 
 // SameInputPlaceholder stands for the original input in a suggested
@@ -198,10 +234,10 @@ const AnswerPlaceholder = "\"<answer>\""
 // the single input to give it, the flags to add, and why. It is derived in
 // Go from a tool's own Result, never from the model.
 type Next struct {
-	Tool  string   `json:"tool"`
-	Input string   `json:"input"`
-	Flags []string `json:"flags"`
-	Why   string   `json:"why"`
+	Tool  string   `json:"tool" description:"The agent-fox tool to run next: spec, issue, fix or impl."`
+	Input string   `json:"input" description:"The single input to give it: a file path or an issue URL, or the placeholder <same input> when the original input was raw text or stdin."`
+	Flags []string `json:"flags" description:"Flags to add to the invocation, one argument per element."`
+	Why   string   `json:"why" description:"Why this follow-up is suggested."`
 }
 
 // Command renders n as one command line: tool, input, flags, space-joined.
@@ -241,17 +277,17 @@ type NextProvider interface {
 
 // Option is one possible answer to a question in needs_human.
 type Option struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID   string `json:"id" description:"Short identifier of the option, to be passed back in the answer."`
+	Text string `json:"text" description:"What choosing this option means."`
 }
 
 // NeedsHuman carries the question a person must answer when status is "needs_human".
 type NeedsHuman struct {
-	Question string   `json:"question"`
-	Options  []Option `json:"options,omitempty"`
-	Needed   string   `json:"needed,omitempty"`
-	Stage    string   `json:"stage"`
-	Resume   string   `json:"resume"`
+	Question string   `json:"question" description:"The question a person has to answer before the work can continue."`
+	Options  []Option `json:"options,omitempty" description:"The possible answers, when the question has a closed set of them."`
+	Needed   string   `json:"needed,omitempty" description:"What the person has to decide or change, when that is not a choice among options."`
+	Stage    string   `json:"stage" description:"The pipeline stage that stopped."`
+	Resume   string   `json:"resume" description:"The command line that re-runs the tool on the same input with the answer. It carries placeholders for the input and the answer."`
 }
 
 // NeedsHumanSource is implemented by Result types that supply human decision details.
@@ -266,11 +302,16 @@ type NeedsHumanSource interface {
 // warnStages, never supplied at the call site, so a code cannot be recorded
 // against two different stages by accident.
 type Warning struct {
-	Code     WarnCode `json:"code"`
-	Severity string   `json:"severity"`
-	Stage    string   `json:"stage"`
-	Message  string   `json:"message"`
+	Code     WarnCode `json:"code" description:"Stable identifier a caller can switch on without parsing message. An open set: a new code can be added within a major schema version."`
+	Severity string   `json:"severity" description:"How much the problem matters: low or high. An open set."`
+	Stage    string   `json:"stage" description:"The pipeline stage the warning belongs to, looked up from the code."`
+	Message  string   `json:"message" description:"Human-readable explanation of what went differently than intended."`
 }
+
+// SchemaVersion is the version of the envelope interface shared by all four
+// tools: one shell, one envelope shape, one version. The compatibility rule
+// is in docs/cli.md (Interface versions) and ADR 06.
+const SchemaVersion = "2.0.0"
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
@@ -280,53 +321,56 @@ type Warning struct {
 // which one it got.
 type Envelope struct {
 	// Tool is the program that produced this object: "spec", "issue", "fix".
-	Tool string `json:"tool"`
+	Tool string `json:"tool" description:"The program that produced this object: spec, issue, fix or impl."`
 	// Version is the build identity, so a surprising result can be traced to
 	// a build.
-	Version string `json:"version"`
+	Version string `json:"version" description:"The build identity of the tool, so a surprising result can be traced to a build."`
+	// SchemaVersion names the version of the envelope interface, separate
+	// from the build identity in Version.
+	SchemaVersion string `json:"schema_version" description:"The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."`
 	// OK is the one field a caller has to read. It is true only when the
 	// tool did the whole job it was asked to do.
-	OK bool `json:"ok"`
+	OK bool `json:"ok" description:"True only when the tool did the whole job it was asked to do."`
 	// Status is one of done, failed, usage, needs_human, unverified.
-	Status string `json:"status"`
+	Status string `json:"status" description:"One of done, failed, usage, needs_human, unverified."`
 	// ExitCode is the process's exit code, repeated here so a caller that
 	// captured only stdout still has it.
-	ExitCode int `json:"exit_code"`
+	ExitCode int `json:"exit_code" description:"The process exit code, repeated so a caller that captured only stdout still has it."`
 	// Summary is one sentence describing the outcome.
-	Summary string `json:"summary"`
+	Summary string `json:"summary" description:"One sentence describing the outcome."`
 
 	// Error is present exactly when OK is false.
-	Error *ErrorInfo `json:"error,omitempty"`
+	Error *ErrorInfo `json:"error,omitempty" description:"What failed and where. Present exactly when ok is false."`
 	// NeedsHuman is set when the tool stopped for a human decision.
-	NeedsHuman *NeedsHuman `json:"needs_human,omitempty"`
+	NeedsHuman *NeedsHuman `json:"needs_human,omitempty" description:"The question a person must answer. Present when status is needs_human."`
 
 	// Warnings are things that went differently than intended but did not
 	// stop the run: a comment that could not be posted, a dependency that
 	// could not be checked, a truncated input.
-	Warnings []Warning `json:"warnings,omitempty"`
-	Result   any       `json:"result,omitempty"`
+	Warnings []Warning `json:"warnings,omitempty" description:"Things that went differently than intended but did not stop the run."`
+	Result   any       `json:"result,omitempty" description:"The tool-specific result. This document shows the full view, as under --detail full and in the report file; the summary view printed by default is a subset of its fields."`
 
 	// Artifacts is what the run produced, in one uniform shape across every
 	// tool, over the closed ArtifactKind set. Present whenever the run
 	// produced anything (06-REQ-4).
-	Artifacts []Artifact `json:"artifacts,omitempty"`
+	Artifacts []Artifact `json:"artifacts,omitempty" description:"What the run produced, in one uniform shape across every tool."`
 
 	// SideEffects is every write the run made to a forge or a remote, in
 	// the order it happened. Omitted when there were none — which is
 	// always the case under --dry-run (06-REQ-5).
-	SideEffects []SideEffect `json:"side_effects,omitempty"`
+	SideEffects []SideEffect `json:"side_effects,omitempty" description:"Every write the run made to a forge or a remote, in the order it happened. Absent when there were none, always the case under --dry-run."`
 
 	// Next is the invocations a caller would plausibly make next, derived
 	// from the result in Go. Omitted when there is nothing to suggest
 	// (06-REQ-6).
-	Next []Next `json:"next,omitempty"`
+	Next []Next `json:"next,omitempty" description:"Invocations a caller would plausibly make next, derived from the result. Absent when there is nothing to suggest."`
 
-	Input *InputInfo `json:"input,omitempty"`
-	Usage *UsageInfo `json:"usage,omitempty"`
-	Model *ModelInfo `json:"model,omitempty"`
+	Input *InputInfo `json:"input,omitempty" description:"What the single input argument turned out to be."`
+	Usage *UsageInfo `json:"usage,omitempty" description:"The run cost, summed over every phase."`
+	Model *ModelInfo `json:"model,omitempty" description:"Which model served the run."`
 
-	DurationMS int64  `json:"duration_ms"`
-	StartedAt  string `json:"started_at"`
+	DurationMS int64  `json:"duration_ms" description:"Wall-clock duration of the run in milliseconds."`
+	StartedAt  string `json:"started_at" description:"When the run started, as an RFC 3339 UTC timestamp."`
 
 	// ReportFile is the path the complete envelope was written to, present
 	// whenever that write succeeded. Absent when the write failed (a
@@ -334,7 +378,7 @@ type Envelope struct {
 	// this envelope is never written to a report file at all (the two
 	// purely human-driven paths: a bare invocation on a terminal, and
 	// -h/--help/--version).
-	ReportFile string `json:"report_file,omitempty"`
+	ReportFile string `json:"report_file,omitempty" description:"Path the complete envelope was written to. Absent when that write failed or no report file is written."`
 }
 
 // InputInfo records what the single argument turned out to be. A caller
@@ -342,66 +386,66 @@ type Envelope struct {
 // wrong thing usually classified its input differently than the caller
 // assumed.
 type InputInfo struct {
-	Kind         string `json:"kind"`
-	Origin       string `json:"origin"`
-	Bytes        int    `json:"bytes"`
-	Truncated    bool   `json:"truncated,omitempty"`
-	ContextBytes int    `json:"context_bytes,omitempty"`
+	Kind         string `json:"kind" description:"How the input was classified: text, file, stdin or issue."`
+	Origin       string `json:"origin" description:"Where the input came from: a file path or an issue URL. Empty for raw text and stdin."`
+	Bytes        int    `json:"bytes" description:"Size of the input body in bytes."`
+	Truncated    bool   `json:"truncated,omitempty" description:"True when the input was cut to fit the size limit."`
+	ContextBytes int    `json:"context_bytes,omitempty" description:"Size in bytes of the extra context given with --context."`
 }
 
 // ModelInfo records which model served the run.
 type ModelInfo struct {
-	Spec     string `json:"spec"`
-	ID       string `json:"id"`
-	Vendor   string `json:"vendor"`
-	API      string `json:"api"`
-	Thinking string `json:"thinking,omitempty"`
+	Spec     string `json:"spec" description:"The model specification as the caller gave it."`
+	ID       string `json:"id" description:"The model identifier the provider knows."`
+	Vendor   string `json:"vendor" description:"The provider that served the model."`
+	API      string `json:"api" description:"The wire API used to talk to the provider."`
+	Thinking string `json:"thinking,omitempty" description:"The thinking level, when one was set."`
 }
 
 // UsageInfo is the run's cost, summed over every phase.
 type UsageInfo struct {
-	InputTokens         int64       `json:"input_tokens"`
-	OutputTokens        int64       `json:"output_tokens"`
-	CacheReadTokens     int64       `json:"cache_read_tokens,omitempty"`
-	CacheCreationTokens int64       `json:"cache_creation_tokens,omitempty"`
-	CostUSD             float64     `json:"cost_usd"`
-	Turns               int         `json:"turns"`
-	Phases              []PhaseInfo `json:"phases,omitempty"`
+	InputTokens         int64       `json:"input_tokens" description:"Input tokens summed over every phase."`
+	OutputTokens        int64       `json:"output_tokens" description:"Output tokens summed over every phase."`
+	CacheReadTokens     int64       `json:"cache_read_tokens,omitempty" description:"Tokens read from the prompt cache, when any were."`
+	CacheCreationTokens int64       `json:"cache_creation_tokens,omitempty" description:"Tokens written to the prompt cache, when any were."`
+	CostUSD             float64     `json:"cost_usd" description:"Cost in US dollars summed over every phase."`
+	Turns               int         `json:"turns" description:"Model turns summed over every phase."`
+	Phases              []PhaseInfo `json:"phases,omitempty" description:"The cost of each model-facing step, in order."`
 }
 
 // PhaseInfo is one model-facing step of a pipeline.
 type PhaseInfo struct {
-	Name         string  `json:"name"`
-	Turns        int     `json:"turns"`
-	StopReason   string  `json:"stop_reason"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
-	DurationMS   int64   `json:"duration_ms"`
+	Name         string  `json:"name" description:"The phase name, in the tool own vocabulary."`
+	Turns        int     `json:"turns" description:"Model turns the phase took."`
+	StopReason   string  `json:"stop_reason" description:"Why the phase ended."`
+	InputTokens  int64   `json:"input_tokens" description:"Input tokens the phase used."`
+	OutputTokens int64   `json:"output_tokens" description:"Output tokens the phase used."`
+	CostUSD      float64 `json:"cost_usd" description:"Cost of the phase in US dollars."`
+	DurationMS   int64   `json:"duration_ms" description:"Duration of the phase in milliseconds."`
 }
 
 // FixHint is a machine-usable remedy for a failure.
 type FixHint struct {
-	Flag    string   `json:"flag,omitempty"`
-	Env     []string `json:"env,omitempty"`
-	Valid   []string `json:"valid,omitempty"`
-	Current float64  `json:"current,omitempty"`
-	Suggest float64  `json:"suggest,omitempty"`
+	Flag    string   `json:"flag,omitempty" description:"The flag that would remedy the failure."`
+	Env     []string `json:"env,omitempty" description:"Environment variables that would remedy the failure, any one of which is enough."`
+	Valid   []string `json:"valid,omitempty" description:"The legal values of the flag."`
+	Current float64  `json:"current,omitempty" description:"The value currently in force, when the failure is a limit."`
+	Suggest float64  `json:"suggest,omitempty" description:"A value that would have been enough, when the failure is a limit."`
 }
 
 // ErrorInfo says what failed and where.
 type ErrorInfo struct {
 	// Stage is the pipeline step that failed, in the tool's own vocabulary
 	// ("preflight", "analyse", "verify", "push").
-	Stage string `json:"stage"`
+	Stage string `json:"stage" description:"The pipeline step that failed, in the tool own vocabulary."`
 	// Category classifies the failure so a caller can decide whether
 	// re-running could help: usage, auth, input, model, budget, max_turns,
 	// git, forge, verify, internal.
-	Category    string   `json:"category"`
-	Message     string   `json:"message"`
-	Retryable   bool     `json:"retryable"`
-	Resumable   bool     `json:"resumable"`
-	FixHint     *FixHint `json:"fix_hint,omitempty"`
+	Category    string   `json:"category" description:"Classifies the failure so a caller can decide whether re-running could help, for example usage, auth, input, model, budget, max_turns, git, forge, verify, internal. An open set: a new category can be added within a major schema version."`
+	Message     string   `json:"message" description:"Human-readable explanation of the failure."`
+	Retryable   bool     `json:"retryable" description:"True when re-running the same invocation unchanged can succeed."`
+	Resumable   bool     `json:"resumable" description:"True when re-running the same input continues the work rather than restarting it."`
+	FixHint     *FixHint `json:"fix_hint,omitempty" description:"A machine-usable remedy for the failure, when one is known."`
 	TotalBudget float64  `json:"-"`
 	err         error    `json:"-"`
 }
@@ -660,18 +704,19 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 	defer r.mu.Unlock()
 
 	env := Envelope{
-		Tool:       r.tool,
-		Version:    r.version,
-		OK:         code == ExitOK,
-		Status:     StatusFor(code),
-		ExitCode:   code,
-		Error:      failure,
-		Input:      r.input,
-		Model:      r.model,
-		Result:     presentOrNil(result),
-		Warnings:   append([]Warning(nil), r.warnings...),
-		DurationMS: time.Since(r.started).Milliseconds(),
-		StartedAt:  r.started.UTC().Format(time.RFC3339),
+		Tool:          r.tool,
+		Version:       r.version,
+		SchemaVersion: SchemaVersion,
+		OK:            code == ExitOK,
+		Status:        StatusFor(code),
+		ExitCode:      code,
+		Error:         failure,
+		Input:         r.input,
+		Model:         r.model,
+		Result:        presentOrNil(result),
+		Warnings:      append([]Warning(nil), r.warnings...),
+		DurationMS:    time.Since(r.started).Milliseconds(),
+		StartedAt:     r.started.UTC().Format(time.RFC3339),
 	}
 	if len(r.effects) > 0 {
 		env.SideEffects = append([]SideEffect(nil), r.effects...)
@@ -785,7 +830,7 @@ func marshalEnvelope(env Envelope) ([]byte, int) {
 	b, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		fallback, _ := json.MarshalIndent(Envelope{
-			Tool: env.Tool, Version: env.Version, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
+			Tool: env.Tool, Version: env.Version, SchemaVersion: SchemaVersion, OK: false, Status: StatusFor(ExitFailed), ExitCode: ExitFailed,
 			Summary: "the result could not be encoded as JSON: " + err.Error(),
 			Error: &ErrorInfo{
 				Stage: "emit", Category: "internal",

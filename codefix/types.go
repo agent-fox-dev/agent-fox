@@ -81,28 +81,28 @@ func (c Classification) CommitType() string {
 
 // FileChange is one file the model proposes to touch, or did.
 type FileChange struct {
-	Path   string `json:"path"`
-	Change string `json:"change"`
+	Path   string `json:"path" description:"Path of the file, relative to the repository root."`
+	Change string `json:"change" description:"What was done to the file or is proposed for it."`
 }
 
 // Analysis is the first phase's result: the diagnosis and the plan.
 type Analysis struct {
-	Classification Classification `json:"classification"`
-	Summary        string         `json:"summary"`
-	RootCause      string         `json:"root_cause"`
-	Approach       string         `json:"approach"`
-	Files          []FileChange   `json:"files"`
-	Assumptions    []string       `json:"assumptions,omitempty"`
+	Classification Classification `json:"classification" description:"What the input is about: bug, feature, refactor or performance."`
+	Summary        string         `json:"summary" description:"One-paragraph summary of the diagnosis."`
+	RootCause      string         `json:"root_cause" description:"The root cause of the problem."`
+	Approach       string         `json:"approach" description:"How the change will fix it."`
+	Files          []FileChange   `json:"files" description:"The files the change is expected to touch."`
+	Assumptions    []string       `json:"assumptions,omitempty" description:"Minor ambiguities resolved by assumption."`
 	// Title is what the branch, the commit subject and the pull request are
 	// named after. It comes from the analysis rather than from the issue
 	// title because an issue titled "login broken??" should not become the
 	// branch name.
-	Title string `json:"title"`
+	Title string `json:"title" description:"What the branch, the commit subject and the pull request are named after."`
 
 	// Ambiguity is set only when the input has two or more readings that lead
 	// to fundamentally different fixes, and the codebase cannot settle which.
 	// It is the one case where the run stops and asks.
-	Ambiguity *Ambiguity `json:"ambiguity,omitempty"`
+	Ambiguity *Ambiguity `json:"ambiguity,omitempty" description:"Set only when the input has contradictory readings the codebase cannot settle."`
 }
 
 // Ambiguity is a question the run cannot answer for itself.
@@ -112,9 +112,9 @@ type Analysis struct {
 // assumptions and the work proceeds. Reserving the stop for contradictory
 // readings is what keeps an unattended run unattended.
 type Ambiguity struct {
-	Question        string `json:"question"`
-	InterpretationA string `json:"interpretation_a"`
-	InterpretationB string `json:"interpretation_b"`
+	Question        string `json:"question" description:"The question the run cannot answer for itself."`
+	InterpretationA string `json:"interpretation_a" description:"The first reading of the input."`
+	InterpretationB string `json:"interpretation_b" description:"The second reading, leading to a fundamentally different fix."`
 }
 
 // Implementation is the second phase's result: what was actually done.
@@ -123,17 +123,17 @@ type Ambiguity struct {
 // evidence that the work is correct. The evidence is the verification run and
 // the diff, both produced by this package.
 type Implementation struct {
-	Summary       string       `json:"summary"`
-	CommitSubject string       `json:"commit_subject"`
-	Changes       []FileChange `json:"changes"`
-	Tests         []string     `json:"tests,omitempty"`
-	Notes         string       `json:"notes,omitempty"`
+	Summary       string       `json:"summary" description:"The model account of what it did."`
+	CommitSubject string       `json:"commit_subject" description:"The commit subject the model proposed."`
+	Changes       []FileChange `json:"changes" description:"The files the model reports having changed."`
+	Tests         []string     `json:"tests,omitempty" description:"The tests the model reports having added or run."`
+	Notes         string       `json:"notes,omitempty" description:"Anything a reviewer should know."`
 
 	// CriteriaVerdicts answers the acceptance criteria the report stated,
 	// one verdict and one piece of evidence each. It is empty when the
 	// report stated none, and it cannot be partial when it stated some: the
 	// submit tool refuses a submission that skips a criterion.
-	CriteriaVerdicts []CriterionVerdict `json:"criteria_verdicts,omitempty"`
+	CriteriaVerdicts []CriterionVerdict `json:"criteria_verdicts,omitempty" description:"The model verdict and evidence for each acceptance criterion. Empty when the report stated none."`
 }
 
 // LandMode is what happens once a change is written and verified.
@@ -175,67 +175,67 @@ func (m LandMode) Pushes() bool { return m == LandPR || m == LandBranch }
 type Result struct {
 	// Stage is how far the run got: analysed, implemented, verified,
 	// committed, pushed, landed, or stopped.
-	Stage string `json:"stage"`
+	Stage string `json:"stage" description:"How far the run got: analysed, implemented, verified, committed, pushed, landed or stopped."`
 	// Repo and Issue identify what was worked on, when the input was a
 	// GitHub URL.
-	Repo        string `json:"repo,omitempty"`
-	IssueURL    string `json:"issue_url,omitempty"`
-	IssueNumber int    `json:"issue_number,omitempty"`
+	Repo        string `json:"repo,omitempty" description:"The repository worked on, when the input was an issue URL."`
+	IssueURL    string `json:"issue_url,omitempty" description:"The issue the input came from, when it was one."`
+	IssueNumber int    `json:"issue_number,omitempty" description:"The number of that issue."`
 
-	Classification string   `json:"classification"`
-	Title          string   `json:"title"`
-	FixSummary     string   `json:"summary"`
-	RootCause      string   `json:"root_cause,omitempty"`
-	Approach       string   `json:"approach,omitempty"`
-	Assumptions    []string `json:"assumptions,omitempty"`
+	Classification string   `json:"classification" description:"What the input turned out to be about: bug, feature, refactor or performance."`
+	Title          string   `json:"title" description:"What the branch, the commit and the pull request are named after."`
+	FixSummary     string   `json:"summary" description:"One-paragraph summary of the fix."`
+	RootCause      string   `json:"root_cause,omitempty" description:"The root cause of the problem."`
+	Approach       string   `json:"approach,omitempty" description:"How the change fixes it."`
+	Assumptions    []string `json:"assumptions,omitempty" description:"Minor ambiguities resolved by assumption."`
 
 	// AcceptanceCriteria is what the report asked the change to satisfy,
 	// extracted from its own text by this package. It is a fact about the
 	// input, so it is here rather than under Implementation; the verdicts on
 	// it are the model's and live there.
-	AcceptanceCriteria []Criterion `json:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria []Criterion `json:"acceptance_criteria,omitempty" description:"The acceptance criteria the report asked the change to satisfy, extracted from its own text."`
 	// CriteriaOutcome is "pass" when every criterion was answered pass,
 	// "fail" when any was not, and empty when the report stated none. It is
 	// derived from the verdicts, never stored alongside them.
-	CriteriaOutcome string `json:"criteria_outcome,omitempty"`
+	CriteriaOutcome string `json:"criteria_outcome,omitempty" description:"pass when every criterion was answered pass, fail when any was not, empty when the report stated none."`
 
 	// Branch, BaseBranch and Commit are what the run produced in git.
-	Branch     string `json:"branch,omitempty"`
-	BaseBranch string `json:"base_branch,omitempty"`
-	Commit     string `json:"commit,omitempty"`
-	Pushed     bool   `json:"pushed"`
+	Branch     string `json:"branch,omitempty" description:"The branch the change was written on."`
+	BaseBranch string `json:"base_branch,omitempty" description:"The branch it was cut from."`
+	Commit     string `json:"commit,omitempty" description:"The commit SHA of the change."`
+	Pushed     bool   `json:"pushed" description:"True when the branch was pushed."`
 	// ChangedFiles is the diff, from git — not the model's list.
-	ChangedFiles []string `json:"changed_files,omitempty"`
-	DiffStat     string   `json:"diff_stat,omitempty"`
+	ChangedFiles []string `json:"changed_files,omitempty" description:"The files in the diff, from git."`
+	DiffStat     string   `json:"diff_stat,omitempty" description:"The diff stat, from git."`
 
 	// Baseline and Verification are the two runs of the project's own
 	// checks, and Verdict is how they compare.
-	Baseline     checks.Result `json:"baseline"`
-	Verification checks.Result `json:"verification"`
-	Verdict      string        `json:"verdict"`
+	Baseline     checks.Result `json:"baseline" description:"The project checks before the change."`
+	Verification checks.Result `json:"verification" description:"The project checks after the change."`
+	Verdict      string        `json:"verdict" description:"How the verification compares with the baseline."`
 
 	// PullRequestURL is set when --land=pr opened one.
-	PullRequestURL    string `json:"pull_request_url,omitempty"`
-	PullRequestNumber int    `json:"pull_request_number,omitempty"`
+	PullRequestURL    string `json:"pull_request_url,omitempty" description:"The pull request that was opened, when --land=pr opened one."`
+	PullRequestNumber int    `json:"pull_request_number,omitempty" description:"The number of that pull request."`
 	// Comments are the URLs of what was posted on the issue.
-	Comments []string `json:"comments,omitempty"`
+	Comments []string `json:"comments,omitempty" description:"URLs of the comments posted on the issue."`
 
 	// Implementation is the model's report of the work, kept separate from
 	// the facts above.
-	Implementation *Implementation `json:"implementation,omitempty"`
+	Implementation *Implementation `json:"implementation,omitempty" description:"The model report of the work, kept separate from the facts above."`
 	// Ambiguity is set when the run stopped to ask.
-	Ambiguity *Ambiguity `json:"ambiguity,omitempty"`
+	Ambiguity *Ambiguity `json:"ambiguity,omitempty" description:"Set when the run stopped to ask a question."`
 	// DryRun records that no remote change was made.
-	DryRun bool `json:"dry_run,omitempty"`
+	DryRun bool `json:"dry_run,omitempty" description:"True when no remote change was made."`
 	// Land records the land mode this run was asked for (pr, branch or
 	// none), so a --dry-run run that reached --land=pr can report the pull
 	// request it would have opened as hypothetical (06-REQ-4.3) even though
 	// PullRequestURL, its only other trace, stays empty either way.
-	Land string `json:"land,omitempty"`
+	Land string `json:"land,omitempty" description:"The land mode the run was asked for: pr, branch or none."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both.
-	Detail string `json:"detail"`
+	Detail string `json:"detail" description:"Which view of this result was emitted: summary or full."`
 }
 
 // SetDetail implements toolio.DetailedResult.

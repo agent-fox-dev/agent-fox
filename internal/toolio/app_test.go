@@ -1057,6 +1057,27 @@ func eventTypes(events []map[string]any) []string {
 	return out
 }
 
+// TS-09-32 (integration): the run_start event carries schema_version under
+// the same key and value as the envelope.
+func TestTS09_32_RunStartCarriesSchemaVersion(t *testing.T) {
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		return ExitOK, nil, nil
+	})
+	events, env, code := runCapturingEvents(t, app)
+	if code != ExitOK {
+		t.Fatalf("code = %d", code)
+	}
+	if len(events) == 0 || events[0]["type"] != "run_start" {
+		t.Fatalf("events = %v, want run_start first", eventTypes(events))
+	}
+	if got := events[0]["schema_version"]; got != SchemaVersion {
+		t.Errorf("run_start schema_version = %v, want %q", got, SchemaVersion)
+	}
+	if env.SchemaVersion != SchemaVersion {
+		t.Errorf("envelope schema_version = %q, want %q", env.SchemaVersion, SchemaVersion)
+	}
+}
+
 // TS-07-12 (unit): run_start is written right after the model is resolved,
 // before the first phase_start, carrying input_kind and model.
 func TestTS07_12_RunStartRightAfterTheModelIsResolved(t *testing.T) {

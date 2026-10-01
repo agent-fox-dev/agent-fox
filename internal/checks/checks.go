@@ -22,21 +22,21 @@ import (
 // Result is what one verification run produced.
 type Result struct {
 	// Command is what ran. Empty with Skipped means nothing did.
-	Command string `json:"command"`
+	Command string `json:"command" description:"What ran. Empty together with skipped means nothing did."`
 	// Skipped reports that no command was run — either none could be
 	// detected, or the operator asked for none. It is a first-class outcome,
 	// not a pass: a report renders it as "unverified".
-	Skipped bool `json:"skipped,omitempty"`
+	Skipped bool `json:"skipped,omitempty" description:"True when no command was run: none could be detected, or none was asked for. Not a pass."`
 	// OK is true only when the command ran and exited zero.
-	OK bool `json:"ok"`
+	OK bool `json:"ok" description:"True only when the command ran and exited zero."`
 	// ExitCode is the command's exit status, or -1 when it could not run.
-	ExitCode int `json:"exit_code"`
+	ExitCode int `json:"exit_code" description:"The exit status of the command, or -1 when it could not run."`
 	// Output is the tail of the combined output, bounded.
-	Output string `json:"output,omitempty"`
+	Output string `json:"output,omitempty" description:"The bounded tail of the combined output."`
 	// TimedOut reports that the run was killed by the timeout.
-	TimedOut bool `json:"timed_out,omitempty"`
+	TimedOut bool `json:"timed_out,omitempty" description:"True when the run was killed by the timeout."`
 	// DurationMS is how long it took.
-	DurationMS int64 `json:"duration_ms"`
+	DurationMS int64 `json:"duration_ms" description:"How long the run took in milliseconds."`
 }
 
 // Ran reports whether a command actually executed.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +15,51 @@ import (
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/specgen"
 )
+
+// TS-09-29 (unit): Envelope.SchemaVersion is tagged json:"schema_version",
+// sits immediately after Version, and is never omitted.
+func TestTS09_29_EnvelopeSchemaVersionFieldShape(t *testing.T) {
+	fields := reflect.VisibleFields(reflect.TypeOf(toolio.Envelope{}))
+	idx := func(name string) int {
+		for i, f := range fields {
+			if f.Name == name {
+				return i
+			}
+		}
+		t.Fatalf("Envelope has no field %s", name)
+		return -1
+	}
+	v, sv := idx("Version"), idx("SchemaVersion")
+	if sv != v+1 {
+		t.Errorf("SchemaVersion is at index %d, want %d (immediately after Version)", sv, v+1)
+	}
+	if tag := fields[sv].Tag.Get("json"); tag != "schema_version" {
+		t.Errorf("json tag = %q, want %q (no omitempty)", tag, "schema_version")
+	}
+	b, err := json.Marshal(toolio.Envelope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"schema_version":""`) {
+		t.Errorf("a zero Envelope must still marshal schema_version: %s", b)
+	}
+}
+
+// TS-09-31 (unit): toolio.SchemaVersion is the literal string 2.0.0.
+func TestTS09_31_SchemaVersionConstant(t *testing.T) {
+	if toolio.SchemaVersion != "2.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 2.0.0", toolio.SchemaVersion)
+	}
+}
+
+// Run.Envelope sets SchemaVersion unconditionally, from the one constant
+// (the unit half of TS-09-30).
+func TestTS09_30_RunEnvelopeSetsSchemaVersion(t *testing.T) {
+	env := toolio.NewRun("fix", "v1").Envelope(toolio.ExitOK, nil, nil)
+	if env.SchemaVersion != toolio.SchemaVersion {
+		t.Errorf("Envelope.SchemaVersion = %q, want %q", env.SchemaVersion, toolio.SchemaVersion)
+	}
+}
 
 func TestEnvelopeOKOnlyWhenExitIsZero(t *testing.T) {
 	r := toolio.NewRun("issue", "v1")
@@ -376,7 +422,7 @@ func TestTS05_12_EnvelopeKeyOrder(t *testing.T) {
 	}
 
 	wantOrder := []string{
-		"tool", "version", "ok", "status", "exit_code", "summary",
+		"tool", "version", "schema_version", "ok", "status", "exit_code", "summary",
 		"error", "needs_human", "warnings", "result", "input",
 		"usage", "model", "duration_ms", "started_at",
 	}

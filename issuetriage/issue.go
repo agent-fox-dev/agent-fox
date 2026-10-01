@@ -55,8 +55,8 @@ type Issue struct {
 // and keeping it a struct rather than one preformatted string is what lets
 // the tool handler check Path against the workspace without parsing prose.
 type FileRef struct {
-	Path string `json:"path"`
-	Role string `json:"role"`
+	Path string `json:"path" description:"Path of the file, relative to the repository root."`
+	Role string `json:"role" description:"What part the file plays in the problem or the fix."`
 }
 
 // Fix is the suggested repair. It is deliberately a proposal and not a patch:
@@ -64,9 +64,9 @@ type FileRef struct {
 // cannot run the tests is worth less than a clear description of what to
 // change and why.
 type Fix struct {
-	Approach string    `json:"approach"`
-	Files    []FileRef `json:"files"`
-	Risks    string    `json:"risks"`
+	Approach string    `json:"approach" description:"How the problem should be fixed."`
+	Files    []FileRef `json:"files" description:"The files the fix touches."`
+	Risks    string    `json:"risks" description:"What could go wrong with the fix."`
 }
 
 // Confidence and severity vocabularies, in the order the skill defines them.

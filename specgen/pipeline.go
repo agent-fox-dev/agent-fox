@@ -80,15 +80,15 @@ type Result struct {
 
 	// FollowOnSpecs are the further packages this run wrote, in order, when
 	// the input was more than one spec's worth of work.
-	FollowOnSpecs []Package `json:"follow_on_specs,omitempty"`
+	FollowOnSpecs []Package `json:"follow_on_specs,omitempty" description:"The further packages the run wrote, when the input was more than one spec of work."`
 	// Split is every scope of the split with its state: done, invalid,
 	// failed or pending. Empty when the input was one spec's worth of work.
-	Split []ScopeReport `json:"split,omitempty"`
+	Split []ScopeReport `json:"split,omitempty" description:"Every scope of the split with its state: done, invalid, failed or pending."`
 	// SplitPlan is the plan file left in the spec root while the split is
 	// unfinished. Running spec on the same input again resumes from it.
-	SplitPlan string `json:"split_plan,omitempty"`
+	SplitPlan string `json:"split_plan,omitempty" description:"The plan file left in the spec root while the split is unfinished."`
 	// DryRun records that nothing was written.
-	DryRun bool `json:"dry_run,omitempty"`
+	DryRun bool `json:"dry_run,omitempty" description:"True when nothing was written."`
 
 	// inputRef is how a next[] entry names the input to re-run it: the
 	// literal file path or issue URL when the input had one, and the
@@ -151,43 +151,43 @@ func (r Result) Resumable() bool {
 type Package struct {
 	// SpecDir is the created package, relative to the repository root when
 	// it is inside it.
-	SpecDir  string `json:"spec_dir"`
-	SpecID   string `json:"spec_id"`
-	SpecName string `json:"spec_name"`
-	Title    string `json:"title"`
-	Status   string `json:"status"`
-	Source   string `json:"source"`
+	SpecDir  string `json:"spec_dir" description:"The created package directory."`
+	SpecID   string `json:"spec_id" description:"The spec identifier."`
+	SpecName string `json:"spec_name" description:"The spec name."`
+	Title    string `json:"title" description:"The spec title."`
+	Status   string `json:"status" description:"The spec status."`
+	Source   string `json:"source" description:"Where the spec came from."`
 	// Artifacts are the files written, in the order they were produced.
-	Artifacts []string `json:"artifacts"`
+	Artifacts []string `json:"artifacts" description:"The files written, in the order they were produced."`
 
 	// Counts summarize the package without reproducing it. A caller that
 	// wants the content reads the files.
-	Requirements   int `json:"requirements"`
-	Criteria       int `json:"criteria"`
-	ExecutionPaths int `json:"execution_paths"`
-	Tests          int `json:"tests"`
-	Tasks          int `json:"tasks"`
+	Requirements   int `json:"requirements" description:"How many requirements the package has."`
+	Criteria       int `json:"criteria" description:"How many criteria the package has."`
+	ExecutionPaths int `json:"execution_paths" description:"How many execution paths the package has."`
+	Tests          int `json:"tests" description:"How many tests the package has."`
+	Tasks          int `json:"tasks" description:"How many tasks the package has."`
 
 	// Validation is the format's own verdict on the package.
-	Validation ValidationReport `json:"validation"`
+	Validation ValidationReport `json:"validation" description:"The format own verdict on the package."`
 	// Traceability is derived from test.verifies and task.tests, never
 	// stored — the format makes both computed, so reporting them here is the
 	// only place they exist.
-	Traceability TraceReport `json:"traceability"`
+	Traceability TraceReport `json:"traceability" description:"Derived coverage of criteria and paths by tests and tasks."`
 
 	// OpenQuestions are the decisions the PRD phase made under uncertainty
 	// and would like a person to check. An empty list means the input and
 	// the codebase settled everything.
-	OpenQuestions []OpenQuestion `json:"open_questions,omitempty"`
+	OpenQuestions []OpenQuestion `json:"open_questions,omitempty" description:"Decisions made under uncertainty that a person should check."`
 
 	// CommentURL is set when the finished PRD was posted back to the issue.
-	CommentURL string `json:"comment_url,omitempty"`
+	CommentURL string `json:"comment_url,omitempty" description:"The comment the finished PRD was posted as, when it was."`
 
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both. It lives on Package (rather than on
 	// Result, which embeds it) so it is set once for the first package and
 	// carried the same way every other Package field is.
-	Detail string `json:"detail"`
+	Detail string `json:"detail" description:"Which view of this result was emitted: summary or full."`
 }
 
 // SetDetail implements toolio.DetailedResult.
@@ -209,37 +209,37 @@ const (
 
 // ScopeReport is one scope of a split and where it stands.
 type ScopeReport struct {
-	Name    string `json:"name"`
-	Scope   string `json:"scope"`
-	Status  string `json:"status"`
-	SpecID  string `json:"spec_id,omitempty"`
-	SpecDir string `json:"spec_dir,omitempty"`
+	Name    string `json:"name" description:"The scope name."`
+	Scope   string `json:"scope" description:"What the scope covers."`
+	Status  string `json:"status" description:"done, invalid, failed or pending."`
+	SpecID  string `json:"spec_id,omitempty" description:"The spec identifier, once the package exists."`
+	SpecDir string `json:"spec_dir,omitempty" description:"The package directory, once it exists."`
 }
 
 // ValidationReport is afspec's verdict, flattened for JSON.
 type ValidationReport struct {
-	Valid        bool             `json:"valid"`
-	ErrorCount   int              `json:"error_count"`
-	WarningCount int              `json:"warning_count"`
-	Errors       []ValidationItem `json:"errors,omitempty"`
-	Warnings     []ValidationItem `json:"warnings,omitempty"`
+	Valid        bool             `json:"valid" description:"True when the package has no validation errors."`
+	ErrorCount   int              `json:"error_count" description:"How many errors."`
+	WarningCount int              `json:"warning_count" description:"How many warnings."`
+	Errors       []ValidationItem `json:"errors,omitempty" description:"The errors found."`
+	Warnings     []ValidationItem `json:"warnings,omitempty" description:"The warnings found."`
 }
 
 // ValidationItem is one finding, carrying the rule that produced it.
 type ValidationItem struct {
-	Check    string `json:"check"`
-	Artifact string `json:"artifact"`
-	Entity   string `json:"entity,omitempty"`
-	Message  string `json:"message"`
+	Check    string `json:"check" description:"The rule that produced the finding."`
+	Artifact string `json:"artifact" description:"The artifact file the finding is about."`
+	Entity   string `json:"entity,omitempty" description:"The entity within the artifact, when there is one."`
+	Message  string `json:"message" description:"What is wrong."`
 }
 
 // TraceReport is the derived coverage summary.
 type TraceReport struct {
-	CriteriaCovered   int      `json:"criteria_covered"`
-	CriteriaUncovered []string `json:"criteria_uncovered,omitempty"`
-	PathsCovered      int      `json:"paths_covered"`
-	PathsUncovered    []string `json:"paths_uncovered,omitempty"`
-	TestsUnowned      []string `json:"tests_unowned,omitempty"`
+	CriteriaCovered   int      `json:"criteria_covered" description:"How many criteria a test verifies."`
+	CriteriaUncovered []string `json:"criteria_uncovered,omitempty" description:"The criteria no test verifies."`
+	PathsCovered      int      `json:"paths_covered" description:"How many execution paths a test exercises."`
+	PathsUncovered    []string `json:"paths_uncovered,omitempty" description:"The execution paths no test exercises."`
+	TestsUnowned      []string `json:"tests_unowned,omitempty" description:"The tests no task owns."`
 }
 
 // Failure carries the stage and category of a failed run.

@@ -56,7 +56,7 @@
         "cmd/fix/main.go",
         "cmd/impl/main.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -97,7 +97,7 @@
         "internal/checks/checks.go",
         "specgen/pipeline.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -126,7 +126,7 @@
       "depends_on": [
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -166,7 +166,7 @@
         2,
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -202,7 +202,7 @@
       "depends_on": [
         4
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -247,7 +247,7 @@
       "done_when": [
         "cmd/impl/testdata/schema.golden.json, cmd/issue/testdata/schema.golden.json and cmd/spec/testdata/schema.golden.json exist alongside cmd/fix/testdata/schema.golden.json and all four TestSchemaGolden tests pass"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -280,7 +280,7 @@
         3,
         5
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -324,7 +324,7 @@
         "make test passes",
         "make lint passes"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

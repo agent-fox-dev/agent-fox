@@ -1,0 +1,981 @@
+{
+  "tool": "fix",
+  "schema_version": "2.0.0",
+  "description": "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
+  "input": {
+    "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue is the problem), a path to a readable file (its contents are the problem), any other text (the text is the problem), or - to read the problem from stdin.",
+    "kinds": [
+      "text",
+      "file",
+      "stdin",
+      "issue"
+    ]
+  },
+  "flags": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "allow": {
+        "type": "string",
+        "default": "",
+        "description": "comma-separated extra programs the implementation phase's shell may run"
+      },
+      "budget": {
+        "type": "number",
+        "default": 0,
+        "description": "per-phase spend ceiling, in dollars"
+      },
+      "context": {
+        "type": "string",
+        "default": "",
+        "description": "additional context from the caller, repeatable"
+      },
+      "detail": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "full"
+        ],
+        "default": "summary",
+        "description": "result view: summary (default, a trimmed subset) or full (everything computed)"
+      },
+      "dir": {
+        "type": "string",
+        "default": ".",
+        "description": "the repository to work in; the file tools cannot reach outside it"
+      },
+      "draft": {
+        "type": "boolean",
+        "default": false,
+        "description": "open the pull request as a draft"
+      },
+      "dry-run": {
+        "type": "boolean",
+        "default": false,
+        "description": "make no remote change: no push, no write to a forge"
+      },
+      "events": {
+        "type": "string",
+        "enum": [
+          "text",
+          "jsonl"
+        ],
+        "default": "text",
+        "description": "what stderr carries: text (default, human-readable progress) or jsonl (one JSON event object per line)"
+      },
+      "events-file": {
+        "type": "string",
+        "default": "",
+        "description": "also write the JSONL event stream to this file (truncated), whatever --events says about stderr"
+      },
+      "input-kind": {
+        "type": "string",
+        "default": "",
+        "description": "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)"
+      },
+      "land": {
+        "type": "string",
+        "enum": [
+          "pr",
+          "branch",
+          "none"
+        ],
+        "default": "pr",
+        "description": "what to do with a verified change: pr, branch, none"
+      },
+      "max-turns": {
+        "type": "integer",
+        "default": 0,
+        "description": "per-phase turn ceiling"
+      },
+      "model": {
+        "type": "string",
+        "default": "",
+        "description": "model tier (SIMPLE, STANDARD, ADVANCED) or catalog spec; default $AF_MODEL, else STANDARD"
+      },
+      "no-verify": {
+        "type": "boolean",
+        "default": false,
+        "description": "run no checks; the result is then reported as unverified, not as a pass"
+      },
+      "phase-timeout": {
+        "type": "string",
+        "format": "duration",
+        "default": "0s",
+        "description": "wall-clock ceiling on one phase"
+      },
+      "pull": {
+        "type": "string",
+        "default": "",
+        "description": "checkout and pull origin before branching; optional branch name, default origin's default branch"
+      },
+      "push-attempts": {
+        "type": "integer",
+        "default": 4,
+        "description": "push retries, with exponential backoff"
+      },
+      "quiet": {
+        "type": "boolean",
+        "default": false,
+        "description": "print nothing on stderr"
+      },
+      "repo": {
+        "type": "string",
+        "default": "",
+        "description": "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir"
+      },
+      "report-file": {
+        "type": "string",
+        "default": "",
+        "description": "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/\u003ctool\u003e-\u003cstarted\u003e-\u003cpid\u003e.json"
+      },
+      "show-text": {
+        "type": "boolean",
+        "default": false,
+        "description": "stream the model's prose to stderr"
+      },
+      "total-budget": {
+        "type": "number",
+        "default": 0,
+        "description": "spend ceiling for the whole run across every phase, in dollars; 0 means only the per-phase --budget"
+      },
+      "trust-project": {
+        "type": "boolean",
+        "default": false,
+        "description": "admit AGENTS.md, CLAUDE.md and .specs/steering.md into the system prompt"
+      },
+      "variant": {
+        "type": "string",
+        "default": "",
+        "description": "tier variant, e.g. extended"
+      },
+      "vendor": {
+        "type": "string",
+        "default": "",
+        "description": "vendor whose tier table the tier names resolve against; default $AF_MODEL_VENDOR"
+      },
+      "verbose": {
+        "type": "boolean",
+        "default": false,
+        "description": "trace tool calls and timings on stderr"
+      },
+      "verify": {
+        "type": "string",
+        "default": "",
+        "description": "the command that decides success; default detected from the project"
+      },
+      "verify-timeout": {
+        "type": "string",
+        "format": "duration",
+        "default": "10m0s",
+        "description": "timeout for one verification run"
+      }
+    }
+  },
+  "result": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "tool": {
+        "type": "string",
+        "description": "The program that produced this object: spec, issue, fix or impl."
+      },
+      "version": {
+        "type": "string",
+        "description": "The build identity of the tool, so a surprising result can be traced to a build."
+      },
+      "schema_version": {
+        "type": "string",
+        "description": "The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."
+      },
+      "ok": {
+        "type": "boolean",
+        "description": "True only when the tool did the whole job it was asked to do."
+      },
+      "status": {
+        "type": "string",
+        "description": "One of done, failed, usage, needs_human, unverified."
+      },
+      "exit_code": {
+        "type": "integer",
+        "description": "The process exit code, repeated so a caller that captured only stdout still has it."
+      },
+      "summary": {
+        "type": "string",
+        "description": "One sentence describing the outcome."
+      },
+      "error": {
+        "type": "object",
+        "description": "What failed and where. Present exactly when ok is false.",
+        "properties": {
+          "stage": {
+            "type": "string",
+            "description": "The pipeline step that failed, in the tool own vocabulary."
+          },
+          "category": {
+            "type": "string",
+            "description": "Classifies the failure so a caller can decide whether re-running could help, for example usage, auth, input, model, budget, max_turns, git, forge, verify, internal. An open set: a new category can be added within a major schema version."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation of the failure."
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "True when re-running the same invocation unchanged can succeed."
+          },
+          "resumable": {
+            "type": "boolean",
+            "description": "True when re-running the same input continues the work rather than restarting it."
+          },
+          "fix_hint": {
+            "type": "object",
+            "description": "A machine-usable remedy for the failure, when one is known.",
+            "properties": {
+              "flag": {
+                "type": "string",
+                "description": "The flag that would remedy the failure."
+              },
+              "env": {
+                "type": "array",
+                "description": "Environment variables that would remedy the failure, any one of which is enough.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "valid": {
+                "type": "array",
+                "description": "The legal values of the flag.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "current": {
+                "type": "number",
+                "description": "The value currently in force, when the failure is a limit."
+              },
+              "suggest": {
+                "type": "number",
+                "description": "A value that would have been enough, when the failure is a limit."
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "stage",
+          "category",
+          "message",
+          "retryable",
+          "resumable"
+        ]
+      },
+      "needs_human": {
+        "type": "object",
+        "description": "The question a person must answer. Present when status is needs_human.",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The question a person has to answer before the work can continue."
+          },
+          "options": {
+            "type": "array",
+            "description": "The possible answers, when the question has a closed set of them.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Short identifier of the option, to be passed back in the answer."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "What choosing this option means."
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ]
+            }
+          },
+          "needed": {
+            "type": "string",
+            "description": "What the person has to decide or change, when that is not a choice among options."
+          },
+          "stage": {
+            "type": "string",
+            "description": "The pipeline stage that stopped."
+          },
+          "resume": {
+            "type": "string",
+            "description": "The command line that re-runs the tool on the same input with the answer. It carries placeholders for the input and the answer."
+          }
+        },
+        "required": [
+          "question",
+          "stage",
+          "resume"
+        ]
+      },
+      "warnings": {
+        "type": "array",
+        "description": "Things that went differently than intended but did not stop the run.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Stable identifier a caller can switch on without parsing message. An open set: a new code can be added within a major schema version."
+            },
+            "severity": {
+              "type": "string",
+              "description": "How much the problem matters: low or high. An open set."
+            },
+            "stage": {
+              "type": "string",
+              "description": "The pipeline stage the warning belongs to, looked up from the code."
+            },
+            "message": {
+              "type": "string",
+              "description": "Human-readable explanation of what went differently than intended."
+            }
+          },
+          "required": [
+            "code",
+            "severity",
+            "stage",
+            "message"
+          ]
+        }
+      },
+      "result": {
+        "type": "object",
+        "description": "The tool-specific result. This document shows the full view, as under --detail full and in the report file; the summary view printed by default is a subset of its fields.",
+        "properties": {
+          "stage": {
+            "type": "string",
+            "description": "How far the run got: analysed, implemented, verified, committed, pushed, landed or stopped."
+          },
+          "repo": {
+            "type": "string",
+            "description": "The repository worked on, when the input was an issue URL."
+          },
+          "issue_url": {
+            "type": "string",
+            "description": "The issue the input came from, when it was one."
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "The number of that issue."
+          },
+          "classification": {
+            "type": "string",
+            "description": "What the input turned out to be about: bug, feature, refactor or performance."
+          },
+          "title": {
+            "type": "string",
+            "description": "What the branch, the commit and the pull request are named after."
+          },
+          "summary": {
+            "type": "string",
+            "description": "One-paragraph summary of the fix."
+          },
+          "root_cause": {
+            "type": "string",
+            "description": "The root cause of the problem."
+          },
+          "approach": {
+            "type": "string",
+            "description": "How the change fixes it."
+          },
+          "assumptions": {
+            "type": "array",
+            "description": "Minor ambiguities resolved by assumption.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "description": "The acceptance criteria the report asked the change to satisfy, extracted from its own text.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The label the report used, or one derived from the position."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "The criterion itself, with its label and markdown emphasis stripped."
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ]
+            }
+          },
+          "criteria_outcome": {
+            "type": "string",
+            "description": "pass when every criterion was answered pass, fail when any was not, empty when the report stated none."
+          },
+          "branch": {
+            "type": "string",
+            "description": "The branch the change was written on."
+          },
+          "base_branch": {
+            "type": "string",
+            "description": "The branch it was cut from."
+          },
+          "commit": {
+            "type": "string",
+            "description": "The commit SHA of the change."
+          },
+          "pushed": {
+            "type": "boolean",
+            "description": "True when the branch was pushed."
+          },
+          "changed_files": {
+            "type": "array",
+            "description": "The files in the diff, from git.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diff_stat": {
+            "type": "string",
+            "description": "The diff stat, from git."
+          },
+          "baseline": {
+            "type": "object",
+            "description": "The project checks before the change.",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "What ran. Empty together with skipped means nothing did."
+              },
+              "skipped": {
+                "type": "boolean",
+                "description": "True when no command was run: none could be detected, or none was asked for. Not a pass."
+              },
+              "ok": {
+                "type": "boolean",
+                "description": "True only when the command ran and exited zero."
+              },
+              "exit_code": {
+                "type": "integer",
+                "description": "The exit status of the command, or -1 when it could not run."
+              },
+              "output": {
+                "type": "string",
+                "description": "The bounded tail of the combined output."
+              },
+              "timed_out": {
+                "type": "boolean",
+                "description": "True when the run was killed by the timeout."
+              },
+              "duration_ms": {
+                "type": "integer",
+                "description": "How long the run took in milliseconds."
+              }
+            },
+            "required": [
+              "command",
+              "ok",
+              "exit_code",
+              "duration_ms"
+            ]
+          },
+          "verification": {
+            "type": "object",
+            "description": "The project checks after the change.",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "What ran. Empty together with skipped means nothing did."
+              },
+              "skipped": {
+                "type": "boolean",
+                "description": "True when no command was run: none could be detected, or none was asked for. Not a pass."
+              },
+              "ok": {
+                "type": "boolean",
+                "description": "True only when the command ran and exited zero."
+              },
+              "exit_code": {
+                "type": "integer",
+                "description": "The exit status of the command, or -1 when it could not run."
+              },
+              "output": {
+                "type": "string",
+                "description": "The bounded tail of the combined output."
+              },
+              "timed_out": {
+                "type": "boolean",
+                "description": "True when the run was killed by the timeout."
+              },
+              "duration_ms": {
+                "type": "integer",
+                "description": "How long the run took in milliseconds."
+              }
+            },
+            "required": [
+              "command",
+              "ok",
+              "exit_code",
+              "duration_ms"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "description": "How the verification compares with the baseline."
+          },
+          "pull_request_url": {
+            "type": "string",
+            "description": "The pull request that was opened, when --land=pr opened one."
+          },
+          "pull_request_number": {
+            "type": "integer",
+            "description": "The number of that pull request."
+          },
+          "comments": {
+            "type": "array",
+            "description": "URLs of the comments posted on the issue.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "implementation": {
+            "type": "object",
+            "description": "The model report of the work, kept separate from the facts above.",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "description": "The model account of what it did."
+              },
+              "commit_subject": {
+                "type": "string",
+                "description": "The commit subject the model proposed."
+              },
+              "changes": {
+                "type": "array",
+                "description": "The files the model reports having changed.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the file, relative to the repository root."
+                    },
+                    "change": {
+                      "type": "string",
+                      "description": "What was done to the file or is proposed for it."
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "change"
+                  ]
+                }
+              },
+              "tests": {
+                "type": "array",
+                "description": "The tests the model reports having added or run.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "notes": {
+                "type": "string",
+                "description": "Anything a reviewer should know."
+              },
+              "criteria_verdicts": {
+                "type": "array",
+                "description": "The model verdict and evidence for each acceptance criterion. Empty when the report stated none.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The id of the criterion this verdict answers."
+                    },
+                    "verdict": {
+                      "type": "string",
+                      "description": "pass or fail."
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "description": "The evidence for the verdict."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "verdict",
+                    "evidence"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "summary",
+              "commit_subject",
+              "changes"
+            ]
+          },
+          "ambiguity": {
+            "type": "object",
+            "description": "Set when the run stopped to ask a question.",
+            "properties": {
+              "question": {
+                "type": "string",
+                "description": "The question the run cannot answer for itself."
+              },
+              "interpretation_a": {
+                "type": "string",
+                "description": "The first reading of the input."
+              },
+              "interpretation_b": {
+                "type": "string",
+                "description": "The second reading, leading to a fundamentally different fix."
+              }
+            },
+            "required": [
+              "question",
+              "interpretation_a",
+              "interpretation_b"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "True when no remote change was made."
+          },
+          "land": {
+            "type": "string",
+            "description": "The land mode the run was asked for: pr, branch or none."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Which view of this result was emitted: summary or full."
+          }
+        },
+        "required": [
+          "stage",
+          "classification",
+          "title",
+          "summary",
+          "pushed",
+          "baseline",
+          "verification",
+          "verdict",
+          "detail"
+        ]
+      },
+      "artifacts": {
+        "type": "array",
+        "description": "What the run produced, in one uniform shape across every tool.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "branch",
+                "commit",
+                "pull_request",
+                "comment",
+                "issue",
+                "spec_package",
+                "report_file"
+              ],
+              "description": "What kind of thing was produced. A closed set; it decides which of the other fields are present."
+            },
+            "name": {
+              "type": "string",
+              "description": "branch: the branch name."
+            },
+            "base": {
+              "type": "string",
+              "description": "branch: the branch it was cut from."
+            },
+            "sha": {
+              "type": "string",
+              "description": "commit: the commit SHA."
+            },
+            "branch": {
+              "type": "string",
+              "description": "commit: the branch the commit is on."
+            },
+            "url": {
+              "type": "string",
+              "description": "pull_request, issue, comment: the URL."
+            },
+            "number": {
+              "type": "integer",
+              "description": "pull_request, issue: the number."
+            },
+            "path": {
+              "type": "string",
+              "description": "spec_package, report_file: the path."
+            },
+            "id": {
+              "type": "string",
+              "description": "spec_package: the spec identifier."
+            },
+            "valid": {
+              "type": "boolean",
+              "description": "spec_package: true when the package validates."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "True only for an entry that is hypothetical under --dry-run: it would have happened on a forge or a remote, but did not. Absent otherwise."
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      },
+      "side_effects": {
+        "type": "array",
+        "description": "Every write the run made to a forge or a remote, in the order it happened. Absent when there were none, always the case under --dry-run.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "What was written: one of create_issue, update_issue, comment, push, open_pr."
+            },
+            "target": {
+              "type": "string",
+              "description": "What it was written to: origin \u003cbranch\u003e for a push, \u003cowner\u003e/\u003crepo\u003e#\u003cnumber\u003e for a comment, an issue update or a pull request, \u003cowner\u003e/\u003crepo\u003e for an issue that has no number yet."
+            },
+            "ok": {
+              "type": "boolean",
+              "description": "True when the write succeeded."
+            },
+            "warning": {
+              "type": "string",
+              "description": "Code of the warning recorded for this same failure. Present only when ok is false. An open set, like warnings[].code."
+            }
+          },
+          "required": [
+            "action",
+            "target",
+            "ok"
+          ]
+        }
+      },
+      "next": {
+        "type": "array",
+        "description": "Invocations a caller would plausibly make next, derived from the result. Absent when there is nothing to suggest.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "type": "string",
+              "description": "The agent-fox tool to run next: spec, issue, fix or impl."
+            },
+            "input": {
+              "type": "string",
+              "description": "The single input to give it: a file path or an issue URL, or the placeholder \u003csame input\u003e when the original input was raw text or stdin."
+            },
+            "flags": {
+              "type": "array",
+              "description": "Flags to add to the invocation, one argument per element.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "why": {
+              "type": "string",
+              "description": "Why this follow-up is suggested."
+            }
+          },
+          "required": [
+            "tool",
+            "input",
+            "flags",
+            "why"
+          ]
+        }
+      },
+      "input": {
+        "type": "object",
+        "description": "What the single input argument turned out to be.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "How the input was classified: text, file, stdin or issue."
+          },
+          "origin": {
+            "type": "string",
+            "description": "Where the input came from: a file path or an issue URL. Empty for raw text and stdin."
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Size of the input body in bytes."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the input was cut to fit the size limit."
+          },
+          "context_bytes": {
+            "type": "integer",
+            "description": "Size in bytes of the extra context given with --context."
+          }
+        },
+        "required": [
+          "kind",
+          "origin",
+          "bytes"
+        ]
+      },
+      "usage": {
+        "type": "object",
+        "description": "The run cost, summed over every phase.",
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "description": "Input tokens summed over every phase."
+          },
+          "output_tokens": {
+            "type": "integer",
+            "description": "Output tokens summed over every phase."
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "description": "Tokens read from the prompt cache, when any were."
+          },
+          "cache_creation_tokens": {
+            "type": "integer",
+            "description": "Tokens written to the prompt cache, when any were."
+          },
+          "cost_usd": {
+            "type": "number",
+            "description": "Cost in US dollars summed over every phase."
+          },
+          "turns": {
+            "type": "integer",
+            "description": "Model turns summed over every phase."
+          },
+          "phases": {
+            "type": "array",
+            "description": "The cost of each model-facing step, in order.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The phase name, in the tool own vocabulary."
+                },
+                "turns": {
+                  "type": "integer",
+                  "description": "Model turns the phase took."
+                },
+                "stop_reason": {
+                  "type": "string",
+                  "description": "Why the phase ended."
+                },
+                "input_tokens": {
+                  "type": "integer",
+                  "description": "Input tokens the phase used."
+                },
+                "output_tokens": {
+                  "type": "integer",
+                  "description": "Output tokens the phase used."
+                },
+                "cost_usd": {
+                  "type": "number",
+                  "description": "Cost of the phase in US dollars."
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "description": "Duration of the phase in milliseconds."
+                }
+              },
+              "required": [
+                "name",
+                "turns",
+                "stop_reason",
+                "input_tokens",
+                "output_tokens",
+                "cost_usd",
+                "duration_ms"
+              ]
+            }
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "turns"
+        ]
+      },
+      "model": {
+        "type": "object",
+        "description": "Which model served the run.",
+        "properties": {
+          "spec": {
+            "type": "string",
+            "description": "The model specification as the caller gave it."
+          },
+          "id": {
+            "type": "string",
+            "description": "The model identifier the provider knows."
+          },
+          "vendor": {
+            "type": "string",
+            "description": "The provider that served the model."
+          },
+          "api": {
+            "type": "string",
+            "description": "The wire API used to talk to the provider."
+          },
+          "thinking": {
+            "type": "string",
+            "description": "The thinking level, when one was set."
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "vendor",
+          "api"
+        ]
+      },
+      "duration_ms": {
+        "type": "integer",
+        "description": "Wall-clock duration of the run in milliseconds."
+      },
+      "started_at": {
+        "type": "string",
+        "description": "When the run started, as an RFC 3339 UTC timestamp."
+      },
+      "report_file": {
+        "type": "string",
+        "description": "Path the complete envelope was written to. Absent when that write failed or no report file is written."
+      }
+    },
+    "required": [
+      "tool",
+      "version",
+      "schema_version",
+      "ok",
+      "status",
+      "exit_code",
+      "summary",
+      "duration_ms",
+      "started_at"
+    ]
+  },
+  "exit_codes": {
+    "0": "fixed, verified, and landed as --land asked",
+    "1": "failed; the stage is named in the JSON",
+    "2": "usage error; nothing was fetched and nothing was written",
+    "3": "stopped on purpose because the problem reads two ways; the question was posted to the issue, with no branch and no code",
+    "4": "code was written and the checks do not pass; the work is committed as a wip: commit and the checkout is back on the base branch"
+  }
+}

@@ -50,7 +50,9 @@ type Common struct {
 	Quiet        bool
 	ShowText     bool
 	Version      bool
-	Context      []string
+	// Schema prints the tool's self-description document and exits.
+	Schema  bool
+	Context []string
 	// Detail selects the result view emitted on stdout: "summary" (the
 	// default, a per-tool trimmed subset) or "full" (everything the tool
 	// computed). The complete value is always available in the report file
@@ -137,12 +139,15 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Quiet, "quiet", false, "print nothing on stderr")
 	fs.BoolVar(&c.ShowText, "show-text", false, "stream the model's prose to stderr")
 	fs.BoolVar(&c.Version, "version", false, "print the build identity and exit")
+	fs.BoolVar(&c.Schema, "schema", false, "print this tool's flags and result JSON Schema and exit, doing no work")
 	fs.Var((*contextFlag)(&c.Context), "context", "additional context from the caller, repeatable")
 	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
+	DeclareEnum(fs, "detail", []string{"summary", "full"})
 	fs.StringVar(&c.InputKind, "input-kind", "", "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)")
 	fs.BoolVar(&c.DryRun, "dry-run", false, DryRunUsage)
 	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
 	fs.StringVar(&c.Events, "events", EventsText, "what stderr carries: text (default, human-readable progress) or jsonl (one JSON event object per line)")
+	DeclareEnum(fs, "events", []string{EventsText, EventsJSONL})
 	fs.StringVar(&c.EventsFile, "events-file", "", "also write the JSONL event stream to this file (truncated), whatever --events says about stderr")
 	fs.StringVar(&c.Output, "output", "", "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")

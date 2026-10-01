@@ -14,9 +14,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/schematest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
+
+// TestSchemaGolden (TS-09-35, TS-09-38): fix --schema is byte-for-byte the
+// checked-in golden file, and its flags and result documents compile against
+// the JSON Schema 2020-12 meta-schema. UPDATE_GOLDEN=1 rewrites the file.
+func TestSchemaGolden(t *testing.T) {
+	schematest.CheckGolden(t, "fix")
+}
 
 // TS-08-26 (smoke, entry point): fix reaches the shared App.Main (through its
 // own normalizeArgs) so --output is live on it: a usage-error envelope is

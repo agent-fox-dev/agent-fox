@@ -62,6 +62,7 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
 {
   "tool": "fix",
   "version": "0.4.0",
+  "schema_version": "2.0.0",
   "ok": true,
   "status": "done",
   "exit_code": 0,
@@ -331,6 +332,7 @@ a typo. An existing directory is never flagged.
 | `--events` · `--events-file` | `text` · none | `--events text\|jsonl` picks what stderr carries: `text` (the default) is the human progress lines, unchanged; `jsonl` is one JSON event object per line instead. Any other value is a usage error (exit 2), refused before anything is fetched. `--events-file <path>` also writes the JSONL stream to that file — opened once, truncated, one whole line per write so a killed process leaves a valid prefix — whatever `--events` says about stderr, so `--events text --events-file run.jsonl` lets a person watch the terminal while a supervisor tails the file. `--quiet` silences stderr under both `--events` values and does not affect the file |
 | `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
+| `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream or `--report-file` written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
 | `--version` | — | print the build identity and exit |
 
 `--context` does not change `input.bytes` — it is rendered separately and
@@ -344,6 +346,123 @@ A flag one tool does not accept is a usage error that names the flag and the
 tool or tools that do accept it — `fix does not accept --label; it is an issue
 flag` — rather than Go's generic "flag provided but not defined". A flag that
 belongs to none of the four tools keeps the generic message.
+
+---
+
+## Self-description (`--schema`)
+
+A caller that wants to know what a tool accepts and returns does not have to
+read this file or the Go source: `<tool> --schema` prints one JSON document
+describing the tool's interface and exits 0. It does no work — it makes no
+network call, resolves no model, needs no credentials and does not look at
+`--dir` — so it can run anywhere, including with no credentials configured and
+`--dir` pointing at an empty directory. It is indented JSON followed by a
+newline, the same rendering as the envelope. `--report-file`, `--events` and
+`--events-file` have no effect alongside it, because no run happens for them
+to describe.
+
+This is the shape, abbreviated (`fix --schema`; `…` marks what is left out):
+
+```jsonc
+{
+  "tool": "fix",
+  "schema_version": "2.0.0",
+  "description": "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
+  "input": { "description": "Exactly one of: …", "kinds": ["text", "file", "stdin", "issue"] },
+  "flags": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "land": { "type": "string", "enum": ["pr", "branch", "none"], "default": "pr", "description": "what to do with a verified change: pr, branch, none" }
+      // …
+    }
+  },
+  "result": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "tool": { "type": "string", "description": "…" },
+      "schema_version": { "type": "string", "description": "…" },
+      "ok": { "type": "boolean", "description": "…" },
+      "result": { "type": "object", "properties": { /* fix's own result, in field order */ } }
+      // …
+    },
+    "required": ["tool", "schema_version", "ok", …]
+  },
+  "exit_codes": { "0": "…", "1": "…", "2": "…", "3": "…", "4": "…" }
+}
+```
+
+- `tool`, `schema_version` — the same values the envelope carries on an
+  ordinary run. `schema_version` names the version of the shared interface,
+  not of the build; see [Interface versions](#interface-versions).
+- `description`, `input` — one sentence about what the tool does, and what the
+  one positional input may be. `input.kinds` is always the same four values,
+  the ones `input.kind` takes in the envelope, even for a tool that then
+  refuses one of them (`impl` refuses `issue`).
+- `flags` — a standalone JSON Schema (2020-12) document, so a framework can
+  use it as the tool's `input_schema`. It is generated from the tool's own flag
+  set, so it cannot drift from what the tool accepts. Properties are in flag
+  name order. Each carries the flag's `type`, its `default` and its usage text
+  as `description`; `enum` is present for a flag with a closed set of values
+  (`--land`, `--detail`, `--events`) and absent for free text. A duration is
+  `{"type": "string", "format": "duration"}`; a flag whose value type is not
+  standard (`fix --pull`) is reported as a string. Nothing is `required`. The
+  flags `--schema` and `--version` are not listed.
+- `result` — also a standalone JSON Schema document: the schema of the whole
+  envelope this tool writes, with the envelope's own `result` property
+  replaced by this tool's result type, in the order the fields marshal. It is
+  generated from the Go types, and every field carries a `description`. It
+  describes the `full` view (`--detail full`, and the report file); the
+  `summary` view on stdout is a subset of it.
+- `exit_codes` — only the codes this tool can return: `issue` and `spec` never
+  stop with `needs_human` or `unverified`, so theirs has three entries (`0`,
+  `1`, `2`), `fix` and `impl` five. The meanings are in [Exit codes](#exit-codes).
+
+The document carries no build identity, so it is the same bytes from every
+build until the interface changes. Each tool's output is checked in at
+`cmd/<tool>/testdata/schema.golden.json`, and a test fails when a change to a
+result type, a flag's type, default or enum, or the envelope is not reflected
+there; `UPDATE_GOLDEN=1 go test -run '^TestSchemaGolden$' ./cmd/...`
+regenerates them deliberately.
+
+---
+
+## Interface versions
+
+`schema_version` in every envelope (and in the `run_start` event, and in the
+`--schema` document) is a semantic version of the interface the four tools
+share. It is separate from `version`, the build. A caller compares the major
+number against the one it was written for before it acts on the rest.
+
+The rule: within a major version a change to the envelope — any tool's, since
+the shell is shared — is **additive** only. These are additive and need no
+bump: a new top-level field; a new field on an existing object (`result`,
+`needs_human`, `error`, a warning, an event); a new value in a field whose own
+description documents it as an open set (a new warning `code`, a new error
+`category`); a new event type. These are **breaking** and bump the major
+version: removing a field, renaming a field, changing a field's type, or
+narrowing a field documented as a closed enum. The reasoning is in
+[ADR 06](adr/06-version-the-envelope-interface.md). A spec that changes the
+envelope states in its own PRD which kind of change it makes. Each future
+major bump appends its own entry below.
+
+**2.0.0** — the current version. The first breaking change: `warnings` became a
+structured list of objects (`code`, `severity`, `stage`, …) instead of strings;
+`ambiguity` and `blocker` folded into `needs_human`; `status`, `summary`,
+`artifacts`, `side_effects` and `next` were added and `--detail` introduced;
+several `result` fields were trimmed or restructured per tool, and the
+duplicated diagnosis fields removed. These came from the
+`05_envelope_decidable` and `06_trim_and_chain_results` specs, and they are
+the worked example of the rule: each removes or retypes something a caller
+parsed under 1.0.0, so together they bump the major version. Adding
+`schema_version` itself, and the `--schema` flag, are additive.
+
+**1.0.0** — the envelope as it stood before those two specs: `ok`, `input`, `model`,
+`usage` and `result`, a `warnings` array of strings, and `ambiguity` and
+`blocker` as separate top-level objects. It carried no
+`schema_version`; a caller that finds the field absent is reading a 1.0.0
+envelope.
 
 ---
 
@@ -366,7 +485,7 @@ for every type:
 
 | `type` | Fields | Emitted |
 |---|---|---|
-| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`) | once, after the input is classified and the model resolved |
+| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`), `schema_version` (as in the envelope) | once, after the input is classified and the model resolved |
 | `step` | `stage`, `message` | wherever the human progress prints a line; `stage` is the same vocabulary as the envelope's `stage` |
 | `phase_start` | `phase`, `task`, `max_turns`, `budget_usd` | when a model phase begins; `task` is present only for `impl`'s per-task `implement` phase; the ceilings are the ones the run actually resolved |
 | `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
@@ -412,7 +531,7 @@ baseline check failing, two analyse turns and a heartbeat during the wait
 before the next phase:
 
 ```
-{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"}}
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"},"schema_version":"2.0.0"}
 {"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"step","stage":"branch","message":"branched fix/rate-limit-retry from main"}
 {"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"check","command":"go test ./...","ok":false,"exit_code":1,"duration_ms":4210}
 {"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"phase_start","phase":"analyse","max_turns":40,"budget_usd":2}

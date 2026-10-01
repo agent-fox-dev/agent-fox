@@ -2675,19 +2675,39 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 
 	// The long phase crossed the shortened window: a heartbeat landed in the
 	// file, naming the stage, the time elapsed and the spend so far.
+	//
+	// A heartbeat carries the last stage a step or phase_start named before
+	// it (07-REQ-7.2). The window here is only 100ms, so on a loaded machine
+	// the preflight's git calls can cross it before any stage has been named;
+	// such a beat rightly carries an empty stage. What must hold is that each
+	// beat names exactly the stage the stream had reached, and that the long
+	// phase, which runs well after a stage is named, produced a beat naming it.
 	var beats []smokeEvent
+	var beatStages []string
+	var lastStage string
 	for _, e := range evs {
-		if e.Type == "heartbeat" {
+		switch e.Type {
+		case "step":
+			lastStage, _ = e.Raw["stage"].(string)
+		case "phase_start":
+			lastStage, _ = e.Raw["phase"].(string)
+		case "heartbeat":
 			beats = append(beats, e)
+			beatStages = append(beatStages, lastStage)
 		}
 	}
 	if len(beats) == 0 {
 		t.Fatalf("no heartbeat in the events file:\n%s", raw)
 	}
+	var namedBeat bool
 	prev := float64(-1)
-	for _, b := range beats {
-		if s, _ := b.Raw["stage"].(string); s == "" {
-			t.Errorf("heartbeat without a stage: %v", b.Raw)
+	for i, b := range beats {
+		s, _ := b.Raw["stage"].(string)
+		if s != beatStages[i] {
+			t.Errorf("heartbeat stage = %q, want %q, the last stage named before it: %v", s, beatStages[i], b.Raw)
+		}
+		if s != "" {
+			namedBeat = true
 		}
 		el, ok := b.Raw["elapsed_ms"].(float64)
 		if !ok || el <= prev {
@@ -2697,6 +2717,9 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 		if _, ok := b.Raw["cost_usd"].(float64); !ok {
 			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
 		}
+	}
+	if !namedBeat {
+		t.Errorf("no heartbeat named a stage; the long phase did not produce one:\n%s", raw)
 	}
 	// No heartbeat follows run_end, and the implement phase carried its task.
 	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {

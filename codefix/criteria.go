@@ -25,10 +25,10 @@ import (
 type Criterion struct {
 	// ID is the label the report used ("AC-1"), or one derived from the
 	// criterion's position when the report used none.
-	ID string `json:"id"`
+	ID string `json:"id" description:"The label the report used, or one derived from the position."`
 	// Text is the criterion itself, with its label and markdown emphasis
 	// stripped and its line breaks folded.
-	Text string `json:"text"`
+	Text string `json:"text" description:"The criterion itself, with its label and markdown emphasis stripped."`
 }
 
 // CriterionVerdict is the model's judgement on one criterion, with the
@@ -40,9 +40,9 @@ type Criterion struct {
 // per criterion, every verdict names a criterion that was actually asked for,
 // and none of them is a bare "yes".
 type CriterionVerdict struct {
-	ID       string `json:"id"`
-	Verdict  string `json:"verdict"`
-	Evidence string `json:"evidence"`
+	ID       string `json:"id" description:"The id of the criterion this verdict answers."`
+	Verdict  string `json:"verdict" description:"pass or fail."`
+	Evidence string `json:"evidence" description:"The evidence for the verdict."`
 }
 
 // The two verdicts a criterion can get. There is deliberately no third:
