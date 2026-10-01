@@ -192,8 +192,6 @@ Settled while drafting, recorded so the implementation does not reopen them:
 4. The session id replaces the pid in both file names.
 5. `--events` and `--events-file` are removed outright, with no deprecation
    period: a caller still passing either gets the usage error in §3.
-
-## Open questions
-
-1. **Existing files.** Reports already in `runs/` keep their pid-based names.
-   Nothing renames them.
+6. Reports already in `runs/` stay as they are, under their pid-based names.
+   Nothing renames, migrates or deletes them; clearing them out is up to the
+   user.
