@@ -54,7 +54,7 @@
         "internal/checks/checks.go",
         "internal/checks/trust_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -80,7 +80,7 @@
         "codeimpl/types.go",
         "codeimpl/trust_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -107,7 +107,7 @@
         "issuetriage/pipeline.go",
         "issuetriage/trust_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -137,7 +137,7 @@
         "specgen/trust_test.go",
         "internal/toolio/trust_property_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -163,7 +163,7 @@
         "internal/toolio/trust.go",
         "internal/toolio/trust_check_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -196,7 +196,7 @@
         "cmd/fix/testdata/schema.golden.json",
         "cmd/impl/testdata/schema.golden.json"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -230,7 +230,7 @@
         "internal/toolio/untrusted.go",
         "internal/toolio/untrusted_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -257,7 +257,7 @@
         "docs/cli.md",
         "docs_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -291,7 +291,7 @@
         "`make test` passes",
         "`make lint` passes"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

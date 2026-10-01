@@ -4,9 +4,9 @@ package codeimpl
 // impl's --detail summary view (06-REQ-3.3).
 type summaryTask struct {
 	ID      int    `json:"id"`
-	Outcome string `json:"outcome"`
-	Commit  string `json:"commit,omitempty"`
-	Verdict string `json:"verdict,omitempty"`
+	Outcome string `json:"outcome" trust:"fact"`
+	Commit  string `json:"commit,omitempty" trust:"fact"`
+	Verdict string `json:"verdict,omitempty" trust:"fact"`
 }
 
 // summaryResult is the trimmed view of Result kept under --detail summary
@@ -17,22 +17,22 @@ type summaryTask struct {
 // Result is still computed exactly as under --detail full, and is still
 // written in full to the report file (06-REQ-3.5).
 type summaryResult struct {
-	Stage          string        `json:"stage"`
-	SpecDir        string        `json:"spec_dir"`
-	SpecID         string        `json:"spec_id"`
-	SpecName       string        `json:"spec_name"`
-	Title          string        `json:"title"`
-	Status         string        `json:"status"`
-	Branch         string        `json:"branch,omitempty"`
+	Stage          string        `json:"stage" trust:"fact"`
+	SpecDir        string        `json:"spec_dir" trust:"fact"`
+	SpecID         string        `json:"spec_id" trust:"fact"`
+	SpecName       string        `json:"spec_name" trust:"fact"`
+	Title          string        `json:"title" trust:"fact"`
+	Status         string        `json:"status" trust:"fact"`
+	Branch         string        `json:"branch,omitempty" trust:"fact"`
 	TasksTotal     int           `json:"tasks_total"`
 	TasksDone      int           `json:"tasks_done"`
 	TasksSkipped   int           `json:"tasks_skipped"`
 	TasksRemaining int           `json:"tasks_remaining"`
 	Tasks          []summaryTask `json:"tasks"`
-	Verdict        string        `json:"verdict"`
-	PullRequestURL string        `json:"pull_request_url,omitempty"`
+	Verdict        string        `json:"verdict" trust:"fact"`
+	PullRequestURL string        `json:"pull_request_url,omitempty" trust:"fact"`
 	Verification   *GateResult   `json:"verification,omitempty"`
-	Detail         string        `json:"detail"`
+	Detail         string        `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable.

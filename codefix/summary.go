@@ -10,17 +10,17 @@ import "github.com/agent-fox-dev/agentfox/internal/checks"
 // is still computed exactly as under --detail full, and is still written in
 // full to the report file (06-REQ-3.5).
 type summaryResult struct {
-	Stage           string         `json:"stage"`
-	Branch          string         `json:"branch,omitempty"`
-	BaseBranch      string         `json:"base_branch,omitempty"`
-	Commit          string         `json:"commit,omitempty"`
-	ChangedFiles    []string       `json:"changed_files,omitempty"`
-	Verdict         string         `json:"verdict"`
-	CriteriaOutcome string         `json:"criteria_outcome,omitempty"`
-	PullRequestURL  string         `json:"pull_request_url,omitempty"`
+	Stage           string         `json:"stage" trust:"fact"`
+	Branch          string         `json:"branch,omitempty" trust:"fact"`
+	BaseBranch      string         `json:"base_branch,omitempty" trust:"fact"`
+	Commit          string         `json:"commit,omitempty" trust:"fact"`
+	ChangedFiles    []string       `json:"changed_files,omitempty" trust:"fact"`
+	Verdict         string         `json:"verdict" trust:"fact"`
+	CriteriaOutcome string         `json:"criteria_outcome,omitempty" trust:"fact"`
+	PullRequestURL  string         `json:"pull_request_url,omitempty" trust:"fact"`
 	DryRun          bool           `json:"dry_run"`
 	Verification    *checks.Result `json:"verification,omitempty"`
-	Detail          string         `json:"detail"`
+	Detail          string         `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable.

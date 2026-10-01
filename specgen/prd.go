@@ -47,9 +47,9 @@ type PRD struct {
 // human in the loop reads this array; a caller that does not still gets a
 // finished spec.
 type OpenQuestion struct {
-	Question string `json:"question" description:"What the PRD phase was unsure about."`
-	Decision string `json:"decision" description:"What it decided."`
-	Why      string `json:"why_unsure" description:"Why it was unsure."`
+	Question string `json:"question" trust:"model" description:"What the PRD phase was unsure about."`
+	Decision string `json:"decision" trust:"model" description:"What it decided."`
+	Why      string `json:"why_unsure" trust:"model" description:"Why it was unsure."`
 }
 
 // SplitScope is one spec's worth of the work, when the input held several.
