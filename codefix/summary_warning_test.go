@@ -18,7 +18,7 @@ func TestTS06_43_SummaryViewUnaffectedByPathWarning(t *testing.T) {
 		}
 		r := &Result{
 			Stage: "landed", Verdict: string(verdict),
-			Verification: checks.Result{Output: "tail output"},
+			Verification: checks.Result{Command: "make test", Output: "tail output"},
 		}
 		b, err := json.Marshal(r.SummaryView())
 		if err != nil {

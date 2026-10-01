@@ -561,7 +561,7 @@
           },
           "verdict": {
             "type": "string",
-            "description": "How the verification compares with the baseline.",
+            "description": "How the verification compares with the baseline. Empty when the run stopped before any comparison was made.",
             "x-trust": "fact"
           },
           "pull_request_url": {
@@ -771,7 +771,6 @@
           "pushed",
           "baseline",
           "verification",
-          "verdict",
           "detail"
         ]
       },
