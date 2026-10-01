@@ -234,12 +234,45 @@ type eventsSink struct {
 	tool    string
 	writers []io.Writer
 	now     func() time.Time
+
+	// lastEmit is when the last event of any type was written; the heartbeat
+	// window is measured from it. stage is the last stage a step or
+	// phase_start event named.
+	lastEmit time.Time
+	stage    string
+
+	// Heartbeat state. interval, idle and newTicker are injectable so a test
+	// advances a fake clock instead of sleeping.
+	interval  time.Duration
+	idle      time.Duration
+	newTicker func(d time.Duration) (<-chan time.Time, func())
+	cost      func() float64
+	started   time.Time
+	ticking   bool
+	stopped   bool
+	stopCh    chan struct{}
+}
+
+// The heartbeat defaults: the ticker checks every second whether the stream
+// has been silent for fifteen.
+const (
+	heartbeatInterval = time.Second
+	heartbeatIdle     = 15 * time.Second
+)
+
+func realTicker(d time.Duration) (<-chan time.Time, func()) {
+	t := time.NewTicker(d)
+	return t.C, t.Stop
 }
 
 // newEventsSink returns a sink for the named tool writing to each non-nil
 // writer. With no writer the sink is inactive.
 func newEventsSink(tool string, writers ...io.Writer) *eventsSink {
-	s := &eventsSink{tool: tool, now: time.Now}
+	s := &eventsSink{
+		tool: tool, now: time.Now,
+		interval: heartbeatInterval, idle: heartbeatIdle,
+		newTicker: realTicker,
+	}
 	for _, w := range writers {
 		if w != nil {
 			s.writers = append(s.writers, w)
@@ -255,13 +288,33 @@ func (s *eventsSink) Active() bool { return s != nil && len(s.writers) > 0 }
 // compact JSON and writes the line to every writer in a single Write call, so
 // a line is never split and a killed process keeps what was already written.
 // JSON escapes any newline inside a string, so the line never embeds one.
+//
+// Every event resets the heartbeat window from its own timestamp, and run_end
+// stops the heartbeat ticker, so no heartbeat can follow it.
 func (s *eventsSink) Emit(e event) {
 	if !s.Active() || e == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e.stamp(s.now().UTC().Format(time.RFC3339), s.tool)
+	s.emitLocked(e)
+	if _, end := e.(*RunEndEvent); end {
+		s.stopLocked()
+	}
+}
+
+// emitLocked writes one event and updates the heartbeat bookkeeping. The
+// caller holds s.mu.
+func (s *eventsSink) emitLocked(e event) {
+	now := s.now()
+	e.stamp(now.UTC().Format(time.RFC3339), s.tool)
+	switch ev := e.(type) {
+	case *StepEvent:
+		s.stage = ev.Stage
+	case *PhaseStartEvent:
+		s.stage = ev.Phase
+	}
+	s.lastEmit = now
 	line, err := json.Marshal(e)
 	if err != nil {
 		return
@@ -270,4 +323,105 @@ func (s *eventsSink) Emit(e event) {
 	for _, w := range s.writers {
 		_, _ = w.Write(line)
 	}
+}
+
+// StartHeartbeat runs the one ticker for the run's lifetime: every interval it
+// checks whether idle has passed since the last event, and if so emits a
+// heartbeat. cost reads the run's accumulated spend — Run.CostUSD, the same
+// total usage.phases[] sums — and is called without the sink's lock held. The
+// moment of the call is the start of the run and counts as the first event.
+// It does nothing on an inactive sink, and a second call while the ticker
+// runs is ignored.
+func (s *eventsSink) StartHeartbeat(cost func() float64) {
+	if !s.Active() {
+		return
+	}
+	s.mu.Lock()
+	if s.ticking || s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.ticking = true
+	s.cost = cost
+	s.started = s.now()
+	if s.lastEmit.IsZero() {
+		s.lastEmit = s.started
+	}
+	s.stopCh = make(chan struct{})
+	stop := s.stopCh
+	ticks, stopTicker := s.newTicker(s.interval)
+	s.mu.Unlock()
+
+	go func() {
+		defer stopTicker()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticks:
+				s.checkHeartbeat()
+			}
+		}
+	}()
+}
+
+// StopHeartbeat stops the ticker. It is safe to call more than once.
+func (s *eventsSink) StopHeartbeat() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopLocked()
+}
+
+func (s *eventsSink) stopLocked() {
+	if s.ticking {
+		s.ticking = false
+		close(s.stopCh)
+	}
+	s.stopped = true
+}
+
+// checkHeartbeat is one tick: emit a heartbeat when the stream has been
+// silent for the idle window.
+func (s *eventsSink) checkHeartbeat() {
+	s.mu.Lock()
+	costFn := s.cost
+	s.mu.Unlock()
+	var cost float64
+	if costFn != nil {
+		cost = costFn()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.ticking {
+		return
+	}
+	now := s.now()
+	if now.Sub(s.lastEmit) < s.idle {
+		return
+	}
+	s.emitLocked(newHeartbeatEvent(s.stage, now.Sub(s.started).Milliseconds(), cost))
+}
+
+// activeTickerCount is the number of heartbeat tickers running: one between
+// StartHeartbeat and run_end, none otherwise.
+func (s *eventsSink) activeTickerCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ticking {
+		return 1
+	}
+	return 0
+}
+
+// tickerInterval is how often the ticker checks for silence.
+func (s *eventsSink) tickerInterval() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.interval
 }

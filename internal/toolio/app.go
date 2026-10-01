@@ -222,6 +222,11 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 	defer closeSink()
+	// One heartbeat ticker for the run's lifetime, reading spend off the run's
+	// own running total. run_end stops it; the deferred stop covers a path
+	// that never reaches one.
+	sink.StartHeartbeat(run.CostUSD)
+	defer sink.StopHeartbeat()
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
