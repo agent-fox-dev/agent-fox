@@ -8,6 +8,9 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 )
 
-require golang.org/x/text v0.39.0 // indirect
+require (
+	github.com/agentfox/agentkit-go v0.0.0
+	golang.org/x/text v0.39.0 // indirect
+)
 
 replace github.com/agentfox/agentkit-go => ../agentkit-go
