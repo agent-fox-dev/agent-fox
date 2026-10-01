@@ -60,9 +60,6 @@ The fragment below is structurally correct for a recipe-manager system. Use your
 
 ```json
 {
-  "spec_id": "07",
-  "spec_name": "recipe_manager",
-  "schema_version": 2,
   "introduction": "The recipe catalog stores user-created recipes and their ingredients.",
   "glossary": {
     "recipe": "A named collection of ingredients and preparation steps in the catalog."

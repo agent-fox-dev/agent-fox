@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -53,6 +54,28 @@ type artifactSchemaEntry struct {
 // value cannot drift from the schema it names.
 const schemaProperty = "$schema"
 
+// programFields are the other top-level fields of an artifact that the
+// pipeline already knows: the format version and the spec's identity. Like
+// $schema they are written by the submit handler and are not required of the
+// model: one that has to restate a constant gets it wrong often enough (a
+// missing schema_version rejected the first submission in four of five scopes
+// of one run), and each miss costs a regeneration of the artifact.
+var programFields = []string{"spec_id", "spec_name", "schema_version"}
+
+// optionalProgramFields takes the program-supplied fields out of a converted
+// tool schema's required list, at the top level only. They stay declared:
+// additionalProperties is false, so a model that still sends one out of habit
+// is not rejected for it, and the submit handler overwrites whatever it sent.
+func optionalProgramFields(s *schema.Schema) {
+	required := s.Required[:0]
+	for _, name := range s.Required {
+		if !slices.Contains(programFields, name) {
+			required = append(required, name)
+		}
+	}
+	s.Required = required
+}
+
 // ArtifactSchema returns the tool schema for one generation step, converted
 // from the JSON Schema afspec embeds.
 //
@@ -99,6 +122,7 @@ func ArtifactSchema(step afspec.GenerationStep) (*schema.Schema, error) {
 				"artifact cannot be filled in", step, schemaProperty)
 			return
 		}
+		optionalProgramFields(s)
 		entry.schema, entry.uri = s, uri
 	})
 	return entry.schema, entry.err
@@ -187,6 +211,18 @@ func submitArtifactTool(step afspec.GenerationStep, s *schema.Schema,
 					content = map[string]any{}
 				}
 				content[schemaProperty] = uri
+			}
+			// So are the format version and the spec's identity: the pipeline
+			// knows all three, and the model's copy could only differ.
+			if content == nil {
+				content = map[string]any{}
+			}
+			content["schema_version"] = afspec.SchemaVersion
+			if partial.SpecID != "" {
+				content["spec_id"] = partial.SpecID
+			}
+			if partial.SpecName != "" {
+				content["spec_name"] = partial.SpecName
 			}
 			if err := validateArtifactContent(content, step, partial); err != nil {
 				return core.ErrResult("validation_failed", err.Error())

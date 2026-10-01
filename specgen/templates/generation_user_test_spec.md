@@ -30,9 +30,6 @@ The complete requirements artifact is above. Use its real IDs. Do not invent one
 
 ```json
 {
-  "spec_id": "07",
-  "spec_name": "recipe_manager",
-  "schema_version": 2,
   "tests": [
     {
       "id": "TS-07-1",

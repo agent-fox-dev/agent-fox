@@ -24,17 +24,16 @@ N and C are sequential positive integers starting at 1. C restarts within each r
 
 ## Required top-level structures
 
-The `$schema` field of each file is written by the tool, from the schema the
-artifact is validated against. It is not part of what you submit, and the
-shapes below leave it out for that reason.
+The `$schema`, `spec_id`, `spec_name` and `schema_version` fields of each file
+are written by the tool: the first from the schema the artifact is validated
+against, the rest from the PRD. They are not part of what you submit, and the
+shapes below leave them out for that reason. Use the `spec_id` only as the
+prefix of the ids you write.
 
 ### requirements.json
 
 ```json
 {
-  "spec_id": "05",
-  "spec_name": "my_feature",
-  "schema_version": 2,
   "introduction": "One or two sentences describing the system being specified.",
   "glossary": {},
   "requirements": [],
@@ -48,9 +47,6 @@ shapes below leave it out for that reason.
 
 ```json
 {
-  "spec_id": "05",
-  "spec_name": "my_feature",
-  "schema_version": 2,
   "tests": []
 }
 ```
@@ -61,9 +57,6 @@ One flat list. The `kind` field carries the distinction between `unit`, `integra
 
 ```json
 {
-  "spec_id": "05",
-  "spec_name": "my_feature",
-  "schema_version": 2,
   "test_commands": { "all_tests": "…", "linter": "…", "spec_tests": "…" },
   "dependencies": [],
   "tasks": []
