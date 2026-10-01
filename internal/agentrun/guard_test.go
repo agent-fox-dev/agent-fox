@@ -141,7 +141,7 @@ func TestGuardCountsBlocks(t *testing.T) {
 	g := Guard(GuardOptions{
 		Programs:       []string{"git"},
 		AllowOperators: true,
-		OnBlock:        func(s string) { blocked = append(blocked, s) },
+		OnBlock:        func(name, reason string) { blocked = append(blocked, name+": "+reason) },
 	})
 	g(context.Background(), execCall("git push"))
 	if len(blocked) != 1 {
