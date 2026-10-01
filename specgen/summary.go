@@ -1,5 +1,7 @@
 package specgen
 
+import "github.com/agent-fox-dev/agentfox/internal/toolio"
+
 // summaryValidation is ValidationReport reduced to what a caller acts on
 // next: whether the package validates and what to fix if not. Dropped:
 // warning_count and warnings (06-REQ-3.4).
@@ -33,7 +35,13 @@ type summaryResult struct {
 	Traceability  summaryTrace      `json:"traceability"`
 	OpenQuestions []OpenQuestion    `json:"open_questions,omitempty"`
 	Split         []ScopeReport     `json:"split,omitempty"`
-	Detail        string            `json:"detail" trust:"fact"`
+	// Stage, Preflight and Estimate are the whole point of a --preflight
+	// run, so the default view keeps them. They are absent on every
+	// ordinary run.
+	Stage     string                  `json:"stage,omitempty" trust:"fact"`
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty"`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty"`
+	Detail    string                  `json:"detail" trust:"fact"`
 }
 
 // SummaryView implements toolio.Summarizable. It is defined on Result
@@ -58,6 +66,9 @@ func (r *Result) SummaryView() any {
 		},
 		OpenQuestions: r.OpenQuestions,
 		Split:         r.Split,
+		Stage:         r.Stage,
+		Preflight:     r.Preflight,
+		Estimate:      r.Estimate,
 		Detail:        "summary",
 	}
 }

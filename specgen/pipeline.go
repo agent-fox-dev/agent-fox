@@ -87,8 +87,16 @@ type Result struct {
 	// SplitPlan is the plan file left in the spec root while the split is
 	// unfinished. Running spec on the same input again resumes from it.
 	SplitPlan string `json:"split_plan,omitempty" trust:"fact" description:"The plan file left in the spec root while the split is unfinished."`
+	// Stage is "preflight" on a --preflight run, which stops before any
+	// model phase; it is absent on an ordinary run.
+	Stage string `json:"stage,omitempty" trust:"fact" description:"preflight on a --preflight run, which stops before any model phase; absent on an ordinary run."`
 	// DryRun records that nothing was written.
 	DryRun bool `json:"dry_run,omitempty" description:"True when nothing was written."`
+	// Preflight and Estimate are set only by a --preflight run whose checks
+	// all passed (RunPreflight): the checks that were performed, and what the
+	// real run would spend at most.
+	Preflight []toolio.PreflightCheck `json:"preflight,omitempty" description:"Every check a --preflight run performed and its outcome. Present only under --preflight, when every refusing check passed."`
+	Estimate  *toolio.Estimate        `json:"estimate,omitempty" description:"What the real run would spend at most: phases, per-phase ceilings and total. Present only under --preflight, when every refusing check passed."`
 
 	// inputRef is how a next[] entry names the input to re-run it: the
 	// literal file path or issue URL when the input had one, and the
@@ -99,6 +107,9 @@ type Result struct {
 
 // Summary returns one sentence describing the outcome in spec's vocabulary.
 func (r Result) Summary() string {
+	if r.Stage == "preflight" {
+		return fmt.Sprintf("spec: preflight passed (%d checks)", len(r.Preflight))
+	}
 	var parts []string
 
 	// Package(s) written / split progress
@@ -144,6 +155,9 @@ func (r Result) Summary() string {
 // Resumable implements toolio.Resumabler. For specgen, this is true whenever
 // SplitPlan is non-empty.
 func (r Result) Resumable() bool {
+	if r.Stage == "preflight" {
+		return false
+	}
 	return r.SplitPlan != ""
 }
 
@@ -318,6 +332,72 @@ func Preflight(ctx context.Context, o Options) (*Result, *Failure) {
 		}
 	}
 	return nil, nil
+}
+
+// RunPreflight is spec --preflight: every check Run performs before its first
+// model call, reported and then stopped at. It calls the one Preflight
+// function Run calls, and the one findSplitPlan Run calls, never a copy of
+// either, so a run that would refuse refuses here with the identical stage,
+// category and message. A refusal returns no result: a partial checklist of
+// what passed before it would be a second answer to "would this run start".
+//
+// Nothing is written: no package, no split plan, no comment, and no phase is
+// run. What the package would be called is the model's to choose, so nothing
+// about it is checked here.
+func RunPreflight(ctx context.Context, o Options) (*Result, error) {
+	if _, f := Preflight(ctx, o); f != nil {
+		return nil, f
+	}
+
+	result := &Result{Stage: "preflight", DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
+
+	var list []toolio.PreflightCheck
+	add := func(check string, ok bool, detail string) {
+		list = append(list, toolio.PreflightCheck{Check: check, OK: ok, Detail: detail})
+	}
+	// The conditions below are the ones Preflight refuses on, so reaching
+	// this line means each of them held.
+	if o.Name != "" {
+		add("name_flag", true, o.Name)
+	}
+	if o.Comment && !o.DryRun {
+		add("comment_target", true, o.Input.Issue.String())
+		add("comment_credential", true, "")
+	}
+	add("schemas_valid", true, "")
+
+	// A dry run resumes nothing, so it looks for no plan, exactly as Run.
+	packages := 1
+	if !o.DryRun {
+		plan, err := findSplitPlan(resolveSpecsDir(o, o.Workspace.Root), o.Input, o.Run)
+		if err != nil {
+			return nil, fail("preflight", "usage", err)
+		}
+		if plan != nil {
+			packages = plan.Pending()
+			add("split_plan", true, fmt.Sprintf("resuming a split: %d of %d scopes to write", plan.Pending(), len(plan.Scopes)))
+		} else {
+			add("split_plan", true, "no unfinished split for this input")
+		}
+	}
+	result.Preflight = list
+
+	// The phases the plan on disk already decides: one PRD phase and one per
+	// generation step for each package still to write. Whether a PRD not yet
+	// written calls for a split is the model's decision, so a fresh input is
+	// the one-package figure, a lower bound.
+	phases := 1 + len(afspec.GenerationSteps)
+	if o.Architecture {
+		phases++
+	}
+	phases *= packages
+	est := &toolio.Estimate{Phases: phases}
+	if o.Runner != nil {
+		est.MaxTurnsPerPhase, est.MaxBudgetPerPhaseUSD = o.Runner.ResolvedBounds()
+	}
+	est.MaxTotalUSD = float64(phases) * est.MaxBudgetPerPhaseUSD
+	result.Estimate = est
+	return result, nil
 }
 
 // GeneratePRD runs spec generation and returns the primary package and its directory.
