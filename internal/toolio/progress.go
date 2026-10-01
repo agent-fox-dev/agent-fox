@@ -22,6 +22,9 @@ type Progress struct {
 	verbose bool
 	quiet   bool
 	spin    *spinner
+	// events is the JSONL sink, nil or inactive unless --events jsonl or
+	// --events-file asked for one.
+	events *eventsSink
 }
 
 // NewProgress returns a Progress writing to w, prefixing each line with the
@@ -31,6 +34,16 @@ func NewProgress(w io.Writer, tool string, verbose, quiet bool) *Progress {
 		w = os.Stderr
 	}
 	return &Progress{w: w, tool: tool, verbose: verbose, quiet: quiet}
+}
+
+// SetEvents attaches the JSONL sink Progress's methods emit through.
+func (p *Progress) SetEvents(s *eventsSink) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.events = s
+	p.mu.Unlock()
 }
 
 // Verbose reports whether detailed tracing was asked for.
