@@ -62,7 +62,7 @@ func runFix(t *testing.T, argv ...string) (int, map[string]any) {
 func stable(env map[string]any) []byte {
 	// artifacts[] names the same per-run report file, whose name carries the
 	// start time to the second.
-	for _, k := range []string{"duration_ms", "started_at", "report_file", "artifacts"} {
+	for _, k := range []string{"duration_ms", "started_at", "report_file", "session_id", "artifacts"} {
 		delete(env, k)
 	}
 	// timings[] carries wall-clock durations; its names and kinds stay.

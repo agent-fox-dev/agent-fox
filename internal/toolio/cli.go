@@ -154,7 +154,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.StringVar(&c.EventsFile, "events-file", "", "also write the JSONL event stream to this file (truncated), whatever --events says about stderr")
 	fs.StringVar(&c.Output, "output", "", "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory")
 	fs.BoolVar(&c.Preflight, "preflight", false, "run every check that would refuse the run, then stop; makes no change beyond a verification baseline")
-	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<pid>.json")
+	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<session_id>.json")
 }
 
 // ResolveOutput validates --output and returns the absolute path it names,

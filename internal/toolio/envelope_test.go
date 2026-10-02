@@ -422,7 +422,7 @@ func TestTS05_12_EnvelopeKeyOrder(t *testing.T) {
 	}
 
 	wantOrder := []string{
-		"tool", "version", "schema_version", "ok", "status", "exit_code", "summary",
+		"tool", "version", "schema_version", "session_id", "ok", "status", "exit_code", "summary",
 		"error", "needs_human", "warnings", "result", "input",
 		"usage", "model", "duration_ms", "started_at",
 	}

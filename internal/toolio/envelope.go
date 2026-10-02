@@ -1,6 +1,8 @@
 package toolio
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -337,6 +339,9 @@ type Envelope struct {
 	// SchemaVersion names the version of the envelope interface, separate
 	// from the build identity in Version.
 	SchemaVersion string `json:"schema_version" description:"The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."`
+	// SessionID is a per-run identifier of 32 lowercase hex characters
+	// (16 bytes from crypto/rand). It joins the events file to the report.
+	SessionID string `json:"session_id" description:"A per-run identifier of 32 lowercase hex characters (16 bytes from crypto/rand). It joins the events file to the report."`
 	// OK is the one field a caller has to read. It is true only when the
 	// tool did the whole job it was asked to do.
 	OK bool `json:"ok" description:"True only when the tool did the whole job it was asked to do."`
@@ -540,9 +545,10 @@ func BuildErrorInfo(category string, extra ...string) *ErrorInfo {
 // It is safe for concurrent use so that a phase streaming events on one
 // goroutine can record a warning while the pipeline runs on another.
 type Run struct {
-	tool    string
-	version string
-	started time.Time
+	tool      string
+	version   string
+	started   time.Time
+	sessionID string
 
 	mu       sync.Mutex
 	warnings []Warning
@@ -587,9 +593,27 @@ func (r *Run) eventSink() *eventsSink {
 	return r.events
 }
 
-// NewRun starts a run's bookkeeping.
+// NewRun starts a run's bookkeeping. It generates a session_id (16 bytes
+// from crypto/rand, hex-encoded to 32 lowercase characters) before any
+// other work.
 func NewRun(tool, version string) *Run {
-	return &Run{tool: tool, version: version, started: time.Now()}
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return &Run{
+		tool:      tool,
+		version:   version,
+		started:   time.Now(),
+		sessionID: hex.EncodeToString(b[:]),
+	}
+}
+
+// SessionID returns the run's unique session identifier: 32 lowercase hex
+// characters from 16 bytes of crypto/rand.
+func (r *Run) SessionID() string {
+	if r == nil {
+		return ""
+	}
+	return r.sessionID
 }
 
 // SetBounds records the resolved per-phase ceilings.
@@ -795,6 +819,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		Tool:          r.tool,
 		Version:       r.version,
 		SchemaVersion: SchemaVersion,
+		SessionID:     r.sessionID,
 		OK:            code == ExitOK,
 		Status:        StatusFor(code),
 		ExitCode:      code,

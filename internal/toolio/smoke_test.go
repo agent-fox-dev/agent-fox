@@ -1725,7 +1725,7 @@ func smokeNormalize(t *testing.T, raw []byte) string {
 		case map[string]any:
 			for k := range x {
 				switch k {
-				case "duration_ms", "started_at", "report_file":
+				case "duration_ms", "started_at", "report_file", "session_id":
 					delete(x, k)
 					continue
 				}

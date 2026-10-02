@@ -16,19 +16,33 @@ const reportTimestampLayout = "20060102T150405Z"
 
 // DefaultReportPath computes where a run's report file is written when
 // --report-file is not given:
-// $XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at, colon-free>-<pid>.json,
+// $XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at, colon-free>-<session_id>.json,
 // falling back to ~/.local/state/agent-fox/runs/... when $XDG_STATE_HOME is
 // unset. It returns an error when neither $XDG_STATE_HOME nor $HOME (nor its
 // platform equivalent) can be resolved, so a caller can record a warning
 // rather than write nowhere silently.
-func DefaultReportPath(tool string, startedAt time.Time, pid int) (string, error) {
+func DefaultReportPath(tool string, startedAt time.Time, sessionID string) (string, error) {
 	base, err := stateHome()
 	if err != nil {
 		return "", err
 	}
 	ts := startedAt.UTC().Format(reportTimestampLayout)
-	name := fmt.Sprintf("%s-%s-%d.json", tool, ts, pid)
+	name := fmt.Sprintf("%s-%s-%s.json", tool, ts, sessionID)
 	return filepath.Join(base, "agent-fox", "runs", name), nil
+}
+
+// DefaultEventsPath computes where a run's events file is written:
+// $XDG_STATE_HOME/agent-fox/events/<tool>-<started_at, colon-free>-<session_id>.jsonl,
+// falling back to ~/.local/state/agent-fox/events/... when $XDG_STATE_HOME is
+// unset. The stem is identical to DefaultReportPath's.
+func DefaultEventsPath(tool string, startedAt time.Time, sessionID string) (string, error) {
+	base, err := stateHome()
+	if err != nil {
+		return "", err
+	}
+	ts := startedAt.UTC().Format(reportTimestampLayout)
+	name := fmt.Sprintf("%s-%s-%s.jsonl", tool, ts, sessionID)
+	return filepath.Join(base, "agent-fox", "events", name), nil
 }
 
 // stateHome resolves the XDG state directory: $XDG_STATE_HOME if set, else

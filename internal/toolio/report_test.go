@@ -351,6 +351,7 @@ func TestTS06_13_ReportFileByteIdenticalToFullDetailStdout(t *testing.T) {
 		delete(m, "started_at")
 		delete(m, "duration_ms")
 		delete(m, "report_file")
+		delete(m, "session_id")
 		delete(m, "artifacts")
 		out, err := json.Marshal(m)
 		if err != nil {

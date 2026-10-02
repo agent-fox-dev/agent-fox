@@ -446,7 +446,7 @@ func reportPath(common *Common, tool string, run *Run) (string, error) {
 	if common != nil && common.ReportFile != "" {
 		return common.ReportFile, nil
 	}
-	return DefaultReportPath(tool, run.started, os.Getpid())
+	return DefaultReportPath(tool, run.started, run.SessionID())
 }
 
 // bounds are the per-phase ceilings this App runs with: the shared flags over

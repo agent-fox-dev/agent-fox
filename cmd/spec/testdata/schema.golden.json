@@ -117,7 +117,7 @@
       "report-file": {
         "type": "string",
         "default": "",
-        "description": "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/\u003ctool\u003e-\u003cstarted\u003e-\u003cpid\u003e.json"
+        "description": "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/\u003ctool\u003e-\u003cstarted\u003e-\u003csession_id\u003e.json"
       },
       "show-text": {
         "type": "boolean",
@@ -171,6 +171,10 @@
       "schema_version": {
         "type": "string",
         "description": "The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "A per-run identifier of 32 lowercase hex characters (16 bytes from crypto/rand). It joins the events file to the report."
       },
       "ok": {
         "type": "boolean",
@@ -1325,6 +1329,7 @@
       "tool",
       "version",
       "schema_version",
+      "session_id",
       "ok",
       "status",
       "exit_code",
