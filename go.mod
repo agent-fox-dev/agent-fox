@@ -9,6 +9,11 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
+	golang.org/x/oauth2 v0.37.0
+)
+
+require (
 	github.com/agentfox/agentkit-go v0.0.0
 	golang.org/x/text v0.39.0 // indirect
 )
