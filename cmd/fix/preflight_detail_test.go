@@ -85,7 +85,7 @@ func TestTS11_42_PreflightLeavesArtifactsAndSideEffectsEmpty(t *testing.T) {
 func TestTS11_43_PreflightEmitsOnlyStepEventsBetweenStartAndEnd(t *testing.T) {
 	fixPreflightEnv(t)
 	dir := preflightRepo(t)
-	code, stdout, stderr := runFixRaw(t, "--preflight", "--events", "jsonl", "--land", "none", "--verify", "true", "--dir", dir, "the counter double-counts")
+	code, stdout, stderr := runFixRaw(t, "--preflight", "--emit-events", "--land", "none", "--verify", "true", "--dir", dir, "the counter double-counts")
 	if code != toolio.ExitOK {
 		t.Fatalf("code = %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}

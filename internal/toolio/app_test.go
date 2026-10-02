@@ -854,43 +854,36 @@ func emitSteps(d Deps, n int) {
 	}
 }
 
-// TS-07-1 (unit): Common.Register adds --events (default text) and
-// --events-file next to the other shared flags.
-func TestTS07_1_RegisterAddsEventsFlags(t *testing.T) {
+// TS-07-1 (unit): Common.Register adds --emit-events (default false) next to
+// the other shared flags.
+func TestTS07_1_RegisterAddsEmitEventsFlag(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	var c Common
 	c.Register(fs)
-	ev := fs.Lookup("events")
-	if ev == nil || ev.DefValue != "text" {
-		t.Fatalf("--events = %+v, want default text", ev)
-	}
-	ef := fs.Lookup("events-file")
-	if ef == nil || ef.DefValue != "" {
-		t.Fatalf("--events-file = %+v, want default empty", ef)
+	ev := fs.Lookup("emit-events")
+	if ev == nil || ev.DefValue != "false" {
+		t.Fatalf("--emit-events = %+v, want default false", ev)
 	}
 	for _, name := range []string{"verbose", "quiet", "show-text", "report-file"} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("--%s missing from the shared flag set", name)
 		}
 	}
-	if c.Events != "text" {
-		t.Errorf("Common.Events = %q, want text", c.Events)
+	if c.EmitEvents {
+		t.Errorf("Common.EmitEvents = true, want false")
 	}
 }
 
-// TS-07-2 (unit): an invalid --events value is a usage error before anything
-// is fetched or resolved, and nothing is written as an event.
-func TestTS07_2_InvalidEventsIsUsageErrorBeforeAnything(t *testing.T) {
+// TS-07-2 (unit): passing the removed --events flag is a usage error with
+// the rename message.
+func TestTS07_2_RemovedEventsFlagIsUsageError(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	var execCalled bool
 	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
 		execCalled = true
 		return ExitOK, nil, nil
 	})
-	eventsPath := filepath.Join(t.TempDir(), "run.jsonl")
-	// --version would exit 0, so a usage envelope here shows the check came
-	// first.
-	code, stdout, stderr := eventsRun(t, app, []string{"--events", "yaml", "--events-file", eventsPath, "--version"})
+	code, stdout, stderr := eventsRun(t, app, []string{"--events", "yaml", "--version"})
 	if code != ExitUsage {
 		t.Fatalf("code = %d, want %d", code, ExitUsage)
 	}
@@ -901,155 +894,100 @@ func TestTS07_2_InvalidEventsIsUsageErrorBeforeAnything(t *testing.T) {
 	if env.Error == nil || env.Error.Stage != "usage" {
 		t.Errorf("error = %+v, want stage usage", env.Error)
 	}
+	if !strings.Contains(env.Error.Message, "--events was renamed --emit-events") {
+		t.Errorf("message = %q, want rename message", env.Error.Message)
+	}
 	if execCalled {
-		t.Error("Exec ran with an invalid --events")
+		t.Error("Exec ran with a removed --events flag")
 	}
 	if strings.Contains(stderr, `"type":`) {
 		t.Errorf("stderr carries an event: %s", stderr)
 	}
-	if _, err := os.Stat(eventsPath); err == nil {
-		t.Error("the events file was opened despite the usage error")
-	}
-
-	// A bare invocation with a bad --events is still the events error.
-	code, stdout, _ = eventsRun(t, app, []string{"--events", "yaml"})
-	if code != ExitUsage || strings.Contains(stdout, NoInputMessage) {
-		t.Errorf("bare invocation: code %d, stdout %s; want the --events error", code, stdout)
-	}
 }
 
-// TS-07-3 (integration): --events-file is opened once, truncated, and each
-// line is visible before the run exits.
-func TestTS07_3_EventsFileTruncatedAndFlushedPerLine(t *testing.T) {
+// TS-07-4 (integration): without --emit-events stderr stays free of JSON.
+func TestTS07_4_DefaultModeKeepsStderrHuman(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
-	if err := os.WriteFile(path, []byte("stale content that is long enough to survive a short write"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var midRun []string
-	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
-		emitSteps(d, 3)
-		// Read while the run is still going: every line must already be there.
-		midRun = stepLines(t, fileLines(t, path))
-		return ExitOK, nil, nil
-	})
-	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events-file", path, "x"})
-	if code != ExitOK {
-		t.Fatalf("code = %d\n%s", code, stderr)
-	}
-	if len(midRun) != 3 {
-		t.Fatalf("lines visible mid-run = %d, want 3: %v", len(midRun), midRun)
-	}
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), "stale") {
-		t.Errorf("stale content survived: %s", raw)
-	}
-}
-
-// TS-07-4 (integration): under --events text the file carries the JSONL stream
-// and stderr stays free of JSON.
-func TestTS07_4_EventsFileWithTextKeepsStderrHuman(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
 	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 		emitSteps(d, 2)
 		return ExitOK, nil, nil
 	})
-	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events", "text", "--events-file", path, "x"})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "x"})
 	if code != ExitOK {
 		t.Fatalf("code = %d\n%s", code, stderr)
 	}
 	if strings.Contains(stderr, `{"ts"`) {
-		t.Errorf("stderr carries JSON under --events text: %s", stderr)
-	}
-	lines := stepLines(t, fileLines(t, path))
-	if len(lines) != 2 {
-		t.Fatalf("events file has %d step lines, want the 2 emitted events", len(lines))
-	}
-	for _, l := range lines {
-		var ev map[string]any
-		if err := json.Unmarshal([]byte(l), &ev); err != nil || ev["type"] != "step" || ev["tool"] != "tool" {
-			t.Errorf("bad event line %q (%v)", l, err)
-		}
+		t.Errorf("stderr carries JSON without --emit-events: %s", stderr)
 	}
 }
 
-// --events jsonl puts the stream on stderr as well as in the file.
-func TestEventsJSONLWritesStderrAndFile(t *testing.T) {
+// --emit-events puts the stream on stderr.
+func TestEmitEventsPutsStreamOnStderr(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
 	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 		emitSteps(d, 2)
 		return ExitOK, nil, nil
 	})
-	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--events", "jsonl", "--events-file", path, "x"})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--emit-events", "x"})
 	if code != ExitOK {
 		t.Fatalf("code = %d", code)
 	}
-	file, _ := os.ReadFile(path)
-	if len(file) == 0 || !strings.Contains(stderr, string(file)) {
-		t.Errorf("stderr does not carry the file's stream.\nstderr: %s\nfile: %s", stderr, file)
+	if !strings.Contains(stderr, `"type":"step"`) {
+		t.Errorf("stderr does not carry events under --emit-events: %s", stderr)
 	}
 }
 
-// An events file that cannot be opened is a usage error, not a silent loss.
-func TestEventsFileThatCannotBeOpenedIsAUsageError(t *testing.T) {
+// The removed --events-file flag is a usage error with the removal message.
+func TestEventsFileFlagIsRemovedUsageError(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	app, _ := newApp(t, nil)
 	env, code, _ := runApp(t, app, []string{"--events-file", filepath.Join(t.TempDir(), "no", "such", "dir.jsonl"), "x"}, "")
 	if code != ExitUsage || env.Error == nil || env.Error.Stage != "usage" {
 		t.Errorf("code %d error %+v, want a usage error", code, env.Error)
 	}
+	if !strings.Contains(env.Error.Message, "was removed") {
+		t.Errorf("message = %q, want removal message", env.Error.Message)
+	}
 }
 
-// TS-07-5 (unit): --quiet silences stderr under both --events values and
-// leaves the events file whole.
-func TestTS07_5_QuietSuppressesStderrNotTheFile(t *testing.T) {
+// TS-07-5 (unit): --quiet silences stderr under --emit-events.
+func TestTS07_5_QuietSuppressesStderr(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	for _, mode := range []string{"jsonl", "text"} {
-		path := filepath.Join(t.TempDir(), "run.jsonl")
-		app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
-			d.Progress.Step("preflight", "hello")
-			emitSteps(d, 2)
-			return ExitOK, nil, nil
-		})
-		code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--quiet", "--events", mode, "--events-file", path, "x"})
-		if code != ExitOK {
-			t.Fatalf("%s: code = %d", mode, code)
-		}
-		if stderr != "" {
-			t.Errorf("--events %s --quiet: stderr = %q, want empty", mode, stderr)
-		}
-		if n := len(stepLines(t, fileLines(t, path))); n != 3 {
-			t.Errorf("--events %s --quiet: events file has %d step lines, want the full stream (3)", mode, n)
-		}
+	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+		d.Progress.Step("preflight", "hello")
+		emitSteps(d, 2)
+		return ExitOK, nil, nil
+	})
+	code, _, stderr := eventsRun(t, app, []string{"--dir", t.TempDir(), "--quiet", "--emit-events", "x"})
+	if code != ExitOK {
+		t.Fatalf("code = %d", code)
+	}
+	if stderr != "" {
+		t.Errorf("--emit-events --quiet: stderr = %q, want empty", stderr)
 	}
 }
 
 // TS-07-6 (integration): a run whose context is cancelled mid-stream leaves
-// the events file as exactly the lines emitted before, none partial.
+// the events on stderr as exactly the lines emitted before, none partial.
 func TestTS07_6_CancelledRunLeavesAValidPrefix(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	const n = 5
-	var seen []string
 	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 		emitSteps(d, n)
 		cancel()
-		seen = stepLines(t, fileLines(t, path))
 		return ExitFailed, nil, &ErrorInfo{Stage: "analyse", Category: "internal", Message: "cancelled"}
 	})
 	var stdout, stderr bytes.Buffer
-	app.Main(ctx, []string{"--dir", t.TempDir(), "--events-file", path, "x"}, strings.NewReader(""), &stdout, &stderr)
+	app.Main(ctx, []string{"--dir", t.TempDir(), "--emit-events", "x"}, strings.NewReader(""), &stdout, &stderr)
+	seen := stepLines(t, parseEventLinesAsStrings(t, stderr.String()))
 	if len(seen) != n {
-		t.Fatalf("lines at cancellation = %d, want %d", len(seen), n)
+		t.Fatalf("step lines on stderr = %d, want %d", len(seen), n)
 	}
 	for i, l := range seen {
 		var ev StepEvent
@@ -1057,6 +995,22 @@ func TestTS07_6_CancelledRunLeavesAValidPrefix(t *testing.T) {
 			t.Errorf("line %d = %q, want step %d", i, l, i)
 		}
 	}
+}
+
+// parseEventLinesAsStrings returns every JSON line in s as a string slice.
+func parseEventLinesAsStrings(t *testing.T, s string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(l, "{") {
+			continue
+		}
+		if !json.Valid([]byte(l)) {
+			t.Fatalf("line is not valid JSON: %q", l)
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // ---- 07 progress_event_stream: run_start / run_end (task 3) ----
@@ -1078,15 +1032,13 @@ func parseEventLines(t *testing.T, s string) []map[string]any {
 	return out
 }
 
-// runCapturingEvents runs app under --events jsonl with an events file and
-// returns the events read from stderr, the envelope and the exit code. It
-// requires the file to carry the same stream as stderr.
+// runCapturingEvents runs app under --emit-events and returns the events
+// read from stderr, the envelope and the exit code.
 func runCapturingEvents(t *testing.T, app *App, extra ...string) ([]map[string]any, Envelope, int) {
 	t.Helper()
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
-	argv := append([]string{"--dir", t.TempDir(), "--events", "jsonl", "--events-file", path}, extra...)
+	argv := append([]string{"--dir", t.TempDir(), "--emit-events"}, extra...)
 	argv = append(argv, "x")
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
@@ -1095,10 +1047,6 @@ func runCapturingEvents(t *testing.T, app *App, extra ...string) ([]map[string]a
 		t.Fatalf("stdout is not one JSON object (%v):\n%s", err, stdout.String())
 	}
 	events := parseEventLines(t, stderr.String())
-	fromFile := parseEventLines(t, strings.Join(fileLines(t, path), "\n"))
-	if len(events) != len(fromFile) {
-		t.Fatalf("stderr carries %d events, the file %d", len(events), len(fromFile))
-	}
 	if len(events) == 0 {
 		t.Fatal("no events were written")
 	}
@@ -1205,7 +1153,7 @@ func TestTS07_13_RunEndIsWrittenBeforeStdout(t *testing.T) {
 		}
 		return len(p), nil
 	})
-	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--events", "jsonl", "x"}, strings.NewReader(""), stdout, &stderr)
+	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--emit-events", "x"}, strings.NewReader(""), stdout, &stderr)
 	events := parseEventLines(t, atFirstWrite)
 	if len(events) == 0 || events[len(events)-1]["type"] != "run_end" {
 		t.Errorf("events before the envelope = %v, want a stream ending in run_end", eventTypes(events))
@@ -1223,8 +1171,6 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 func TestTS07_14_NoRunStartOrRunEndOnHumanDrivenPaths(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	app, _ := newApp(t, nil)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "run.jsonl")
 	tty, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -1232,16 +1178,13 @@ func TestTS07_14_NoRunStartOrRunEndOnHumanDrivenPaths(t *testing.T) {
 	defer tty.Close()
 
 	for _, argv := range [][]string{
-		{"--events", "jsonl", "--events-file", path, "-h"},
-		{"--events", "jsonl", "--events-file", path},
+		{"--emit-events", "-h"},
+		{"--emit-events"},
 	} {
 		var stdout, stderr bytes.Buffer
 		app.Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
 		if n := len(parseEventLines(t, stderr.String())); n != 0 {
 			t.Errorf("%v: %d event lines on stderr, want 0", argv, n)
-		}
-		if _, err := os.Stat(path); err == nil {
-			t.Errorf("%v: the events file was created", argv)
 		}
 		if argv[len(argv)-1] == "-h" && stdout.Len() != 0 {
 			t.Errorf("-h wrote to stdout: %s", stdout.String())
@@ -1250,16 +1193,14 @@ func TestTS07_14_NoRunStartOrRunEndOnHumanDrivenPaths(t *testing.T) {
 
 	// A bare invocation on a terminal writes nothing to stdout either.
 	var stderr bytes.Buffer
-	code := app.Main(context.Background(), []string{"--events", "jsonl", "--events-file", path}, strings.NewReader(""), tty, &stderr)
+	code := app.Main(context.Background(), []string{"--emit-events"}, strings.NewReader(""), tty, &stderr)
 	if code != ExitUsage {
 		t.Errorf("bare invocation on a terminal: code %d, want %d", code, ExitUsage)
 	}
 	if n := len(parseEventLines(t, stderr.String())); n != 0 {
 		t.Errorf("bare invocation on a terminal: %d event lines, want 0", n)
 	}
-	if _, err := os.Stat(path); err == nil {
-		t.Error("bare invocation on a terminal created the events file")
-	}
+
 }
 
 // TS-07-15 (property): run_end.status is read off the exit code that decides

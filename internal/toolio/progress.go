@@ -24,15 +24,15 @@ type Progress struct {
 	verbose bool
 	quiet   bool
 	spin    *spinner
-	// events is the JSONL sink, nil or inactive unless --events jsonl or
-	// --events-file asked for one.
+	// events is the JSONL sink. It is active when --emit-events is set
+	// (and later, when the events file is always written).
 	events *eventsSink
 	// showText mirrors --show-text: Raw writes (or emits a text event) only
 	// when it is set.
 	showText bool
 	// phase is the model phase now running, named on a text event.
 	phase string
-	// eventsOnStderr is set under --events jsonl: the JSONL stream is what
+	// eventsOnStderr is set under --emit-events: the JSONL stream is what
 	// stderr carries, so no human line is written beside it (a caller that
 	// parses stderr line by line must never meet prose).
 	eventsOnStderr bool
@@ -57,9 +57,9 @@ func (p *Progress) SetEvents(s *eventsSink) {
 	p.mu.Unlock()
 }
 
-// SetEventsOnStderr records that stderr carries the JSONL stream (--events
-// jsonl), which replaces the human lines Step and Detail would write there.
-func (p *Progress) SetEventsOnStderr(on bool) {
+// SetEmitEvents records whether --emit-events was given. When true, stderr
+// carries the JSONL stream and no human line is written beside it.
+func (p *Progress) SetEmitEvents(on bool) {
 	if p == nil {
 		return
 	}
@@ -137,23 +137,19 @@ func (p *Progress) Detail(format string, args ...any) {
 
 // Raw writes text with no prefix and no trailing newline. It is how a
 // model's own prose is streamed under --show-text; without --show-text it
-// does nothing. Under an active JSONL sink the prose becomes a text event
-// instead of being written.
+// does nothing. It never emits an event — text events are emitted by the
+// Runner's per-turn accumulation (task 5). It writes prose to stderr only
+// when --show-text is set and neither --emit-events nor --quiet is.
 func (p *Progress) Raw(s string) {
 	if p == nil || s == "" {
 		return
 	}
 	p.mu.Lock()
-	show, phase := p.showText, p.phase
+	show := p.showText
+	emit := p.eventsOnStderr
+	q := p.quiet
 	p.mu.Unlock()
-	if !show {
-		return
-	}
-	if sk := p.sink(); sk != nil {
-		sk.Emit(newTextEvent(phase, s))
-		return
-	}
-	if p.quiet {
+	if !show || emit || q {
 		return
 	}
 	p.mu.Lock()
@@ -165,11 +161,11 @@ func (p *Progress) Raw(s string) {
 // Begin starts a step that will take a while, returning the function that
 // ends it. Under --verbose the step is a plain line and the detail lines
 // beneath it are the progress; otherwise a spinner runs so an operator can
-// tell a ten-minute model call from a hang. Under an active JSONL sink it
-// prints nothing and returns a no-op: the spans it wraps already have
+// tell a ten-minute model call from a hang. Under --emit-events or --quiet
+// it prints nothing and returns a no-op: the spans it wraps already have
 // phase_start/phase_end or check events.
 func (p *Progress) Begin(format string, args ...any) func(summary string) {
-	if p == nil || p.quiet || p.sink() != nil {
+	if p == nil || p.quiet || p.humanSuppressed() {
 		return func(string) {}
 	}
 	label := strings.TrimSpace(fmt.Sprintf(format, args...))

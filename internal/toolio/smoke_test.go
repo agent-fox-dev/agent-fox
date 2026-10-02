@@ -2414,7 +2414,7 @@ func (w smokeOrderedWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TS-07-44 (smoke): A supervisor watches a fix run live via --events jsonl and sees spend accumulate before it finishes
+// TS-07-44 (smoke): A supervisor watches a fix run live via --emit-events and sees spend accumulate before it finishes
 // Verifies: 07-PATH-1, 07-REQ-3.1, 07-REQ-4.7, 07-REQ-5.3
 // Real components: toolio.App, toolio.Progress JSONL sink, internal/agentrun.Runner, codefix pipeline, internal/checks.Run, issuex.GitHubClient
 func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
@@ -2441,7 +2441,7 @@ func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
 	stdout := smokeOrderedWriter{&mu, &log, "stdout"}
 	stderr := smokeOrderedWriter{&mu, &log, "stderr"}
 	code := app.Main(context.Background(),
-		[]string{"--dir", wsDir, "--events", "jsonl", "https://github.com/acme/widgets/issues/7"},
+		[]string{"--dir", wsDir, "--emit-events", "https://github.com/acme/widgets/issues/7"},
 		strings.NewReader(""), stdout, stderr)
 
 	var errText, outText strings.Builder
@@ -2464,7 +2464,7 @@ func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
 		t.Error("the issue was never fetched from the forge")
 	}
 
-	// Every stderr line is an event: --events jsonl replaces the human form.
+	// Every stderr line is an event: --emit-events replaces the human form.
 	evs := smokeParseEvents(t, "fix", errText.String())
 
 	rs, ps := smokeFirst(evs, "run_start"), smokeFirst(evs, "phase_start")
@@ -2624,10 +2624,9 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 		},
 	}
 
-	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(),
-		[]string{"--dir", wsDir, "--events", "text", "--events-file", eventsFile, specDir},
+		[]string{"--dir", wsDir, specDir},
 		strings.NewReader(""), &stdout, &stderr)
 	if code != toolio.ExitOK {
 		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
@@ -2640,108 +2639,22 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 			continue
 		}
 		if strings.HasPrefix(line, "{") {
-			t.Errorf("JSON on stderr under --events text: %s", line)
+			t.Errorf("JSON on stderr in default mode: %s", line)
 		}
-		if !strings.HasPrefix(line, "[impl] ") {
-			t.Errorf("stderr line is not a human [impl] line: %q", line)
-		}
-		human = append(human, strings.TrimPrefix(line, "[impl] "))
+		// Human lines are either [impl] prefixed (Step) or Begin's end
+		// callback (duration/summary lines), or indented Detail lines.
+		human = append(human, line)
 	}
 	if len(human) == 0 {
 		t.Fatal("no human progress on stderr")
 	}
-
-	raw, err := os.ReadFile(eventsFile)
-	if err != nil {
-		t.Fatalf("the events file was not written: %v", err)
-	}
-	evs := smokeParseEvents(t, "impl", string(raw))
-	if len(evs) == 0 || evs[len(evs)-1].Type != "run_end" {
-		t.Fatalf("run_end must be the file's last line:\n%s", raw)
-	}
-
-	// Each human step has its step event, in order, with the same message.
-	var steps []string
-	for _, e := range evs {
-		if e.Type == "step" {
-			steps = append(steps, e.Raw["message"].(string))
-			if s, _ := e.Raw["stage"].(string); s == "" {
-				t.Errorf("step event without a stage: %v", e.Raw)
-			}
-		}
-	}
-	if strings.Join(steps, "\n") != strings.Join(human, "\n") {
-		t.Errorf("step events do not mirror the human lines\nsteps:\n%s\nhuman:\n%s",
-			strings.Join(steps, "\n"), strings.Join(human, "\n"))
-	}
-
-	// The long phase crossed the shortened window: a heartbeat landed in the
-	// file, naming the stage, the time elapsed and the spend so far.
-	//
-	// A heartbeat carries the last stage a step or phase_start named before
-	// it (07-REQ-7.2). The window here is only 100ms, so on a loaded machine
-	// the preflight's git calls can cross it before any stage has been named;
-	// such a beat rightly carries an empty stage. What must hold is that each
-	// beat names exactly the stage the stream had reached, and that the long
-	// phase, which runs well after a stage is named, produced a beat naming it.
-	var beats []smokeEvent
-	var beatStages []string
-	var lastStage string
-	for _, e := range evs {
-		switch e.Type {
-		case "step":
-			lastStage, _ = e.Raw["stage"].(string)
-		case "phase_start":
-			lastStage, _ = e.Raw["phase"].(string)
-		case "heartbeat":
-			beats = append(beats, e)
-			beatStages = append(beatStages, lastStage)
-		}
-	}
-	if len(beats) == 0 {
-		t.Fatalf("no heartbeat in the events file:\n%s", raw)
-	}
-	var namedBeat bool
-	prev := float64(-1)
-	for i, b := range beats {
-		s, _ := b.Raw["stage"].(string)
-		if s != beatStages[i] {
-			t.Errorf("heartbeat stage = %q, want %q, the last stage named before it: %v", s, beatStages[i], b.Raw)
-		}
-		if s != "" {
-			namedBeat = true
-		}
-		el, ok := b.Raw["elapsed_ms"].(float64)
-		if !ok || el <= prev {
-			t.Errorf("heartbeat elapsed_ms = %v after %v, want increasing: %v", b.Raw["elapsed_ms"], prev, b.Raw)
-		}
-		prev = el
-		if _, ok := b.Raw["cost_usd"].(float64); !ok {
-			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
-		}
-	}
-	if !namedBeat {
-		t.Errorf("no heartbeat named a stage; the long phase did not produce one:\n%s", raw)
-	}
-	// No heartbeat follows run_end, and the implement phase carried its task.
-	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {
-		t.Error("a heartbeat followed run_end")
-	}
-	var sawTask bool
-	for _, e := range evs {
-		if e.Type == "phase_start" && e.Raw["phase"] == "implement" && e.Raw["task"] != nil {
-			sawTask = true
-		}
-	}
-	if !sawTask {
-		t.Errorf("no phase_start for implement carrying a task:\n%s", raw)
-	}
 }
 
-// TS-07-46 (smoke): An invalid --events value is refused before any work happens, with no events emitted
-// Verifies: 07-PATH-3, 07-REQ-1.2
-// Real components: toolio.App, toolio.Common flag validation
-func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
+// TS-07-46 (smoke): The removed --events flag is refused before any work
+// happens, with the rename message.
+// Verifies: 07-PATH-3, 12-REQ-5.5
+// Real components: toolio.App, toolio.unsupportedFlagMessage
+func TestTS0746_RemovedEventsFlagRefusedBeforeAnyWork_Smoke(t *testing.T) {
 	// No credentials at all: if model resolution or a fetch ran, it would
 	// fail differently (or the Exec below would be reached).
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -2756,17 +2669,16 @@ func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
 			return toolio.ExitOK, nil, nil
 		},
 	}
-	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(),
-		[]string{"--events", "yaml", "--events-file", eventsFile, "a report"},
+		[]string{"--events", "yaml", "a report"},
 		strings.NewReader(""), &stdout, &stderr)
 
 	if code != toolio.ExitUsage {
 		t.Errorf("code = %d, want %d", code, toolio.ExitUsage)
 	}
 	if execRan {
-		t.Error("the tool ran despite an invalid --events value")
+		t.Error("the tool ran despite a removed --events flag")
 	}
 	var env toolio.Envelope
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
@@ -2775,16 +2687,11 @@ func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
 	if env.Error == nil || env.Error.Stage != "usage" {
 		t.Errorf("envelope error = %+v, want stage usage", env.Error)
 	}
+	if !strings.Contains(env.Error.Message, "--events was renamed --emit-events") {
+		t.Errorf("message = %q, want rename message", env.Error.Message)
+	}
 	if env.Status != "usage" || env.OK {
 		t.Errorf("envelope status=%q ok=%v, want usage/false", env.Status, env.OK)
-	}
-	for _, line := range strings.Split(stderr.String(), "\n") {
-		if strings.HasPrefix(line, "{") || strings.Contains(line, `"type"`) {
-			t.Errorf("an event line reached stderr: %s", line)
-		}
-	}
-	if _, err := os.Stat(eventsFile); err == nil {
-		t.Error("--events-file was created even though the invocation was refused")
 	}
 	if env.Model != nil {
 		t.Errorf("a model was resolved (%+v) before the refusal", *env.Model)

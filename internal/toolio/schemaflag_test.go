@@ -255,24 +255,19 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// TS-09-4 (integration): --schema beside --report-file, --events and
-// --events-file creates no files and has no run. (The spec names --output;
-// the flag shipped as --report-file, and --events takes text or jsonl.)
-func TestTS09_4_SchemaWithReportAndEventsFlagsCreatesNothing(t *testing.T) {
+// TS-09-4 (integration): --schema beside --report-file and --emit-events
+// creates no files and has no run.
+func TestTS09_4_SchemaWithReportAndEmitEventsFlagsCreatesNothing(t *testing.T) {
 	bin := schemaBin(t, "fix")
 	tmp, state := t.TempDir(), t.TempDir()
 	r := runBin(t, bin, state, "--schema",
 		"--report-file", filepath.Join(tmp, "out.json"),
-		"--events", "jsonl",
-		"--events-file", filepath.Join(tmp, "ev.jsonl"),
-		"--events-file", filepath.Join(tmp, "ev2.jsonl"))
+		"--emit-events")
 	if r.code != 0 {
 		t.Fatalf("exit %d, stderr:\n%s", r.code, r.stderr)
 	}
-	for _, f := range []string{"out.json", "ev.jsonl", "ev2.jsonl"} {
-		if exists(filepath.Join(tmp, f)) {
-			t.Errorf("%s exists after --schema", f)
-		}
+	if exists(filepath.Join(tmp, "out.json")) {
+		t.Error("out.json exists after --schema")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(state, "agent-fox")); len(entries) != 0 {
 		t.Errorf("the default report directory was populated: %v", entries)

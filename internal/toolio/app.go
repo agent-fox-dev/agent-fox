@@ -206,14 +206,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: kerr.Error(), err: kerr,
 		})
 	}
-	if eerr := common.ValidEvents(); eerr != nil {
-		// Refused before --version, the bare-invocation check or anything
-		// fetched, and before any file or sink exists, so no event is emitted.
-		fmt.Fprintf(stderr, "%s: %v\n", a.Name, eerr)
-		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: eerr.Error(), err: eerr,
-		})
-	}
+
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
@@ -257,13 +250,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
-	sink, closeSink, serr := a.openEvents(&common, stderr)
-	if serr != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", a.Name, serr)
-		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: serr.Error(), err: serr,
-		})
-	}
+	sink, closeSink := a.openEvents(&common, stderr)
 	defer closeSink()
 	// One heartbeat ticker for the run's lifetime, reading spend off the run's
 	// own running total. run_end stops it; the deferred stop covers a path
@@ -273,7 +260,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
-	progress.SetEventsOnStderr(common.Events == EventsJSONL)
+	progress.SetEmitEvents(common.EmitEvents)
 	// The run and its progress share one sink, attached once, before execute.
 	run.AttachEvents(sink)
 	progress.SetShowText(common.ShowText)
@@ -287,27 +274,17 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	return a.emit(stdout, &common, run, code, result, failure)
 }
 
-// openEvents builds the JSONL sink for a run. The file, when --events-file
-// names one, is opened once and truncated, and always carries the stream; the
-// stderr writer is active only under --events jsonl and not --quiet. Each
-// event is one Write call, so a killed process leaves whole lines only. The
-// returned function closes the file. With neither destination the sink is
-// inactive.
-func (a App) openEvents(common *Common, stderr io.Writer) (*eventsSink, func(), error) {
+// openEvents builds the JSONL sink for a run. Under --emit-events and not
+// --quiet, stderr carries the JSON stream; otherwise the sink has no writer
+// and is inactive. The returned function is a no-op cleanup. The events file
+// is opened by a later task (task 4); for now the sink only writes to stderr
+// when --emit-events is set.
+func (a App) openEvents(common *Common, stderr io.Writer) (*eventsSink, func()) {
 	var writers []io.Writer
-	closeFn := func() {}
-	if common.EventsFile != "" {
-		f, err := os.OpenFile(common.EventsFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, closeFn, Usagef("--events-file %s: %v", common.EventsFile, err)
-		}
-		writers = append(writers, f)
-		closeFn = func() { _ = f.Close() }
-	}
-	if common.Events == EventsJSONL && !common.Quiet {
+	if common.EmitEvents && !common.Quiet {
 		writers = append(writers, stderr)
 	}
-	return newEventsSink(a.Name, writers...), closeFn, nil
+	return newEventsSink(a.Name, writers...), func() {}
 }
 
 // emit builds the envelope, writes the complete (full-view) envelope to the

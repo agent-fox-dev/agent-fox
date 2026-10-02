@@ -61,11 +61,11 @@ func TestTS07_18_StepHumanLineUnchanged(t *testing.T) {
 	}
 }
 
-// Under --events jsonl stderr carries the stream, so Step and Detail write no
+// Under --emit-events stderr carries the stream, so Step and Detail write no
 // human line beside it, while the step event is still emitted.
 func TestProgressEventsOnStderrSuppressesHumanLines(t *testing.T) {
 	p, human, events := sinkProgress(true, false, true)
-	p.SetEventsOnStderr(true)
+	p.SetEmitEvents(true)
 	p.Step("verify", "running tests")
 	p.Detail("tracing")
 	if human.Len() != 0 {
@@ -76,10 +76,11 @@ func TestProgressEventsOnStderrSuppressesHumanLines(t *testing.T) {
 	}
 }
 
-// TS-07-19 (unit): Begin prints nothing and returns a no-op end function while
-// a JSONL sink is active.
-func TestTS07_19_BeginSilentUnderSink(t *testing.T) {
+// TS-07-19 (unit): Begin prints nothing and returns a no-op end function
+// under --emit-events.
+func TestTS07_19_BeginSilentUnderEmitEvents(t *testing.T) {
 	p, human, events := sinkProgress(false, false, true)
+	p.SetEmitEvents(true)
 	end := p.Begin("checking")
 	if human.Len() != 0 {
 		t.Fatalf("Begin wrote %q", human.String())
@@ -90,9 +91,21 @@ func TestTS07_19_BeginSilentUnderSink(t *testing.T) {
 	}
 }
 
+// Begin prints when --emit-events is not set, even with an active sink.
+func TestTS07_19_BeginPrintsWithActiveSinkNoEmitEvents(t *testing.T) {
+	p, human, _ := sinkProgress(false, false, true)
+	p.SetEmitEvents(false)
+	end := p.Begin("checking")
+	end("ok")
+	if human.Len() == 0 {
+		t.Fatal("Begin should print with an active sink when --emit-events is not set")
+	}
+}
+
 // Begin is unchanged without a sink.
 func TestTS07_19_BeginUnchangedWithoutSink(t *testing.T) {
 	p, human, _ := sinkProgress(true, false, false)
+	p.SetEmitEvents(false)
 	end := p.Begin("checking")
 	end("ok")
 	if !strings.Contains(human.String(), "[t] checking") {
@@ -113,25 +126,41 @@ func TestTS07_20_DetailNeverEmits(t *testing.T) {
 	}
 }
 
-// TS-07-21 (unit): Raw emits a text event instead of prose under a sink with
-// --show-text.
-func TestTS07_21_RawEmitsTextEvent(t *testing.T) {
+// TS-07-21 (unit): Raw writes prose to stderr when --show-text is set and
+// --emit-events is not, and never emits an event.
+func TestTS07_21_RawWritesProseWithShowTextNoEmitEvents(t *testing.T) {
 	p, human, events := sinkProgress(false, true, true)
+	p.SetEmitEvents(false)
 	p.PhaseStart("implement", "", 10, 1)
 	p.Raw("model prose")
-	all := decodeLines(t, events.String())
-	ev := all[len(all)-1]
-	if ev["type"] != "text" || ev["delta"] != "model prose" || ev["phase"] != "implement" {
-		t.Fatalf("event = %v", ev)
+	if human.String() != "model prose" {
+		t.Fatalf("human = %q, want 'model prose'", human.String())
 	}
+	// Raw should never emit events.
+	for _, ev := range decodeLines(t, events.String()) {
+		if ev["type"] == "text" {
+			t.Fatalf("Raw emitted a text event: %v", ev)
+		}
+	}
+}
+
+// Raw does not write prose when --emit-events is set.
+func TestTS07_21_RawSilentUnderEmitEvents(t *testing.T) {
+	p, human, events := sinkProgress(false, true, true)
+	p.SetEmitEvents(true)
+	p.Raw("model prose")
 	if human.Len() != 0 {
-		t.Fatalf("prose written: %q", human.String())
+		t.Fatalf("prose written under --emit-events: %q", human.String())
+	}
+	if events.Len() != 0 {
+		t.Fatalf("event emitted under --emit-events: %q", events.String())
 	}
 }
 
 // Without a sink, --show-text still writes the prose, as before.
 func TestTS07_21_RawWritesProseWithoutSink(t *testing.T) {
 	p, human, _ := sinkProgress(false, true, false)
+	p.SetEmitEvents(false)
 	p.Raw("model prose")
 	if human.String() != "model prose" {
 		t.Fatalf("Raw wrote %q", human.String())
