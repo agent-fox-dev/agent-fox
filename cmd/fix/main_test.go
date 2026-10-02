@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
+	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -211,10 +212,11 @@ func TestMain(m *testing.M) {
 	}
 	testBinDir = dir
 
-	code := m.Run()
-
-	os.RemoveAll(dir)
-	os.Exit(code)
+	os.Exit(statetest.Run(statetest.RunnerFunc(func() int {
+		code := m.Run()
+		os.RemoveAll(dir)
+		return code
+	})))
 }
 
 func getTestBin(t *testing.T, cmdPkg string) string {

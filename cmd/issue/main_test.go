@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
+	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -20,7 +21,7 @@ func TestMain(m *testing.M) {
 		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"} {
 		_ = os.Unsetenv(v)
 	}
-	os.Exit(m.Run())
+	os.Exit(statetest.Run(m))
 }
 
 // TestSchemaGolden (TS-09-35, TS-09-38): issue --schema is byte-for-byte the

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -1356,5 +1357,5 @@ func TestMain(m *testing.M) {
 		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"} {
 		_ = os.Unsetenv(v)
 	}
-	os.Exit(m.Run())
+	os.Exit(statetest.Run(m))
 }

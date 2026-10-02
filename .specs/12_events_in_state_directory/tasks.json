@@ -73,7 +73,7 @@
         "cmd/issue/main_test.go",
         "cmd/spec/main_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
