@@ -243,6 +243,15 @@ func (p *Progress) Turn(phase string, turn int, costUSD float64, inputTokens, ou
 	}
 }
 
+// Text emits a text event carrying the accumulated prose of one model turn.
+// It is called by the Runner immediately before the turn event with the same
+// turn number.
+func (p *Progress) Text(phase string, turn int, text string) {
+	if s := p.sink(); s != nil {
+		s.Emit(newTextEvent(phase, turn, text))
+	}
+}
+
 // ToolCall emits a tool_call event, under --verbose only.
 func (p *Progress) ToolCall(phase, name string, blocked bool) {
 	if !p.Verbose() {

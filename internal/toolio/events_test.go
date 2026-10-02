@@ -23,7 +23,7 @@ var documentedFields = map[string][]string{
 	"warning":     {"code", "severity", "stage", "message"},
 	"heartbeat":   {"stage", "elapsed_ms", "cost_usd"},
 	"run_end":     {"status", "exit_code"},
-	"text":        {"phase", "delta"},
+	"text":        {"phase", "turn", "text"},
 }
 
 // everyEvent returns one event of every type, with the optional phase_start
@@ -40,7 +40,7 @@ func everyEvent() []event {
 		newWarningEvent(Warning{Code: WarnInputTruncated, Severity: "warning", Stage: "input", Message: "m"}),
 		newHeartbeatEvent("implement", 15000, 1.5),
 		newRunEndEvent("done", 0),
-		newTextEvent("implement", "hello"),
+		newTextEvent("implement", 1, "hello"),
 	}
 }
 
@@ -208,7 +208,7 @@ func TestTS07_11_EventIsOneLine(t *testing.T) {
 	var buf bytes.Buffer
 	s := newEventsSink("fix", &buf)
 	s.Emit(newStepEvent("verify", "line1\nline2\r\nline3"))
-	s.Emit(newTextEvent("implement", "a\nb\n"))
+	s.Emit(newTextEvent("implement", 1, "a\nb\n"))
 
 	raw := buf.String()
 	if strings.Count(raw, "\n") != 2 || !strings.HasSuffix(raw, "\n") {

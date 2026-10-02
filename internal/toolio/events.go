@@ -154,11 +154,12 @@ type RunEndEvent struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-// TextEvent carries a model's own prose under --show-text.
+// TextEvent carries the accumulated prose of one model turn.
 type TextEvent struct {
 	eventHeader
 	Phase string `json:"phase"`
-	Delta string `json:"delta"`
+	Turn  int    `json:"turn"`
+	Text  string `json:"text"`
 }
 
 // The constructors below set the type, so a call site cannot pair a struct
@@ -224,8 +225,8 @@ func newRunEndEvent(status string, exitCode int) *RunEndEvent {
 	return e
 }
 
-func newTextEvent(phase, delta string) *TextEvent {
-	e := &TextEvent{Phase: phase, Delta: delta}
+func newTextEvent(phase string, turn int, text string) *TextEvent {
+	e := &TextEvent{Phase: phase, Turn: turn, Text: text}
 	e.Type = EventText
 	return e
 }

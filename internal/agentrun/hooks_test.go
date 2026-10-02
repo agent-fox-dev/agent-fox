@@ -22,6 +22,7 @@ type recObserver struct {
 	ends      []endCall
 	turns     []turnCall
 	toolCalls []toolCall
+	texts     []textCall
 	details   []string
 }
 
@@ -48,6 +49,12 @@ type turnCall struct {
 type toolCall struct {
 	phase, name string
 	blocked     bool
+}
+
+type textCall struct {
+	phase string
+	turn  int
+	text  string
 }
 
 func (o *recObserver) Verbose() bool { return o.verbose }
@@ -86,6 +93,13 @@ func (o *recObserver) ToolCall(phase, name string, blocked bool) {
 	defer o.mu.Unlock()
 	o.log = append(o.log, "tool_call")
 	o.toolCalls = append(o.toolCalls, toolCall{phase, name, blocked})
+}
+
+func (o *recObserver) Text(phase string, turn int, text string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.log = append(o.log, "text")
+	o.texts = append(o.texts, textCall{phase, turn, text})
 }
 
 func submitPhase(name, task string, got *string, calls *int) Phase {
@@ -228,11 +242,12 @@ func TestTS07_29_TraceReportsToolCallWhenVerbose(t *testing.T) {
 	obs := &recObserver{verbose: true}
 	r := &Runner{cfg: Config{Observer: obs}}
 	var turn int
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
+	var tb textBuffer
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
 	if len(obs.toolCalls) != 0 {
 		t.Fatalf("a call was reported before its result: %+v", obs.toolCalls)
 	}
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, core.ToolResultEvent{Message: core.ToolResultMessage{ToolName: "write_file"}})
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, core.ToolResultEvent{Message: core.ToolResultMessage{ToolName: "write_file"}})
 	want := []toolCall{{"implement", "write_file", false}}
 	if !reflect.DeepEqual(obs.toolCalls, want) {
 		t.Fatalf("ToolCall calls = %+v, want %+v", obs.toolCalls, want)
@@ -245,11 +260,12 @@ func TestARefusedCallIsReportedOnce(t *testing.T) {
 	obs := &recObserver{verbose: true}
 	r := &Runner{cfg: Config{Observer: obs}}
 	var turn int
+	var tb textBuffer
 	blocks := &blockCounter{}
 	errs := &toolErrorCounter{}
 	blocks.inc("execute")
-	r.trace("p", &turn, errs, blocks, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("p", &turn, errs, blocks, core.ToolResultEvent{Message: core.ToolResultMessage{
+	r.trace("p", &turn, errs, blocks, &tb, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("p", &turn, errs, blocks, &tb, core.ToolResultEvent{Message: core.ToolResultMessage{
 		ToolName: "execute", IsError: true, Content: core.Content{core.TextBlock{Text: "guard refused"}}}})
 	if want := []toolCall{{"p", "execute", true}}; !reflect.DeepEqual(obs.toolCalls, want) {
 		t.Errorf("tool calls = %+v, want %+v", obs.toolCalls, want)
