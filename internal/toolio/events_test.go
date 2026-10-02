@@ -181,7 +181,7 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 }
 
 // TS-07-10: with no active destination nothing is emitted; and a default run
-// (--events text, no --events-file) writes no event JSON to stderr.
+// writes no event JSON to stderr.
 func TestTS07_10_InactiveSinkEmitsNothing(t *testing.T) {
 	var nilSink *eventsSink
 	nilSink.Emit(newStepEvent("a", "b")) // must not panic

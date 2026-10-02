@@ -77,7 +77,7 @@ func (p *Progress) humanSuppressed() bool {
 }
 
 // SetShowText records whether --show-text was given. Raw does nothing
-// without it, under every --events value.
+// without it.
 func (p *Progress) SetShowText(on bool) {
 	if p == nil {
 		return

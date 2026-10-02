@@ -251,21 +251,36 @@ loop's first step, and the intended ending is the handler accepting one.
 A phase that hits a ceiling is reported with `category: "max_turns"` or
 `"budget"`, and its stop reason appears in `usage.phases[]`.
 
-## Report files
+## State directory
 
-Every run writes the complete envelope — the `full` view of `result`,
-whatever `--detail` was given — to a report file, and names it in the
-envelope's `report_file` field. By default the file is
-`$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<pid>.json`, where
-`<started_at>` is the run's start in a colon-free form
-(`20260909T132030Z`). When `$XDG_STATE_HOME` is unset the directory is
-`~/.local/state/agent-fox/runs/`. The directory is created as needed.
+The state directory is `$XDG_STATE_HOME/agent-fox` when `XDG_STATE_HOME` is
+non-empty, else `~/.local/state/agent-fox` via `os.UserHomeDir`. It holds two
+subdirectories:
 
-`--report-file <path>` overrides the computed path. A run that cannot write
-the file (a permission error, a read-only filesystem) records a `low`
-`report_file_not_written` warning and omits `report_file`; it does not fail.
-`--dry-run` runs still write it, since it is local state. Nothing prunes the
-directory.
+- **`runs/`** — report files. Every run writes the complete envelope — the
+  `full` view of `result`, whatever `--detail` was given — to
+  `<tool>-<started_at>-<session_id>.json`, where `<started_at>` is the run's
+  start in a colon-free form (`20260909T132030Z`) and `<session_id>` is the
+  run's 32-character hex identifier. The directory is created with mode 0755
+  and the file with mode 0644. `--report-file <path>` overrides the computed
+  path. A run that cannot write the file records a `low`
+  `report_file_not_written` warning and omits `report_file`; it does not fail.
+
+- **`events/`** — event streams. Every run that reaches the event sink writes
+  its complete JSONL event stream to
+  `<tool>-<started_at>-<session_id>.jsonl`, with the same stem as the report
+  file. The directory is created with mode 0700 and the file with mode 0600.
+  Each event is one whole-line write, so a killed process leaves a valid
+  prefix. A run that cannot create the file records a `low`
+  `events_file_not_written` warning; it does not fail.
+
+The two files are joined by `session_id`: the envelope carries it as a
+top-level field, and every event carries it as the third key of its header.
+`jq` and `ls` are enough to pair an events file with its report.
+
+`--dry-run` runs still write both files, since they are local state. Nothing
+prunes either directory. Tests set `XDG_STATE_HOME` to a temporary directory
+so that a test run never writes to a developer's real state.
 
 ## No configuration file
 
@@ -286,7 +301,7 @@ directories up that changes what the same command does.
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `AF_LAND` | the default for `--land` (`fix` and `impl`): `pr`, `branch` or `none`; `AF_LAND=none` keeps every run on the machine. The flag wins; an invalid value is a usage error |
 | `AF_BRANCH_PREFIX` | the default for `fix --branch-prefix`, e.g. `feature`; the flag wins |
-| `XDG_STATE_HOME` | where report files go (`$XDG_STATE_HOME/agent-fox/runs`); `~/.local/state` when unset; `--report-file` wins |
+| `XDG_STATE_HOME` | where report and events files go (`$XDG_STATE_HOME/agent-fox/runs` and `events/`); `~/.local/state` when unset; `--report-file` overrides the report path only. Tests set it to a temporary directory |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
 | `GITLAB_TOKEN` | GitLab credential, on the same terms |

@@ -1,6 +1,6 @@
 {
   "tool": "spec",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "description": "Turns a product idea into a validated specification package written under the spec root.",
   "input": {
     "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue and its comments are the idea), a path to a readable file (its contents are the idea), any other text (the text is the idea), or - to read the idea from stdin.",

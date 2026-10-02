@@ -795,7 +795,7 @@ func TestTS06_2_UnrecognizedDetailIsUsageError(t *testing.T) {
 	}
 }
 
-// ---- 07 progress_event_stream: --events / --events-file (task 2) ----
+// ---- 07 progress_event_stream: --emit-events (task 2) ----
 
 // eventsRun runs app with argv and returns the exit code, stdout and stderr.
 func eventsRun(t *testing.T, app *App, argv []string) (int, string, string) {

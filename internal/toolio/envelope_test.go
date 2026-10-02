@@ -45,10 +45,10 @@ func TestTS09_29_EnvelopeSchemaVersionFieldShape(t *testing.T) {
 	}
 }
 
-// TS-09-31 (unit): toolio.SchemaVersion is the literal string 2.0.0.
+// TS-09-31 (unit): toolio.SchemaVersion is the literal string 3.0.0.
 func TestTS09_31_SchemaVersionConstant(t *testing.T) {
-	if toolio.SchemaVersion != "2.0.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 2.0.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "3.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 3.0.0", toolio.SchemaVersion)
 	}
 }
 

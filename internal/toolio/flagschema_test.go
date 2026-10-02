@@ -236,7 +236,7 @@ func TestTS09_20_DeclaredEnum(t *testing.T) {
 }
 
 // TS-09-20 (unit, shared flags): --detail, the closed-set flag Common
-// registers, declares its values. --events was removed.
+// registers, declares its values.
 func TestTS09_20_CommonEnums(t *testing.T) {
 	fs, _ := newCommonFlagSet()
 	_, doc := flagsDoc(t, fs)
@@ -253,7 +253,7 @@ func TestTS09_20_CommonEnums(t *testing.T) {
 			t.Errorf("%s must not carry an enum", name)
 		}
 	}
-	// --events and --events-file should not exist.
+	// The removed flags should not exist.
 	if _, ok := props["events"]; ok {
 		t.Error("properties has an events key (removed)")
 	}

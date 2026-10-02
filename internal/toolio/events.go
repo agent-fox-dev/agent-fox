@@ -260,8 +260,7 @@ func newTextEvent(phase string, turn int, text string) *TextEvent {
 }
 
 // eventsSink serializes events as JSONL onto zero or more writers. A nil sink,
-// or one with no writers, is inactive: every method is then a no-op, so with
-// neither --events jsonl nor --events-file given no event object is produced.
+// or one with no writers, is inactive: every method is then a no-op.
 type eventsSink struct {
 	mu        sync.Mutex
 	tool      string

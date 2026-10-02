@@ -1,6 +1,6 @@
 {
   "tool": "issue",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "description": "Triages a problem report read-only and files it as an issue on GitHub or GitLab.",
   "input": {
     "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue and its comments are the report), a path to a readable file (its contents are the report), any other text (the text is the report), or - to read the report from stdin.",

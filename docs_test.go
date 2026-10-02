@@ -246,15 +246,15 @@ func TestTS06_62_OutputExamples(t *testing.T) {
 	}
 }
 
-// TS-06-63 (unit): docs/configuration.md documents the report-file default
-// location, its fallback, and the --report-file override
+// TS-06-63 (unit): docs/configuration.md documents the state directory,
+// covering runs/ and events/, the new file names, and the --report-file override
 // Verifies: 06-REQ-10.6
 func TestTS06_63_ConfigurationReportFiles(t *testing.T) {
 	doc := readDoc(t, "configuration.md")
-	if !strings.Contains(doc, "## Report files") {
-		t.Errorf("docs/configuration.md has no Report files heading")
+	if !strings.Contains(doc, "## State directory") {
+		t.Errorf("docs/configuration.md has no State directory heading")
 	}
-	for _, want := range []string{"$XDG_STATE_HOME/agent-fox/runs", ".local/state", "--report-file"} {
+	for _, want := range []string{"$XDG_STATE_HOME/agent-fox", ".local/state", "--report-file"} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("docs/configuration.md does not mention %q", want)
 		}

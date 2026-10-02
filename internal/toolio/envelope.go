@@ -325,7 +325,7 @@ type Warning struct {
 // SchemaVersion is the version of the envelope interface shared by all four
 // tools: one shell, one envelope shape, one version. The compatibility rule
 // is in docs/cli.md (Interface versions) and ADR 06.
-const SchemaVersion = "2.0.0"
+const SchemaVersion = "3.0.0"
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //

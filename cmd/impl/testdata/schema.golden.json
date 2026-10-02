@@ -1,6 +1,6 @@
 {
   "tool": "impl",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "description": "Implements a specification package task by task on a branch, verifying each task with the spec's own checks, and lands the branch.",
   "input": {
     "description": "Exactly one of: a spec directory, a spec id, name or directory name, a path to a file in the package, or - to read the reference from stdin. Issue URLs are refused.",
