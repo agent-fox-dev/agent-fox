@@ -1295,7 +1295,8 @@ func TestMain(m *testing.M) {
 	// The tests above resolve a model, and a stray credential variable in the
 	// developer's shell would change which vendor they resolve against.
 	for _, v := range []string{"AF_MODEL", "AGENTKIT_MODEL", "AF_MODEL_VENDOR",
-		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"} {
+		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK",
+		"ANTHROPIC_VERTEX_PROJECT_ID", "ANTHROPIC_VERTEX_BASE_URL"} {
 		_ = os.Unsetenv(v)
 	}
 	os.Exit(statetest.Run(m))
