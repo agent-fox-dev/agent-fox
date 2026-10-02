@@ -10,9 +10,11 @@ and [05](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/05-add-
 ## Context
 
 A `spec` run under `--verbose` is mostly `list_files`, `find_files`,
-`search_files` and `read_file`. Each of its four or five phases is a fresh
-agent with the four read tools and nothing that knows the repository's
-shape, so each phase walks the tree again. Three proposals address it:
+`search_files` and `read_file`, and `issue`, `fix` and `impl` have the same
+shape. Every phase of every tool is a fresh agent with the four read tools
+(`agentrun.ReadOnlyFileTools`) and nothing that knows the repository's
+shape, so each phase walks the tree again. Five proposals address it, and
+all of them apply to all four tools except C, which is `spec`'s:
 
 | Item | What | PRD |
 |---|---|---|
@@ -55,7 +57,7 @@ agent-fox.** Concretely:
 | B, repository map | an exported ignore-aware walk and the `outline` package, which turns a file into its declarations (PRD 04 §3) | which phases get a map, its token budget, ranking and truncation, the prompt block |
 | C, relevant files | nothing | the `relevant_files` field of `submit_prd`, its validation, the prompt block in later phases |
 | D, symbol tools | `file_outline` and `find_symbol` in `tools`, standard library only, with universal-ctags as an optional accelerator (the `rg` pattern) | two names added to `ReadOnlyFileTools` |
-| E, indexed search | a **separate Go module**, `github.com/agentfox/agentkit-go/codesearch`, with its own `go.mod` as `difftest/` has. It plugs into `tools.Options` through an interface the root defines. | opts in by importing the module and adding `code_search` to read-only phases, only if A's numbers justify it (PRD 05 §2) |
+| E, indexed search | a **separate Go module**, `github.com/agentfox/agentkit-go/codesearch`, with its own `go.mod` as `difftest/` has. It plugs into `tools.Options` through an interface the root defines. | opts in by importing the module, building one index per run and adding `code_search` to every phase of every tool, only if A's numbers justify it (PRD 05 §2) |
 
 The import direction follows ADR 01 in AgentKit. `outline` sits below the
 root and imports only the standard library and `core`. `tools` imports
