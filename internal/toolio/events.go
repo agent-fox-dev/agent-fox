@@ -157,8 +157,9 @@ type HeartbeatEvent struct {
 // RunEndEvent is emitted once, immediately before the envelope is written.
 type RunEndEvent struct {
 	eventHeader
-	Status   string `json:"status"`
-	ExitCode int    `json:"exit_code"`
+	Status     string `json:"status"`
+	ExitCode   int    `json:"exit_code"`
+	ReportFile string `json:"report_file"`
 }
 
 // TextEvent carries the accumulated prose of one model turn.
@@ -246,8 +247,8 @@ func newHeartbeatEvent(stage string, elapsedMS int64, costUSD float64) *Heartbea
 	return e
 }
 
-func newRunEndEvent(status string, exitCode int) *RunEndEvent {
-	e := &RunEndEvent{Status: status, ExitCode: exitCode}
+func newRunEndEvent(status string, exitCode int, reportFile string) *RunEndEvent {
+	e := &RunEndEvent{Status: status, ExitCode: exitCode, ReportFile: reportFile}
 	e.Type = EventRunEnd
 	return e
 }

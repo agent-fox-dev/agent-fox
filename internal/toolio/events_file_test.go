@@ -506,7 +506,7 @@ func TestTS12_22_HeartbeatTicksWithEventsFile(t *testing.T) {
 	}
 
 	// Emit run_end to stop the heartbeat.
-	s.Emit(newRunEndEvent("done", 0))
+	s.Emit(newRunEndEvent("done", 0, ""))
 
 	// Advance more; no additional heartbeats.
 	clock.Advance(15 * time.Second)

@@ -66,12 +66,14 @@ func TestTS11_42_PreflightLeavesArtifactsAndSideEffectsEmpty(t *testing.T) {
 		if list, _ := env["side_effects"].([]any); len(list) != 0 {
 			t.Errorf("--detail %s: side_effects = %v, want empty", detail, list)
 		}
-		// The only artifact is the envelope's own report file, which the
-		// shell lists on every run; nothing the run itself made.
+		// The only artifacts are the envelope's own report file and the
+		// events file, which the shell lists on every run; nothing the
+		// run itself made.
 		arts, _ := env["artifacts"].([]any)
 		for _, a := range arts {
-			if kind := a.(map[string]any)["kind"]; kind != "report_file" {
-				t.Errorf("--detail %s: artifact %v, want only the report_file", detail, a)
+			kind := a.(map[string]any)["kind"]
+			if kind != "report_file" && kind != "events_file" {
+				t.Errorf("--detail %s: artifact %v, want only report_file or events_file", detail, a)
 			}
 		}
 	}

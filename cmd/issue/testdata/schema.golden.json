@@ -598,7 +598,8 @@
                 "comment",
                 "issue",
                 "spec_package",
-                "report_file"
+                "report_file",
+                "events_file"
               ],
               "description": "What kind of thing was produced. A closed set; it decides which of the other fields are present."
             },
@@ -628,7 +629,7 @@
             },
             "path": {
               "type": "string",
-              "description": "spec_package, report_file: the path."
+              "description": "spec_package, report_file, events_file: the path."
             },
             "id": {
               "type": "string",

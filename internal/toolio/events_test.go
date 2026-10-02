@@ -22,7 +22,7 @@ var documentedFields = map[string][]string{
 	"phase_end":   {"phase", "stop_reason", "turns", "cost_usd", "duration_ms"},
 	"warning":     {"code", "severity", "stage", "message"},
 	"heartbeat":   {"stage", "elapsed_ms", "cost_usd"},
-	"run_end":     {"status", "exit_code"},
+	"run_end":     {"status", "exit_code", "report_file"},
 	"text":        {"phase", "turn", "text"},
 }
 
@@ -40,7 +40,7 @@ func everyEvent() []event {
 		newPhaseEndEvent("implement", "end_turn", 4, 1.5, 9000),
 		newWarningEvent(Warning{Code: WarnInputTruncated, Severity: "warning", Stage: "input", Message: "m"}),
 		newHeartbeatEvent("implement", 15000, 1.5),
-		newRunEndEvent("done", 0),
+		newRunEndEvent("done", 0, ""),
 		newTextEvent("implement", 1, "hello"),
 	}
 }
@@ -239,7 +239,7 @@ func TestTS07_11_EventIsOneLine(t *testing.T) {
 func TestEventsSinkWritesEachLineOnceToEveryWriter(t *testing.T) {
 	var a, b bytes.Buffer
 	s := newEventsSink("impl", &a, &b)
-	s.Emit(newRunEndEvent("failed", 1))
+	s.Emit(newRunEndEvent("failed", 1, ""))
 	if a.String() != b.String() || a.Len() == 0 {
 		t.Errorf("writers differ: %q vs %q", a.String(), b.String())
 	}

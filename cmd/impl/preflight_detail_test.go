@@ -29,12 +29,13 @@ func TestTS11_41_DetailSummaryKeepsPreflightAndEstimate_Impl(t *testing.T) {
 	if list, _ := env["side_effects"].([]any); len(list) != 0 {
 		t.Errorf("side_effects = %v, want empty", list)
 	}
-	// Only the envelope's own report file: no branch (none was created),
-	// commit or pull request.
+	// Only the envelope's own report file and events file: no branch
+	// (none was created), commit or pull request.
 	arts, _ := env["artifacts"].([]any)
 	for _, a := range arts {
-		if kind := a.(map[string]any)["kind"]; kind != "report_file" {
-			t.Errorf("artifact %v, want only the report_file", a)
+		kind := a.(map[string]any)["kind"]
+		if kind != "report_file" && kind != "events_file" {
+			t.Errorf("artifact %v, want only report_file or events_file", a)
 		}
 	}
 	if v, ok := env["untrusted_fields"].([]any); ok && len(v) != 0 {

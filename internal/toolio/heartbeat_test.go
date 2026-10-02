@@ -260,7 +260,7 @@ func TestTS07_39_NoHeartbeatBetweenCloseEvents(t *testing.T) {
 func TestTS07_40_RunEndStopsTheHeartbeat(t *testing.T) {
 	s, clock, buf := heartbeatSink(t, func() float64 { return 0 })
 	s.Emit(newStepEvent("push", "x"))
-	s.Emit(newRunEndEvent("done", 0))
+	s.Emit(newRunEndEvent("done", 0, ""))
 	before := buf.String()
 
 	clock.Advance(15 * time.Second)

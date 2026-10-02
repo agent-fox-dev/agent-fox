@@ -408,12 +408,18 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		// inside — that is not circular, the same way ReportFile naming
 		// itself is not.
 		fileEnv.Artifacts = withReportFileArtifact(artifacts, path)
+		// Append events_file artifact when the events file was created.
+		if run.eventsPath != "" {
+			fileEnv.Artifacts = withEventsFileArtifact(fileEnv.Artifacts, run.eventsPath)
+		}
 		if werr := WriteReport(path, fileEnv); werr != nil {
 			run.Warn(WarnReportFileNotWritten, "low", "the report file could not be written to %s: %v", path, werr)
 		} else {
 			reportFile = path
 		}
 	}
+
+	eventsPath := run.eventsPath
 
 	buildEnv := func() Envelope {
 		env := run.Envelope(code, full, failure)
@@ -422,6 +428,9 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		env.Next = next
 		if reportFile != "" {
 			env.Artifacts = withReportFileArtifact(artifacts, reportFile)
+		}
+		if eventsPath != "" {
+			env.Artifacts = withEventsFileArtifact(env.Artifacts, eventsPath)
 		}
 		if env.Result != nil && wantsSummary(common.Detail) {
 			if s, ok := full.(Summarizable); ok {
@@ -456,7 +465,9 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 	// run_end goes out immediately before the envelope, from the same code
 	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
 	// inactive sink (the paths that return before one is built) is a no-op.
-	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
+	// report_file is computed from the same variable, so the two cannot
+	// disagree either.
+	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode, reportFile))
 	return EmitWithOutput(stdout, outPath, env)
 }
 
@@ -465,6 +476,13 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 func withReportFileArtifact(artifacts []Artifact, path string) []Artifact {
 	out := append([]Artifact(nil), artifacts...)
 	return append(out, Artifact{Kind: ArtifactReportFile, Path: path})
+}
+
+// withEventsFileArtifact appends an events_file entry naming path, without
+// mutating the slice artifacts was built from.
+func withEventsFileArtifact(artifacts []Artifact, path string) []Artifact {
+	out := append([]Artifact(nil), artifacts...)
+	return append(out, Artifact{Kind: ArtifactEventsFile, Path: path})
 }
 
 // wantsSummary reports whether detail selects the trimmed view: "summary",

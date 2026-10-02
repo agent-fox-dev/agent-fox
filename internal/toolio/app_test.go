@@ -1134,7 +1134,7 @@ func TestTS07_13_RunEndImmediatelyBeforeTheEnvelope(t *testing.T) {
 	if last["status"] != env.Status || last["status"] != "failed" {
 		t.Errorf("run_end.status = %v, envelope status %q", last["status"], env.Status)
 	}
-	if len(last) != 6 { // ts, tool, session_id, type, status, exit_code
+	if len(last) != 7 { // ts, tool, session_id, type, status, exit_code, report_file
 		t.Errorf("run_end carries unexpected fields: %v", last)
 	}
 }

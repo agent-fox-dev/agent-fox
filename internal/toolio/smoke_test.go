@@ -1735,8 +1735,10 @@ func smokeNormalize(t *testing.T, raw []byte) string {
 		case []any:
 			var out []any
 			for _, e := range x {
-				if m, ok := e.(map[string]any); ok && m["kind"] == "report_file" {
-					continue
+				if m, ok := e.(map[string]any); ok {
+					if m["kind"] == "report_file" || m["kind"] == "events_file" {
+						continue
+					}
 				}
 				out = append(out, scrub(e))
 			}

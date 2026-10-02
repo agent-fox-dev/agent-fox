@@ -160,6 +160,8 @@ func (a Artifact) MarshalJSON() ([]byte, error) {
 		m["valid"] = a.Valid
 	case ArtifactReportFile:
 		m["path"] = a.Path
+	case ArtifactEventsFile:
+		m["path"] = a.Path
 	}
 	if a.DryRun {
 		m["dry_run"] = true
@@ -178,7 +180,7 @@ func (Artifact) JSONSchema() SchemaObject {
 	}
 	kinds := []string{
 		string(ArtifactBranch), string(ArtifactCommit), string(ArtifactPullRequest), string(ArtifactComment),
-		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile),
+		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile), string(ArtifactEventsFile),
 	}
 	return SchemaObject{
 		{Key: "type", Value: "object"},
@@ -194,7 +196,7 @@ func (Artifact) JSONSchema() SchemaObject {
 			{Key: "branch", Value: prop("string", "commit: the branch the commit is on.")},
 			{Key: "url", Value: prop("string", "pull_request, issue, comment: the URL.")},
 			{Key: "number", Value: prop("integer", "pull_request, issue: the number.")},
-			{Key: "path", Value: prop("string", "spec_package, report_file: the path.")},
+			{Key: "path", Value: prop("string", "spec_package, report_file, events_file: the path.")},
 			{Key: "id", Value: prop("string", "spec_package: the spec identifier.")},
 			{Key: "valid", Value: prop("boolean", "spec_package: true when the package validates.")},
 			{Key: "dry_run", Value: prop("boolean", "True only for an entry that is hypothetical under --dry-run: it would have happened on a forge or a remote, but did not. Absent otherwise.")},
