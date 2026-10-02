@@ -442,7 +442,7 @@
       "done_when": [
         "`make test` and `make lint` pass and leave nothing under the real $HOME/.local/state/agent-fox"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }
