@@ -36,8 +36,7 @@ type tierEntry struct {
 	thinking core.ThinkingLevel
 }
 
-// tierTable maps a (vendor, tier, variant) to a catalog model spec and
-// thinking level.
+// tierTable maps a (vendor, tier) to a catalog model spec and thinking level.
 //
 // It is an ALIAS TABLE over the catalog, not a registry. The previous
 // implementation held its own map of four model ids with their own notion of
@@ -45,27 +44,21 @@ type tierEntry struct {
 // window, output cap, per-token cost, which thinking levels the wire accepts —
 // was either absent or a second copy that could disagree with the first. Here
 // a tier resolves to a spec string and catalog.ResolveModel supplies the rest.
-//
-// The empty variant is the tier default. A variant that does not exist for a
-// tier falls back to that default rather than failing: a variant is a
-// preference ("give me the long-context one"), and refusing to run because a
-// vendor has no long-context model in that tier would be a worse answer than
-// running in the tier that was asked for.
-var tierTable = map[string]map[ModelTier]map[string]tierEntry{
+var tierTable = map[string]map[ModelTier]tierEntry{
 	"anthropic": {
-		TierSimple:   {"": {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingMedium}},
-		TierStandard: {"": {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingHigh}},
-		TierAdvanced: {"": {spec: "anthropic/claude-opus-5-5", thinking: core.ThinkingXHigh}, "extended": {spec: "anthropic/claude-fable-5-1", thinking: core.ThinkingXHigh}},
+		TierSimple:   {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingMedium},
+		TierStandard: {spec: "anthropic/claude-sonnet-5-5", thinking: core.ThinkingHigh},
+		TierAdvanced: {spec: "anthropic/claude-opus-5-5", thinking: core.ThinkingXHigh},
 	},
 	"openai": {
-		TierSimple:   {"": {spec: "openai/gpt-5.6-luna"}},
-		TierStandard: {"": {spec: "openai/gpt-5.6-terra"}},
-		TierAdvanced: {"": {spec: "openai/gpt-6-astra"}},
+		TierSimple:   {spec: "openai/gpt-5.6-luna"},
+		TierStandard: {spec: "openai/gpt-5.6-terra"},
+		TierAdvanced: {spec: "openai/gpt-6-astra"},
 	},
 	"google": {
-		TierSimple:   {"": {spec: "google/gemini-3.5-flash-lite"}},
-		TierStandard: {"": {spec: "google/gemini-3.8-flash"}},
-		TierAdvanced: {"": {spec: "google/gemini-3.1-pro-preview"}},
+		TierSimple:   {spec: "google/gemini-3.5-flash-lite"},
+		TierStandard: {spec: "google/gemini-3.8-flash"},
+		TierAdvanced: {spec: "google/gemini-3.1-pro-preview"},
 	},
 }
 
@@ -97,7 +90,7 @@ func TierVendors() []string {
 // vendor absent from the tier table (ollama, an OpenAI-compatible gateway,
 // ...) must not block a model named by id, so vendor is only defaulted and
 // validated once name has already been recognized as a tier name.
-func ModelSpec(name, variant, vendor string) (string, core.ThinkingLevel, error) {
+func ModelSpec(name, vendor string) (string, core.ThinkingLevel, error) {
 	if name == "" {
 		return "", core.ThinkingUnset, fmt.Errorf("agentrun: model name must not be empty")
 	}
@@ -117,13 +110,7 @@ func ModelSpec(name, variant, vendor string) (string, core.ThinkingLevel, error)
 		return "", core.ThinkingUnset, fmt.Errorf("agentrun: unknown model vendor %q; known vendors: %s",
 			vendor, strings.Join(TierVendors(), ", "))
 	}
-	byVariant := byTier[tier]
-	if variant != "" {
-		if entry, ok := byVariant[variant]; ok {
-			return entry.spec, entry.thinking, nil
-		}
-	}
-	entry := byVariant[""]
+	entry := byTier[tier]
 	return entry.spec, entry.thinking, nil
 }
 
@@ -146,8 +133,8 @@ func isTierName(tier ModelTier) bool {
 // output cap, price and thinking-level map. Everything downstream — the budget
 // stop policy, the max_tokens clamp, the cost report — reads them from here
 // rather than from a constant in this package.
-func ResolveModel(name, variant, vendor string) (*core.Model, core.ThinkingLevel, error) {
-	spec, thinking, err := ModelSpec(name, variant, vendor)
+func ResolveModel(name, vendor string) (*core.Model, core.ThinkingLevel, error) {
+	spec, thinking, err := ModelSpec(name, vendor)
 	if err != nil {
 		return nil, core.ThinkingUnset, err
 	}

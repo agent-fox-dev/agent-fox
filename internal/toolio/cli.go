@@ -338,7 +338,7 @@ func (c *Common) ResolveModelNamed(spec string) (*ModelChoice, error) {
 	if err := agentrun.CheckUnsupportedPlatformVars(); err != nil {
 		return nil, err
 	}
-	m, thinking, err := agentrun.ResolveModel(spec, c.Variant, c.VendorName())
+	m, thinking, err := agentrun.ResolveModel(spec, c.VendorName())
 	if err != nil {
 		return nil, err
 	}
