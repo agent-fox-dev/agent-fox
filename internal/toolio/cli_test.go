@@ -17,6 +17,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/specgen"
+	"github.com/agentfox/agentkit-go/core"
 )
 
 type questionResult struct{}
@@ -662,6 +663,122 @@ func TestTS13_7_InvalidEnvEffortValueIsUsageError(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should contain accepted value %q", err.Error(), want)
 		}
+	}
+}
+
+// TS-13-3 (unit): Effort precedence: flag > env > tier > unset, as a table test
+func TestTS13_3_EffortPrecedence(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	cases := []struct {
+		name  string
+		flag  string
+		env   string
+		model string
+		want  core.ThinkingLevel
+	}{
+		{"flag wins over tier", "low", "", "STANDARD", core.ThinkingLow},
+		{"env wins over tier", "", "low", "STANDARD", core.ThinkingLow},
+		{"tier's own effort", "", "", "STANDARD", core.ThinkingHigh},
+		{"model id gets unset", "", "", "anthropic/claude-opus-5-5", core.ThinkingUnset},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AF_MODEL_EFFORT", tc.env)
+			c := &toolio.Common{Effort: tc.flag, Model: tc.model}
+			choice, err := c.ResolveModelNamed(tc.model)
+			if err != nil {
+				t.Fatalf("ResolveModelNamed(%q): %v", tc.model, err)
+			}
+			if choice.Thinking != tc.want {
+				t.Errorf("Thinking = %q, want %q", choice.Thinking, tc.want)
+			}
+		})
+	}
+}
+
+// TS-13-4 (unit): --effort applies to a model named by catalog id
+func TestTS13_4_EffortAppliesToCatalogID(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	c := &toolio.Common{Effort: "max", Model: "anthropic/claude-opus-5-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-5-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	if choice.Thinking == core.ThinkingUnset {
+		t.Error("expected Thinking to be set when --effort is given with a catalog id")
+	}
+	// claude-opus-5-5 supports max, so it should be max
+	if choice.Thinking != core.ThinkingMax {
+		t.Errorf("Thinking = %q, want %q", choice.Thinking, core.ThinkingMax)
+	}
+}
+
+// TS-13-8 (unit): ClampThinkingLevel is called for any set effort and the
+// clamped level is the effective one reported in model.thinking
+func TestTS13_8_ClampedLevelIsEffective(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// claude-opus-4-5 supports off through high but NOT xhigh or max.
+	// Requesting xhigh should clamp downward to high.
+	c := &toolio.Common{Effort: "xhigh", Model: "anthropic/claude-opus-4-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-4-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	if choice.Thinking != core.ThinkingHigh {
+		t.Errorf("Thinking = %q, want %q (clamped from xhigh)", choice.Thinking, core.ThinkingHigh)
+	}
+}
+
+// TS-13-9 (unit): When clamping changes the level, an effort_clamped warning
+// is recorded naming both levels and the model
+func TestTS13_9_EffortClampedWarningRecorded(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// claude-opus-4-5 supports off through high but NOT xhigh or max.
+	c := &toolio.Common{Effort: "xhigh", Model: "anthropic/claude-opus-4-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-4-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	var found bool
+	for _, w := range choice.Warnings {
+		if w.Code == toolio.WarnEffortClamped {
+			found = true
+			if !strings.Contains(w.Message, "xhigh") {
+				t.Errorf("warning message should name the requested level xhigh: %q", w.Message)
+			}
+			if !strings.Contains(w.Message, "high") {
+				t.Errorf("warning message should name the clamped level high: %q", w.Message)
+			}
+			if !strings.Contains(w.Message, "claude-opus-4-5") {
+				t.Errorf("warning message should name the model: %q", w.Message)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected an effort_clamped warning in ModelChoice.Warnings")
+	}
+}
+
+// TS-13-10 (unit): ClampThinkingLevel returning ok==false with explicit effort
+// fails before the first request
+func TestTS13_10_NoReachableLevelFailsWithExplicitEffort(t *testing.T) {
+	t.Setenv("GOOGLE_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// google/gemini-3.8-flash supports no thinking level (all null).
+	c := &toolio.Common{Effort: "high", Model: "google/gemini-3.8-flash"}
+	_, err := c.ResolveModelNamed("google/gemini-3.8-flash")
+	if err == nil {
+		t.Fatal("expected an error when no reachable level exists with explicit effort")
+	}
+	var ue *toolio.UsageError
+	if !errors.As(err, &ue) {
+		t.Errorf("expected a *UsageError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "gemini-3.8-flash") {
+		t.Errorf("error should name the model: %q", err.Error())
 	}
 }
 

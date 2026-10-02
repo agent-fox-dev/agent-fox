@@ -67,6 +67,11 @@ const (
 	// run still succeeds or fails on its own merits; only the events file
 	// is affected.
 	WarnEventsFileNotWritten WarnCode = "events_file_not_written"
+	// WarnEffortClamped is recorded (13-REQ-2.2) when the requested
+	// reasoning effort was clamped to a different level by
+	// catalog.ClampThinkingLevel. The warning message names both levels
+	// and the model.
+	WarnEffortClamped WarnCode = "effort_clamped"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -111,6 +116,7 @@ var warnStages = map[WarnCode]string{
 	WarnOutputNotWritten:        "emit",
 	WarnOutputMatchesReportFile: "emit",
 	WarnEventsFileNotWritten:    "report",
+	WarnEffortClamped:           "preflight",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -161,5 +167,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnOutputNotWritten,
 		WarnOutputMatchesReportFile,
 		WarnEventsFileNotWritten,
+		WarnEffortClamped,
 	}
 }

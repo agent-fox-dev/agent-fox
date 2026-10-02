@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentfox/agentkit-go/catalog"
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/tools"
 
@@ -380,22 +381,63 @@ func (c *Common) ResolveModelNamed(spec string) (*ModelChoice, error) {
 	}
 
 	// Validate $AF_MODEL_EFFORT when --effort is not set.
+	var envEffort string
 	if c.Effort == "" {
 		if raw := os.Getenv(EffortEnv); raw != "" {
 			if err := validateEffort(raw); err != nil {
 				return nil, Usagef("$%s: %s", EffortEnv, err.Error())
 			}
+			envEffort = strings.ToLower(raw)
 		}
 	}
 
-	m, thinking, err := agentrun.ResolveModel(spec, c.VendorName())
+	m, tierThinking, err := agentrun.ResolveModel(spec, c.VendorName())
 	if err != nil {
 		return nil, err
 	}
 	if err := agentrun.CheckCredentials(m); err != nil {
 		return nil, err
 	}
-	return &ModelChoice{Model: m, Thinking: thinking, Spec: spec}, nil
+
+	// Effort precedence: (1) --effort flag, (2) $AF_MODEL_EFFORT,
+	// (3) the tier's own effort, (4) ThinkingUnset.
+	effective := core.ThinkingUnset
+	explicit := false // true when the effort came from flag or env
+	switch {
+	case c.Effort != "":
+		effective = core.ThinkingLevel(c.Effort)
+		explicit = true
+	case envEffort != "":
+		effective = core.ThinkingLevel(envEffort)
+		explicit = true
+	case tierThinking != core.ThinkingUnset:
+		effective = tierThinking
+	}
+
+	choice := &ModelChoice{Model: m, Thinking: effective, Spec: spec}
+
+	// Clamp the effort when it is set.
+	if effective != core.ThinkingUnset {
+		clamped, _, ok := catalog.ClampThinkingLevel(m, effective)
+		if !ok {
+			if explicit {
+				return nil, Usagef("model %s supports no reachable thinking level for effort %q", m.ID, effective)
+			}
+			// Tier-sourced effort that cannot be clamped: fall back to unset.
+			choice.Thinking = core.ThinkingUnset
+		} else if clamped != effective {
+			stage, _ := WarnStage(WarnEffortClamped)
+			choice.Warnings = append(choice.Warnings, Warning{
+				Code:     WarnEffortClamped,
+				Severity: "low",
+				Stage:    stage,
+				Message:  fmt.Sprintf("effort %s clamped to %s for model %s", effective, clamped, m.ID),
+			})
+			choice.Thinking = clamped
+		}
+	}
+
+	return choice, nil
 }
 
 // validateEffort checks that raw is a valid effort value (case-insensitive).
@@ -418,6 +460,9 @@ type ModelChoice struct {
 	Model    *core.Model
 	Thinking core.ThinkingLevel
 	Spec     string
+	// Warnings are non-fatal problems discovered during resolution (e.g.
+	// effort clamping). The caller records them on the Run.
+	Warnings []Warning
 }
 
 // SplitArgs separates the one positional argument from the flags, allowing

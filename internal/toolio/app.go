@@ -605,9 +605,16 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 
 	choice, err := e.common.ResolveModel()
 	if err != nil {
+		var ue *UsageError
+		if errors.As(err, &ue) {
+			return a.usage(err)
+		}
 		return ExitFailed, nil, &ErrorInfo{
 			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
+	}
+	for _, w := range choice.Warnings {
+		e.run.Warn(w.Code, w.Severity, "%s", w.Message)
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
 	e.progress.Detail("model: %s (%s)", choice.Model.ID, choice.Model.Provider)
