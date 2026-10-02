@@ -4,23 +4,36 @@ Project-wide, so no numeric prefix. Recorded because each item below is a
 behaviour an operator could reasonably expect from the previous
 implementation and will not get from this one.
 
-## 1. `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_BEDROCK` are refused
+## 1. `CLAUDE_CODE_USE_BEDROCK` is refused; `CLAUDE_CODE_USE_VERTEX` is honoured
 
 **Was:** `detectPlatform()` read these variables and selected a Vertex or
 Bedrock client from the Anthropic SDK.
 
-**Is:** either variable set fails the run before a model is resolved, with a
+**Is:** `CLAUDE_CODE_USE_VERTEX` selects Claude on Vertex AI, as before.
+`CLAUDE_CODE_USE_BEDROCK` set fails the run before a model is resolved, with a
 message naming the variable, what it used to select, and what to do instead.
 
-**Why:** AgentKit talks to vendors over their own wire APIs. Its Vertex
-support is Gemini on the Google wire (`google.Options.VertexProject`, or a
-Vertex base URL); there is no Bedrock implementation and no
-`anthropic-vertex` wire. Honouring the variable would have sent the request to
-`api.anthropic.com` with credentials meant for a managed deployment, and the
-run would have failed with an authentication error naming neither the variable
-that was set nor the reason it did nothing.
+**Why:** AgentKit talks to vendors over their own wire APIs. Its Anthropic
+provider serves Claude on Vertex AI from the same wire implementation and
+selects that deployment from `CLAUDE_CODE_USE_VERTEX` and
+`ANTHROPIC_VERTEX_PROJECT_ID`; its credential table reports a Vertex
+deployment as `ambient`, so the preflight passes it with no Anthropic key.
+There is no Bedrock implementation. Honouring `CLAUDE_CODE_USE_BEDROCK` would
+send the request to `api.anthropic.com` with credentials meant for a managed
+deployment, and the run would fail with an authentication error naming neither
+the variable that was set nor the reason it did nothing.
 
-**The way through:** both deployments are commonly fronted by an
+**History:** from 2026-09-09 to 2026-10-02 both variables were refused. The
+refusal was written while AgentKit's only Vertex support was Gemini on the
+Google wire; AgentKit added Claude on Vertex the same day and the refusal was
+not revisited until an operator on a Vertex machine hit it.
+
+**What still differs:** the Anthropic SDK minted a Google token from
+Application Default Credentials. AgentKit does not, and neither does
+agent-fox, which keeps its dependency set small: set `ANTHROPIC_AUTH_TOKEN` to
+`$(gcloud auth print-access-token)`. See `docs/configuration.md`.
+
+**The way through for Bedrock:** a Bedrock deployment is commonly fronted by an
 Anthropic-compatible gateway. Point `ANTHROPIC_BASE_URL` at it and set a token
 there. A base URL alone resolves to the `ambient` credential state and passes
 the preflight, which is what a gateway that authenticates by URL needs.
