@@ -1,0 +1,340 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "14",
+  "spec_name": "repo_map",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/repomap/... ./internal/toolio/... ./internal/agentrun/... ./issuetriage/... ./codefix/... ./codeimpl/... ./specgen/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "13_tool_call_counts_and_relevant_files",
+      "reason": "The map's prompt placement is 'after landscape and steering, before prior-phase conclusions.' The relevant-files block from spec 13 is one of those prior-phase conclusions, so the map must precede it. The navigation baseline tables from spec 13 are what measure the map's effect."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add WarnRepoMapBuildFailed constant and --repo-map-tokens flag to Common",
+      "criteria": [
+        "14-REQ-6.1",
+        "14-REQ-10.2"
+      ],
+      "tests": [
+        "TS-14-21",
+        "TS-14-34"
+      ],
+      "steps": [
+        "Write TS-14-34 in internal/toolio/warncode_test.go: assert WarnRepoMapBuildFailed has value 'repo_map_build_failed', WarnStage returns a non-empty stage and ok==true, and the constant appears in DeclaredWarnCodes().",
+        "Write TS-14-21 in internal/toolio/cli_test.go: create a FlagSet, call Common.Register, parse with no args and assert RepoMapTokens==6000; parse with --repo-map-tokens 0 and assert RepoMapTokens==0.",
+        "Confirm both tests fail.",
+        "In internal/toolio/warncode.go, add WarnRepoMapBuildFailed WarnCode = 'repo_map_build_failed', add it to warnStages with stage 'triage', and add it to DeclaredWarnCodes().",
+        "In internal/toolio/cli.go, add RepoMapTokens int to the Common struct and register --repo-map-tokens in Common.Register with default 6000.",
+        "Run the tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "internal/toolio/warncode.go",
+        "internal/toolio/cli.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add Phase.RepoMap field and verbose logging in the runner",
+      "criteria": [
+        "14-REQ-7"
+      ],
+      "tests": [
+        "TS-14-24",
+        "TS-14-25",
+        "TS-14-26"
+      ],
+      "steps": [
+        "Write TS-14-24 in internal/agentrun/phase_test.go: set Phase.RepoMap to a string and assert it reads back.",
+        "Write TS-14-25 in internal/agentrun/phase_test.go: create a Runner with a recording Observer and verbose=true, build a Phase with a non-empty RepoMap, run it (using a faux provider), and assert Observer.Detail was called with the token count from afspec.EstimateTokens.",
+        "Write TS-14-26 in internal/agentrun/phase_test.go: create a Phase with RepoMap='MARKER_STRING' and User='do the thing', capture the prompt sent to the model, and assert neither User nor System contains 'MARKER_STRING'.",
+        "Confirm all three tests fail.",
+        "In internal/agentrun/phase.go, add RepoMap string to the Phase struct.",
+        "In the Runner.run method, after PhaseStart and before newAgent, add: if RepoMap is non-empty and Observer is non-nil, call Observer.Detail with the map's token count (afspec.EstimateTokens).",
+        "Do NOT inject RepoMap into the prompt in the runner — each tool's prompt function does that.",
+        "Run the tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "internal/agentrun/phase.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Create internal/repomap package with Build function, walk, outline, rendering and budget reduction",
+      "criteria": [
+        "14-REQ-1",
+        "14-REQ-2",
+        "14-REQ-3",
+        "14-REQ-4"
+      ],
+      "tests": [
+        "TS-14-1",
+        "TS-14-2",
+        "TS-14-3",
+        "TS-14-4",
+        "TS-14-5",
+        "TS-14-6",
+        "TS-14-7",
+        "TS-14-8",
+        "TS-14-9",
+        "TS-14-10"
+      ],
+      "steps": [
+        "Create internal/repomap/ directory with repomap.go and repomap_test.go.",
+        "Write TS-14-1 through TS-14-10 in repomap_test.go. Each test creates a temp directory workspace with fixture files (Go source files with known declarations), calls repomap.Build, and asserts the documented behaviour. Use tools.NewWorkspace to create workspaces. For TS-14-3, create a .gitignore and a .hidden directory. For TS-14-6, create a file that causes outline.File to error (e.g. invalid syntax). For TS-14-10, call Build twice with identical args and assert byte-identical output across multiple budgets.",
+        "Confirm all tests fail.",
+        "Implement Build(ctx context.Context, ws *tools.Workspace, budget int, inputPaths []string) (string, error). When budget==0, return '', nil immediately.",
+        "Implement the walk: delegate to tools.Walk to collect all file paths, respecting ignore rules and hidden-entry exclusion.",
+        "Implement outline extraction: for each walked source file, call outline.File to get declarations. If outline.File errors for a file, include the file path without declarations and continue (do not fail the build).",
+        "Implement sorting: files by path, declarations within a file exported-first then by line number.",
+        "Implement rendering: directories with trailing '/', files indented two spaces, declarations on the same line separated by ' · ' showing kind name and L-prefixed line number. Collapsed directories as 'dir/ (N files)'.",
+        "Implement budget enforcement: measure with afspec.EstimateTokens. When the full map exceeds budget, reduce in order: (1) drop unexported declarations, (2) drop test-file declarations, (3) drop declarations from deepest directories first, (4) collapse deepest directories. Directories named in inputPaths or containing a file in inputPaths are reduced last at the same depth.",
+        "Ensure determinism: no maps iterated without sorting, no timestamps or sizes.",
+        "Run all tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "internal/repomap/repomap.go",
+        "internal/repomap/repomap_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add golden-file and reduction-order tests for repomap",
+      "criteria": [
+        "14-REQ-2.5",
+        "14-REQ-3.1",
+        "14-REQ-3.2",
+        "14-REQ-3.3",
+        "14-REQ-3.4",
+        "14-REQ-4.1",
+        "14-REQ-4.2",
+        "14-REQ-4.3"
+      ],
+      "tests": [
+        "TS-14-11",
+        "TS-14-12",
+        "TS-14-13",
+        "TS-14-14",
+        "TS-14-15",
+        "TS-14-16",
+        "TS-14-17",
+        "TS-14-35"
+      ],
+      "steps": [
+        "Create internal/repomap/testdata/ with a fixture workspace: a deep directory tree (4+ levels), test files, exported and unexported declarations across 10+ files.",
+        "Write TS-14-35: build the map at budgets 6000, 1000, 300 against the fixture and compare each against golden files in testdata/. Generate the golden files on first run with an -update flag or by writing them manually.",
+        "Write TS-14-11: build with budget 6000 on a small workspace and assert the full map is returned with unexported declarations present.",
+        "Write TS-14-12: build at progressively smaller budgets (2000, 1000, 500, 200) and assert the reduction order: unexported dropped first, then test-file decls, then deepest-dir decls, then collapse.",
+        "Write TS-14-13: build with inputPaths pointing to one of two same-depth directories and a tight budget; assert the input-named directory's declarations survive while the other's are dropped.",
+        "Write TS-14-14: build with a large budget on a small tree and assert no collapsed directories and all declarations present.",
+        "Write TS-14-15: assert directory lines have trailing '/' and file lines start with two spaces.",
+        "Write TS-14-16: assert declarations are on the same line as their file, separated by ' · ', with kind name and L-prefixed line.",
+        "Write TS-14-17: build with a tight budget that forces collapse and assert the collapsed directory shows 'dir/ (N files)' with the correct count.",
+        "Run all tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "internal/repomap/repomap_test.go",
+        "internal/repomap/testdata/"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Create tree-change detector for fix and impl pipelines",
+      "criteria": [
+        "14-REQ-9.3",
+        "14-REQ-9.4"
+      ],
+      "tests": [
+        "TS-14-31",
+        "TS-14-32"
+      ],
+      "steps": [
+        "Write TS-14-31 in internal/repomap/repomap_test.go (or a new treechange_test.go): create a tree-change detector with a mock git that returns HEAD='abc123' and dirtyFiles=['a.go']; call Record; change the mock to HEAD='def456' and dirtyFiles=['a.go','b.go']; assert Changed returns true.",
+        "Write TS-14-32: create a detector with a git mock that returns an error from Head; assert Changed returns true (triggering unconditional rebuild) and no error surfaces.",
+        "Confirm both tests fail.",
+        "Implement a TreeChangeDetector type in internal/repomap/ (e.g. treechange.go) with methods Record(ctx) and Changed(ctx) (bool, error). Record stores the current HEAD and sorted dirty files. Changed compares current values against recorded ones; if either git call fails, return true, nil.",
+        "Run the tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "internal/repomap/treechange.go",
+        "internal/repomap/treechange_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Inject the map into issue and spec prompts and pipelines",
+      "criteria": [
+        "14-REQ-5",
+        "14-REQ-6.2",
+        "14-REQ-6.3",
+        "14-REQ-8"
+      ],
+      "tests": [
+        "TS-14-18",
+        "TS-14-19",
+        "TS-14-20",
+        "TS-14-23",
+        "TS-14-27",
+        "TS-14-28"
+      ],
+      "steps": [
+        "Write TS-14-18 in issuetriage/triage_test.go (or a new prompt test file): call taskPrompt with a non-empty map string and assert the user prompt contains '## Repository map', the opening sentence, and that the map block appears after landscape/steering and before prior-phase conclusions.",
+        "Write TS-14-19: call taskPrompt with an empty map and assert '## Repository map' is absent and the prompt is byte-identical to one built without the map parameter.",
+        "Write TS-14-20: marshal a completed result envelope and assert it contains neither '## Repository map' nor 'repo_map'.",
+        "Write TS-14-23: call the prompt function with an empty map (budget 0) and assert the prompt is byte-identical to a reference prompt built without map support.",
+        "Write TS-14-27: set up an issue pipeline with a build spy and assert repomap.Build is called exactly once, the triage phase's RepoMap is non-empty, and the user prompt contains '## Repository map'.",
+        "Write TS-14-28: set up a spec pipeline that splits into two scopes with a build spy and assert Build is called exactly once and both scopes receive the same map string.",
+        "Confirm all tests fail.",
+        "Modify issuetriage/triage.go taskPrompt to accept a repoMap string parameter. When non-empty, insert the '## Repository map' heading, the opening sentence, and the map after the report block and before the closing instruction. When empty, omit the block entirely.",
+        "Modify issuetriage/pipeline.go Run to call repomap.Build once before the triage phase, set Phase.RepoMap, and pass the map to taskPrompt. On Build error, emit WarnRepoMapBuildFailed and proceed with empty map.",
+        "Modify specgen/prompts.go prdUserPrompt and generationUserPrompt to accept a repoMap string and insert the block in the correct position (after landscape/steering, before prior artifacts).",
+        "Modify specgen/pipeline.go to call repomap.Build once per run and pass the same map to every scope's PRD and generation phases. On Build error, warn and proceed.",
+        "Pass Common.RepoMapTokens as the budget to repomap.Build in both pipelines.",
+        "Run all tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "issuetriage/triage.go",
+        "issuetriage/pipeline.go",
+        "specgen/prompts.go",
+        "specgen/pipeline.go"
+      ],
+      "depends_on": [
+        2,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Inject the map into fix and impl prompts and pipelines with tree-change rebuild",
+      "criteria": [
+        "14-REQ-9.1",
+        "14-REQ-9.2",
+        "14-REQ-10.1"
+      ],
+      "tests": [
+        "TS-14-22",
+        "TS-14-29",
+        "TS-14-30",
+        "TS-14-33"
+      ],
+      "steps": [
+        "Write TS-14-22 in codefix/pipeline_test.go (or codeimpl/pipeline_test.go): set up a tool pipeline with RepoMapTokens=3000 and a spy on repomap.Build; assert Build is called with budget=3000.",
+        "Write TS-14-29 in codefix/pipeline_test.go: set up a fix pipeline where the analysis phase does not change the tree; assert Build is called once. Set up a second pipeline where HEAD changes after analysis; assert Build is called twice.",
+        "Write TS-14-30 in codeimpl/pipeline_test.go: set up an impl pipeline with 3 tasks where task 1 commits (changing HEAD) and task 2 does not; assert Build is called before survey (1st) and before task 2 (2nd) but not before task 3; total calls = 2.",
+        "Write TS-14-33: stub repomap.Build to return an error; assert the phase proceeds with empty RepoMap, the run does not fail, and the warnings contain 'repo_map_build_failed'.",
+        "Confirm all tests fail.",
+        "Modify codefix/prompts.go analysisPrompt and implementPrompt to accept a repoMap string and insert the '## Repository map' block in the correct position (after the report/context blocks, before the diagnosis/criteria blocks).",
+        "Modify codefix/pipeline.go Run to: (a) build the map before the analysis phase using repomap.Build with Common.RepoMapTokens, (b) record HEAD and dirty files via TreeChangeDetector, (c) before the implementation phase, check Changed and rebuild if true, (d) set Phase.RepoMap and pass the map to the prompt functions. On Build error, emit WarnRepoMapBuildFailed and proceed.",
+        "Modify codeimpl/prompts.go surveyPrompt, repairPrompt and taskPrompt to accept a repoMap string and insert the block in the correct position (after language block, before the specification/verification blocks).",
+        "Modify codeimpl/pipeline.go Run to: (a) build the map before the survey phase, (b) record HEAD and dirty files, (c) before each subsequent phase (repair, task), check Changed and rebuild if true, (d) set Phase.RepoMap and pass the map to prompt functions. On Build error, emit WarnRepoMapBuildFailed and proceed.",
+        "Run all tests and confirm they pass. Run make lint."
+      ],
+      "touches": [
+        "codefix/prompts.go",
+        "codefix/pipeline.go",
+        "codeimpl/prompts.go",
+        "codeimpl/pipeline.go"
+      ],
+      "depends_on": [
+        5,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Update documentation for --repo-map-tokens flag and repomap package",
+      "criteria": [
+        "14-REQ-6.1"
+      ],
+      "tests": [
+        "TS-14-21"
+      ],
+      "steps": [
+        "Open docs/cli.md and add --repo-map-tokens to the shared flags table with its type (int), default (6000), and description ('token budget for the repository map injected into every phase's user prompt; 0 disables the map').",
+        "Open docs/architecture.md and add a brief entry for internal/repomap describing its role: 'Builds a token-budgeted repository map from the tracked file tree and top-level declarations, injected into every phase's user prompt.'",
+        "Open docs/development.md if it exists and note the new package.",
+        "Run make lint to confirm no formatting issues."
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/architecture.md"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end and confirm no stubs remain",
+      "tests": [
+        "TS-14-36",
+        "TS-14-37",
+        "TS-14-38",
+        "TS-14-39",
+        "TS-14-40"
+      ],
+      "steps": [
+        "Write TS-14-36: set up a git repository with Go source files, configure the issue tool with --repo-map-tokens 6000, run the pipeline, and assert: repomap.Build is called with the workspace and budget 6000, the triage phase's user prompt contains '## Repository map' with the opening sentence, the map contains file paths and declarations, and the phase runs successfully.",
+        "Write TS-14-37: set up a git repository with a spec containing two tasks, configure impl with --repo-map-tokens 6000, run the pipeline through survey, task 1 (which commits new files), and task 2. Assert the map is built before survey, rebuilt before task 2 after HEAD changes, and task 2's prompt contains declarations from files task 1 created.",
+        "Write TS-14-38: set up a git repository, configure spec with --repo-map-tokens 0, run the pipeline, and assert: Build returns empty without walking, no phase's user prompt contains '## Repository map', and prompts are byte-identical to those produced without the map feature.",
+        "Write TS-14-39: set up a git repository where repomap.Build returns an error (e.g. by injecting a failing outline), run the fix pipeline, and assert: the analysis phase runs without '## Repository map', the run does not fail, and the envelope's warnings contain 'repo_map_build_failed'.",
+        "Write TS-14-40: set up a git repository, configure spec with --repo-map-tokens 6000 and an input that splits into two scopes, run the pipeline, and assert: Build is called exactly once, both scopes' PRD and generation phases contain the same '## Repository map' block.",
+        "Trace 14-PATH-1 through the real code: issuetriage.Run → repomap.Build → tools.Walk + outline.File → taskPrompt → Phase.RepoMap → Runner.Run. Confirm each step calls the next and no stub remains.",
+        "Trace 14-PATH-2: codeimpl.Run → repomap.Build (survey) → TreeChangeDetector.Record → runTask (task 1 commits) → TreeChangeDetector.Changed → repomap.Build (rebuild) → taskPrompt (task 2). Confirm the rebuild path is live.",
+        "Trace 14-PATH-3: specgen.Run → repomap.Build(budget=0) returns '' → prdUserPrompt receives '' → no '## Repository map' block. Confirm the zero-budget path produces identical prompts.",
+        "Trace 14-PATH-4: codefix.Run → repomap.Build returns error → WarnRepoMapBuildFailed emitted → analysisPrompt receives '' → phase runs without map. Confirm the error path is live.",
+        "Trace 14-PATH-5: specgen.Run → repomap.Build (once) → same map string passed to scope 1 PRD, scope 1 generation, scope 2 PRD, scope 2 generation. Confirm the reuse path is live.",
+        "For every criterion with a contract (14-REQ-1.6, 14-REQ-9.4, 14-REQ-10.1), confirm the producer's result is consumed by a caller in production code, not only by tests.",
+        "Search all files in touches from every task for panic(\"not implemented\"), TODO, NotImplementedError, and bare 'return nil' on non-trivial paths. Remove any that remain."
+      ],
+      "touches": [
+        "internal/repomap/smoke_test.go",
+        "issuetriage/smoke_test.go",
+        "codefix/smoke_test.go",
+        "codeimpl/smoke_test.go",
+        "specgen/smoke_test.go"
+      ],
+      "depends_on": [
+        4,
+        7,
+        8
+      ],
+      "state": "pending"
+    }
+  ]
+}

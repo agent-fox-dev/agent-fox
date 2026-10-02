@@ -1,0 +1,704 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "13",
+  "spec_name": "replace_variant_with_effort",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-13-1",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.1"
+      ],
+      "title": "--effort is registered as a string flag with DeclareEnum listing the seven accepted values",
+      "given": [
+        "a fresh flag.FlagSet with Common.Register called"
+      ],
+      "when": "the flag set is inspected",
+      "then": [
+        "a flag named effort exists with type string and empty default",
+        "the enum metadata for effort lists off, minimal, low, medium, high, xhigh, max"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"t\", flag.ContinueOnError)\nc := &Common{}\nc.Register(fs)\nf := fs.Lookup(\"effort\")\nassert f != nil\nassert f.DefValue == \"\"\nassert enumValues(fs, \"effort\") == [\"off\",\"minimal\",\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]"
+    },
+    {
+      "id": "TS-13-2",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.2"
+      ],
+      "title": "Common carries an Effort field and no Variant field",
+      "given": [
+        "the Common struct definition in internal/toolio/cli.go"
+      ],
+      "when": "the struct's fields are inspected via reflection",
+      "then": [
+        "a field named Effort of type string exists",
+        "no field named Variant exists"
+      ],
+      "pseudocode": "c := Common{}\nv := reflect.TypeOf(c)\n_, hasEffort := v.FieldByName(\"Effort\")\nassert hasEffort\n_, hasVariant := v.FieldByName(\"Variant\")\nassert !hasVariant"
+    },
+    {
+      "id": "TS-13-3",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.3"
+      ],
+      "title": "Effort precedence: flag > env > tier > unset, as a table test",
+      "given": [
+        "a stubbed catalog that resolves tier names and model ids",
+        "a stubbed ClampThinkingLevel that returns the input level unchanged"
+      ],
+      "when": "ResolveModelNamed is called with combinations: (1) --effort=low with tier STANDARD, (2) no flag but AF_MODEL_EFFORT=low with tier STANDARD, (3) no flag, no env, tier STANDARD (tier's own high), (4) no flag, no env, model id (ThinkingUnset)",
+      "then": [
+        "case 1: effective effort is low (flag wins over tier's high)",
+        "case 2: effective effort is low (env wins over tier's high)",
+        "case 3: effective effort is high (tier's own)",
+        "case 4: effective effort is ThinkingUnset"
+      ],
+      "pseudocode": "cases := []struct{ flag, env, model string; want ThinkingLevel }{\n  {\"low\", \"\", \"STANDARD\", ThinkingLow},\n  {\"\", \"low\", \"STANDARD\", ThinkingLow},\n  {\"\", \"\", \"STANDARD\", ThinkingHigh},\n  {\"\", \"\", \"anthropic/claude-opus-5-5\", ThinkingUnset},\n}\nfor _, c := range cases {\n  t.Setenv(\"AF_MODEL_EFFORT\", c.env)\n  common := Common{Effort: c.flag, Model: c.model}\n  choice, err := common.ResolveModelNamed(c.model)\n  assert err == nil\n  assert choice.Thinking == c.want\n}"
+    },
+    {
+      "id": "TS-13-4",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.4"
+      ],
+      "title": "--effort applies to a model named by catalog id",
+      "given": [
+        "a catalog id like anthropic/claude-opus-5-5",
+        "--effort set to max"
+      ],
+      "when": "ResolveModelNamed is called with the catalog id",
+      "then": [
+        "the returned ModelChoice carries the catalog model",
+        "the effective thinking level is max (or its clamped equivalent)"
+      ],
+      "pseudocode": "common := Common{Effort: \"max\", Model: \"anthropic/claude-opus-5-5\"}\nchoice, err := common.ResolveModelNamed(\"anthropic/claude-opus-5-5\")\nassert err == nil\nassert choice.Thinking != ThinkingUnset"
+    },
+    {
+      "id": "TS-13-5",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.5"
+      ],
+      "title": "--effort value is matched case-insensitively and stored in canonical lower-case",
+      "given": [
+        "a flag.FlagSet with Common.Register called"
+      ],
+      "when": "--effort is set to HIGH, High, hIgH",
+      "then": [
+        "Common.Effort is stored as high in every case"
+      ],
+      "pseudocode": "for _, v := range []string{\"HIGH\", \"High\", \"hIgH\"} {\n  fs := flag.NewFlagSet(\"t\", flag.ContinueOnError)\n  c := &Common{}\n  c.Register(fs)\n  fs.Parse([]string{\"--effort\", v})\n  assert c.Effort == \"high\"\n}"
+    },
+    {
+      "id": "TS-13-6",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.6"
+      ],
+      "title": "An invalid --effort value exits 2 and lists the accepted values",
+      "given": [
+        "a tool invoked with --effort turbo"
+      ],
+      "when": "the flag is parsed and validated",
+      "then": [
+        "the process exits with code 2",
+        "stderr lists the accepted values (off, minimal, low, medium, high, xhigh, max)"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"t\", flag.ContinueOnError)\nc := &Common{}\nc.Register(fs)\nerr := fs.Parse([]string{\"--effort\", \"turbo\"})\n// or validation after parse\nassert isUsageError(err)\nassert strings.Contains(err.Error(), \"off\")\nassert strings.Contains(err.Error(), \"max\")"
+    },
+    {
+      "id": "TS-13-7",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.7"
+      ],
+      "title": "An invalid $AF_MODEL_EFFORT value exits 2 and names the environment variable",
+      "given": [
+        "AF_MODEL_EFFORT=turbo in the environment",
+        "no --effort flag"
+      ],
+      "when": "ResolveModelNamed is called",
+      "then": [
+        "the call returns a usage error (exit code 2)",
+        "the error message names $AF_MODEL_EFFORT",
+        "the error message lists the accepted values"
+      ],
+      "pseudocode": "t.Setenv(\"AF_MODEL_EFFORT\", \"turbo\")\nc := &Common{Model: \"STANDARD\"}\n_, err := c.ResolveModelNamed(\"STANDARD\")\nassert isUsageError(err)\nassert strings.Contains(err.Error(), \"AF_MODEL_EFFORT\")\nassert strings.Contains(err.Error(), \"off\")"
+    },
+    {
+      "id": "TS-13-8",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.1",
+        "13-REQ-2.4"
+      ],
+      "title": "ClampThinkingLevel is called for any set effort and the clamped level is the effective one reported in model.thinking",
+      "given": [
+        "a model whose catalog row supports only medium and high",
+        "--effort set to xhigh"
+      ],
+      "when": "ResolveModelNamed resolves the model and applies clamping",
+      "then": [
+        "catalog.ClampThinkingLevel is called with (model, xhigh)",
+        "the returned ModelChoice.Thinking is the clamped level (high), not xhigh",
+        "model.thinking in the envelope would report high"
+      ],
+      "pseudocode": "// stub ClampThinkingLevel to return (high, true) for xhigh\nc := &Common{Effort: \"xhigh\", Model: \"test/limited-model\"}\nchoice, err := c.ResolveModelNamed(\"test/limited-model\")\nassert err == nil\nassert choice.Thinking == ThinkingHigh"
+    },
+    {
+      "id": "TS-13-9",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.2"
+      ],
+      "title": "When clamping changes the level, an effort_clamped warning is recorded naming both levels and the model",
+      "given": [
+        "a model that supports only medium and high",
+        "--effort set to xhigh"
+      ],
+      "when": "ResolveModelNamed resolves the model",
+      "then": [
+        "a warning with code effort_clamped is recorded",
+        "the warning message names the requested level (xhigh)",
+        "the warning message names the clamped level (high)",
+        "the warning message names the model"
+      ],
+      "pseudocode": "c := &Common{Effort: \"xhigh\", Model: \"test/limited-model\"}\nchoice, err := c.ResolveModelNamed(\"test/limited-model\")\nassert err == nil\nassert choice.Thinking == ThinkingHigh\nw := run.Warnings()\nassert any(w, func(w Warning) bool { return w.Code == WarnEffortClamped })\nassert strings.Contains(w[0].Message, \"xhigh\")\nassert strings.Contains(w[0].Message, \"high\")\nassert strings.Contains(w[0].Message, \"test/limited-model\")"
+    },
+    {
+      "id": "TS-13-10",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.3"
+      ],
+      "title": "ClampThinkingLevel returning ok==false with explicit effort fails before the first request",
+      "given": [
+        "a model that supports no thinking level (ClampThinkingLevel returns ok==false)",
+        "--effort set to high (explicit, step 1)"
+      ],
+      "when": "ResolveModelNamed is called",
+      "then": [
+        "the call returns a usage error (exit code 2)",
+        "the error message names the model"
+      ],
+      "pseudocode": "// stub ClampThinkingLevel to return (\"\", false)\nc := &Common{Effort: \"high\", Model: \"test/no-thinking-model\"}\n_, err := c.ResolveModelNamed(\"test/no-thinking-model\")\nassert isUsageError(err)\nassert strings.Contains(err.Error(), \"test/no-thinking-model\")"
+    },
+    {
+      "id": "TS-13-11",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.2"
+      ],
+      "title": "The effort_clamped WarnCode constant exists and maps to stage preflight in warnStages",
+      "given": [
+        "the warncode.go declarations"
+      ],
+      "when": "WarnStage is called with WarnEffortClamped",
+      "then": [
+        "the returned stage is preflight",
+        "ok is true"
+      ],
+      "pseudocode": "stage, ok := WarnStage(WarnEffortClamped)\nassert ok\nassert stage == \"preflight\""
+    },
+    {
+      "id": "TS-13-12",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.1"
+      ],
+      "title": "--repair-model-effort is registered on impl with the same accepted values as --effort and listed in toolFlags[impl]",
+      "given": [
+        "the impl tool's flag set and toolflags.go"
+      ],
+      "when": "impl's Flags func is called and toolFlags is inspected",
+      "then": [
+        "a flag named repair-model-effort exists with the same enum values as --effort",
+        "toolFlags[\"impl\"] contains repair-model-effort"
+      ],
+      "pseudocode": "app := newApp()\nfs := flag.NewFlagSet(\"impl\", flag.ContinueOnError)\napp.Flags(fs)\nf := fs.Lookup(\"repair-model-effort\")\nassert f != nil\nassert slices.Contains(ToolFlags(\"impl\"), \"repair-model-effort\")"
+    },
+    {
+      "id": "TS-13-13",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.2"
+      ],
+      "title": "Repair effort precedence: --repair-model-effort > repair model's tier effort > run's effort",
+      "given": [
+        "a stubbed catalog and ClampThinkingLevel"
+      ],
+      "when": "impl resolves the repair model with combinations: (1) --repair-model ADVANCED --repair-model-effort high, (2) --repair-model ADVANCED (no --repair-model-effort), (3) no --repair-model with --effort low",
+      "then": [
+        "case 1: repair effort is high (--repair-model-effort wins over ADVANCED's xhigh)",
+        "case 2: repair effort is xhigh (ADVANCED tier's own effort, not the run's --effort)",
+        "case 3: repair effort is low (the run's effort, because repair runs on the run's model)"
+      ],
+      "pseudocode": "// case 1\nopts := implFlags{repairModel: \"ADVANCED\"}\ncommon := Common{Effort: \"low\", Model: \"STANDARD\"}\n// repairModelEffort = \"high\"\nrepairChoice := resolveRepairModel(common, opts)\nassert repairChoice.Thinking == ThinkingHigh\n\n// case 2\nopts2 := implFlags{repairModel: \"ADVANCED\"}\ncommon2 := Common{Effort: \"low\", Model: \"STANDARD\"}\nrepairChoice2 := resolveRepairModel(common2, opts2)\nassert repairChoice2.Thinking == ThinkingXHigh\n\n// case 3\nopts3 := implFlags{}\ncommon3 := Common{Effort: \"low\", Model: \"STANDARD\"}\nrepairChoice3 := resolveRepairModel(common3, opts3)\nassert repairChoice3.Thinking == ThinkingLow"
+    },
+    {
+      "id": "TS-13-14",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.3"
+      ],
+      "title": "--repair-model-effort alone (without --repair-model) implies --repair and runs on the run's model",
+      "given": [
+        "impl invoked with --repair-model-effort high but no --repair-model and no --repair"
+      ],
+      "when": "PreCheck runs",
+      "then": [
+        "f.repair is set to true (--repair is implied)",
+        "the repair phase runs on the run's model at high effort"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"impl\", flag.ContinueOnError)\nf := &implFlags{}\napp.Flags(fs)\nfs.Parse([]string{\"--repair-model-effort\", \"high\", \"some-spec\"})\napp.PreCheck(&common)\nassert f.repair == true"
+    },
+    {
+      "id": "TS-13-15",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.4"
+      ],
+      "title": "Repair phase clamping records an effort_clamped warning naming the repair phase",
+      "given": [
+        "a repair model whose catalog row supports only medium",
+        "--repair-model-effort set to xhigh"
+      ],
+      "when": "the repair model is resolved",
+      "then": [
+        "an effort_clamped warning is recorded",
+        "the warning message contains the word repair to distinguish it from the run's own clamping"
+      ],
+      "pseudocode": "// stub ClampThinkingLevel to return (medium, true) for xhigh\nchoice, warnings := resolveRepairModel(common, opts)\nassert choice.Thinking == ThinkingMedium\nassert any(warnings, func(w Warning) bool {\n  return w.Code == WarnEffortClamped && strings.Contains(w.Message, \"repair\")\n})"
+    },
+    {
+      "id": "TS-13-16",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.5"
+      ],
+      "title": "--repair-model-effort has no environment variable fallback",
+      "given": [
+        "AF_REPAIR_MODEL_EFFORT=high in the environment (hypothetical)",
+        "no --repair-model-effort flag"
+      ],
+      "when": "impl resolves the repair model",
+      "then": [
+        "the environment variable is not read",
+        "the repair effort is determined by the precedence without an env step"
+      ],
+      "pseudocode": "t.Setenv(\"AF_REPAIR_MODEL_EFFORT\", \"high\")\nopts := implFlags{repairModel: \"STANDARD\"}\ncommon := Common{Model: \"STANDARD\"}\nrepairChoice := resolveRepairModel(common, opts)\n// STANDARD tier's own effort (high), not from env\nassert repairChoice.Thinking == ThinkingHigh"
+    },
+    {
+      "id": "TS-13-17",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.1"
+      ],
+      "title": "--variant is no longer registered and Variant field is absent from Common",
+      "given": [
+        "a fresh flag.FlagSet with Common.Register called"
+      ],
+      "when": "the flag set is inspected for a flag named variant",
+      "then": [
+        "fs.Lookup(\"variant\") returns nil",
+        "the Common struct has no Variant field (covered by TS-13-2)"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"t\", flag.ContinueOnError)\nc := &Common{}\nc.Register(fs)\nassert fs.Lookup(\"variant\") == nil"
+    },
+    {
+      "id": "TS-13-18",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.2"
+      ],
+      "title": "tierTable has type map[string]map[ModelTier]tierEntry and no extended entry",
+      "given": [
+        "the tierTable in internal/agentrun/models.go"
+      ],
+      "when": "the table is inspected",
+      "then": [
+        "the table's type is map[string]map[ModelTier]tierEntry (no variant dimension)",
+        "no entry for the extended variant exists anywhere in the table"
+      ],
+      "pseudocode": "// Compile-time: tierTable is declared as map[string]map[ModelTier]tierEntry\n// Runtime check:\nfor vendor, byTier := range tierTable {\n  for tier, entry := range byTier {\n    assert entry.spec != \"\"\n    // The type system enforces no variant dimension\n  }\n}\n// The extended model spec should not appear\nassert tierTable[\"anthropic\"][TierAdvanced].spec != \"anthropic/claude-fable-5-1\""
+    },
+    {
+      "id": "TS-13-19",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.3"
+      ],
+      "title": "ModelSpec and ResolveModel accept exactly two parameters (name, vendor) — no variant",
+      "given": [
+        "the agentrun package"
+      ],
+      "when": "ModelSpec and ResolveModel are called with two arguments",
+      "then": [
+        "both compile and return the expected results",
+        "calling with three arguments (the old signature) does not compile"
+      ],
+      "pseudocode": "// This is a compile-time check: the test file calls\n// ModelSpec(\"STANDARD\", \"\") and ResolveModel(\"STANDARD\", \"\")\n// and the build succeeds. A call with three args would fail.\nspec, thinking, err := ModelSpec(\"STANDARD\", \"\")\nassert err == nil\nassert spec != \"\""
+    },
+    {
+      "id": "TS-13-20",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.4"
+      ],
+      "title": "ResolveModelNamed no longer passes a variant argument to ModelSpec/ResolveModel",
+      "given": [
+        "the ResolveModelNamed method in internal/toolio/cli.go"
+      ],
+      "when": "ResolveModelNamed calls agentrun.ResolveModel",
+      "then": [
+        "the call passes only (spec, vendorName) — no variant argument",
+        "the method does not reference c.Variant"
+      ],
+      "pseudocode": "// Source inspection: read cli.go, find ResolveModelNamed,\n// assert the call to agentrun.ResolveModel has two arguments\nsrc := readFile(\"internal/toolio/cli.go\")\nassert !strings.Contains(src, \"c.Variant\")\n// Also a compile-time check: ResolveModel(spec, vendor) compiles"
+    },
+    {
+      "id": "TS-13-21",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.5"
+      ],
+      "title": "knownFixValueFlags contains effort and does not contain variant",
+      "given": [
+        "cmd/fix/main.go's knownFixValueFlags map"
+      ],
+      "when": "the map is inspected",
+      "then": [
+        "knownFixValueFlags[\"effort\"] is true",
+        "knownFixValueFlags[\"variant\"] is false or absent"
+      ],
+      "pseudocode": "assert knownFixValueFlags[\"effort\"] == true\nassert knownFixValueFlags[\"variant\"] == false"
+    },
+    {
+      "id": "TS-13-22",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.6"
+      ],
+      "title": "removedFlagMessages contains variant with a message directing to --effort and --model",
+      "given": [
+        "toolflags.go's removedFlagMessages map"
+      ],
+      "when": "the map is inspected for the variant key",
+      "then": [
+        "removedFlagMessages[\"variant\"] exists",
+        "the message contains --effort",
+        "the message contains --model"
+      ],
+      "pseudocode": "msg, ok := removedFlagMessages[\"variant\"]\nassert ok\nassert strings.Contains(msg, \"--effort\")\nassert strings.Contains(msg, \"--model\")"
+    },
+    {
+      "id": "TS-13-23",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.7"
+      ],
+      "title": "Passing --variant produces the removed-flag message (exit 2) directing to --effort and --model",
+      "given": [
+        "a tool invoked with --variant extended"
+      ],
+      "when": "the flag is parsed via unsupportedFlagMessage",
+      "then": [
+        "the exit code is 2",
+        "stderr contains the removal message naming --effort and --model",
+        "the generic 'flag provided but not defined' error is not shown"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"test\", flag.ContinueOnError)\nc := &Common{}\nc.Register(fs)\nerr := fs.Parse([]string{\"--variant\", \"extended\"})\nmsg, ok := unsupportedFlagMessage(\"fix\", err)\nassert ok\nassert strings.Contains(msg, \"--effort\")\nassert strings.Contains(msg, \"--model\")"
+    },
+    {
+      "id": "TS-13-24",
+      "kind": "property",
+      "verifies": [
+        "13-REQ-5.1"
+      ],
+      "title": "For any vendor and tier whose tierEntry has a non-unset thinking level, ClampThinkingLevel returns the same level",
+      "given": [
+        "the tierTable and the catalog"
+      ],
+      "when": "for any (vendor, tier) pair whose entry has thinking != ThinkingUnset, ClampThinkingLevel(resolvedModel, thinking) is called",
+      "then": [
+        "the returned level equals the tier's prescribed level (clamps to itself)",
+        "ok is true"
+      ],
+      "pseudocode": "for _, vendor := range TierVendors() {\n  for _, tier := range Tiers {\n    m, thinking, _ := ResolveModel(string(tier), vendor)\n    if thinking == ThinkingUnset { continue }\n    clamped, ok := catalog.ClampThinkingLevel(m, thinking)\n    assert ok\n    assert clamped == thinking\n  }\n}"
+    },
+    {
+      "id": "TS-13-25",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.1"
+      ],
+      "title": "TestTheExtendedVariantHasAMillionTokenWindow and TestAnUnknownVariantFallsBackToTheTierDefault are deleted",
+      "given": [
+        "the file internal/agentrun/models_test.go"
+      ],
+      "when": "the file is searched for the two test function names",
+      "then": [
+        "neither TestTheExtendedVariantHasAMillionTokenWindow nor TestAnUnknownVariantFallsBackToTheTierDefault appears in the file"
+      ],
+      "pseudocode": "src := readFile(\"internal/agentrun/models_test.go\")\nassert !strings.Contains(src, \"TestTheExtendedVariantHasAMillionTokenWindow\")\nassert !strings.Contains(src, \"TestAnUnknownVariantFallsBackToTheTierDefault\")"
+    },
+    {
+      "id": "TS-13-26",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.2"
+      ],
+      "title": "Schema golden files of all four tools contain effort and not variant; impl's also contains repair-model-effort",
+      "given": [
+        "the golden files cmd/{issue,fix,spec,impl}/testdata/schema.golden.json"
+      ],
+      "when": "each golden file is read and inspected",
+      "then": [
+        "none of the four files contains the string variant as a flag name",
+        "all four files contain effort as a flag name",
+        "cmd/impl/testdata/schema.golden.json contains repair-model-effort"
+      ],
+      "pseudocode": "for _, tool := range []string{\"issue\", \"fix\", \"spec\", \"impl\"} {\n  golden := readFile(fmt.Sprintf(\"cmd/%s/testdata/schema.golden.json\", tool))\n  assert !containsFlagName(golden, \"variant\")\n  assert containsFlagName(golden, \"effort\")\n}\nimplGolden := readFile(\"cmd/impl/testdata/schema.golden.json\")\nassert containsFlagName(implGolden, \"repair-model-effort\")"
+    },
+    {
+      "id": "TS-13-27",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.1"
+      ],
+      "title": "docs/cli.md replaces --variant with --effort, adds --repair-model-effort to impl, and records the interface-versions entry",
+      "given": [
+        "the file docs/cli.md"
+      ],
+      "when": "the file is read",
+      "then": [
+        "the shared-flags table contains --effort and does not contain --variant",
+        "impl's flags section contains --repair-model-effort",
+        "the interface-versions section mentions the --variant removal and --effort addition"
+      ],
+      "pseudocode": "src := readFile(\"docs/cli.md\")\nassert strings.Contains(src, \"--effort\")\nassert !strings.Contains(src, \"--variant\")\nassert strings.Contains(src, \"--repair-model-effort\")\nassert strings.Contains(src, \"variant\") // in the interface-versions removal note"
+    },
+    {
+      "id": "TS-13-28",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.2"
+      ],
+      "title": "docs/configuration.md documents $AF_MODEL_EFFORT, the effort precedence, and the long-context example",
+      "given": [
+        "the file docs/configuration.md"
+      ],
+      "when": "the file is read",
+      "then": [
+        "the file does not contain --variant extended",
+        "the file contains AF_MODEL_EFFORT",
+        "the file contains the effort precedence (flag, env, tier, unset)",
+        "the file contains --model anthropic/claude-fable-5-1 --effort xhigh"
+      ],
+      "pseudocode": "src := readFile(\"docs/configuration.md\")\nassert !strings.Contains(src, \"--variant extended\")\nassert strings.Contains(src, \"AF_MODEL_EFFORT\")\nassert strings.Contains(src, \"--model anthropic/claude-fable-5-1 --effort xhigh\")"
+    },
+    {
+      "id": "TS-13-29",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.3"
+      ],
+      "title": "docs/model-usage.md repair paragraph states the new effort rule without referencing --variant",
+      "given": [
+        "the file docs/model-usage.md"
+      ],
+      "when": "the file is read",
+      "then": [
+        "the repair paragraph does not reference --variant",
+        "the repair paragraph describes the repair effort precedence from 13-REQ-3.2"
+      ],
+      "pseudocode": "src := readFile(\"docs/model-usage.md\")\nassert !strings.Contains(src, \"--variant\")\nassert strings.Contains(src, \"repair-model-effort\") || strings.Contains(src, \"repair model\")"
+    },
+    {
+      "id": "TS-13-30",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.4"
+      ],
+      "title": "docs/errata/agentkit_model_resolution.md §2 has a closing note about the extended variant removal",
+      "given": [
+        "the file docs/errata/agentkit_model_resolution.md"
+      ],
+      "when": "the file is read",
+      "then": [
+        "§2 contains a note stating that the extended variant no longer exists"
+      ],
+      "pseudocode": "src := readFile(\"docs/errata/agentkit_model_resolution.md\")\nassert strings.Contains(src, \"extended variant\") || strings.Contains(src, \"extended\")\nassert strings.Contains(src, \"no longer\")"
+    },
+    {
+      "id": "TS-13-31",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.5"
+      ],
+      "title": "docs/adr/08-effort-replaces-variant.md exists and records the decision",
+      "given": [
+        "the docs/adr directory"
+      ],
+      "when": "the file docs/adr/08-effort-replaces-variant.md is read",
+      "then": [
+        "the file exists",
+        "it records effort as an explicit setting independent of the model",
+        "it records the removal of variants without compatibility"
+      ],
+      "pseudocode": "src := readFile(\"docs/adr/08-effort-replaces-variant.md\")\nassert src != \"\"\nassert strings.Contains(src, \"effort\")\nassert strings.Contains(src, \"variant\")"
+    },
+    {
+      "id": "TS-13-32",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-1",
+        "13-REQ-1.3",
+        "13-REQ-2.1",
+        "13-REQ-2.4"
+      ],
+      "title": "Operator overrides a tier's effort with --effort and the envelope reports the effective level",
+      "given": [
+        "a repository with a valid workspace",
+        "credentials for the anthropic vendor"
+      ],
+      "when": "a tool is invoked with --model ADVANCED --effort high --preflight",
+      "then": [
+        "the run resolves ADVANCED to the tier's model (anthropic/claude-opus-5-5)",
+        "the effective effort is high (overriding the tier's xhigh), possibly clamped",
+        "model.thinking in the envelope reports the effective level"
+      ],
+      "real_components": [
+        "Common.Register",
+        "ResolveModelNamed",
+        "agentrun.ModelSpec",
+        "catalog.ClampThinkingLevel"
+      ]
+    },
+    {
+      "id": "TS-13-33",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-2",
+        "13-REQ-1.4"
+      ],
+      "title": "Operator sets effort on a model named by catalog id",
+      "given": [
+        "a repository with a valid workspace",
+        "credentials for the anthropic vendor"
+      ],
+      "when": "a tool is invoked with --model anthropic/claude-opus-5-5 --effort max --preflight",
+      "then": [
+        "the run resolves the catalog id directly (no tier lookup)",
+        "the effective effort is max or its clamped equivalent",
+        "model.thinking in the envelope reports the effective level"
+      ],
+      "real_components": [
+        "Common.Register",
+        "ResolveModelNamed",
+        "catalog.ResolveModel",
+        "catalog.ClampThinkingLevel"
+      ]
+    },
+    {
+      "id": "TS-13-34",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-3",
+        "13-REQ-1.3"
+      ],
+      "title": "$AF_MODEL_EFFORT overrides a tier's effort when no --effort flag is given",
+      "given": [
+        "AF_MODEL_EFFORT=low in the environment",
+        "no --effort flag",
+        "a repository with a valid workspace"
+      ],
+      "when": "a tool is invoked with --model STANDARD --preflight",
+      "then": [
+        "the effective effort is low (env overrides STANDARD's high)",
+        "model.thinking in the envelope reports the clamped level"
+      ],
+      "real_components": [
+        "Common.Register",
+        "ResolveModelNamed",
+        "agentrun.ModelSpec",
+        "catalog.ClampThinkingLevel"
+      ]
+    },
+    {
+      "id": "TS-13-35",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-4",
+        "13-REQ-3.1",
+        "13-REQ-3.2"
+      ],
+      "title": "impl repair phase runs at its own effort, independent of the run's",
+      "given": [
+        "a repository with a valid workspace",
+        "credentials for the anthropic vendor"
+      ],
+      "when": "impl is invoked with --model STANDARD --effort low --repair-model ADVANCED --repair-model-effort high --preflight",
+      "then": [
+        "the run's model is STANDARD at low effort",
+        "the repair model is ADVANCED at high effort (not the tier's xhigh, not the run's low)",
+        "both models are resolved and their credentials checked before any phase runs"
+      ],
+      "real_components": [
+        "Common.Register",
+        "ResolveModelNamed",
+        "agentrun.ModelSpec",
+        "catalog.ClampThinkingLevel",
+        "impl.resolveRepairRunner"
+      ]
+    },
+    {
+      "id": "TS-13-36",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-5",
+        "13-REQ-4.6",
+        "13-REQ-4.7"
+      ],
+      "title": "Passing --variant produces a removed-flag error directing to --effort and --model",
+      "given": [
+        "a tool binary (any of the four)"
+      ],
+      "when": "the tool is invoked with --variant extended",
+      "then": [
+        "the exit code is 2",
+        "stderr contains a message directing the user to --effort and --model",
+        "the generic 'flag provided but not defined' error is not shown"
+      ],
+      "real_components": [
+        "Common.Register",
+        "toolflags.unsupportedFlagMessage",
+        "removedFlagMessages"
+      ]
+    },
+    {
+      "id": "TS-13-37",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-6",
+        "13-REQ-1.6"
+      ],
+      "title": "Invalid --effort value is refused with exit 2 and the accepted values listed",
+      "given": [
+        "a tool binary (any of the four)"
+      ],
+      "when": "the tool is invoked with --effort turbo",
+      "then": [
+        "the exit code is 2",
+        "stderr lists the accepted effort values"
+      ],
+      "real_components": [
+        "Common.Register",
+        "CLI validation"
+      ]
+    }
+  ]
+}

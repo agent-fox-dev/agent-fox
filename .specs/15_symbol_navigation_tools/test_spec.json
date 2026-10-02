@@ -1,0 +1,383 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "15",
+  "spec_name": "symbol_navigation_tools",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-15-1",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.1"
+      ],
+      "title": "ReadOnlyFileTools contains exactly the six expected tool names including file_outline and find_symbol",
+      "given": [
+        "the agentrun package is compiled"
+      ],
+      "when": "ReadOnlyFileTools is inspected",
+      "then": [
+        "it contains exactly [\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\"]",
+        "the length is 6"
+      ],
+      "pseudocode": "assert slices.Equal(sort(ReadOnlyFileTools), sort([]string{\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\"}))"
+    },
+    {
+      "id": "TS-15-2",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.2",
+        "15-REQ-9.1"
+      ],
+      "title": "A read-only phase's resolved tool set includes all six ReadOnlyFileTools and excludes every MutatingTools entry",
+      "given": [
+        "a faux provider scripted with one terminating tool call",
+        "a workspace with at least one file",
+        "a Phase with BuiltinTools set to ReadOnlyFileTools and ReadOnly true"
+      ],
+      "when": "Runner.Run executes the phase and the provider records the declared tools",
+      "then": [
+        "every entry in ReadOnlyFileTools (including file_outline and find_symbol) appears in the declared tool set",
+        "no entry in MutatingTools appears in the declared tool set"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn(\"c1\", \"submit\", {\"value\": \"x\"})); r := NewRunner(fauxConfig(p, ws)); r.Run(ctx, Phase{BuiltinTools: ReadOnlyFileTools, ReadOnly: true, ...}); declared := p.Requests()[0].Tools; for _, name := range ReadOnlyFileTools { assert declared[name] }; for _, name := range MutatingTools { assert !declared[name] }"
+    },
+    {
+      "id": "TS-15-3",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.3",
+        "15-REQ-9.2"
+      ],
+      "title": "A writing phase's resolved tool set includes all six read tools alongside write_file, edit_file and execute",
+      "given": [
+        "a faux provider scripted with one terminating tool call",
+        "a workspace with at least one file",
+        "a Phase with BuiltinTools set to ReadOnlyFileTools + WriteFileTools + [\"execute\"] and ReadOnly false"
+      ],
+      "when": "Runner.Run executes the phase and the provider records the declared tools",
+      "then": [
+        "every entry in ReadOnlyFileTools (including file_outline and find_symbol) appears in the declared tool set",
+        "write_file, edit_file and execute appear in the declared tool set"
+      ],
+      "pseudocode": "builtins := append(ReadOnlyFileTools, WriteFileTools...); builtins = append(builtins, \"execute\"); r.Run(ctx, Phase{BuiltinTools: builtins, ReadOnly: false, Programs: ReadOnlyPrograms, ...}); declared := p.Requests()[0].Tools; for _, name := range ReadOnlyFileTools { assert declared[name] }; for _, name := range []string{\"write_file\", \"edit_file\", \"execute\"} { assert declared[name] }"
+    },
+    {
+      "id": "TS-15-4",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.4",
+        "15-REQ-10.1"
+      ],
+      "title": "AssertReadOnly returns nil when file_outline and find_symbol are in the resolved set alongside the original four read tools",
+      "given": [
+        "a tool set containing read_file, list_files, find_files, search_files, file_outline and find_symbol"
+      ],
+      "when": "AssertReadOnly is called with that set",
+      "then": [
+        "it returns nil"
+      ],
+      "pseudocode": "tools := []core.Tool{{Name: \"read_file\"}, {Name: \"list_files\"}, {Name: \"find_files\"}, {Name: \"search_files\"}, {Name: \"file_outline\"}, {Name: \"find_symbol\"}}; assert AssertReadOnly(tools) == nil"
+    },
+    {
+      "id": "TS-15-5",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-10.2"
+      ],
+      "title": "AssertReadOnly returns ErrNotReadOnly naming write_file when it is added alongside the symbol tools",
+      "given": [
+        "a tool set containing read_file, file_outline, find_symbol and write_file"
+      ],
+      "when": "AssertReadOnly is called with that set",
+      "then": [
+        "it returns an error wrapping ErrNotReadOnly",
+        "the error message contains \"write_file\"",
+        "the error message does not contain \"file_outline\" or \"find_symbol\""
+      ],
+      "pseudocode": "tools := []core.Tool{{Name: \"read_file\"}, {Name: \"file_outline\"}, {Name: \"find_symbol\"}, {Name: \"write_file\"}}; err := AssertReadOnly(tools); assert errors.Is(err, ErrNotReadOnly); assert strings.Contains(err.Error(), \"write_file\"); assert !strings.Contains(err.Error(), \"file_outline\"); assert !strings.Contains(err.Error(), \"find_symbol\")"
+    },
+    {
+      "id": "TS-15-6",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-1.5"
+      ],
+      "title": "toolsNote lists file_outline and find_symbol by name when they are in the registered set",
+      "given": [
+        "a registered tool set containing read_file, find_files, file_outline, find_symbol and a terminator"
+      ],
+      "when": "toolsNote is called with that set",
+      "then": [
+        "the returned string contains \"file_outline\"",
+        "the returned string contains \"find_symbol\"",
+        "the returned string contains \"no shell\" because no shell tool is present"
+      ],
+      "pseudocode": "note := toolsNote([]core.Tool{{Name: \"read_file\"}, {Name: \"find_files\"}, {Name: \"file_outline\"}, {Name: \"find_symbol\"}, {Name: \"submit\"}}); assert strings.Contains(note, \"file_outline\"); assert strings.Contains(note, \"find_symbol\"); assert strings.Contains(note, \"no shell\")"
+    },
+    {
+      "id": "TS-15-7",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-2.1",
+        "15-REQ-2.2"
+      ],
+      "title": "registeredTools calls tools.All per phase, giving each phase its own tool instances",
+      "given": [
+        "a Runner with a workspace",
+        "two Phase values each with BuiltinTools set to ReadOnlyFileTools"
+      ],
+      "when": "registeredTools is called for each phase",
+      "then": [
+        "each call returns a fresh slice of tools (not the same slice pointer)",
+        "both slices contain file_outline and find_symbol",
+        "no code change to registeredTools is needed — the existing per-phase tools.All call provides freshness"
+      ],
+      "pseudocode": "r := NewRunner(cfg); p1 := Phase{BuiltinTools: ReadOnlyFileTools, ReadOnly: true}; p2 := Phase{BuiltinTools: ReadOnlyFileTools, ReadOnly: true}; t1, _ := r.registeredTools(p1); t2, _ := r.registeredTools(p2); assert &t1 != &t2; assert contains(t1, \"file_outline\"); assert contains(t2, \"find_symbol\")"
+    },
+    {
+      "id": "TS-15-8",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-3.1"
+      ],
+      "title": "registeredTools passes tools.Options with zero-value Symbols field",
+      "given": [
+        "the source of registeredTools in internal/agentrun/phase.go"
+      ],
+      "when": "the tools.All call site is inspected",
+      "then": [
+        "tools.Options is constructed with only Workspace set",
+        "no Symbols field is set (it uses the zero value / AgentKit defaults)"
+      ],
+      "pseudocode": "// Source inspection: the call is tools.All(tools.Options{Workspace: r.cfg.Workspace}); assert no Symbols field is set in the Options literal"
+    },
+    {
+      "id": "TS-15-9",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-4.1",
+        "15-REQ-4.2"
+      ],
+      "title": "Each RunPreflight adds a symbol_backend check with OK true and detail 'ctags' or 'heuristics'",
+      "given": [
+        "a workspace pointing to a valid git repository",
+        "a Runner configured with a faux provider",
+        "the four RunPreflight functions: codefix, codeimpl, specgen, issuetriage"
+      ],
+      "when": "each RunPreflight is called with valid options",
+      "then": [
+        "the returned result's Preflight list contains an entry with Check \"symbol_backend\"",
+        "that entry's OK is true",
+        "that entry's Detail is either \"ctags\" or \"heuristics\""
+      ],
+      "pseudocode": "for _, runPF := range [codefix.RunPreflight, codeimpl.RunPreflight, specgen.RunPreflight, issuetriage.RunPreflight] { res, err := runPF(ctx, opts); assert err == nil; found := false; for _, c := range res.Preflight { if c.Check == \"symbol_backend\" { found = true; assert c.OK == true; assert c.Detail == \"ctags\" || c.Detail == \"heuristics\" } }; assert found }"
+    },
+    {
+      "id": "TS-15-10",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-4.3"
+      ],
+      "title": "RunPreflight omits the symbol_backend check when detection fails rather than failing the preflight",
+      "given": [
+        "a RunPreflight function called with options where the workspace is nil or tools.All returns an error for symbol detection"
+      ],
+      "when": "RunPreflight is called and the ctags detection mechanism fails",
+      "then": [
+        "the returned PreflightCheck list contains no entry with Check \"symbol_backend\"",
+        "the preflight result is otherwise unaffected — other checks are still present",
+        "no error is returned from RunPreflight due to the detection failure"
+      ],
+      "pseudocode": "// Simulate detection failure (e.g. tools.All returns error for symbol detection); res, err := RunPreflight(ctx, opts); assert err == nil || err is from another check; for _, c := range res.Preflight { assert c.Check != \"symbol_backend\" }"
+    },
+    {
+      "id": "TS-15-11",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-5.1"
+      ],
+      "title": "The repo map's opening sentence mentions file_outline and find_symbol",
+      "given": [
+        "the repo map rendering function in internal/repomap or the prompt function that renders the repo map block"
+      ],
+      "when": "the repo map is rendered for any phase",
+      "then": [
+        "the opening sentence contains \"file_outline\"",
+        "the opening sentence contains \"find_symbol\"",
+        "the opening sentence contains \"Use `read_file` with `offset`/`limit` to read a declaration, `file_outline` for a file's full outline, and `find_symbol` to locate a name across the repository.\"",
+        "the opening sentence contains \"Use `find_files` and `search_files` for anything the map does not show.\""
+      ],
+      "pseudocode": "rendered := renderRepoMap(ws, budget); assert strings.Contains(rendered, \"`file_outline` for a file's full outline\"); assert strings.Contains(rendered, \"`find_symbol` to locate a name across the repository\")"
+    },
+    {
+      "id": "TS-15-12",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-6.1"
+      ],
+      "title": "docs/model-usage.md lists all six read tools in the phase table",
+      "given": [
+        "docs/model-usage.md exists"
+      ],
+      "when": "the phase table is read",
+      "then": [
+        "every row that previously said 'the four read tools' now says 'the six read tools' or lists all six",
+        "file_outline and find_symbol appear in the tool lists for issue/triage, fix/analyse, fix/implement, all spec phases, impl/survey, impl/repair and impl/implement"
+      ],
+      "pseudocode": "content := readFile(\"docs/model-usage.md\"); assert !strings.Contains(content, \"the four read tools\"); assert strings.Contains(content, \"file_outline\"); assert strings.Contains(content, \"find_symbol\")"
+    },
+    {
+      "id": "TS-15-13",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-6.2"
+      ],
+      "title": "docs/model-usage.md describes the symbol tools in the 'Reading the codebase' section",
+      "given": [
+        "docs/model-usage.md exists"
+      ],
+      "when": "the 'Reading the codebase' section is read",
+      "then": [
+        "it describes what file_outline does",
+        "it describes what find_symbol does",
+        "it mentions ctags as the accelerator and heuristics as the fallback",
+        "it states that each phase holds its own symbol table"
+      ],
+      "pseudocode": "content := readFile(\"docs/model-usage.md\"); section := extractSection(content, \"Reading the codebase\"); assert strings.Contains(section, \"file_outline\"); assert strings.Contains(section, \"find_symbol\"); assert strings.Contains(section, \"ctags\"); assert strings.Contains(section, \"heuristics\"); assert strings.Contains(section, \"symbol table\")"
+    },
+    {
+      "id": "TS-15-14",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-7.1",
+        "15-REQ-7.2"
+      ],
+      "title": "docs/cli.md lists six read tools and includes symbol_backend in preflight examples",
+      "given": [
+        "docs/cli.md exists"
+      ],
+      "when": "the file is read",
+      "then": [
+        "each tool's 'What the model may and may not do' section lists file_outline and find_symbol alongside the original four read tools",
+        "each tool's --preflight example output includes a symbol_backend check entry"
+      ],
+      "pseudocode": "content := readFile(\"docs/cli.md\"); assert strings.Count(content, \"file_outline\") >= 4; assert strings.Count(content, \"find_symbol\") >= 4; assert strings.Contains(content, \"symbol_backend\")"
+    },
+    {
+      "id": "TS-15-15",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-7.3"
+      ],
+      "title": "docs/cli.md --preflight prose mentions ctags detection",
+      "given": [
+        "docs/cli.md exists"
+      ],
+      "when": "the --preflight section prose is read",
+      "then": [
+        "it mentions that --preflight reports whether universal-ctags was found",
+        "it mentions which symbol backend is in use"
+      ],
+      "pseudocode": "content := readFile(\"docs/cli.md\"); section := extractSection(content, \"--preflight\"); assert strings.Contains(section, \"ctags\") || strings.Contains(section, \"universal-ctags\"); assert strings.Contains(section, \"symbol backend\") || strings.Contains(section, \"symbol_backend\")"
+    },
+    {
+      "id": "TS-15-16",
+      "kind": "unit",
+      "verifies": [
+        "15-REQ-8.1",
+        "15-REQ-8.2"
+      ],
+      "title": "docs/development.md navigation baseline tables include file_outline and find_symbol columns",
+      "given": [
+        "docs/development.md exists and contains navigation baseline tables"
+      ],
+      "when": "the baseline tables are read",
+      "then": [
+        "the tables include file_outline call counts",
+        "the tables include find_symbol call counts",
+        "the tables show before-and-after counts per tool"
+      ],
+      "pseudocode": "content := readFile(\"docs/development.md\"); assert strings.Contains(content, \"file_outline\"); assert strings.Contains(content, \"find_symbol\")"
+    },
+    {
+      "id": "TS-15-17",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-1",
+        "15-REQ-1.2",
+        "15-REQ-1.3",
+        "15-REQ-1.4"
+      ],
+      "title": "A fix run registers six read tools in both the analyse (read-only) and implement (writing) phases",
+      "given": [
+        "a workspace with a valid git repository and at least one Go file",
+        "a faux provider scripted with tool calls that terminate each phase",
+        "a Runner configured with the workspace"
+      ],
+      "when": "the fix pipeline runs its analyse and implement phases",
+      "then": [
+        "the analyse phase's declared tools include all six ReadOnlyFileTools and exclude MutatingTools",
+        "the implement phase's declared tools include all six ReadOnlyFileTools plus write_file, edit_file and execute",
+        "AssertReadOnly passes for the analyse phase (no MutatingTools in the resolved set)",
+        "each phase gets a fresh tools.All call (separate tool instances)"
+      ],
+      "real_components": [
+        "agentrun.Runner",
+        "agentrun.SelectTools",
+        "agentrun.AssertReadOnly",
+        "tools.All"
+      ]
+    },
+    {
+      "id": "TS-15-18",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-2",
+        "15-REQ-4.1"
+      ],
+      "title": "fix --preflight reports the symbol_backend check with OK true",
+      "given": [
+        "a workspace with a valid git repository",
+        "a Runner configured with a faux provider",
+        "codefix.RunPreflight called with valid options"
+      ],
+      "when": "codefix.RunPreflight is called",
+      "then": [
+        "the result's Preflight list contains a symbol_backend entry",
+        "the symbol_backend entry has OK true",
+        "the symbol_backend entry has Detail equal to \"ctags\" or \"heuristics\"",
+        "the preflight completes without error"
+      ],
+      "real_components": [
+        "codefix.RunPreflight",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-15-19",
+      "kind": "smoke",
+      "verifies": [
+        "15-PATH-3",
+        "15-REQ-5.1"
+      ],
+      "title": "An issue run renders the repo map with the updated opening sentence mentioning file_outline and find_symbol",
+      "given": [
+        "a workspace with a valid git repository and tracked files",
+        "a faux provider scripted to terminate the triage phase",
+        "the issue pipeline configured with the workspace"
+      ],
+      "when": "the issue pipeline runs its triage phase",
+      "then": [
+        "the user prompt sent to the provider contains the repo map block",
+        "the repo map block's opening sentence contains \"file_outline\"",
+        "the repo map block's opening sentence contains \"find_symbol\"",
+        "the model's declared tools include file_outline and find_symbol"
+      ],
+      "real_components": [
+        "issuetriage pipeline",
+        "agentrun.Runner",
+        "repo map renderer"
+      ]
+    }
+  ]
+}

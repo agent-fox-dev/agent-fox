@@ -1,0 +1,290 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "13",
+  "spec_name": "replace_variant_with_effort",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/agentrun/... ./internal/toolio/... ./cmd/impl/... ./cmd/fix/... ./cmd/issue/... ./cmd/spec/... -count=1 -run 'TS.13|Effort|Variant|Tier.*Vendor'"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Remove the variant dimension from the tier table and ModelSpec/ResolveModel signatures",
+      "criteria": [
+        "13-REQ-4.2",
+        "13-REQ-4.3",
+        "13-REQ-6.1"
+      ],
+      "tests": [
+        "TS-13-18",
+        "TS-13-19",
+        "TS-13-25"
+      ],
+      "steps": [
+        "Write TS-13-18 (tierTable type is map[string]map[ModelTier]tierEntry, no extended entry) and TS-13-19 (ModelSpec and ResolveModel accept two parameters) and TS-13-25 (deleted variant tests no longer exist) and confirm they fail.",
+        "In internal/agentrun/models.go, change tierTable's type from map[string]map[ModelTier]map[string]tierEntry to map[string]map[ModelTier]tierEntry. Rewrite the literal: each tier maps directly to a tierEntry, removing the variant key and deleting the extended entry for anthropic ADVANCED.",
+        "Change ModelSpec's signature from ModelSpec(name, variant, vendor string) to ModelSpec(name, vendor string). Remove all variant lookup logic: the function now looks up byTier[tier] directly instead of byTier[tier][variant]. Return the entry's spec and thinking.",
+        "Change ResolveModel's signature from ResolveModel(name, variant, vendor string) to ResolveModel(name, vendor string). Update its call to ModelSpec to pass only (name, vendor).",
+        "Delete TestTheExtendedVariantHasAMillionTokenWindow and TestAnUnknownVariantFallsBackToTheTierDefault from models_test.go.",
+        "Update all remaining tests in models_test.go that call ModelSpec or ResolveModel with three arguments to use two arguments (remove the variant parameter).",
+        "Run go test ./internal/agentrun/... -count=1 and confirm all tests pass."
+      ],
+      "touches": [
+        "internal/agentrun/models.go",
+        "internal/agentrun/models_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add --effort flag, remove --variant from Common, and wire effort validation",
+      "criteria": [
+        "13-REQ-1.1",
+        "13-REQ-1.2",
+        "13-REQ-1.5",
+        "13-REQ-1.6",
+        "13-REQ-1.7",
+        "13-REQ-4.1"
+      ],
+      "tests": [
+        "TS-13-1",
+        "TS-13-2",
+        "TS-13-5",
+        "TS-13-6",
+        "TS-13-7",
+        "TS-13-17"
+      ],
+      "steps": [
+        "Write TS-13-1 (--effort registered with DeclareEnum listing seven values), TS-13-2 (Common has Effort, no Variant), TS-13-5 (case-insensitive matching stored as lower-case), TS-13-6 (invalid --effort exits 2 listing accepted values), TS-13-7 (invalid $AF_MODEL_EFFORT exits 2 naming the variable), and TS-13-17 (--variant no longer registered) and confirm they fail.",
+        "In internal/toolio/cli.go, remove the Variant field from the Common struct. Add an Effort field of type string.",
+        "In Common.Register, remove the fs.StringVar for --variant. Add fs.StringVar(&c.Effort, \"effort\", \"\", ...) and DeclareEnum(fs, \"effort\", effortValues()) where effortValues returns the canonical list: off, minimal, low, medium, high, xhigh, max (from core.ThinkingLevelOrder or a local constant matching it).",
+        "Implement case-insensitive matching: use a custom flag.Value type (or normalize in a ValidEffort method) that lowercases the input and checks membership in the accepted set. An invalid value returns an error listing the accepted values.",
+        "Add a const EffortEnv = \"AF_MODEL_EFFORT\" and a method or function that reads $AF_MODEL_EFFORT when --effort is not set, validates it case-insensitively, and returns a usage error naming the variable when invalid.",
+        "Update ResolveModelNamed to no longer reference c.Variant. Update the call to agentrun.ResolveModel to pass only (spec, c.VendorName()) — two arguments.",
+        "Run go test ./internal/toolio/... -count=1 and confirm all tests pass."
+      ],
+      "touches": [
+        "internal/toolio/cli.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement effort precedence and clamping in ResolveModelNamed, add effort_clamped warning",
+      "criteria": [
+        "13-REQ-1.3",
+        "13-REQ-1.4",
+        "13-REQ-2.1",
+        "13-REQ-2.2",
+        "13-REQ-2.3",
+        "13-REQ-2.4"
+      ],
+      "tests": [
+        "TS-13-3",
+        "TS-13-4",
+        "TS-13-8",
+        "TS-13-9",
+        "TS-13-10",
+        "TS-13-11"
+      ],
+      "steps": [
+        "Write TS-13-3 (effort precedence table test), TS-13-4 (--effort applies to catalog id), TS-13-8 (ClampThinkingLevel called and clamped level used), TS-13-9 (effort_clamped warning recorded), TS-13-10 (ok==false with explicit effort fails), and TS-13-11 (WarnEffortClamped maps to preflight) and confirm they fail.",
+        "In internal/toolio/warncode.go, add WarnEffortClamped WarnCode = \"effort_clamped\" to the constants, add it to warnStages mapped to \"preflight\", and add it to DeclaredWarnCodes().",
+        "In internal/toolio/cli.go, update ResolveModelNamed to implement the effort precedence: (1) c.Effort flag, (2) os.Getenv(EffortEnv), (3) the thinking level returned by agentrun.ResolveModel (the tier's own), (4) ThinkingUnset. Validate the env value if used.",
+        "After determining the effective effort, if it is not ThinkingUnset, call catalog.ClampThinkingLevel(model, effort). If ok==false and the effort was explicit (from flag or env), return a usage error naming the model. If the clamped level differs from the requested level, record a warning via the Run with code WarnEffortClamped naming both levels and the model.",
+        "Set choice.Thinking to the effective (clamped) level so the envelope's model.thinking reports it.",
+        "Update ResolveModelNamed's signature or add a Run parameter so it can record warnings. If ResolveModelNamed currently has no access to Run, thread it through or return warnings alongside the ModelChoice for the caller to record.",
+        "Run go test ./internal/toolio/... ./internal/agentrun/... -count=1 and confirm all tests pass."
+      ],
+      "touches": [
+        "internal/toolio/cli.go",
+        "internal/toolio/warncode.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add --repair-model-effort to impl and implement repair effort precedence",
+      "criteria": [
+        "13-REQ-3.1",
+        "13-REQ-3.2",
+        "13-REQ-3.3",
+        "13-REQ-3.4",
+        "13-REQ-3.5"
+      ],
+      "tests": [
+        "TS-13-12",
+        "TS-13-13",
+        "TS-13-14",
+        "TS-13-15",
+        "TS-13-16"
+      ],
+      "steps": [
+        "Write TS-13-12 (--repair-model-effort registered on impl, in toolFlags), TS-13-13 (repair effort precedence table test), TS-13-14 (--repair-model-effort alone implies --repair), TS-13-15 (repair clamping warning names repair phase), and TS-13-16 (no env var fallback for --repair-model-effort) and confirm they fail.",
+        "In cmd/impl/main.go, add a repairModelEffort string field to implFlags. In the Flags func, register --repair-model-effort with the same accepted values and DeclareEnum as --effort.",
+        "In internal/toolio/toolflags.go, add \"repair-model-effort\" to toolFlags[\"impl\"].",
+        "In cmd/impl/main.go's PreCheck, add logic: if f.repairModelEffort != \"\" { f.repair = true } (--repair-model-effort implies --repair).",
+        "Update resolveRepairRunner (or add a new function) to implement the repair effort precedence: (1) --repair-model-effort, (2) if --repair-model is given: that model's tier effort (via ResolveModelNamed), otherwise ThinkingUnset, (3) if --repair-model is not given: the run's effective effort. The run's --effort and $AF_MODEL_EFFORT do not carry over to a separately named repair model.",
+        "Ensure the repair model's effort goes through the same ClampThinkingLevel check and records an effort_clamped warning whose message names the repair phase.",
+        "Run go test ./cmd/impl/... -count=1 and confirm all tests pass."
+      ],
+      "touches": [
+        "cmd/impl/main.go",
+        "internal/toolio/toolflags.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Add variant to removedFlagMessages, update knownFixValueFlags, and extend tier self-consistency test",
+      "criteria": [
+        "13-REQ-4.4",
+        "13-REQ-4.5",
+        "13-REQ-4.6",
+        "13-REQ-4.7",
+        "13-REQ-5.1"
+      ],
+      "tests": [
+        "TS-13-20",
+        "TS-13-21",
+        "TS-13-22",
+        "TS-13-23",
+        "TS-13-24"
+      ],
+      "steps": [
+        "Write TS-13-20 (ResolveModelNamed no longer references c.Variant), TS-13-21 (knownFixValueFlags has effort, not variant), TS-13-22 (removedFlagMessages has variant directing to --effort and --model), TS-13-23 (--variant produces removed-flag message exit 2), and TS-13-24 (tier effort self-consistency property test) and confirm they fail.",
+        "In internal/toolio/toolflags.go, add \"variant\" to removedFlagMessages with a message like: \"--variant was removed; use --effort to set reasoning effort and --model to name a specific model\".",
+        "In cmd/fix/main.go, add \"effort\": true to knownFixValueFlags and remove \"variant\": true.",
+        "In internal/agentrun/models_test.go, extend TestEveryTierOfEveryVendorResolvesInTheCatalog: for any (vendor, tier) whose tierEntry has thinking != ThinkingUnset, call catalog.ClampThinkingLevel(m, thinking) and assert the returned level equals the tier's prescribed level and ok is true.",
+        "Run go test ./internal/agentrun/... ./internal/toolio/... ./cmd/fix/... -count=1 and confirm all tests pass."
+      ],
+      "touches": [
+        "internal/toolio/toolflags.go",
+        "cmd/fix/main.go",
+        "internal/agentrun/models_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Update schema golden files for all four tools and fix all call sites",
+      "criteria": [
+        "13-REQ-6.2"
+      ],
+      "tests": [
+        "TS-13-26"
+      ],
+      "steps": [
+        "Write TS-13-26 (golden files contain effort not variant; impl's contains repair-model-effort) and confirm it fails.",
+        "Run each tool's schema test (go test ./cmd/issue/... ./cmd/fix/... ./cmd/spec/... ./cmd/impl/... -run Schema -count=1) to regenerate or identify the golden files that need updating.",
+        "Update cmd/issue/testdata/schema.golden.json, cmd/fix/testdata/schema.golden.json, cmd/spec/testdata/schema.golden.json, and cmd/impl/testdata/schema.golden.json: remove the variant flag entry, add the effort flag entry with its enum values, and add repair-model-effort to impl's golden file.",
+        "Fix any remaining compilation errors across the codebase from the signature changes (any call site of ModelSpec or ResolveModel that still passes three arguments, any reference to Common.Variant).",
+        "Run make test to confirm the full test suite passes."
+      ],
+      "touches": [
+        "cmd/issue/testdata/schema.golden.json",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/spec/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        4,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Update all documentation: cli.md, configuration.md, model-usage.md, errata, and new ADR",
+      "criteria": [
+        "13-REQ-7"
+      ],
+      "tests": [
+        "TS-13-27",
+        "TS-13-28",
+        "TS-13-29",
+        "TS-13-30",
+        "TS-13-31"
+      ],
+      "steps": [
+        "Write TS-13-27 (cli.md has --effort not --variant, has --repair-model-effort, has interface-versions entry), TS-13-28 (configuration.md has $AF_MODEL_EFFORT, effort precedence, long-context example), TS-13-29 (model-usage.md repair paragraph without --variant), TS-13-30 (errata section 2 closing note about extended variant removal), and TS-13-31 (ADR 08 exists and records the decision) and confirm they fail.",
+        "In docs/cli.md: replace the --variant row in the shared-flags table with --effort (type string, accepted values, $AF_MODEL_EFFORT env var). Add --repair-model-effort to impl's flags section. Remove --variant from the --repair-model paragraph. Add an interface-versions entry recording the --variant removal and --effort / --repair-model-effort addition.",
+        "In docs/configuration.md: remove the extended paragraph and --variant extended example from the tier section. Add the effort precedence (flag > env > tier > unset), document $AF_MODEL_EFFORT, and add the long-context example --model anthropic/claude-fable-5-1 --effort xhigh.",
+        "In docs/model-usage.md: rewrite the repair paragraph to state the repair effort precedence from 13-REQ-3.2 instead of referencing --vendor and --variant.",
+        "In docs/errata/agentkit_model_resolution.md: add a closing note to section 2 stating that the extended variant no longer exists and why (effort is now an independent setting; to get long context, name the model by id).",
+        "Create docs/adr/08-effort-replaces-variant.md recording the decision: effort as an explicit setting independent of the model, the removal of variants without compatibility, and the rationale.",
+        "Run make check to confirm nothing is broken."
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/configuration.md",
+        "docs/model-usage.md",
+        "docs/errata/agentkit_model_resolution.md",
+        "docs/adr/08-effort-replaces-variant.md"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Verify all execution paths end to end and confirm no stubs remain",
+      "tests": [
+        "TS-13-32",
+        "TS-13-33",
+        "TS-13-34",
+        "TS-13-35",
+        "TS-13-36",
+        "TS-13-37"
+      ],
+      "steps": [
+        "Write TS-13-32 (tier effort override with --effort, envelope reports effective level), TS-13-33 (effort on catalog id), TS-13-34 ($AF_MODEL_EFFORT overrides tier), TS-13-35 (impl repair at its own effort), TS-13-36 (--variant produces removed-flag error), and TS-13-37 (invalid --effort refused) and confirm they pass.",
+        "Trace 13-PATH-1 (tier effort override): follow Common.Register to ResolveModelNamed to agentrun.ResolveModel to catalog.ClampThinkingLevel to ModelChoice.Thinking to envelope model.thinking. Confirm each step calls the next in production code.",
+        "Trace 13-PATH-2 (catalog id with effort): follow ResolveModelNamed with a non-tier spec to catalog.ResolveModel to ClampThinkingLevel to ModelChoice. Confirm the effort is applied.",
+        "Trace 13-PATH-3 ($AF_MODEL_EFFORT override): follow ResolveModelNamed reading the env var when no flag is set, overriding the tier's effort. Confirm the env path is exercised.",
+        "Trace 13-PATH-4 (impl repair effort): follow impl's PreCheck to resolveRepairRunner to ResolveModelNamed with repair-model-effort. Confirm the repair model's effort is independent of the run's.",
+        "Trace 13-PATH-5 (--variant removed): follow flag parsing to unsupportedFlagMessage to removedFlagMessages[variant]. Confirm the message directs to --effort and --model.",
+        "Trace 13-PATH-6 (invalid --effort): follow flag parsing or validation to usage error with accepted values listed.",
+        "For every criterion with a contract (13-REQ-1.6, 13-REQ-1.7, 13-REQ-2.3, 13-REQ-4.7), confirm the producer's result (the error or exit code) is consumed by a caller in production code, not only by tests.",
+        "Search all files listed in every task's touches for stub markers: grep for panic(\"not implemented\"), TODO, and bare return nil on non-trivial paths. Remove any that remain.",
+        "Run make test and make lint and confirm everything passes."
+      ],
+      "depends_on": [
+        6,
+        7
+      ],
+      "done_when": [
+        "make test passes with zero failures",
+        "make lint passes",
+        "No panic(\"not implemented\") or TODO markers remain in touched files",
+        "Every smoke test passes against the real code paths"
+      ],
+      "state": "pending"
+    }
+  ]
+}

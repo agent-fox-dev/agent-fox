@@ -1,0 +1,477 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "13",
+  "spec_name": "tool_call_counts_and_relevant_files",
+  "schema_version": 2,
+  "introduction": "This spec adds per-phase tool-call and byte counters to agentrun.Result, the envelope's usage.phases[] and the phase_end event so that navigation improvements can be measured, and adds a relevant_files field to submit_prd so that spec generation phases after the PRD start from the files the PRD phase found relevant instead of rediscovering them.",
+  "glossary": {
+    "Observer": "The agentrun.Observer interface that receives phase progress events; implemented by toolio.Progress and test observers.",
+    "PhaseEndEvent": "The JSONL event emitted when a model phase ends, defined in internal/toolio/events.go.",
+    "PhaseInfo": "The per-phase cost record in the envelope's usage.phases[], defined in internal/toolio/envelope.go.",
+    "envelope": "The single JSON object every agent-fox tool writes to stdout, defined by toolio.Envelope.",
+    "phase": "One model-facing step of a pipeline, driven by agentrun.Runner.Run. Each phase is a fresh agent with its own system prompt, user prompt, tools and terminating tool.",
+    "relevant_files": "An optional array on submit_prd listing repository files the PRD phase read and found important for later generation phases.",
+    "split": "A run where the PRD phase reports the input as more than one spec's worth of work, producing multiple packages from a single input."
+  },
+  "requirements": [
+    {
+      "id": "13-REQ-1",
+      "title": "Tool-call and byte counters on agentrun.Result",
+      "rationale": "Without per-tool call counts and byte volumes on the Result, navigation improvements cannot be measured from the envelope or event stream.",
+      "criteria": [
+        {
+          "id": "13-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Result",
+          "action": "carry a ToolCalls field of type map[string]int that counts the number of calls to each tool by name, including blocked calls"
+        },
+        {
+          "id": "13-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Result",
+          "action": "carry a ToolResultBytes field of type map[string]int64 that sums the byte length of Content.Text() of each ToolResultMessage by tool name"
+        },
+        {
+          "id": "13-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "Runner.run",
+          "action": "count ToolCalls and ToolResultBytes in the same event-processing path (the trace method) that already counts ToolErrors and Blocked, on every phase of every tool, whether or not --verbose is set"
+        },
+        {
+          "id": "13-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "a tool call is blocked by the authorization guard",
+          "system": "Runner.run",
+          "action": "increment ToolCalls for that tool name but not increment ToolResultBytes, because the result is the guard's refusal message already counted as a tool error"
+        },
+        {
+          "id": "13-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "a tool call returns an error result that is not a guard refusal",
+          "system": "Runner.run",
+          "action": "increment both ToolCalls and ToolResultBytes for that tool name, using the byte length of the error text the model sees"
+        },
+        {
+          "id": "13-REQ-1.6",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Result",
+          "action": "for any phase that made zero tool calls, report ToolCalls as nil and ToolResultBytes as nil rather than empty maps"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-2",
+      "title": "Tool-call counts in toolio.PhaseInfo",
+      "rationale": "The envelope's usage.phases[] is the durable record of a run; without tool-call counts there, a caller must parse individual tool_call events to measure navigation.",
+      "criteria": [
+        {
+          "id": "13-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "toolio.PhaseInfo",
+          "action": "carry a ToolCalls field of type map[string]int with JSON tag \"tool_calls,omitempty\" and trust classification fact"
+        },
+        {
+          "id": "13-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "toolio.PhaseInfo",
+          "action": "carry a ToolResultBytes field of type map[string]int64 with JSON tag \"tool_result_bytes,omitempty\" and trust classification fact"
+        },
+        {
+          "id": "13-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "PhaseFromResult",
+          "action": "copy ToolCalls and ToolResultBytes from agentrun.Result into the PhaseInfo it returns"
+        },
+        {
+          "id": "13-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "toolio",
+          "action": "bump SchemaVersion from \"3.0.0\" to \"3.1.0\" and add a changelog line in docs/cli.md describing the addition of tool_calls and tool_result_bytes to usage.phases[] and relevant_files to the spec result"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-3",
+      "title": "Tool-call counts in the phase_end event",
+      "rationale": "A caller watching the event stream should see per-tool counts without waiting for the envelope.",
+      "criteria": [
+        {
+          "id": "13-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "PhaseEndEvent",
+          "action": "carry a ToolCalls field of type map[string]int with JSON tag \"tool_calls,omitempty\""
+        },
+        {
+          "id": "13-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "newPhaseEndEvent",
+          "action": "accept a toolCalls map[string]int parameter and set it on the returned PhaseEndEvent"
+        },
+        {
+          "id": "13-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "Observer.PhaseEnd",
+          "action": "accept a toolCalls map[string]int parameter in its signature, and every implementation of Observer (toolio.Progress and test observers in internal/agentrun/hooks_test.go) shall be updated to match"
+        },
+        {
+          "id": "13-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "Progress.PhaseEnd",
+          "action": "pass the toolCalls parameter through to newPhaseEndEvent when emitting the phase_end event"
+        },
+        {
+          "id": "13-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "Runner.Run",
+          "action": "pass the Result's ToolCalls map to Observer.PhaseEnd in the call that follows the run body"
+        },
+        {
+          "id": "13-REQ-3.6",
+          "pattern": "ubiquitous",
+          "system": "PhaseEndEvent",
+          "action": "not carry ToolResultBytes, keeping the event compact; byte counts are available only in the envelope's usage.phases[]"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-4",
+      "title": "submit_prd gains relevant_files",
+      "rationale": "Without a relevant_files field, every generation phase rediscovers the files the PRD phase already identified, wasting turns on navigation.",
+      "criteria": [
+        {
+          "id": "13-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "submit_prd tool schema",
+          "action": "include an optional relevant_files array of objects, each with a required path (string) and a required why (string), described to the model as 'the files a later phase should read first to write requirements, tests and tasks for this PRD'"
+        },
+        {
+          "id": "13-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "submit_prd tool schema",
+          "action": "enforce a maxItems of 30 on the relevant_files array in the schema definition, so the model sees the limit before it calls"
+        },
+        {
+          "id": "13-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "specgen.PRD",
+          "action": "carry a RelevantFiles field of type []RelevantFile where RelevantFile is struct { Path string; Why string }"
+        },
+        {
+          "id": "13-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "prdSink",
+          "action": "store the validated relevant_files alongside the rest of the PRD when the submission is accepted"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-5",
+      "title": "Path validation on relevant_files",
+      "rationale": "A bad path costs one turn now rather than a wrong task later, matching the contract issuetriage's citation check uses.",
+      "criteria": [
+        {
+          "id": "13-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "submit_prd is called with a relevant_files array",
+          "system": "submit_prd handler",
+          "action": "resolve every path with tools.Workspace.Resolve, check that it exists with os.Stat, and verify it is a regular file (not a directory)"
+        },
+        {
+          "id": "13-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "one or more paths in relevant_files fail resolution, do not exist, or are directories",
+          "system": "submit_prd handler",
+          "action": "reject the submission with a tool error naming each bad path, using the same error-result pattern as the existing specNameRE, empty-title and missing-intent checks",
+          "contract": "core.ErrResult with code \"invalid_relevant_files\" and a message listing every bad path"
+        },
+        {
+          "id": "13-REQ-5.3",
+          "pattern": "event_driven",
+          "condition": "submit_prd is called without relevant_files or with an empty array",
+          "system": "submit_prd handler",
+          "action": "accept the submission without path validation, storing an empty or nil RelevantFiles on the PRD"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-6",
+      "title": "Relevant-files block in generation and architecture prompts",
+      "rationale": "Injecting the PRD phase's file list into later phases gives them a head start on navigation without sharing transcripts.",
+      "criteria": [
+        {
+          "id": "13-REQ-6.1",
+          "pattern": "state_driven",
+          "condition": "the PRD phase supplied a non-empty relevant_files list",
+          "system": "generation prompt builder",
+          "action": "include a '## Files the PRD phase found relevant' block in the user prompt of each generation phase (generate:requirements, generate:test_spec, generate:tasks) and the optional architecture phase, placed after the landscape and steering blocks and before the prior-artifacts block"
+        },
+        {
+          "id": "13-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "relevant-files prompt block",
+          "action": "render each entry as '- `<path>` — <why>' and introduce the block with text stating it is the previous phase's notes, not instructions"
+        },
+        {
+          "id": "13-REQ-6.3",
+          "pattern": "state_driven",
+          "condition": "the PRD phase did not supply relevant_files (the field was omitted or the array was empty)",
+          "system": "generation prompt builder",
+          "action": "omit the relevant-files block entirely, producing a prompt byte-identical to what it would be without this change"
+        },
+        {
+          "id": "13-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "artifactRequest",
+          "action": "carry the relevant_files list so that generationUserPrompt and the architecture prompt builder can access it"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-7",
+      "title": "Relevant files on a split",
+      "rationale": "Each scope's PRD phase reads different files; mixing them would mislead later phases.",
+      "criteria": [
+        {
+          "id": "13-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "the input is split into multiple scopes",
+          "system": "specgen pipeline",
+          "action": "pass each scope's own PRD phase's relevant_files list to only that scope's generation and architecture phases, not to other scopes' phases"
+        },
+        {
+          "id": "13-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "prdRequest",
+          "action": "not carry relevant_files from a previous scope; the splitContext does not carry it across scopes"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-8",
+      "title": "Relevant files in the envelope",
+      "rationale": "The envelope is the durable record of a run; including relevant_files lets a caller see what the PRD phase identified without re-reading the events.",
+      "criteria": [
+        {
+          "id": "13-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "specgen.Package",
+          "action": "carry a RelevantFiles field with JSON tag \"relevant_files,omitempty\" and trust classification model (the why field is model text), populated from the PRD phase's output"
+        },
+        {
+          "id": "13-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "the input is split into multiple scopes",
+          "system": "specgen pipeline",
+          "action": "populate each Package in FollowOnSpecs with its own scope's relevant_files list"
+        },
+        {
+          "id": "13-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "specgen pipeline",
+          "action": "not persist relevant_files inside the spec package directory; it lives only in the envelope and the run-time pipeline"
+        },
+        {
+          "id": "13-REQ-8.4",
+          "pattern": "state_driven",
+          "condition": "a re-run continues from an existing PRD (the PRD phase does not run because a split plan exists)",
+          "system": "specgen pipeline",
+          "action": "run the later phases without the relevant-files block and emit a low-severity warning with code relevant_files_unavailable"
+        },
+        {
+          "id": "13-REQ-8.5",
+          "pattern": "ubiquitous",
+          "system": "toolio warncode",
+          "action": "declare a WarnRelevantFilesUnavailable constant with value \"relevant_files_unavailable\" and stage \"prd\" in the warnStages table, following the existing pattern"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-9",
+      "title": "Navigation baseline procedure and tables in docs/development.md",
+      "rationale": "Without a recorded baseline, the effect of later navigation changes (repository map, symbol tools, indexed search) cannot be measured in review.",
+      "criteria": [
+        {
+          "id": "13-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "contain a 'Navigation baseline' section with a procedure for running a fixed set of inputs per tool against this repository with --dry-run: issue (two inputs: a stack trace, a prose report), fix (two inputs naming a seeded defect), spec (three inputs), and impl (one small fixed spec package of at least three tasks)"
+        },
+        {
+          "id": "13-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "contain one table per tool recording the per-phase tool_calls from those baseline runs"
+        },
+        {
+          "id": "13-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "contain a note that the tables are regenerated by hand whenever a navigation change ships, and that no live-model run enters make test"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "13-PATH-1",
+      "title": "A spec run reports per-phase tool-call counts in the envelope and event stream",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `spec <input>` against a repository"
+        },
+        {
+          "actor": "Runner.Run",
+          "action": "drives the PRD phase; the trace method counts every tool call and its result bytes in ToolCalls and ToolResultBytes on the Result"
+        },
+        {
+          "actor": "Runner.Run",
+          "action": "calls Observer.PhaseEnd with the Result's ToolCalls map; Progress emits a phase_end event carrying tool_calls"
+        },
+        {
+          "actor": "PhaseFromResult",
+          "action": "copies ToolCalls and ToolResultBytes from the Result into a PhaseInfo"
+        },
+        {
+          "actor": "Run.AddPhase",
+          "action": "records the PhaseInfo in the envelope's usage.phases[]"
+        },
+        {
+          "actor": "specgen pipeline",
+          "action": "repeats the above for each generation phase (requirements, test_spec, tasks)"
+        },
+        {
+          "actor": "Run.Envelope",
+          "action": "assembles the envelope with usage.phases[] carrying tool_calls and tool_result_bytes for every phase"
+        },
+        {
+          "actor": "operator",
+          "action": "reads the envelope's usage.phases[].tool_calls to see how many calls each phase made to each tool"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-2",
+      "title": "A spec run passes relevant_files from the PRD phase to generation phases",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `spec <input>` against a repository"
+        },
+        {
+          "actor": "PRD phase model",
+          "action": "calls submit_prd with a relevant_files array listing files it read and found important"
+        },
+        {
+          "actor": "submit_prd handler",
+          "action": "validates each path with Workspace.Resolve and os.Stat, accepts the submission, and stores RelevantFiles on the PRD"
+        },
+        {
+          "actor": "specgen pipeline",
+          "action": "passes the PRD's RelevantFiles to each artifactRequest"
+        },
+        {
+          "actor": "generation prompt builder",
+          "action": "renders a '## Files the PRD phase found relevant' block in the user prompt, after landscape and steering, before prior artifacts"
+        },
+        {
+          "actor": "generation phase model",
+          "action": "reads the relevant-files block and starts from those files instead of rediscovering them"
+        },
+        {
+          "actor": "specgen pipeline",
+          "action": "populates Package.RelevantFiles in the envelope result from the PRD's output"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-3",
+      "title": "A resumed split run warns about unavailable relevant files",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `spec <input>` on an input whose split plan already exists on disk (a previous run was interrupted)"
+        },
+        {
+          "actor": "specgen pipeline",
+          "action": "finds the split plan and skips the PRD phase for already-written scopes"
+        },
+        {
+          "actor": "specgen pipeline",
+          "action": "detects that no relevant_files list is available for the resumed scope and emits a low-severity warning with code relevant_files_unavailable"
+        },
+        {
+          "actor": "generation prompt builder",
+          "action": "omits the relevant-files block from the generation prompts for the resumed scope"
+        },
+        {
+          "actor": "operator",
+          "action": "sees the warning in the envelope's warnings[] array"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-4",
+      "title": "submit_prd rejects invalid paths in relevant_files",
+      "steps": [
+        {
+          "actor": "PRD phase model",
+          "action": "calls submit_prd with a relevant_files array containing a path that does not exist"
+        },
+        {
+          "actor": "submit_prd handler",
+          "action": "resolves the path, finds it does not exist, and returns an error result with code invalid_relevant_files naming the bad path"
+        },
+        {
+          "actor": "PRD phase model",
+          "action": "receives the error, corrects the path, and resubmits"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go",
+      "version": "v0.0.0",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Workspace.Resolve",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func (w *Workspace) Resolve(path string) (string, error)",
+          "notes": "Inferred from call sites in issuetriage/triage.go L155, L173. Used to resolve repository-relative paths to absolute paths."
+        },
+        {
+          "name": "OKResult",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "func OKResult(v any) ToolResult",
+          "notes": "Inferred from call sites in specgen/prd.go and issuetriage/triage.go."
+        },
+        {
+          "name": "ErrResult",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "func ErrResult(code, msg string) ToolResult",
+          "notes": "Inferred from call sites in specgen/prd.go and issuetriage/triage.go."
+        },
+        {
+          "name": "ToolResultMessage",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "struct { ToolName string; ToolUseID string; IsError bool; Content interface{ Text() string } }",
+          "notes": "Inferred from usage in internal/agentrun/phase.go L371-L395. Content.Text() returns the model-facing text."
+        },
+        {
+          "name": "Array",
+          "import_path": "github.com/agentfox/agentkit-go/schema",
+          "signature": "func Array(items *Schema, description string) *Schema",
+          "notes": "Inferred from usage in specgen/prd.go L68 and codeimpl/phases.go L195."
+        },
+        {
+          "name": "MaxItemsN",
+          "import_path": "github.com/agentfox/agentkit-go/schema",
+          "signature": "func (s *Schema) MaxItemsN(n int) *Schema",
+          "notes": "Inferred from MinItemsN usage pattern in codefix/phases.go L97. Used to set maxItems on an array schema."
+        }
+      ]
+    }
+  ]
+}

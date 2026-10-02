@@ -1,0 +1,698 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "13",
+  "spec_name": "tool_call_counts_and_relevant_files",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-13-1",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.1",
+        "13-REQ-1.2"
+      ],
+      "title": "agentrun.Result carries ToolCalls and ToolResultBytes fields of the correct types",
+      "given": [
+        "a Result struct is constructed with ToolCalls and ToolResultBytes populated"
+      ],
+      "when": "the fields are read back",
+      "then": [
+        "ToolCalls is map[string]int and holds the expected counts",
+        "ToolResultBytes is map[string]int64 and holds the expected byte sums"
+      ],
+      "pseudocode": "r := agentrun.Result{ToolCalls: map[string]int{\"read_file\": 3}, ToolResultBytes: map[string]int64{\"read_file\": 4096}}; assert r.ToolCalls[\"read_file\"] == 3; assert r.ToolResultBytes[\"read_file\"] == 4096"
+    },
+    {
+      "id": "TS-13-2",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.3"
+      ],
+      "title": "Runner.run counts ToolCalls and ToolResultBytes in the trace method on every tool call",
+      "given": [
+        "a Runner with a faux provider that makes two tool calls (read_file and list_files) before calling the terminator",
+        "an observer is attached"
+      ],
+      "when": "Runner.Run drives the phase to completion",
+      "then": [
+        "Result.ToolCalls contains entries for read_file, list_files and the terminator",
+        "Result.ToolResultBytes contains the byte length of each tool result's Content.Text()"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn('c1', 'read_file', args), toolCallTurn('c2', 'list_files', args), toolCallTurn('c3', 'submit', done)); r, _ := runner.Run(ctx, phase); assert r.ToolCalls['read_file'] == 1; assert r.ToolCalls['list_files'] == 1; assert r.ToolCalls['submit'] == 1; assert r.ToolResultBytes['read_file'] > 0"
+    },
+    {
+      "id": "TS-13-3",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.4"
+      ],
+      "title": "A blocked tool call increments ToolCalls but not ToolResultBytes",
+      "given": [
+        "a Runner with a faux provider that calls execute (which the guard blocks) then calls the terminator",
+        "the phase has a shell tool with a guard that blocks the call"
+      ],
+      "when": "Runner.Run drives the phase to completion",
+      "then": [
+        "Result.ToolCalls['execute'] == 1",
+        "Result.ToolResultBytes does not contain an entry for 'execute' or its value is 0",
+        "Result.Blocked == 1"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn('c1', 'execute', {command: 'rm -rf /'}), toolCallTurn('c2', 'submit', done)); res, _ := runner.Run(ctx, phase); assert res.ToolCalls['execute'] == 1; assert res.ToolResultBytes['execute'] == 0 || !hasKey(res.ToolResultBytes, 'execute'); assert res.Blocked == 1"
+    },
+    {
+      "id": "TS-13-4",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.5"
+      ],
+      "title": "A tool call returning an error result increments both ToolCalls and ToolResultBytes",
+      "given": [
+        "a Runner with a faux provider that calls a tool which returns an error result (e.g. read_file on a nonexistent path) then calls the terminator"
+      ],
+      "when": "Runner.Run drives the phase to completion",
+      "then": [
+        "Result.ToolCalls for the errored tool is 1",
+        "Result.ToolResultBytes for the errored tool equals the byte length of the error text the model sees"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn('c1', 'read_file', {path: '/nonexistent'}), toolCallTurn('c2', 'submit', done)); res, _ := runner.Run(ctx, phase); assert res.ToolCalls['read_file'] == 1; assert res.ToolResultBytes['read_file'] == int64(len(errorText))"
+    },
+    {
+      "id": "TS-13-5",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-1.6"
+      ],
+      "title": "A phase with zero tool calls reports nil ToolCalls and nil ToolResultBytes",
+      "given": [
+        "a Runner with a faux provider that returns only text (no tool calls) and the phase has no terminator so it ends on max_turns"
+      ],
+      "when": "Runner.Run drives the phase",
+      "then": [
+        "Result.ToolCalls is nil",
+        "Result.ToolResultBytes is nil"
+      ],
+      "pseudocode": "p := faux.New(textTurn('hello')); res, _ := runner.Run(ctx, phase); assert res.ToolCalls == nil; assert res.ToolResultBytes == nil"
+    },
+    {
+      "id": "TS-13-6",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.1",
+        "13-REQ-2.2"
+      ],
+      "title": "PhaseInfo carries ToolCalls and ToolResultBytes with correct JSON tags and trust classification",
+      "given": [
+        "a PhaseInfo struct is constructed with ToolCalls and ToolResultBytes populated"
+      ],
+      "when": "the struct is marshalled to JSON",
+      "then": [
+        "the JSON contains 'tool_calls' key with the map values",
+        "the JSON contains 'tool_result_bytes' key with the map values",
+        "when both maps are nil, neither key appears in the JSON (omitempty)"
+      ],
+      "pseudocode": "pi := PhaseInfo{ToolCalls: map[string]int{\"read_file\": 2}, ToolResultBytes: map[string]int64{\"read_file\": 1024}}; b, _ := json.Marshal(pi); assert contains(b, '\"tool_calls\"'); assert contains(b, '\"tool_result_bytes\"'); pi2 := PhaseInfo{}; b2, _ := json.Marshal(pi2); assert !contains(b2, '\"tool_calls\"'); assert !contains(b2, '\"tool_result_bytes\"')"
+    },
+    {
+      "id": "TS-13-7",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.3"
+      ],
+      "title": "PhaseFromResult copies ToolCalls and ToolResultBytes from agentrun.Result into PhaseInfo",
+      "given": [
+        "an agentrun.Result with ToolCalls and ToolResultBytes populated"
+      ],
+      "when": "PhaseFromResult is called with the Result",
+      "then": [
+        "the returned PhaseInfo.ToolCalls equals the Result's ToolCalls",
+        "the returned PhaseInfo.ToolResultBytes equals the Result's ToolResultBytes"
+      ],
+      "pseudocode": "res := agentrun.Result{ToolCalls: map[string]int{\"read_file\": 5}, ToolResultBytes: map[string]int64{\"read_file\": 8192}}; pi := PhaseFromResult(res, ''); assert reflect.DeepEqual(pi.ToolCalls, res.ToolCalls); assert reflect.DeepEqual(pi.ToolResultBytes, res.ToolResultBytes)"
+    },
+    {
+      "id": "TS-13-8",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-2.4"
+      ],
+      "title": "SchemaVersion is bumped to 3.1.0",
+      "given": [],
+      "when": "the SchemaVersion constant is read",
+      "then": [
+        "SchemaVersion equals \"3.1.0\""
+      ],
+      "pseudocode": "assert toolio.SchemaVersion == \"3.1.0\""
+    },
+    {
+      "id": "TS-13-9",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.1"
+      ],
+      "title": "PhaseEndEvent carries ToolCalls with JSON tag tool_calls,omitempty",
+      "given": [
+        "a PhaseEndEvent with ToolCalls populated"
+      ],
+      "when": "the event is marshalled to JSON",
+      "then": [
+        "the JSON contains 'tool_calls' key with the map values",
+        "when ToolCalls is nil, the key is absent"
+      ],
+      "pseudocode": "e := PhaseEndEvent{ToolCalls: map[string]int{\"read_file\": 3}}; b, _ := json.Marshal(e); assert contains(b, '\"tool_calls\"'); e2 := PhaseEndEvent{}; b2, _ := json.Marshal(e2); assert !contains(b2, '\"tool_calls\"')"
+    },
+    {
+      "id": "TS-13-10",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.2"
+      ],
+      "title": "newPhaseEndEvent accepts a toolCalls parameter and sets it on the returned event",
+      "given": [
+        "a toolCalls map with entries"
+      ],
+      "when": "newPhaseEndEvent is called with the map",
+      "then": [
+        "the returned PhaseEndEvent.ToolCalls equals the provided map"
+      ],
+      "pseudocode": "tc := map[string]int{\"read_file\": 2, \"list_files\": 1}; e := newPhaseEndEvent(\"prd\", \"end_turn\", 5, 0.50, 3000, tc); assert reflect.DeepEqual(e.ToolCalls, tc)"
+    },
+    {
+      "id": "TS-13-11",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.3"
+      ],
+      "title": "Observer.PhaseEnd signature accepts toolCalls and all implementations are updated",
+      "given": [
+        "a recObserver (test observer) and a Progress (production observer)"
+      ],
+      "when": "PhaseEnd is called with a toolCalls map on each implementation",
+      "then": [
+        "the recObserver records the toolCalls in its endCall struct",
+        "the Progress emits a phase_end event carrying the tool_calls"
+      ],
+      "pseudocode": "obs := &recObserver{}; obs.PhaseEnd('prd', 'end_turn', 5, 0.50, 3000, map[string]int{\"read_file\": 2}); assert obs.ends[0].toolCalls['read_file'] == 2; // Progress: prog := NewProgress(buf, 'spec', false, false); prog.SetEvents(sink); prog.PhaseEnd('prd', 'end_turn', 5, 0.50, 3000, map[string]int{\"read_file\": 2}); // verify event line contains tool_calls"
+    },
+    {
+      "id": "TS-13-12",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.4",
+        "13-REQ-3.5"
+      ],
+      "title": "Progress.PhaseEnd passes toolCalls through to the phase_end event and Runner.Run passes Result.ToolCalls to Observer.PhaseEnd",
+      "given": [
+        "a Runner with a faux provider making one read_file call then the terminator",
+        "a recObserver attached"
+      ],
+      "when": "Runner.Run drives the phase to completion",
+      "then": [
+        "the recObserver's endCall contains the ToolCalls map matching the Result's ToolCalls"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn('c1', 'read_file', args), toolCallTurn('c2', 'submit', done)); obs := &recObserver{}; cfg.Observer = obs; r, _ := NewRunner(cfg); res, _ := r.Run(ctx, phase); assert reflect.DeepEqual(obs.ends[0].toolCalls, res.ToolCalls)"
+    },
+    {
+      "id": "TS-13-13",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-3.6"
+      ],
+      "title": "PhaseEndEvent does not carry ToolResultBytes",
+      "given": [
+        "the PhaseEndEvent struct definition"
+      ],
+      "when": "the struct is inspected via reflection",
+      "then": [
+        "there is no field named ToolResultBytes or with JSON tag tool_result_bytes"
+      ],
+      "pseudocode": "t := reflect.TypeOf(PhaseEndEvent{}); for i := 0; i < t.NumField(); i++ { f := t.Field(i); assert f.Name != 'ToolResultBytes'; assert !strings.Contains(f.Tag.Get('json'), 'tool_result_bytes') }"
+    },
+    {
+      "id": "TS-13-14",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.1"
+      ],
+      "title": "submit_prd tool schema includes an optional relevant_files array with path and why fields",
+      "given": [
+        "the prdSchema() function"
+      ],
+      "when": "the schema is inspected",
+      "then": [
+        "the schema has an optional relevant_files property",
+        "each item has required path (string) and why (string) properties"
+      ],
+      "pseudocode": "s := prdSchema(); // inspect the schema object for relevant_files property; assert it exists as optional; assert items have path and why"
+    },
+    {
+      "id": "TS-13-15",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.2"
+      ],
+      "title": "submit_prd schema enforces maxItems of 30 on relevant_files",
+      "given": [
+        "the prdSchema() function"
+      ],
+      "when": "the schema is rendered to JSON",
+      "then": [
+        "the relevant_files array schema has maxItems set to 30"
+      ],
+      "pseudocode": "s := prdSchema(); raw, _ := json.Marshal(s); assert contains(string(raw), '\"maxItems\":30') || inspect schema object for MaxItems == 30"
+    },
+    {
+      "id": "TS-13-16",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.3"
+      ],
+      "title": "PRD struct carries RelevantFiles field of type []RelevantFile",
+      "given": [
+        "a PRD struct with RelevantFiles populated"
+      ],
+      "when": "the field is read back",
+      "then": [
+        "RelevantFiles is []RelevantFile",
+        "each RelevantFile has Path and Why string fields"
+      ],
+      "pseudocode": "prd := PRD{RelevantFiles: []RelevantFile{{Path: \"internal/agentrun/phase.go\", Why: \"phase runner\"}}}; assert prd.RelevantFiles[0].Path == \"internal/agentrun/phase.go\"; assert prd.RelevantFiles[0].Why == \"phase runner\""
+    },
+    {
+      "id": "TS-13-17",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-4.4"
+      ],
+      "title": "prdSink stores validated relevant_files alongside the rest of the PRD",
+      "given": [
+        "a prdSink"
+      ],
+      "when": "set is called with a PRD containing RelevantFiles",
+      "then": [
+        "get returns the PRD with RelevantFiles intact"
+      ],
+      "pseudocode": "sink := &prdSink{}; prd := PRD{SpecName: \"test\", RelevantFiles: []RelevantFile{{Path: \"a.go\", Why: \"reason\"}}}; sink.set(prd); got, ok := sink.get(); assert ok; assert len(got.RelevantFiles) == 1; assert got.RelevantFiles[0].Path == \"a.go\""
+    },
+    {
+      "id": "TS-13-18",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.1"
+      ],
+      "title": "submit_prd handler resolves every path in relevant_files with Workspace.Resolve and os.Stat",
+      "given": [
+        "a workspace with two real files (a.go, b.go)",
+        "a submit_prd tool handler configured with that workspace"
+      ],
+      "when": "submit_prd is called with relevant_files containing both valid paths",
+      "then": [
+        "the submission is accepted",
+        "the PRD's RelevantFiles contains both entries"
+      ],
+      "pseudocode": "ws := newWorkspace(t); writeFile(ws, 'a.go', 'package a'); writeFile(ws, 'b.go', 'package b'); tool := submitPRDTool(&sink, ws); result := tool.Execute(ctx, json.Marshal(validPRDWithRelevantFiles(['a.go', 'b.go']))); assert !result.IsError; prd, _ := sink.get(); assert len(prd.RelevantFiles) == 2"
+    },
+    {
+      "id": "TS-13-19",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.2"
+      ],
+      "title": "submit_prd rejects submission when relevant_files contains a nonexistent path with error code invalid_relevant_files",
+      "given": [
+        "a workspace with one real file (a.go)",
+        "a submit_prd tool handler configured with that workspace"
+      ],
+      "when": "submit_prd is called with relevant_files containing a.go and nonexistent.go",
+      "then": [
+        "the submission is rejected with an error result",
+        "the error code is 'invalid_relevant_files'",
+        "the error message names 'nonexistent.go'"
+      ],
+      "pseudocode": "ws := newWorkspace(t); writeFile(ws, 'a.go', 'package a'); tool := submitPRDTool(&sink, ws); result := tool.Execute(ctx, json.Marshal(prdWithRelevantFiles(['a.go', 'nonexistent.go']))); assert result.IsError; assert contains(result.Error, 'invalid_relevant_files'); assert contains(result.Content.Text(), 'nonexistent.go')"
+    },
+    {
+      "id": "TS-13-20",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.2"
+      ],
+      "title": "submit_prd rejects submission when relevant_files contains a directory path",
+      "given": [
+        "a workspace with a directory (subdir/)",
+        "a submit_prd tool handler configured with that workspace"
+      ],
+      "when": "submit_prd is called with relevant_files containing the directory path",
+      "then": [
+        "the submission is rejected with error code 'invalid_relevant_files'",
+        "the error message names the directory path"
+      ],
+      "pseudocode": "ws := newWorkspace(t); os.MkdirAll(filepath.Join(ws.Root, 'subdir'), 0o755); tool := submitPRDTool(&sink, ws); result := tool.Execute(ctx, json.Marshal(prdWithRelevantFiles(['subdir']))); assert result.IsError; assert contains(result.Content.Text(), 'subdir')"
+    },
+    {
+      "id": "TS-13-21",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-5.3"
+      ],
+      "title": "submit_prd accepts submission without relevant_files or with an empty array",
+      "given": [
+        "a workspace",
+        "a submit_prd tool handler"
+      ],
+      "when": "submit_prd is called with a valid PRD that omits relevant_files",
+      "then": [
+        "the submission is accepted",
+        "the PRD's RelevantFiles is nil or empty"
+      ],
+      "pseudocode": "tool := submitPRDTool(&sink, ws); result := tool.Execute(ctx, json.Marshal(validPRDWithoutRelevantFiles)); assert !result.IsError; prd, _ := sink.get(); assert len(prd.RelevantFiles) == 0"
+    },
+    {
+      "id": "TS-13-22",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.1",
+        "13-REQ-6.2"
+      ],
+      "title": "Generation prompt includes a relevant-files block when the PRD supplied a non-empty list",
+      "given": [
+        "a PRD with RelevantFiles containing two entries"
+      ],
+      "when": "generationUserPrompt is called for the requirements step with the relevant files list",
+      "then": [
+        "the returned prompt contains '## Files the PRD phase found relevant'",
+        "the block contains '- `internal/agentrun/phase.go` — the phase runner'",
+        "the block contains introductory text stating it is the previous phase's notes, not instructions"
+      ],
+      "pseudocode": "files := []RelevantFile{{Path: 'internal/agentrun/phase.go', Why: 'the phase runner'}, {Path: 'internal/toolio/envelope.go', Why: 'the envelope'}}; prompt := generationUserPrompt(StepRequirements, '13', 'test', '/', 'prd body', landscape, steering, prior, lang, files); assert contains(prompt, '## Files the PRD phase found relevant'); assert contains(prompt, '`internal/agentrun/phase.go` — the phase runner'); assert contains(prompt, 'previous phase\\'s notes')"
+    },
+    {
+      "id": "TS-13-23",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.3"
+      ],
+      "title": "Generation prompt omits the relevant-files block when the PRD did not supply relevant_files",
+      "given": [
+        "a PRD with nil or empty RelevantFiles"
+      ],
+      "when": "generationUserPrompt is called with an empty relevant files list",
+      "then": [
+        "the returned prompt does not contain '## Files the PRD phase found relevant'",
+        "the prompt is byte-identical to what it would be without the relevant_files feature"
+      ],
+      "pseudocode": "promptWith := generationUserPrompt(StepRequirements, '13', 'test', '/', 'prd body', landscape, steering, prior, lang, nil); promptWithout := generationUserPrompt(StepRequirements, '13', 'test', '/', 'prd body', landscape, steering, prior, lang, nil); assert promptWith == promptWithout; assert !contains(promptWith, '## Files the PRD phase found relevant')"
+    },
+    {
+      "id": "TS-13-24",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.4"
+      ],
+      "title": "artifactRequest carries the relevant_files list for generation and architecture prompts",
+      "given": [
+        "an artifactRequest struct"
+      ],
+      "when": "the RelevantFiles field is set",
+      "then": [
+        "the field is accessible and carries the list through to the prompt builder"
+      ],
+      "pseudocode": "req := artifactRequest{RelevantFiles: []RelevantFile{{Path: 'a.go', Why: 'reason'}}}; assert len(req.RelevantFiles) == 1"
+    },
+    {
+      "id": "TS-13-25",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-6.1"
+      ],
+      "title": "Architecture prompt includes the relevant-files block when the PRD supplied a non-empty list",
+      "given": [
+        "a PRD with RelevantFiles containing entries"
+      ],
+      "when": "the architecture user prompt is built with the relevant files list",
+      "then": [
+        "the returned prompt contains '## Files the PRD phase found relevant'"
+      ],
+      "pseudocode": "files := []RelevantFile{{Path: 'a.go', Why: 'reason'}}; prompt := architectureUserPrompt(req, files); assert contains(prompt, '## Files the PRD phase found relevant')"
+    },
+    {
+      "id": "TS-13-26",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-7.1"
+      ],
+      "title": "On a split, each scope's generation phases receive only that scope's relevant_files",
+      "given": [
+        "a scripted author that returns two scopes in the split",
+        "each scope's PRD phase returns different relevant_files lists"
+      ],
+      "when": "the pipeline runs to completion for both scopes",
+      "then": [
+        "scope 1's generation phases receive scope 1's relevant_files",
+        "scope 2's generation phases receive scope 2's relevant_files",
+        "no cross-contamination between scopes"
+      ],
+      "pseudocode": "author := &scriptedAuthor{scope1Files: [{Path: 'a.go'}], scope2Files: [{Path: 'b.go'}]}; result, _ := Run(ctx, opts); // verify via the scripted author's recorded artifactRequests; assert author.artifactRequests[scope1].RelevantFiles[0].Path == 'a.go'; assert author.artifactRequests[scope2].RelevantFiles[0].Path == 'b.go'"
+    },
+    {
+      "id": "TS-13-27",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-7.2"
+      ],
+      "title": "prdRequest does not carry relevant_files from a previous scope",
+      "given": [
+        "the prdRequest struct definition"
+      ],
+      "when": "the struct is inspected",
+      "then": [
+        "prdRequest has no RelevantFiles field",
+        "splitContext does not carry relevant_files across scopes"
+      ],
+      "pseudocode": "t := reflect.TypeOf(prdRequest{}); for i := 0; i < t.NumField(); i++ { assert t.Field(i).Name != 'RelevantFiles' }"
+    },
+    {
+      "id": "TS-13-28",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.1"
+      ],
+      "title": "Package carries RelevantFiles with correct JSON tag and trust classification",
+      "given": [
+        "a Package struct with RelevantFiles populated"
+      ],
+      "when": "the struct is marshalled to JSON",
+      "then": [
+        "the JSON contains 'relevant_files' key",
+        "when RelevantFiles is nil, the key is absent (omitempty)"
+      ],
+      "pseudocode": "pkg := Package{RelevantFiles: []RelevantFile{{Path: 'a.go', Why: 'reason'}}}; b, _ := json.Marshal(pkg); assert contains(b, '\"relevant_files\"'); pkg2 := Package{}; b2, _ := json.Marshal(pkg2); assert !contains(b2, '\"relevant_files\"')"
+    },
+    {
+      "id": "TS-13-29",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-8.2"
+      ],
+      "title": "On a split, each Package in FollowOnSpecs carries its own scope's relevant_files",
+      "given": [
+        "a scripted author producing a two-scope split with different relevant_files per scope"
+      ],
+      "when": "the pipeline runs to completion",
+      "then": [
+        "result.Package.RelevantFiles matches scope 1's list",
+        "result.FollowOnSpecs[0].RelevantFiles matches scope 2's list"
+      ],
+      "pseudocode": "result, _ := Run(ctx, opts); assert result.Package.RelevantFiles[0].Path == 'a.go'; assert result.FollowOnSpecs[0].RelevantFiles[0].Path == 'b.go'"
+    },
+    {
+      "id": "TS-13-30",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.3"
+      ],
+      "title": "relevant_files is not persisted inside the spec package directory",
+      "given": [
+        "a completed spec generation run with relevant_files populated"
+      ],
+      "when": "the spec package directory is inspected",
+      "then": [
+        "no file in the directory contains a relevant_files key",
+        "the prd.md, requirements.json, test_spec.json and tasks.json files do not mention relevant_files"
+      ],
+      "pseudocode": "result, _ := Run(ctx, opts); for _, f := range ['prd.md', 'requirements.json', 'test_spec.json', 'tasks.json'] { content := readFile(filepath.Join(result.SpecDir, f)); assert !contains(content, 'relevant_files') }"
+    },
+    {
+      "id": "TS-13-31",
+      "kind": "integration",
+      "verifies": [
+        "13-REQ-8.4"
+      ],
+      "title": "A resumed split run emits a low-severity warning with code relevant_files_unavailable",
+      "given": [
+        "a split plan exists on disk from a previous run (the PRD phase does not run)",
+        "the resumed scope has no relevant_files available"
+      ],
+      "when": "the pipeline resumes from the existing plan",
+      "then": [
+        "a warning with code 'relevant_files_unavailable' and severity 'low' is recorded",
+        "the generation prompts for the resumed scope do not contain the relevant-files block"
+      ],
+      "pseudocode": "// set up a split plan on disk with one scope already written; result, _ := Run(ctx, opts); warnings := run.Warnings(); found := false; for _, w := range warnings { if w.Code == WarnRelevantFilesUnavailable { found = true; assert w.Severity == 'low' } }; assert found"
+    },
+    {
+      "id": "TS-13-32",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-8.5"
+      ],
+      "title": "WarnRelevantFilesUnavailable constant is declared with value and stage",
+      "given": [
+        "the warncode.go file"
+      ],
+      "when": "WarnRelevantFilesUnavailable is looked up",
+      "then": [
+        "its value is 'relevant_files_unavailable'",
+        "WarnStage returns stage 'prd' for it"
+      ],
+      "pseudocode": "assert string(WarnRelevantFilesUnavailable) == 'relevant_files_unavailable'; stage, ok := WarnStage(WarnRelevantFilesUnavailable); assert ok; assert stage == 'prd'"
+    },
+    {
+      "id": "TS-13-33",
+      "kind": "unit",
+      "verifies": [
+        "13-REQ-9.1",
+        "13-REQ-9.2",
+        "13-REQ-9.3"
+      ],
+      "title": "docs/development.md contains the Navigation baseline section with procedure, tables and regeneration note",
+      "given": [
+        "the docs/development.md file exists"
+      ],
+      "when": "the file content is read",
+      "then": [
+        "it contains a 'Navigation baseline' section heading",
+        "it contains a procedure mentioning --dry-run and fixed inputs for issue, fix, spec and impl",
+        "it contains at least one table with tool_calls data",
+        "it contains a note about regenerating tables by hand and no live-model run entering make test"
+      ],
+      "pseudocode": "content := readFile('docs/development.md'); assert contains(content, 'Navigation baseline'); assert contains(content, '--dry-run'); assert contains(content, 'tool_calls'); assert contains(content, 'regenerated by hand'); assert contains(content, 'make test')"
+    },
+    {
+      "id": "TS-13-34",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-1",
+        "13-REQ-1.3",
+        "13-REQ-2.3",
+        "13-REQ-3.5"
+      ],
+      "title": "A spec run reports per-phase tool-call counts in the envelope and event stream",
+      "given": [
+        "a scripted author (faux provider) that makes read_file and list_files calls in each phase before calling the terminator",
+        "a Run with an events sink attached"
+      ],
+      "when": "the spec pipeline runs to completion producing one package",
+      "then": [
+        "the envelope's usage.phases[] entries each carry non-empty tool_calls and tool_result_bytes maps",
+        "the phase_end events in the event stream carry tool_calls maps",
+        "the Result's ToolCalls on each phase match the envelope's PhaseInfo"
+      ],
+      "real_components": [
+        "agentrun.Runner",
+        "toolio.PhaseFromResult",
+        "toolio.Progress",
+        "specgen pipeline"
+      ]
+    },
+    {
+      "id": "TS-13-35",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-2",
+        "13-REQ-4.4",
+        "13-REQ-5.1",
+        "13-REQ-6.1"
+      ],
+      "title": "A spec run passes relevant_files from the PRD phase to generation phases and into the envelope",
+      "given": [
+        "a scripted author whose PRD phase returns relevant_files with valid paths",
+        "a workspace containing the referenced files"
+      ],
+      "when": "the spec pipeline runs to completion",
+      "then": [
+        "the generation phase prompts contain the relevant-files block",
+        "the envelope's result.relevant_files is populated with the PRD phase's list",
+        "the submit_prd handler validated each path successfully"
+      ],
+      "real_components": [
+        "specgen pipeline",
+        "submit_prd handler",
+        "generation prompt builder",
+        "specgen.Package"
+      ]
+    },
+    {
+      "id": "TS-13-36",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-3"
+      ],
+      "title": "A resumed split run warns about unavailable relevant files",
+      "given": [
+        "a split plan on disk from a previous interrupted run with one scope already written",
+        "the resumed scope's PRD phase does not run"
+      ],
+      "when": "the spec pipeline resumes from the existing plan",
+      "then": [
+        "a warning with code 'relevant_files_unavailable' appears in the envelope's warnings[]",
+        "the generation prompts for the resumed scope do not contain the relevant-files block"
+      ],
+      "real_components": [
+        "specgen pipeline",
+        "toolio.Run",
+        "generation prompt builder"
+      ]
+    },
+    {
+      "id": "TS-13-37",
+      "kind": "smoke",
+      "verifies": [
+        "13-PATH-4",
+        "13-REQ-5.2"
+      ],
+      "title": "submit_prd rejects invalid paths in relevant_files and the model can correct and resubmit",
+      "given": [
+        "a scripted author whose first submit_prd call includes a nonexistent path",
+        "the second call corrects the path"
+      ],
+      "when": "the PRD phase runs",
+      "then": [
+        "the first call returns an error result with code 'invalid_relevant_files'",
+        "the second call succeeds and the PRD is accepted with valid relevant_files"
+      ],
+      "real_components": [
+        "submit_prd handler",
+        "agentrun.Runner",
+        "tools.Workspace"
+      ]
+    },
+    {
+      "id": "TS-13-38",
+      "kind": "property",
+      "verifies": [
+        "13-REQ-1.1",
+        "13-REQ-1.2"
+      ],
+      "title": "For any sequence of tool calls, ToolCalls counts equal the number of calls and ToolResultBytes sums equal the total byte length",
+      "given": [
+        "a Runner with a faux provider"
+      ],
+      "when": "for any sequence of 1 to 10 tool calls with random tool names and result texts of random length",
+      "then": [
+        "Result.ToolCalls[name] equals the number of calls made to that tool name",
+        "Result.ToolResultBytes[name] equals the sum of len(Content.Text()) for that tool name"
+      ],
+      "pseudocode": "for calls in gen_tool_call_sequences(1, 10): res := runPhase(calls); for name, count := range expectedCounts(calls): assert res.ToolCalls[name] == count; for name, bytes := range expectedBytes(calls): assert res.ToolResultBytes[name] == bytes"
+    }
+  ]
+}

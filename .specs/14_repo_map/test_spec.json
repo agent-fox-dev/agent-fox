@@ -1,0 +1,745 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "14",
+  "spec_name": "repo_map",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-14-1",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.1"
+      ],
+      "title": "repomap.Build is exported with the correct signature and returns a non-empty map for a non-trivial workspace",
+      "given": [
+        "a tools.Workspace rooted at a temp directory containing three Go source files in two directories",
+        "a budget of 6000 tokens"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned error is nil",
+        "the returned string is non-empty and contains the file paths from the workspace"
+      ],
+      "pseudocode": "ws := newTestWorkspace(t, fixture3Files)\nresult, err := repomap.Build(ctx, ws, 6000, nil)\nassert.NoError(t, err)\nassert.Contains(t, result, \"phase.go\")"
+    },
+    {
+      "id": "TS-14-2",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.2"
+      ],
+      "title": "Build with budget 0 returns empty string and nil error without walking",
+      "given": [
+        "a tools.Workspace rooted at a temp directory with files"
+      ],
+      "when": "repomap.Build(ctx, ws, 0, nil) is called",
+      "then": [
+        "the returned string is exactly \"\"",
+        "the returned error is nil",
+        "no file in the workspace was opened or walked (verified by a counting walk spy or by timing)"
+      ],
+      "pseudocode": "result, err := repomap.Build(ctx, ws, 0, nil)\nassert.Equal(t, \"\", result)\nassert.NoError(t, err)"
+    },
+    {
+      "id": "TS-14-3",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.3"
+      ],
+      "title": "Build delegates the file walk to tools.Walk so ignore rules and hidden-entry exclusion apply",
+      "given": [
+        "a workspace with a .hidden directory, a .gitignore-d file, and two visible source files"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned map contains the two visible source files",
+        "the returned map does not contain the hidden directory or the ignored file"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.Contains(t, result, \"visible.go\")\nassert.NotContains(t, result, \".hidden\")\nassert.NotContains(t, result, \"ignored.go\")"
+    },
+    {
+      "id": "TS-14-4",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.4"
+      ],
+      "title": "Build extracts per-file top-level declarations via the outline package",
+      "given": [
+        "a workspace with a Go file containing an exported function Foo at line 5 and a type Bar at line 12"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned map contains 'func Foo L5'",
+        "the returned map contains 'type Bar L12'"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.Contains(t, result, \"func Foo L5\")\nassert.Contains(t, result, \"type Bar L12\")"
+    },
+    {
+      "id": "TS-14-5",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.5"
+      ],
+      "title": "Build never returns a map whose token count exceeds the budget",
+      "given": [
+        "a workspace with enough source files and declarations that the full map would exceed 200 tokens"
+      ],
+      "when": "repomap.Build(ctx, ws, 200, nil) is called",
+      "then": [
+        "afspec.EstimateTokens(result) <= 200",
+        "the returned error is nil"
+      ],
+      "pseudocode": "result, err := repomap.Build(ctx, ws, 200, nil)\nassert.NoError(t, err)\nassert.LessOrEqual(t, afspec.EstimateTokens(result), 200)"
+    },
+    {
+      "id": "TS-14-6",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-1.6"
+      ],
+      "title": "When outline.File fails for one file, Build includes that file without declarations and does not fail",
+      "given": [
+        "a workspace with two Go files: one valid and one that causes outline.File to return an error (e.g. a binary file with .go extension or a corrupt syntax)"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned error is nil",
+        "the returned string contains the path of the corrupt file (without declarations)",
+        "the returned string contains the valid file's path and its declarations"
+      ],
+      "pseudocode": "result, err := repomap.Build(ctx, ws, 6000, nil)\nassert.NoError(t, err)\nassert.Contains(t, result, \"corrupt.go\")\nassert.NotContains(t, result, \"corrupt.go\") // no declarations on that line\nassert.Contains(t, result, \"valid.go\")\nassert.Contains(t, result, \"func ValidFunc\")"
+    },
+    {
+      "id": "TS-14-7",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-2.1",
+        "14-REQ-2.2"
+      ],
+      "title": "Build includes the directory tree and per-file declarations for all non-ignored, non-hidden files",
+      "given": [
+        "a workspace with directories internal/agentrun/ and internal/toolio/, each containing one Go file with declarations"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned map contains 'internal/agentrun/' and 'internal/toolio/' as directory lines",
+        "each file's declarations appear with kind, name and L-prefixed line number"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.Contains(t, result, \"internal/agentrun/\")\nassert.Contains(t, result, \"internal/toolio/\")\nassert.Regexp(t, `func \\w+ L\\d+`, result)"
+    },
+    {
+      "id": "TS-14-8",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-2.3"
+      ],
+      "title": "Files are sorted by path and declarations within a file are sorted exported-first then by line number",
+      "given": [
+        "a workspace with a file containing: unexported func bar at L10, exported func Foo at L5, unexported func alpha at L1, exported type Baz at L20"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "in the output line for that file, Foo (L5) appears before Baz (L20), and both appear before alpha (L1) and bar (L10)",
+        "among the exported declarations, Foo (L5) appears before Baz (L20) — sorted by line",
+        "among the unexported declarations, alpha (L1) appears before bar (L10) — sorted by line"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nline := extractFileLine(result, \"example.go\")\nidxFoo := strings.Index(line, \"func Foo L5\")\nidxBaz := strings.Index(line, \"type Baz L20\")\nidxAlpha := strings.Index(line, \"func alpha L1\")\nidxBar := strings.Index(line, \"func bar L10\")\nassert.Less(t, idxFoo, idxBaz)\nassert.Less(t, idxBaz, idxAlpha)\nassert.Less(t, idxAlpha, idxBar)"
+    },
+    {
+      "id": "TS-14-9",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-2.4"
+      ],
+      "title": "The map contains no timestamps, file sizes or metadata other than path, declarations and collapsed-directory file counts",
+      "given": [
+        "a workspace with several files of varying sizes and modification times"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the returned string does not contain any date or time pattern (YYYY-MM-DD, HH:MM, epoch)",
+        "the returned string does not contain any byte-size pattern (e.g. '1024 bytes', '4.2KB')"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.NotRegexp(t, `\\d{4}-\\d{2}-\\d{2}`, result)\nassert.NotRegexp(t, `\\d+ bytes`, result)\nassert.NotRegexp(t, `\\d+\\.?\\d*[KMG]B`, result)"
+    },
+    {
+      "id": "TS-14-10",
+      "kind": "property",
+      "verifies": [
+        "14-REQ-2.5"
+      ],
+      "title": "Same tree, same inputPaths and same budget produce a byte-identical map",
+      "given": [
+        "a workspace with a fixture tree of 10+ files across 3+ directories"
+      ],
+      "when": "for any budget in [100, 500, 1000, 6000] and any subset of inputPaths from the fixture's files, Build is called twice with the same arguments",
+      "then": [
+        "the two returned strings are byte-identical"
+      ],
+      "pseudocode": "for _, budget := range []int{100, 500, 1000, 6000} {\n  for _, paths := range inputPathSubsets {\n    r1, _ := repomap.Build(ctx, ws, budget, paths)\n    r2, _ := repomap.Build(ctx, ws, budget, paths)\n    assert.Equal(t, r1, r2)\n  }\n}"
+    },
+    {
+      "id": "TS-14-11",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-3.1"
+      ],
+      "title": "The default budget of 6000 tokens is used when the flag's default value is passed",
+      "given": [
+        "a workspace whose full map would be under 6000 tokens"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the full map is returned with all declarations (no reduction applied)",
+        "afspec.EstimateTokens(result) <= 6000"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.LessOrEqual(t, afspec.EstimateTokens(result), 6000)\nassert.Contains(t, result, \"func unexportedHelper\") // unexported still present"
+    },
+    {
+      "id": "TS-14-12",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-3.2"
+      ],
+      "title": "Reduction follows the deterministic order: drop unexported, drop test-file decls, drop deepest-dir decls, collapse deepest dirs",
+      "given": [
+        "a workspace with a deep directory tree (4+ levels), test files, exported and unexported declarations, totalling well over 200 tokens when fully rendered"
+      ],
+      "when": "repomap.Build is called with progressively smaller budgets: 2000, 1000, 500, 200",
+      "then": [
+        "at 2000 tokens: unexported declarations are absent but exported ones remain",
+        "at 1000 tokens: test-file declarations are also absent",
+        "at 500 tokens: declarations from the deepest directories are absent before shallower ones",
+        "at 200 tokens: the deepest directories are collapsed to 'dir/ (N files)'"
+      ],
+      "pseudocode": "r2000, _ := repomap.Build(ctx, ws, 2000, nil)\nassert.NotContains(t, r2000, \"func helper\")\nassert.Contains(t, r2000, \"func Exported\")\nr1000, _ := repomap.Build(ctx, ws, 1000, nil)\nassert.NotContains(t, r1000, \"func TestSomething\")\nr500, _ := repomap.Build(ctx, ws, 500, nil)\nassert.NotContains(t, r500, \"func DeepExported\")\nr200, _ := repomap.Build(ctx, ws, 200, nil)\nassert.Regexp(t, `deep/ \\(\\d+ files\\)`, r200)"
+    },
+    {
+      "id": "TS-14-13",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-3.3"
+      ],
+      "title": "Directories named in inputPaths are reduced last among directories at the same depth",
+      "given": [
+        "a workspace with two directories at the same depth: internal/important/ and internal/other/, each with declarations",
+        "inputPaths includes 'internal/important/file.go'"
+      ],
+      "when": "repomap.Build(ctx, ws, budget, inputPaths) is called with a budget tight enough to force reduction",
+      "then": [
+        "internal/important/'s declarations survive while internal/other/'s are dropped or collapsed first"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, tightBudget, []string{\"internal/important/file.go\"})\nassert.Contains(t, result, \"func ImportantFunc\")\nassert.NotContains(t, result, \"func OtherFunc\")"
+    },
+    {
+      "id": "TS-14-14",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-3.4"
+      ],
+      "title": "When the budget is large enough, the full map with all declarations and no collapsed directories is returned",
+      "given": [
+        "a workspace with a small tree (5 files, ~50 declarations) whose full map is under 6000 tokens"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "every file's declarations appear in the output",
+        "no directory is collapsed (no '(N files)' pattern appears)",
+        "unexported declarations are present"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.NotContains(t, result, \"files)\")\nassert.Contains(t, result, \"func unexportedHelper\")\nassert.Contains(t, result, \"func ExportedFunc\")"
+    },
+    {
+      "id": "TS-14-15",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-4.1"
+      ],
+      "title": "Directories are rendered with trailing '/' and files are indented two spaces",
+      "given": [
+        "a workspace with internal/agentrun/phase.go"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the output contains a line matching 'internal/agentrun/'",
+        "the output contains a line starting with two spaces followed by 'phase.go'"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nassert.Regexp(t, `(?m)^internal/agentrun/$`, result)\nassert.Regexp(t, `(?m)^  phase\\.go`, result)"
+    },
+    {
+      "id": "TS-14-16",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-4.2"
+      ],
+      "title": "Declarations are rendered on the same line as their file, separated by ' · ', with kind name and L-prefixed line",
+      "given": [
+        "a workspace with a file containing func Run at line 240 and type Phase at line 148"
+      ],
+      "when": "repomap.Build(ctx, ws, 6000, nil) is called",
+      "then": [
+        "the file's line contains 'type Phase L148 · func Run L240' or the declarations in the correct sorted order separated by ' · '"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, 6000, nil)\nline := extractFileLine(result, \"phase.go\")\nassert.Contains(t, line, \"type Phase L148\")\nassert.Contains(t, line, \"func Run L240\")\nassert.Contains(t, line, \" · \")"
+    },
+    {
+      "id": "TS-14-17",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-4.3"
+      ],
+      "title": "A collapsed directory is rendered as 'dir/ (N files)' with the correct file count",
+      "given": [
+        "a workspace with a deep directory containing 7 files, and a budget tight enough to collapse it"
+      ],
+      "when": "repomap.Build(ctx, ws, tightBudget, nil) is called",
+      "then": [
+        "the output contains 'deepdir/ (7 files)'"
+      ],
+      "pseudocode": "result, _ := repomap.Build(ctx, ws, tightBudget, nil)\nassert.Contains(t, result, \"deepdir/ (7 files)\")"
+    },
+    {
+      "id": "TS-14-18",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-5.1",
+        "14-REQ-5.2"
+      ],
+      "title": "The map block is placed under '## Repository map' with the correct opening sentence in the user prompt",
+      "given": [
+        "a non-empty map string returned by repomap.Build"
+      ],
+      "when": "a tool's prompt function (e.g. taskPrompt for issue) is called with the map",
+      "then": [
+        "the user prompt contains '## Repository map'",
+        "the user prompt contains the opening sentence starting with 'The map below lists the repository'",
+        "the map block appears after landscape/steering blocks and before prior-phase conclusions"
+      ],
+      "pseudocode": "prompt := taskPrompt(input, root, repoMap)\nassert.Contains(t, prompt, \"## Repository map\")\nassert.Contains(t, prompt, \"The map below lists the repository\")\nidxMap := strings.Index(prompt, \"## Repository map\")\nidxPrior := strings.Index(prompt, \"## The diagnosis\") // or equivalent prior-phase block\nassert.Less(t, idxMap, idxPrior)"
+    },
+    {
+      "id": "TS-14-19",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-5.3"
+      ],
+      "title": "When the map is empty, the '## Repository map' block is absent and the prompt is byte-identical to one built without the map",
+      "given": [
+        "an empty map string (budget was 0)"
+      ],
+      "when": "a tool's prompt function is called with an empty map",
+      "then": [
+        "the user prompt does not contain '## Repository map'",
+        "the user prompt is byte-identical to one built by the same function with no map parameter"
+      ],
+      "pseudocode": "promptWith := taskPrompt(input, root, \"\")\npromptWithout := taskPromptLegacy(input, root) // or same function with empty map\nassert.Equal(t, promptWith, promptWithout)\nassert.NotContains(t, promptWith, \"## Repository map\")"
+    },
+    {
+      "id": "TS-14-20",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-5.4"
+      ],
+      "title": "The map never appears in the envelope output",
+      "given": [
+        "a completed run with a non-empty map"
+      ],
+      "when": "the envelope JSON is marshalled",
+      "then": [
+        "the envelope JSON does not contain the map string or '## Repository map'",
+        "the envelope JSON does not contain a 'repo_map' key"
+      ],
+      "pseudocode": "envelopeJSON := marshalEnvelope(result)\nassert.NotContains(t, string(envelopeJSON), \"## Repository map\")\nassert.NotContains(t, string(envelopeJSON), \"repo_map\")"
+    },
+    {
+      "id": "TS-14-21",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-6.1"
+      ],
+      "title": "Common.Register registers --repo-map-tokens with default 6000 and stores it in RepoMapTokens",
+      "given": [
+        "a new flag.FlagSet and a Common struct"
+      ],
+      "when": "Common.Register is called and the flag set is parsed with no --repo-map-tokens argument",
+      "then": [
+        "c.RepoMapTokens == 6000",
+        "the flag set recognises --repo-map-tokens as a valid flag"
+      ],
+      "pseudocode": "var c toolio.Common\nfs := flag.NewFlagSet(\"test\", flag.ContinueOnError)\nc.Register(fs)\nfs.Parse([]string{})\nassert.Equal(t, 6000, c.RepoMapTokens)\n// also parse with explicit value\nfs2 := flag.NewFlagSet(\"test2\", flag.ContinueOnError)\nc2 := toolio.Common{}\nc2.Register(fs2)\nfs2.Parse([]string{\"--repo-map-tokens\", \"0\"})\nassert.Equal(t, 0, c2.RepoMapTokens)"
+    },
+    {
+      "id": "TS-14-22",
+      "kind": "integration",
+      "verifies": [
+        "14-REQ-6.2"
+      ],
+      "title": "Each tool passes --repo-map-tokens value as the budget argument to repomap.Build",
+      "given": [
+        "a tool pipeline (issue, fix, spec or impl) configured with --repo-map-tokens 3000"
+      ],
+      "when": "the pipeline builds its first phase",
+      "then": [
+        "repomap.Build is called with budget=3000",
+        "the resulting Phase.RepoMap reflects a map built with that budget"
+      ],
+      "pseudocode": "// For each tool, set up with RepoMapTokens=3000 and a spy on repomap.Build\npipeline := newTestPipeline(t, toolio.Common{RepoMapTokens: 3000})\npipeline.Run(ctx)\nassert.Equal(t, 3000, spiedBudget)"
+    },
+    {
+      "id": "TS-14-23",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-6.3"
+      ],
+      "title": "With --repo-map-tokens 0, user prompts are byte-identical to those built without the map change",
+      "given": [
+        "a tool's prompt function and a reference prompt built without any map support"
+      ],
+      "when": "the prompt function is called with an empty map (from budget 0)",
+      "then": [
+        "the resulting prompt is byte-identical to the reference prompt"
+      ],
+      "pseudocode": "refPrompt := buildReferencePrompt(input)\nnewPrompt := buildPromptWithMap(input, \"\")\nassert.Equal(t, refPrompt, newPrompt)"
+    },
+    {
+      "id": "TS-14-24",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-7.1"
+      ],
+      "title": "Phase struct has a RepoMap string field that can be set and read",
+      "given": [
+        "an agentrun.Phase value"
+      ],
+      "when": "Phase.RepoMap is set to a non-empty string",
+      "then": [
+        "Phase.RepoMap returns the same string"
+      ],
+      "pseudocode": "p := agentrun.Phase{RepoMap: \"test map\"}\nassert.Equal(t, \"test map\", p.RepoMap)"
+    },
+    {
+      "id": "TS-14-25",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-7.2"
+      ],
+      "title": "Under --verbose, the runner logs the map's token count via Observer.Detail when RepoMap is non-empty",
+      "given": [
+        "a Phase with a non-empty RepoMap of known length",
+        "a Runner configured with verbose=true and a recording Observer"
+      ],
+      "when": "the runner starts the phase",
+      "then": [
+        "Observer.Detail is called with a message containing the token count matching afspec.EstimateTokens(phase.RepoMap)"
+      ],
+      "pseudocode": "obs := &recordingObserver{}\nrunner := agentrun.Runner{Observer: obs, Verbose: true}\nphase := agentrun.Phase{RepoMap: strings.Repeat(\"x\", 400)} // 100 tokens\nrunner.Run(ctx, phase)\nassert.Contains(t, obs.details, \"100\")"
+    },
+    {
+      "id": "TS-14-26",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-7.3"
+      ],
+      "title": "The runner never injects Phase.RepoMap into the prompt itself",
+      "given": [
+        "a Phase with RepoMap set to 'MARKER_STRING' and a User prompt that does not contain it"
+      ],
+      "when": "the runner assembles and sends the prompt to the model",
+      "then": [
+        "the user prompt sent to the model does not contain 'MARKER_STRING'",
+        "the system prompt sent to the model does not contain 'MARKER_STRING'"
+      ],
+      "pseudocode": "phase := agentrun.Phase{RepoMap: \"MARKER_STRING\", User: \"do the thing\"}\npromptSent := capturePromptSentByRunner(runner, phase)\nassert.NotContains(t, promptSent.User, \"MARKER_STRING\")\nassert.NotContains(t, promptSent.System, \"MARKER_STRING\")"
+    },
+    {
+      "id": "TS-14-27",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-8.1"
+      ],
+      "title": "issue pipeline builds the map once before the triage phase and passes it to the prompt builder",
+      "given": [
+        "an issue pipeline with a workspace and --repo-map-tokens 6000"
+      ],
+      "when": "the pipeline runs",
+      "then": [
+        "repomap.Build is called exactly once",
+        "the triage phase's RepoMap field is non-empty",
+        "the triage phase's User prompt contains '## Repository map'"
+      ],
+      "pseudocode": "spy := &buildSpy{}\npipeline := newIssuePipeline(t, spy)\npipeline.Run(ctx)\nassert.Equal(t, 1, spy.callCount)\nassert.NotEmpty(t, spy.lastResult)\nassert.Contains(t, pipeline.phase.User, \"## Repository map\")"
+    },
+    {
+      "id": "TS-14-28",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-8.2"
+      ],
+      "title": "spec pipeline builds the map once and reuses it for every scope of a split",
+      "given": [
+        "a spec pipeline that splits into two scopes"
+      ],
+      "when": "the pipeline runs both scopes",
+      "then": [
+        "repomap.Build is called exactly once",
+        "both scopes' PRD and generation phases receive the same map string"
+      ],
+      "pseudocode": "spy := &buildSpy{}\npipeline := newSpecPipeline(t, spy, 2) // 2 scopes\npipeline.Run(ctx)\nassert.Equal(t, 1, spy.callCount)\nassert.Equal(t, pipeline.scope1Map, pipeline.scope2Map)"
+    },
+    {
+      "id": "TS-14-29",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-9.1"
+      ],
+      "title": "fix pipeline builds the map before analysis and rebuilds before implementation only if the tree changed",
+      "given": [
+        "a fix pipeline where the analysis phase does not change the tree but the implementation phase does"
+      ],
+      "when": "the pipeline runs both phases",
+      "then": [
+        "repomap.Build is called once before analysis",
+        "the tree-change check runs before implementation",
+        "if HEAD or dirty files changed, Build is called again; otherwise the same map is reused"
+      ],
+      "pseudocode": "spy := &buildSpy{}\ngitSpy := &gitStateSpy{headChanges: false}\npipeline := newFixPipeline(t, spy, gitSpy)\npipeline.Run(ctx)\nassert.Equal(t, 1, spy.callCount) // no tree change, no rebuild\n\ngitSpy2 := &gitStateSpy{headChanges: true}\npipeline2 := newFixPipeline(t, spy2, gitSpy2)\npipeline2.Run(ctx)\nassert.Equal(t, 2, spy2.callCount) // tree changed, rebuilt"
+    },
+    {
+      "id": "TS-14-30",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-9.2"
+      ],
+      "title": "impl pipeline builds the map before survey and rebuilds before each subsequent phase only if the tree changed",
+      "given": [
+        "an impl pipeline with 3 tasks where task 1 commits (changing HEAD) and task 2 does not"
+      ],
+      "when": "the pipeline runs survey, task 1, task 2, task 3",
+      "then": [
+        "Build is called before survey (1st call)",
+        "Build is called before task 2 because task 1 changed HEAD (2nd call)",
+        "Build is NOT called before task 3 because task 2 did not change the tree",
+        "total Build calls = 2"
+      ],
+      "pseudocode": "spy := &buildSpy{}\ngitSpy := &gitStateSpy{headChangesAfterTasks: []int{1}} // HEAD changes after task 1 only\npipeline := newImplPipeline(t, spy, gitSpy, 3)\npipeline.Run(ctx)\nassert.Equal(t, 2, spy.callCount)"
+    },
+    {
+      "id": "TS-14-31",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-9.3"
+      ],
+      "title": "Tree change is detected by comparing HEAD and dirty files against the values at the last build",
+      "given": [
+        "a recorded state of HEAD='abc123' and dirtyFiles=['a.go']",
+        "a current state of HEAD='def456' and dirtyFiles=['a.go', 'b.go']"
+      ],
+      "when": "the tree-change detector compares current vs recorded",
+      "then": [
+        "it reports that the tree changed (HEAD differs)"
+      ],
+      "pseudocode": "detector := repomap.NewTreeChangeDetector(git)\ndetector.Record(ctx) // records abc123, [a.go]\n// simulate commit\ngit.setHead(\"def456\")\ngit.setDirty([\"a.go\", \"b.go\"])\nassert.True(t, detector.Changed(ctx))"
+    },
+    {
+      "id": "TS-14-32",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-9.4"
+      ],
+      "title": "When the tree-change check fails, the map is rebuilt unconditionally and no error surfaces",
+      "given": [
+        "a git instance that returns an error from Head (e.g. not a git repo)"
+      ],
+      "when": "the tree-change detector is asked whether the tree changed",
+      "then": [
+        "the detector reports changed=true (triggering a rebuild)",
+        "no error is returned to the caller",
+        "the phase receives a freshly built map"
+      ],
+      "pseudocode": "git := &failingGit{headErr: errors.New(\"not a git repo\")}\ndetector := repomap.NewTreeChangeDetector(git)\nchanged, err := detector.Changed(ctx)\nassert.True(t, changed)\nassert.NoError(t, err)"
+    },
+    {
+      "id": "TS-14-33",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-10.1"
+      ],
+      "title": "When repomap.Build returns an error, the phase runs without a map and a low warning with code repo_map_build_failed is emitted",
+      "given": [
+        "a pipeline where repomap.Build is stubbed to return an error"
+      ],
+      "when": "the pipeline builds a phase",
+      "then": [
+        "the phase proceeds with an empty RepoMap",
+        "the run does not fail",
+        "the envelope's warnings array contains a warning with code 'repo_map_build_failed' and level 'low'"
+      ],
+      "pseudocode": "spy := &buildSpy{err: errors.New(\"walk failed\")}\npipeline := newIssuePipeline(t, spy)\nresult := pipeline.Run(ctx)\nassert.True(t, result.OK)\nassert.Equal(t, \"\", pipeline.phase.RepoMap)\nassert.Contains(t, result.Warnings, toolio.Warning{Code: \"repo_map_build_failed\", Level: \"low\"})"
+    },
+    {
+      "id": "TS-14-34",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-10.2"
+      ],
+      "title": "WarnRepoMapBuildFailed constant exists with value 'repo_map_build_failed' and is registered in warnStages",
+      "given": [
+        "the toolio/warncode.go file"
+      ],
+      "when": "WarnStage(WarnRepoMapBuildFailed) is called",
+      "then": [
+        "the returned stage is a non-empty string (the tool's first phase name)",
+        "ok is true",
+        "WarnRepoMapBuildFailed's string value is 'repo_map_build_failed'"
+      ],
+      "pseudocode": "assert.Equal(t, toolio.WarnCode(\"repo_map_build_failed\"), toolio.WarnRepoMapBuildFailed)\nstage, ok := toolio.WarnStage(toolio.WarnRepoMapBuildFailed)\nassert.True(t, ok)\nassert.NotEmpty(t, stage)"
+    },
+    {
+      "id": "TS-14-35",
+      "kind": "unit",
+      "verifies": [
+        "14-REQ-2.5"
+      ],
+      "title": "Golden-file test: map at multiple budget steps matches pinned output",
+      "given": [
+        "a fixture workspace with a known set of files and declarations",
+        "golden files for budgets 6000, 1000, 300"
+      ],
+      "when": "repomap.Build is called at each budget",
+      "then": [
+        "each result is byte-identical to its golden file"
+      ],
+      "pseudocode": "for _, tc := range []struct{budget int; golden string}{\n  {6000, \"testdata/golden_6000.txt\"},\n  {1000, \"testdata/golden_1000.txt\"},\n  {300, \"testdata/golden_300.txt\"},\n} {\n  result, _ := repomap.Build(ctx, ws, tc.budget, nil)\n  expected := readFile(tc.golden)\n  assert.Equal(t, expected, result)\n}"
+    },
+    {
+      "id": "TS-14-36",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-1",
+        "14-REQ-1.1",
+        "14-REQ-5.1",
+        "14-REQ-8.1"
+      ],
+      "title": "issue builds a map and injects it into the triage prompt end-to-end",
+      "given": [
+        "a git repository with Go source files containing declarations",
+        "the issue tool configured with --repo-map-tokens 6000"
+      ],
+      "when": "the issue pipeline runs against the repository with a problem report",
+      "then": [
+        "repomap.Build is called with the workspace and budget 6000",
+        "the triage phase's user prompt contains '## Repository map' with the opening sentence",
+        "the map contains file paths and declarations from the repository",
+        "the phase runs successfully"
+      ],
+      "real_components": [
+        "repomap.Build",
+        "issuetriage.taskPrompt",
+        "agentrun.Phase",
+        "tools.Walk"
+      ]
+    },
+    {
+      "id": "TS-14-37",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-2",
+        "14-REQ-9.2",
+        "14-REQ-9.3"
+      ],
+      "title": "impl rebuilds the map when the tree changes between tasks",
+      "given": [
+        "a git repository with a spec containing two tasks",
+        "the impl tool configured with --repo-map-tokens 6000"
+      ],
+      "when": "the impl pipeline runs: survey, task 1 (which commits new files), task 2",
+      "then": [
+        "the map is built before the survey phase",
+        "after task 1 commits, HEAD changes and the map is rebuilt before task 2",
+        "task 2's prompt contains declarations from files task 1 created"
+      ],
+      "real_components": [
+        "repomap.Build",
+        "codeimpl.taskPrompt",
+        "gitx.Git.Head",
+        "gitx.Git.DirtyFiles",
+        "agentrun.Phase"
+      ]
+    },
+    {
+      "id": "TS-14-38",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-3",
+        "14-REQ-1.2",
+        "14-REQ-6.3"
+      ],
+      "title": "budget 0 disables the map and produces identical prompts",
+      "given": [
+        "a git repository with Go source files",
+        "the spec tool configured with --repo-map-tokens 0"
+      ],
+      "when": "the spec pipeline runs",
+      "then": [
+        "repomap.Build returns an empty string without walking",
+        "no phase's user prompt contains '## Repository map'",
+        "the prompts are byte-identical to those produced without the map feature"
+      ],
+      "real_components": [
+        "repomap.Build",
+        "specgen.prdUserPrompt",
+        "agentrun.Phase"
+      ]
+    },
+    {
+      "id": "TS-14-39",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-4",
+        "14-REQ-10.1"
+      ],
+      "title": "map build failure degrades gracefully — phase runs without a map and warning is emitted",
+      "given": [
+        "a git repository where outline.File fails on a corrupt source file causing repomap.Build to return an error"
+      ],
+      "when": "the fix pipeline runs",
+      "then": [
+        "the analysis phase runs without a '## Repository map' block in its prompt",
+        "the run does not fail due to the map build error",
+        "the envelope's warnings array contains a warning with code 'repo_map_build_failed'"
+      ],
+      "real_components": [
+        "repomap.Build",
+        "codefix.analysisPrompt",
+        "agentrun.Phase",
+        "toolio.WarnCode"
+      ]
+    },
+    {
+      "id": "TS-14-40",
+      "kind": "smoke",
+      "verifies": [
+        "14-PATH-5",
+        "14-REQ-8.2"
+      ],
+      "title": "spec reuses the map across all scopes of a split",
+      "given": [
+        "a git repository with Go source files",
+        "the spec tool configured with --repo-map-tokens 6000",
+        "an input that the PRD phase splits into two scopes"
+      ],
+      "when": "the spec pipeline runs both scopes",
+      "then": [
+        "repomap.Build is called exactly once",
+        "both scopes' PRD and generation phases contain the same '## Repository map' block",
+        "the map strings are byte-identical across scopes"
+      ],
+      "real_components": [
+        "repomap.Build",
+        "specgen.prdUserPrompt",
+        "specgen.generationUserPrompt",
+        "agentrun.Phase"
+      ]
+    }
+  ]
+}
