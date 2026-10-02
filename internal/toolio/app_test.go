@@ -325,17 +325,30 @@ func TestAnUnsupportedPlatformVariableIsRefused(t *testing.T) {
 	}
 }
 
-// Claude on Vertex AI is served by the agent library: a Vertex deployment has
-// no Anthropic key, authenticates with a Google token this process cannot
-// read, and must still pass pre-flight.
-func TestClaudeOnVertexPassesPreflightWithoutAnAPIKey(t *testing.T) {
+// vertexWithADC selects Claude on Vertex AI with no token in the environment,
+// and points Application Default Credentials at adc: a file path, which need
+// not exist.
+func vertexWithADC(t *testing.T, adc string) {
+	t.Helper()
 	for _, v := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN"} {
 		t.Setenv(v, "")
 		_ = os.Unsetenv(v)
 	}
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
 	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+}
+
+// Claude on Vertex AI is served by the agent library: a Vertex deployment has
+// no Anthropic key, authenticates with a token minted from Application Default
+// Credentials, and must pass pre-flight when those can be found.
+func TestClaudeOnVertexPassesPreflightWithADC(t *testing.T) {
+	adc := filepath.Join(t.TempDir(), "adc.json")
+	if err := os.WriteFile(adc, []byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vertexWithADC(t, adc)
 	var execCalled bool
 	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
 		execCalled = true
@@ -344,6 +357,25 @@ func TestClaudeOnVertexPassesPreflightWithoutAnAPIKey(t *testing.T) {
 	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "x"}, "")
 	if code != ExitOK || !execCalled {
 		t.Fatalf("code = %d, exec ran = %v, Error = %+v", code, execCalled, env.Error)
+	}
+}
+
+// With no Google credential anywhere, the run fails in pre-flight naming the
+// way to log in, rather than on its first request with a Google 401 that
+// names nothing an operator can act on.
+func TestClaudeOnVertexWithoutADCFailsInPreflight(t *testing.T) {
+	vertexWithADC(t, filepath.Join(t.TempDir(), "missing.json"))
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		t.Error("Exec ran with no credential")
+		return ExitOK, nil, nil
+	})
+	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "x"}, "")
+	if code == ExitOK {
+		t.Fatal("the run was allowed")
+	}
+	if env.Error == nil || env.Error.Category != "auth" ||
+		!strings.Contains(env.Error.Message, "gcloud auth application-default login") {
+		t.Errorf("Error = %+v", env.Error)
 	}
 }
 

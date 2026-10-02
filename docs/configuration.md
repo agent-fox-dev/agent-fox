@@ -77,20 +77,21 @@ wire, and is selected by the same variables Claude Code uses:
 | `ANTHROPIC_VERTEX_BASE_URL` | a proxy in front of Vertex; beats `ANTHROPIC_BASE_URL` while Vertex is on |
 | `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT` | may supply the project once Vertex is selected; they never select it |
 
-Vertex authenticates with a Google OAuth access token, which agent-fox does not
-mint. Put one in `ANTHROPIC_AUTH_TOKEN`; it is short-lived, so refresh it per
-run:
+Vertex authenticates with a Google OAuth access token. agent-fox mints it from
+Application Default Credentials, as Claude Code does, and refreshes it before
+it expires, so a machine on which Claude Code works on Vertex needs nothing
+more:
 
 ```bash
+gcloud auth application-default login   # once; or set GOOGLE_APPLICATION_CREDENTIALS
 export CLAUDE_CODE_USE_VERTEX=1 ANTHROPIC_VERTEX_PROJECT_ID=my-project CLOUD_ML_REGION=us-east5
-export ANTHROPIC_AUTH_TOKEN="$(gcloud auth print-access-token)"
 ```
 
-The preflight passes with no token at all (the credential is `ambient`, as for
-any deployment whose credential this process cannot read); the run then fails
-on its first request with a 401 that names the project and the variable that
-selected Vertex. A leftover `ANTHROPIC_API_KEY` is dropped rather than sent to
-Google. Vertex names models with a dated suffix, which `--model` accepts as is:
+A token in `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_OAUTH_TOKEN`) takes precedence
+and is sent as is; ADC is not consulted then. With neither, the preflight fails
+with an `auth` error naming `gcloud auth application-default login`. A leftover
+`ANTHROPIC_API_KEY` is dropped rather than sent to Google. Vertex names models
+with a dated suffix, which `--model` accepts as is:
 `--model anthropic/claude-sonnet-5@20260401`.
 
 ### AWS Bedrock

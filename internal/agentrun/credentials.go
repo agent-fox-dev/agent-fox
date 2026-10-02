@@ -55,6 +55,14 @@ func CheckCredentials(m *core.Model) error {
 	if m == nil {
 		return nil
 	}
+	if m.API == anthropic.API {
+		if err := checkVertexADC(); err != nil {
+			if e, ok := err.(*Error); ok {
+				e.Model = m
+			}
+			return err
+		}
+	}
 	table := vendorAuth(m)
 	if provider.ResolveAuth(table, provider.Env{}).State != provider.CredentialNone {
 		return nil

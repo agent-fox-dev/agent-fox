@@ -28,10 +28,15 @@ refusal was written while AgentKit's only Vertex support was Gemini on the
 Google wire; AgentKit added Claude on Vertex the same day and the refusal was
 not revisited until an operator on a Vertex machine hit it.
 
-**What still differs:** the Anthropic SDK minted a Google token from
-Application Default Credentials. AgentKit does not, and neither does
-agent-fox, which keeps its dependency set small: set `ANTHROPIC_AUTH_TOKEN` to
-`$(gcloud auth print-access-token)`. See `docs/configuration.md`.
+**Credentials:** the Anthropic SDK minted a Google token from Application
+Default Credentials. AgentKit does not: it has no dependency to mint one with
+and leaves the credential to the embedder's transport. agent-fox supplies that
+transport (`internal/agentrun/vertexauth.go`, on `golang.org/x/oauth2/google`)
+when Vertex is selected and no `ANTHROPIC_AUTH_TOKEN` or
+`ANTHROPIC_OAUTH_TOKEN` is set, and the preflight fails when no ADC can be
+found. Between 2026-10-02's re-enabling of Vertex and this transport, a Vertex
+run with no explicit token failed on its first request with a Google 401
+`CREDENTIALS_MISSING`.
 
 **The way through for Bedrock:** a Bedrock deployment is commonly fronted by an
 Anthropic-compatible gateway. Point `ANTHROPIC_BASE_URL` at it and set a token

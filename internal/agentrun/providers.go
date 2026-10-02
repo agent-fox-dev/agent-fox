@@ -19,7 +19,7 @@ import (
 // fresh registry; nothing is installed by import side effect.
 func DefaultProviders() core.ProviderRegistry {
 	reg := agentkit.DefaultProviders()
-	reg.Register(anthropic.Provider(anthropic.Options{}))
+	reg.Register(anthropic.Provider(anthropicOptions()))
 	reg.Register(openai.Provider(openai.Options{}))
 	reg.Register(openairesponses.Provider(openairesponses.Options{}))
 	reg.Register(google.Provider(google.Options{}))
