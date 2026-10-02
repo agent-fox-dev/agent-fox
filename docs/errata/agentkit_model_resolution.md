@@ -64,6 +64,13 @@ resolves to a clone, so this cannot be reintroduced by editing the table.
 The literal string still resolves, by cloning, if it is passed as a model id.
 It is no longer what a tier resolves to.
 
+**Note:** the extended variant no longer exists. The `--variant` flag and the
+variant dimension of the tier table were removed entirely. Reasoning effort is
+now an independent setting (`--effort` / `$AF_MODEL_EFFORT`) that applies to
+any model. To get a long-context model, name it by id:
+`--model anthropic/claude-fable-5-1 --effort xhigh`. See
+[ADR 08](../adr/08-effort-replaces-variant.md).
+
 ## 3. Prompt-cache policy is no longer configurable here
 
 **Was:** a `CachePolicy` of `none`, `default` or `extended`, with

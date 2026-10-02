@@ -333,6 +333,7 @@ quite what it appears to be; `low` is informational.
 | `split_plan_not_removed` | low | split | spec |
 | `architecture_not_written` | low | write | spec |
 | `activation_failed` | high | activate | spec |
+| `effort_clamped` | low | preflight | shared |
 | `rejected_path_calls` | low | analyse | issue |
 | `report_file_not_written` | low | report | shared |
 | `events_file_not_written` | low | report | shared |
@@ -351,7 +352,7 @@ a typo. An existing directory is never flagged.
 | `--dir` | `.` | the repository to work in; the file tools cannot reach outside it |
 | `--model` | `$AF_MODEL`, else `STANDARD` | a tier (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec |
 | `--vendor` | `$AF_MODEL_VENDOR`, else `anthropic` | which tier table the tier names resolve against |
-| `--variant` | — | tier variant, e.g. `extended` for the long-context row |
+| `--effort` | `$AF_MODEL_EFFORT`, else unset | reasoning effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; applies to any model, whether from a tier or named by id |
 | `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
 | `--budget` | per tool | per-phase spend ceiling, in dollars |
 | `--phase-timeout` | — | wall-clock ceiling on one phase |
@@ -731,6 +732,13 @@ key. The envelope gained a top-level `session_id`. `run_end` gained
 and is no longer gated on `--verbose`. The `events_file` artifact kind was
 added. The report and events file names use `session_id` in place of the pid.
 These came from the `12_events_in_state_directory` spec.
+
+**Flag changes (no version bump):** `--variant` was removed and replaced by
+`--effort` (shared) and `--repair-model-effort` (`impl`). These are flag
+changes, not envelope changes: the envelope's `model.thinking` field is
+unchanged in name, type and meaning, and the new `effort_clamped` warning code
+is an additive value in the open `code` set. The `13_replace_variant_with_effort`
+spec records the decision in [ADR 08](adr/08-effort-replaces-variant.md).
 
 **2.0.0** — the first breaking change: `warnings` became a
 structured list of objects (`code`, `severity`, `stage`, …) instead of strings;
@@ -1407,11 +1415,17 @@ one would not close:
   An earlier task's red gate is never repaired either.
 
 `--repair-model` runs the repair phase on another model — a tier such as
-`ADVANCED`, or a catalog spec — resolved against the same `--vendor` and
-`--variant` as the run's model and checked for its credential before anything
+`ADVANCED`, or a catalog spec — resolved against the same `--vendor`
+as the run's model and checked for its credential before anything
 runs. It implies `--repair`. The rest of the run stays on `--model`. It is
 for the repository whose failure needs more reading than the model chosen for
 the tasks would do; the tasks themselves are not made cheaper or dearer by it.
+
+`--repair-model-effort` sets the reasoning effort for the repair phase
+independently of the run's `--effort`. The repair effort precedence is:
+(1) `--repair-model-effort`, (2) the repair model's tier effort when
+`--repair-model` names a tier, (3) the run's effort when no separate repair
+model is given. `--repair-model-effort` implies `--repair`.
 
 ### One task
 
@@ -1492,6 +1506,7 @@ evidence is the model's own claim; the run does not re-run the tests red.
 | `--repair` | off | repair the checks when they fail before the first task or after the integration task; the run stops if it cannot |
 | `--repair-attempts` | `3` | repair attempts before the run gives up |
 | `--repair-model` | the run's model | model tier or catalog spec for the repair phase alone; implies `--repair` |
+| `--repair-model-effort` | see text | reasoning effort for the repair phase alone; implies `--repair` |
 
 Bounds: 150 turns, $5.00 per phase — and there is one phase per task, so a
 twelve-task spec can cost twelve times what a `fix` does. `--total-budget`

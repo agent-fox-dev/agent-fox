@@ -120,13 +120,28 @@ does not require knowing which model id is current this month.
 A tier names a model **and** a reasoning effort. Separating the two lets
 `SIMPLE` and `STANDARD` share a model and run it at different depth, which on
 current Anthropic rows is the cheaper axis to move: effort is what the model
-spends, and the row is what it costs per token. A model named by id instead of
-a tier carries no thinking level — the operator chose the model, so the vendor
-default applies.
+spends, and the row is what it costs per token.
 
-The `extended` variant of `ADVANCED` selects a model with a 1 000 000-token
-context window (`claude-fable-5-1` on Anthropic) for a spec too large for the
-tier default.
+### Effort precedence
+
+The run's reasoning effort is the first of these that is set:
+
+1. `--effort` flag
+2. `$AF_MODEL_EFFORT` environment variable
+3. The tier's own effort, when `--model` resolves to a tier name
+4. Unset, meaning the vendor's default
+
+A model named by id instead of a tier gets no tier effort (step 3 is skipped),
+so without `--effort` or `$AF_MODEL_EFFORT` the vendor's default applies.
+`--effort` applies to a model named by id as well as to a tier, so
+`--model anthropic/claude-fable-5-1 --effort xhigh` runs the long-context
+model at `xhigh` effort.
+
+When the requested effort is not one the model supports, it is clamped to the
+nearest supported level and an `effort_clamped` warning names both levels and
+the model. When no level is reachable and the effort was explicit (flag or
+env), the run fails before the first request with a usage error naming the
+model.
 
 ### Model ids
 
@@ -139,7 +154,7 @@ export AF_MODEL=anthropic/claude-opus-5
 export AF_MODEL=openai/gpt-6-astra
 export AF_MODEL=ADVANCED
 
-spec --model ADVANCED --variant extended ./big-idea.md
+spec --model anthropic/claude-fable-5-1 --effort xhigh ./big-idea.md
 ```
 
 `--model` wins over `$AF_MODEL`, which wins over `$AGENTKIT_MODEL` (honoured so
@@ -298,6 +313,7 @@ directories up that changes what the same command does.
 | `<VENDOR>_BASE_URL` | gateway, proxy or local server for that vendor |
 | `AF_MODEL` | model tier or catalog spec for every phase; `AGENTKIT_MODEL` is a fallback |
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
+| `AF_MODEL_EFFORT` | reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); `--effort` wins |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `AF_LAND` | the default for `--land` (`fix` and `impl`): `pr`, `branch` or `none`; `AF_LAND=none` keeps every run on the machine. The flag wins; an invalid value is a usage error |
 | `AF_BRANCH_PREFIX` | the default for `fix --branch-prefix`, e.g. `feature`; the flag wins |
