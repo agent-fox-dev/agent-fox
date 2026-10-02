@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 	// Unset model-vendor variables so that tests exercise the intended
 	// credential paths regardless of the developer's shell environment.
 	for _, v := range []string{"AF_MODEL", "AGENTKIT_MODEL", "AF_MODEL_VENDOR",
+		"AF_MODEL_EFFORT",
 		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK",
 		"ANTHROPIC_VERTEX_PROJECT_ID", "ANTHROPIC_VERTEX_BASE_URL"} {
 		_ = os.Unsetenv(v)

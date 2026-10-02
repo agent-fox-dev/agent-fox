@@ -60,6 +60,13 @@ type Deps struct {
 	runner agentrun.Config
 }
 
+// RunnerConfig returns a copy of the runner configuration the run was built
+// from. A caller that needs a runner on a different model or thinking level
+// can copy this, override Model and Thinking, and call agentrun.NewRunner.
+func (d Deps) RunnerConfig() agentrun.Config {
+	return d.runner
+}
+
 // RunnerFor builds a second runner on another model — a tier name or a
 // catalog spec — with the same workspace, bounds, observer and trust as the
 // run's own. It is for a tool that runs one phase on a different model than

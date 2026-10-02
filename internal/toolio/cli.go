@@ -110,13 +110,22 @@ func (f *contextFlag) Set(val string) error {
 	return nil
 }
 
-// effortValues returns the canonical list of accepted --effort values.
-func effortValues() []string {
+// EffortValues returns the canonical list of accepted --effort values.
+func EffortValues() []string {
 	out := make([]string, len(core.ThinkingLevelOrder))
 	for i, l := range core.ThinkingLevelOrder {
 		out[i] = string(l)
 	}
 	return out
+}
+
+// RegisterEffortFlag registers a string flag that accepts the same values as
+// --effort (case-insensitive, stored in canonical lower-case) and declares
+// its enum for --schema. It is for a tool that needs a second effort flag
+// beside Common's --effort (e.g. --repair-model-effort on impl).
+func RegisterEffortFlag(fs *flag.FlagSet, dst *string, name, usage string) {
+	fs.Var(&effortFlag{val: dst}, name, usage)
+	DeclareEnum(fs, name, EffortValues())
 }
 
 // effortFlag is a custom flag.Value that normalises the input to lower-case
@@ -141,7 +150,7 @@ func (f *effortFlag) Set(raw string) error {
 		}
 	}
 	return fmt.Errorf("invalid --effort value %q; accepted values: %s",
-		raw, strings.Join(effortValues(), ", "))
+		raw, strings.Join(EffortValues(), ", "))
 }
 
 // Get implements flag.Getter so the flag schema infers the type as string.
@@ -171,8 +180,8 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.StringVar(&c.Dir, "dir", ".", "the repository to work in; the file tools cannot reach outside it")
 	fs.StringVar(&c.Model, "model", "", "model tier (SIMPLE, STANDARD, ADVANCED) or catalog spec; default $"+ModelEnv+", else "+DefaultModel)
 	fs.StringVar(&c.Vendor, "vendor", "", "vendor whose tier table the tier names resolve against; default $"+VendorEnv)
-	fs.Var(&effortFlag{val: &c.Effort}, "effort", "reasoning effort: "+strings.Join(effortValues(), ", ")+"; default $"+EffortEnv+", else the tier's own effort")
-	DeclareEnum(fs, "effort", effortValues())
+	fs.Var(&effortFlag{val: &c.Effort}, "effort", "reasoning effort: "+strings.Join(EffortValues(), ", ")+"; default $"+EffortEnv+", else the tier's own effort")
+	DeclareEnum(fs, "effort", EffortValues())
 	fs.IntVar(&c.MaxTurns, "max-turns", 0, "per-phase turn ceiling")
 	fs.Float64Var(&c.Budget, "budget", 0, "per-phase spend ceiling, in dollars")
 	fs.DurationVar(&c.Timeout, "phase-timeout", 0, "wall-clock ceiling on one phase")
@@ -450,7 +459,7 @@ func validateEffort(raw string) error {
 		}
 	}
 	return fmt.Errorf("invalid effort value %q; accepted values: %s",
-		raw, strings.Join(effortValues(), ", "))
+		raw, strings.Join(EffortValues(), ", "))
 }
 
 // ModelChoice is the resolved model and the spec string that produced it.

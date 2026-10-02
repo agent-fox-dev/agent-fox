@@ -164,6 +164,20 @@
         "default": "",
         "description": "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model"
       },
+      "repair-model-effort": {
+        "type": "string",
+        "enum": [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default": "",
+        "description": "reasoning effort for the repair phase: off, minimal, low, medium, high, xhigh, max; implies --repair. Default the repair model's tier effort"
+      },
       "repo": {
         "type": "string",
         "default": "",
