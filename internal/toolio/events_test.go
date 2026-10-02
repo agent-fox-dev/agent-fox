@@ -17,7 +17,7 @@ var documentedFields = map[string][]string{
 	"step":        {"stage", "message"},
 	"phase_start": {"phase", "task", "max_turns", "budget_usd"},
 	"turn":        {"phase", "turn", "cost_usd", "input_tokens", "output_tokens"},
-	"tool_call":   {"phase", "name", "blocked"},
+	"tool_call":   {"phase", "name", "blocked", "arguments", "ok", "exit_code", "error"},
 	"check":       {"command", "ok", "exit_code", "duration_ms"},
 	"phase_end":   {"phase", "stop_reason", "turns", "cost_usd", "duration_ms"},
 	"warning":     {"code", "severity", "stage", "message"},
@@ -29,12 +29,13 @@ var documentedFields = map[string][]string{
 // everyEvent returns one event of every type, with the optional phase_start
 // task present.
 func everyEvent() []event {
+	exitOne := 1
 	return []event{
 		newRunStartEvent("text", EventModelInfo{Spec: "s", ID: "i", Vendor: "v"}),
 		newStepEvent("analyse", "working"),
 		newPhaseStartEvent("implement", "3", 40, 5),
 		newTurnEvent("implement", 1, 0.25, 100, 50),
-		newToolCallEvent("implement", "bash", true),
+		newToolCallEvent("implement", "bash", true, json.RawMessage(`{"cmd":"ls"}`), false, &exitOne, "refused"),
 		newCheckEvent("go test ./...", false, 1, 1200),
 		newPhaseEndEvent("implement", "end_turn", 4, 1.5, 9000),
 		newWarningEvent(Warning{Code: WarnInputTruncated, Severity: "warning", Stage: "input", Message: "m"}),
@@ -131,7 +132,7 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	// Zero values must still be present: a false/0 field is not omitted.
 	events = append(events,
-		newToolCallEvent("p", "n", false),
+		newToolCallEvent("p", "n", false, json.RawMessage(`{}`), false, nil, ""),
 		newTurnEvent("p", 0, 0, 0, 0),
 		newCheckEvent("", false, 0, 0),
 		newStepEvent("", string(rune('a'+rng.Intn(26)))),
@@ -147,6 +148,14 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 		if ty == "phase_start" {
 			if _, has := obj["task"]; !has {
 				want = slices.DeleteFunc(want, func(f string) bool { return f == "task" })
+			}
+		}
+		if ty == "tool_call" {
+			if _, has := obj["exit_code"]; !has {
+				want = slices.DeleteFunc(want, func(f string) bool { return f == "exit_code" })
+			}
+			if _, has := obj["error"]; !has {
+				want = slices.DeleteFunc(want, func(f string) bool { return f == "error" })
 			}
 		}
 		for k := range obj {

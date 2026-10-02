@@ -1,6 +1,7 @@
 package toolio
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"sync"
@@ -55,9 +56,10 @@ type event interface {
 
 // One struct per type, carrying exactly the fields documented for it and no
 // others. There is deliberately no shared struct with omitempty fields: a
-// field that does not belong to a type cannot be present on it. The single
-// omitempty is phase_start's task, which is documented as present only for
-// impl's per-task phase.
+// field that does not belong to a type cannot be present on it. The fields
+// with omitempty are: phase_start's task (present only for impl's per-task
+// phase), and tool_call's exit_code and error (present only under the rules
+// of 12-REQ-8.5 and 12-REQ-8.6).
 
 // RunStartEvent is emitted once, after the input is classified and the model
 // resolved.
@@ -102,12 +104,17 @@ type TurnEvent struct {
 	OutputTokens int64   `json:"output_tokens"`
 }
 
-// ToolCallEvent is emitted per model tool call, under --verbose only.
+// ToolCallEvent is emitted per model tool call. omitempty is applied to
+// exit_code and error only: arguments, ok and blocked are always present.
 type ToolCallEvent struct {
 	eventHeader
-	Phase   string `json:"phase"`
-	Name    string `json:"name"`
-	Blocked bool   `json:"blocked"`
+	Phase     string          `json:"phase"`
+	Name      string          `json:"name"`
+	Blocked   bool            `json:"blocked"`
+	Arguments json.RawMessage `json:"arguments"`
+	OK        bool            `json:"ok"`
+	ExitCode  *int            `json:"exit_code,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // CheckEvent is emitted after every verification command.
@@ -189,10 +196,30 @@ func newTurnEvent(phase string, turn int, costUSD float64, in, out int64) *TurnE
 	return e
 }
 
-func newToolCallEvent(phase, name string, blocked bool) *ToolCallEvent {
-	e := &ToolCallEvent{Phase: phase, Name: name, Blocked: blocked}
+func newToolCallEvent(phase, name string, blocked bool, arguments json.RawMessage, ok bool, exitCode *int, errMsg string) *ToolCallEvent {
+	args := safeArguments(arguments)
+	e := &ToolCallEvent{
+		Phase: phase, Name: name, Blocked: blocked,
+		Arguments: args, OK: ok, ExitCode: exitCode, Error: errMsg,
+	}
 	e.Type = EventToolCall
 	return e
+}
+
+// safeArguments compacts valid JSON arguments, returns {} for empty input,
+// and encodes invalid JSON as a JSON string so the event line is never
+// dropped by a marshal failure.
+func safeArguments(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, raw); err != nil {
+		// Invalid JSON: encode the raw text as a JSON string.
+		encoded, _ := json.Marshal(string(raw))
+		return json.RawMessage(encoded)
+	}
+	return json.RawMessage(compacted.Bytes())
 }
 
 func newCheckEvent(command string, ok bool, exitCode int, durationMS int64) *CheckEvent {

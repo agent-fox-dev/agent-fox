@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -47,8 +48,7 @@ type turnCall struct {
 }
 
 type toolCall struct {
-	phase, name string
-	blocked     bool
+	info ToolCallInfo
 }
 
 type textCall struct {
@@ -88,11 +88,11 @@ func (o *recObserver) Turn(phase string, turn int, costUSD float64, in, out int6
 	o.turns = append(o.turns, turnCall{phase, turn, costUSD, in, out})
 }
 
-func (o *recObserver) ToolCall(phase, name string, blocked bool) {
+func (o *recObserver) ToolCall(info ToolCallInfo) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log = append(o.log, "tool_call")
-	o.toolCalls = append(o.toolCalls, toolCall{phase, name, blocked})
+	o.toolCalls = append(o.toolCalls, toolCall{info: info})
 }
 
 func (o *recObserver) Text(phase string, turn int, text string) {
@@ -236,21 +236,24 @@ func TestTS07_28_TurnOncePerBoundary(t *testing.T) {
 	}
 }
 
-// TS-07-29: a traced tool result reports one non-blocked call, verbose only.
+// TS-07-29: a traced tool result reports one non-blocked call.
 // The event is emitted when the result arrives, once per call.
 func TestTS07_29_TraceReportsToolCallWhenVerbose(t *testing.T) {
 	obs := &recObserver{verbose: true}
 	r := &Runner{cfg: Config{Observer: obs}}
 	var turn int
 	var tb textBuffer
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, core.ToolCallEndEvent{Block: core.ToolUseBlock{Name: "write_file"}})
+	pending := make(map[string]core.ToolUseBlock)
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "write_file", Input: json.RawMessage(`{}`)}})
 	if len(obs.toolCalls) != 0 {
 		t.Fatalf("a call was reported before its result: %+v", obs.toolCalls)
 	}
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, core.ToolResultEvent{Message: core.ToolResultMessage{ToolName: "write_file"}})
-	want := []toolCall{{"implement", "write_file", false}}
-	if !reflect.DeepEqual(obs.toolCalls, want) {
-		t.Fatalf("ToolCall calls = %+v, want %+v", obs.toolCalls, want)
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolResultEvent{Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "write_file"}})
+	if len(obs.toolCalls) != 1 {
+		t.Fatalf("got %d tool calls, want 1: %+v", len(obs.toolCalls), obs.toolCalls)
+	}
+	if obs.toolCalls[0].info.Name != "write_file" || obs.toolCalls[0].info.Phase != "implement" || obs.toolCalls[0].info.Blocked {
+		t.Fatalf("ToolCall = %+v, want phase=implement name=write_file blocked=false", obs.toolCalls[0].info)
 	}
 }
 
@@ -263,12 +266,14 @@ func TestARefusedCallIsReportedOnce(t *testing.T) {
 	var tb textBuffer
 	blocks := &blockCounter{}
 	errs := &toolErrorCounter{}
+	pending := make(map[string]core.ToolUseBlock)
 	blocks.inc("execute")
-	r.trace("p", &turn, errs, blocks, &tb, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("p", &turn, errs, blocks, &tb, core.ToolResultEvent{Message: core.ToolResultMessage{
-		ToolName: "execute", IsError: true, Content: core.Content{core.TextBlock{Text: "guard refused"}}}})
-	if want := []toolCall{{"p", "execute", true}}; !reflect.DeepEqual(obs.toolCalls, want) {
-		t.Errorf("tool calls = %+v, want %+v", obs.toolCalls, want)
+	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: json.RawMessage(`{}`)}})
+	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{Message: core.ToolResultMessage{
+		ToolUseID: "c1", ToolName: "execute", IsError: true, Content: core.Content{core.TextBlock{Text: "guard refused"}}}})
+	if len(obs.toolCalls) != 1 || obs.toolCalls[0].info.Name != "execute" || obs.toolCalls[0].info.Phase != "p" || !obs.toolCalls[0].info.Blocked {
+		t.Errorf("tool calls = %+v, want one blocked execute in phase p", obs.toolCalls)
 	}
 	for _, d := range obs.details {
 		if strings.Contains(d, "ERROR") || strings.Contains(d, "guard refused") {
@@ -311,7 +316,7 @@ func TestTS07_30_GuardBlockReportsToolCall(t *testing.T) {
 	obs := blockedExecuteRun(t, true)
 	found := false
 	for _, c := range obs.toolCalls {
-		if c == (toolCall{"phase", "execute", true}) {
+		if c.info.Phase == "phase" && c.info.Name == "execute" && c.info.Blocked {
 			found = true
 		}
 	}
@@ -329,10 +334,12 @@ func TestTS07_30_GuardBlockReportsToolCall(t *testing.T) {
 	}
 }
 
-// TS-07-32: without verbose tracing no ToolCall is ever made.
-func TestTS07_32_NoToolCallWhenNotVerbose(t *testing.T) {
+// TS-07-32: ToolCall is emitted for every call, regardless of verbose.
+// (Updated from the original assertion that no ToolCall was made without
+// --verbose, because the Verbose() check was removed in 12-REQ-6.2.)
+func TestTS07_32_ToolCallEmittedWithoutVerbose(t *testing.T) {
 	obs := blockedExecuteRun(t, false)
-	if len(obs.toolCalls) != 0 {
-		t.Fatalf("ToolCall calls = %+v, want none", obs.toolCalls)
+	if len(obs.toolCalls) == 0 {
+		t.Fatal("ToolCall should be emitted even without --verbose")
 	}
 }

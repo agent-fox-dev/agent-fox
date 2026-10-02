@@ -2,6 +2,7 @@ package toolio
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -209,13 +210,12 @@ func TestTS07_25_ProgressIsAnObserver(t *testing.T) {
 	_ = agentrun.Config{Observer: o}
 }
 
-// The phase, turn and tool-call hooks emit their events; tool_call only under
-// --verbose.
+// The phase, turn and tool-call hooks emit their events.
 func TestProgressObserverHooksEmit(t *testing.T) {
 	p, _, events := sinkProgress(true, false, true)
 	p.PhaseStart("implement", "3", 40, 5)
 	p.Turn("implement", 1, 0.25, 100, 50)
-	p.ToolCall("implement", "bash", true)
+	p.ToolCall(agentrun.ToolCallInfo{Phase: "implement", Name: "bash", Blocked: true, Arguments: json.RawMessage(`{}`), OK: true})
 	p.PhaseEnd("implement", "end_turn", 1, 0.25, 900)
 	var types []string
 	for _, ev := range decodeLines(t, events.String()) {
@@ -225,10 +225,11 @@ func TestProgressObserverHooksEmit(t *testing.T) {
 		t.Fatalf("types = %s", got)
 	}
 
+	// tool_call is emitted regardless of --verbose.
 	q, _, qEvents := sinkProgress(false, false, true)
-	q.ToolCall("implement", "bash", false)
-	if qEvents.Len() != 0 {
-		t.Fatalf("tool_call emitted without --verbose: %q", qEvents.String())
+	q.ToolCall(agentrun.ToolCallInfo{Phase: "implement", Name: "bash", Arguments: json.RawMessage(`{}`)})
+	if qEvents.Len() == 0 {
+		t.Fatal("tool_call should be emitted even without --verbose")
 	}
 }
 

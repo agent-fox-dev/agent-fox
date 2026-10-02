@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 )
 
@@ -252,13 +253,11 @@ func (p *Progress) Text(phase string, turn int, text string) {
 	}
 }
 
-// ToolCall emits a tool_call event, under --verbose only.
-func (p *Progress) ToolCall(phase, name string, blocked bool) {
-	if !p.Verbose() {
-		return
-	}
+// ToolCall emits a tool_call event for every model tool call.
+func (p *Progress) ToolCall(info agentrun.ToolCallInfo) {
 	if s := p.sink(); s != nil {
-		s.Emit(newToolCallEvent(phase, name, blocked))
+		s.Emit(newToolCallEvent(info.Phase, info.Name, info.Blocked,
+			info.Arguments, info.OK, info.ExitCode, info.Error))
 	}
 }
 

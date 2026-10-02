@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -88,6 +89,18 @@ func (b Bounds) maxAttempts() int {
 	return DefaultMaxAttempts
 }
 
+// ToolCallInfo carries the details of one model tool call. It is the
+// single argument to Observer.ToolCall.
+type ToolCallInfo struct {
+	Phase     string
+	Name      string
+	Blocked   bool
+	Arguments json.RawMessage // compacted JSON; {} when empty; raw text as a JSON string when invalid
+	OK        bool
+	ExitCode  *int   // present only for shell tools with a readable exit status
+	Error     string // present only when OK is false
+}
+
 // Observer receives a phase's progress. toolio.Progress satisfies it; a test
 // passes nil.
 type Observer interface {
@@ -102,8 +115,9 @@ type Observer interface {
 	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64)
 	// Turn reports one finished model turn.
 	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
-	// ToolCall reports one model tool call, shown only under --verbose.
-	ToolCall(phase, name string, blocked bool)
+	// ToolCall reports one model tool call. It is emitted for every call,
+	// regardless of --verbose.
+	ToolCall(info ToolCallInfo)
 	// Text reports the accumulated prose of one model turn, emitted
 	// immediately before the turn event with the same turn number.
 	Text(phase string, turn int, text string)
@@ -296,8 +310,9 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	var turn int
 	var toolErrs toolErrorCounter
 	var tb textBuffer
+	pending := make(map[string]core.ToolUseBlock)
 	for e := range stream.Events() {
-		r.trace(p.Name, &turn, &toolErrs, blocked, &tb, e)
+		r.trace(p.Name, &turn, &toolErrs, blocked, &tb, pending, e)
 	}
 	// Flush any prose buffered in an interrupted turn (cancellation,
 	// stream error) before PhaseEnd.
@@ -475,8 +490,9 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 
 // trace reports one stream event. turn is the phase's turn counter, which
 // the loop's own TurnEndEvent advances. tb accumulates prose for the
-// per-turn text event.
-func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *blockCounter, tb *textBuffer, e core.Event) {
+// per-turn text event. pending maps tool-call IDs to their ToolUseBlock
+// so the result can be matched to its arguments.
+func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *blockCounter, tb *textBuffer, pending map[string]core.ToolUseBlock, e core.Event) {
 	switch v := e.(type) {
 	case core.TurnEndEvent:
 		*turn++
@@ -487,6 +503,8 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *
 		}
 	case core.ToolCallEndEvent:
 		r.detail("→ %s %s", v.Block.Name, firstLine(string(v.Block.Input), 100))
+		// Remember the block by its tool-call ID so the result can look it up.
+		pending[v.Block.ID] = v.Block
 	case core.ToolExecutionEndEvent:
 		// A refused call was already reported as "blocked <tool>: <reason>";
 		// repeating it here as an ERROR would make a refusal look like a
@@ -503,7 +521,13 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *
 		// Every call ends in exactly one result, so this is where the one
 		// tool_call event per call is emitted, with whether it was refused.
 		refused := blocks.take(v.Message.ToolName)
-		r.toolCall(phase, v.Message.ToolName, refused)
+		// Look up the call's arguments by tool-call ID, not by tool name,
+		// because calls can run in parallel.
+		block, found := pending[v.Message.ToolUseID]
+		if found {
+			delete(pending, v.Message.ToolUseID)
+		}
+		r.toolCall(phase, v.Message, block, found, refused)
 		if v.Message.IsError && !refused {
 			// Counted here and not at ToolExecutionEndEvent: a call to a tool
 			// that does not exist never executes, and still costs a turn.
@@ -530,16 +554,84 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *
 	}
 }
 
-// toolCall reports one model tool call to an observer that is tracing
-// verbosely. Without --verbose it makes no call at all.
-func (r *Runner) toolCall(phase, name string, blocked bool) {
+// toolCall reports one model tool call to the observer. It is emitted for
+// every call, regardless of --verbose.
+func (r *Runner) toolCall(phase string, msg core.ToolResultMessage, block core.ToolUseBlock, hasBlock, refused bool) {
 	if r.cfg.Observer == nil {
 		return
 	}
-	if v, ok := r.cfg.Observer.(interface{ Verbose() bool }); !ok || !v.Verbose() {
-		return
+	info := ToolCallInfo{
+		Phase:   phase,
+		Name:    msg.ToolName,
+		Blocked: refused,
+		OK:      !msg.IsError,
 	}
-	r.cfg.Observer.ToolCall(phase, name, blocked)
+	// Arguments from the matched ToolCallEndEvent.
+	if hasBlock {
+		info.Arguments = compactArguments(block.Input)
+	} else {
+		info.Arguments = json.RawMessage(`{}`)
+	}
+	// Error text when the call failed.
+	if msg.IsError {
+		info.Error = msg.Content.Text()
+	}
+	// Exit code only for shell tools with a readable status.
+	if isShellTool(msg.ToolName) && !refused {
+		if code, ok := parseExitCode(msg.Content.Text()); ok {
+			info.ExitCode = &code
+		}
+	}
+	r.cfg.Observer.ToolCall(info)
+}
+
+// compactArguments compacts valid JSON, returns {} for empty input, and
+// encodes invalid JSON as a JSON string so the event line is never dropped.
+func compactArguments(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		// Invalid JSON: encode the raw text as a JSON string.
+		encoded, _ := json.Marshal(string(raw))
+		return json.RawMessage(encoded)
+	}
+	return json.RawMessage(buf.Bytes())
+}
+
+// isShellTool reports whether the tool is one of the shell tools whose
+// result may carry an exit code.
+func isShellTool(name string) bool {
+	switch name {
+	case "execute", "run_command", "powershell":
+		return true
+	}
+	return false
+}
+
+// parseExitCode extracts data.exit_code from a shell tool's result text.
+// The result is the JSON envelope the tool handler produces, e.g.
+// {"ok":true,"data":{"exit_code":0,"output":"..."}}
+// It returns (code, true) when the field is present and numeric, and
+// (0, false) otherwise. It never guesses or defaults to 0.
+func parseExitCode(resultText string) (int, bool) {
+	var envelope struct {
+		Data struct {
+			ExitCode *json.Number `json:"exit_code"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(resultText), &envelope); err != nil {
+		return 0, false
+	}
+	if envelope.Data.ExitCode == nil {
+		return 0, false
+	}
+	n, err := envelope.Data.ExitCode.Int64()
+	if err != nil {
+		return 0, false
+	}
+	return int(n), true
 }
 
 func (r *Runner) detail(format string, args ...any) {
