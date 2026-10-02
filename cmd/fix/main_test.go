@@ -198,6 +198,13 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// Unset model-vendor variables so that tests exercise the intended
+	// credential paths regardless of the developer's shell environment.
+	for _, v := range []string{"AF_MODEL", "AGENTKIT_MODEL", "AF_MODEL_VENDOR",
+		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"} {
+		_ = os.Unsetenv(v)
+	}
+
 	dir, err := os.MkdirTemp("", "cmd-test-bins-*")
 	if err != nil {
 		panic(err)

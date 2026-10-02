@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -11,6 +12,16 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
+
+func TestMain(m *testing.M) {
+	// Unset model-vendor variables so that tests exercise the intended
+	// credential paths regardless of the developer's shell environment.
+	for _, v := range []string{"AF_MODEL", "AGENTKIT_MODEL", "AF_MODEL_VENDOR",
+		"CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_BEDROCK"} {
+		_ = os.Unsetenv(v)
+	}
+	os.Exit(m.Run())
+}
 
 // TestSchemaGolden (TS-09-35, TS-09-38): issue --schema is byte-for-byte the
 // checked-in golden file, and its flags and result documents compile against
