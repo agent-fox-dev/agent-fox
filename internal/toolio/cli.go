@@ -23,6 +23,8 @@ const (
 	// VendorEnv selects which tier table SIMPLE/STANDARD/ADVANCED resolve
 	// against. It has no effect on a model named by id.
 	VendorEnv = "AF_MODEL_VENDOR"
+	// EffortEnv supplies the reasoning effort when --effort is not given.
+	EffortEnv = "AF_MODEL_EFFORT"
 )
 
 // DefaultModel is the tier every tool runs on unless told otherwise. It is a
@@ -41,7 +43,7 @@ type Common struct {
 	Dir          string
 	Model        string
 	Vendor       string
-	Variant      string
+	Effort       string
 	MaxTurns     int
 	Budget       float64
 	Timeout      time.Duration
@@ -107,6 +109,43 @@ func (f *contextFlag) Set(val string) error {
 	return nil
 }
 
+// effortValues returns the canonical list of accepted --effort values.
+func effortValues() []string {
+	out := make([]string, len(core.ThinkingLevelOrder))
+	for i, l := range core.ThinkingLevelOrder {
+		out[i] = string(l)
+	}
+	return out
+}
+
+// effortFlag is a custom flag.Value that normalises the input to lower-case
+// and validates it against the accepted effort values at parse time.
+type effortFlag struct {
+	val *string
+}
+
+func (f *effortFlag) String() string {
+	if f.val == nil {
+		return ""
+	}
+	return *f.val
+}
+
+func (f *effortFlag) Set(raw string) error {
+	norm := strings.ToLower(raw)
+	for _, l := range core.ThinkingLevelOrder {
+		if string(l) == norm {
+			*f.val = norm
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid --effort value %q; accepted values: %s",
+		raw, strings.Join(effortValues(), ", "))
+}
+
+// Get implements flag.Getter so the flag schema infers the type as string.
+func (f *effortFlag) Get() any { return *f.val }
+
 // ContextBlock renders the --context values into one labelled block,
 // or returns an empty string when none were given.
 func (c *Common) ContextBlock() string {
@@ -131,7 +170,8 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.StringVar(&c.Dir, "dir", ".", "the repository to work in; the file tools cannot reach outside it")
 	fs.StringVar(&c.Model, "model", "", "model tier (SIMPLE, STANDARD, ADVANCED) or catalog spec; default $"+ModelEnv+", else "+DefaultModel)
 	fs.StringVar(&c.Vendor, "vendor", "", "vendor whose tier table the tier names resolve against; default $"+VendorEnv)
-	fs.StringVar(&c.Variant, "variant", "", "tier variant, e.g. extended")
+	fs.Var(&effortFlag{val: &c.Effort}, "effort", "reasoning effort: "+strings.Join(effortValues(), ", ")+"; default $"+EffortEnv+", else the tier's own effort")
+	DeclareEnum(fs, "effort", effortValues())
 	fs.IntVar(&c.MaxTurns, "max-turns", 0, "per-phase turn ceiling")
 	fs.Float64Var(&c.Budget, "budget", 0, "per-phase spend ceiling, in dollars")
 	fs.DurationVar(&c.Timeout, "phase-timeout", 0, "wall-clock ceiling on one phase")
@@ -331,13 +371,23 @@ func (c *Common) ResolveModel() (*ModelChoice, error) {
 }
 
 // ResolveModelNamed resolves one model by tier name or catalog spec, against
-// the run's vendor and variant, and checks its credential. It is what a tool
+// the run's vendor, and checks its credential. It is what a tool
 // that runs one phase on another model than the rest resolves that model
 // with, so the second choice obeys the same rules as the first.
 func (c *Common) ResolveModelNamed(spec string) (*ModelChoice, error) {
 	if err := agentrun.CheckUnsupportedPlatformVars(); err != nil {
 		return nil, err
 	}
+
+	// Validate $AF_MODEL_EFFORT when --effort is not set.
+	if c.Effort == "" {
+		if raw := os.Getenv(EffortEnv); raw != "" {
+			if err := validateEffort(raw); err != nil {
+				return nil, Usagef("$%s: %s", EffortEnv, err.Error())
+			}
+		}
+	}
+
 	m, thinking, err := agentrun.ResolveModel(spec, c.VendorName())
 	if err != nil {
 		return nil, err
@@ -346,6 +396,19 @@ func (c *Common) ResolveModelNamed(spec string) (*ModelChoice, error) {
 		return nil, err
 	}
 	return &ModelChoice{Model: m, Thinking: thinking, Spec: spec}, nil
+}
+
+// validateEffort checks that raw is a valid effort value (case-insensitive).
+// It returns an error listing the accepted values when it is not.
+func validateEffort(raw string) error {
+	norm := strings.ToLower(raw)
+	for _, l := range core.ThinkingLevelOrder {
+		if string(l) == norm {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid effort value %q; accepted values: %s",
+		raw, strings.Join(effortValues(), ", "))
 }
 
 // ModelChoice is the resolved model and the spec string that produced it.

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -546,5 +548,131 @@ func TestTS06_55_SinglePhaseCeilingIsTheLowerOfTheTwo(t *testing.T) {
 	c := toolio.Common{Budget: 10, TotalBudgetUSD: 4}
 	if got := c.Bounds(defaults).MaxBudgetUSD; got != 10 {
 		t.Errorf("Bounds ceiling = %v, want 10", got)
+	}
+}
+
+// TS-13-1 (unit): --effort is registered as a string flag with DeclareEnum
+// listing the seven accepted values.
+func TestTS13_1_EffortRegisteredWithDeclareEnum(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+
+	f := fs.Lookup("effort")
+	if f == nil {
+		t.Fatal("expected a flag named 'effort' to be registered")
+	}
+	if f.DefValue != "" {
+		t.Errorf("expected default value to be empty, got %q", f.DefValue)
+	}
+
+	// Check enum values via BuildFlagsDocument.
+	doc := toolio.BuildFlagsDocument(fs)
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal flags doc: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(b, &schema); err != nil {
+		t.Fatalf("unmarshal flags doc: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("no properties in schema")
+	}
+	effortProp, ok := props["effort"].(map[string]any)
+	if !ok {
+		t.Fatal("no effort property in schema")
+	}
+	gotEnum, ok := effortProp["enum"]
+	if !ok {
+		t.Fatal("effort property has no enum")
+	}
+	wantEnum := []any{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+	if !reflect.DeepEqual(gotEnum, wantEnum) {
+		t.Errorf("effort enum = %v, want %v", gotEnum, wantEnum)
+	}
+}
+
+// TS-13-2 (unit): Common carries an Effort field and no Variant field.
+func TestTS13_2_CommonHasEffortNoVariant(t *testing.T) {
+	v := reflect.TypeOf(toolio.Common{})
+	if _, hasEffort := v.FieldByName("Effort"); !hasEffort {
+		t.Error("Common should have an Effort field")
+	}
+	if _, hasVariant := v.FieldByName("Variant"); hasVariant {
+		t.Error("Common should not have a Variant field")
+	}
+}
+
+// TS-13-5 (unit): --effort value is matched case-insensitively and stored in
+// canonical lower-case.
+func TestTS13_5_EffortCaseInsensitive(t *testing.T) {
+	for _, v := range []string{"HIGH", "High", "hIgH"} {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		c := &toolio.Common{}
+		c.Register(fs)
+		if err := fs.Parse([]string{"--effort", v}); err != nil {
+			t.Fatalf("parsing --effort %s: %v", v, err)
+		}
+		if c.Effort != "high" {
+			t.Errorf("--effort %s: got Effort=%q, want %q", v, c.Effort, "high")
+		}
+	}
+}
+
+// TS-13-6 (unit): An invalid --effort value exits 2 and lists the accepted
+// values.
+func TestTS13_6_InvalidEffortValueIsError(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+	err := fs.Parse([]string{"--effort", "turbo"})
+	if err == nil {
+		t.Fatal("expected an error for --effort turbo")
+	}
+	for _, want := range []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should contain accepted value %q", err.Error(), want)
+		}
+	}
+}
+
+// TS-13-7 (unit): An invalid $AF_MODEL_EFFORT value exits 2 and names the
+// environment variable.
+func TestTS13_7_InvalidEnvEffortValueIsUsageError(t *testing.T) {
+	t.Setenv("AF_MODEL_EFFORT", "turbo")
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	c := &toolio.Common{Model: "STANDARD"}
+	_, err := c.ResolveModelNamed("STANDARD")
+	if err == nil {
+		t.Fatal("expected an error for AF_MODEL_EFFORT=turbo")
+	}
+	var ue *toolio.UsageError
+	if !errors.As(err, &ue) {
+		t.Errorf("expected a *UsageError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "AF_MODEL_EFFORT") {
+		t.Errorf("error %q should name AF_MODEL_EFFORT", err.Error())
+	}
+	for _, want := range []string{"off", "max"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should contain accepted value %q", err.Error(), want)
+		}
+	}
+}
+
+// TS-13-17 (unit): --variant is no longer registered and Variant field is
+// absent from Common.
+func TestTS13_17_VariantNotRegistered(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+	if fs.Lookup("variant") != nil {
+		t.Error("--variant should not be registered")
 	}
 }
