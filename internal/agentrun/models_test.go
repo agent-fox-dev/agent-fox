@@ -223,6 +223,33 @@ func TestTS13_19_ModelSpecAndResolveModelAcceptTwoParameters(t *testing.T) {
 	}
 }
 
+// TS-13-24 (property): For any vendor and tier whose tierEntry has a non-unset
+// thinking level, ClampThinkingLevel returns the same level (clamps to itself).
+func TestTS13_24_TierEffortSelfConsistency(t *testing.T) {
+	for _, vendor := range TierVendors() {
+		for _, tier := range Tiers {
+			m, thinking, err := ResolveModel(string(tier), vendor)
+			if err != nil {
+				t.Errorf("%s/%s: %v", vendor, tier, err)
+				continue
+			}
+			if thinking == core.ThinkingUnset {
+				continue
+			}
+			clamped, _, ok := catalog.ClampThinkingLevel(m, thinking)
+			if !ok {
+				t.Errorf("%s/%s: ClampThinkingLevel(%s, %s) returned ok=false",
+					vendor, tier, m.ID, thinking)
+				continue
+			}
+			if clamped != thinking {
+				t.Errorf("%s/%s: ClampThinkingLevel(%s, %s) = %s, want %s (tier's own effort should clamp to itself)",
+					vendor, tier, m.ID, thinking, clamped, thinking)
+			}
+		}
+	}
+}
+
 // TS-13-25 (unit): TestTheExtendedVariantHasAMillionTokenWindow and
 // TestAnUnknownVariantFallsBackToTheTierDefault are deleted
 func TestTS13_25_DeletedVariantTestsNoLongerExist(t *testing.T) {

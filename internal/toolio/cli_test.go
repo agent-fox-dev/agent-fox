@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -791,5 +792,27 @@ func TestTS13_17_VariantNotRegistered(t *testing.T) {
 	c.Register(fs)
 	if fs.Lookup("variant") != nil {
 		t.Error("--variant should not be registered")
+	}
+}
+
+// TS-13-20 (unit): ResolveModelNamed no longer passes a variant argument to ModelSpec/ResolveModel
+func TestTS13_20_ResolveModelNamedNoVariantReference(t *testing.T) {
+	// Source inspection: read cli.go and confirm that ResolveModelNamed does
+	// not reference c.Variant. Since the Variant field was removed from Common
+	// in task 2, any reference would be a compile error. This test reads the
+	// source to verify no string "c.Variant" appears.
+	src, err := os.ReadFile("cli.go")
+	if err != nil {
+		t.Fatalf("reading cli.go: %v", err)
+	}
+	if strings.Contains(string(src), "c.Variant") {
+		t.Error("cli.go still references c.Variant")
+	}
+
+	// Also a compile-time check: ResolveModel(spec, vendor) compiles with
+	// two arguments. If it still took a variant, this would not compile.
+	_, _, compileErr := agentrun.ResolveModel("STANDARD", "")
+	if compileErr != nil {
+		t.Fatalf("ResolveModel(STANDARD, \"\"): %v", compileErr)
 	}
 }

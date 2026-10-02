@@ -66,6 +66,16 @@ func TestKnownFixValueFlagsCoverSharedValueFlags(t *testing.T) {
 	})
 }
 
+// TS-13-21 (unit): knownFixValueFlags contains effort and does not contain variant
+func TestTS13_21_KnownFixValueFlagsHasEffortNotVariant(t *testing.T) {
+	if !knownFixValueFlags["effort"] {
+		t.Error("knownFixValueFlags should contain 'effort'")
+	}
+	if knownFixValueFlags["variant"] {
+		t.Error("knownFixValueFlags should not contain 'variant'")
+	}
+}
+
 func TestFixAcceptsSharedDryRunAndTotalBudget(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := newApp().Main(context.Background(), normalizeArgs([]string{"--dry-run", "--total-budget", "3", "--version"}),

@@ -43,6 +43,7 @@ func ToolFlags(tool string) []string {
 var removedFlagMessages = map[string]string{
 	"events-file": "--events-file was removed; events are always written to <state>/events/",
 	"events":      "--events was renamed --emit-events",
+	"variant":     "--variant was removed; use --effort to set reasoning effort and --model to name a specific model",
 }
 
 // unsupportedFlagMessage rewrites a "flag provided but not defined" parse
