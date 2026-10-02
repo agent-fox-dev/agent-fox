@@ -74,7 +74,7 @@ func TestTS07_34_WarnEmitsAWarningEvent(t *testing.T) {
 			t.Errorf("%s = %v, want %v", k, ev[k], v)
 		}
 	}
-	if len(ev) != len(want)+1 { // plus ts
+	if len(ev) != len(want)+2 { // plus ts and session_id
 		t.Errorf("warning event has unexpected fields: %v", ev)
 	}
 }

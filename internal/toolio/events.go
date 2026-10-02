@@ -34,20 +34,23 @@ var EventTypes = []EventType{
 	EventText,
 }
 
-// eventHeader is the envelope every event shares: when, which tool, and which
-// type. It is embedded first in every event struct so those three keys lead
-// each line.
+// eventHeader is the envelope every event shares: when, which tool, the
+// session and which type. It is embedded first in every event struct so
+// those four keys lead each line in the order ts, tool, session_id, type.
 type eventHeader struct {
-	Ts   string    `json:"ts"`
-	Tool string    `json:"tool"`
-	Type EventType `json:"type"`
+	Ts        string    `json:"ts"`
+	Tool      string    `json:"tool"`
+	SessionID string    `json:"session_id"`
+	Type      EventType `json:"type"`
 }
 
-func (h *eventHeader) stamp(ts, tool string) { h.Ts, h.Tool = ts, tool }
+func (h *eventHeader) stamp(ts, tool, sessionID string) {
+	h.Ts, h.Tool, h.SessionID = ts, tool, sessionID
+}
 
 // event is implemented by every event struct through its embedded header.
 type event interface {
-	stamp(ts, tool string)
+	stamp(ts, tool, sessionID string)
 }
 
 // One struct per type, carrying exactly the fields documented for it and no
@@ -231,10 +234,11 @@ func newTextEvent(phase, delta string) *TextEvent {
 // or one with no writers, is inactive: every method is then a no-op, so with
 // neither --events jsonl nor --events-file given no event object is produced.
 type eventsSink struct {
-	mu      sync.Mutex
-	tool    string
-	writers []io.Writer
-	now     func() time.Time
+	mu        sync.Mutex
+	tool      string
+	sessionID string
+	writers   []io.Writer
+	now       func() time.Time
 
 	// lastEmit is when the last event of any type was written; the heartbeat
 	// window is measured from it. stage is the last stage a step or
@@ -309,7 +313,7 @@ func (s *eventsSink) Emit(e event) {
 // caller holds s.mu.
 func (s *eventsSink) emitLocked(e event) {
 	now := s.now()
-	e.stamp(now.UTC().Format(time.RFC3339), s.tool)
+	e.stamp(now.UTC().Format(time.RFC3339), s.tool, s.sessionID)
 	switch ev := e.(type) {
 	case *StepEvent:
 		s.stage = ev.Stage

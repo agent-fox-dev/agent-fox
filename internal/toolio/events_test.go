@@ -140,7 +140,7 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 		s.Emit(e)
 	}
 
-	base := []string{"ts", "tool", "type"}
+	base := []string{"ts", "tool", "session_id", "type"}
 	for i, obj := range decodeLines(t, buf.String()) {
 		ty := obj["type"].(string)
 		want := slices.Clone(documentedFields[ty])

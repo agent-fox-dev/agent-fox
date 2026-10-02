@@ -92,6 +92,7 @@ const (
 	ArtifactIssue       ArtifactKind = "issue"
 	ArtifactSpecPackage ArtifactKind = "spec_package"
 	ArtifactReportFile  ArtifactKind = "report_file"
+	ArtifactEventsFile  ArtifactKind = "events_file"
 )
 
 // Artifact is one thing a run produced. Every field below is meaningful for
@@ -564,6 +565,10 @@ type Run struct {
 	// eventsSet records that AttachEvents has been called, so it takes
 	// effect once.
 	eventsSet bool
+	// eventsOpenErr is set when the events file could not be created.
+	eventsOpenErr error
+	// eventsPath is the path of the events file, when it was created.
+	eventsPath string
 }
 
 // AttachEvents gives the run the JSONL sink it emits run_start, warning and

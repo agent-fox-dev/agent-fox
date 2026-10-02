@@ -151,12 +151,14 @@ func TestTS07_37_OneHeartbeatTickerChecksEverySecond(t *testing.T) {
 	if ticking != 1 {
 		t.Errorf("with --emit-events the run had %d tickers, want 1", ticking)
 	}
+	// Without --emit-events the events file is still written, so the sink
+	// is active and the heartbeat runs.
 	ticking = -1
 	stdout.Reset()
 	stderr.Reset()
 	app.Main(context.Background(), []string{"--dir", t.TempDir(), "x"}, strings.NewReader(""), &stdout, &stderr)
-	if ticking != 0 {
-		t.Errorf("with neither flag the run had %d tickers, want 0", ticking)
+	if ticking != 1 {
+		t.Errorf("without --emit-events the run had %d tickers, want 1 (events file is always written)", ticking)
 	}
 }
 
