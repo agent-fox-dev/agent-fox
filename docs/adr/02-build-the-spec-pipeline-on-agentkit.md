@@ -143,6 +143,8 @@ sort — order is model-visible and part of the cache prefix.
 Anthropic SDK. AgentKit has no wire for either. They now fail with a message
 naming the way through rather than being ignored, because a silent change of
 destination is the one outcome an operator cannot debug. See the erratum.
+*Amended 2026-10-02:* AgentKit serves Claude on Vertex AI from its Anthropic
+wire, so `CLAUDE_CODE_USE_VERTEX` is honoured again; only Bedrock is refused.
 
 **`ToolChoice` cannot force a tool.** AgentKit's tri-state is
 unset/auto/none — there is no "any", which was an Anthropic-wire spelling. A

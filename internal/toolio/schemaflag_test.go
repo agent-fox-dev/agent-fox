@@ -164,9 +164,9 @@ func TestTS09_7_SchemaMakesNoNetworkCallAndNeedsNoCredential(t *testing.T) {
 		t.Setenv(v, "")
 		_ = os.Unsetenv(v)
 	}
-	// A retired platform variable would fail model resolution; --schema must
-	// not even look.
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	// An unsupported platform variable would fail model resolution; --schema
+	// must not even look.
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	var dialed bool
 	old := http.DefaultTransport

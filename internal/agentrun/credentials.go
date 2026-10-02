@@ -71,37 +71,41 @@ func CheckCredentials(m *core.Model) error {
 	return err
 }
 
-// retiredPlatformVars are the environment variables of the previous
-// Anthropic-SDK integration that no longer route anything.
+// unsupportedPlatformVars are the environment variables that select a managed
+// deployment of Claude which AgentKit has no wire for.
 //
-// CLAUDE_CODE_USE_VERTEX and CLAUDE_CODE_USE_BEDROCK selected a managed
-// deployment of Claude in the Anthropic SDK. AgentKit has no wire for either
-// — its Vertex support is Gemini on the Google wire, and there is no Bedrock
-// implementation at all — so a request made with one of these set would go to
-// api.anthropic.com with credentials that were never meant for it, and fail
-// with an authentication error naming neither the variable that was set nor
-// the reason it did nothing.
+// CLAUDE_CODE_USE_VERTEX is not among them: AgentKit's Anthropic provider
+// serves Claude on Vertex AI from the same wire implementation, selects it
+// from that variable (read for truth, so `=0` is an explicit off), and its
+// credential table reports a Vertex deployment as ambient, so CheckCredentials
+// passes it. There is nothing for this package to add.
 //
-// Failing on them is louder than ignoring them, which is the point: a silent
+// CLAUDE_CODE_USE_BEDROCK is: AgentKit has no Bedrock implementation, so a
+// request made with it set would go to api.anthropic.com with credentials that
+// were never meant for it, and fail with an authentication error naming
+// neither the variable that was set nor the reason it did nothing.
+//
+// Failing on it is louder than ignoring it, which is the point: a silent
 // change of destination is the one outcome an operator cannot debug. The
-// message names the way through, because a Bedrock or Vertex deployment
-// usually already fronts an Anthropic-compatible gateway.
-var retiredPlatformVars = []struct{ name, why string }{
-	{"CLAUDE_CODE_USE_VERTEX", "Claude on Vertex AI"},
+// message names the way through, because a Bedrock deployment usually already
+// fronts an Anthropic-compatible gateway. Drop the entry once AgentKit serves
+// Bedrock.
+var unsupportedPlatformVars = []struct{ name, why string }{
 	{"CLAUDE_CODE_USE_BEDROCK", "Claude on AWS Bedrock"},
 }
 
-// CheckRetiredPlatformVars fails when a retired platform variable is set.
-func CheckRetiredPlatformVars() error {
-	for _, v := range retiredPlatformVars {
+// CheckUnsupportedPlatformVars fails when a platform variable is set that
+// selects a deployment AgentKit cannot reach.
+func CheckUnsupportedPlatformVars() error {
+	for _, v := range unsupportedPlatformVars {
 		if os.Getenv(v.name) == "" {
 			continue
 		}
 		return newError("", CategoryAuth, nil,
-			"%s is set, but %s is no longer supported: this build talks to vendors over "+
-				"their own wire APIs and has no adapter for it. Point ANTHROPIC_BASE_URL at an "+
-				"Anthropic-compatible gateway in front of it and set a token there, or unset %s "+
-				"to call the Anthropic API directly. See docs/errata/agentkit_model_resolution.md",
+			"%s is set, but %s is not supported: the agent library has no adapter for it. "+
+				"Point ANTHROPIC_BASE_URL at an Anthropic-compatible gateway in front of it and "+
+				"set a token there, or unset %s to call the Anthropic API directly. "+
+				"See docs/errata/agentkit_model_resolution.md",
 			v.name, v.why, v.name)
 	}
 	return nil

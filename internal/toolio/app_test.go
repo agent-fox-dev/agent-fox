@@ -309,18 +309,41 @@ func TestAnUnresolvableModelFailsInPreflight(t *testing.T) {
 	}
 }
 
-// A retired platform variable changes which service a request goes to, which
-// is the one outcome an operator cannot debug. It fails loudly.
-func TestARetiredPlatformVariableIsRefused(t *testing.T) {
+// A platform variable for a deployment the agent library cannot reach changes
+// which service a request goes to, which is the one outcome an operator cannot
+// debug. It fails loudly.
+func TestAnUnsupportedPlatformVariableIsRefused(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
 	app, _ := newApp(t, nil)
 	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "x"}, "")
 	if code == ExitOK {
 		t.Fatal("the run was allowed")
 	}
-	if env.Error == nil || !strings.Contains(env.Error.Message, "CLAUDE_CODE_USE_VERTEX") {
+	if env.Error == nil || !strings.Contains(env.Error.Message, "CLAUDE_CODE_USE_BEDROCK") {
 		t.Errorf("the error must name the variable: %+v", env.Error)
+	}
+}
+
+// Claude on Vertex AI is served by the agent library: a Vertex deployment has
+// no Anthropic key, authenticates with a Google token this process cannot
+// read, and must still pass pre-flight.
+func TestClaudeOnVertexPassesPreflightWithoutAnAPIKey(t *testing.T) {
+	for _, v := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN"} {
+		t.Setenv(v, "")
+		_ = os.Unsetenv(v)
+	}
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var execCalled bool
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		execCalled = true
+		return ExitOK, nil, nil
+	})
+	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "x"}, "")
+	if code != ExitOK || !execCalled {
+		t.Fatalf("code = %d, exec ran = %v, Error = %+v", code, execCalled, env.Error)
 	}
 }
 

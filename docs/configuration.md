@@ -61,19 +61,46 @@ Setting only a base URL puts you in that state.
 | `ANTHROPIC_BASE_URL` | a proxy or gateway in front of Anthropic |
 | `OPENAI_BASE_URL` | Azure OpenAI, a gateway, or any OpenAI-compatible server |
 | `<VENDOR>_BASE_URL` | the same for the OpenAI-compatible gateways (`OPENROUTER_BASE_URL`, …) |
-| `GOOGLE_GEMINI_BASE_URL` | Vertex AI, or a proxy |
+| `GOOGLE_GEMINI_BASE_URL` | Gemini on Vertex AI, or a proxy |
 | `OLLAMA_HOST` | your Ollama server (default `http://localhost:11434`) |
 
-### Vertex AI and AWS Bedrock
+### Claude on Vertex AI
 
-`CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_BEDROCK` **are refused**, with an
-error naming what to do instead. AgentKit has no wire for Claude on either
-platform, and honouring the variable would have sent the request to
-`api.anthropic.com` with credentials meant for somewhere else.
+Claude on Vertex AI is served by the agent library from the same Anthropic
+wire, and is selected by the same variables Claude Code uses:
 
-Both deployments are usually fronted by an Anthropic-compatible gateway: point
-`ANTHROPIC_BASE_URL` at it and set a token there. Gemini on Vertex is a
-different matter and is reached with `GOOGLE_GEMINI_BASE_URL`. See
+| Variable | Effect |
+|---|---|
+| `CLAUDE_CODE_USE_VERTEX` | selects the Vertex deployment. Read for truth: `0` or `false` is an explicit off |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | the GCP project. On its own it selects the deployment only when no Anthropic key is set |
+| `CLOUD_ML_REGION` | the Vertex location; `global` when unset |
+| `ANTHROPIC_VERTEX_BASE_URL` | a proxy in front of Vertex; beats `ANTHROPIC_BASE_URL` while Vertex is on |
+| `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT` | may supply the project once Vertex is selected; they never select it |
+
+Vertex authenticates with a Google OAuth access token, which agent-fox does not
+mint. Put one in `ANTHROPIC_AUTH_TOKEN`; it is short-lived, so refresh it per
+run:
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1 ANTHROPIC_VERTEX_PROJECT_ID=my-project CLOUD_ML_REGION=us-east5
+export ANTHROPIC_AUTH_TOKEN="$(gcloud auth print-access-token)"
+```
+
+The preflight passes with no token at all (the credential is `ambient`, as for
+any deployment whose credential this process cannot read); the run then fails
+on its first request with a 401 that names the project and the variable that
+selected Vertex. A leftover `ANTHROPIC_API_KEY` is dropped rather than sent to
+Google. Vertex names models with a dated suffix, which `--model` accepts as is:
+`--model anthropic/claude-sonnet-5@20260401`.
+
+### AWS Bedrock
+
+`CLAUDE_CODE_USE_BEDROCK` **is refused**, with an error naming what to do
+instead. The agent library has no Bedrock implementation, and honouring the
+variable would send the request to `api.anthropic.com` with credentials meant
+for somewhere else. A Bedrock deployment is usually fronted by an
+Anthropic-compatible gateway: point `ANTHROPIC_BASE_URL` at it and set a token
+there. See
 [`docs/errata/agentkit_model_resolution.md`](errata/agentkit_model_resolution.md).
 
 ## Model selection
@@ -263,7 +290,8 @@ directories up that changes what the same command does.
 | `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
 | `GITLAB_TOKEN` | GitLab credential, on the same terms |
 | `GITLAB_API_URL` | a self-hosted GitLab host; its host is then also accepted for the `origin` remote and for issue URLs |
-| `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
+| `CLAUDE_CODE_USE_VERTEX` | selects Claude on Vertex AI; see above |
+| `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
 
 ## See also
 
