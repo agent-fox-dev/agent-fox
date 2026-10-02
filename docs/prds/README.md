@@ -36,3 +36,9 @@ repository and AgentKit, and the order of the work, is
 | [06-stop-re-reading-the-codebase-every-phase.md](06-stop-re-reading-the-codebase-every-phase.md) | Per-phase `tool_calls` and `tool_result_bytes` in the envelope; a repository map computed once per run and given to every `spec` phase; `relevant_files` on `submit_prd`, handed to the later phases |
 | AgentKit [PRD 04](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/04-add-symbol-navigation-tools.md) | The `outline` package and an exported ignore-aware walk (which 06's map is built from); `file_outline` and `find_symbol` |
 | AgentKit [PRD 05](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/05-add-an-indexed-code-search-module.md) | Gated on 06's numbers: a zoekt-backed `code_search` tool in a separate `codesearch` module |
+
+Proposed for how a run chooses its model.
+
+| Document | What it asks for |
+|---|---|
+| [07-replace-the-variant-flag-with-effort.md](07-replace-the-variant-flag-with-effort.md) | `--effort` and `$AF_MODEL_EFFORT` overriding a tier's reasoning effort, or setting one for a model named by id; `--repair-model-effort` on `impl`; clamping checked before the run with an `effort_clamped` warning; `--variant` and the tier table's variant level removed |
