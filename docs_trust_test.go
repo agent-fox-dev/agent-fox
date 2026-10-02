@@ -63,10 +63,10 @@ func TestTS10_28_DocsUntrustedTextOperationalSentence(t *testing.T) {
 func TestTS10_29_DocsInterfaceVersionsUnchanged(t *testing.T) {
 	section := docSection(t, readDoc(t, "cli.md"), "Interface versions")
 	re := regexp.MustCompile(`(?m)^\*\*\d+\.\d+\.\d+\*\*`)
-	if got := re.FindAllString(section, -1); len(got) != 2 {
-		t.Errorf("Interface versions lists %d version entries %v, want exactly 2", len(got), got)
+	if got := re.FindAllString(section, -1); len(got) != 3 {
+		t.Errorf("Interface versions lists %d version entries %v, want exactly 3", len(got), got)
 	}
-	for _, v := range []string{"1.0.0", "2.0.0"} {
+	for _, v := range []string{"1.0.0", "2.0.0", "3.0.0"} {
 		if !strings.Contains(section, "**"+v+"**") {
 			t.Errorf("Interface versions section lost its %s entry", v)
 		}

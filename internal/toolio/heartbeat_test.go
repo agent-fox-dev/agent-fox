@@ -3,7 +3,6 @@ package toolio
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -137,8 +136,7 @@ func TestTS07_37_OneHeartbeatTickerChecksEverySecond(t *testing.T) {
 	nilSink.StartHeartbeat(nil)
 	nilSink.StopHeartbeat()
 
-	// With Main, only --events jsonl or --events-file starts one; and it ends
-	// with the run.
+	// With Main, --emit-events starts one; and it ends with the run.
 	app, _ := newApp(t, nil)
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -148,17 +146,19 @@ func TestTS07_37_OneHeartbeatTickerChecksEverySecond(t *testing.T) {
 		ticking = d.Run.eventSink().activeTickerCount()
 		return ExitOK, map[string]string{"stage": "done"}, nil
 	}
-	path := filepath.Join(t.TempDir(), "run.jsonl")
-	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--events-file", path, "x"},
+	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--emit-events", "x"},
 		strings.NewReader(""), &stdout, &stderr)
 	if ticking != 1 {
-		t.Errorf("with --events-file the run had %d tickers, want 1", ticking)
+		t.Errorf("with --emit-events the run had %d tickers, want 1", ticking)
 	}
+	// Without --emit-events the events file is still written, so the sink
+	// is active and the heartbeat runs.
 	ticking = -1
 	stdout.Reset()
+	stderr.Reset()
 	app.Main(context.Background(), []string{"--dir", t.TempDir(), "x"}, strings.NewReader(""), &stdout, &stderr)
-	if ticking != 0 {
-		t.Errorf("with neither flag the run had %d tickers, want 0", ticking)
+	if ticking != 1 {
+		t.Errorf("without --emit-events the run had %d tickers, want 1 (events file is always written)", ticking)
 	}
 }
 
@@ -260,7 +260,7 @@ func TestTS07_39_NoHeartbeatBetweenCloseEvents(t *testing.T) {
 func TestTS07_40_RunEndStopsTheHeartbeat(t *testing.T) {
 	s, clock, buf := heartbeatSink(t, func() float64 { return 0 })
 	s.Emit(newStepEvent("push", "x"))
-	s.Emit(newRunEndEvent("done", 0))
+	s.Emit(newRunEndEvent("done", 0, ""))
 	before := buf.String()
 
 	clock.Advance(15 * time.Second)

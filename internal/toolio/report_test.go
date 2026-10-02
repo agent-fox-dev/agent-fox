@@ -111,6 +111,7 @@ func TestTS06_7_ReportPathFallsBackToHomeLocalState(t *testing.T) {
 // warning and omits report_file, without failing the run.
 func TestTS06_8_UnwritableReportFileRecordsWarningWithoutFailing(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	reportDir := t.TempDir()
 	if err := os.Chmod(reportDir, 0o500); err != nil {
@@ -173,6 +174,7 @@ func TestTS06_9_DryRunStillWritesReportFile(t *testing.T) {
 // write succeeds.
 func TestTS06_10_ReportFileNamesThePathActuallyWritten(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	want := filepath.Join(t.TempDir(), "impl-report.json")
 
@@ -349,6 +351,7 @@ func TestTS06_13_ReportFileByteIdenticalToFullDetailStdout(t *testing.T) {
 		delete(m, "started_at")
 		delete(m, "duration_ms")
 		delete(m, "report_file")
+		delete(m, "session_id")
 		delete(m, "artifacts")
 		out, err := json.Marshal(m)
 		if err != nil {

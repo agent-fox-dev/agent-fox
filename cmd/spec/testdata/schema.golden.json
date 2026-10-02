@@ -1,6 +1,6 @@
 {
   "tool": "spec",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "description": "Turns a product idea into a validated specification package written under the spec root.",
   "input": {
     "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue and its comments are the idea), a path to a readable file (its contents are the idea), any other text (the text is the idea), or - to read the idea from stdin.",
@@ -54,19 +54,10 @@
         "default": false,
         "description": "make no remote change: no push, no write to a forge"
       },
-      "events": {
-        "type": "string",
-        "enum": [
-          "text",
-          "jsonl"
-        ],
-        "default": "text",
-        "description": "what stderr carries: text (default, human-readable progress) or jsonl (one JSON event object per line)"
-      },
-      "events-file": {
-        "type": "string",
-        "default": "",
-        "description": "also write the JSONL event stream to this file (truncated), whatever --events says about stderr"
+      "emit-events": {
+        "type": "boolean",
+        "default": false,
+        "description": "write the JSON event stream to stderr instead of the human progress lines"
       },
       "input-kind": {
         "type": "string",
@@ -117,7 +108,7 @@
       "report-file": {
         "type": "string",
         "default": "",
-        "description": "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/\u003ctool\u003e-\u003cstarted\u003e-\u003cpid\u003e.json"
+        "description": "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/\u003ctool\u003e-\u003cstarted\u003e-\u003csession_id\u003e.json"
       },
       "show-text": {
         "type": "boolean",
@@ -171,6 +162,10 @@
       "schema_version": {
         "type": "string",
         "description": "The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "A per-run identifier of 32 lowercase hex characters (16 bytes from crypto/rand). It joins the events file to the report."
       },
       "ok": {
         "type": "boolean",
@@ -988,7 +983,8 @@
                 "comment",
                 "issue",
                 "spec_package",
-                "report_file"
+                "report_file",
+                "events_file"
               ],
               "description": "What kind of thing was produced. A closed set; it decides which of the other fields are present."
             },
@@ -1018,7 +1014,7 @@
             },
             "path": {
               "type": "string",
-              "description": "spec_package, report_file: the path."
+              "description": "spec_package, report_file, events_file: the path."
             },
             "id": {
               "type": "string",
@@ -1325,6 +1321,7 @@
       "tool",
       "version",
       "schema_version",
+      "session_id",
       "ok",
       "status",
       "exit_code",

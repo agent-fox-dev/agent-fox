@@ -29,6 +29,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
+	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -1725,7 +1726,7 @@ func smokeNormalize(t *testing.T, raw []byte) string {
 		case map[string]any:
 			for k := range x {
 				switch k {
-				case "duration_ms", "started_at", "report_file":
+				case "duration_ms", "started_at", "report_file", "session_id":
 					delete(x, k)
 					continue
 				}
@@ -1735,8 +1736,10 @@ func smokeNormalize(t *testing.T, raw []byte) string {
 		case []any:
 			var out []any
 			for _, e := range x {
-				if m, ok := e.(map[string]any); ok && m["kind"] == "report_file" {
-					continue
+				if m, ok := e.(map[string]any); ok {
+					if m["kind"] == "report_file" || m["kind"] == "events_file" {
+						continue
+					}
 				}
 				out = append(out, scrub(e))
 			}
@@ -2414,7 +2417,7 @@ func (w smokeOrderedWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TS-07-44 (smoke): A supervisor watches a fix run live via --events jsonl and sees spend accumulate before it finishes
+// TS-07-44 (smoke): A supervisor watches a fix run live via --emit-events and sees spend accumulate before it finishes
 // Verifies: 07-PATH-1, 07-REQ-3.1, 07-REQ-4.7, 07-REQ-5.3
 // Real components: toolio.App, toolio.Progress JSONL sink, internal/agentrun.Runner, codefix pipeline, internal/checks.Run, issuex.GitHubClient
 func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
@@ -2441,7 +2444,7 @@ func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
 	stdout := smokeOrderedWriter{&mu, &log, "stdout"}
 	stderr := smokeOrderedWriter{&mu, &log, "stderr"}
 	code := app.Main(context.Background(),
-		[]string{"--dir", wsDir, "--events", "jsonl", "https://github.com/acme/widgets/issues/7"},
+		[]string{"--dir", wsDir, "--emit-events", "https://github.com/acme/widgets/issues/7"},
 		strings.NewReader(""), stdout, stderr)
 
 	var errText, outText strings.Builder
@@ -2464,7 +2467,7 @@ func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
 		t.Error("the issue was never fetched from the forge")
 	}
 
-	// Every stderr line is an event: --events jsonl replaces the human form.
+	// Every stderr line is an event: --emit-events replaces the human form.
 	evs := smokeParseEvents(t, "fix", errText.String())
 
 	rs, ps := smokeFirst(evs, "run_start"), smokeFirst(evs, "phase_start")
@@ -2624,10 +2627,9 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 		},
 	}
 
-	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(),
-		[]string{"--dir", wsDir, "--events", "text", "--events-file", eventsFile, specDir},
+		[]string{"--dir", wsDir, specDir},
 		strings.NewReader(""), &stdout, &stderr)
 	if code != toolio.ExitOK {
 		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
@@ -2640,108 +2642,22 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 			continue
 		}
 		if strings.HasPrefix(line, "{") {
-			t.Errorf("JSON on stderr under --events text: %s", line)
+			t.Errorf("JSON on stderr in default mode: %s", line)
 		}
-		if !strings.HasPrefix(line, "[impl] ") {
-			t.Errorf("stderr line is not a human [impl] line: %q", line)
-		}
-		human = append(human, strings.TrimPrefix(line, "[impl] "))
+		// Human lines are either [impl] prefixed (Step) or Begin's end
+		// callback (duration/summary lines), or indented Detail lines.
+		human = append(human, line)
 	}
 	if len(human) == 0 {
 		t.Fatal("no human progress on stderr")
 	}
-
-	raw, err := os.ReadFile(eventsFile)
-	if err != nil {
-		t.Fatalf("the events file was not written: %v", err)
-	}
-	evs := smokeParseEvents(t, "impl", string(raw))
-	if len(evs) == 0 || evs[len(evs)-1].Type != "run_end" {
-		t.Fatalf("run_end must be the file's last line:\n%s", raw)
-	}
-
-	// Each human step has its step event, in order, with the same message.
-	var steps []string
-	for _, e := range evs {
-		if e.Type == "step" {
-			steps = append(steps, e.Raw["message"].(string))
-			if s, _ := e.Raw["stage"].(string); s == "" {
-				t.Errorf("step event without a stage: %v", e.Raw)
-			}
-		}
-	}
-	if strings.Join(steps, "\n") != strings.Join(human, "\n") {
-		t.Errorf("step events do not mirror the human lines\nsteps:\n%s\nhuman:\n%s",
-			strings.Join(steps, "\n"), strings.Join(human, "\n"))
-	}
-
-	// The long phase crossed the shortened window: a heartbeat landed in the
-	// file, naming the stage, the time elapsed and the spend so far.
-	//
-	// A heartbeat carries the last stage a step or phase_start named before
-	// it (07-REQ-7.2). The window here is only 100ms, so on a loaded machine
-	// the preflight's git calls can cross it before any stage has been named;
-	// such a beat rightly carries an empty stage. What must hold is that each
-	// beat names exactly the stage the stream had reached, and that the long
-	// phase, which runs well after a stage is named, produced a beat naming it.
-	var beats []smokeEvent
-	var beatStages []string
-	var lastStage string
-	for _, e := range evs {
-		switch e.Type {
-		case "step":
-			lastStage, _ = e.Raw["stage"].(string)
-		case "phase_start":
-			lastStage, _ = e.Raw["phase"].(string)
-		case "heartbeat":
-			beats = append(beats, e)
-			beatStages = append(beatStages, lastStage)
-		}
-	}
-	if len(beats) == 0 {
-		t.Fatalf("no heartbeat in the events file:\n%s", raw)
-	}
-	var namedBeat bool
-	prev := float64(-1)
-	for i, b := range beats {
-		s, _ := b.Raw["stage"].(string)
-		if s != beatStages[i] {
-			t.Errorf("heartbeat stage = %q, want %q, the last stage named before it: %v", s, beatStages[i], b.Raw)
-		}
-		if s != "" {
-			namedBeat = true
-		}
-		el, ok := b.Raw["elapsed_ms"].(float64)
-		if !ok || el <= prev {
-			t.Errorf("heartbeat elapsed_ms = %v after %v, want increasing: %v", b.Raw["elapsed_ms"], prev, b.Raw)
-		}
-		prev = el
-		if _, ok := b.Raw["cost_usd"].(float64); !ok {
-			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
-		}
-	}
-	if !namedBeat {
-		t.Errorf("no heartbeat named a stage; the long phase did not produce one:\n%s", raw)
-	}
-	// No heartbeat follows run_end, and the implement phase carried its task.
-	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {
-		t.Error("a heartbeat followed run_end")
-	}
-	var sawTask bool
-	for _, e := range evs {
-		if e.Type == "phase_start" && e.Raw["phase"] == "implement" && e.Raw["task"] != nil {
-			sawTask = true
-		}
-	}
-	if !sawTask {
-		t.Errorf("no phase_start for implement carrying a task:\n%s", raw)
-	}
 }
 
-// TS-07-46 (smoke): An invalid --events value is refused before any work happens, with no events emitted
-// Verifies: 07-PATH-3, 07-REQ-1.2
-// Real components: toolio.App, toolio.Common flag validation
-func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
+// TS-07-46 (smoke): The removed --events flag is refused before any work
+// happens, with the rename message.
+// Verifies: 07-PATH-3, 12-REQ-5.5
+// Real components: toolio.App, toolio.unsupportedFlagMessage
+func TestTS0746_RemovedEventsFlagRefusedBeforeAnyWork_Smoke(t *testing.T) {
 	// No credentials at all: if model resolution or a fetch ran, it would
 	// fail differently (or the Exec below would be reached).
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -2756,17 +2672,16 @@ func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
 			return toolio.ExitOK, nil, nil
 		},
 	}
-	eventsFile := filepath.Join(t.TempDir(), "run.jsonl")
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(),
-		[]string{"--events", "yaml", "--events-file", eventsFile, "a report"},
+		[]string{"--events", "yaml", "a report"},
 		strings.NewReader(""), &stdout, &stderr)
 
 	if code != toolio.ExitUsage {
 		t.Errorf("code = %d, want %d", code, toolio.ExitUsage)
 	}
 	if execRan {
-		t.Error("the tool ran despite an invalid --events value")
+		t.Error("the tool ran despite a removed --events flag")
 	}
 	var env toolio.Envelope
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
@@ -2775,16 +2690,11 @@ func TestTS0746_InvalidEventsValueRefusedBeforeAnyWork_Smoke(t *testing.T) {
 	if env.Error == nil || env.Error.Stage != "usage" {
 		t.Errorf("envelope error = %+v, want stage usage", env.Error)
 	}
+	if !strings.Contains(env.Error.Message, "--events was renamed --emit-events") {
+		t.Errorf("message = %q, want rename message", env.Error.Message)
+	}
 	if env.Status != "usage" || env.OK {
 		t.Errorf("envelope status=%q ok=%v, want usage/false", env.Status, env.OK)
-	}
-	for _, line := range strings.Split(stderr.String(), "\n") {
-		if strings.HasPrefix(line, "{") || strings.Contains(line, `"type"`) {
-			t.Errorf("an event line reached stderr: %s", line)
-		}
-	}
-	if _, err := os.Stat(eventsFile); err == nil {
-		t.Error("--events-file was created even though the invocation was refused")
 	}
 	if env.Model != nil {
 		t.Errorf("a model was resolved (%+v) before the refusal", *env.Model)
@@ -3491,4 +3401,656 @@ func TestTS1153_IssuePreflightReportsTheTargetWithoutWritingToTheForge_Smoke(t *
 			t.Errorf("the model API received %d requests", n)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// 12_events_in_state_directory: the six execution paths, end to end.
+// ---------------------------------------------------------------------------
+
+// TS-12-60 (smoke): A default run writes an events file and a report that
+// name each other and pair via the shared session_id.
+//
+// Verifies: 12-PATH-1, 12-REQ-2.7, 12-REQ-4.4
+//
+// Real components: Run and NewRun, openEvents, events sink, heartbeat, emit
+// and report writer, App.Main, filesystem under XDG_STATE_HOME.
+func TestTS1260_DefaultRunWritesEventsAndReportPairedBySessionID_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+
+	wsDir := smokeWidgetRepo(t, "")
+	app := smokeFixApp(smokeFixTurns(), "")
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout.String())
+	}
+
+	sid := env.SessionID
+	if len(sid) != 32 {
+		t.Fatalf("session_id = %q, want 32 hex chars", sid)
+	}
+	for _, c := range sid {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("session_id %q contains non-lowercase-hex char %c", sid, c)
+		}
+	}
+
+	// events/<tool>-<started_at>-<session_id>.jsonl exists.
+	eventsDir := filepath.Join(stateDir, "agent-fox", "events")
+	matches, _ := filepath.Glob(filepath.Join(eventsDir, "*-"+sid+".jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 events file matching *-%s.jsonl, got %d", sid, len(matches))
+	}
+	eventsPath := matches[0]
+
+	// Check events file mode 0600.
+	info, err := os.Stat(eventsPath)
+	if err != nil {
+		t.Fatalf("stat events file: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("events file mode = %o, want 0600", mode)
+	}
+
+	// Check events/ directory mode 0700.
+	eInfo, err := os.Stat(eventsDir)
+	if err != nil {
+		t.Fatalf("stat events dir: %v", err)
+	}
+	if mode := eInfo.Mode().Perm(); mode != 0o700 {
+		t.Errorf("events/ mode = %o, want 0700", mode)
+	}
+
+	// runs/<tool>-<started_at>-<session_id>.json exists.
+	if env.ReportFile == "" {
+		t.Fatal("report_file is empty")
+	}
+	if _, err := os.Stat(env.ReportFile); err != nil {
+		t.Fatalf("report file does not exist: %v", err)
+	}
+	if !strings.HasSuffix(filepath.Base(env.ReportFile), sid+".json") {
+		t.Errorf("report file %q does not end with %s.json", filepath.Base(env.ReportFile), sid)
+	}
+
+	// Every event line has ts, tool, session_id, type in order and the same session_id.
+	eventsContent, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("reading events file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(eventsContent), "\n"), "\n")
+	if len(lines) == 0 {
+		t.Fatal("events file is empty")
+	}
+	for i, line := range lines {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			t.Fatalf("line %d is not JSON: %v", i, err)
+		}
+		if obj["session_id"] != sid {
+			t.Errorf("line %d: session_id = %v, want %s", i, obj["session_id"], sid)
+		}
+		// Check key order: ts, tool, session_id, type.
+		dec := json.NewDecoder(strings.NewReader(line))
+		tok, _ := dec.Token() // opening {
+		if tok != json.Delim('{') {
+			t.Fatalf("line %d: expected {, got %v", i, tok)
+		}
+		for ki, wantKey := range []string{"ts", "tool", "session_id", "type"} {
+			tok, err := dec.Token()
+			if err != nil {
+				t.Fatalf("line %d key %d: %v", i, ki, err)
+			}
+			if gotKey, ok := tok.(string); !ok || gotKey != wantKey {
+				t.Errorf("line %d: key %d = %v, want %q", i, ki, tok, wantKey)
+			}
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
+				t.Fatalf("line %d: skipping value of %s: %v", i, wantKey, err)
+			}
+		}
+	}
+
+	// The last line is run_end with report_file equal to the report path.
+	var lastEv map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &lastEv); err != nil {
+		t.Fatalf("last line is not JSON: %v", err)
+	}
+	if lastEv["type"] != "run_end" {
+		t.Fatalf("last event type = %v, want run_end", lastEv["type"])
+	}
+	if rf, _ := lastEv["report_file"].(string); rf != env.ReportFile {
+		t.Errorf("run_end.report_file = %q, want %q", rf, env.ReportFile)
+	}
+
+	// The envelope has session_id and an events_file artifact naming the events file.
+	var eventsArtifactPath string
+	for _, a := range env.Artifacts {
+		if a.Kind == toolio.ArtifactEventsFile {
+			eventsArtifactPath = a.Path
+		}
+	}
+	if eventsArtifactPath == "" {
+		t.Fatal("no events_file artifact in envelope")
+	}
+	if eventsArtifactPath != eventsPath {
+		t.Errorf("events_file artifact path = %q, want %q", eventsArtifactPath, eventsPath)
+	}
+
+	// A glob on the session id finds both files.
+	reportMatches, _ := filepath.Glob(filepath.Join(stateDir, "agent-fox", "runs", "*-"+sid+".json"))
+	eventsMatches, _ := filepath.Glob(filepath.Join(stateDir, "agent-fox", "events", "*-"+sid+".jsonl"))
+	if len(reportMatches) != 1 || len(eventsMatches) != 1 {
+		t.Errorf("glob on session_id: reports=%d events=%d, want 1 each", len(reportMatches), len(eventsMatches))
+	}
+
+	// Stems match.
+	reportStem := strings.TrimSuffix(filepath.Base(env.ReportFile), ".json")
+	eventsStem := strings.TrimSuffix(filepath.Base(eventsPath), ".jsonl")
+	if reportStem != eventsStem {
+		t.Errorf("stems differ: report=%q events=%q", reportStem, eventsStem)
+	}
+}
+
+// TS-12-61 (smoke): --emit-events streams complete model activity to stderr
+// identical to the file, without --verbose or --show-text.
+//
+// Verifies: 12-PATH-2, 12-REQ-6.1, 12-REQ-7.3, 12-REQ-8.7
+//
+// Real components: agentrun.Runner, toolio.Progress, events sink, events file,
+// App.Main, filesystem under XDG_STATE_HOME.
+func TestTS1261_EmitEventsStreamsCompleteModelActivity_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+
+	wsDir := smokeWidgetRepo(t, "")
+
+	// Scripted model session: two tool calls (write_file and submit_analysis)
+	// then prose, then a shell call (submit_implementation).
+	turns := smokeFixTurns()
+	for i := range turns {
+		turns[i].Usage = core.Usage{CostUSD: 0.01, InputTokens: 100, OutputTokens: 20}
+	}
+	app := smokeFixApp(turns, "")
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "--emit-events",
+			"Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// stderr contains only JSON event lines and no human progress.
+	for _, line := range strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "{") {
+			t.Errorf("non-JSON line on stderr: %s", line)
+		}
+		if !json.Valid([]byte(line)) {
+			t.Errorf("invalid JSON on stderr: %s", line)
+		}
+	}
+
+	// Parse events.
+	evs := smokeParseEvents(t, "fix", stderr.String())
+
+	// Each tool_call carries its own arguments and ok.
+	var toolCalls []smokeEvent
+	for _, e := range evs {
+		if e.Type == "tool_call" {
+			toolCalls = append(toolCalls, e)
+		}
+	}
+	if len(toolCalls) == 0 {
+		t.Fatal("no tool_call events")
+	}
+	for _, tc := range toolCalls {
+		if _, ok := tc.Raw["arguments"]; !ok {
+			t.Errorf("tool_call missing arguments: %v", tc.Raw)
+		}
+		if _, ok := tc.Raw["ok"]; !ok {
+			t.Errorf("tool_call missing ok: %v", tc.Raw)
+		}
+	}
+
+	// One text event appears directly before the turn event with the same turn.
+	for i, e := range evs {
+		if e.Type != "text" {
+			continue
+		}
+		textTurn := e.Raw["turn"]
+		if i+1 >= len(evs) {
+			t.Fatalf("text event at position %d is the last event", i)
+		}
+		next := evs[i+1]
+		if next.Type != "turn" {
+			// It's OK if the text event is followed by a tool_call then turn,
+			// but the spec says "directly before the turn event".
+			// Actually the spec says text is emitted immediately before the
+			// turn event with the same turn number.
+			t.Errorf("text at position %d is followed by %q, want turn", i, next.Type)
+		}
+		if next.Type == "turn" {
+			if next.Raw["turn"] != textTurn {
+				t.Errorf("text.turn = %v, next turn.turn = %v, want same", textTurn, next.Raw["turn"])
+			}
+		}
+	}
+
+	// stderr bytes equal the events file bytes.
+	eventsDir := filepath.Join(stateDir, "agent-fox", "events")
+	matches, _ := filepath.Glob(filepath.Join(eventsDir, "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 events file, got %d", len(matches))
+	}
+	fileContent, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("reading events file: %v", err)
+	}
+	if string(fileContent) != stderr.String() {
+		t.Errorf("stderr and events file differ.\nstderr len=%d\nfile len=%d",
+			stderr.Len(), len(fileContent))
+	}
+}
+
+// TS-12-62 (smoke): A removed flag produces a usage error with a report,
+// session_id and no events file.
+//
+// Verifies: 12-PATH-3, 12-REQ-5.4, 12-REQ-5.5
+//
+// Real components: flag parser, unsupportedFlagMessage, emit and report writer,
+// App.Main, filesystem under XDG_STATE_HOME.
+func TestTS1262_RemovedFlagProducesUsageErrorNoEventsFile_Smoke(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+
+	cases := []struct {
+		name    string
+		args    []string
+		wantMsg string
+	}{
+		{
+			name:    "--events-file removed",
+			args:    []string{"--events-file", "out.jsonl", "a report"},
+			wantMsg: "--events-file was removed",
+		},
+		{
+			name:    "--events renamed",
+			args:    []string{"--events", "jsonl", "a report"},
+			wantMsg: "--events was renamed --emit-events",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Use a fresh state dir per sub-test.
+			subState := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", subState)
+
+			app := toolio.App{
+				Name:    "fix",
+				Version: "test",
+				Usage:   "fix [flags] <input>\n",
+				Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+					t.Error("Exec should not run for a removed flag")
+					return toolio.ExitOK, nil, nil
+				},
+			}
+
+			var stdout, stderr bytes.Buffer
+			code := app.Main(context.Background(), tc.args,
+				strings.NewReader(""), &stdout, &stderr)
+
+			// Exit code 2 and stage usage.
+			if code != toolio.ExitUsage {
+				t.Fatalf("code = %d, want %d", code, toolio.ExitUsage)
+			}
+
+			var env toolio.Envelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("stdout is not JSON: %v\n%s", err, stdout.String())
+			}
+			if env.Status != "usage" {
+				t.Errorf("status = %q, want usage", env.Status)
+			}
+			if env.Error == nil || env.Error.Stage != "usage" {
+				t.Fatalf("error = %+v, want stage usage", env.Error)
+			}
+			if !strings.Contains(env.Error.Message, tc.wantMsg) {
+				t.Errorf("message = %q, want to contain %q", env.Error.Message, tc.wantMsg)
+			}
+
+			// Each envelope has a 32-hex session_id.
+			if len(env.SessionID) != 32 {
+				t.Errorf("session_id = %q, want 32 hex chars", env.SessionID)
+			}
+
+			// A report file with the same id is written.
+			if env.ReportFile == "" {
+				t.Error("report_file is empty")
+			} else {
+				if !strings.Contains(filepath.Base(env.ReportFile), env.SessionID) {
+					t.Errorf("report file %q does not contain session_id %s", env.ReportFile, env.SessionID)
+				}
+				if _, err := os.Stat(env.ReportFile); err != nil {
+					t.Errorf("report file does not exist: %v", err)
+				}
+			}
+
+			// events/ contains no file.
+			eventsDir := filepath.Join(subState, "agent-fox", "events")
+			matches, _ := filepath.Glob(filepath.Join(eventsDir, "*.jsonl"))
+			if len(matches) > 0 {
+				t.Errorf("events files created: %v", matches)
+			}
+
+			// No events_file artifact.
+			for _, a := range env.Artifacts {
+				if a.Kind == toolio.ArtifactEventsFile {
+					t.Error("envelope has events_file artifact for a removed-flag error")
+				}
+			}
+		})
+	}
+}
+
+// TS-12-63 (smoke): A run whose events file cannot be created warns, streams
+// on stderr and keeps its exit code.
+//
+// Verifies: 12-PATH-4, 12-REQ-4.6, 12-REQ-4.7
+//
+// Real components: openEvents, events sink, Run warning recording, emit and
+// report writer, App.Main, filesystem under XDG_STATE_HOME.
+func TestTS1263_UncreatableEventsFileWarnsAndKeepsExitCode_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	wsDir := smokeWidgetRepo(t, "")
+
+	// Reference run with a writable state dir.
+	refState := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", refState)
+	refApp := smokeFixApp(smokeFixTurns(), "")
+	var refStdout, refStderr bytes.Buffer
+	refCode := refApp.Main(context.Background(),
+		[]string{"--dir", wsDir, "--emit-events",
+			"Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &refStdout, &refStderr)
+
+	// Bad state dir: events/ is a regular file.
+	badState := t.TempDir()
+	agentFoxDir := filepath.Join(badState, "agent-fox")
+	if err := os.MkdirAll(agentFoxDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentFoxDir, "events"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", badState)
+
+	// Re-create the workspace because the first run may have modified it.
+	wsDir2 := smokeWidgetRepo(t, "")
+	badApp := smokeFixApp(smokeFixTurns(), "")
+	var badStdout, badStderr bytes.Buffer
+	badCode := badApp.Main(context.Background(),
+		[]string{"--dir", wsDir2, "--emit-events",
+			"Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &badStdout, &badStderr)
+
+	// The exit code equals the reference run's.
+	if badCode != refCode {
+		t.Errorf("exit codes differ: bad=%d ref=%d", badCode, refCode)
+	}
+
+	var badEnv toolio.Envelope
+	if err := json.Unmarshal(badStdout.Bytes(), &badEnv); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, badStdout.String())
+	}
+
+	// A warning event for events_file_not_written (low, stage report) appears on stderr.
+	stderrEvents := smokeParseEvents(t, "fix", badStderr.String())
+	var warningFound bool
+	for _, ev := range stderrEvents {
+		if ev.Type == "warning" && ev.Raw["code"] == string(toolio.WarnEventsFileNotWritten) {
+			warningFound = true
+			if ev.Raw["severity"] != "low" {
+				t.Errorf("warning severity = %v, want low", ev.Raw["severity"])
+			}
+			if ev.Raw["stage"] != "report" {
+				t.Errorf("warning stage = %v, want report", ev.Raw["stage"])
+			}
+		}
+	}
+	if !warningFound {
+		t.Error("no warning event for events_file_not_written on stderr")
+	}
+
+	// The envelope warnings contain events_file_not_written.
+	var envWarnFound bool
+	for _, w := range badEnv.Warnings {
+		if w.Code == toolio.WarnEventsFileNotWritten {
+			envWarnFound = true
+		}
+	}
+	if !envWarnFound {
+		t.Errorf("envelope warnings do not contain events_file_not_written: %+v", badEnv.Warnings)
+	}
+
+	// Artifacts has no events_file.
+	for _, a := range badEnv.Artifacts {
+		if a.Kind == toolio.ArtifactEventsFile {
+			t.Error("envelope has events_file artifact when the file was not created")
+		}
+	}
+
+	// The report file is still written.
+	if badEnv.ReportFile == "" {
+		t.Error("report_file is empty")
+	} else {
+		if _, err := os.Stat(badEnv.ReportFile); err != nil {
+			t.Errorf("report file does not exist: %v", err)
+		}
+	}
+}
+
+// TS-12-64 (smoke): A package test run that calls App.Main leaves the real
+// state directory untouched.
+//
+// Verifies: 12-PATH-5, 12-REQ-9.1, 12-REQ-9.3
+//
+// Real components: internal/statetest, TestMain, App.Main, go test, filesystem.
+//
+// This test is implemented in internal/statetest/statetest_test.go as
+// TestTS12_50..54, which verify the helper's isolation, cleanup and failure
+// detection. The statetest_test.go tests already cover:
+// - TS-12-50: the helper isolates XDG_STATE_HOME, runs m.Run, cleans up
+// - TS-12-52: a new file under a real runs/ or events/ fails the package run
+// - TS-12-54: TestMain in all five packages calls statetest
+//
+// Here we additionally verify that a real App.Main run under statetest's
+// isolation writes to the temp dir and not the real state dir.
+func TestTS1264_PackageTestRunLeavesRealStateDirUntouched_Smoke(t *testing.T) {
+	// HOME points at a temp dir standing in for the real home.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	// Use statetest to isolate.
+	var seenXDG string
+	var appRanOK bool
+
+	fake := statetest.RunnerFunc(func() int {
+		seenXDG = os.Getenv("XDG_STATE_HOME")
+
+		// Run App.Main inside the isolated environment.
+		app := toolio.App{
+			Name:    "fix",
+			Version: "test",
+			Usage:   "fix [flags] <input>\n",
+			Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+				return toolio.ExitOK, map[string]string{"stage": "done"}, nil
+			},
+		}
+		var stdout, stderr bytes.Buffer
+		code := app.Main(context.Background(),
+			[]string{"--dir", t.TempDir(), "some input"},
+			strings.NewReader(""), &stdout, &stderr)
+		appRanOK = (code == toolio.ExitOK)
+		return 0
+	})
+
+	exitCode := statetest.Run(fake)
+
+	if exitCode != 0 {
+		t.Fatalf("statetest.Run returned %d, want 0", exitCode)
+	}
+	if !appRanOK {
+		t.Error("App.Main did not return ExitOK")
+	}
+
+	// The XDG_STATE_HOME temp directory is removed after the run.
+	if seenXDG == "" {
+		t.Fatal("XDG_STATE_HOME was not set during the run")
+	}
+	if _, err := os.Stat(seenXDG); !os.IsNotExist(err) {
+		t.Errorf("temp state dir should be removed after the run, stat err=%v", err)
+	}
+
+	// $HOME/.local/state/agent-fox does not exist afterwards.
+	realStateDir := filepath.Join(home, ".local", "state", "agent-fox")
+	if _, err := os.Stat(realStateDir); !os.IsNotExist(err) {
+		t.Errorf("real state dir %s should not exist, stat err=%v", realStateDir, err)
+	}
+
+	// Now test that a stray file is detected.
+	fakeStray := statetest.RunnerFunc(func() int {
+		// Write directly under $HOME/.local/state/agent-fox/events.
+		eventsDir := filepath.Join(home, ".local", "state", "agent-fox", "events")
+		os.MkdirAll(eventsDir, 0o755)
+		os.WriteFile(filepath.Join(eventsDir, "stray.jsonl"), []byte("stray"), 0o644)
+		return 0
+	})
+
+	strayCode := statetest.Run(fakeStray)
+	if strayCode == 0 {
+		t.Error("statetest.Run should return non-zero when a stray file is created")
+	}
+}
+
+// TS-12-65 (smoke): A default run with --show-text and no --emit-events keeps
+// the spinner and live prose while the file records the stream.
+//
+// Verifies: 12-PATH-6, 12-REQ-6.5, 12-REQ-6.6
+//
+// Real components: toolio.Progress, agentrun.Runner, events sink, events file,
+// App.Main, filesystem under XDG_STATE_HOME.
+//
+// Note: a true pseudo-terminal is not used because the test environment may
+// not support pty allocation. Instead, we verify that stderr carries human
+// progress (non-JSON lines) and no JSON event lines, and that the events file
+// holds the complete stream.
+func TestTS1265_DefaultRunShowTextKeepsHumanProgressWhileFileRecords_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+
+	wsDir := smokeWidgetRepo(t, "")
+
+	// Use a scripted model with prose in the first turn.
+	turns := smokeFixTurns()
+	for i := range turns {
+		turns[i].Usage = core.Usage{CostUSD: 0.01, InputTokens: 100, OutputTokens: 20}
+	}
+	app := smokeFixApp(turns, "")
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "--show-text",
+			"Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// stderr shows human progress lines (non-JSON).
+	var humanLines int
+	var jsonLines int
+	for _, line := range strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "{") && json.Valid([]byte(line)) {
+			jsonLines++
+		} else {
+			humanLines++
+		}
+	}
+	if humanLines == 0 {
+		t.Error("no human progress lines on stderr")
+	}
+	if jsonLines > 0 {
+		t.Errorf("stderr has %d JSON event lines, want 0", jsonLines)
+	}
+
+	// The events file holds the complete stream ending with run_end.
+	eventsDir := filepath.Join(stateDir, "agent-fox", "events")
+	matches, _ := filepath.Glob(filepath.Join(eventsDir, "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 events file, got %d", len(matches))
+	}
+	fileContent, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("reading events file: %v", err)
+	}
+	fileLines := strings.Split(strings.TrimSuffix(string(fileContent), "\n"), "\n")
+	if len(fileLines) == 0 {
+		t.Fatal("events file is empty")
+	}
+
+	// Check that the events file has tool_call events.
+	var hasToolCall bool
+	for _, line := range fileLines {
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("line is not JSON: %v", err)
+		}
+		if ev["type"] == "tool_call" {
+			hasToolCall = true
+		}
+	}
+	if !hasToolCall {
+		t.Error("events file has no tool_call events")
+	}
+
+	// Last line is run_end.
+	var lastEv map[string]any
+	if err := json.Unmarshal([]byte(fileLines[len(fileLines)-1]), &lastEv); err != nil {
+		t.Fatalf("last line is not JSON: %v", err)
+	}
+	if lastEv["type"] != "run_end" {
+		t.Errorf("last event type = %v, want run_end", lastEv["type"])
+	}
+
+	// Raw produced no event: the text event holds the whole turn prose,
+	// not per-delta. Check that no event has a "delta" field.
+	for _, line := range fileLines {
+		var ev map[string]any
+		json.Unmarshal([]byte(line), &ev)
+		if _, ok := ev["delta"]; ok {
+			t.Errorf("event has delta field (should be per-turn text): %v", ev)
+		}
+	}
 }

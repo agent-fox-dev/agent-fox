@@ -17,30 +17,31 @@ var documentedFields = map[string][]string{
 	"step":        {"stage", "message"},
 	"phase_start": {"phase", "task", "max_turns", "budget_usd"},
 	"turn":        {"phase", "turn", "cost_usd", "input_tokens", "output_tokens"},
-	"tool_call":   {"phase", "name", "blocked"},
+	"tool_call":   {"phase", "name", "blocked", "arguments", "ok", "exit_code", "error"},
 	"check":       {"command", "ok", "exit_code", "duration_ms"},
 	"phase_end":   {"phase", "stop_reason", "turns", "cost_usd", "duration_ms"},
 	"warning":     {"code", "severity", "stage", "message"},
 	"heartbeat":   {"stage", "elapsed_ms", "cost_usd"},
-	"run_end":     {"status", "exit_code"},
-	"text":        {"phase", "delta"},
+	"run_end":     {"status", "exit_code", "report_file"},
+	"text":        {"phase", "turn", "text"},
 }
 
 // everyEvent returns one event of every type, with the optional phase_start
 // task present.
 func everyEvent() []event {
+	exitOne := 1
 	return []event{
 		newRunStartEvent("text", EventModelInfo{Spec: "s", ID: "i", Vendor: "v"}),
 		newStepEvent("analyse", "working"),
 		newPhaseStartEvent("implement", "3", 40, 5),
 		newTurnEvent("implement", 1, 0.25, 100, 50),
-		newToolCallEvent("implement", "bash", true),
+		newToolCallEvent("implement", "bash", true, json.RawMessage(`{"cmd":"ls"}`), false, &exitOne, "refused"),
 		newCheckEvent("go test ./...", false, 1, 1200),
 		newPhaseEndEvent("implement", "end_turn", 4, 1.5, 9000),
 		newWarningEvent(Warning{Code: WarnInputTruncated, Severity: "warning", Stage: "input", Message: "m"}),
 		newHeartbeatEvent("implement", 15000, 1.5),
-		newRunEndEvent("done", 0),
-		newTextEvent("implement", "hello"),
+		newRunEndEvent("done", 0, ""),
+		newTextEvent("implement", 1, "hello"),
 	}
 }
 
@@ -131,7 +132,7 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	// Zero values must still be present: a false/0 field is not omitted.
 	events = append(events,
-		newToolCallEvent("p", "n", false),
+		newToolCallEvent("p", "n", false, json.RawMessage(`{}`), false, nil, ""),
 		newTurnEvent("p", 0, 0, 0, 0),
 		newCheckEvent("", false, 0, 0),
 		newStepEvent("", string(rune('a'+rng.Intn(26)))),
@@ -140,13 +141,21 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 		s.Emit(e)
 	}
 
-	base := []string{"ts", "tool", "type"}
+	base := []string{"ts", "tool", "session_id", "type"}
 	for i, obj := range decodeLines(t, buf.String()) {
 		ty := obj["type"].(string)
 		want := slices.Clone(documentedFields[ty])
 		if ty == "phase_start" {
 			if _, has := obj["task"]; !has {
 				want = slices.DeleteFunc(want, func(f string) bool { return f == "task" })
+			}
+		}
+		if ty == "tool_call" {
+			if _, has := obj["exit_code"]; !has {
+				want = slices.DeleteFunc(want, func(f string) bool { return f == "exit_code" })
+			}
+			if _, has := obj["error"]; !has {
+				want = slices.DeleteFunc(want, func(f string) bool { return f == "error" })
 			}
 		}
 		for k := range obj {
@@ -172,7 +181,7 @@ func TestTS07_9_EventCarriesOnlyItsOwnFields(t *testing.T) {
 }
 
 // TS-07-10: with no active destination nothing is emitted; and a default run
-// (--events text, no --events-file) writes no event JSON to stderr.
+// writes no event JSON to stderr.
 func TestTS07_10_InactiveSinkEmitsNothing(t *testing.T) {
 	var nilSink *eventsSink
 	nilSink.Emit(newStepEvent("a", "b")) // must not panic
@@ -208,7 +217,7 @@ func TestTS07_11_EventIsOneLine(t *testing.T) {
 	var buf bytes.Buffer
 	s := newEventsSink("fix", &buf)
 	s.Emit(newStepEvent("verify", "line1\nline2\r\nline3"))
-	s.Emit(newTextEvent("implement", "a\nb\n"))
+	s.Emit(newTextEvent("implement", 1, "a\nb\n"))
 
 	raw := buf.String()
 	if strings.Count(raw, "\n") != 2 || !strings.HasSuffix(raw, "\n") {
@@ -230,7 +239,7 @@ func TestTS07_11_EventIsOneLine(t *testing.T) {
 func TestEventsSinkWritesEachLineOnceToEveryWriter(t *testing.T) {
 	var a, b bytes.Buffer
 	s := newEventsSink("impl", &a, &b)
-	s.Emit(newRunEndEvent("failed", 1))
+	s.Emit(newRunEndEvent("failed", 1, ""))
 	if a.String() != b.String() || a.Len() == 0 {
 		t.Errorf("writers differ: %q vs %q", a.String(), b.String())
 	}

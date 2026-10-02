@@ -139,8 +139,8 @@ func TestTS09_46_OrdinaryRunReportsTheSchemaVersionSchemaAdvertised_Smoke(t *tes
 		t.Fatalf("issue --schema exited %d", code)
 	}
 	advertised, _ := described["schema_version"].(string)
-	if advertised != "2.0.0" {
-		t.Fatalf("--schema advertised schema_version %q, want 2.0.0", advertised)
+	if advertised != "3.0.0" {
+		t.Fatalf("--schema advertised schema_version %q, want 3.0.0", advertised)
 	}
 
 	ordinary, code := runIssue(t, bin, ws, env, "--dir", ws, "--dry-run",
@@ -155,8 +155,8 @@ func TestTS09_46_OrdinaryRunReportsTheSchemaVersionSchemaAdvertised_Smoke(t *tes
 	if !present {
 		t.Fatalf("the ordinary envelope carries no schema_version: %v", ordinary)
 	}
-	if got != "2.0.0" {
-		t.Errorf("ordinary envelope schema_version = %q, want 2.0.0", got)
+	if got != "3.0.0" {
+		t.Errorf("ordinary envelope schema_version = %q, want 3.0.0", got)
 	}
 	if got != advertised {
 		t.Errorf("ordinary envelope schema_version %q != --schema's %q", got, advertised)

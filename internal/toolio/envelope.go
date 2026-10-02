@@ -1,6 +1,8 @@
 package toolio
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +92,7 @@ const (
 	ArtifactIssue       ArtifactKind = "issue"
 	ArtifactSpecPackage ArtifactKind = "spec_package"
 	ArtifactReportFile  ArtifactKind = "report_file"
+	ArtifactEventsFile  ArtifactKind = "events_file"
 )
 
 // Artifact is one thing a run produced. Every field below is meaningful for
@@ -157,6 +160,8 @@ func (a Artifact) MarshalJSON() ([]byte, error) {
 		m["valid"] = a.Valid
 	case ArtifactReportFile:
 		m["path"] = a.Path
+	case ArtifactEventsFile:
+		m["path"] = a.Path
 	}
 	if a.DryRun {
 		m["dry_run"] = true
@@ -175,7 +180,7 @@ func (Artifact) JSONSchema() SchemaObject {
 	}
 	kinds := []string{
 		string(ArtifactBranch), string(ArtifactCommit), string(ArtifactPullRequest), string(ArtifactComment),
-		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile),
+		string(ArtifactIssue), string(ArtifactSpecPackage), string(ArtifactReportFile), string(ArtifactEventsFile),
 	}
 	return SchemaObject{
 		{Key: "type", Value: "object"},
@@ -191,7 +196,7 @@ func (Artifact) JSONSchema() SchemaObject {
 			{Key: "branch", Value: prop("string", "commit: the branch the commit is on.")},
 			{Key: "url", Value: prop("string", "pull_request, issue, comment: the URL.")},
 			{Key: "number", Value: prop("integer", "pull_request, issue: the number.")},
-			{Key: "path", Value: prop("string", "spec_package, report_file: the path.")},
+			{Key: "path", Value: prop("string", "spec_package, report_file, events_file: the path.")},
 			{Key: "id", Value: prop("string", "spec_package: the spec identifier.")},
 			{Key: "valid", Value: prop("boolean", "spec_package: true when the package validates.")},
 			{Key: "dry_run", Value: prop("boolean", "True only for an entry that is hypothetical under --dry-run: it would have happened on a forge or a remote, but did not. Absent otherwise.")},
@@ -320,7 +325,7 @@ type Warning struct {
 // SchemaVersion is the version of the envelope interface shared by all four
 // tools: one shell, one envelope shape, one version. The compatibility rule
 // is in docs/cli.md (Interface versions) and ADR 06.
-const SchemaVersion = "2.0.0"
+const SchemaVersion = "3.0.0"
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
@@ -337,6 +342,9 @@ type Envelope struct {
 	// SchemaVersion names the version of the envelope interface, separate
 	// from the build identity in Version.
 	SchemaVersion string `json:"schema_version" description:"The version of the envelope interface this object follows (semver); a caller compares it before acting on the rest."`
+	// SessionID is a per-run identifier of 32 lowercase hex characters
+	// (16 bytes from crypto/rand). It joins the events file to the report.
+	SessionID string `json:"session_id" description:"A per-run identifier of 32 lowercase hex characters (16 bytes from crypto/rand). It joins the events file to the report."`
 	// OK is the one field a caller has to read. It is true only when the
 	// tool did the whole job it was asked to do.
 	OK bool `json:"ok" description:"True only when the tool did the whole job it was asked to do."`
@@ -540,9 +548,10 @@ func BuildErrorInfo(category string, extra ...string) *ErrorInfo {
 // It is safe for concurrent use so that a phase streaming events on one
 // goroutine can record a warning while the pipeline runs on another.
 type Run struct {
-	tool    string
-	version string
-	started time.Time
+	tool      string
+	version   string
+	started   time.Time
+	sessionID string
 
 	mu       sync.Mutex
 	warnings []Warning
@@ -558,6 +567,10 @@ type Run struct {
 	// eventsSet records that AttachEvents has been called, so it takes
 	// effect once.
 	eventsSet bool
+	// eventsOpenErr is set when the events file could not be created.
+	eventsOpenErr error
+	// eventsPath is the path of the events file, when it was created.
+	eventsPath string
 }
 
 // AttachEvents gives the run the JSONL sink it emits run_start, warning and
@@ -587,9 +600,27 @@ func (r *Run) eventSink() *eventsSink {
 	return r.events
 }
 
-// NewRun starts a run's bookkeeping.
+// NewRun starts a run's bookkeeping. It generates a session_id (16 bytes
+// from crypto/rand, hex-encoded to 32 lowercase characters) before any
+// other work.
 func NewRun(tool, version string) *Run {
-	return &Run{tool: tool, version: version, started: time.Now()}
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return &Run{
+		tool:      tool,
+		version:   version,
+		started:   time.Now(),
+		sessionID: hex.EncodeToString(b[:]),
+	}
+}
+
+// SessionID returns the run's unique session identifier: 32 lowercase hex
+// characters from 16 bytes of crypto/rand.
+func (r *Run) SessionID() string {
+	if r == nil {
+		return ""
+	}
+	return r.sessionID
 }
 
 // SetBounds records the resolved per-phase ceilings.
@@ -795,6 +826,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		Tool:          r.tool,
 		Version:       r.version,
 		SchemaVersion: SchemaVersion,
+		SessionID:     r.sessionID,
 		OK:            code == ExitOK,
 		Status:        StatusFor(code),
 		ExitCode:      code,

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -206,14 +207,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: kerr.Error(), err: kerr,
 		})
 	}
-	if eerr := common.ValidEvents(); eerr != nil {
-		// Refused before --version, the bare-invocation check or anything
-		// fetched, and before any file or sink exists, so no event is emitted.
-		fmt.Fprintf(stderr, "%s: %v\n", a.Name, eerr)
-		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: eerr.Error(), err: eerr,
-		})
-	}
+
 	if common.Version {
 		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
 		return ExitOK
@@ -257,25 +251,26 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
-	sink, closeSink, serr := a.openEvents(&common, stderr)
-	if serr != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", a.Name, serr)
-		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
-			Stage: "usage", Category: "usage", Message: serr.Error(), err: serr,
-		})
-	}
+	sink, closeSink := a.openEvents(&common, run, stderr)
 	defer closeSink()
+
+	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
+	progress.SetEvents(sink)
+	progress.SetEmitEvents(common.EmitEvents)
+	// The run and its progress share one sink, attached once, before execute.
+	run.AttachEvents(sink)
+
+	// Record the events-file warning after the sink is attached, so it is
+	// also emitted as a warning event under --emit-events.
+	if run.eventsOpenErr != nil {
+		run.Warn(WarnEventsFileNotWritten, "low", "the events file could not be created: %v", run.eventsOpenErr)
+	}
+
 	// One heartbeat ticker for the run's lifetime, reading spend off the run's
 	// own running total. run_end stops it; the deferred stop covers a path
 	// that never reaches one.
 	sink.StartHeartbeat(run.CostUSD)
 	defer sink.StopHeartbeat()
-
-	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
-	progress.SetEvents(sink)
-	progress.SetEventsOnStderr(common.Events == EventsJSONL)
-	// The run and its progress share one sink, attached once, before execute.
-	run.AttachEvents(sink)
 	progress.SetShowText(common.ShowText)
 	code, result, failure := a.execute(ctx, execArgs{
 		common:   &common,
@@ -287,27 +282,66 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	return a.emit(stdout, &common, run, code, result, failure)
 }
 
-// openEvents builds the JSONL sink for a run. The file, when --events-file
-// names one, is opened once and truncated, and always carries the stream; the
-// stderr writer is active only under --events jsonl and not --quiet. Each
-// event is one Write call, so a killed process leaves whole lines only. The
-// returned function closes the file. With neither destination the sink is
-// inactive.
-func (a App) openEvents(common *Common, stderr io.Writer) (*eventsSink, func(), error) {
+// openEvents builds the JSONL sink for a run. It always opens the events
+// file in <state>/events/ with O_CREATE|O_EXCL|O_WRONLY|O_APPEND, mode 0600.
+// Under --emit-events and not --quiet, stderr also carries the JSON stream.
+// The returned function closes the events file; a failure to create it is
+// recorded as a low warning, never a failed run.
+func (a App) openEvents(common *Common, run *Run, stderr io.Writer) (*eventsSink, func()) {
 	var writers []io.Writer
-	closeFn := func() {}
-	if common.EventsFile != "" {
-		f, err := os.OpenFile(common.EventsFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, closeFn, Usagef("--events-file %s: %v", common.EventsFile, err)
+	var eventsFile *os.File
+	var eventsPath string
+
+	path, perr := DefaultEventsPath(a.Name, run.started, run.SessionID())
+	if perr == nil {
+		eventsPath = path
+		// Create parents (agent-fox/ and the state home) with 0755.
+		parentDir := filepath.Dir(path)         // .../agent-fox/events
+		parentParent := filepath.Dir(parentDir) // .../agent-fox
+		if err := os.MkdirAll(parentParent, 0o755); err != nil {
+			perr = err
+		} else {
+			// Create events/ with 0700; leave an existing one untouched.
+			if err := os.Mkdir(parentDir, 0o700); err != nil && !os.IsExist(err) {
+				perr = err
+			}
 		}
-		writers = append(writers, f)
-		closeFn = func() { _ = f.Close() }
 	}
-	if common.Events == EventsJSONL && !common.Quiet {
+	if perr == nil {
+		f, err := os.OpenFile(eventsPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			perr = err
+		} else {
+			eventsFile = f
+			writers = append(writers, f)
+		}
+	}
+
+	if common.EmitEvents && !common.Quiet {
 		writers = append(writers, stderr)
 	}
-	return newEventsSink(a.Name, writers...), closeFn, nil
+
+	sink := newEventsSink(a.Name, writers...)
+	sink.sessionID = run.SessionID()
+
+	// Record the warning after the sink is built and attached to the run,
+	// so it is also emitted as a warning event under --emit-events.
+	cleanup := func() {
+		if eventsFile != nil {
+			eventsFile.Close()
+		}
+	}
+
+	if perr != nil {
+		// Defer the warning until after the sink is attached to the run.
+		// The caller (Main) attaches the sink and then calls the returned
+		// warnFn.
+		run.eventsOpenErr = perr
+	} else {
+		run.eventsPath = eventsPath
+	}
+
+	return sink, cleanup
 }
 
 // emit builds the envelope, writes the complete (full-view) envelope to the
@@ -374,12 +408,18 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		// inside — that is not circular, the same way ReportFile naming
 		// itself is not.
 		fileEnv.Artifacts = withReportFileArtifact(artifacts, path)
+		// Append events_file artifact when the events file was created.
+		if run.eventsPath != "" {
+			fileEnv.Artifacts = withEventsFileArtifact(fileEnv.Artifacts, run.eventsPath)
+		}
 		if werr := WriteReport(path, fileEnv); werr != nil {
 			run.Warn(WarnReportFileNotWritten, "low", "the report file could not be written to %s: %v", path, werr)
 		} else {
 			reportFile = path
 		}
 	}
+
+	eventsPath := run.eventsPath
 
 	buildEnv := func() Envelope {
 		env := run.Envelope(code, full, failure)
@@ -388,6 +428,9 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		env.Next = next
 		if reportFile != "" {
 			env.Artifacts = withReportFileArtifact(artifacts, reportFile)
+		}
+		if eventsPath != "" {
+			env.Artifacts = withEventsFileArtifact(env.Artifacts, eventsPath)
 		}
 		if env.Result != nil && wantsSummary(common.Detail) {
 			if s, ok := full.(Summarizable); ok {
@@ -422,7 +465,9 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 	// run_end goes out immediately before the envelope, from the same code
 	// that decided env.OK and env.Status, so the two cannot disagree. A nil or
 	// inactive sink (the paths that return before one is built) is a no-op.
-	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode))
+	// report_file is computed from the same variable, so the two cannot
+	// disagree either.
+	run.eventSink().Emit(newRunEndEvent(env.Status, env.ExitCode, reportFile))
 	return EmitWithOutput(stdout, outPath, env)
 }
 
@@ -431,6 +476,13 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 func withReportFileArtifact(artifacts []Artifact, path string) []Artifact {
 	out := append([]Artifact(nil), artifacts...)
 	return append(out, Artifact{Kind: ArtifactReportFile, Path: path})
+}
+
+// withEventsFileArtifact appends an events_file entry naming path, without
+// mutating the slice artifacts was built from.
+func withEventsFileArtifact(artifacts []Artifact, path string) []Artifact {
+	out := append([]Artifact(nil), artifacts...)
+	return append(out, Artifact{Kind: ArtifactEventsFile, Path: path})
 }
 
 // wantsSummary reports whether detail selects the trimmed view: "summary",
@@ -446,7 +498,7 @@ func reportPath(common *Common, tool string, run *Run) (string, error) {
 	if common != nil && common.ReportFile != "" {
 		return common.ReportFile, nil
 	}
-	return DefaultReportPath(tool, run.started, os.Getpid())
+	return DefaultReportPath(tool, run.started, run.SessionID())
 }
 
 // bounds are the per-phase ceilings this App runs with: the shared flags over

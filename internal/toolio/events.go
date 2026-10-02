@@ -1,6 +1,7 @@
 package toolio
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"sync"
@@ -34,27 +35,31 @@ var EventTypes = []EventType{
 	EventText,
 }
 
-// eventHeader is the envelope every event shares: when, which tool, and which
-// type. It is embedded first in every event struct so those three keys lead
-// each line.
+// eventHeader is the envelope every event shares: when, which tool, the
+// session and which type. It is embedded first in every event struct so
+// those four keys lead each line in the order ts, tool, session_id, type.
 type eventHeader struct {
-	Ts   string    `json:"ts"`
-	Tool string    `json:"tool"`
-	Type EventType `json:"type"`
+	Ts        string    `json:"ts"`
+	Tool      string    `json:"tool"`
+	SessionID string    `json:"session_id"`
+	Type      EventType `json:"type"`
 }
 
-func (h *eventHeader) stamp(ts, tool string) { h.Ts, h.Tool = ts, tool }
+func (h *eventHeader) stamp(ts, tool, sessionID string) {
+	h.Ts, h.Tool, h.SessionID = ts, tool, sessionID
+}
 
 // event is implemented by every event struct through its embedded header.
 type event interface {
-	stamp(ts, tool string)
+	stamp(ts, tool, sessionID string)
 }
 
 // One struct per type, carrying exactly the fields documented for it and no
 // others. There is deliberately no shared struct with omitempty fields: a
-// field that does not belong to a type cannot be present on it. The single
-// omitempty is phase_start's task, which is documented as present only for
-// impl's per-task phase.
+// field that does not belong to a type cannot be present on it. The fields
+// with omitempty are: phase_start's task (present only for impl's per-task
+// phase), and tool_call's exit_code and error (present only under the rules
+// of 12-REQ-8.5 and 12-REQ-8.6).
 
 // RunStartEvent is emitted once, after the input is classified and the model
 // resolved.
@@ -99,12 +104,17 @@ type TurnEvent struct {
 	OutputTokens int64   `json:"output_tokens"`
 }
 
-// ToolCallEvent is emitted per model tool call, under --verbose only.
+// ToolCallEvent is emitted per model tool call. omitempty is applied to
+// exit_code and error only: arguments, ok and blocked are always present.
 type ToolCallEvent struct {
 	eventHeader
-	Phase   string `json:"phase"`
-	Name    string `json:"name"`
-	Blocked bool   `json:"blocked"`
+	Phase     string          `json:"phase"`
+	Name      string          `json:"name"`
+	Blocked   bool            `json:"blocked"`
+	Arguments json.RawMessage `json:"arguments"`
+	OK        bool            `json:"ok"`
+	ExitCode  *int            `json:"exit_code,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // CheckEvent is emitted after every verification command.
@@ -147,15 +157,17 @@ type HeartbeatEvent struct {
 // RunEndEvent is emitted once, immediately before the envelope is written.
 type RunEndEvent struct {
 	eventHeader
-	Status   string `json:"status"`
-	ExitCode int    `json:"exit_code"`
+	Status     string `json:"status"`
+	ExitCode   int    `json:"exit_code"`
+	ReportFile string `json:"report_file"`
 }
 
-// TextEvent carries a model's own prose under --show-text.
+// TextEvent carries the accumulated prose of one model turn.
 type TextEvent struct {
 	eventHeader
 	Phase string `json:"phase"`
-	Delta string `json:"delta"`
+	Turn  int    `json:"turn"`
+	Text  string `json:"text"`
 }
 
 // The constructors below set the type, so a call site cannot pair a struct
@@ -185,10 +197,30 @@ func newTurnEvent(phase string, turn int, costUSD float64, in, out int64) *TurnE
 	return e
 }
 
-func newToolCallEvent(phase, name string, blocked bool) *ToolCallEvent {
-	e := &ToolCallEvent{Phase: phase, Name: name, Blocked: blocked}
+func newToolCallEvent(phase, name string, blocked bool, arguments json.RawMessage, ok bool, exitCode *int, errMsg string) *ToolCallEvent {
+	args := safeArguments(arguments)
+	e := &ToolCallEvent{
+		Phase: phase, Name: name, Blocked: blocked,
+		Arguments: args, OK: ok, ExitCode: exitCode, Error: errMsg,
+	}
 	e.Type = EventToolCall
 	return e
+}
+
+// safeArguments compacts valid JSON arguments, returns {} for empty input,
+// and encodes invalid JSON as a JSON string so the event line is never
+// dropped by a marshal failure.
+func safeArguments(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, raw); err != nil {
+		// Invalid JSON: encode the raw text as a JSON string.
+		encoded, _ := json.Marshal(string(raw))
+		return json.RawMessage(encoded)
+	}
+	return json.RawMessage(compacted.Bytes())
 }
 
 func newCheckEvent(command string, ok bool, exitCode int, durationMS int64) *CheckEvent {
@@ -215,26 +247,26 @@ func newHeartbeatEvent(stage string, elapsedMS int64, costUSD float64) *Heartbea
 	return e
 }
 
-func newRunEndEvent(status string, exitCode int) *RunEndEvent {
-	e := &RunEndEvent{Status: status, ExitCode: exitCode}
+func newRunEndEvent(status string, exitCode int, reportFile string) *RunEndEvent {
+	e := &RunEndEvent{Status: status, ExitCode: exitCode, ReportFile: reportFile}
 	e.Type = EventRunEnd
 	return e
 }
 
-func newTextEvent(phase, delta string) *TextEvent {
-	e := &TextEvent{Phase: phase, Delta: delta}
+func newTextEvent(phase string, turn int, text string) *TextEvent {
+	e := &TextEvent{Phase: phase, Turn: turn, Text: text}
 	e.Type = EventText
 	return e
 }
 
 // eventsSink serializes events as JSONL onto zero or more writers. A nil sink,
-// or one with no writers, is inactive: every method is then a no-op, so with
-// neither --events jsonl nor --events-file given no event object is produced.
+// or one with no writers, is inactive: every method is then a no-op.
 type eventsSink struct {
-	mu      sync.Mutex
-	tool    string
-	writers []io.Writer
-	now     func() time.Time
+	mu        sync.Mutex
+	tool      string
+	sessionID string
+	writers   []io.Writer
+	now       func() time.Time
 
 	// lastEmit is when the last event of any type was written; the heartbeat
 	// window is measured from it. stage is the last stage a step or
@@ -309,7 +341,7 @@ func (s *eventsSink) Emit(e event) {
 // caller holds s.mu.
 func (s *eventsSink) emitLocked(e event) {
 	now := s.now()
-	e.stamp(now.UTC().Format(time.RFC3339), s.tool)
+	e.stamp(now.UTC().Format(time.RFC3339), s.tool, s.sessionID)
 	switch ev := e.(type) {
 	case *StepEvent:
 		s.stage = ev.Stage

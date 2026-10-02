@@ -55,7 +55,7 @@ func TestTS09_44_CallerIntrospectsFixWithNoCredential_Smoke(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("top-level keys = %v, want %v", got, want)
 	}
-	if string(doc["tool"]) != `"fix"` || string(doc["schema_version"]) != `"2.0.0"` {
+	if string(doc["tool"]) != `"fix"` || string(doc["schema_version"]) != `"3.0.0"` {
 		t.Errorf("tool = %s, schema_version = %s", doc["tool"], doc["schema_version"])
 	}
 

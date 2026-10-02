@@ -37,8 +37,16 @@ func ToolFlags(tool string) []string {
 	return append([]string(nil), toolFlags[tool]...)
 }
 
+// removedFlagMessages maps flag names that were removed to the message a
+// caller passing them should see.
+var removedFlagMessages = map[string]string{
+	"events-file": "--events-file was removed; events are always written to <state>/events/",
+	"events":      "--events was renamed --emit-events",
+}
+
 // unsupportedFlagMessage rewrites a "flag provided but not defined" parse
-// error into one that names the flag and the tool or tools that do accept it.
+// error into one that names the flag and the tool or tools that do accept it,
+// or into a removal/rename message for --events and --events-file.
 // It reports false — leaving Go's own message to stand — for any other error,
 // and for a flag that none of the other tools defines either.
 func unsupportedFlagMessage(tool string, err error) (string, bool) {
@@ -48,6 +56,10 @@ func unsupportedFlagMessage(tool string, err error) (string, bool) {
 	name, ok := strings.CutPrefix(err.Error(), notDefinedPrefix)
 	if !ok || name == "" {
 		return "", false
+	}
+	// Check for removed flags first.
+	if msg, found := removedFlagMessages[name]; found {
+		return msg, true
 	}
 	var accepting []string
 	for _, other := range toolOrder {

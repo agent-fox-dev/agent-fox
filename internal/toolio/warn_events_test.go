@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"math/rand"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -31,9 +30,8 @@ func TestTS07_33_RunHoldsTheSinkBackingProgress(t *testing.T) {
 	})
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "run.jsonl")
 	var stdout, stderr bytes.Buffer
-	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--events", "jsonl", "--events-file", path, "x"},
+	app.Main(context.Background(), []string{"--dir", t.TempDir(), "--emit-events", "x"},
 		strings.NewReader(""), &stdout, &stderr)
 	if reached != 1 {
 		t.Fatalf("Exec reached %d times, want 1", reached)
@@ -76,7 +74,7 @@ func TestTS07_34_WarnEmitsAWarningEvent(t *testing.T) {
 			t.Errorf("%s = %v, want %v", k, ev[k], v)
 		}
 	}
-	if len(ev) != len(want)+1 { // plus ts
+	if len(ev) != len(want)+2 { // plus ts and session_id
 		t.Errorf("warning event has unexpected fields: %v", ev)
 	}
 }

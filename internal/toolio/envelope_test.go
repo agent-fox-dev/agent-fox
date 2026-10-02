@@ -45,10 +45,10 @@ func TestTS09_29_EnvelopeSchemaVersionFieldShape(t *testing.T) {
 	}
 }
 
-// TS-09-31 (unit): toolio.SchemaVersion is the literal string 2.0.0.
+// TS-09-31 (unit): toolio.SchemaVersion is the literal string 3.0.0.
 func TestTS09_31_SchemaVersionConstant(t *testing.T) {
-	if toolio.SchemaVersion != "2.0.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 2.0.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "3.0.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 3.0.0", toolio.SchemaVersion)
 	}
 }
 
@@ -422,7 +422,7 @@ func TestTS05_12_EnvelopeKeyOrder(t *testing.T) {
 	}
 
 	wantOrder := []string{
-		"tool", "version", "schema_version", "ok", "status", "exit_code", "summary",
+		"tool", "version", "schema_version", "session_id", "ok", "status", "exit_code", "summary",
 		"error", "needs_human", "warnings", "result", "input",
 		"usage", "model", "duration_ms", "started_at",
 	}

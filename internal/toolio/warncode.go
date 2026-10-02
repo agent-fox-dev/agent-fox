@@ -61,6 +61,12 @@ const (
 	// write is skipped and the file there, when the report write succeeds,
 	// holds the complete report rather than the --detail view.
 	WarnOutputMatchesReportFile WarnCode = "output_matches_report_file"
+	// WarnEventsFileNotWritten is recorded (12-REQ-4.6) when the events
+	// file could not be created — a permission error, a read-only
+	// filesystem, a path that could not be computed, or a collision. The
+	// run still succeeds or fails on its own merits; only the events file
+	// is affected.
+	WarnEventsFileNotWritten WarnCode = "events_file_not_written"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -104,6 +110,7 @@ var warnStages = map[WarnCode]string{
 	WarnInputLooksLikePath:      "input",
 	WarnOutputNotWritten:        "emit",
 	WarnOutputMatchesReportFile: "emit",
+	WarnEventsFileNotWritten:    "report",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -153,5 +160,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnInputLooksLikePath,
 		WarnOutputNotWritten,
 		WarnOutputMatchesReportFile,
+		WarnEventsFileNotWritten,
 	}
 }

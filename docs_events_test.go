@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TS-07-42 (unit): docs/cli.md documents --events/--events-file, the ten-row
+// TS-07-42 (unit): docs/cli.md documents --emit-events, the eleven-row
 // type table and a worked multi-line JSONL example
 // Verifies: 07-REQ-8.1
 func TestDocsCliEventTypes_TS_07_42(t *testing.T) {
@@ -14,12 +14,10 @@ func TestDocsCliEventTypes_TS_07_42(t *testing.T) {
 		t.Fatal(`docs/cli.md has no "event types" section`)
 	}
 	sec := docSection(t, doc, "event types")
-	for _, flag := range []string{"--events", "--events-file", "jsonl"} {
-		if !strings.Contains(sec, flag) {
-			t.Errorf("event types section does not document %s", flag)
-		}
+	if !strings.Contains(sec, "--emit-events") {
+		t.Errorf("event types section does not document --emit-events")
 	}
-	for _, typ := range []string{"run_start", "step", "phase_start", "turn", "tool_call", "check", "phase_end", "warning", "heartbeat", "run_end"} {
+	for _, typ := range []string{"run_start", "step", "phase_start", "turn", "tool_call", "check", "phase_end", "warning", "heartbeat", "run_end", "text"} {
 		if _, ok := tableRow(sec, "| `"+typ+"`"); !ok {
 			t.Errorf("event types table has no row for %s", typ)
 		}

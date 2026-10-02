@@ -43,7 +43,7 @@ Every phase's turns, stop reason, tokens and cost appear in the envelope's
 `usage.phases[]`, so a surprising bill is a field rather than an investigation.
 
 That is the bill after the run. To watch spend while it accumulates, run with
-`--events jsonl` (or `--events-file <path>`): a `turn` event carries each model
+`--emit-events` or read the events file: a `turn` event carries each model
 turn's cost and tokens as it happens, and a `phase_end` event carries the
 phase's total turns, cost and duration the moment it finishes — the same
 figures `usage.phases[]` will report. A `heartbeat` event carries the run's

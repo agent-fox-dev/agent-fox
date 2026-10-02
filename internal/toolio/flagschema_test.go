@@ -235,24 +235,36 @@ func TestTS09_20_DeclaredEnum(t *testing.T) {
 	}
 }
 
-// TS-09-20 (unit, shared flags): --detail and --events, the closed-set flags
-// Common registers, declare their values.
+// TS-09-20 (unit, shared flags): --detail, the closed-set flag Common
+// registers, declares its values.
 func TestTS09_20_CommonEnums(t *testing.T) {
 	fs, _ := newCommonFlagSet()
 	_, doc := flagsDoc(t, fs)
 	props := propsOf(t, doc)
 	for name, want := range map[string][]any{
 		"detail": {"summary", "full"},
-		"events": {"text", "jsonl"},
 	} {
 		if got := props[name].(map[string]any)["enum"]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s enum = %v, want %v", name, got, want)
 		}
 	}
-	for _, name := range []string{"dir", "model", "events-file", "report-file"} {
+	for _, name := range []string{"dir", "model", "report-file"} {
 		if _, ok := props[name].(map[string]any)["enum"]; ok {
 			t.Errorf("%s must not carry an enum", name)
 		}
+	}
+	// The removed flags should not exist.
+	if _, ok := props["events"]; ok {
+		t.Error("properties has an events key (removed)")
+	}
+	if _, ok := props["events-file"]; ok {
+		t.Error("properties has an events-file key (removed)")
+	}
+	// --emit-events should exist as a boolean.
+	if ee, ok := props["emit-events"]; !ok {
+		t.Error("properties lacks emit-events")
+	} else if ee.(map[string]any)["type"] != "boolean" {
+		t.Errorf("emit-events type = %v, want boolean", ee.(map[string]any)["type"])
 	}
 }
 

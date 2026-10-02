@@ -62,7 +62,8 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
 {
   "tool": "fix",
   "version": "0.4.0",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
+  "session_id": "a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8",
   "ok": true,
   "status": "done",
   "exit_code": 0,
@@ -81,7 +82,7 @@ kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
   "next": [ /* what a caller would plausibly run next */ ],
   "duration_ms": 214003,
   "started_at": "2026-09-09T13:20:30Z",
-  "report_file": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json"
+  "report_file": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8.json"
 }
 ```
 
@@ -161,7 +162,7 @@ Every run, whichever `--detail` it was given, also writes the **complete**
 envelope — the `full` view of `result`, byte for byte what `--detail full`
 would have printed for the same run — to a report file, and names it in
 `report_file`. The default location is described under
-[Report files](configuration.md#report-files); `--report-file <path>` picks
+[State directory](configuration.md#state-directory); `--report-file <path>` picks
 another. A run that cannot write the file records a `low`
 `report_file_not_written` warning and omits `report_file`. A `--dry-run` run
 still writes it: it is local state, not a remote change.
@@ -173,10 +174,10 @@ three are built in Go from facts the tool already holds (git, the forge's own
 response, the file it wrote), never from the model's report of its own work.
 
 `artifacts` lists what the run produced, over the closed set `issue`,
-`pull_request`, `comment`, `branch`, `commit`, `spec_package` and
-`report_file`. A `pull_request`, `comment` or `issue` entry that would have
-been made but for `--dry-run` carries `"dry_run": true`; a branch or commit,
-which a dry run still makes, does not.
+`pull_request`, `comment`, `branch`, `commit`, `spec_package`,
+`report_file` and `events_file`. A `pull_request`, `comment` or `issue` entry
+that would have been made but for `--dry-run` carries `"dry_run": true`; a
+branch or commit, which a dry run still makes, does not.
 
 ```jsonc
 "artifacts": [
@@ -185,7 +186,8 @@ which a dry run still makes, does not.
   { "kind": "pull_request", "url": "https://github.com/acme/widgets/pull/57", "number": 57 },
   { "kind": "comment",      "url": "https://github.com/acme/widgets/issues/42#issuecomment-9",
     "role": "analysis" },
-  { "kind": "report_file",  "path": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-4127.json" }
+  { "kind": "report_file",  "path": "/home/ci/.local/state/agent-fox/runs/fix-20260909T132030Z-a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8.json" },
+  { "kind": "events_file",  "path": "/home/ci/.local/state/agent-fox/events/fix-20260909T132030Z-a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8.jsonl" }
 ]
 ```
 
@@ -333,6 +335,7 @@ quite what it appears to be; `low` is informational.
 | `activation_failed` | high | activate | spec |
 | `rejected_path_calls` | low | analyse | issue |
 | `report_file_not_written` | low | report | shared |
+| `events_file_not_written` | low | report | shared |
 | `output_not_written` | low | emit | shared |
 | `output_matches_report_file` | low | emit | shared |
 
@@ -357,10 +360,10 @@ a typo. An existing directory is never flagged.
 | `--verbose` | off | trace tool calls and timings on stderr |
 | `--quiet` | off | print nothing on stderr |
 | `--show-text` | off | stream the model's own prose to stderr |
-| `--detail` · `--report-file` | `summary` · see below | `--detail summary\|full` picks the `result` view on stdout: `summary` (the default) keeps the subset each tool's section lists, `full` prints everything the tool computed; any other value is a usage error. `--report-file <path>` names where the complete envelope is written; by default `$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<pid>.json` (see [Report files](configuration.md#report-files)). The file is always the `full` view, whichever `--detail` was given |
+| `--detail` · `--report-file` | `summary` · see below | `--detail summary\|full` picks the `result` view on stdout: `summary` (the default) keeps the subset each tool's section lists, `full` prints everything the tool computed; any other value is a usage error. `--report-file <path>` names where the complete envelope is written; by default `$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<session_id>.json` (see [State directory](configuration.md#state-directory)). The file is always the `full` view, whichever `--detail` was given |
 | `--output` | none | `--output <path>` writes a second copy of the same envelope stdout gets — the same `--detail` view, `warnings` and `error` — to that file. The write is atomic (a temp file in the target's directory, synced, then renamed over the path, so a reader sees nothing or the whole document) and happens before anything is written to stdout, on every path that produces an envelope, including the internal fallback for a `result` that cannot be encoded. A relative path resolves against the process's working directory, not `--dir`; a missing parent directory is created. `-` and an existing directory are usage errors (exit 2), refused before anything is fetched. It is written under `--dry-run` too. A failed write never changes the exit code: it adds a low `output_not_written` warning naming the path and the cause. When `--output` and `--report-file` (explicit or the default) resolve to the same path, `--output`'s own write is skipped and a low `output_matches_report_file` warning is recorded: the file there is the complete report, not the `--detail` view `--output` alone would have produced, and if the report write fails nothing lands there (the envelope then also carries `report_file_not_written`) |
 | `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `issue` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
-| `--events` · `--events-file` | `text` · none | `--events text\|jsonl` picks what stderr carries: `text` (the default) is the human progress lines, unchanged; `jsonl` is one JSON event object per line instead. Any other value is a usage error (exit 2), refused before anything is fetched. `--events-file <path>` also writes the JSONL stream to that file — opened once, truncated, one whole line per write so a killed process leaves a valid prefix — whatever `--events` says about stderr, so `--events text --events-file run.jsonl` lets a person watch the terminal while a supervisor tails the file. `--quiet` silences stderr under both `--events` values and does not affect the file |
+| `--emit-events` | off | write the JSON event stream to stderr instead of the human progress lines. Without it, stderr carries the human progress exactly as the default does today. With it, stderr carries one JSON event per line and no human line. `--quiet` silences stderr under both settings and never affects the events file. See [Machine-readable progress](#machine-readable-progress-the-event-types) |
 | `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
@@ -444,7 +447,7 @@ the real run would start from:
 `--preflight` composes with every other flag. `--dry-run` adds nothing to it —
 `--preflight` already makes no remote write — and neither implies the other.
 `--schema` wins when both are given, as `--version` wins over everything. It
-emits the same progress lines and `--events` types as the checks it reuses, and
+emits the same progress lines and event types as the checks it reuses, and
 `--output` receives its envelope like any other. It leaves `next[]` empty.
 
 The examples below show `result` under the default `--detail summary`; the
@@ -583,8 +586,8 @@ describing the tool's interface and exits 0. It does no work — it makes no
 network call, resolves no model, needs no credentials and does not look at
 `--dir` — so it can run anywhere, including with no credentials configured and
 `--dir` pointing at an empty directory. It is indented JSON followed by a
-newline, the same rendering as the envelope. `--report-file`, `--events` and
-`--events-file` have no effect alongside it, because no run happens for them
+newline, the same rendering as the envelope. `--report-file` and
+`--emit-events` have no effect alongside it, because no run happens for them
 to describe.
 
 This is the shape, abbreviated (`fix --schema`; `…` marks what is left out):
@@ -592,7 +595,7 @@ This is the shape, abbreviated (`fix --schema`; `…` marks what is left out):
 ```jsonc
 {
   "tool": "fix",
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "description": "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
   "input": { "description": "Exactly one of: …", "kinds": ["text", "file", "stdin", "issue"] },
   "flags": {
@@ -631,7 +634,7 @@ This is the shape, abbreviated (`fix --schema`; `…` marks what is left out):
   set, so it cannot drift from what the tool accepts. Properties are in flag
   name order. Each carries the flag's `type`, its `default` and its usage text
   as `description`; `enum` is present for a flag with a closed set of values
-  (`--land`, `--detail`, `--events`) and absent for free text. A duration is
+  (`--land`, `--detail`) and absent for free text. A duration is
   `{"type": "string", "format": "duration"}`; a flag whose value type is not
   standard (`fix --pull`) is reported as a string. Nothing is `required`. The
   flags `--schema` and `--version` are not listed.
@@ -719,7 +722,17 @@ narrowing a field documented as a closed enum. The reasoning is in
 envelope states in its own PRD which kind of change it makes. Each future
 major bump appends its own entry below.
 
-**2.0.0** — the current version. The first breaking change: `warnings` became a
+**3.0.0** — the current version. The `text` event's `delta` field was removed
+and replaced by `turn` and `text` (one event per model turn instead of one per
+text delta). The `--events` and `--events-file` flags were removed and replaced
+by `--emit-events` (boolean). The event header gained `session_id` as its third
+key. The envelope gained a top-level `session_id`. `run_end` gained
+`report_file`. `tool_call` gained `arguments`, `ok`, `exit_code` and `error`,
+and is no longer gated on `--verbose`. The `events_file` artifact kind was
+added. The report and events file names use `session_id` in place of the pid.
+These came from the `12_events_in_state_directory` spec.
+
+**2.0.0** — the first breaking change: `warnings` became a
 structured list of objects (`code`, `severity`, `stage`, …) instead of strings;
 `ambiguity` and `blocker` folded into `needs_human`; `status`, `summary`,
 `artifacts`, `side_effects` and `next` were added and `--detail` introduced;
@@ -742,16 +755,19 @@ envelope.
 
 A caller that is itself a program — a model running a tool under a timeout, a
 supervisor tailing a log — cannot tell a long `fix` or `impl` run from a hung
-one by reading prefixed text. `--events jsonl` gives it the same progress as
-one JSON object per line, and `--events-file <path>` writes that same stream to
-a file while stderr keeps its default form (see the `--events` row in
-[Shared flags](#shared-flags)). The default, `--events text`, is unchanged.
+one by reading prefixed text. Every run that reaches the event sink writes its
+complete event stream to
+`<state>/events/<tool>-<started_at>-<session_id>.jsonl` (see
+[State directory](configuration.md#state-directory)), and `--emit-events` puts
+the identical stream on stderr instead of the human progress (see the
+`--emit-events` row in [Shared flags](#shared-flags)).
 
-Every event is one JSON object on one line. Its first three keys are the same
+Every event is one JSON object on one line. Its first four keys are the same
 for every type:
 
 - `ts` — RFC 3339, UTC, the same convention as the envelope's `started_at`
 - `tool` — the program name (`spec`, `issue`, `fix`, `impl`), as in the envelope
+- `session_id` — the run's unique session identifier, the same 32 hex characters as the envelope's `session_id`
 - `type` — one of the closed set below; nothing else is ever emitted, and a
   field not listed for a type is never present on it
 
@@ -761,16 +777,13 @@ for every type:
 | `step` | `stage`, `message` | wherever the human progress prints a line; `stage` is the same vocabulary as the envelope's `stage` |
 | `phase_start` | `phase`, `task`, `max_turns`, `budget_usd` | when a model phase begins; `task` is present only for `impl`'s per-task `implement` phase; the ceilings are the ones the run actually resolved |
 | `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
-| `tool_call` | `phase`, `name`, `blocked` | under `--verbose` only, per model tool call; `blocked` is true when the shell guard refused it |
+| `tool_call` | `phase`, `name`, `blocked`, `arguments`, `ok`, `exit_code`, `error` | per model tool call; `blocked` is true when the shell guard refused it; `arguments` is the call's arguments as JSON; `ok` is true when the result was not an error; `exit_code` is present only for shell tools whose exit status could be read; `error` is present only when `ok` is false |
 | `check` | `command`, `ok`, `exit_code`, `duration_ms` | after every verification command (`fix`'s baseline and post-change runs; `impl`'s gate before and after every task and in the repair loop) |
 | `phase_end` | `phase`, `stop_reason`, `turns`, `cost_usd`, `duration_ms` | when a model phase ends; `cost_usd` is the phase's total |
 | `warning` | `code`, `severity`, `stage`, `message` | when a warning is recorded; the same object as an entry of the envelope's `warnings` |
 | `heartbeat` | `stage`, `elapsed_ms`, `cost_usd` | every 15 seconds in which no other event was emitted; `stage` is the last one a `step` or `phase_start` named, `cost_usd` the run's spend so far |
-| `run_end` | `status`, `exit_code` | once, immediately before the envelope is written to stdout; `status` is the envelope's `status` |
-
-Under `--show-text` the stream also carries a `text` event (`phase`, `delta`)
-in place of the model's raw prose on stderr. Without `--show-text` it is never
-emitted.
+| `run_end` | `status`, `exit_code`, `report_file` | once, immediately before the envelope is written to stdout; `status` is the envelope's `status`; `report_file` is the path the report was written to, or the empty string when it was not written |
+| `text` | `phase`, `turn`, `text` | one event per model turn carrying the whole prose of that turn; emitted immediately before the `turn` event for the same turn |
 
 What a parser can rely on, and what it must not:
 
@@ -779,41 +792,45 @@ What a parser can rely on, and what it must not:
 - `run_end` is the last event of a run that gets as far as writing an envelope.
   A run that fails before the model is resolved (a missing input, a refused
   forge) writes `run_end` without a preceding `run_start`. A run refused as a
-  usage error before anything was fetched — a bad `--events` value, for one —
-  emits no events at all, and neither do `-h`/`--help` or a bare invocation on
-  a terminal.
+  usage error before the event sink is built — a flag-parse failure, an invalid
+  `--detail` or `--input-kind`, a bare invocation off-terminal, or an invalid
+  `--output` — emits no events at all, and neither do `-h`/`--help` or a bare
+  invocation on a terminal.
 - `phase_start` and `phase_end` pair. A `phase_end` with an empty
   `stop_reason` is a phase that never got as far as calling the model
   (cancelled, or built without a terminating tool).
 - Spend is visible live: sum `turn.cost_usd` while a phase runs; `phase_end`
   carries the phase's total, which is what the envelope's `usage.phases[]`
   entry for it reports.
-- Under an active event stream (`jsonl`, or `--events-file`) the labelled
-  spinner spans that `Begin` prints on a terminal are not printed: a phase and
-  a check already have `phase_start`/`phase_end` and `check`. `--verbose`
-  trace lines have no event counterpart, apart from `tool_call`.
-- `--quiet` silences stderr under both `--events` values and does not affect
-  `--events-file`.
+- Under `--emit-events` the labelled spinner spans that `Begin` prints on a
+  terminal are not printed: a phase and a check already have
+  `phase_start`/`phase_end` and `check`.
+- `--quiet` silences stderr under both settings and never affects the events
+  file.
 - Event content is not sanitised, any more than the envelope is: `message`,
-  `command` and `delta` can carry text from the input, the repository or the
+  `command` and `text` can carry text from the input, the repository or the
   model.
+- The stream is complete and independent of the human flags: `tool_call` events
+  are emitted for every model tool call, not only under `--verbose`. `text`
+  events are emitted for model prose, not only under `--show-text`. `--verbose`
+  and `--show-text` keep their meaning for the human progress only.
 
-A worked example — the start of `fix --events jsonl` on an issue, with the
+A worked example — the start of `fix --emit-events` on an issue, with the
 baseline check failing, two analyse turns and a heartbeat during the wait
 before the next phase:
 
 ```
-{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"},"schema_version":"2.0.0"}
-{"ts":"2025-03-04T09:12:01Z","tool":"fix","type":"step","stage":"branch","message":"branched fix/rate-limit-retry from main"}
-{"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"check","command":"go test ./...","ok":false,"exit_code":1,"duration_ms":4210}
-{"ts":"2025-03-04T09:12:06Z","tool":"fix","type":"phase_start","phase":"analyse","max_turns":40,"budget_usd":2}
-{"ts":"2025-03-04T09:12:11Z","tool":"fix","type":"turn","phase":"analyse","turn":1,"cost_usd":0.0412,"input_tokens":9120,"output_tokens":311}
-{"ts":"2025-03-04T09:12:19Z","tool":"fix","type":"tool_call","phase":"analyse","name":"read_file","blocked":false}
-{"ts":"2025-03-04T09:12:24Z","tool":"fix","type":"turn","phase":"analyse","turn":2,"cost_usd":0.0587,"input_tokens":11840,"output_tokens":402}
-{"ts":"2025-03-04T09:12:31Z","tool":"fix","type":"phase_end","phase":"analyse","stop_reason":"tool_terminate","turns":2,"cost_usd":0.0999,"duration_ms":25100}
-{"ts":"2025-03-04T09:12:46Z","tool":"fix","type":"heartbeat","stage":"analyse","elapsed_ms":45000,"cost_usd":0.0999}
-{"ts":"2025-03-04T09:13:02Z","tool":"fix","type":"warning","code":"no_verify_command","severity":"high","stage":"preflight","message":"no verification command could be determined"}
-{"ts":"2025-03-04T09:13:03Z","tool":"fix","type":"run_end","status":"failed","exit_code":1}
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"run_start","input_kind":"issue","model":{"spec":"STANDARD","id":"claude-sonnet-4-5","vendor":"anthropic"},"schema_version":"3.0.0"}
+{"ts":"2025-03-04T09:12:01Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"step","stage":"branch","message":"branched fix/rate-limit-retry from main"}
+{"ts":"2025-03-04T09:12:06Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"check","command":"go test ./...","ok":false,"exit_code":1,"duration_ms":4210}
+{"ts":"2025-03-04T09:12:06Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"phase_start","phase":"analyse","max_turns":40,"budget_usd":2}
+{"ts":"2025-03-04T09:12:11Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"turn","phase":"analyse","turn":1,"cost_usd":0.0412,"input_tokens":9120,"output_tokens":311}
+{"ts":"2025-03-04T09:12:19Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"tool_call","phase":"analyse","name":"read_file","blocked":false,"arguments":{"path":"main.go"},"ok":true}
+{"ts":"2025-03-04T09:12:24Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"turn","phase":"analyse","turn":2,"cost_usd":0.0587,"input_tokens":11840,"output_tokens":402}
+{"ts":"2025-03-04T09:12:31Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"phase_end","phase":"analyse","stop_reason":"tool_terminate","turns":2,"cost_usd":0.0999,"duration_ms":25100}
+{"ts":"2025-03-04T09:12:46Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"heartbeat","stage":"analyse","elapsed_ms":45000,"cost_usd":0.0999}
+{"ts":"2025-03-04T09:13:02Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"warning","code":"no_verify_command","severity":"high","stage":"preflight","message":"no verification command could be determined"}
+{"ts":"2025-03-04T09:13:03Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"run_end","status":"failed","exit_code":1,"report_file":"/home/ci/.local/state/agent-fox/runs/fix-20250304T091201Z-a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8.json"}
 ```
 
 ---
