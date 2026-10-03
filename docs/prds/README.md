@@ -42,3 +42,9 @@ Proposed for how a run chooses its model.
 | Document | What it asks for |
 |---|---|
 | [07-replace-the-variant-flag-with-effort.md](07-replace-the-variant-flag-with-effort.md) | `--effort` and `$AF_MODEL_EFFORT` overriding a tier's reasoning effort, or setting one for a model named by id; `--repair-model-effort` on `impl`; clamping checked before the run with an `effort_clamped` warning; `--variant` and the tier table's variant level removed |
+
+Proposed for a fifth tool without a model phase.
+
+| Document | What it asks for |
+|---|---|
+| [08-add-the-issue-tool.md](08-add-the-issue-tool.md) | `issue`: every `issuex.Client` operation as `issue --op <name> <target>` on GitHub and GitLab, on the shared envelope and exit codes, with the forge, host and token resolved from the same environment variables the four tools read; no model is resolved. Not the tool that was renamed to `triage`. Needs the shell in `internal/toolio` to run a tool that has no model phase |
