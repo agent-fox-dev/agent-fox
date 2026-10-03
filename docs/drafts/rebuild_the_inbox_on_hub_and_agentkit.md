@@ -1,7 +1,7 @@
 # Rebuild the inbox on hub and AgentKit
 
-**Status:** brainstorm draft. Nothing here is decided; the "Decisions" section
-lists what has to be and recommends an answer for each.
+**Status:** brainstorm draft, second pass. Five decisions are taken (see
+"Decisions"); the rest are recommendations awaiting an answer.
 
 ## Intent
 
@@ -94,7 +94,7 @@ migration, and this PRD treats it as one.
 
 ```
                  ┌──────────────────────────────────────────────┐
-  web / desktop  │  hub  (control plane)                        │
+  web client     │  hub  (control plane)                        │
   / CLI  ──HTTP──┤  identity · orgs · workspaces · secrets      │
        ──SSE────┤  threads · inbox · approvals · triggers      │
                  │  jobqueue (SQLite) · event log · SSE fan-out │
@@ -110,12 +110,51 @@ migration, and this PRD treats it as one.
 ```
 
 Hub owns every record and every endpoint the clients see. Workers run the
-agents. The desktop and single-user case runs both in one process, the same
-way pizza-bot's Electron shell embeds its api-server today; a team deployment
-runs hub once and workers wherever the repositories and MCP servers should
-execute. This is already the pattern hub's audit-ingestion endpoints
-(`POST /api/v1/workspaces/:slug/runs/:run_id/events`) and `GET /api/v1/events`
-were built for.
+agents, and a worker is a container. This is already the pattern hub's
+audit-ingestion endpoints (`POST /api/v1/workspaces/:slug/runs/:run_id/events`)
+and `GET /api/v1/events` were built for.
+
+### The sandbox semantic
+
+Both repositories already define the execution environment, and the worker
+adopts it rather than inventing one:
+
+- `quay.io/agentfox/sandbox` (`containers/sandbox/Containerfile` in hub and
+  agent-fox): a RHEL 10 base with Go, Node, Rust and Python toolchains. The
+  repository lives at `$WORKSPACE` (`/opt/app-root/workspace`); agent config,
+  credentials and session state live in `$HOME` (`/opt/app-root/src`), so
+  agent state never mixes into the code.
+- `quay.io/agentfox/agents` and `quay.io/agentfox/tools` layer the coding
+  agents and the four agent-fox tools on top of it.
+
+The inbox worker is one more layer on `sandbox`: a `worker` image carrying the
+AgentKit-based run loop and the agent-fox tools. The rules that follow:
+
+- **One container per job.** Hub enqueues; a scheduler on the worker host
+  starts a container for the job with the workspace-scoped token, the
+  resolved secrets as environment, and the job id. The container clones the
+  workspace from hub's own git server (`/git/<org>/<slug>.git`) into
+  `$WORKSPACE`, runs, pushes the branch back, reports, and exits. Isolation,
+  cancellation (stop the container) and credential scoping all come from the
+  container boundary, which is what agent-fox PRD 04 asked of its job runner.
+- **The container is the sandbox; the in-process guard is a floor.**
+  AgentKit's `guard.Restricted` and agent-fox's shell classifier stay on, but
+  they are not the security boundary. AgentKit's own PRD (OQ-8, option c) and
+  agent-fox's CLI reference say the same: anything genuinely untrusted belongs
+  in a container.
+- **Session logs outlive the container.** `$HOME` state that must persist,
+  which is the thread's session log and the run's event log, is written to a
+  per-workspace volume mounted into every container for that workspace, and
+  shipped to hub as events. A fresh container resumes a thread from the log.
+- **No network beyond hub, the model vendor and declared MCP servers.** The
+  container's egress policy is part of the job, not of the agent.
+- **Scheduling.** The first worker host is a single machine running
+  `podman`; the hub Kubernetes deployment (`deploy/`) gets a worker that
+  starts jobs as pods later. The scheduler is a small loop over
+  `jobqueue`, not a new service.
+
+The single-user and local case is the same shape with one worker host on the
+same machine as hub.
 
 ### Component map
 
@@ -133,9 +172,9 @@ were built for.
 | `inference-providers` (Bedrock, Anthropic, Gemini, OpenAI, OpenRouter, Requesty, Ollama) | `catalog` + `provider/{anthropic,openai,openairesponses,google,ollama}` | **Bedrock missing**; OpenRouter/Requesty via the OpenAI-compatible path |
 | Provider credentials in Electron `safeStorage` / env refs | hub secrets at user, org and workspace scope, resolved per run | yes |
 | `PIZZA_API_TOKEN` shared bearer | hub API keys (interactive), PATs (scoped automation), workspace-scoped tokens, admin token | yes |
-| Local folder grants (`/local/<id>/`) | the workspace clone is the tool root; extra grants are a worker-side allowlist | partly |
+| Local folder grants (`/local/<id>/`) | the workspace clone at `$WORKSPACE` is the tool root; there are no host folder grants, a container sees only its mounts | by design |
 | Trigger scheduler (cron, webhook) | jobqueue `available_at` for delayed jobs + a cron tick that enqueues occurrences + a webhook route | **cron missing** |
-| `GET /threads/activity/events` (desktop notifications) | the same SSE stream filtered to terminal run events | yes |
+| `GET /threads/activity/events` (desktop notifications) | the same SSE stream filtered to terminal run events; browser notifications in v1 | yes |
 | Web `ApiClient` + `protocol-stream-store` | a generated client from hub's OpenAPI 3.1 description + one SSE decoder | no |
 
 ### A run, end to end
@@ -172,7 +211,7 @@ were built for.
 - A run survives the client, the worker, and hub restarting: the session log
   and the job row are the truth, not a process.
 - The client/server contract is a documented OpenAPI description plus one
-  event schema, and the web, desktop and CLI clients are generated from or
+  event schema, and the web client is generated from or
   conformance-tested against it, in that order of preference.
 - agent-fox's pipelines are first-class inbox work: `impl 09` on a workspace
   is a job whose envelope lands in Unread, or in Action when it exits
@@ -187,6 +226,11 @@ were built for.
   workers scale out.
 - A new UI design. The first client is the existing React app with its
   transport layer replaced; a redesign is its own PRD.
+- The Electron desktop app and the terminal REPL. The web client is the only
+  client in v1. The Electron shell's job (supervising an embedded backend)
+  does not exist in this topology, and a desktop wrapper over the web client
+  can come later without changing the server.
+- Running an agent outside a container. There is no in-process worker mode.
 - Replacing hub's carry-patch, merge-queue and git-server features, which
   stay as they are and are not touched by this work.
 
@@ -204,12 +248,15 @@ Hub already has the nouns. The mapping:
 | Workspace-scoped token | What a worker holds while running one workspace's job, so a run can only report into its own workspace. |
 | Admin token | Operator. Cannot create workspaces today; that stays. |
 
-Three gaps in hub for a *team* inbox, found in `docs/permissions.md`:
+Three gaps in hub for a *team* inbox, found in `docs/permissions.md`. They
+are hub work, specified in hub's own `.specs/` and landed **before** this PRD
+starts, because every inbox query below assumes the first of them:
 
 1. **Workspaces are owner-private.** Core CRUD checks `ws.OwnerID == auth.UserID`
    and answers 404 otherwise, even to org members. A shared team inbox needs
    org-member read access to org workspaces, with the owner keeping write and
-   delete. This is the one hub permission change the PRD depends on.
+   delete, and the git server following the same rule. This is the hub
+   permission change the PRD depends on.
 2. **Re-login mass-revokes every API key** for the user. A browser login on a
    second device logs the CLI out. The web client needs either a per-device
    key (drop the mass revoke, cap keys per user) or a short-lived session
@@ -247,6 +294,9 @@ first decision wins and the second answers 409.
 
 Pizza-bot's rule that folders never hide work from the global queues carries
 over one level up: a workspace never hides work from the user's global inbox.
+With org-member reads in hub, a member's global inbox spans every workspace
+in their orgs plus their personal ones; **Action** shows an approval to every
+member who may answer it, and the first decision wins.
 
 ## The run model
 
@@ -326,17 +376,15 @@ wants, resolved by the worker through AgentKit's credential resolution.
 
 ## Clients
 
-- **Web.** Keep `apps/web`'s components; replace `api-client.ts`,
-  `protocol-stream-store.ts` and `projection/*` with a generated client and
-  one event decoder. Add workspace switching and the global inbox. OAuth via
-  redirect to hub.
-- **Desktop.** The Electron shell keeps its supervisor role but supervises
-  `hub --embedded` (hub plus one worker in one process) instead of a Node
-  sidecar. Notifications read the same SSE stream filtered to terminal
-  events.
-- **CLI.** `afc` gains `inbox`, `thread`, `run` and `approve` commands over the
-  same API, replacing the TypeScript REPL. The agent-fox tools stay as they
-  are; a workspace job runs them.
+**Web, and only web, in v1.** Keep `apps/web`'s components; replace
+`api-client.ts`, `protocol-stream-store.ts` and `projection/*` with a
+generated client and one event decoder. Add sign-in via redirect to hub,
+workspace switching, the per-workspace inbox and queue, and the global inbox.
+Browser notifications come off the same SSE stream filtered to terminal
+events. Hub serves the built app, so one origin and no CORS configuration.
+
+Later, not in scope: a desktop wrapper over the web client, and `afc inbox`,
+`thread`, `run`, `approve` commands over the same API.
 
 ## What exists and what has to be built
 
@@ -353,7 +401,8 @@ wants, resolved by the worker through AgentKit's credential resolution.
 | Threads, folders, inbox flags, FTS | | | | all |
 | Attachments by reference | | images normalized at history boundary | | storage + inlining at the model call |
 | Model providers | | Anthropic, OpenAI (+compatible), OpenAI Responses, Google, Ollama | | **Bedrock** |
-| Clients | `afc` | | | web transport layer; `afc inbox`; desktop supervisor |
+| Worker container | sandbox and agents images | | sandbox and tools images | `worker` image; job scheduler over podman; per-workspace state volume |
+| Clients | | | | web transport layer, sign-in flow, workspace switching |
 
 ## Risks and gaps found while reading
 
@@ -372,35 +421,40 @@ wants, resolved by the worker through AgentKit's credential resolution.
   through it. Fine for a team, not for a fleet. Event logs should live beside
   the session log on the worker's disk and be shipped, not stored in the hub
   DB row by row.
-- **Audit DB needs CGO** (DuckDB). The embedded desktop build inherits that
-  constraint from hub. Decide whether the embedded profile can run without
-  the audit store.
 - **Cross-tenant sync/reclone.** `docs/permissions.md` records that the sync
-  and reclone handlers do not enforce ownership. Must be fixed before any
-  multi-user exposure, independent of this PRD.
+  and reclone handlers do not enforce ownership. Must be fixed in the hub
+  prerequisite work before any multi-user exposure.
+- **Container start cost per job.** A clone from hub's git server on every
+  job is seconds for a normal repository and minutes for a large one. If it
+  shows up, the per-workspace volume can keep a warm clone that the container
+  fetches into, at the cost of cleaning it between jobs.
 
-## Decisions to make
+## Decisions
+
+Taken:
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Inbox inside the hub binary, or a separate service? | Inside hub. It needs the job queue, the SSE manager, the secrets store and apikit auth, and all four are in-process APIs there. |
+| 2 | Where agents run | In workers, one container per job, on the sandbox image lineage ("The sandbox semantic"). No in-process mode. |
+| 3 | Client | Keep the React app; replace its transport layer. |
+| 4 | Team inbox | In scope, and the hub ownership change (org-member workspace reads) lands first as hub work. |
+| 5 | Desktop | Not in v1. The web client is the only client. |
+
+Still recommendations:
 
 | # | Question | Recommendation |
 |---|---|---|
-| 1 | Inbox inside the hub binary, or a separate service that trusts hub tokens? | Inside hub. It needs the job queue, the SSE manager, the secrets store and apikit auth, and all four are in-process APIs there. A separate service would re-implement token validation against hub's DB. |
-| 2 | Agents in-process with hub, or in workers? | Workers, with an `--embedded` profile that runs one worker in-process for desktop and single-user. An MCP subprocess crash must not take identity down. |
-| 3 | Keep the React app or write a new client? | Keep it; replace its transport layer. The component layer is the part that works and the part a rewrite would reproduce last. |
-| 4 | Tenant boundary: org or workspace? | Org is the tenant; workspace is the isolation unit. Secrets and models default at org, override at workspace. |
-| 5 | Wire for events | AgentKit's `core.Event` JSON with a `{seq, run_id, thread_id}` envelope; agent-fox's PRD 03 events under the same envelope for pipeline jobs. One decoder in every client. |
-| 6 | HITL mechanism | Stop-and-resume (approval row + `needs_human` + re-enqueue). Do not try to park a goroutine. |
-| 7 | Memory | Drop the cross-thread "store" for v1; per-workspace context files under AgentKit's trust gate are the durable memory. Revisit if users miss it. |
-| 8 | Bedrock | Not in v1 unless it is the deployment target; `openai`-compatible gateways cover OpenRouter and Requesty today. |
-| 9 | Where the session log lives | On the worker, under the workspace clone's state directory (`$XDG_STATE_HOME`-style, as agent-fox PRD 05 does), shipped to hub as events. Hub stores metadata and the inbox flags, not transcripts. |
+| 6 | Tenant boundary: org or workspace? | Org is the tenant; workspace is the isolation unit. Secrets and models default at org, override at workspace. |
+| 7 | Wire for events | AgentKit's `core.Event` JSON with a `{seq, run_id, thread_id}` envelope; agent-fox's PRD 03 events under the same envelope for pipeline jobs. One decoder in the client. |
+| 8 | HITL mechanism | Stop-and-resume (approval row + `needs_human` + re-enqueue). Do not try to park a goroutine, and never keep a container alive waiting for a person. |
+| 9 | Memory | Drop the cross-thread "store" for v1; per-workspace context files under AgentKit's trust gate are the durable memory. Revisit if users miss it. |
+| 10 | Bedrock | Not in v1 unless it is the deployment target; `openai`-compatible gateways cover OpenRouter and Requesty today. |
+| 11 | Where the session log lives | On the per-workspace state volume, under an `$XDG_STATE_HOME`-style layout as agent-fox PRD 05 does, shipped to hub as events. Hub stores metadata and the inbox flags, not transcripts. |
+| 12 | Container scheduling | Start with one worker host and `podman`; pods on the existing hub Kubernetes deployment later. |
 
 ## Open questions for the author
 
-- Is a shared team inbox (org members see each other's workspace threads) in
-  scope for v1, or is v1 "my workspaces, my inbox" with the org only sharing
-  secrets? The answer decides whether hub's ownership model changes now.
-- Does the desktop app stay a first-class target, or is the browser the
-  client and the desktop a wrapper? It decides whether `hub --embedded` and
-  the CGO constraint matter early.
 - Should pizza-bot's skill format (`SKILL.md` with `interruptOn` and
   `mcp:server:tool` refs) be readable as-is by the worker, so existing skills
   port without editing, or do skills move to AgentKit's manifest format with
@@ -410,16 +464,20 @@ wants, resolved by the worker through AgentKit's credential resolution.
 
 ## Suggested phasing
 
-1. **Contract first.** OpenAPI for the inbox routes, the event envelope
-   schema, and the hub permission change for org-member workspace reads.
-   Conformance tests against `httptest` servers, as hub does today.
-2. **Threads and runs** in hub + a worker that runs one AgentKit agent per
-   job and streams events. No approvals, no triggers. The web client's
-   transport layer replaced; a thread round-trips in the browser.
+0. **Hub prerequisites**, as hub specs: org-member read access to org
+   workspaces (REST and git server); the sync and reclone ownership fix;
+   per-device API keys or a session cookie so a browser login does not
+   revoke the CLI; a browser-first OAuth callback.
+1. **Contract first.** OpenAPI for the inbox routes and the event envelope
+   schema. Conformance tests against `httptest` servers, as hub does today.
+2. **Threads and runs.** Thread records in hub; the `worker` image on the
+   sandbox lineage; a podman scheduler that runs one container per job,
+   clones from hub's git server, runs one AgentKit agent and streams events.
+   No approvals, no triggers. The web client's transport layer replaced; a
+   thread round-trips in the browser.
 3. **Inbox views and approvals.** Unread and Action per workspace and
    globally; the stop-and-resume approval primitive; the Activity rail from
    subagent events.
 4. **Triggers and pipelines.** Cron tick and webhook route; agent-fox tools
-   as `pipeline` jobs with envelopes rendered as inbox cards.
-5. **Desktop and CLI.** `hub --embedded` under the Electron supervisor; `afc
-   inbox`. Attachments, FTS and folders land wherever they fit in 2 to 4.
+   as `pipeline` jobs with envelopes rendered as inbox cards. Attachments,
+   FTS and folders land wherever they fit in 2 to 4.
