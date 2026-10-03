@@ -65,8 +65,12 @@ Nothing about `triage`, `issuetriage` or the `issue` *input kind* changes.
   `untrusted_fields`, so a calling model is told what is data.
 - The tool needs no model credential. `ANTHROPIC_API_KEY` is not read, not
   checked, and its absence is not an error.
-- The four tools' behaviour is unchanged. What they share with `issue` is
-  factored out of `internal/toolio`, not duplicated.
+- The four tools' behaviour is unchanged: their flag sets, envelopes and
+  `--schema` golden files stay as they are. `issue` is a fifth `toolio.App`
+  on the same in-process shell (`internal/toolio`), and the model-run steps
+  it must skip are separated inside that package rather than copied out of
+  it. No tool runs another tool, and `issue` runs no external program: its
+  only outside interaction is the forge's REST API through `issuex`.
 
 ## Non-goals
 
