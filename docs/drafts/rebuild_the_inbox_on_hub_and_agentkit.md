@@ -1,7 +1,9 @@
 # Rebuild the inbox on hub and AgentKit
 
-**Status:** brainstorm draft, second pass. Five decisions are taken (see
-"Decisions"); the rest are recommendations awaiting an answer.
+**Status:** superseded by
+[add_tasks_to_the_hub.md](add_tasks_to_the_hub.md), which restarts from first
+principles with the sandbox and multi-tenant workspace as hub baseline. Kept
+for the findings about pizza-bot and the component map.
 
 ## Intent
 
