@@ -36,6 +36,7 @@ repository and AgentKit, and the order of the work, is
 | [06-stop-re-reading-the-codebase-every-phase.md](06-stop-re-reading-the-codebase-every-phase.md) | Per-phase `tool_calls` and `tool_result_bytes` in the envelope; a repository map computed once per run and given to every `spec` phase; `relevant_files` on `submit_prd`, handed to the later phases |
 | AgentKit [PRD 04](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/04-add-symbol-navigation-tools.md) | The `outline` package and an exported ignore-aware walk (which 06's map is built from); `file_outline` and `find_symbol` |
 | AgentKit [PRD 05](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/05-add-an-indexed-code-search-module.md) | Gated on 06's numbers: a zoekt-backed `code_search` tool in a separate `codesearch` module |
+| [09-add-a-find-references-tool.md](09-add-a-find-references-tool.md) | `find_references`: who calls or uses a declaration, each site attributed to its enclosing declaration and labelled `resolved` (Go, via `go/types`), `lexical` (outline-aware) or `text`; an exported seam for call edges; the tool added to every phase's read set. Mechanism in AgentKit, wiring here, per ADR 07 |
 
 Proposed for how a run chooses its model.
 
