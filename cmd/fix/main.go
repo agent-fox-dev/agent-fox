@@ -240,7 +240,7 @@ var knownFixValueFlags = map[string]bool{
 	"dir":            true,
 	"model":          true,
 	"vendor":         true,
-	"variant":        true,
+	"effort":         true,
 	"max-turns":      true,
 	"budget":         true,
 	"phase-timeout":  true,

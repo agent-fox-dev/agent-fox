@@ -28,7 +28,8 @@ var toolFlags = map[string][]string{
 	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",
-		"no-test-first", "task-attempts", "repair", "repair-attempts", "repair-model"},
+		"no-test-first", "task-attempts", "repair", "repair-attempts", "repair-model",
+		"repair-model-effort"},
 }
 
 // ToolFlags returns the names of tool's own flags (those beside Common's), for
@@ -42,6 +43,7 @@ func ToolFlags(tool string) []string {
 var removedFlagMessages = map[string]string{
 	"events-file": "--events-file was removed; events are always written to <state>/events/",
 	"events":      "--events was renamed --emit-events",
+	"variant":     "--variant was removed; use --effort to set reasoning effort and --model to name a specific model",
 }
 
 // unsupportedFlagMessage rewrites a "flag provided but not defined" parse

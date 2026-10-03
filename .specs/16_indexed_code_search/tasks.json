@@ -1,0 +1,352 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "16",
+  "spec_name": "indexed_code_search",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/agentrun/... ./internal/toolio/... ./codefix/... ./codeimpl/... ./issuetriage/... ./specgen/... ./cmd/... -count=1 -run CodeSearch|Index|Invalidat|WarnCodeSearch"
+  },
+  "dependencies": [
+    {
+      "spec": "13",
+      "reason": "The navigation baseline tables from spec 13 are the go/no-go input for this spec. The tool-call counters measure code_search's effect on search_files calls."
+    },
+    {
+      "spec": "14",
+      "reason": "The repository map reduces navigation calls. This spec ships only if search_files is still a large share after the map."
+    },
+    {
+      "spec": "15",
+      "reason": "The symbol tools reduce navigation calls. This spec ships only if search_files is still a large share after the symbol tools. The six read tools that spec 15 establishes are what code_search joins."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add WarnCodeSearchUnavailable warning code and codesearch module to go.mod",
+      "criteria": [
+        "16-REQ-5",
+        "16-REQ-8"
+      ],
+      "tests": [
+        "TS-16-23",
+        "TS-16-26"
+      ],
+      "steps": [
+        "Write TS-16-23 in internal/toolio/warncode_test.go: assert WarnCodeSearchUnavailable equals \"code_search_unavailable\", WarnStage returns (\"preflight\", true), and DeclaredWarnCodes() contains it. Confirm it fails.",
+        "Add the constant WarnCodeSearchUnavailable WarnCode = \"code_search_unavailable\" to internal/toolio/warncode.go.",
+        "Add the entry WarnCodeSearchUnavailable: \"preflight\" to the warnStages map.",
+        "Append WarnCodeSearchUnavailable to the slice returned by DeclaredWarnCodes().",
+        "Write TS-16-26 in a top-level or internal test file: parse go.mod and assert a require for github.com/agentfox/agentkit-go/codesearch and a replace directive mapping it to ../agentkit-go/codesearch. Confirm it fails.",
+        "Add the require directive for github.com/agentfox/agentkit-go/codesearch to go.mod.",
+        "Add the replace directive: replace github.com/agentfox/agentkit-go/codesearch => ../agentkit-go/codesearch to go.mod.",
+        "Run go mod tidy to update go.sum, then run make test and make lint."
+      ],
+      "touches": [
+        "internal/toolio/warncode.go",
+        "go.mod",
+        "go.sum"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Wire Index through agentrun.Config and registeredTools, preserve read-only invariant",
+      "criteria": [
+        "16-REQ-1.1",
+        "16-REQ-1.2",
+        "16-REQ-2.3",
+        "16-REQ-2.4",
+        "16-REQ-2.5",
+        "16-REQ-6"
+      ],
+      "tests": [
+        "TS-16-1",
+        "TS-16-6",
+        "TS-16-7",
+        "TS-16-8",
+        "TS-16-9"
+      ],
+      "steps": [
+        "Write TS-16-8 in internal/agentrun/policy_test.go: assert code_search is absent from both ReadOnlyFileTools and MutatingTools. Confirm it passes (it should already).",
+        "Add a field Index tools.Index to agentrun.Config, importing the tools package's Index interface.",
+        "In registeredTools, pass r.cfg.Index as the Index field of tools.Options when calling tools.All.",
+        "Write TS-16-1 in internal/agentrun/phase_test.go: construct a Config with a non-nil fakeIndex test double and a Phase whose BuiltinTools includes \"code_search\"; assert the resolved tool set includes code_search.",
+        "Write TS-16-6: construct a Config with non-nil Index and a Phase whose BuiltinTools starts as ReadOnlyFileTools plus \"code_search\"; assert the resolved set includes code_search and all ReadOnlyFileTools.",
+        "Write TS-16-7: construct a Config with nil Index and a Phase whose BuiltinTools includes \"code_search\"; assert code_search is absent from the resolved set.",
+        "Write TS-16-9: build a resolved tool set that includes code_search and ReadOnlyFileTools but no MutatingTools; assert AssertReadOnly returns nil.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/phase_test.go",
+        "internal/agentrun/policy_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Add Index field to each tool's Options and conditionally append code_search to BuiltinTools",
+      "criteria": [
+        "16-REQ-1.3",
+        "16-REQ-1.4",
+        "16-REQ-1.5",
+        "16-REQ-1.6",
+        "16-REQ-2.1",
+        "16-REQ-2.2"
+      ],
+      "tests": [
+        "TS-16-2",
+        "TS-16-3",
+        "TS-16-4",
+        "TS-16-5"
+      ],
+      "steps": [
+        "Add a field Index tools.Index to issuetriage.Options in issuetriage/pipeline.go. In the pipeline's Run function, when o.Index is non-nil, append \"code_search\" to every phase's BuiltinTools. Forward o.Index to agentrun.Config.Index when building the Runner.",
+        "Write TS-16-2 in issuetriage/pipeline_test.go: construct Options with a non-nil Index test double; verify the agentrun.Config.Index field is the same test double.",
+        "Add a field Index tools.Index to codefix.Options in codefix/pipeline.go. In Run, when o.Index is non-nil, append \"code_search\" to every phase's BuiltinTools. Forward o.Index to agentrun.Config.Index.",
+        "Write TS-16-3 in codefix/pipeline_test.go: construct Options with a non-nil Index test double; verify Config.Index is the same.",
+        "Add a field Index tools.Index to specgen.Options in specgen/pipeline.go. In Run, when o.Index is non-nil, append \"code_search\" to every phase's BuiltinTools. Forward o.Index to agentrun.Config.Index.",
+        "Write TS-16-4 in specgen/pipeline_test.go: construct Options with a non-nil Index test double; verify Config.Index is the same.",
+        "Add a field Index tools.Index to codeimpl.Options in codeimpl/types.go. In Run, when o.Index is non-nil, append \"code_search\" to every phase's BuiltinTools. Forward o.Index to agentrun.Config.Index.",
+        "Write TS-16-5 in codeimpl/pipeline_test.go: construct Options with a non-nil Index test double; verify Config.Index is the same.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "issuetriage/pipeline.go",
+        "issuetriage/pipeline_test.go",
+        "codefix/pipeline.go",
+        "codefix/pipeline_test.go",
+        "codefix/phases.go",
+        "specgen/pipeline.go",
+        "specgen/pipeline_test.go",
+        "specgen/phases.go",
+        "codeimpl/types.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/pipeline_test.go",
+        "codeimpl/phases.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement index lifecycle in cmd/ entry points: build, defer Close, handle errors",
+      "criteria": [
+        "16-REQ-3"
+      ],
+      "tests": [
+        "TS-16-10",
+        "TS-16-11",
+        "TS-16-12",
+        "TS-16-13",
+        "TS-16-14"
+      ],
+      "steps": [
+        "Create a shared test helper (e.g. internal/agentrun/indextest/ or a test file in cmd/) that provides a recording Index test double tracking New calls, Close calls, and Invalidate calls with sequence numbers.",
+        "Write TS-16-14: verify codesearch.New is called exactly once before the Runner is constructed and the same index instance is passed to every phase. Use a test double for codesearch.New that counts invocations.",
+        "Write TS-16-10: verify Index.Close is called exactly once on successful run exit using the recording test double.",
+        "Write TS-16-11: verify Index.Close is called exactly once on run failure.",
+        "Write TS-16-12: verify Index.Close is called exactly once on context cancellation.",
+        "Write TS-16-13: stub codesearch.New to return (nil, ErrUnsupported); verify Index is nil on Config and Options, a warning with code code_search_unavailable and severity low is emitted, and the run proceeds.",
+        "In each cmd/ entry point (cmd/issue/main.go, cmd/fix/main.go, cmd/spec/main.go, cmd/impl/main.go), add the index lifecycle: call codesearch.New(ctx, ws), on error set Index to nil and emit a low warning with WarnCodeSearchUnavailable, on success defer index.Close(), pass the index to both the tool's Options.Index and agentrun.Config.Index.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "cmd/issue/main.go",
+        "cmd/fix/main.go",
+        "cmd/spec/main.go",
+        "cmd/impl/main.go"
+      ],
+      "depends_on": [
+        1,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Add index invalidation in codefix after branch creation, and verify issue/spec never invalidate",
+      "criteria": [
+        "16-REQ-4.1",
+        "16-REQ-4.8"
+      ],
+      "tests": [
+        "TS-16-15",
+        "TS-16-22"
+      ],
+      "steps": [
+        "Write TS-16-15 in codefix/pipeline_test.go: use a scripted brain and a recording Index test double; run codefix.Run and assert Index.Invalidate(\"\") was called after git.CreateBranch and before the implement phase started.",
+        "In codefix/pipeline.go Run(), after the git.CreateBranch call and before the implement phase, add: if o.Index != nil { o.Index.Invalidate(\"\") }.",
+        "Write TS-16-22 in issuetriage/pipeline_test.go and specgen/pipeline_test.go: run both pipelines with a recording Index test double and assert Invalidate was never called.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/pipeline_test.go",
+        "issuetriage/pipeline_test.go",
+        "specgen/pipeline_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Add index invalidation at all tree-change points in codeimpl",
+      "criteria": [
+        "16-REQ-4.2",
+        "16-REQ-4.3",
+        "16-REQ-4.4",
+        "16-REQ-4.5",
+        "16-REQ-4.6",
+        "16-REQ-4.7"
+      ],
+      "tests": [
+        "TS-16-16",
+        "TS-16-17",
+        "TS-16-18",
+        "TS-16-19",
+        "TS-16-20",
+        "TS-16-21"
+      ],
+      "steps": [
+        "Write TS-16-16 in codeimpl/pipeline_test.go: use a scripted brain and recording Index; assert Invalidate(\"\") is called after branch creation before the survey phase.",
+        "Write TS-16-19: use a scripted brain with two tasks that both land; assert Invalidate(\"\") is called after task 1's commit and before task 2's implementation phase.",
+        "Write TS-16-17: assert Invalidate(\"\") is called after revertSpecDir and dropScratchFiles before the gate run.",
+        "Write TS-16-18: use a scripted brain where the first attempt fails; assert Invalidate(\"\") is called after discard before the next attempt.",
+        "Write TS-16-20: use a scripted brain with Repair enabled and a red baseline; assert Invalidate(\"\") is called after runRepair's commit before the first task.",
+        "Write TS-16-21: use a scripted brain where repairAfterTask commits; assert Invalidate(\"\") is called after the repair-after-task commit before the task's own commit.",
+        "In codeimpl/pipeline.go, add if o.Index != nil { o.Index.Invalidate(\"\") } after each tree-change point: (1) after CreateBranch/Checkout before survey, (2) after revertSpecDir+dropScratchFiles in runTask before the gate, (3) after discard in the retry loop, (4) after git.CommitAll when a task lands, (5) after runRepair's commit, (6) after repairAfterTask's commit.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "codeimpl/pipeline.go",
+        "codeimpl/pipeline_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Add code_search_index preflight check to each tool's RunPreflight",
+      "criteria": [
+        "16-REQ-7"
+      ],
+      "tests": [
+        "TS-16-24",
+        "TS-16-25"
+      ],
+      "steps": [
+        "Write TS-16-24 in codefix/preflight_test.go (or the existing preflight test file): construct Options with a non-nil Index test double; call RunPreflight; assert the result's Preflight list contains a check with check=\"code_search_index\", ok=true, detail=\"built\".",
+        "Write TS-16-25: construct Options with nil Index; call RunPreflight; assert the result's Preflight list contains a check with check=\"code_search_index\", ok=true, detail starting with \"unavailable:\".",
+        "In codefix.RunPreflight, add a PreflightCheck entry: if o.Index != nil, add {Check: \"code_search_index\", OK: true, Detail: \"built\"}; else add {Check: \"code_search_index\", OK: true, Detail: \"unavailable: index not built\"}.",
+        "Apply the same pattern to issuetriage.RunPreflight (if it exists), specgen.RunPreflight, and codeimpl.RunPreflight.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/preflight_test.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/preflight_test.go",
+        "issuetriage/pipeline.go",
+        "specgen/pipeline.go",
+        "specgen/preflight_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Update documentation: cli.md, model-usage.md, development.md",
+      "criteria": [
+        "16-REQ-9"
+      ],
+      "tests": [
+        "TS-16-27",
+        "TS-16-28",
+        "TS-16-29"
+      ],
+      "steps": [
+        "Write TS-16-27 as a Go test (e.g. in docs_test.go or a new file): read docs/cli.md and assert it mentions code_search alongside the read tools for each tool section and includes code_search_index in --preflight examples.",
+        "Write TS-16-28: read docs/model-usage.md and assert the phase table lists code_search with a conditional note, and the Reading the codebase section describes indexed search, built once per run, and invalidation.",
+        "Write TS-16-29: read docs/development.md and assert the navigation baseline tables include code_search's effect on search_files call counts.",
+        "Update docs/cli.md: in each tool's What the model may and may not do section, list code_search alongside the six read tools with a note that it is available when the index is built. Add the code_search_index check entry to each tool's --preflight example.",
+        "Update docs/model-usage.md: list code_search for every phase in the phase table with a conditional note. In the Reading the codebase section, describe the indexed search: what it does, that it is built once per run, and that fix and impl invalidate it after tree changes.",
+        "Update docs/development.md: regenerate the navigation baseline tables to show the effect of code_search on search_files call counts per tool.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/model-usage.md",
+        "docs/development.md"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "integration",
+      "title": "Verify end-to-end wiring: smoke tests, execution paths, and stub removal",
+      "tests": [
+        "TS-16-30",
+        "TS-16-31",
+        "TS-16-32",
+        "TS-16-33",
+        "TS-16-34",
+        "TS-16-35"
+      ],
+      "steps": [
+        "Write TS-16-30 (integration): run codeimpl with a recording Index test double and two tasks via scripted brain; assert Invalidate was called between tasks, code_search was in both tasks' BuiltinTools, and Close was not called by the pipeline.",
+        "Write TS-16-31 (integration): stub codesearch.New to fail; run a full pipeline; assert the run completes, no phase has code_search, and a code_search_unavailable warning is present.",
+        "Write TS-16-32 (smoke): invoke a cmd/ entry point (e.g. fix) with a working test double index and scripted brain; assert the run completes, code_search was available in every phase, and index.Close ran exactly once.",
+        "Write TS-16-33 (smoke): invoke a cmd/ entry point with codesearch.New returning ErrUnsupported; assert the run completes normally, a code_search_unavailable warning is in the envelope, and no phase used code_search.",
+        "Write TS-16-34 (smoke): invoke impl with a two-task spec and recording index; assert Invalidate was called after branch creation and after task 1's commit, and Close ran on exit.",
+        "Write TS-16-35 (smoke): invoke a cmd/ entry point with --preflight; assert the preflight result includes a code_search_index check with ok=true.",
+        "Trace 16-PATH-1 through the real code: cmd/ entry point to codesearch.New to Config.Index to registeredTools to tools.All to code_search in resolved set to model phase to deferred Close. Confirm each step calls the next and no stub remains.",
+        "Trace 16-PATH-2: cmd/ entry point to codesearch.New error to nil Index to warning emitted to pipeline detects nil to BuiltinTools unchanged to tools.All without code_search to run completes.",
+        "Trace 16-PATH-3: cmd/ entry point to index built to codeimpl.Run to CreateBranch to Invalidate to survey to task 1 to CommitAll to Invalidate to task 2 to Close on exit.",
+        "Trace 16-PATH-4: cmd/ entry point to --preflight to codesearch.New to RunPreflight to code_search_index check to stdout.",
+        "For every criterion with a contract (16-REQ-2.3, 16-REQ-2.4, 16-REQ-3.4, 16-REQ-6.2), confirm the producer's result is consumed by a caller in production code, not only by tests.",
+        "Search all files listed in every task's touches for stub markers: panic(\"not implemented\"), TODO, bare return nil on non-trivial paths. Remove any that remain."
+      ],
+      "touches": [
+        "codeimpl/pipeline_test.go",
+        "codefix/pipeline_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "state": "pending"
+    }
+  ]
+}

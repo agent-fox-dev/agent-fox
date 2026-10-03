@@ -1,0 +1,492 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "16",
+  "spec_name": "indexed_code_search",
+  "schema_version": 2,
+  "introduction": "This spec conditionally adds AgentKit's code_search tool — backed by a single codesearch.Index built once per run and shared by every phase — to every phase of issue, fix, spec and impl, so that ranked, indexed search is available alongside the six read tools when baseline measurements justify it.",
+  "glossary": {
+    "BuiltinTools": "The []string field on agentrun.Phase naming which tools from tools.All to register for that phase. code_search is appended here conditionally, not to ReadOnlyFileTools.",
+    "Index": "An implementation of tools.Index (defined in AgentKit's root module) that provides ranked code search over a repository. Built once per run by codesearch.New and closed at run end.",
+    "Invalidate": "A method on tools.Index that marks the entire index (or a subtree) as stale so the next code_search call rebuilds the affected parts lazily, rather than returning results from a tree state that no longer exists.",
+    "ReadOnlyFileTools": "The var in internal/agentrun/policy.go listing the unconditional read-only built-in tools every phase gets: read_file, list_files, find_files, search_files (and file_outline, find_symbol after spec 15).",
+    "codesearch module": "The separate Go module github.com/agentfox/agentkit-go/codesearch, with its own go.mod, that builds a zoekt-backed index and returns a tools.Index."
+  },
+  "requirements": [
+    {
+      "id": "16-REQ-1",
+      "title": "Index wiring through Config and Options",
+      "rationale": "The index is a per-run resource shared by every phase. Placing it on agentrun.Config lets registeredTools pass it to tools.Options without any per-tool change to phase-building code. Each tool's Options also carries it for the pipeline's invalidation calls.",
+      "criteria": [
+        {
+          "id": "16-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun.Config",
+          "action": "declare a field Index of type tools.Index that, when non-nil, is passed as tools.Options.Index in registeredTools"
+        },
+        {
+          "id": "16-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "registeredTools builds the tool set for a phase",
+          "system": "Runner.registeredTools",
+          "action": "pass r.cfg.Index as the Index field of tools.Options so that tools.All includes code_search when the index is non-nil"
+        },
+        {
+          "id": "16-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "issuetriage.Options",
+          "action": "declare a field Index of type tools.Index that is forwarded to agentrun.Config.Index when building the Runner"
+        },
+        {
+          "id": "16-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "codefix.Options",
+          "action": "declare a field Index of type tools.Index that is forwarded to agentrun.Config.Index when building the Runner"
+        },
+        {
+          "id": "16-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "specgen.Options",
+          "action": "declare a field Index of type tools.Index that is forwarded to agentrun.Config.Index when building the Runner"
+        },
+        {
+          "id": "16-REQ-1.6",
+          "pattern": "ubiquitous",
+          "system": "codeimpl.Options",
+          "action": "declare a field Index of type tools.Index that is forwarded to agentrun.Config.Index when building the Runner"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-2",
+      "title": "code_search in every phase's tool grant",
+      "rationale": "code_search is not added to ReadOnlyFileTools because it exists only when an index is present. Appending it conditionally to each phase's BuiltinTools makes the presence explicit and prevents SelectTools from looking for a tool that tools.All did not return.",
+      "criteria": [
+        {
+          "id": "16-REQ-2.1",
+          "pattern": "state_driven",
+          "condition": "Config.Index is non-nil",
+          "system": "each tool pipeline (issue, fix, spec, impl)",
+          "action": "append \"code_search\" to every phase's BuiltinTools before the phase is run, checked once per pipeline at the top of its Run function"
+        },
+        {
+          "id": "16-REQ-2.2",
+          "pattern": "state_driven",
+          "condition": "Config.Index is nil",
+          "system": "each tool pipeline",
+          "action": "leave every phase's BuiltinTools unchanged so that SelectTools never looks for code_search"
+        },
+        {
+          "id": "16-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "a Config with a non-nil Index and a Phase whose BuiltinTools includes \"code_search\" is run",
+          "system": "Runner",
+          "action": "include code_search in the resolved tool set returned by registeredTools",
+          "contract": "the resolved []core.Tool contains a tool named \"code_search\""
+        },
+        {
+          "id": "16-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "a Config with a nil Index and a Phase whose BuiltinTools includes \"code_search\" is run",
+          "system": "Runner",
+          "action": "exclude code_search from the resolved tool set because tools.All did not return it",
+          "contract": "the resolved []core.Tool does not contain a tool named \"code_search\""
+        },
+        {
+          "id": "16-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "keep code_search absent from ReadOnlyFileTools and from MutatingTools"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-3",
+      "title": "Index lifecycle in cmd/ entry points",
+      "rationale": "The index is built once before the Runner is constructed and closed on every exit path. Building it in the cmd/ entry point keeps the lifecycle outside the pipeline and ensures the defer runs regardless of how the pipeline exits.",
+      "criteria": [
+        {
+          "id": "16-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "a cmd/ entry point's Exec function starts",
+          "system": "each cmd/ entry point (issue, fix, spec, impl)",
+          "action": "call codesearch.New(ctx, ws) to build the index before constructing the Runner, and pass the resulting index to both agentrun.Config.Index and the tool's Options.Index"
+        },
+        {
+          "id": "16-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "codesearch.New returns a non-nil index",
+          "system": "each cmd/ entry point",
+          "action": "defer index.Close() so the index is closed on every exit path including failure, cancellation and panic"
+        },
+        {
+          "id": "16-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "each cmd/ entry point",
+          "action": "call Close on the index exactly once per run, verified by a test double that records Close calls on success, failure and context cancellation"
+        },
+        {
+          "id": "16-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "codesearch.New returns codesearch.ErrUnsupported or any other error",
+          "system": "each cmd/ entry point",
+          "action": "set Index to nil, emit a low warning with code code_search_unavailable, and continue the run without code_search",
+          "contract": "the run proceeds to completion; the envelope contains a warning with code code_search_unavailable and severity low"
+        },
+        {
+          "id": "16-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "each cmd/ entry point",
+          "action": "build the index at most once per run and never rebuild it mid-run"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-4",
+      "title": "Index invalidation after tree changes",
+      "rationale": "fix and impl change the working tree between phases. Without invalidation, code_search would return results from a stale tree. Invalidate(\"\") marks the entire index as stale so the next query rebuilds lazily. Conservative invalidation is correct: a false positive is a no-op, a false negative returns stale results.",
+      "criteria": [
+        {
+          "id": "16-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "codefix.Run calls git.CreateBranch between the analyse and implement phases",
+          "system": "codefix pipeline",
+          "action": "call Index.Invalidate(\"\") after the branch creation and before the implement phase starts, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "codeimpl creates or checks out a branch (git.CreateBranch or git.Checkout) before the survey phase",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the branch operation and before the survey phase, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.3",
+          "pattern": "event_driven",
+          "condition": "codeimpl calls revertSpecDir and dropScratchFiles in runTask before the gate run",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the revert and drop and before the gate run, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "codeimpl calls discard (reset + clean) when a task attempt fails and is retried",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the discard and before the next attempt, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.5",
+          "pattern": "event_driven",
+          "condition": "codeimpl calls git.CommitAll when a task lands",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the commit and before the next task's implementation phase, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.6",
+          "pattern": "event_driven",
+          "condition": "codeimpl's runRepair commits its own tree changes",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the repair commit and before the first task, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.7",
+          "pattern": "event_driven",
+          "condition": "codeimpl's repairAfterTask commits its tree changes",
+          "system": "codeimpl pipeline",
+          "action": "call Index.Invalidate(\"\") after the repair-after-task commit and before the task's own commit, guarded with if o.Index != nil"
+        },
+        {
+          "id": "16-REQ-4.8",
+          "pattern": "state_driven",
+          "condition": "the tool is issue or spec",
+          "system": "issuetriage and specgen pipelines",
+          "action": "never call Invalidate because these tools never change the working tree"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-5",
+      "title": "Warning code for unavailable index",
+      "rationale": "A structured warning code lets envelope consumers distinguish an unavailable index from other warnings. The preflight stage is correct because the index is built during setup before any model phase.",
+      "criteria": [
+        {
+          "id": "16-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio/warncode.go",
+          "action": "declare WarnCodeSearchUnavailable WarnCode = \"code_search_unavailable\" as a constant"
+        },
+        {
+          "id": "16-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio/warncode.go",
+          "action": "map WarnCodeSearchUnavailable to stage \"preflight\" in warnStages"
+        },
+        {
+          "id": "16-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio/warncode.go",
+          "action": "include WarnCodeSearchUnavailable in the slice returned by DeclaredWarnCodes()"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-6",
+      "title": "Read-only invariant preserved",
+      "rationale": "code_search reads the index; it does not write to the workspace. AssertReadOnly checks against MutatingTools, so adding code_search to a phase's grant must not break the read-only invariant.",
+      "criteria": [
+        {
+          "id": "16-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "keep code_search absent from MutatingTools so that AssertReadOnly never rejects it"
+        },
+        {
+          "id": "16-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a read-only phase's resolved tool set includes code_search",
+          "system": "AssertReadOnly",
+          "action": "return nil (no error), confirming the read-only invariant holds",
+          "contract": "AssertReadOnly returns nil"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-7",
+      "title": "Preflight reports index availability",
+      "rationale": "The preflight check is informational: the fallback is search_files, so the check never refuses the run. It lets operators see whether code_search is available before committing to a full run.",
+      "criteria": [
+        {
+          "id": "16-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "RunPreflight is called and the index was built",
+          "system": "each tool's RunPreflight (issue, fix, spec, impl)",
+          "action": "include a PreflightCheck with check \"code_search_index\", ok true, and detail \"built\""
+        },
+        {
+          "id": "16-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "RunPreflight is called and the index was not built",
+          "system": "each tool's RunPreflight",
+          "action": "include a PreflightCheck with check \"code_search_index\", ok true, and detail \"unavailable: <reason>\" where reason is the error message from codesearch.New"
+        },
+        {
+          "id": "16-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "each tool's RunPreflight",
+          "action": "set the code_search_index check's ok field to true regardless of whether the index was built, because the check is informational and search_files is the fallback"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-8",
+      "title": "go.mod gains the codesearch module",
+      "rationale": "The codesearch module has its own go.mod (like difftest/), so it needs its own replace directive. The existing replace for agentkit-go does not cover sub-modules.",
+      "criteria": [
+        {
+          "id": "16-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "go.mod",
+          "action": "add a require directive for github.com/agentfox/agentkit-go/codesearch"
+        },
+        {
+          "id": "16-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "go.mod",
+          "action": "add a replace directive mapping github.com/agentfox/agentkit-go/codesearch to ../agentkit-go/codesearch, matching the existing replace pattern for the root agentkit-go module"
+        }
+      ]
+    },
+    {
+      "id": "16-REQ-9",
+      "title": "Documentation updates",
+      "rationale": "Steering directives require updating all affected documentation when a spec implementation changes user-facing or developer-facing surfaces.",
+      "criteria": [
+        {
+          "id": "16-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "list code_search alongside the six read tools in each tool's \"What the model may and may not do\" section, with a note that it is available when the index is built, and add the code_search_index check entry to each tool's --preflight example"
+        },
+        {
+          "id": "16-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "list code_search for every phase in the phase table with a note that it is conditional on the index, and describe the indexed search in the \"Reading the codebase\" section: what it does, that it is built once per run, and that fix and impl invalidate it after tree changes"
+        },
+        {
+          "id": "16-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "regenerate the navigation baseline tables to show the effect of code_search on search_files call counts per tool"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "16-PATH-1",
+      "title": "Successful run with code_search available in every phase",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a cmd/ entry point (e.g. fix) with a valid input"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "calls codesearch.New(ctx, ws) and receives a non-nil index; defers index.Close()"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "passes the index to both agentrun.Config.Index and the tool's Options.Index, then calls Run"
+        },
+        {
+          "actor": "tool pipeline",
+          "action": "detects non-nil Index and appends \"code_search\" to every phase's BuiltinTools"
+        },
+        {
+          "actor": "Runner.registeredTools",
+          "action": "passes Config.Index as tools.Options.Index to tools.All, which returns code_search in the tool set"
+        },
+        {
+          "actor": "model phase",
+          "action": "calls code_search alongside the six read tools to navigate the codebase"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "deferred index.Close() runs on exit, closing the index exactly once"
+        }
+      ]
+    },
+    {
+      "id": "16-PATH-2",
+      "title": "Run continues without code_search when the index cannot be built",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a cmd/ entry point on a platform where codesearch is unsupported"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "calls codesearch.New(ctx, ws) and receives an error (e.g. ErrUnsupported)"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "sets Index to nil, emits a low warning with code code_search_unavailable, and continues"
+        },
+        {
+          "actor": "tool pipeline",
+          "action": "detects nil Index and leaves every phase's BuiltinTools unchanged"
+        },
+        {
+          "actor": "Runner.registeredTools",
+          "action": "passes nil Index to tools.All, which does not return code_search"
+        },
+        {
+          "actor": "model phase",
+          "action": "navigates the codebase using only the six read tools; the run completes normally"
+        }
+      ]
+    },
+    {
+      "id": "16-PATH-3",
+      "title": "Index invalidation across tree changes in impl",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes impl with a spec that has multiple tasks"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "builds the index and passes it to codeimpl.Options.Index"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "creates a branch and calls Index.Invalidate(\"\") after the branch creation"
+        },
+        {
+          "actor": "model phase (task 1)",
+          "action": "uses code_search with results reflecting the current tree state"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "commits task 1 via git.CommitAll and calls Index.Invalidate(\"\") before task 2"
+        },
+        {
+          "actor": "model phase (task 2)",
+          "action": "uses code_search with results reflecting the tree after task 1's commit"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "deferred index.Close() runs on exit"
+        }
+      ]
+    },
+    {
+      "id": "16-PATH-4",
+      "title": "Preflight reports index availability",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a cmd/ entry point with --preflight"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "attempts to build the index via codesearch.New"
+        },
+        {
+          "actor": "tool's RunPreflight",
+          "action": "adds a PreflightCheck entry with check code_search_index, ok true, and detail built or unavailable: <reason>"
+        },
+        {
+          "actor": "cmd/ entry point",
+          "action": "emits the preflight result including the code_search_index check to stdout"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go",
+      "version": "v0.0.0",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "tools.All",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func All(opts Options) ([]core.Tool, error)",
+          "notes": "Verified from call site at internal/agentrun/phase.go L447. The Index field on Options is unverified — it is part of AgentKit's 03_indexed_code_search spec."
+        },
+        {
+          "name": "tools.Options",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type Options struct { Workspace *Workspace; ... }",
+          "notes": "Used at internal/agentrun/phase.go L447. The Index field (type tools.Index) is inferred from ADR 07 and not yet implemented."
+        },
+        {
+          "name": "tools.Workspace",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type Workspace struct { Root string }",
+          "notes": "Used throughout the codebase. Verified from call sites."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agentfox/agentkit-go/codesearch",
+      "version": "v0.0.0",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "New",
+          "import_path": "github.com/agentfox/agentkit-go/codesearch",
+          "signature": "func New(ctx context.Context, ws *tools.Workspace) (tools.Index, error)",
+          "notes": "Not yet implemented. Signature inferred from PRD usage pattern."
+        },
+        {
+          "name": "ErrUnsupported",
+          "import_path": "github.com/agentfox/agentkit-go/codesearch",
+          "signature": "var ErrUnsupported error",
+          "notes": "Not yet implemented. Inferred from PRD error-handling description."
+        }
+      ]
+    }
+  ]
+}

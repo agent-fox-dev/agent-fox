@@ -1,0 +1,652 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "16",
+  "spec_name": "indexed_code_search",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-16-1",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.1",
+        "16-REQ-1.2"
+      ],
+      "title": "Config.Index is passed through to tools.Options.Index in registeredTools",
+      "given": [
+        "a Config with a non-nil Index (a test double satisfying tools.Index)",
+        "a Phase whose BuiltinTools includes \"code_search\""
+      ],
+      "when": "registeredTools is called for that phase",
+      "then": [
+        "tools.All receives an Options whose Index field is the same test double",
+        "the resolved tool set includes a tool named \"code_search\""
+      ],
+      "pseudocode": "idx := &fakeIndex{}\ncfg := fauxConfig(provider, ws)\ncfg.Index = idx\nrunner := NewRunner(cfg)\nresolved, err := runner.registeredTools(phase)\nassert err == nil\nassert containsTool(resolved, \"code_search\")"
+    },
+    {
+      "id": "TS-16-2",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.3"
+      ],
+      "title": "issuetriage.Options.Index is forwarded to agentrun.Config.Index",
+      "given": [
+        "an issuetriage.Options with a non-nil Index test double"
+      ],
+      "when": "the pipeline builds the Runner from Options",
+      "then": [
+        "the agentrun.Config.Index field is the same test double that was on Options"
+      ],
+      "pseudocode": "idx := &fakeIndex{}\nopts := issuetriage.Options{Index: idx, ...}\n// verify that the Config built from opts carries idx as Config.Index"
+    },
+    {
+      "id": "TS-16-3",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.4"
+      ],
+      "title": "codefix.Options.Index is forwarded to agentrun.Config.Index",
+      "given": [
+        "a codefix.Options with a non-nil Index test double"
+      ],
+      "when": "the pipeline builds the Runner from Options",
+      "then": [
+        "the agentrun.Config.Index field is the same test double that was on Options"
+      ],
+      "pseudocode": "idx := &fakeIndex{}\nopts := codefix.Options{Index: idx, ...}\n// verify that the Config built from opts carries idx as Config.Index"
+    },
+    {
+      "id": "TS-16-4",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.5"
+      ],
+      "title": "specgen.Options.Index is forwarded to agentrun.Config.Index",
+      "given": [
+        "a specgen.Options with a non-nil Index test double"
+      ],
+      "when": "the pipeline builds the Runner from Options",
+      "then": [
+        "the agentrun.Config.Index field is the same test double that was on Options"
+      ],
+      "pseudocode": "idx := &fakeIndex{}\nopts := specgen.Options{Index: idx, ...}\n// verify that the Config built from opts carries idx as Config.Index"
+    },
+    {
+      "id": "TS-16-5",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-1.6"
+      ],
+      "title": "codeimpl.Options.Index is forwarded to agentrun.Config.Index",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double"
+      ],
+      "when": "the pipeline builds the Runner from Options",
+      "then": [
+        "the agentrun.Config.Index field is the same test double that was on Options"
+      ],
+      "pseudocode": "idx := &fakeIndex{}\nopts := codeimpl.Options{Index: idx, ...}\n// verify that the Config built from opts carries idx as Config.Index"
+    },
+    {
+      "id": "TS-16-6",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.1",
+        "16-REQ-2.3"
+      ],
+      "title": "code_search is appended to every phase's BuiltinTools when Index is non-nil",
+      "given": [
+        "a Config with a non-nil Index",
+        "a Phase whose BuiltinTools starts as ReadOnlyFileTools"
+      ],
+      "when": "the pipeline detects non-nil Index and appends \"code_search\" to BuiltinTools, then registeredTools resolves the tool set",
+      "then": [
+        "the resolved tool set includes code_search",
+        "the original ReadOnlyFileTools are also present"
+      ],
+      "pseudocode": "idx := &fakeIndex{}\ncfg := fauxConfig(provider, ws)\ncfg.Index = idx\nphase.BuiltinTools = append(agentrun.ReadOnlyFileTools, \"code_search\")\nresolved, _ := runner.registeredTools(phase)\nassert containsTool(resolved, \"code_search\")\nfor _, name := range agentrun.ReadOnlyFileTools {\n  assert containsTool(resolved, name)\n}"
+    },
+    {
+      "id": "TS-16-7",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.2",
+        "16-REQ-2.4"
+      ],
+      "title": "code_search is absent from the resolved tool set when Index is nil",
+      "given": [
+        "a Config with a nil Index",
+        "a Phase whose BuiltinTools includes \"code_search\""
+      ],
+      "when": "registeredTools resolves the tool set",
+      "then": [
+        "the resolved tool set does not contain a tool named \"code_search\"",
+        "the ReadOnlyFileTools are still present"
+      ],
+      "pseudocode": "cfg := fauxConfig(provider, ws)\ncfg.Index = nil\nphase.BuiltinTools = append(agentrun.ReadOnlyFileTools, \"code_search\")\nresolved, _ := runner.registeredTools(phase)\nassert !containsTool(resolved, \"code_search\")\nfor _, name := range agentrun.ReadOnlyFileTools {\n  assert containsTool(resolved, name)\n}"
+    },
+    {
+      "id": "TS-16-8",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-2.5",
+        "16-REQ-6.1"
+      ],
+      "title": "code_search is absent from both ReadOnlyFileTools and MutatingTools",
+      "given": [
+        "the current values of agentrun.ReadOnlyFileTools and agentrun.MutatingTools"
+      ],
+      "when": "the lists are inspected",
+      "then": [
+        "neither list contains \"code_search\""
+      ],
+      "pseudocode": "assert !slices.Contains(agentrun.ReadOnlyFileTools, \"code_search\")\nassert !slices.Contains(agentrun.MutatingTools, \"code_search\")"
+    },
+    {
+      "id": "TS-16-9",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-6.2"
+      ],
+      "title": "AssertReadOnly passes when the resolved tool set includes code_search",
+      "given": [
+        "a resolved tool set that includes code_search and the ReadOnlyFileTools but no MutatingTools"
+      ],
+      "when": "AssertReadOnly is called with that set",
+      "then": [
+        "AssertReadOnly returns nil"
+      ],
+      "pseudocode": "resolved := []core.Tool{{Name: \"code_search\"}, {Name: \"read_file\"}, {Name: \"list_files\"}, {Name: \"find_files\"}, {Name: \"search_files\"}}\nerr := agentrun.AssertReadOnly(resolved)\nassert err == nil"
+    },
+    {
+      "id": "TS-16-10",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.2",
+        "16-REQ-3.3"
+      ],
+      "title": "Index.Close is called exactly once on successful run exit",
+      "given": [
+        "a test double Index that records Close calls",
+        "a cmd/ entry point configured with that index"
+      ],
+      "when": "the run completes successfully",
+      "then": [
+        "the test double's Close was called exactly once"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\n// simulate successful run with deferred idx.Close()\nrunEntryPoint(ctx, idx)\nassert idx.closeCalls == 1"
+    },
+    {
+      "id": "TS-16-11",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.3"
+      ],
+      "title": "Index.Close is called exactly once on run failure",
+      "given": [
+        "a test double Index that records Close calls",
+        "a cmd/ entry point configured with that index that will fail mid-run"
+      ],
+      "when": "the run fails with an error",
+      "then": [
+        "the test double's Close was called exactly once"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\n// simulate failing run with deferred idx.Close()\nrunEntryPointThatFails(ctx, idx)\nassert idx.closeCalls == 1"
+    },
+    {
+      "id": "TS-16-12",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.3"
+      ],
+      "title": "Index.Close is called exactly once on context cancellation",
+      "given": [
+        "a test double Index that records Close calls",
+        "a context that is cancelled during the run"
+      ],
+      "when": "the run is cancelled via context",
+      "then": [
+        "the test double's Close was called exactly once"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nctx, cancel := context.WithCancel(context.Background())\ngo func() { time.Sleep(10*time.Millisecond); cancel() }()\nrunEntryPoint(ctx, idx)\nassert idx.closeCalls == 1"
+    },
+    {
+      "id": "TS-16-13",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.4"
+      ],
+      "title": "Run continues without code_search when codesearch.New returns an error",
+      "given": [
+        "codesearch.New is stubbed to return (nil, codesearch.ErrUnsupported)"
+      ],
+      "when": "the cmd/ entry point's Exec function runs",
+      "then": [
+        "Index is set to nil on both Config and Options",
+        "a warning with code code_search_unavailable and severity low is emitted",
+        "the run proceeds to completion without code_search in any phase's tool set"
+      ],
+      "pseudocode": "// stub codesearch.New to return ErrUnsupported\nresult, err := runEntryPoint(ctx)\nassert err == nil || isExpectedNonIndexError(err)\nassert run.HasWarning(\"code_search_unavailable\", \"low\")\nassert result != nil"
+    },
+    {
+      "id": "TS-16-14",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-3.1",
+        "16-REQ-3.5"
+      ],
+      "title": "Index is built once before the Runner and never rebuilt mid-run",
+      "given": [
+        "a test double for codesearch.New that counts invocations"
+      ],
+      "when": "a full run with multiple phases completes",
+      "then": [
+        "codesearch.New was called exactly once",
+        "the same index instance is passed to every phase"
+      ],
+      "pseudocode": "newCalls := 0\nstubNew := func(ctx, ws) { newCalls++; return &fakeIndex{}, nil }\nrunFullPipeline(ctx)\nassert newCalls == 1"
+    },
+    {
+      "id": "TS-16-15",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.1"
+      ],
+      "title": "codefix invalidates the index after git.CreateBranch",
+      "given": [
+        "a codefix.Options with a non-nil Index test double that records Invalidate calls",
+        "a scripted brain that completes both phases"
+      ],
+      "when": "codefix.Run executes and creates a branch between analyse and implement",
+      "then": [
+        "Index.Invalidate(\"\") was called after the branch creation",
+        "the Invalidate call happened before the implement phase started"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codefix.Options{Index: idx, ...}\nresult, _ := codefix.Run(ctx, opts)\nassert idx.invalidateCalls >= 1\nassert idx.invalidateArgs[0] == \"\"\nassert idx.invalidateTimestamp < implementPhaseStartTimestamp"
+    },
+    {
+      "id": "TS-16-16",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.2"
+      ],
+      "title": "codeimpl invalidates the index after branch creation before the survey phase",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double that records Invalidate calls",
+        "a scripted brain"
+      ],
+      "when": "codeimpl.Run creates a branch before the survey phase",
+      "then": [
+        "Index.Invalidate(\"\") was called after the branch creation and before the survey phase"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, ...}\nresult, _ := codeimpl.Run(ctx, opts)\nassert idx.invalidateCallsContain(\"\")\nassert idx.callBeforePhase(\"survey\")"
+    },
+    {
+      "id": "TS-16-17",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.3"
+      ],
+      "title": "codeimpl invalidates the index after revertSpecDir and dropScratchFiles before the gate run",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double",
+        "a scripted brain that completes a task"
+      ],
+      "when": "runTask calls revertSpecDir and dropScratchFiles",
+      "then": [
+        "Index.Invalidate(\"\") was called after the revert/drop and before the gate run"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, ...}\ncodeimpl.Run(ctx, opts)\nassert idx.invalidateCalledAfterRevert()\nassert idx.invalidateCalledBeforeGate()"
+    },
+    {
+      "id": "TS-16-18",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.4"
+      ],
+      "title": "codeimpl invalidates the index after discard when a task attempt fails",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double",
+        "a scripted brain where the first attempt fails and is retried"
+      ],
+      "when": "discard (reset + clean) is called after a failed attempt",
+      "then": [
+        "Index.Invalidate(\"\") was called after the discard and before the next attempt"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, TaskAttempts: 2, ...}\ncodeimpl.Run(ctx, opts)\nassert idx.invalidateCalledAfterDiscard()"
+    },
+    {
+      "id": "TS-16-19",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.5"
+      ],
+      "title": "codeimpl invalidates the index after git.CommitAll when a task lands",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double",
+        "a scripted brain with two tasks that both land"
+      ],
+      "when": "the first task is committed via git.CommitAll",
+      "then": [
+        "Index.Invalidate(\"\") was called after the commit and before the second task's implementation phase"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, ...}\ncodeimpl.Run(ctx, opts)\nassert idx.invalidateCalledAfterCommit(task1)\nassert idx.invalidateCalledBeforePhase(task2)"
+    },
+    {
+      "id": "TS-16-20",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.6"
+      ],
+      "title": "codeimpl invalidates the index after runRepair's commit",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double and Repair enabled",
+        "a scripted brain where the baseline is red and repair succeeds"
+      ],
+      "when": "runRepair commits its tree changes",
+      "then": [
+        "Index.Invalidate(\"\") was called after the repair commit and before the first task"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, Repair: true, ...}\ncodeimpl.Run(ctx, opts)\nassert idx.invalidateCalledAfterRepairCommit()\nassert idx.invalidateCalledBeforeFirstTask()"
+    },
+    {
+      "id": "TS-16-21",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.7"
+      ],
+      "title": "codeimpl invalidates the index after repairAfterTask's commit",
+      "given": [
+        "a codeimpl.Options with a non-nil Index test double and Repair enabled",
+        "a scripted brain where the integration task's checks fail and repairAfterTask succeeds"
+      ],
+      "when": "repairAfterTask commits its tree changes",
+      "then": [
+        "Index.Invalidate(\"\") was called after the repair-after-task commit and before the task's own commit"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, Repair: true, ...}\ncodeimpl.Run(ctx, opts)\nassert idx.invalidateCalledAfterRepairAfterTaskCommit()\nassert idx.invalidateCalledBeforeTaskCommit()"
+    },
+    {
+      "id": "TS-16-22",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-4.8"
+      ],
+      "title": "issue and spec pipelines never call Invalidate",
+      "given": [
+        "an issuetriage.Options and a specgen.Options each with a non-nil Index test double that records Invalidate calls"
+      ],
+      "when": "both pipelines complete a full run",
+      "then": [
+        "neither test double's Invalidate was called"
+      ],
+      "pseudocode": "idxIssue := &recordingIndex{}\nidxSpec := &recordingIndex{}\nissuetriage.Run(ctx, issuetriage.Options{Index: idxIssue, ...})\nspecgen.Run(ctx, specgen.Options{Index: idxSpec, ...})\nassert idxIssue.invalidateCalls == 0\nassert idxSpec.invalidateCalls == 0"
+    },
+    {
+      "id": "TS-16-23",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-5.1",
+        "16-REQ-5.2",
+        "16-REQ-5.3"
+      ],
+      "title": "WarnCodeSearchUnavailable is declared, mapped to preflight stage, and in DeclaredWarnCodes",
+      "given": [
+        "the toolio/warncode.go file with the new constant"
+      ],
+      "when": "the constant, warnStages map, and DeclaredWarnCodes() are inspected",
+      "then": [
+        "WarnCodeSearchUnavailable equals \"code_search_unavailable\"",
+        "WarnStage(WarnCodeSearchUnavailable) returns (\"preflight\", true)",
+        "DeclaredWarnCodes() contains WarnCodeSearchUnavailable"
+      ],
+      "pseudocode": "assert toolio.WarnCodeSearchUnavailable == \"code_search_unavailable\"\nstage, ok := toolio.WarnStage(toolio.WarnCodeSearchUnavailable)\nassert ok && stage == \"preflight\"\nassert slices.Contains(toolio.DeclaredWarnCodes(), toolio.WarnCodeSearchUnavailable)"
+    },
+    {
+      "id": "TS-16-24",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.1"
+      ],
+      "title": "RunPreflight includes code_search_index check with detail 'built' when index is present",
+      "given": [
+        "a tool's Options with a non-nil Index test double"
+      ],
+      "when": "RunPreflight is called",
+      "then": [
+        "the result's Preflight list contains a check with check=\"code_search_index\", ok=true, detail=\"built\""
+      ],
+      "pseudocode": "idx := &fakeIndex{}\nopts := codefix.Options{Index: idx, ...}\nresult, _ := codefix.RunPreflight(ctx, opts)\ncheck := findCheck(result.Preflight, \"code_search_index\")\nassert check != nil\nassert check.OK == true\nassert check.Detail == \"built\""
+    },
+    {
+      "id": "TS-16-25",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-7.2",
+        "16-REQ-7.3"
+      ],
+      "title": "RunPreflight includes code_search_index check with 'unavailable' detail when index is nil",
+      "given": [
+        "a tool's Options with a nil Index"
+      ],
+      "when": "RunPreflight is called",
+      "then": [
+        "the result's Preflight list contains a check with check=\"code_search_index\", ok=true, detail starting with \"unavailable:\""
+      ],
+      "pseudocode": "opts := codefix.Options{Index: nil, ...}\nresult, _ := codefix.RunPreflight(ctx, opts)\ncheck := findCheck(result.Preflight, \"code_search_index\")\nassert check != nil\nassert check.OK == true\nassert strings.HasPrefix(check.Detail, \"unavailable:\")"
+    },
+    {
+      "id": "TS-16-26",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-8.1",
+        "16-REQ-8.2"
+      ],
+      "title": "go.mod contains the codesearch require and replace directives",
+      "given": [
+        "the go.mod file at the repository root"
+      ],
+      "when": "the file is parsed",
+      "then": [
+        "a require directive for github.com/agentfox/agentkit-go/codesearch exists",
+        "a replace directive mapping github.com/agentfox/agentkit-go/codesearch to ../agentkit-go/codesearch exists"
+      ],
+      "pseudocode": "mod := readGoMod(\"go.mod\")\nassert mod.hasRequire(\"github.com/agentfox/agentkit-go/codesearch\")\nassert mod.hasReplace(\"github.com/agentfox/agentkit-go/codesearch\", \"../agentkit-go/codesearch\")"
+    },
+    {
+      "id": "TS-16-27",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.1"
+      ],
+      "title": "docs/cli.md lists code_search alongside the six read tools for each tool",
+      "given": [
+        "the docs/cli.md file after the spec is implemented"
+      ],
+      "when": "the file is read",
+      "then": [
+        "each tool's section mentions code_search alongside the read tools",
+        "each tool's --preflight example includes the code_search_index check"
+      ],
+      "pseudocode": "content := readFile(\"docs/cli.md\")\nassert strings.Contains(content, \"code_search\")\nassert strings.Contains(content, \"code_search_index\")"
+    },
+    {
+      "id": "TS-16-28",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.2"
+      ],
+      "title": "docs/model-usage.md lists code_search in the phase table and describes indexed search",
+      "given": [
+        "the docs/model-usage.md file after the spec is implemented"
+      ],
+      "when": "the file is read",
+      "then": [
+        "the phase table lists code_search for every phase with a conditional note",
+        "the 'Reading the codebase' section describes the indexed search lifecycle and invalidation"
+      ],
+      "pseudocode": "content := readFile(\"docs/model-usage.md\")\nassert strings.Contains(content, \"code_search\")\nassert strings.Contains(content, \"built once per run\")\nassert strings.Contains(content, \"invalidat\")"
+    },
+    {
+      "id": "TS-16-29",
+      "kind": "unit",
+      "verifies": [
+        "16-REQ-9.3"
+      ],
+      "title": "docs/development.md navigation baseline tables show code_search effect",
+      "given": [
+        "the docs/development.md file after the spec is implemented"
+      ],
+      "when": "the file is read",
+      "then": [
+        "the navigation baseline tables include a column or row for code_search's effect on search_files call counts"
+      ],
+      "pseudocode": "content := readFile(\"docs/development.md\")\nassert strings.Contains(content, \"code_search\")\nassert strings.Contains(content, \"search_files\")"
+    },
+    {
+      "id": "TS-16-30",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-4.5",
+        "16-REQ-2.1"
+      ],
+      "title": "codeimpl pipeline with two tasks invalidates the index between them",
+      "given": [
+        "a codeimpl.Options with a non-nil recording Index test double",
+        "a spec with two tasks, both pending",
+        "a scripted brain that completes both tasks with passing checks"
+      ],
+      "when": "codeimpl.Run executes the full pipeline",
+      "then": [
+        "Index.Invalidate(\"\") was called at least once between the two tasks' implementation phases",
+        "code_search was in both tasks' BuiltinTools",
+        "Index.Close was not called by the pipeline (that is the cmd/ entry point's job)"
+      ],
+      "pseudocode": "idx := &recordingIndex{}\nopts := codeimpl.Options{Index: idx, ...}\nresult, err := codeimpl.Run(ctx, opts)\nassert err == nil\nassert result.TasksDone == 2\nassert idx.invalidateCalls >= 2\nassert idx.closeCalls == 0"
+    },
+    {
+      "id": "TS-16-31",
+      "kind": "integration",
+      "verifies": [
+        "16-REQ-3.4",
+        "16-REQ-2.2"
+      ],
+      "title": "Full pipeline completes without code_search when index build fails",
+      "given": [
+        "codesearch.New stubbed to return an error",
+        "a scripted brain for the pipeline"
+      ],
+      "when": "the pipeline runs end-to-end",
+      "then": [
+        "the run completes (no panic, no index-related failure)",
+        "no phase's resolved tool set includes code_search",
+        "a warning with code code_search_unavailable is present in the run"
+      ],
+      "pseudocode": "// stub codesearch.New to fail\nresult, err := runPipeline(ctx, nilIndex)\nassert result != nil\nassert run.HasWarning(\"code_search_unavailable\")"
+    },
+    {
+      "id": "TS-16-32",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-1",
+        "16-REQ-1.1",
+        "16-REQ-2.1",
+        "16-REQ-3.2"
+      ],
+      "title": "Successful run with code_search available in every phase",
+      "given": [
+        "a valid repository workspace",
+        "codesearch.New returns a working test double index",
+        "a scripted brain that uses code_search in its phases"
+      ],
+      "when": "a cmd/ entry point (e.g. fix) is invoked with valid input and the index is built successfully",
+      "then": [
+        "the run completes successfully",
+        "code_search was available in every phase's tool set",
+        "the deferred index.Close() ran exactly once on exit"
+      ],
+      "real_components": [
+        "cmd/ entry point",
+        "agentrun.Runner",
+        "codefix pipeline",
+        "tools.All"
+      ]
+    },
+    {
+      "id": "TS-16-33",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-2",
+        "16-REQ-3.4"
+      ],
+      "title": "Run continues without code_search when the index cannot be built",
+      "given": [
+        "a valid repository workspace",
+        "codesearch.New returns codesearch.ErrUnsupported"
+      ],
+      "when": "a cmd/ entry point is invoked",
+      "then": [
+        "the run completes normally using only the six read tools",
+        "a warning with code code_search_unavailable and severity low is in the envelope",
+        "no phase attempted to use code_search"
+      ],
+      "real_components": [
+        "cmd/ entry point",
+        "agentrun.Runner",
+        "toolio.Run warning system"
+      ]
+    },
+    {
+      "id": "TS-16-34",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-3",
+        "16-REQ-4.2",
+        "16-REQ-4.5"
+      ],
+      "title": "Index invalidation across tree changes in impl with multiple tasks",
+      "given": [
+        "a valid repository workspace with a spec containing two tasks",
+        "codesearch.New returns a recording test double index",
+        "a scripted brain that completes both tasks"
+      ],
+      "when": "impl is invoked and both tasks land",
+      "then": [
+        "Index.Invalidate(\"\") was called after branch creation before the survey",
+        "Index.Invalidate(\"\") was called after task 1's commit before task 2's phase",
+        "the deferred index.Close() ran on exit"
+      ],
+      "real_components": [
+        "cmd/ entry point",
+        "codeimpl pipeline",
+        "agentrun.Runner",
+        "gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-16-35",
+      "kind": "smoke",
+      "verifies": [
+        "16-PATH-4",
+        "16-REQ-7.1",
+        "16-REQ-7.3"
+      ],
+      "title": "Preflight reports index availability",
+      "given": [
+        "a valid repository workspace",
+        "a cmd/ entry point invoked with --preflight"
+      ],
+      "when": "the entry point attempts to build the index and runs RunPreflight",
+      "then": [
+        "the preflight result includes a code_search_index check entry",
+        "the check's ok field is true regardless of whether the index was built",
+        "the detail is either 'built' or 'unavailable: <reason>'"
+      ],
+      "real_components": [
+        "cmd/ entry point",
+        "RunPreflight",
+        "toolio.PreflightCheck"
+      ]
+    }
+  ]
+}

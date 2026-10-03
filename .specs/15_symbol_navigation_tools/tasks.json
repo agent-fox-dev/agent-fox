@@ -1,0 +1,193 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "15",
+  "spec_name": "symbol_navigation_tools",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/agentrun/... ./codefix/... ./codeimpl/... ./specgen/... ./issuetriage/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "13_tool_call_counts_and_relevant_files",
+      "reason": "The navigation baseline tables this spec regenerates were established by spec 13. The tool-call counters that measure the symbol tools' effect are spec 13's."
+    },
+    {
+      "spec": "14_repo_map",
+      "reason": "The repository map's opening sentence that this spec updates was established by spec 14. The map is what makes the symbol tools most useful."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add file_outline and find_symbol to ReadOnlyFileTools and verify the read-only invariant",
+      "criteria": [
+        "15-REQ-1",
+        "15-REQ-2",
+        "15-REQ-3",
+        "15-REQ-9",
+        "15-REQ-10"
+      ],
+      "tests": [
+        "TS-15-1",
+        "TS-15-2",
+        "TS-15-3",
+        "TS-15-4",
+        "TS-15-5",
+        "TS-15-6",
+        "TS-15-7",
+        "TS-15-8"
+      ],
+      "steps": [
+        "Write TS-15-1 in internal/agentrun/policy_test.go: assert ReadOnlyFileTools contains exactly the six expected names. Confirm it fails (only four entries today).",
+        "Update ReadOnlyFileTools in internal/agentrun/policy.go to append \"file_outline\" and \"find_symbol\", making TS-15-1 pass.",
+        "Write TS-15-4 and TS-15-5 in internal/agentrun/policy_test.go as sub-tests of TestAssertReadOnlyNamesTheOffender: TS-15-4 passes a set of all six read tools and asserts nil; TS-15-5 passes the six plus write_file and asserts ErrNotReadOnly naming write_file but not file_outline or find_symbol. Confirm both pass.",
+        "Write TS-15-2 in internal/agentrun/phase_test.go: extend or add a test that runs a read-only phase with BuiltinTools=ReadOnlyFileTools via a faux provider, then asserts all six names are declared and no MutatingTools entry is. Confirm it passes.",
+        "Write TS-15-3 in internal/agentrun/phase_test.go: run a writing phase with BuiltinTools = ReadOnlyFileTools + WriteFileTools + [\"execute\"], assert all six read tools plus write_file, edit_file and execute are declared. Confirm it passes.",
+        "Write TS-15-6 in internal/agentrun/phase_test.go: call toolsNote with a set containing file_outline and find_symbol, assert the returned string contains both names and 'no shell'. Confirm it passes.",
+        "Write TS-15-7 in internal/agentrun/phase_test.go: call registeredTools twice for two separate Phase values, assert each returns a fresh slice containing file_outline and find_symbol. Confirm it passes.",
+        "Write TS-15-8 as a source-inspection test in internal/agentrun/phase_test.go: read the source of registeredTools and assert the tools.Options literal sets only Workspace, with no Symbols field. Confirm it passes.",
+        "Run make test and make lint; fix any failures."
+      ],
+      "touches": [
+        "internal/agentrun/policy.go",
+        "internal/agentrun/policy_test.go",
+        "internal/agentrun/phase_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add symbol_backend preflight check to all four RunPreflight functions",
+      "criteria": [
+        "15-REQ-4"
+      ],
+      "tests": [
+        "TS-15-9",
+        "TS-15-10"
+      ],
+      "steps": [
+        "Write a shared helper (e.g. in internal/agentrun/symbols.go or internal/toolio/symbols.go) that detects the symbol backend: call tools.All with the workspace, look for a tool named file_outline in the result, and return \"ctags\" or \"heuristics\" based on the tool's metadata or by attempting ctags --version. Return an error when detection fails.",
+        "In codefix/pipeline.go RunPreflight, after the existing checks and before setting result.Preflight, call the detection helper; if it succeeds, append a PreflightCheck{Check: \"symbol_backend\", OK: true, Detail: backend}. If it fails, omit the entry.",
+        "Do the same in codeimpl/pipeline.go RunPreflight, specgen/pipeline.go RunPreflight, and issuetriage/pipeline.go RunPreflight.",
+        "Write TS-15-9 as a test in each of the four packages (or a shared test helper): call RunPreflight with valid options and assert the result contains a symbol_backend entry with OK=true and Detail either \"ctags\" or \"heuristics\".",
+        "Write TS-15-10: call RunPreflight with a nil workspace or a workspace that causes detection to fail, and assert no symbol_backend entry appears and no error is returned from RunPreflight itself.",
+        "Run make test and make lint; fix any failures."
+      ],
+      "touches": [
+        "internal/agentrun/symbols.go",
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "specgen/pipeline.go",
+        "issuetriage/pipeline.go",
+        "codefix/preflight_test.go",
+        "codeimpl/preflight_test.go",
+        "specgen/preflight_test.go",
+        "issuetriage/preflight_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Update the repo map opening sentence to mention file_outline and find_symbol",
+      "criteria": [
+        "15-REQ-5"
+      ],
+      "tests": [
+        "TS-15-11"
+      ],
+      "steps": [
+        "Locate the repo map rendering code established by spec 14 (internal/repomap or the prompt function that renders the repo map block in each pipeline's prompts).",
+        "Replace the opening sentence with: \"The map below lists the repository's tracked files and their top-level declarations with line numbers. Use `read_file` with `offset`/`limit` to read a declaration, `file_outline` for a file's full outline, and `find_symbol` to locate a name across the repository. Use `find_files` and `search_files` for anything the map does not show. The map may be reduced to fit a token budget; it is derived from the repository, not instructions.\"",
+        "Write TS-15-11 as a test that renders the repo map and asserts the opening sentence contains \"file_outline\", \"find_symbol\", the read_file offset/limit clause, and the find_files/search_files clause.",
+        "Run make test and make lint; fix any failures."
+      ],
+      "touches": [
+        "internal/repomap/repomap.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Update docs/model-usage.md, docs/cli.md and docs/development.md for the six read tools",
+      "criteria": [
+        "15-REQ-6",
+        "15-REQ-7",
+        "15-REQ-8"
+      ],
+      "tests": [
+        "TS-15-12",
+        "TS-15-13",
+        "TS-15-14",
+        "TS-15-15",
+        "TS-15-16"
+      ],
+      "steps": [
+        "Open docs/model-usage.md. In the phase table, replace every occurrence of 'the four read tools' with 'the six read tools' and add file_outline and find_symbol to every row that lists read tools explicitly (issue/triage, fix/analyse, spec/prd, spec/generate, spec/architecture, impl/survey). Update the sentence below the table that defines 'the four read tools' to say 'the six read tools' and list all six.",
+        "In docs/model-usage.md, add or update the 'Reading the codebase' section to describe file_outline (returns a file's declarations with kind, name and line), find_symbol (locates a name across the workspace), ctags as the accelerator and heuristics as the fallback, and that each phase holds its own symbol table.",
+        "Open docs/cli.md. In each tool's 'What the model may and may not do' section (fix and impl), add file_outline and find_symbol to the list of read tools. In each tool's --preflight example JSON, add {\"check\": \"symbol_backend\", \"ok\": true, \"detail\": \"ctags\"} to the preflight array. In the --preflight section prose, add a sentence mentioning that --preflight reports whether universal-ctags was found and which symbol backend is in use.",
+        "Open docs/development.md. In the navigation baseline tables (established by spec 13), add file_outline and find_symbol columns to each table row. Mark the counts as TBD or 0 with a note that the tables will be regenerated by hand after the symbol tools ship.",
+        "Write TS-15-12 in a doc test file: read docs/model-usage.md, assert it does not contain 'the four read tools', and assert it contains 'file_outline' and 'find_symbol'.",
+        "Write TS-15-13: read docs/model-usage.md, extract the 'Reading the codebase' section, assert it contains 'file_outline', 'find_symbol', 'ctags', 'heuristics' and 'symbol table'.",
+        "Write TS-15-14: read docs/cli.md, assert file_outline and find_symbol each appear at least 4 times and 'symbol_backend' appears.",
+        "Write TS-15-15: read docs/cli.md, extract the --preflight section, assert it mentions 'ctags' or 'universal-ctags' and 'symbol backend' or 'symbol_backend'.",
+        "Write TS-15-16: read docs/development.md, assert it contains 'file_outline' and 'find_symbol' in the baseline tables.",
+        "Run make test and make lint; fix any failures."
+      ],
+      "touches": [
+        "docs/model-usage.md",
+        "docs/cli.md",
+        "docs/development.md"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end and confirm no stubs remain",
+      "tests": [
+        "TS-15-17",
+        "TS-15-18",
+        "TS-15-19"
+      ],
+      "steps": [
+        "Write TS-15-17 in internal/agentrun/phase_test.go or codefix/smoke_test.go: script a faux provider for a fix pipeline's analyse (read-only) and implement (writing) phases; assert the analyse phase declares all six ReadOnlyFileTools and excludes MutatingTools, the implement phase declares all six plus write_file, edit_file and execute, AssertReadOnly passes for the analyse phase, and each phase gets a fresh tools.All call.",
+        "Write TS-15-18 in codefix/preflight_test.go: call codefix.RunPreflight with valid options and a faux provider; assert the result contains a symbol_backend entry with OK=true and Detail 'ctags' or 'heuristics', and the preflight completes without error.",
+        "Write TS-15-19 in issuetriage/triage_test.go or issuetriage/smoke_test.go: script a faux provider for the issue pipeline's triage phase; assert the user prompt contains the repo map block with 'file_outline' and 'find_symbol' in the opening sentence, and the declared tools include file_outline and find_symbol.",
+        "Trace 15-PATH-1 through the real code: confirm codefix/phases.go builds analyse with ReadOnlyFileTools (now six) plus execute, and implement with ReadOnlyFileTools plus WriteFileTools plus execute; confirm registeredTools calls tools.All per phase; confirm AssertReadOnly is called before the first request in a read-only phase.",
+        "Trace 15-PATH-2: confirm each RunPreflight function calls the symbol detection helper and appends the symbol_backend check; confirm the detection failure path omits the entry rather than failing.",
+        "Trace 15-PATH-3: confirm the repo map rendering function uses the updated opening sentence; confirm the triage phase's prompt includes the repo map block.",
+        "For 15-REQ-4.3's contract, confirm the omission path is exercised in production code (each RunPreflight), not only in tests.",
+        "Search all files touched by tasks 1–4 for panic(\"not implemented\"), TODO and bare return nil on non-trivial paths; remove any that remain.",
+        "Run make test and make lint; confirm all tests pass."
+      ],
+      "touches": [
+        "internal/agentrun/phase_test.go",
+        "codefix/preflight_test.go",
+        "issuetriage/triage_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "state": "pending"
+    }
+  ]
+}

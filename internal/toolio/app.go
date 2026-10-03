@@ -60,6 +60,13 @@ type Deps struct {
 	runner agentrun.Config
 }
 
+// RunnerConfig returns a copy of the runner configuration the run was built
+// from. A caller that needs a runner on a different model or thinking level
+// can copy this, override Model and Thinking, and call agentrun.NewRunner.
+func (d Deps) RunnerConfig() agentrun.Config {
+	return d.runner
+}
+
 // RunnerFor builds a second runner on another model — a tier name or a
 // catalog spec — with the same workspace, bounds, observer and trust as the
 // run's own. It is for a tool that runs one phase on a different model than
@@ -605,9 +612,16 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 
 	choice, err := e.common.ResolveModel()
 	if err != nil {
+		var ue *UsageError
+		if errors.As(err, &ue) {
+			return a.usage(err)
+		}
 		return ExitFailed, nil, &ErrorInfo{
 			Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error(), err: err,
 		}
+	}
+	for _, w := range choice.Warnings {
+		e.run.Warn(w.Code, w.Severity, "%s", w.Message)
 	}
 	e.run.SetModel(choice.Model, choice.Thinking, choice.Spec)
 	e.progress.Detail("model: %s (%s)", choice.Model.ID, choice.Model.Provider)

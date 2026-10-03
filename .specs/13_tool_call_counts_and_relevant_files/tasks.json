@@ -1,0 +1,288 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "13",
+  "spec_name": "tool_call_counts_and_relevant_files",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/agentrun/... ./internal/toolio/... ./specgen/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "10",
+      "reason": "relevant_files entries carry model text (why) and must be trust-classified; the Package struct's new field uses the trust:\"model\" tag that spec 10 established."
+    },
+    {
+      "spec": "07",
+      "reason": "The phase_end event type and the Observer interface that this spec extends were established by spec 07."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add ToolCalls and ToolResultBytes counters to agentrun.Result and count them in Runner.run",
+      "criteria": [
+        "13-REQ-1"
+      ],
+      "tests": [
+        "TS-13-1",
+        "TS-13-2",
+        "TS-13-3",
+        "TS-13-4",
+        "TS-13-5",
+        "TS-13-38"
+      ],
+      "steps": [
+        "Write TS-13-1 (Result field types), TS-13-2 (trace counts calls and bytes), TS-13-3 (blocked call increments ToolCalls only), TS-13-4 (error result increments both), TS-13-5 (zero calls yields nil maps), and TS-13-38 (property test) and confirm they fail.",
+        "Add `ToolCalls map[string]int` and `ToolResultBytes map[string]int64` fields to the `Result` struct in `internal/agentrun/phase.go`.",
+        "In `Runner.run`, add a `toolCallCounter` struct (similar to `toolErrorCounter`) with thread-safe maps for per-tool call counts and byte sums. Initialize it before the event loop.",
+        "In the `trace` method's `core.ToolResultEvent` case, always increment the call counter for `v.Message.ToolName`. If the call was not blocked (the `refused` variable from `blocks.take` is false), add `int64(len(v.Message.Content.Text()))` to the byte counter for that tool name. For blocked calls, increment only the call counter.",
+        "After the event loop in `run`, read the counters' snapshots into `out.ToolCalls` and `out.ToolResultBytes`. Return nil maps (not empty maps) when no tool calls were made, matching the pattern `toolErrorCounter.snapshot()` uses.",
+        "Run TS-13-1 through TS-13-5 and TS-13-38 and confirm they pass."
+      ],
+      "touches": [
+        "internal/agentrun/phase.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add ToolCalls and ToolResultBytes to PhaseInfo, copy them in PhaseFromResult, and bump SchemaVersion to 3.1.0",
+      "criteria": [
+        "13-REQ-2"
+      ],
+      "tests": [
+        "TS-13-6",
+        "TS-13-7",
+        "TS-13-8"
+      ],
+      "steps": [
+        "Write TS-13-6 (PhaseInfo JSON tags and omitempty), TS-13-7 (PhaseFromResult copies fields), and TS-13-8 (SchemaVersion is 3.1.0) and confirm they fail.",
+        "Add `ToolCalls map[string]int` with JSON tag `\"tool_calls,omitempty\"` and `ToolResultBytes map[string]int64` with JSON tag `\"tool_result_bytes,omitempty\"` to the `PhaseInfo` struct in `internal/toolio/envelope.go`.",
+        "In `PhaseFromResult` in `internal/toolio/phase.go`, copy `res.ToolCalls` and `res.ToolResultBytes` into the returned `PhaseInfo`.",
+        "Change the `SchemaVersion` constant in `internal/toolio/envelope.go` from `\"3.0.0\"` to `\"3.1.0\"`.",
+        "Add a changelog line in `docs/cli.md` under the Interface versions section describing the addition of `tool_calls` and `tool_result_bytes` to `usage.phases[]` and `relevant_files` to the spec result.",
+        "Run TS-13-6, TS-13-7, TS-13-8 and confirm they pass. Fix any existing tests that assert SchemaVersion == \"3.0.0\"."
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/phase.go",
+        "docs/cli.md"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Add ToolCalls to PhaseEndEvent and update Observer.PhaseEnd signature across all implementations",
+      "criteria": [
+        "13-REQ-3"
+      ],
+      "tests": [
+        "TS-13-9",
+        "TS-13-10",
+        "TS-13-11",
+        "TS-13-12",
+        "TS-13-13"
+      ],
+      "steps": [
+        "Write TS-13-9 (PhaseEndEvent JSON), TS-13-10 (newPhaseEndEvent accepts toolCalls), TS-13-11 (Observer implementations updated), TS-13-12 (Runner.Run passes ToolCalls to PhaseEnd), and TS-13-13 (no ToolResultBytes on event) and confirm they fail.",
+        "Add `ToolCalls map[string]int` with JSON tag `\"tool_calls,omitempty\"` to `PhaseEndEvent` in `internal/toolio/events.go`.",
+        "Update `newPhaseEndEvent` to accept a `toolCalls map[string]int` parameter and set it on the returned event.",
+        "Update the `Observer.PhaseEnd` interface method in `internal/agentrun/phase.go` to accept a `toolCalls map[string]int` parameter.",
+        "Update `Progress.PhaseEnd` in `internal/toolio/progress.go` to accept the new parameter and pass it to `newPhaseEndEvent`.",
+        "Update `recObserver.PhaseEnd` in `internal/agentrun/hooks_test.go` to accept and record the new parameter. Add a `toolCalls map[string]int` field to the `endCall` struct.",
+        "Update `Runner.Run` in `internal/agentrun/phase.go` to pass `out.ToolCalls` to `Observer.PhaseEnd`.",
+        "Search for all other callers of `PhaseEnd` and `newPhaseEndEvent` and update them to pass the new parameter.",
+        "Run TS-13-9 through TS-13-13 and confirm they pass."
+      ],
+      "touches": [
+        "internal/toolio/events.go",
+        "internal/agentrun/phase.go",
+        "internal/toolio/progress.go",
+        "internal/agentrun/hooks_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add relevant_files to submit_prd schema, PRD struct, prdSink, and validate paths",
+      "criteria": [
+        "13-REQ-4",
+        "13-REQ-5"
+      ],
+      "tests": [
+        "TS-13-14",
+        "TS-13-15",
+        "TS-13-16",
+        "TS-13-17",
+        "TS-13-18",
+        "TS-13-19",
+        "TS-13-20",
+        "TS-13-21"
+      ],
+      "steps": [
+        "Write TS-13-14 through TS-13-21 and confirm they fail.",
+        "Define `type RelevantFile struct { Path string; Why string }` in `specgen/prd.go`.",
+        "Add `RelevantFiles []RelevantFile` to the `PRD` struct with JSON tag `\"relevant_files,omitempty\"`.",
+        "In `prdSchema()`, add an optional `relevant_files` array property using `schema.Opt(\"relevant_files\", schema.Array(...).MaxItemsN(30))` with items having required `path` (string) and `why` (string) properties, described as the files a later phase should read first.",
+        "Update `submitPRDTool` to accept a `*tools.Workspace` parameter. After the existing validation checks and before `sink.set(prd)`, validate each entry in `prd.RelevantFiles`: resolve with `ws.Resolve(rf.Path)`, check `os.Stat`, verify `!info.IsDir()`. Collect bad paths and return `core.ErrResult(\"invalid_relevant_files\", ...)` listing them all.",
+        "When `relevant_files` is omitted or empty, skip validation and store nil/empty `RelevantFiles`.",
+        "Update the call site in `agentAuthor.WritePRD` to pass the workspace to `submitPRDTool`.",
+        "Run TS-13-14 through TS-13-21 and confirm they pass."
+      ],
+      "touches": [
+        "specgen/prd.go",
+        "specgen/phases.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Inject relevant-files block into generation and architecture prompts",
+      "criteria": [
+        "13-REQ-6"
+      ],
+      "tests": [
+        "TS-13-22",
+        "TS-13-23",
+        "TS-13-24",
+        "TS-13-25"
+      ],
+      "steps": [
+        "Write TS-13-22 (block present when files supplied), TS-13-23 (block absent when no files), TS-13-24 (artifactRequest carries list), and TS-13-25 (architecture prompt includes block) and confirm they fail.",
+        "Add `RelevantFiles []RelevantFile` to the `artifactRequest` struct in `specgen/phases.go`.",
+        "Add `RelevantFiles []RelevantFile` to the `architectureRequest` struct in `specgen/phases.go`.",
+        "Write a `relevantFilesBlock(files []RelevantFile) string` function in `specgen/prompts.go` that returns empty string when files is nil/empty, and otherwise renders the heading, introductory text stating it is the previous phase's notes not instructions, and each entry as a bullet.",
+        "Update `generationUserPrompt` signature to accept a `relevantFilesBlock string` parameter. Update `generation_user_base.md` template to include `{{relevant_files_block}}` between `{{steering_block}}` and `{{prior_block}}`.",
+        "Update `agentAuthor.GenerateArtifact` to build the relevant files block and pass it to `generationUserPrompt`.",
+        "Update the architecture user prompt builder to include the relevant-files block when files are present. Update `agentAuthor.WriteArchitecture` to pass relevant files from the request.",
+        "Run TS-13-22 through TS-13-25 and confirm they pass."
+      ],
+      "touches": [
+        "specgen/phases.go",
+        "specgen/prompts.go",
+        "specgen/templates/generation_user_base.md"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Thread relevant_files through the pipeline, handle splits, resume warnings, and envelope output",
+      "criteria": [
+        "13-REQ-7",
+        "13-REQ-8"
+      ],
+      "tests": [
+        "TS-13-26",
+        "TS-13-27",
+        "TS-13-28",
+        "TS-13-29",
+        "TS-13-30",
+        "TS-13-31",
+        "TS-13-32"
+      ],
+      "steps": [
+        "Write TS-13-26 through TS-13-32 and confirm they fail.",
+        "Add `WarnRelevantFilesUnavailable WarnCode = \"relevant_files_unavailable\"` to `internal/toolio/warncode.go`, add it to `warnStages` with stage `\"prd\"`, and add it to `DeclaredWarnCodes()`.",
+        "Add `RelevantFiles []RelevantFile` with JSON tag `\"relevant_files,omitempty\"` and trust tag `trust:\"model\"` to the `Package` struct in `specgen/pipeline.go`.",
+        "In `runEnv.buildPackage`, pass `prd.RelevantFiles` to each `artifactRequest` and `architectureRequest`. Populate `pkg.RelevantFiles` from `prd.RelevantFiles`.",
+        "In the split loop in `Run`, ensure each scope's PRD phase produces its own `RelevantFiles` and only that scope's generation phases receive it. Verify `prdRequest` does not carry `RelevantFiles` from a previous scope.",
+        "When a resumed split skips the PRD phase (plan != nil), emit `run.Warn(toolio.WarnRelevantFilesUnavailable, \"low\", ...)` and pass nil relevant files to the generation phases.",
+        "Ensure `relevant_files` is NOT persisted inside the spec package directory; it lives only in the envelope result and the run-time pipeline.",
+        "Run TS-13-26 through TS-13-32 and confirm they pass."
+      ],
+      "touches": [
+        "specgen/pipeline.go",
+        "specgen/phases.go",
+        "internal/toolio/warncode.go"
+      ],
+      "depends_on": [
+        4,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Add Navigation baseline section to docs/development.md",
+      "criteria": [
+        "13-REQ-9"
+      ],
+      "tests": [
+        "TS-13-33"
+      ],
+      "steps": [
+        "Write TS-13-33 and confirm it fails.",
+        "Open `docs/development.md` and add a '## Navigation baseline' section after the existing content.",
+        "Write a procedure for running a fixed set of inputs per tool against this repository with `--dry-run`: issue (two inputs: a stack trace, a prose report), fix (two inputs naming a seeded defect), spec (three inputs), and impl (one small fixed spec package of at least three tasks). Include concrete example commands.",
+        "Add one table per tool recording the per-phase `tool_calls` from those baseline runs, with placeholder data noting these are initial baselines to be filled from actual runs.",
+        "Add a note that the tables are regenerated by hand whenever a navigation change ships, and that no live-model run enters `make test`.",
+        "Run TS-13-33 and confirm it passes."
+      ],
+      "touches": [
+        "docs/development.md"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end, confirm no stubs remain, and validate contracts",
+      "tests": [
+        "TS-13-34",
+        "TS-13-35",
+        "TS-13-36",
+        "TS-13-37"
+      ],
+      "steps": [
+        "Write TS-13-34 (smoke: spec run reports tool-call counts in envelope and events), TS-13-35 (smoke: relevant_files passed from PRD to generation phases and envelope), TS-13-36 (smoke: resumed split warns about unavailable relevant files), and TS-13-37 (smoke: submit_prd rejects invalid paths and model corrects) and confirm they pass.",
+        "Trace 13-PATH-1 through the real code: Runner.run counts calls in trace, Runner.Run passes ToolCalls to Observer.PhaseEnd, Progress emits phase_end with tool_calls, PhaseFromResult copies to PhaseInfo, Run.AddPhase records in envelope. Confirm each step calls the next with no stub.",
+        "Trace 13-PATH-2: submit_prd handler validates paths, prdSink stores RelevantFiles, pipeline passes to artifactRequest, generationUserPrompt renders block, Package.RelevantFiles populated in envelope. Confirm each step calls the next.",
+        "Trace 13-PATH-3: resumed split detects no relevant_files, emits WarnRelevantFilesUnavailable, generation prompts omit the block. Confirm the warning is emitted and the block is absent.",
+        "Trace 13-PATH-4: submit_prd with bad path returns ErrResult with code invalid_relevant_files, model retries with corrected path, accepted. Confirm the error result is consumed by the runner's event loop.",
+        "For 13-REQ-5.2's contract (core.ErrResult with code invalid_relevant_files), confirm the producer's result is consumed by a caller in production code (the runner's trace method processes the ToolResultEvent), not only by tests.",
+        "Search all files listed in tasks 1-7 touches for panic(\"not implemented\"), TODO, NotImplementedError, and bare return nil on non-trivial paths. Remove any that remain.",
+        "Run `make test` and `make lint` and confirm both pass."
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "done_when": [
+        "`make test` passes with all smoke tests green",
+        "`make lint` passes",
+        "No stub markers remain in touched files",
+        "All four execution paths are live in production code"
+      ],
+      "state": "pending"
+    }
+  ]
+}

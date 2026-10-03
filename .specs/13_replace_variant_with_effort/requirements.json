@@ -1,0 +1,437 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "13",
+  "spec_name": "replace_variant_with_effort",
+  "schema_version": 2,
+  "introduction": "Replace the --variant flag and the variant dimension from the tier table with an explicit --effort flag (and $AF_MODEL_EFFORT environment variable) so that reasoning effort is an independent setting that applies to any model — whether resolved from a tier or named by catalog id — with clamping checked before the run starts.",
+  "glossary": {
+    "ModelChoice": "The struct returned by ResolveModelNamed carrying the resolved *core.Model, the effective ThinkingLevel, and the spec string that produced them.",
+    "clamping": "The process by which catalog.ClampThinkingLevel adjusts a requested thinking level to the nearest level the model supports, searching upward then downward (never downward to off).",
+    "effort": "The reasoning effort level requested for a model run, one of the core.ThinkingLevel values: off, minimal, low, medium, high, xhigh, max.",
+    "tier": "A named capability level (SIMPLE, STANDARD, ADVANCED) that resolves to a vendor-specific catalog model and an optional thinking level via the tierTable.",
+    "tierTable": "The map from (vendor, tier) to a catalog model spec and thinking level. After this spec, its type is map[string]map[ModelTier]tierEntry (the variant dimension is removed)."
+  },
+  "requirements": [
+    {
+      "id": "13-REQ-1",
+      "title": "The --effort flag and $AF_MODEL_EFFORT",
+      "rationale": "Reasoning effort must be an explicit, independent setting so an operator can override a tier's built-in effort or add effort to a model named by id.",
+      "criteria": [
+        {
+          "id": "13-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "Common.Register",
+          "action": "register --effort as a string flag with accepted values off, minimal, low, medium, high, xhigh, max (the values of core.ThinkingLevelOrder), declared as an enum via DeclareEnum so --schema lists them"
+        },
+        {
+          "id": "13-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "Common",
+          "action": "carry an Effort field of type string and no longer carry a Variant field"
+        },
+        {
+          "id": "13-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "ResolveModelNamed",
+          "action": "determine the run's effective effort by the first set source in this precedence: (1) --effort flag, (2) $AF_MODEL_EFFORT environment variable, (3) the tier's own effort when --model resolves to a tier name, (4) ThinkingUnset"
+        },
+        {
+          "id": "13-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "--effort is given with a model named by catalog id (not a tier)",
+          "system": "ResolveModelNamed",
+          "action": "apply the stated effort to that model, so effort works for model ids as well as tiers"
+        },
+        {
+          "id": "13-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "the --effort value is matched",
+          "system": "Common.Register",
+          "action": "match case-insensitively and store the value in its canonical lower-case form"
+        },
+        {
+          "id": "13-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "--effort is given a value outside the accepted set",
+          "system": "CLI",
+          "action": "exit with code 2 and list the accepted values in the error message",
+          "contract": "exit code 2; stderr names the accepted values"
+        },
+        {
+          "id": "13-REQ-1.7",
+          "pattern": "unwanted",
+          "condition": "$AF_MODEL_EFFORT contains a value outside the accepted set",
+          "system": "CLI",
+          "action": "exit with code 2 and name the environment variable $AF_MODEL_EFFORT in the error message",
+          "contract": "exit code 2; stderr names $AF_MODEL_EFFORT and the accepted values"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-2",
+      "title": "Clamping is checked before the run",
+      "rationale": "Without a pre-run clamp check, agentkit-go would silently drop an unsupported effort or the operator would discover the problem only after paying for a long run.",
+      "criteria": [
+        {
+          "id": "13-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "the effective effort is set (not ThinkingUnset) after precedence resolution",
+          "system": "ResolveModelNamed",
+          "action": "call catalog.ClampThinkingLevel(model, effort) and use the clamped level as the run's effective effort"
+        },
+        {
+          "id": "13-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "the clamped level differs from the requested level",
+          "system": "ResolveModelNamed",
+          "action": "proceed at the clamped level and record a warning with code effort_clamped (a new WarnCode constant mapped to stage preflight in warnStages) whose message names both levels and the model"
+        },
+        {
+          "id": "13-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "ClampThinkingLevel returns ok==false and the effort was set explicitly (flag or env, steps 1 or 2 of the precedence)",
+          "system": "ResolveModelNamed",
+          "action": "fail before the first request with a usage error naming the model",
+          "contract": "exit code 2; error message names the model that supports no reachable level"
+        },
+        {
+          "id": "13-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "envelope",
+          "action": "report the effective (clamped) level in model.thinking, not the requested one; the field's name, type and meaning are unchanged"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-3",
+      "title": "--repair-model-effort on impl",
+      "rationale": "The repair phase may need a different effort than the run's main model, especially when --repair-model names a different model whose tier has its own effort.",
+      "criteria": [
+        {
+          "id": "13-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "impl",
+          "action": "register --repair-model-effort with the same accepted values as --effort, in impl's Flags func, and add repair-model-effort to toolFlags[\"impl\"] in toolflags.go"
+        },
+        {
+          "id": "13-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "impl",
+          "action": "determine the repair phase's effective effort by the first set source: (1) --repair-model-effort, (2) if --repair-model is given: that model's own tier effort when it is a tier, otherwise ThinkingUnset (the run's --effort and $AF_MODEL_EFFORT do not carry over), (3) if --repair-model is not given: the run's effort"
+        },
+        {
+          "id": "13-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "--repair-model-effort is given without --repair-model",
+          "system": "impl",
+          "action": "enable the repair phase (imply --repair) and run it on the run's model at the stated effort"
+        },
+        {
+          "id": "13-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "the repair phase's effort is clamped",
+          "system": "ResolveModelNamed",
+          "action": "record an effort_clamped warning whose message names the repair phase to distinguish it from the run's own clamping"
+        },
+        {
+          "id": "13-REQ-3.5",
+          "pattern": "ubiquitous",
+          "system": "impl",
+          "action": "provide no environment variable for --repair-model-effort, matching --repair-model which also has none"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-4",
+      "title": "Remove the variant layer",
+      "rationale": "The variant dimension existed for exactly one entry (anthropic ADVANCED extended). Removing it simplifies the tier table and eliminates a concept that only one vendor's table backed.",
+      "criteria": [
+        {
+          "id": "13-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "Common.Register",
+          "action": "no longer register --variant, and remove the Variant field from the Common struct"
+        },
+        {
+          "id": "13-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "change tierTable's type to map[string]map[ModelTier]tierEntry (removing the variant dimension) and delete the extended entry"
+        },
+        {
+          "id": "13-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "change ModelSpec's signature to ModelSpec(name, vendor string) and ResolveModel's to ResolveModel(name, vendor string), removing the variant parameter"
+        },
+        {
+          "id": "13-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "ResolveModelNamed",
+          "action": "drop the variant argument from every call to ModelSpec and ResolveModel"
+        },
+        {
+          "id": "13-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "cmd/fix/main.go",
+          "action": "add effort and remove variant from knownFixValueFlags"
+        },
+        {
+          "id": "13-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "toolflags.go",
+          "action": "add variant to removedFlagMessages with a message directing the user to --effort and --model"
+        },
+        {
+          "id": "13-REQ-4.7",
+          "pattern": "event_driven",
+          "condition": "a caller passes --variant",
+          "system": "CLI",
+          "action": "display the removed-flag message directing the user to --effort and --model, rather than the generic 'flag provided but not defined' error",
+          "contract": "exit code 2; stderr contains the removal message naming --effort and --model"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-5",
+      "title": "Tier effort self-consistency",
+      "rationale": "If a tier's prescribed effort is not accepted by its model, the tier table is at fault and the bug would only surface on a paid run. A test prevents that.",
+      "criteria": [
+        {
+          "id": "13-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "for any vendor and tier whose tierEntry has a non-unset thinking level, ClampThinkingLevel(model, level) shall return the same level (clamps to itself), verified by extending TestEveryTierOfEveryVendorResolvesInTheCatalog"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-6",
+      "title": "Test coverage for removed and added behaviour",
+      "rationale": "The variant tests must be deleted and replaced by effort tests; the schema golden files must reflect the flag changes.",
+      "criteria": [
+        {
+          "id": "13-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun",
+          "action": "delete TestTheExtendedVariantHasAMillionTokenWindow and TestAnUnknownVariantFallsBackToTheTierDefault from models_test.go"
+        },
+        {
+          "id": "13-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "schema golden files",
+          "action": "update the --schema golden files of all four tools (cmd/issue, cmd/fix, cmd/spec, cmd/impl) so they no longer contain variant and do contain effort; cmd/impl's golden also contains repair-model-effort"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-7",
+      "title": "Documentation updates",
+      "rationale": "Outdated docs are treated as regressions per the steering directives.",
+      "criteria": [
+        {
+          "id": "13-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "replace the --variant row in the shared-flags table with --effort, add --repair-model-effort to impl's flags, remove --variant from the --repair-model paragraph, and add an interface-versions entry recording the --variant removal and the --effort / --repair-model-effort addition"
+        },
+        {
+          "id": "13-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "docs/configuration.md",
+          "action": "remove the extended paragraph and the --variant extended example from the tier section, add the effort precedence from 13-REQ-1.3, document $AF_MODEL_EFFORT, and add the long-context example --model anthropic/claude-fable-5-1 --effort xhigh"
+        },
+        {
+          "id": "13-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "rewrite the repair paragraph to state 13-REQ-3.2's rule instead of referencing --vendor and --variant"
+        },
+        {
+          "id": "13-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "docs/errata/agentkit_model_resolution.md",
+          "action": "add a closing note to §2 stating that the extended variant no longer exists and why"
+        },
+        {
+          "id": "13-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "docs/adr",
+          "action": "create docs/adr/08-effort-replaces-variant.md recording the decision: effort as an explicit setting independent of the model, and the removal of variants without compatibility"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "13-PATH-1",
+      "title": "Operator overrides a tier's effort with --effort",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a tool with --model ADVANCED --effort high"
+        },
+        {
+          "actor": "Common.Register",
+          "action": "parses --effort high, normalises to lower-case, stores in Common.Effort"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "resolves ADVANCED to the tier's model (e.g. anthropic/claude-opus-5-5) and applies --effort high (step 1 of precedence) instead of the tier's xhigh"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "calls ClampThinkingLevel(model, high); if clamped, records effort_clamped warning"
+        },
+        {
+          "actor": "envelope",
+          "action": "reports model.thinking as the effective (possibly clamped) level"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-2",
+      "title": "Operator sets effort on a model named by catalog id",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a tool with --model anthropic/claude-opus-5-5 --effort max"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "resolves the catalog id (no tier lookup), applies --effort max as the effective effort"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "calls ClampThinkingLevel(model, max); proceeds at the clamped level"
+        },
+        {
+          "actor": "envelope",
+          "action": "reports model.thinking as the effective level"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-3",
+      "title": "$AF_MODEL_EFFORT overrides a tier's effort when no flag is given",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "sets AF_MODEL_EFFORT=low and invokes a tool with --model STANDARD (no --effort flag)"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "finds no --effort flag, reads $AF_MODEL_EFFORT=low (step 2 of precedence), overriding the tier's high"
+        },
+        {
+          "actor": "ResolveModelNamed",
+          "action": "calls ClampThinkingLevel(model, low) and proceeds at the clamped level"
+        },
+        {
+          "actor": "envelope",
+          "action": "reports model.thinking as the effective level"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-4",
+      "title": "impl repair phase runs at its own effort",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes impl with --model STANDARD --effort low --repair-model ADVANCED --repair-model-effort high"
+        },
+        {
+          "actor": "impl",
+          "action": "resolves the run's model (STANDARD at low) and the repair model (ADVANCED at high, overriding the tier's xhigh)"
+        },
+        {
+          "actor": "impl",
+          "action": "runs the main phases at low effort on the STANDARD model"
+        },
+        {
+          "actor": "impl",
+          "action": "runs the repair phase at high effort on the ADVANCED model"
+        },
+        {
+          "actor": "envelope",
+          "action": "reports each model's effective thinking level"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-5",
+      "title": "Passing --variant produces a removed-flag error",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a tool with --variant extended"
+        },
+        {
+          "actor": "CLI",
+          "action": "matches --variant in removedFlagMessages and exits with code 2, printing a message directing the user to --effort and --model"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-6",
+      "title": "Invalid --effort value is refused",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes a tool with --effort turbo"
+        },
+        {
+          "actor": "CLI",
+          "action": "rejects the value, exits with code 2, and lists the accepted effort values in the error message"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go/core",
+      "version": "latest (replace directive in go.mod)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ThinkingLevel",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type ThinkingLevel string",
+          "notes": "String type with constants ThinkingUnset, ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax. Verified from call sites in internal/agentrun/models.go."
+        },
+        {
+          "name": "ThinkingLevelOrder",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "var ThinkingLevelOrder []ThinkingLevel",
+          "notes": "The ordered set of valid thinking levels. Used to enumerate accepted --effort values."
+        },
+        {
+          "name": "Model",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type Model struct { ID string; Provider string; API string; ContextWindow int; MaxTokens int; Cost ModelCost; Cloned bool; ClonedFrom string }",
+          "notes": "Verified from call sites in internal/agentrun/models_test.go."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agentfox/agentkit-go/catalog",
+      "version": "latest (replace directive in go.mod)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "ClampThinkingLevel",
+          "import_path": "github.com/agentfox/agentkit-go/catalog",
+          "signature": "func ClampThinkingLevel(m *core.Model, level core.ThinkingLevel) (core.ThinkingLevel, bool)",
+          "notes": "Returns the nearest supported level and whether any level is reachable. Searches upward then downward, never downward to off."
+        },
+        {
+          "name": "ResolveModel",
+          "import_path": "github.com/agentfox/agentkit-go/catalog",
+          "signature": "func ResolveModel(spec string) (*core.Model, error)",
+          "notes": "Verified from call site in internal/agentrun/models.go:155."
+        }
+      ]
+    }
+  ]
+}

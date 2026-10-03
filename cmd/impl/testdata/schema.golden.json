@@ -59,6 +59,20 @@
         "default": false,
         "description": "make no remote change: no push, no write to a forge"
       },
+      "effort": {
+        "type": "string",
+        "enum": [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default": "",
+        "description": "reasoning effort: off, minimal, low, medium, high, xhigh, max; default $AF_MODEL_EFFORT, else the tier's own effort"
+      },
       "emit-events": {
         "type": "boolean",
         "default": false,
@@ -150,6 +164,20 @@
         "default": "",
         "description": "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model"
       },
+      "repair-model-effort": {
+        "type": "string",
+        "enum": [
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default": "",
+        "description": "reasoning effort for the repair phase: off, minimal, low, medium, high, xhigh, max; implies --repair. Default the repair model's tier effort"
+      },
       "repo": {
         "type": "string",
         "default": "",
@@ -189,11 +217,6 @@
         "type": "boolean",
         "default": false,
         "description": "admit AGENTS.md, CLAUDE.md and .specs/steering.md into the system prompt"
-      },
-      "variant": {
-        "type": "string",
-        "default": "",
-        "description": "tier variant, e.g. extended"
       },
       "vendor": {
         "type": "string",

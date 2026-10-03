@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -144,5 +145,45 @@ func TestTS09_38_InvalidSchemaFailsCompilation(t *testing.T) {
 	err := schematest.CompileDocuments(doc)
 	if err == nil || !strings.Contains(err.Error(), "result") {
 		t.Errorf("CompileDocuments error = %v, want one naming the result document", err)
+	}
+}
+
+// TS-13-26 (unit): Schema golden files of all four tools contain effort and
+// not variant; impl's also contains repair-model-effort.
+func TestTS13_26_GoldenFilesContainEffortNotVariant(t *testing.T) {
+	root := schematest.Root(t)
+
+	type schemaDoc struct {
+		Flags struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"flags"`
+	}
+
+	for _, tool := range []string{"issue", "fix", "spec", "impl"} {
+		t.Run(tool, func(t *testing.T) {
+			path := filepath.Join(root, "cmd", tool, "testdata", "schema.golden.json")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("cannot read golden file: %v", err)
+			}
+
+			var doc schemaDoc
+			if err := json.Unmarshal(data, &doc); err != nil {
+				t.Fatalf("cannot parse golden file: %v", err)
+			}
+
+			if _, ok := doc.Flags.Properties["variant"]; ok {
+				t.Errorf("%s golden file still contains the variant flag", tool)
+			}
+			if _, ok := doc.Flags.Properties["effort"]; !ok {
+				t.Errorf("%s golden file does not contain the effort flag", tool)
+			}
+
+			if tool == "impl" {
+				if _, ok := doc.Flags.Properties["repair-model-effort"]; !ok {
+					t.Errorf("impl golden file does not contain the repair-model-effort flag")
+				}
+			}
+		})
 	}
 }

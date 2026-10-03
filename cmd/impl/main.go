@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agentfox/agentkit-go/catalog"
+	"github.com/agentfox/agentkit-go/core"
 )
 
 const usage = `impl — implement a specification, task by task, verified, on a branch
@@ -90,24 +93,25 @@ Flags:
 // paths build identical codeimpl.Options and a check run under --preflight
 // cannot pass against a configuration the real run would not use.
 type implFlags struct {
-	specsDir      string
-	task          int
-	branch        string
-	repo          string
-	land          string
-	verify        string
-	noVerify      bool
-	verifyTimeout time.Duration
-	pushAttempts  int
-	allow         string
-	draft         bool
-	pull          bool
-	noSurvey      bool
-	noTestFirst   bool
-	attempts      int
-	repair        bool
-	repairTries   int
-	repairModel   string
+	specsDir          string
+	task              int
+	branch            string
+	repo              string
+	land              string
+	verify            string
+	noVerify          bool
+	verifyTimeout     time.Duration
+	pushAttempts      int
+	allow             string
+	draft             bool
+	pull              bool
+	noSurvey          bool
+	noTestFirst       bool
+	attempts          int
+	repair            bool
+	repairTries       int
+	repairModel       string
+	repairModelEffort string
 }
 
 // implOptions builds the codeimpl.Options for one run from the parsed flags,
@@ -151,11 +155,77 @@ func (f *implFlags) implOptions(d toolio.Deps, repairRunner *agentrun.Runner) co
 // before anything runs, the way the run's own model is. Both Exec and
 // PreflightExec call it. An empty model resolves to nothing: the repair phase
 // then runs on the run's own runner.
-func resolveRepairRunner(d toolio.Deps, repairModel string) (*agentrun.Runner, *toolio.ModelChoice, error) {
-	if repairModel == "" {
+func resolveRepairRunner(d toolio.Deps, repairModel, repairModelEffort string) (*agentrun.Runner, *toolio.ModelChoice, error) {
+	if repairModel == "" && repairModelEffort == "" {
 		return nil, nil, nil
 	}
-	r, choice, err := d.RunnerFor(repairModel)
+
+	var m *core.Model
+	var tierThinking core.ThinkingLevel
+	var spec string
+
+	if repairModel != "" {
+		// Resolve the repair model independently: the run's --effort and
+		// $AF_MODEL_EFFORT do not carry over to a separately named repair model.
+		var err error
+		m, tierThinking, err = agentrun.ResolveModel(repairModel, d.Common.VendorName())
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := agentrun.CheckCredentials(m); err != nil {
+			return nil, nil, err
+		}
+		spec = repairModel
+	} else {
+		// No --repair-model: repair runs on the run's own model.
+		m = d.Model.Model
+		tierThinking = core.ThinkingUnset
+		spec = d.Model.Spec
+	}
+
+	// Repair effort precedence:
+	// (1) --repair-model-effort
+	// (2) if --repair-model is given: that model's tier effort, otherwise
+	//     the run's effective effort
+	// (3) ThinkingUnset
+	effective := core.ThinkingUnset
+	switch {
+	case repairModelEffort != "":
+		effective = core.ThinkingLevel(repairModelEffort)
+	case repairModel != "" && tierThinking != core.ThinkingUnset:
+		effective = tierThinking
+	case repairModel == "":
+		// No --repair-model: inherit the run's effective effort.
+		effective = d.Model.Thinking
+	}
+
+	choice := &toolio.ModelChoice{Model: m, Thinking: effective, Spec: spec}
+
+	// Clamp the effort when it is set.
+	if effective != core.ThinkingUnset {
+		clamped, _, ok := catalog.ClampThinkingLevel(m, effective)
+		if !ok {
+			if repairModelEffort != "" {
+				return nil, nil, toolio.Usagef("repair model %s supports no reachable thinking level for effort %q", m.ID, effective)
+			}
+			// Tier-sourced effort that cannot be clamped: fall back to unset.
+			choice.Thinking = core.ThinkingUnset
+		} else if clamped != effective {
+			stage, _ := toolio.WarnStage(toolio.WarnEffortClamped)
+			choice.Warnings = append(choice.Warnings, toolio.Warning{
+				Code:     toolio.WarnEffortClamped,
+				Severity: "low",
+				Stage:    stage,
+				Message:  fmt.Sprintf("repair: effort %s clamped to %s for model %s", effective, clamped, m.ID),
+			})
+			choice.Thinking = clamped
+		}
+	}
+
+	// Build the runner from the run's configuration, overriding model and thinking.
+	cfg := d.RunnerConfig()
+	cfg.Model, cfg.Thinking = choice.Model, choice.Thinking
+	r, err := agentrun.NewRunner(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,6 +279,8 @@ func newApp() toolio.App {
 			fs.BoolVar(&f.repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
 			fs.IntVar(&f.repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")
 			fs.StringVar(&f.repairModel, "repair-model", "", "model tier or catalog spec for the repair phase alone; implies --repair. Default the run's model")
+			toolio.RegisterEffortFlag(fs, &f.repairModelEffort, "repair-model-effort",
+				"reasoning effort for the repair phase: "+strings.Join(toolio.EffortValues(), ", ")+"; implies --repair. Default the repair model's tier effort")
 		},
 		// A task is roughly a fix's worth of work, and there are several of
 		// them: the per-phase ceilings are fix's, and --total-budget caps the
@@ -234,7 +306,7 @@ func newApp() toolio.App {
 			if f.attempts < 1 {
 				return toolio.Usagef("--task-attempts must be at least 1")
 			}
-			if f.repairModel != "" {
+			if f.repairModel != "" || f.repairModelEffort != "" {
 				f.repair = true
 			}
 			if f.repair && f.noVerify {
@@ -253,7 +325,7 @@ func newApp() toolio.App {
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			repairRunner, _, err := resolveRepairRunner(d, f.repairModel)
+			repairRunner, _, err := resolveRepairRunner(d, f.repairModel, f.repairModelEffort)
 			if err != nil {
 				return toolio.ExitFailed, nil, repairModelFailure(err)
 			}
@@ -270,7 +342,7 @@ func newApp() toolio.App {
 		// model call, against the identical options and the identically
 		// resolved repair model, then stop.
 		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			repairRunner, _, err := resolveRepairRunner(d, f.repairModel)
+			repairRunner, _, err := resolveRepairRunner(d, f.repairModel, f.repairModelEffort)
 			if err != nil {
 				return toolio.ExitFailed, nil, repairModelFailure(err)
 			}

@@ -15,6 +15,18 @@ func TestTS05_35_EveryDeclaredWarnCodeHasStage(t *testing.T) {
 	}
 }
 
+// TS-13-11 (unit): The effort_clamped WarnCode constant exists and maps to
+// stage preflight in warnStages.
+func TestTS13_11_EffortClampedWarnCodeMapsToPreflight(t *testing.T) {
+	stage, ok := toolio.WarnStage(toolio.WarnEffortClamped)
+	if !ok {
+		t.Fatal("WarnEffortClamped has no entry in the stage table")
+	}
+	if stage != "preflight" {
+		t.Errorf("WarnEffortClamped stage = %q, want %q", stage, "preflight")
+	}
+}
+
 // TS-05-38 (unit): the WarnCode stage table carries every code-to-stage pair the spec lists.
 func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 	pairs := map[string]string{
@@ -55,6 +67,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"output_not_written":         "emit",
 		"output_matches_report_file": "emit",
 		"events_file_not_written":    "report",
+		"effort_clamped":             "preflight",
 	}
 	for code, wantStage := range pairs {
 		got, ok := toolio.WarnStage(toolio.WarnCode(code))

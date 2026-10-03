@@ -223,8 +223,11 @@ whole spec rather than one per task. The `repair` phase — `--repair`, on a
 red baseline or after the integration task — is the one phase any tool runs
 on a model of its own:
 `--repair-model` resolves a second tier or catalog spec by the same rules
-and the same `--vendor` and `--variant`, and the rest of the run stays on
-`--model`.
+and the same `--vendor` as the run's model, and the rest of the run stays on
+`--model`. The repair phase's effort is the first of these that is set:
+(1) `--repair-model-effort`, (2) the repair model's tier effort when
+`--repair-model` names a tier, (3) the run's effort when no separate repair
+model is given. `--repair-model-effort` implies `--repair`.
 
 Per-project prompt overrides are not supported. The previous CLI read them from
 `<project>/.spec/prompts/`; a repository that can rewrite the system prompt of

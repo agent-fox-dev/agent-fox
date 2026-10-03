@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/specgen"
+	"github.com/agentfox/agentkit-go/core"
 )
 
 type questionResult struct{}
@@ -546,5 +550,269 @@ func TestTS06_55_SinglePhaseCeilingIsTheLowerOfTheTwo(t *testing.T) {
 	c := toolio.Common{Budget: 10, TotalBudgetUSD: 4}
 	if got := c.Bounds(defaults).MaxBudgetUSD; got != 10 {
 		t.Errorf("Bounds ceiling = %v, want 10", got)
+	}
+}
+
+// TS-13-1 (unit): --effort is registered as a string flag with DeclareEnum
+// listing the seven accepted values.
+func TestTS13_1_EffortRegisteredWithDeclareEnum(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+
+	f := fs.Lookup("effort")
+	if f == nil {
+		t.Fatal("expected a flag named 'effort' to be registered")
+	}
+	if f.DefValue != "" {
+		t.Errorf("expected default value to be empty, got %q", f.DefValue)
+	}
+
+	// Check enum values via BuildFlagsDocument.
+	doc := toolio.BuildFlagsDocument(fs)
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal flags doc: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(b, &schema); err != nil {
+		t.Fatalf("unmarshal flags doc: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("no properties in schema")
+	}
+	effortProp, ok := props["effort"].(map[string]any)
+	if !ok {
+		t.Fatal("no effort property in schema")
+	}
+	gotEnum, ok := effortProp["enum"]
+	if !ok {
+		t.Fatal("effort property has no enum")
+	}
+	wantEnum := []any{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+	if !reflect.DeepEqual(gotEnum, wantEnum) {
+		t.Errorf("effort enum = %v, want %v", gotEnum, wantEnum)
+	}
+}
+
+// TS-13-2 (unit): Common carries an Effort field and no Variant field.
+func TestTS13_2_CommonHasEffortNoVariant(t *testing.T) {
+	v := reflect.TypeOf(toolio.Common{})
+	if _, hasEffort := v.FieldByName("Effort"); !hasEffort {
+		t.Error("Common should have an Effort field")
+	}
+	if _, hasVariant := v.FieldByName("Variant"); hasVariant {
+		t.Error("Common should not have a Variant field")
+	}
+}
+
+// TS-13-5 (unit): --effort value is matched case-insensitively and stored in
+// canonical lower-case.
+func TestTS13_5_EffortCaseInsensitive(t *testing.T) {
+	for _, v := range []string{"HIGH", "High", "hIgH"} {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		c := &toolio.Common{}
+		c.Register(fs)
+		if err := fs.Parse([]string{"--effort", v}); err != nil {
+			t.Fatalf("parsing --effort %s: %v", v, err)
+		}
+		if c.Effort != "high" {
+			t.Errorf("--effort %s: got Effort=%q, want %q", v, c.Effort, "high")
+		}
+	}
+}
+
+// TS-13-6 (unit): An invalid --effort value exits 2 and lists the accepted
+// values.
+func TestTS13_6_InvalidEffortValueIsError(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+	err := fs.Parse([]string{"--effort", "turbo"})
+	if err == nil {
+		t.Fatal("expected an error for --effort turbo")
+	}
+	for _, want := range []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should contain accepted value %q", err.Error(), want)
+		}
+	}
+}
+
+// TS-13-7 (unit): An invalid $AF_MODEL_EFFORT value exits 2 and names the
+// environment variable.
+func TestTS13_7_InvalidEnvEffortValueIsUsageError(t *testing.T) {
+	t.Setenv("AF_MODEL_EFFORT", "turbo")
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	c := &toolio.Common{Model: "STANDARD"}
+	_, err := c.ResolveModelNamed("STANDARD")
+	if err == nil {
+		t.Fatal("expected an error for AF_MODEL_EFFORT=turbo")
+	}
+	var ue *toolio.UsageError
+	if !errors.As(err, &ue) {
+		t.Errorf("expected a *UsageError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "AF_MODEL_EFFORT") {
+		t.Errorf("error %q should name AF_MODEL_EFFORT", err.Error())
+	}
+	for _, want := range []string{"off", "max"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should contain accepted value %q", err.Error(), want)
+		}
+	}
+}
+
+// TS-13-3 (unit): Effort precedence: flag > env > tier > unset, as a table test
+func TestTS13_3_EffortPrecedence(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	cases := []struct {
+		name  string
+		flag  string
+		env   string
+		model string
+		want  core.ThinkingLevel
+	}{
+		{"flag wins over tier", "low", "", "STANDARD", core.ThinkingLow},
+		{"env wins over tier", "", "low", "STANDARD", core.ThinkingLow},
+		{"tier's own effort", "", "", "STANDARD", core.ThinkingHigh},
+		{"model id gets unset", "", "", "anthropic/claude-opus-5-5", core.ThinkingUnset},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AF_MODEL_EFFORT", tc.env)
+			c := &toolio.Common{Effort: tc.flag, Model: tc.model}
+			choice, err := c.ResolveModelNamed(tc.model)
+			if err != nil {
+				t.Fatalf("ResolveModelNamed(%q): %v", tc.model, err)
+			}
+			if choice.Thinking != tc.want {
+				t.Errorf("Thinking = %q, want %q", choice.Thinking, tc.want)
+			}
+		})
+	}
+}
+
+// TS-13-4 (unit): --effort applies to a model named by catalog id
+func TestTS13_4_EffortAppliesToCatalogID(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	c := &toolio.Common{Effort: "max", Model: "anthropic/claude-opus-5-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-5-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	if choice.Thinking == core.ThinkingUnset {
+		t.Error("expected Thinking to be set when --effort is given with a catalog id")
+	}
+	// claude-opus-5-5 supports max, so it should be max
+	if choice.Thinking != core.ThinkingMax {
+		t.Errorf("Thinking = %q, want %q", choice.Thinking, core.ThinkingMax)
+	}
+}
+
+// TS-13-8 (unit): ClampThinkingLevel is called for any set effort and the
+// clamped level is the effective one reported in model.thinking
+func TestTS13_8_ClampedLevelIsEffective(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// claude-opus-4-5 supports off through high but NOT xhigh or max.
+	// Requesting xhigh should clamp downward to high.
+	c := &toolio.Common{Effort: "xhigh", Model: "anthropic/claude-opus-4-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-4-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	if choice.Thinking != core.ThinkingHigh {
+		t.Errorf("Thinking = %q, want %q (clamped from xhigh)", choice.Thinking, core.ThinkingHigh)
+	}
+}
+
+// TS-13-9 (unit): When clamping changes the level, an effort_clamped warning
+// is recorded naming both levels and the model
+func TestTS13_9_EffortClampedWarningRecorded(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// claude-opus-4-5 supports off through high but NOT xhigh or max.
+	c := &toolio.Common{Effort: "xhigh", Model: "anthropic/claude-opus-4-5"}
+	choice, err := c.ResolveModelNamed("anthropic/claude-opus-4-5")
+	if err != nil {
+		t.Fatalf("ResolveModelNamed: %v", err)
+	}
+	var found bool
+	for _, w := range choice.Warnings {
+		if w.Code == toolio.WarnEffortClamped {
+			found = true
+			if !strings.Contains(w.Message, "xhigh") {
+				t.Errorf("warning message should name the requested level xhigh: %q", w.Message)
+			}
+			if !strings.Contains(w.Message, "high") {
+				t.Errorf("warning message should name the clamped level high: %q", w.Message)
+			}
+			if !strings.Contains(w.Message, "claude-opus-4-5") {
+				t.Errorf("warning message should name the model: %q", w.Message)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected an effort_clamped warning in ModelChoice.Warnings")
+	}
+}
+
+// TS-13-10 (unit): ClampThinkingLevel returning ok==false with explicit effort
+// fails before the first request
+func TestTS13_10_NoReachableLevelFailsWithExplicitEffort(t *testing.T) {
+	t.Setenv("GOOGLE_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	// google/gemini-3.8-flash supports no thinking level (all null).
+	c := &toolio.Common{Effort: "high", Model: "google/gemini-3.8-flash"}
+	_, err := c.ResolveModelNamed("google/gemini-3.8-flash")
+	if err == nil {
+		t.Fatal("expected an error when no reachable level exists with explicit effort")
+	}
+	var ue *toolio.UsageError
+	if !errors.As(err, &ue) {
+		t.Errorf("expected a *UsageError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "gemini-3.8-flash") {
+		t.Errorf("error should name the model: %q", err.Error())
+	}
+}
+
+// TS-13-17 (unit): --variant is no longer registered and Variant field is
+// absent from Common.
+func TestTS13_17_VariantNotRegistered(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	c := &toolio.Common{}
+	c.Register(fs)
+	if fs.Lookup("variant") != nil {
+		t.Error("--variant should not be registered")
+	}
+}
+
+// TS-13-20 (unit): ResolveModelNamed no longer passes a variant argument to ModelSpec/ResolveModel
+func TestTS13_20_ResolveModelNamedNoVariantReference(t *testing.T) {
+	// Source inspection: read cli.go and confirm that ResolveModelNamed does
+	// not reference c.Variant. Since the Variant field was removed from Common
+	// in task 2, any reference would be a compile error. This test reads the
+	// source to verify no string "c.Variant" appears.
+	src, err := os.ReadFile("cli.go")
+	if err != nil {
+		t.Fatalf("reading cli.go: %v", err)
+	}
+	if strings.Contains(string(src), "c.Variant") {
+		t.Error("cli.go still references c.Variant")
+	}
+
+	// Also a compile-time check: ResolveModel(spec, vendor) compiles with
+	// two arguments. If it still took a variant, this would not compile.
+	_, _, compileErr := agentrun.ResolveModel("STANDARD", "")
+	if compileErr != nil {
+		t.Fatalf("ResolveModel(STANDARD, \"\"): %v", compileErr)
 	}
 }

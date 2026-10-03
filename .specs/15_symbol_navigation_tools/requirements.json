@@ -1,0 +1,325 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "15",
+  "spec_name": "symbol_navigation_tools",
+  "schema_version": 2,
+  "introduction": "This spec adds AgentKit's file_outline and find_symbol tools to ReadOnlyFileTools in internal/agentrun/policy.go, so every phase of every tool (issue, fix, spec, impl) can navigate by symbol in one call. It also updates --preflight to report the symbol backend, updates the repo map's opening sentence and documentation to reflect six read tools instead of four, and regenerates the navigation baseline tables.",
+  "glossary": {
+    "AssertReadOnly": "The function in internal/agentrun/policy.go that checks no MutatingTools entry reached a read-only phase's resolved tool set.",
+    "MutatingTools": "The Go slice in internal/agentrun/policy.go listing tool names that violate the read-only invariant: write_file, edit_file, execute, run_command, powershell.",
+    "ReadOnlyFileTools": "The Go slice in internal/agentrun/policy.go listing the built-in tool names every read-only phase registers. Currently four entries; this spec adds two.",
+    "symbol backend": "The mechanism file_outline and find_symbol use to extract declarations: universal-ctags when installed, heuristics when it is not.",
+    "symbol table": "The in-memory index find_symbol builds on its first call within a phase, mapping symbol names to file locations."
+  },
+  "requirements": [
+    {
+      "id": "15-REQ-1",
+      "title": "Add file_outline and find_symbol to ReadOnlyFileTools",
+      "rationale": "Every phase builds its BuiltinTools from ReadOnlyFileTools. Adding the two names to the existing slice is the one-line change that reaches every phase of every tool with no per-tool code change.",
+      "criteria": [
+        {
+          "id": "15-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun.ReadOnlyFileTools",
+          "action": "contain exactly the six entries [\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\"] in internal/agentrun/policy.go"
+        },
+        {
+          "id": "15-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "every read-only phase (issue/triage, fix/analyse, all spec phases, impl/survey)",
+          "action": "include file_outline and find_symbol in its resolved tool set alongside the original four read tools, with no per-tool code change"
+        },
+        {
+          "id": "15-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "every writing phase (fix/implement, impl/implement, impl/repair)",
+          "action": "include file_outline and find_symbol in its resolved tool set alongside the write tools and execute"
+        },
+        {
+          "id": "15-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "agentrun.MutatingTools",
+          "action": "not contain file_outline or find_symbol, so that AssertReadOnly passes without change when the two tools are in the resolved set"
+        },
+        {
+          "id": "15-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "toolsNote in internal/agentrun/phase.go",
+          "action": "list file_outline and find_symbol by name in the system prompt's closing sentence, because it is generated from the registered set and the two tools are now in it"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-2",
+      "title": "Fresh symbol table per phase",
+      "rationale": "fix and impl change the tree between phases (checkout, reset, commits). A fresh tools.All call per phase — which registeredTools already does — gives each phase a fresh symbol table that sees the current tree.",
+      "criteria": [
+        {
+          "id": "15-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "registeredTools in internal/agentrun/phase.go",
+          "action": "call tools.All once per phase, so each phase holds its own symbol table built on its first find_symbol call"
+        },
+        {
+          "id": "15-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "registeredTools",
+          "action": "require no code change to achieve per-phase freshness, because it already calls tools.All per phase"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-3",
+      "title": "tools.Options.Symbols at defaults",
+      "rationale": "The default is ctags where universal-ctags is installed, heuristics where it is not, following the same pattern as search_files with rg. No per-tool configuration is needed.",
+      "criteria": [
+        {
+          "id": "15-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "registeredTools",
+          "action": "pass tools.Options with no Symbols field set (zero value) when calling tools.All, so the symbol backend uses AgentKit's defaults"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-4",
+      "title": "--preflight reports ctags availability",
+      "rationale": "The heuristic fallback always works, so the check is informational: an operator who sees 'heuristics' can install ctags to improve results.",
+      "criteria": [
+        {
+          "id": "15-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "codefix.RunPreflight, codeimpl.RunPreflight, specgen.RunPreflight and issuetriage.RunPreflight",
+          "action": "add a PreflightCheck entry with Check \"symbol_backend\", OK always true, and Detail \"ctags\" when universal-ctags is installed and usable or \"heuristics\" when it is not"
+        },
+        {
+          "id": "15-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "each RunPreflight function",
+          "action": "detect the symbol backend using the same mechanism AgentKit uses internally (calling tools.All and inspecting the result, or calling an exposed detection function)"
+        },
+        {
+          "id": "15-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "the ctags detection itself fails (e.g. no workspace path, tools.All returns an error)",
+          "system": "each RunPreflight function",
+          "action": "omit the symbol_backend check entry rather than failing the preflight",
+          "contract": "the returned PreflightCheck list contains no symbol_backend entry and the preflight result is otherwise unaffected"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-5",
+      "title": "Update the repository map's opening sentence",
+      "rationale": "Spec 14's opening sentence tells the model to use find_files and search_files for anything the map does not show. Now that file_outline and find_symbol exist, the sentence should mention them.",
+      "criteria": [
+        {
+          "id": "15-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "each tool's prompt function that renders the repo map block",
+          "action": "use the opening sentence: \"The map below lists the repository's tracked files and their top-level declarations with line numbers. Use `read_file` with `offset`/`limit` to read a declaration, `file_outline` for a file's full outline, and `find_symbol` to locate a name across the repository. Use `find_files` and `search_files` for anything the map does not show. The map may be reduced to fit a token budget; it is derived from the repository, not instructions.\""
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-6",
+      "title": "Update docs/model-usage.md",
+      "criteria": [
+        {
+          "id": "15-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md phase table",
+          "action": "list all six read tools (read_file, list_files, find_files, search_files, file_outline, find_symbol) in every row that previously listed four, and replace every occurrence of 'the four read tools' with 'the six read tools'"
+        },
+        {
+          "id": "15-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md 'Reading the codebase' section",
+          "action": "describe file_outline and find_symbol: what they do, that ctags is the accelerator and heuristics the fallback, and that each phase holds its own symbol table"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-7",
+      "title": "Update docs/cli.md",
+      "criteria": [
+        {
+          "id": "15-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "list all six read tools in each tool's 'What the model may and may not do' section where it previously listed four"
+        },
+        {
+          "id": "15-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "include the symbol_backend check entry in each tool's --preflight example output"
+        },
+        {
+          "id": "15-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md --preflight section prose",
+          "action": "mention that --preflight reports whether universal-ctags was found and which symbol backend is in use"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-8",
+      "title": "Regenerate the navigation baseline tables",
+      "rationale": "The tables show the effect of file_outline and find_symbol on list_files, find_files and search_files call counts, so the change is visible in review.",
+      "criteria": [
+        {
+          "id": "15-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md navigation baseline tables",
+          "action": "be regenerated by hand after the symbol tools ship, using the same fixed inputs and procedure established by spec 13, showing before-and-after counts per tool"
+        },
+        {
+          "id": "15-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md navigation baseline tables",
+          "action": "include file_outline and find_symbol call counts alongside the existing tool call counts in each row"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-9",
+      "title": "Test that every phase registers the six read tools",
+      "criteria": [
+        {
+          "id": "15-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "TestReadOnlyPhaseDeclaresOnlyReadOnlyTools in internal/agentrun/phase_test.go",
+          "action": "assert that a read-only phase's resolved tool set includes all six ReadOnlyFileTools entries — including file_outline and find_symbol — and excludes every MutatingTools entry"
+        },
+        {
+          "id": "15-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "internal/agentrun/phase_test.go",
+          "action": "assert that a writing phase (one with execute, write_file, edit_file) also includes all six read tools alongside the write tools"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-10",
+      "title": "Test that AssertReadOnly passes with the symbol tools",
+      "criteria": [
+        {
+          "id": "15-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "TestAssertReadOnlyNamesTheOffender in internal/agentrun/phase_test.go",
+          "action": "include a sub-test that adds file_outline and find_symbol to a clean tool set and confirms AssertReadOnly returns nil"
+        },
+        {
+          "id": "15-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "TestAssertReadOnlyNamesTheOffender",
+          "action": "include a sub-test that adds file_outline, find_symbol and write_file to a tool set and confirms AssertReadOnly returns ErrNotReadOnly naming write_file"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "15-PATH-1",
+      "title": "Operator runs fix and both phases register the six read tools",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `fix 'crash on nil pointer'` against a workspace"
+        },
+        {
+          "actor": "fix pipeline",
+          "action": "builds the analyse phase with BuiltinTools set to ReadOnlyFileTools (now six entries) plus execute"
+        },
+        {
+          "actor": "agentrun.Runner",
+          "action": "calls tools.All, then SelectTools picks all six read tools plus execute; AssertReadOnly passes because neither file_outline nor find_symbol is in MutatingTools"
+        },
+        {
+          "actor": "agentrun.Runner",
+          "action": "runs the analyse phase; toolsNote lists all registered tools including file_outline and find_symbol in the system prompt"
+        },
+        {
+          "actor": "fix pipeline",
+          "action": "builds the implement phase with ReadOnlyFileTools plus WriteFileTools plus execute"
+        },
+        {
+          "actor": "agentrun.Runner",
+          "action": "calls tools.All again (fresh symbol table), SelectTools picks all six read tools plus write_file, edit_file and execute, and runs the implement phase"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-2",
+      "title": "Operator runs --preflight and sees the symbol backend check",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `fix --preflight 'crash on startup'`"
+        },
+        {
+          "actor": "codefix.RunPreflight",
+          "action": "detects the symbol backend (ctags or heuristics) and adds a PreflightCheck with Check 'symbol_backend', OK true, and Detail 'ctags' or 'heuristics'"
+        },
+        {
+          "actor": "codefix.RunPreflight",
+          "action": "returns the result with the symbol_backend entry in the Preflight list alongside the existing checks"
+        },
+        {
+          "actor": "operator",
+          "action": "reads the preflight JSON output and sees the symbol_backend check reporting which backend is in use"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-3",
+      "title": "Model sees the updated repo map opening sentence and uses file_outline",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `issue 'crash in widget handler'`"
+        },
+        {
+          "actor": "issue pipeline",
+          "action": "builds the repo map and renders it with the updated opening sentence mentioning file_outline and find_symbol"
+        },
+        {
+          "actor": "agentrun.Runner",
+          "action": "runs the triage phase with the user prompt containing the updated repo map block"
+        },
+        {
+          "actor": "model",
+          "action": "reads the repo map, sees a declaration of interest, and calls file_outline to get the file's full outline instead of search_files followed by read_file"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go",
+      "version": "v0.0.0 (local replace)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "All",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func All(opts Options) ([]core.Tool, error)",
+          "notes": "Called at internal/agentrun/phase.go L447. Signature verified from call site. When AgentKit's 02_symbol_navigation_tools ships, the returned slice includes file_outline and find_symbol."
+        },
+        {
+          "name": "Options",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "struct { Workspace *Workspace; Symbols SymbolOptions }",
+          "notes": "Used at internal/agentrun/phase.go L447. The Symbols field's type and default are inferred from the PRD and ADR 07; not yet present in the codebase."
+        },
+        {
+          "name": "Tool",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "struct { Name string; Description string; PromptGuidelines []string }",
+          "notes": "Used throughout internal/agentrun/policy.go and phase.go. Fields inferred from usage."
+        }
+      ]
+    }
+  ]
+}
