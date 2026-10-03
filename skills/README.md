@@ -6,7 +6,7 @@ been rebuilt as a program:
 
 | Skill | Became |
 |---|---|
-| `af-issue` | the [`issue`](../docs/cli.md#issue) tool |
+| `af-issue` | the [`triage`](../docs/cli.md#triage) tool |
 | `af-fix` | the [`fix`](../docs/cli.md#fix) tool |
 | `af-spec` | the [`spec`](../docs/cli.md#spec) tool |
 

@@ -12,7 +12,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
 )
 
-var schemaTools = []string{"spec", "issue", "fix", "impl"}
+var schemaTools = []string{"spec", "triage", "fix", "impl"}
 
 // TS-09-35 (integration): Each tool ships a checked-in golden file holding
 // its --schema output's exact bytes.
@@ -159,7 +159,7 @@ func TestTS13_26_GoldenFilesContainEffortNotVariant(t *testing.T) {
 		} `json:"flags"`
 	}
 
-	for _, tool := range []string{"issue", "fix", "spec", "impl"} {
+	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
 		t.Run(tool, func(t *testing.T) {
 			path := filepath.Join(root, "cmd", tool, "testdata", "schema.golden.json")
 			data, err := os.ReadFile(path)

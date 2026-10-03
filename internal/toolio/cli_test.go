@@ -330,7 +330,7 @@ func TestTS06_3_FullViewKeysSupersetOfPreSpecKeys(t *testing.T) {
 		preKeys []string
 	}{
 		{
-			tool: "issue",
+			tool: "triage",
 			typ:  reflect.TypeOf(issuetriage.Result{}),
 			preKeys: []string{
 				"action", "repo", "url", "number", "upstream_url", "title", "body",
@@ -396,7 +396,7 @@ func TestTS06_3_FullViewKeysSupersetOfPreSpecKeys(t *testing.T) {
 // TS-06-4 (unit): Every tool's Result records which detail view was emitted,
 // under both summary and full.
 func TestTS06_4_ResultRecordsDetailView(t *testing.T) {
-	t.Run("issue", func(t *testing.T) {
+	t.Run("triage", func(t *testing.T) {
 		r := &issuetriage.Result{}
 		assertDetailRoundTrips(t, r)
 	})
@@ -460,7 +460,7 @@ func TestTS06_4_FullViewSetsDetailFull(t *testing.T) {
 }
 
 // toolFlagSetNames are the four tools whose flag sets share Common.
-var toolFlagSetNames = []string{"issue", "fix", "spec", "impl"}
+var toolFlagSetNames = []string{"triage", "fix", "spec", "impl"}
 
 // TS-06-52 (unit): --dry-run is registered exactly once, on Common, with the
 // one make-no-remote-change definition.

@@ -1,7 +1,7 @@
-// Command issue triages a problem report against a codebase and files a
+// Command triage triages a problem report against a codebase and files a
 // structured issue on GitHub or GitLab.
 //
-//	issue [flags] <text | file | issue-url | ->
+//	triage [flags] <text | file | issue-url | ->
 //
 // It takes exactly one input and writes exactly one JSON object to stdout.
 // Progress goes to stderr, so the two never interleave.
@@ -21,10 +21,10 @@ import (
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
-const usage = `issue — triage a problem report and file an issue on GitHub or GitLab
+const usage = `triage — triage a problem report and file an issue on GitHub or GitLab
 
 Usage:
-  issue [flags] <input>
+  triage [flags] <input>
 
 The input is exactly one of:
   a GitHub or GitLab issue or pull/merge-request URL
@@ -38,7 +38,7 @@ Output is one JSON object on stdout; progress goes to stderr.
 The analysis is read-only: the tools it has cannot write a file, run a
 command, or reach the network. The issue is filed on GitHub or GitLab by this
 program after the run, and --dry-run suppresses that: it makes no remote
-change, and issue has nothing else to do locally, so it does nothing at all.
+change, and triage has nothing else to do locally, so it does nothing at all.
 --total-budget and --budget bound the same spend here (one phase); the lower
 of the two applies.
 
@@ -50,18 +50,18 @@ Exit codes:
 Flags:
 `
 
-// issueFlags holds the values of issue's own flags. Both the ordinary Exec
-// and the --preflight PreflightExec read them through issueOptions, so the
+// triageFlags holds the values of triage's own flags. Both the ordinary Exec
+// and the --preflight PreflightExec read them through triageOptions, so the
 // two paths build identical issuetriage.Options.
-type issueFlags struct {
+type triageFlags struct {
 	repo      string
 	labels    string
 	overwrite bool
 }
 
-// issueOptions builds the issuetriage.Options for one run from the parsed
+// triageOptions builds the issuetriage.Options for one run from the parsed
 // flags and what App.execute resolved.
-func (f *issueFlags) issueOptions(d toolio.Deps) issuetriage.Options {
+func (f *triageFlags) triageOptions(d toolio.Deps) issuetriage.Options {
 	target, _ := issuex.ParseRepo(f.repo)
 	return issuetriage.Options{
 		Input:     d.Input,
@@ -94,10 +94,10 @@ func failureResponse(result *issuetriage.Result, err error) (int, any, *toolio.E
 }
 
 func newApp() toolio.App {
-	f := &issueFlags{}
+	f := &triageFlags{}
 
 	return toolio.App{
-		Name:             "issue",
+		Name:             "triage",
 		Version:          agentfox.Version,
 		Usage:            usage,
 		Description:      "Triages a problem report read-only and files it as an issue on GitHub or GitLab.",
@@ -140,7 +140,7 @@ func newApp() toolio.App {
 		},
 
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			result, err := issuetriage.Run(ctx, f.issueOptions(d))
+			result, err := issuetriage.Run(ctx, f.triageOptions(d))
 			if err != nil {
 				return failureResponse(result, err)
 			}
@@ -150,7 +150,7 @@ func newApp() toolio.App {
 		// --preflight: every check the ordinary run makes before its model
 		// phase, against the identical options, then stop.
 		PreflightExec: func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			result, err := issuetriage.RunPreflight(f.issueOptions(d))
+			result, err := issuetriage.RunPreflight(f.triageOptions(d))
 			if err != nil {
 				return failureResponse(result, err)
 			}

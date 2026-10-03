@@ -193,7 +193,7 @@
     "properties": {
       "tool": {
         "type": "string",
-        "description": "The program that produced this object: spec, issue, fix or impl."
+        "description": "The program that produced this object: spec, triage, fix or impl."
       },
       "version": {
         "type": "string",
@@ -951,7 +951,7 @@
           "properties": {
             "tool": {
               "type": "string",
-              "description": "The agent-fox tool to run next: spec, issue, fix or impl."
+              "description": "The agent-fox tool to run next: spec, triage, fix or impl."
             },
             "input": {
               "type": "string",

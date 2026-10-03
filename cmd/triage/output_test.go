@@ -11,10 +11,10 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// TS-08-26 (smoke, entry point): issue reaches the shared App.Main unchanged,
+// TS-08-26 (smoke, entry point): triage reaches the shared App.Main unchanged,
 // so --output is live on it: a usage-error envelope is persisted
 // byte-for-byte, and an --output naming a directory is refused.
-func TestTS08_Output_issue_EntryPointWritesEnvelopeFile(t *testing.T) {
+func TestTS08_Output_triage_EntryPointWritesEnvelopeFile(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	out := filepath.Join(t.TempDir(), "nested", "result.json")
 	var stdout, stderr bytes.Buffer

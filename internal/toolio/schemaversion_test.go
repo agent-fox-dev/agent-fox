@@ -23,7 +23,7 @@ func TestTS09_30_AllFourToolsAdvertiseTheSameSchemaVersion(t *testing.T) {
 		args []string
 	}{
 		{"spec", []string{"--name", "BAD!", "x"}},
-		{"issue", []string{"--repo", "single", "x"}},
+		{"triage", []string{"--repo", "single", "x"}},
 		{"fix", []string{"--land", "bogus", "x"}},
 		{"impl", []string{"--land", "bogus", "x"}},
 	}

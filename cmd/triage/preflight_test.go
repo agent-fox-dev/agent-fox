@@ -12,7 +12,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
-// runIssue drives the real App, as main does, and returns the exit code and
+// runTriage drives the real App, as main does, and returns the exit code and
 // the decoded envelope.
 func runIssueApp(t *testing.T, argv ...string) (int, map[string]any) {
 	t.Helper()
@@ -25,18 +25,18 @@ func runIssueApp(t *testing.T, argv ...string) (int, map[string]any) {
 	return code, env
 }
 
-// TS-11-11 (unit): issue's Exec and PreflightExec closures build identical
-// issuetriage.Options from the same flags, because both call issueOptions.
+// TS-11-11 (unit): triage's Exec and PreflightExec closures build identical
+// issuetriage.Options from the same flags, because both call triageOptions.
 //
 // Verifies: 11-REQ-2.4
 func TestTS11_11_IssueOptionsIsOneFunctionForBothClosures(t *testing.T) {
-	f := &issueFlags{repo: "acme/widgets", labels: "af:fix, bug", overwrite: false}
+	f := &triageFlags{repo: "acme/widgets", labels: "af:fix, bug", overwrite: false}
 	d := toolio.Deps{
 		Common: &toolio.Common{DryRun: true},
 		Input:  toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "a report"},
 	}
 
-	optsA, optsB := f.issueOptions(d), f.issueOptions(d)
+	optsA, optsB := f.triageOptions(d), f.triageOptions(d)
 	if !reflect.DeepEqual(optsA, optsB) {
 		t.Errorf("two builds differ:\n%+v\n%+v", optsA, optsB)
 	}
@@ -50,11 +50,11 @@ func TestTS11_11_IssueOptionsIsOneFunctionForBothClosures(t *testing.T) {
 
 	app := newApp()
 	if app.Exec == nil || app.PreflightExec == nil {
-		t.Errorf("Exec = %v, PreflightExec = %v: issue must register both", app.Exec != nil, app.PreflightExec != nil)
+		t.Errorf("Exec = %v, PreflightExec = %v: triage must register both", app.Exec != nil, app.PreflightExec != nil)
 	}
 }
 
-// issue --preflight through the real shell: exit 0, stage preflight, the
+// triage --preflight through the real shell: exit 0, stage preflight, the
 // checklist and estimate in the default view, no usage.
 func TestIssuePreflightThroughTheShell(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -83,9 +83,9 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 	}
 }
 
-// TS-11-22 (property, issue's share): for every scenario that fails before
+// TS-11-22 (property, triage's share): for every scenario that fails before
 // the first model call, adding --preflight changes neither the error nor the
-// exit code. The corpus here is the pre-model failures issue can have; the
+// exit code. The corpus here is the pre-model failures triage can have; the
 // other tools' share is in cmd/fix, cmd/impl and cmd/spec.
 //
 // Verifies: 11-REQ-4.1

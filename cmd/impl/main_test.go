@@ -73,7 +73,7 @@ func TestImplFlagsMatchTheToolFlagTable(t *testing.T) {
 	}
 }
 
-// TS-06-58 (unit): impl invoked with --label, a flag issue defines, exits 2
+// TS-06-58 (unit): impl invoked with --label, a flag triage defines, exits 2
 // naming both.
 func TestTS06_58_ImplRejectsLabelNamingIssue(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -83,14 +83,14 @@ func TestTS06_58_ImplRejectsLabelNamingIssue(t *testing.T) {
 	if code != toolio.ExitUsage {
 		t.Fatalf("code = %d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "--label") || !strings.Contains(stderr.String(), "issue") {
+	if !strings.Contains(stderr.String(), "--label") || !strings.Contains(stderr.String(), "triage") {
 		t.Errorf("stderr does not name the flag and the accepting tool:\n%s", stderr.String())
 	}
 	var env toolio.Envelope
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
 		t.Fatalf("stdout: %v\n%s", err, stdout.String())
 	}
-	if env.Error == nil || !strings.Contains(env.Error.Message, "--label") || !strings.Contains(env.Error.Message, "issue") {
+	if env.Error == nil || !strings.Contains(env.Error.Message, "--label") || !strings.Contains(env.Error.Message, "triage") {
 		t.Errorf("Error = %+v", env.Error)
 	}
 }

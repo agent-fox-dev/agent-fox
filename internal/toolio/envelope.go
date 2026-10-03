@@ -248,7 +248,7 @@ const AnswerPlaceholder = "\"<answer>\""
 // the single input to give it, the flags to add, and why. It is derived in
 // Go from a tool's own Result, never from the model.
 type Next struct {
-	Tool  string   `json:"tool" description:"The agent-fox tool to run next: spec, issue, fix or impl."`
+	Tool  string   `json:"tool" description:"The agent-fox tool to run next: spec, triage, fix or impl."`
 	Input string   `json:"input" description:"The single input to give it: a file path or an issue URL, or the placeholder <same input> when the original input was raw text or stdin."`
 	Flags []string `json:"flags" description:"Flags to add to the invocation, one argument per element."`
 	Why   string   `json:"why" description:"Why this follow-up is suggested."`
@@ -334,8 +334,8 @@ const SchemaVersion = "3.0.0"
 // bare sentence on failure forces its caller to parse two formats and guess
 // which one it got.
 type Envelope struct {
-	// Tool is the program that produced this object: "spec", "issue", "fix".
-	Tool string `json:"tool" description:"The program that produced this object: spec, issue, fix or impl."`
+	// Tool is the program that produced this object: "spec", "triage", "fix".
+	Tool string `json:"tool" description:"The program that produced this object: spec, triage, fix or impl."`
 	// Version is the build identity, so a surprising result can be traced to
 	// a build.
 	Version string `json:"version" description:"The build identity of the tool, so a surprising result can be traced to a build."`

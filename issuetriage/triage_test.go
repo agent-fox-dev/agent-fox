@@ -52,7 +52,7 @@ func newRunner(t *testing.T, ws *tools.Workspace, turns ...faux.Turn) *agentrun.
 		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
 		Workspace:     ws,
 		Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
-		SessionPrefix: "issue",
+		SessionPrefix: "triage",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,8 +113,8 @@ func newOptions(t *testing.T, ws *tools.Workspace, runner *agentrun.Runner) Opti
 		Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
 		Runner:    runner,
 		Forge:     issuex.NewNoOp(),
-		Run:       toolio.NewRun("issue", "test"),
-		Progress:  toolio.NewProgress(io.Discard, "issue", false, true),
+		Run:       toolio.NewRun("triage", "test"),
+		Progress:  toolio.NewProgress(io.Discard, "triage", false, true),
 		DryRun:    true,
 	}
 }
@@ -159,7 +159,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 	if !strings.Contains(first, "No related instances found.") {
 		t.Error("an empty related-instances list should render as a sentence, not as nothing")
 	}
-	if !strings.Contains(first, "[`issue`](https://github.com/agent-fox-dev/agent-fox)") {
+	if !strings.Contains(first, "[`triage`](https://github.com/agent-fox-dev/agent-fox)") {
 		t.Errorf("the attribution footer should link the tool name to the agent-fox repo:\n%s", first)
 	}
 }
@@ -662,7 +662,7 @@ func TestTS06_26_27_WriteRecordsCreateAndUpdateSideEffects(t *testing.T) {
 	ctx := context.Background()
 	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
 
-	run := toolio.NewRun("issue", "test")
+	run := toolio.NewRun("triage", "test")
 	o := Options{Forge: &mockClient{authenticated: true}, Run: run}
 	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -672,7 +672,7 @@ func TestTS06_26_27_WriteRecordsCreateAndUpdateSideEffects(t *testing.T) {
 		t.Fatalf("create: SideEffects = %+v", got)
 	}
 
-	run = toolio.NewRun("issue", "test")
+	run = toolio.NewRun("triage", "test")
 	ref := issuex.IssueRef{Repo: target, Number: 42}
 	o = Options{Forge: &mockClient{authenticated: true}, Run: run, Overwrite: true, Input: toolio.Input{Issue: &ref}}
 	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err != nil {
@@ -690,7 +690,7 @@ func TestTS06_26_27_WriteRecordsCreateAndUpdateSideEffects(t *testing.T) {
 func TestTS06_28_FailedIssueWriteIsRecordedNotOK(t *testing.T) {
 	ctx := context.Background()
 	target := issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"}
-	run := toolio.NewRun("issue", "test")
+	run := toolio.NewRun("triage", "test")
 	o := Options{Forge: &mockClient{createErr: errors.New("500")}, Run: run}
 	if err := Write(ctx, o, target, &Result{Title: "t", Body: "b"}); err == nil {
 		t.Fatal("want a failure")
@@ -728,7 +728,7 @@ func TestTS06_29_SideEffectsRecordedLiveInForgeCallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := toolio.NewRun("issue", "test")
+	run := toolio.NewRun("triage", "test")
 	if err := Write(ctx, Options{Forge: client, Run: run}, target, &Result{Title: "t", Body: "b"}); err != nil {
 		t.Fatal(err)
 	}

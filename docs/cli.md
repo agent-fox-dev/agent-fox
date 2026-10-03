@@ -3,10 +3,10 @@
 Four tools, one interface.
 
 ```
-spec  [flags] <input>     a product idea      → a validated specification package
-issue [flags] <input>     a problem report    → a structured issue on GitHub or GitLab
-fix   [flags] <input>     a problem           → a verified change on a branch
-impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
+spec   [flags] <input>    a product idea      → a validated specification package
+triage [flags] <input>    a problem report    → a structured issue on GitHub or GitLab
+fix    [flags] <input>    a problem           → a verified change on a branch
+impl   [flags] <input>    a specification     → the spec implemented, task by task, on a branch
 ```
 
 Each takes **exactly one positional input** and writes **exactly one JSON
@@ -51,9 +51,9 @@ simply had no more frames.
 Flags may come before or after the input:
 
 ```sh
-issue --dry-run ./crash.log
-issue ./crash.log --dry-run
-kubectl logs deploy/api --since 1h | issue - --repo acme/widgets
+triage --dry-run ./crash.log
+triage ./crash.log --dry-run
+kubectl logs deploy/api --since 1h | triage - --repo acme/widgets
 ```
 
 ## The output
@@ -120,7 +120,7 @@ whether re-running could help, and `retryable` says so directly — see the
 column below. `resumable` says whether re-running the *same input* continues
 the work rather than starting it over (true for `impl` whenever a branch was
 named, and for `spec` whenever an unfinished split plan exists; always false
-for `fix` and `issue`). `fix_hint`, where present, names a mechanical remedy:
+for `fix` and `triage`). `fix_hint`, where present, names a mechanical remedy:
 
 ```jsonc
 "error": { "stage": "implement", "category": "budget",
@@ -196,7 +196,7 @@ A `comment` entry carries a `role` saying which comment it is — `analysis`,
 that posts two can be read without relying on order.
 
 `spec` reports `{"kind": "spec_package", "path", "id", "valid"}` for each
-package it wrote, and `issue` reports `{"kind": "issue", "url", "number"}`.
+package it wrote, and `triage` reports `{"kind": "issue", "url", "number"}`.
 
 `side_effects` lists every write to a forge or a remote, in the order it
 happened: `action` is `create_issue`, `update_issue`, `comment`, `push` or
@@ -243,7 +243,7 @@ placeholder `<same input>`, as in `needs_human.resume`.
 
 | Tool | Suggests |
 |---|---|
-| `issue` | `fix` on the issue's URL, when one was filed or updated (nothing under `--dry-run`) |
+| `triage` | `fix` on the issue's URL, when one was filed or updated (nothing under `--dry-run`) |
 | `spec` | `impl` on the first package that validates; `spec` again on the same input while a split is unfinished |
 | `impl` | `impl` again on the same spec when the run parked, with `--repair` when it parked on a red baseline and no repair was attempted |
 | `fix` | nothing on success; on an ambiguity, `fix <same input> --context "<answer>"`, identical to `needs_human.resume` |
@@ -363,9 +363,9 @@ a typo. An existing directory is never flagged.
 | `--show-text` | off | stream the model's own prose to stderr |
 | `--detail` · `--report-file` | `summary` · see below | `--detail summary\|full` picks the `result` view on stdout: `summary` (the default) keeps the subset each tool's section lists, `full` prints everything the tool computed; any other value is a usage error. `--report-file <path>` names where the complete envelope is written; by default `$XDG_STATE_HOME/agent-fox/runs/<tool>-<started_at>-<session_id>.json` (see [State directory](configuration.md#state-directory)). The file is always the `full` view, whichever `--detail` was given |
 | `--output` | none | `--output <path>` writes a second copy of the same envelope stdout gets — the same `--detail` view, `warnings` and `error` — to that file. The write is atomic (a temp file in the target's directory, synced, then renamed over the path, so a reader sees nothing or the whole document) and happens before anything is written to stdout, on every path that produces an envelope, including the internal fallback for a `result` that cannot be encoded. A relative path resolves against the process's working directory, not `--dir`; a missing parent directory is created. `-` and an existing directory are usage errors (exit 2), refused before anything is fetched. It is written under `--dry-run` too. A failed write never changes the exit code: it adds a low `output_not_written` warning naming the path and the cause. When `--output` and `--report-file` (explicit or the default) resolve to the same path, `--output`'s own write is skipped and a low `output_matches_report_file` warning is recorded: the file there is the complete report, not the `--detail` view `--output` alone would have produced, and if the report write fails nothing lands there (the envelope then also carries `report_file_not_written`) |
-| `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `issue` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
+| `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `triage` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
 | `--emit-events` | off | write the JSON event stream to stderr instead of the human progress lines. Without it, stderr carries the human progress exactly as the default does today. With it, stderr carries one JSON event per line and no human line. `--quiet` silences stderr under both settings and never affects the events file. See [Machine-readable progress](#machine-readable-progress-the-event-types) |
-| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `issue` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
+| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
 | `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream or `--report-file` written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
@@ -387,7 +387,7 @@ belongs to none of the four tools keeps the generic message.
 
 ## Preflight (`--preflight`)
 
-`fix`, `impl`, `spec` and `issue` each refuse a run before the model is ever
+`fix`, `impl`, `spec` and `triage` each refuse a run before the model is ever
 called for a list of reasons: a dirty tree, an unresolvable model, a missing
 credential, an invalid spec package, an unreachable repository. `--preflight`
 performs every one of those checks — the ones the ordinary run performs, by
@@ -407,7 +407,7 @@ then the tool's own checks:
   work branch, and the baseline gate.
 - `spec`: `--name`, `--comment`'s preconditions, the schemas, and any split
   plan to resume.
-- `issue`: the target repository and the forge credential.
+- `triage`: the target repository and the forge credential.
 
 **A refusal is the ordinary run's refusal.** A run that would stop before its
 first model call stops identically under `--preflight`: the same `stage`,
@@ -551,16 +551,16 @@ spec ./prd.md --preflight
 spec, tasks), plus one with `--architecture`, for the next package; when a
 split is being resumed, that figure times the scopes still to write.
 
-### `issue --preflight`
+### `triage --preflight`
 
 ```sh
-issue ./crash.log --preflight
+triage ./crash.log --preflight
 ```
 
 ```json
 {
   "ok": true,
-  "tool": "issue",
+  "tool": "triage",
   "result": {
     "stage": "preflight",
     "preflight": [
@@ -645,7 +645,7 @@ This is the shape, abbreviated (`fix --schema`; `…` marks what is left out):
   generated from the Go types, and every field carries a `description`. It
   describes the `full` view (`--detail full`, and the report file); the
   `summary` view on stdout is a subset of it.
-- `exit_codes` — only the codes this tool can return: `issue` and `spec` never
+- `exit_codes` — only the codes this tool can return: `triage` and `spec` never
   stop with `needs_human` or `unverified`, so theirs has three entries (`0`,
   `1`, `2`), `fix` and `impl` five. The meanings are in [Exit codes](#exit-codes).
 
@@ -774,7 +774,7 @@ Every event is one JSON object on one line. Its first four keys are the same
 for every type:
 
 - `ts` — RFC 3339, UTC, the same convention as the envelope's `started_at`
-- `tool` — the program name (`spec`, `issue`, `fix`, `impl`), as in the envelope
+- `tool` — the program name (`spec`, `triage`, `fix`, `impl`), as in the envelope
 - `session_id` — the run's unique session identifier, the same 32 hex characters as the envelope's `session_id`
 - `type` — one of the closed set below; nothing else is ever emitted, and a
   field not listed for a type is never present on it
@@ -843,16 +843,16 @@ before the next phase:
 
 ---
 
-## `issue`
+## `triage`
 
 Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
 
 ```sh
-issue "panic: assignment to entry in nil map in loop.go, after an abort"
-issue ./crash.log --dir ./service --label af:fix
-issue https://github.com/acme/widgets/issues/42 --overwrite
-issue ./crash.log --dry-run
+triage "panic: assignment to entry in nil map in loop.go, after an abort"
+triage ./crash.log --dir ./service --label af:fix
+triage https://github.com/acme/widgets/issues/42 --overwrite
+triage ./crash.log --dry-run
 ```
 
 The analysis is read-only, and that is a mechanism rather than a promise: the
@@ -873,7 +873,7 @@ than from the code.
 | `--label a,b` | — | labels for the created issue, e.g. `af:fix` |
 | `--overwrite` | off | rewrite the input issue in place instead of creating a new one; needs an issue URL, and cannot be combined with `--repo` or `--label` |
 
-Bounds: 100 turns, $2.00 per phase. With `--dry-run`, `issue` makes no change
+Bounds: 100 turns, $2.00 per phase. With `--dry-run`, `triage` makes no change
 on the forge and does nothing locally either: it reports the diagnosis only.
 
 `result` carries `action` (`created` · `updated` · `none`), `url`, `number`,
@@ -935,7 +935,7 @@ comes from git, not from the model.
 ### Acceptance criteria
 
 When the report defines acceptance criteria — the `## Acceptance Criteria`
-section `issue` writes, or the same section written by hand — they are
+section `triage` writes, or the same section written by hand — they are
 extracted before the model is called and become what the change is measured
 against:
 

@@ -62,7 +62,7 @@ func TestTS09_30_RunEnvelopeSetsSchemaVersion(t *testing.T) {
 }
 
 func TestEnvelopeOKOnlyWhenExitIsZero(t *testing.T) {
-	r := toolio.NewRun("issue", "v1")
+	r := toolio.NewRun("triage", "v1")
 	if env := r.Envelope(toolio.ExitOK, map[string]string{"a": "b"}, nil); !env.OK {
 		t.Error("exit 0 must be ok")
 	}
@@ -107,7 +107,7 @@ func TestEnvelopeSumsPhases(t *testing.T) {
 // to parse two formats and guess which one it got is not being served.
 func TestEmitWritesOneJSONObject(t *testing.T) {
 	var buf bytes.Buffer
-	r := toolio.NewRun("issue", "v1")
+	r := toolio.NewRun("triage", "v1")
 	r.Warn(toolio.WarnCommentsUnreadable, "low", "something to note")
 
 	code := toolio.Emit(&buf, r.Envelope(toolio.ExitFailed, nil, &toolio.ErrorInfo{
@@ -121,7 +121,7 @@ func TestEmitWritesOneJSONObject(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		t.Fatalf("stdout is not one JSON object: %v\n%s", err, buf.String())
 	}
-	if env.Tool != "issue" || env.OK || env.ExitCode != toolio.ExitFailed {
+	if env.Tool != "triage" || env.OK || env.ExitCode != toolio.ExitFailed {
 		t.Errorf("envelope = %+v", env)
 	}
 	if env.Error == nil || env.Error.Category != "budget" {
@@ -541,7 +541,7 @@ func TestTS05_26_IssuetriageResultResumableAlwaysFalse(t *testing.T) {
 
 // TS-05-33 (unit): Run.Warn accepts a WarnCode and severity, and the envelope reports each warning as a code/severity/stage/message object.
 func TestTS05_33_WarnAcceptsCodeAndSeverity(t *testing.T) {
-	run := toolio.NewRun("issue", "v1")
+	run := toolio.NewRun("triage", "v1")
 	run.Warn(toolio.WarnCode("input_truncated"), "high", "the input was truncated at %d bytes", 262144)
 	env := run.Envelope(toolio.ExitOK, nil, nil)
 	if len(env.Warnings) != 1 {

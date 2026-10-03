@@ -32,7 +32,7 @@ internal/
   gitx/                   # git, and the process runner
   checks/                 # Detecting and running a project's own quality command
 cmd/
-  spec/  issue/  fix/  impl/   # The four tools
+  spec/  triage/  fix/  impl/  # The four tools
   af/  nightshift/        # Stubs that print the build identity
 containers/               # Containerfiles for the sandbox and tools images
 docs/                     # Documentation, ADRs, errata, PRDs and drafts
@@ -105,7 +105,7 @@ go mod download
   scripted one; `issuetriage` has a single phase
   and is tested through the real agent loop against a scripted provider instead.
 
-- **cmd/spec**, **cmd/issue**, **cmd/fix**, **cmd/impl** — each is a
+- **cmd/spec**, **cmd/triage**, **cmd/fix**, **cmd/impl** — each is a
   `toolio.App` value and an `os.Exit`. See [ADR 03](adr/03-rebuild-the-skills-as-tools.md).
 
 ## Common tasks
@@ -119,7 +119,7 @@ All tasks are driven through `make`. Run from the repository root.
 | `make test-fast`    | The same with `-short`, skipping the slow tests        |
 | `make lint`         | Lint Go source: `gofmt` + `go vet`                     |
 | `make format`       | Auto-format Go source: `gofmt -w`                      |
-| `make build`        | `go install` `spec`, `issue`, `fix` and `impl`; build `af` and `nightshift` into `bin/` |
+| `make build`        | `go install` `spec`, `triage`, `fix` and `impl`; build `af` and `nightshift` into `bin/` |
 | `make build-all`    | Static cross-builds of the four tools into `dist/` (darwin/arm64, linux/arm64, linux/amd64) |
 | `make build-containers` | Build the sandbox and tools images with `podman` |
 | `make clean`        | Remove build artifacts                                 |

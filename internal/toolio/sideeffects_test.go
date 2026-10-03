@@ -10,7 +10,7 @@ import (
 // TS-06-26 (unit): side_effects lists every remote write in order and is
 // omitted when there were none.
 func TestTS06_26_SideEffectsListedAndOmittedWhenEmpty(t *testing.T) {
-	issueRun := toolio.NewRun("issue", "v1")
+	issueRun := toolio.NewRun("triage", "v1")
 	issueRun.RecordSideEffect("create_issue", "acme/widgets", true, "")
 	env := issueRun.Envelope(toolio.ExitOK, nil, nil)
 	if len(env.SideEffects) != 1 || env.SideEffects[0].Action != "create_issue" {

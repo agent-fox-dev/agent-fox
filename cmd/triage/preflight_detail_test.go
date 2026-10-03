@@ -6,7 +6,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// TS-11-41 (integration, issue's share): --detail summary keeps preflight and
+// TS-11-41 (integration, triage's share): --detail summary keeps preflight and
 // estimate in the trimmed result, and artifacts[] and side_effects[] stay
 // empty.
 //

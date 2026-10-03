@@ -1,5 +1,5 @@
 {
-  "tool": "issue",
+  "tool": "triage",
   "schema_version": "3.0.0",
   "description": "Triages a problem report read-only and files it as an issue on GitHub or GitLab.",
   "input": {
@@ -152,7 +152,7 @@
     "properties": {
       "tool": {
         "type": "string",
-        "description": "The program that produced this object: spec, issue, fix or impl."
+        "description": "The program that produced this object: spec, triage, fix or impl."
       },
       "version": {
         "type": "string",
@@ -730,7 +730,7 @@
           "properties": {
             "tool": {
               "type": "string",
-              "description": "The agent-fox tool to run next: spec, issue, fix or impl."
+              "description": "The agent-fox tool to run next: spec, triage, fix or impl."
             },
             "input": {
               "type": "string",

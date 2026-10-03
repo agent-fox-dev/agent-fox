@@ -53,7 +53,7 @@ func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds four binaries")
 	}
-	tools := []string{"fix", "impl", "issue", "spec"}
+	tools := []string{"fix", "impl", "triage", "spec"}
 	for _, tool := range tools {
 		t.Run(tool, func(t *testing.T) {
 			live := schematest.Live(t, tool)

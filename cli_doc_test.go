@@ -70,7 +70,7 @@ func TestCLIDocTS11_48_PreflightSection(t *testing.T) {
 func TestCLIDocTS11_49_WorkedExamples(t *testing.T) {
 	doc := readDoc(t, "cli.md")
 	section := docSection(t, doc, "Preflight (`--preflight`)")
-	for _, tool := range []string{"fix", "impl", "spec", "issue"} {
+	for _, tool := range []string{"fix", "impl", "spec", "triage"} {
 		ex := preflightExample(t, section, tool)
 		for _, want := range []string{`"preflight"`, `"estimate"`} {
 			if !strings.Contains(ex, want) {
