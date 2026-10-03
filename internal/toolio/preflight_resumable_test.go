@@ -17,10 +17,10 @@ import (
 // Verifies: 11-REQ-6.4
 func TestTS11_40_ResumableIsFalseForEveryPreflightResult(t *testing.T) {
 	cases := map[string]toolio.Resumabler{
-		"impl":  codeimpl.Result{Stage: "preflight", Branch: "feature/x"},
-		"fix":   codefix.Result{Stage: "preflight"},
-		"spec":  specgen.Result{Stage: "preflight", SplitPlan: ".specs/x.split.json"},
-		"issue": issuetriage.Result{Stage: "preflight"},
+		"impl":   codeimpl.Result{Stage: "preflight", Branch: "feature/x"},
+		"fix":    codefix.Result{Stage: "preflight"},
+		"spec":   specgen.Result{Stage: "preflight", SplitPlan: ".specs/x.split.json"},
+		"triage": issuetriage.Result{Stage: "preflight"},
 	}
 	for tool, r := range cases {
 		if r.Resumable() {

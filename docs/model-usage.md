@@ -16,7 +16,7 @@ one's *conclusion* rather than from how it got there.
 
 | Tool | Phase | Tools it may call | `max_tokens` | Terminating tool |
 |---|---|---|---|---|
-| `issue` | `triage` | `read_file`, `list_files`, `find_files`, `search_files` | provider default | `file_issue` |
+| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files` | provider default | `file_issue` |
 | `fix` | `analyse` | the four read tools, plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
 | `fix` | `implement` | the read tools, `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
 | `spec` | `prd` | the four read tools | 32 768 | `submit_prd` |
@@ -213,7 +213,7 @@ generation_user_requirements   generation_user_test_spec   generation_user_tasks
 architecture_user
 ```
 
-`issue`'s, `fix`'s and `impl`'s prompts are Go string constants, because they
+`triage`'s, `fix`'s and `impl`'s prompts are Go string constants, because they
 are short and assembled with the run's own facts — the baseline verification
 result, the branch name, the diagnosis, the spec rendered scoped to one task.
 

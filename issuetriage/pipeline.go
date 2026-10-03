@@ -260,7 +260,7 @@ func Preflight(o Options) (issuex.Repo, *Failure) {
 	return target, nil
 }
 
-// RunPreflight is issue --preflight: every check Run performs before its model
+// RunPreflight is triage --preflight: every check Run performs before its model
 // phase, reported and then stopped at. It calls the one Preflight Run calls,
 // never a copy of it, so a run that would refuse refuses here with the
 // identical stage, category and message. A refusal returns no result: a

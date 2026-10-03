@@ -39,13 +39,13 @@ RUN CGO_ENABLED=1 go build \
       -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
     -o spec ./cmd/spec
 
-# build the issue tool
+# build the triage tool
 RUN CGO_ENABLED=1 go build \
     -ldflags "-s -w \
       -X github.com/agent-fox-dev/agentfox.Version=${VERSION} \
       -X github.com/agent-fox-dev/agentfox.Commit=${BUILD} \
       -X github.com/agent-fox-dev/agentfox.BuildTime=${BUILD_TIME}" \
-    -o issue ./cmd/issue
+    -o triage ./cmd/triage
 
 # build the fix tool
 RUN CGO_ENABLED=1 go build \
@@ -85,11 +85,11 @@ ENV UV_PYTHON=python3.14 VIRTUAL_ENV=/venv
 COPY --from=build /build/agent-fox/af /usr/bin/af
 COPY --from=build /build/agent-fox/nightshift /usr/bin/nightshift
 COPY --from=build /build/agent-fox/spec /usr/bin/spec
-COPY --from=build /build/agent-fox/issue /usr/bin/issue
+COPY --from=build /build/agent-fox/triage /usr/bin/triage
 COPY --from=build /build/agent-fox/fix /usr/bin/fix
 COPY --from=build /build/agent-fox/impl /usr/bin/impl
 
-RUN chmod +x /usr/bin/af /usr/bin/nightshift /usr/bin/spec /usr/bin/issue /usr/bin/fix /usr/bin/impl
+RUN chmod +x /usr/bin/af /usr/bin/nightshift /usr/bin/spec /usr/bin/triage /usr/bin/fix /usr/bin/impl
 
 # install pi agent
 RUN curl -fsSL https://pi.dev/install.sh | sh

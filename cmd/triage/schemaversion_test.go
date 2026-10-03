@@ -80,9 +80,9 @@ func scriptedAnthropic(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// runIssue runs the built issue binary and parses its stdout, which must be
+// runTriage runs the built triage binary and parses its stdout, which must be
 // exactly one JSON object.
-func runIssue(t *testing.T, bin, dir string, env []string, args ...string) (map[string]any, int) {
+func runTriage(t *testing.T, bin, dir string, env []string, args ...string) (map[string]any, int) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
@@ -93,30 +93,30 @@ func runIssue(t *testing.T, bin, dir string, env []string, args ...string) (map[
 	if err := cmd.Run(); err != nil {
 		ee, ok := err.(*exec.ExitError)
 		if !ok {
-			t.Fatalf("issue %v: %v", args, err)
+			t.Fatalf("triage %v: %v", args, err)
 		}
 		code = ee.ExitCode()
 	}
 	var doc map[string]any
 	dec := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
 	if err := dec.Decode(&doc); err != nil {
-		t.Fatalf("issue %v: stdout is not a JSON object: %v\nstdout: %s\nstderr: %s", args, err, stdout.String(), stderr.String())
+		t.Fatalf("triage %v: stdout is not a JSON object: %v\nstdout: %s\nstderr: %s", args, err, stdout.String(), stderr.String())
 	}
 	if dec.More() {
-		t.Fatalf("issue %v: stdout holds more than one JSON document:\n%s", args, stdout.String())
+		t.Fatalf("triage %v: stdout holds more than one JSON document:\n%s", args, stdout.String())
 	}
-	t.Logf("issue %v: exit %d\nstderr: %s", args, code, stderr.String())
+	t.Logf("triage %v: exit %d\nstderr: %s", args, code, stderr.String())
 	return doc, code
 }
 
-// TS-09-46 (smoke): An ordinary run of issue reports the same schema_version
+// TS-09-46 (smoke): An ordinary run of triage reports the same schema_version
 // its own --schema advertised.
 //
 // Verifies: 09-PATH-3, 09-REQ-5.1, 09-REQ-5.2, 09-REQ-5.3
-// Real components: the built cmd/issue binary, toolio.App, toolio.Run.Envelope,
+// Real components: the built cmd/triage binary, toolio.App, toolio.Run.Envelope,
 // issuetriage.Run, the Anthropic provider (over a scripted HTTP server)
 func TestTS09_46_OrdinaryRunReportsTheSchemaVersionSchemaAdvertised_Smoke(t *testing.T) {
-	bin := schematest.Build(t, "issue")
+	bin := schematest.Build(t, "triage")
 	api := scriptedAnthropic(t)
 
 	ws := t.TempDir()
@@ -134,21 +134,21 @@ func TestTS09_46_OrdinaryRunReportsTheSchemaVersionSchemaAdvertised_Smoke(t *tes
 		"ANTHROPIC_BASE_URL=" + api.URL,
 	}
 
-	described, code := runIssue(t, bin, ws, env, "--schema")
+	described, code := runTriage(t, bin, ws, env, "--schema")
 	if code != 0 {
-		t.Fatalf("issue --schema exited %d", code)
+		t.Fatalf("triage --schema exited %d", code)
 	}
 	advertised, _ := described["schema_version"].(string)
 	if advertised != "3.0.0" {
 		t.Fatalf("--schema advertised schema_version %q, want 3.0.0", advertised)
 	}
 
-	ordinary, code := runIssue(t, bin, ws, env, "--dir", ws, "--dry-run",
+	ordinary, code := runTriage(t, bin, ws, env, "--dir", ws, "--dry-run",
 		"Count() in widget.go returns 1 where it should return 2 after a retry")
 	if code != 0 {
 		t.Fatalf("the ordinary run exited %d, want 0; envelope: %v", code, ordinary)
 	}
-	if ordinary["ok"] != true || ordinary["tool"] != "issue" {
+	if ordinary["ok"] != true || ordinary["tool"] != "triage" {
 		t.Fatalf("the ordinary run did not complete: %v", ordinary)
 	}
 	got, present := ordinary["schema_version"].(string)

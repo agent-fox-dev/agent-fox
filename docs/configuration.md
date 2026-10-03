@@ -1,6 +1,6 @@
 # Configuration
 
-The tools — `spec`, `issue`, `fix` and `impl` — reach a model through
+The tools — `spec`, `triage`, `fix` and `impl` — reach a model through
 [AgentKit](https://github.com/agent-fox-dev/agentkit-go)
 (module `github.com/agentfox/agentkit-go`), so it speaks every wire API that
 library implements: Anthropic, both OpenAI wires, Google and Ollama, plus the
@@ -211,7 +211,7 @@ written against a repository it never looked at names components that already
 exist under other names. `--dir` defaults to `.`.
 
 The read-only mandate is a mechanism rather than a prompt instruction. In every
-phase that only reads — `issue`'s triage, every `spec` phase, `impl`'s survey
+phase that only reads — `triage`'s one phase, every `spec` phase, `impl`'s survey
 — the mutating file tools (`write_file`, `edit_file`) are excluded from the
 resolved set, an invariant checks that set before the first request, and
 AgentKit's own unguarded-shell guard fails any run where an unguarded shell
@@ -237,7 +237,7 @@ clone, cd, run.
 One phase is bounded by turns and by spend. Both stop the run cleanly at a turn
 boundary rather than aborting mid-call.
 
-| Setting | Flag | `issue` | `fix` | `spec` | `impl` |
+| Setting | Flag | `triage` | `fix` | `spec` | `impl` |
 |---|---|---|---|---|---|
 | Turns per phase | `--max-turns` | 100 | 150 | 60 | 150 |
 | Spend per phase | `--budget` | $2.00 | $5.00 | $5.00 | $5.00 |
@@ -249,7 +249,7 @@ number of tasks. `--total-budget`, a shared flag, caps the whole run; zero
 (the default) means no ceiling beyond `--budget`. `impl` stops between tasks
 with everything landed so far committed on the branch; `fix` checks between
 its analyse and implement phases; `spec` checks before each scope's PRD phase
-after the first, leaving the split plan in place to resume from; `issue`, and
+after the first, leaving the split plan in place to resume from; `triage`, and
 a `spec` input that is not split, have one phase, so the lower of
 `--total-budget` and `--budget` is that phase's ceiling. Its `--repair` phase, when it runs, is bounded like any other phase and
 counts toward the total; `--repair-model` changes its model and nothing

@@ -114,7 +114,7 @@ var (
 
 // ParseCriteria extracts the acceptance criteria from a problem report.
 //
-// It reads the first "Acceptance Criteria" section — the heading the `issue`
+// It reads the first "Acceptance Criteria" section — the heading the `triage`
 // tool writes, and the one people write by hand — and takes its list items.
 // An item may label itself ("**AC-1:** …"); when none does, the label is the
 // item's position, so the criteria can still be referred to one by one.

@@ -155,7 +155,7 @@ func writeSpecPackage(t *testing.T, destDir, specID, specName string) {
 	}
 }
 
-// TS-04-36 (smoke): Triaging a GitLab issue via issue CLI
+// TS-04-36 (smoke): Triaging a GitLab issue via triage CLI
 // Verifies: 04-PATH-1
 // Real components: toolio.App, toolio.Resolve, toolio.RenderThread, issuetriage.Run, issuex.GitLabClient
 func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
@@ -222,9 +222,9 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 	var overwrite bool
 
 	app := toolio.App{
-		Name:    "issue",
+		Name:    "triage",
 		Version: agentfox.Version,
-		Usage:   "issue [flags] <input>",
+		Usage:   "triage [flags] <input>",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&repo, "repo", "", "target repository")
 			fs.StringVar(&labels, "label", "", "labels")
@@ -264,7 +264,7 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
 				Workspace:     d.Workspace,
 				Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
-				SessionPrefix: "issue",
+				SessionPrefix: "triage",
 			})
 			if err != nil {
 				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
@@ -1628,7 +1628,7 @@ func smokeWidgetRepo(t *testing.T, remote string) string {
 }
 
 // smokeFixTurns scripts the three model turns of a fix run that succeeds.
-// A report that lists acceptance criteria (as an issue filed by the issue
+// A report that lists acceptance criteria (as an issue filed by the triage
 // tool does) must be answered criterion by criterion: pass the ids.
 func smokeFixTurns(criteria ...string) []faux.Turn {
 	implementation := map[string]any{
@@ -1920,7 +1920,7 @@ func newSmokeGitHubForge(t *testing.T) *smokeGitHubForge {
 	return f
 }
 
-// TS-06-65 (smoke): A model chains issue into fix using next[] and side_effects[]
+// TS-06-65 (smoke): A model chains triage into fix using next[] and side_effects[]
 // Verifies: 06-PATH-2, 06-REQ-6.1, 06-REQ-5.1, 06-REQ-4.1
 // Real components: issuetriage pipeline, codefix pipeline, fake forge HTTP server, toolio Run/Envelope
 func TestTS0665_IssueNextChainsIntoFix_Smoke(t *testing.T) {
@@ -1933,9 +1933,9 @@ func TestTS0665_IssueNextChainsIntoFix_Smoke(t *testing.T) {
 
 	var label string
 	issueApp := toolio.App{
-		Name:    "issue",
+		Name:    "triage",
 		Version: agentfox.Version,
-		Usage:   "issue [flags] <input>\n",
+		Usage:   "triage [flags] <input>\n",
 		Flags:   func(fs *flag.FlagSet) { fs.StringVar(&label, "label", "", "label") },
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			p := faux.New(toolCallTurn("turn_1", issuetriage.ToolFileIssue, map[string]any{
@@ -1959,7 +1959,7 @@ func TestTS0665_IssueNextChainsIntoFix_Smoke(t *testing.T) {
 				Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
 				Workspace:     d.Workspace,
 				Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
-				SessionPrefix: "issue",
+				SessionPrefix: "triage",
 			})
 			if err != nil {
 				return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "runner", Message: err.Error()}
@@ -1990,11 +1990,11 @@ func TestTS0665_IssueNextChainsIntoFix_Smoke(t *testing.T) {
 	code := issueApp.Main(context.Background(), []string{"--dir", wsDir, "--label", "bug",
 		"Count() in widget.go double counts after a retry"}, strings.NewReader(""), &stdout1, &stderr1)
 	if code != toolio.ExitOK {
-		t.Fatalf("issue: code %d; stdout:\n%s\nstderr:\n%s", code, stdout1.String(), stderr1.String())
+		t.Fatalf("triage: code %d; stdout:\n%s\nstderr:\n%s", code, stdout1.String(), stderr1.String())
 	}
 	var issueEnv toolio.Envelope
 	if err := json.Unmarshal(stdout1.Bytes(), &issueEnv); err != nil {
-		t.Fatalf("issue stdout is not JSON: %v\n%s", err, stdout1.String())
+		t.Fatalf("triage stdout is not JSON: %v\n%s", err, stdout1.String())
 	}
 
 	const issueURL = "https://github.com/acme/widgets/issues/7"
@@ -3282,7 +3282,7 @@ func TestTS1152_SpecPreflightResumesASplitPlanAndMultipliesTheEstimate_Smoke(t *
 	})
 }
 
-// smokeAssertIssuePreflight checks a passed issue --preflight envelope.
+// smokeAssertIssuePreflight checks a passed triage --preflight envelope.
 func smokeAssertIssuePreflight(t *testing.T, code int, env map[string]any) {
 	t.Helper()
 	if code != toolio.ExitOK || env["ok"] != true {
@@ -3310,7 +3310,7 @@ func smokeAssertIssuePreflight(t *testing.T, code int, env map[string]any) {
 	}
 }
 
-// TS-11-53 (smoke): issue --preflight reports the resolved target repository through the real CLI shell without writing to the forge
+// TS-11-53 (smoke): triage --preflight reports the resolved target repository through the real CLI shell without writing to the forge
 // Verifies: 11-PATH-4, 11-REQ-5.4
 // Real components: toolio.App, issuetriage.RunPreflight, issuetriage.ResolveTarget, issuex.Client, the built cmd/issue
 func TestTS1153_IssuePreflightReportsTheTargetWithoutWritingToTheForge_Smoke(t *testing.T) {
@@ -3357,18 +3357,18 @@ func TestTS1153_IssuePreflightReportsTheTargetWithoutWritingToTheForge_Smoke(t *
 			}
 		}
 		app := toolio.App{
-			Name:    "issue",
+			Name:    "triage",
 			Version: agentfox.Version,
-			Usage:   "issue [flags] <input>\n",
+			Usage:   "triage [flags] <input>\n",
 			Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-				r, err := smokeFauxRunner(d, "issue", &p)
+				r, err := smokeFauxRunner(d, "triage", &p)
 				if err != nil {
 					return smokeRunnerFailed(err)
 				}
 				return smokeExit(issuetriage.Run(ctx, opts(d, r)))
 			},
 			PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-				r, err := smokeFauxRunner(d, "issue", &p)
+				r, err := smokeFauxRunner(d, "triage", &p)
 				if err != nil {
 					return smokeRunnerFailed(err)
 				}
@@ -3391,7 +3391,7 @@ func TestTS1153_IssuePreflightReportsTheTargetWithoutWritingToTheForge_Smoke(t *
 	})
 
 	t.Run("binary", func(t *testing.T) {
-		bin := schematest.Build(t, "issue")
+		bin := schematest.Build(t, "triage")
 		dir := workspace(t)
 		api, calls := smokeModelAPI(t)
 		env := smokeBinaryEnv(t, api, "GITHUB_TOKEN=gh-smoke-token")

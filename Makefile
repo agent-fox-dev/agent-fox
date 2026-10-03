@@ -43,12 +43,12 @@ build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/af ./cmd/af
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/nightshift ./cmd/nightshift
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/spec
-	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/issue
+	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/triage
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/fix
 	CGO_ENABLED=1 go install $(LDFLAGS) ./cmd/impl
 
 # Cross-platform static builds of the tools
-TOOLS := spec issue fix impl
+TOOLS := spec triage fix impl
 
 build-all: build-darwin-arm64 build-linux-arm64 build-linux-amd64
 

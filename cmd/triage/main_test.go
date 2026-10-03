@@ -25,23 +25,23 @@ func TestMain(m *testing.M) {
 	os.Exit(statetest.Run(m))
 }
 
-// TestSchemaGolden (TS-09-35, TS-09-38): issue --schema is byte-for-byte the
+// TestSchemaGolden (TS-09-35, TS-09-38): triage --schema is byte-for-byte the
 // checked-in golden file, and its flags and result documents compile against
 // the JSON Schema 2020-12 meta-schema. UPDATE_GOLDEN=1 rewrites the file.
 func TestSchemaGolden(t *testing.T) {
-	schematest.CheckGolden(t, "issue")
+	schematest.CheckGolden(t, "triage")
 }
 
-// TS-06-53 (unit): issue's usage says what --dry-run still does locally:
+// TS-06-53 (unit): triage's usage says what --dry-run still does locally:
 // nothing.
 func TestTS06_53_IssueUsageStatesDryRunDoesNothingLocally(t *testing.T) {
 	flat := strings.Join(strings.Fields(usage), " ")
 	if !strings.Contains(flat, "--dry-run") || !strings.Contains(flat, "does nothing") {
-		t.Errorf("issue's usage does not say --dry-run does nothing locally:\n%s", usage)
+		t.Errorf("triage's usage does not say --dry-run does nothing locally:\n%s", usage)
 	}
 	for _, word := range []string{"branch", "commit"} {
 		if strings.Contains(flat, word) {
-			t.Errorf("issue's usage mentions %q as a local effect of --dry-run", word)
+			t.Errorf("triage's usage mentions %q as a local effect of --dry-run", word)
 		}
 	}
 }
@@ -52,12 +52,12 @@ func TestTS06_53_IssueUsageStatesDryRunDoesNothingLocally(t *testing.T) {
 func TestIssueFlagsMatchTheToolFlagTable(t *testing.T) {
 	app := newApp()
 	var common toolio.Common
-	fs := flag.NewFlagSet("issue", flag.ContinueOnError)
+	fs := flag.NewFlagSet("triage", flag.ContinueOnError)
 	common.Register(fs)
 	shared := map[string]bool{}
 	fs.VisitAll(func(f *flag.Flag) { shared[f.Name] = true })
 
-	own := flag.NewFlagSet("issue-own", flag.ContinueOnError)
+	own := flag.NewFlagSet("triage-own", flag.ContinueOnError)
 	app.Flags(own)
 	var names []string
 	own.VisitAll(func(f *flag.Flag) {
@@ -66,14 +66,14 @@ func TestIssueFlagsMatchTheToolFlagTable(t *testing.T) {
 		}
 		names = append(names, f.Name)
 	})
-	want := toolio.ToolFlags("issue")
+	want := toolio.ToolFlags("triage")
 	sort.Strings(names)
 	sort.Strings(want)
 	if strings.Join(names, ",") != strings.Join(want, ",") {
-		t.Errorf("issue registers %v, the unsupported-flag table says %v", names, want)
+		t.Errorf("triage registers %v, the unsupported-flag table says %v", names, want)
 	}
 	if !app.SinglePhase {
-		t.Error("issue has one phase: --total-budget must fold into --budget")
+		t.Error("triage has one phase: --total-budget must fold into --budget")
 	}
 }
 

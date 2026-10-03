@@ -316,15 +316,15 @@ func TestCLICommandsParseRepoAndForwardForge_TS_04_32(t *testing.T) {
 		t.Fatalf("issuex.ParseRepo(%q) = (%+v, %v), want Owner=%q, Name=%q, ok=true", repo, parsed, ok, "gitlab-org/subgroup", "project")
 	}
 
-	// Verify valid multi-segment repository is accepted by PreCheck for fix, impl, issue (not rejected with ExitUsage)
-	for _, cmdName := range []string{"fix", "impl", "issue"} {
+	// Verify valid multi-segment repository is accepted by PreCheck for fix, impl, triage (not rejected with ExitUsage)
+	for _, cmdName := range []string{"fix", "impl", "triage"} {
 		code, out := runCommand(t, cmdName, "--repo", repo, "test input")
 		if code == toolio.ExitUsage && strings.Contains(out, "cannot be parsed") {
 			t.Errorf("cmd/%s unexpectedly rejected valid multi-segment repo %q: %s", cmdName, repo, out)
 		}
 	}
 
-	commands := []string{"fix", "impl", "issue", "spec"}
+	commands := []string{"fix", "impl", "triage", "spec"}
 	for _, cmdName := range commands {
 		t.Run(cmdName, func(t *testing.T) {
 			usage, bindsForge, usesGhapi := extractUsageAndForgeField(t, cmdName)
@@ -351,9 +351,9 @@ func TestCLICommandsParseRepoAndForwardForge_TS_04_32(t *testing.T) {
 // TS-04-33 (unit): CLI commands reject malformed --repo flag with usage error
 func TestCLICommandsRejectMalformedRepo_TS_04_33(t *testing.T) {
 	const (
-		cmdFix   = "fix"
-		cmdImpl  = "impl"
-		cmdIssue = "issue"
+		cmdFix    = "fix"
+		cmdImpl   = "impl"
+		cmdTriage = "triage"
 	)
 
 	badRepos := []string{"single", "trailing/", "///", "owner//repo"}
@@ -375,12 +375,12 @@ func TestCLICommandsRejectMalformedRepo_TS_04_33(t *testing.T) {
 				t.Errorf("cmdImpl with --repo %q output does not indicate cannot be parsed: %s", badRepo, outImpl)
 			}
 
-			codeIssue, outIssue := runCommand(t, cmdIssue, "--repo", badRepo, "arg")
+			codeIssue, outIssue := runCommand(t, cmdTriage, "--repo", badRepo, "arg")
 			if codeIssue != toolio.ExitUsage {
-				t.Errorf("cmdIssue with --repo %q exit code = %d, want %d (ExitUsage)", badRepo, codeIssue, toolio.ExitUsage)
+				t.Errorf("cmdTriage with --repo %q exit code = %d, want %d (ExitUsage)", badRepo, codeIssue, toolio.ExitUsage)
 			}
 			if !strings.Contains(outIssue, "cannot be parsed") {
-				t.Errorf("cmdIssue with --repo %q output does not indicate cannot be parsed: %s", badRepo, outIssue)
+				t.Errorf("cmdTriage with --repo %q output does not indicate cannot be parsed: %s", badRepo, outIssue)
 			}
 		})
 	}

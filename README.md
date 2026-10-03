@@ -18,10 +18,10 @@ service.
 Four programs, one interface: **one input, one JSON object out.**
 
 ```
-spec  [flags] <input>     a product idea      → a validated specification package
-issue [flags] <input>     a problem report    → a structured issue on GitHub or GitLab
-fix   [flags] <input>     a problem           → a verified change on a branch
-impl  [flags] <input>     a specification     → the spec implemented, task by task, on a branch
+spec   [flags] <input>    a product idea      → a validated specification package
+triage [flags] <input>    a problem report    → a structured issue on GitHub or GitLab
+fix    [flags] <input>    a problem           → a verified change on a branch
+impl   [flags] <input>    a specification     → the spec implemented, task by task, on a branch
 ```
 
 The input is exactly one of: a GitHub or GitLab issue or pull/merge-request
@@ -32,12 +32,12 @@ the kind — the argument's shape decides, in Go, before anything else happens.
 export ANTHROPIC_API_KEY=sk-ant-...
 export GITHUB_TOKEN=ghp_...            # or GITLAB_TOKEN=glpat-...
 
-issue "panic: assignment to entry in nil map in loop.go, after an abort"
-fix   https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
-spec  ./docs/prds/widget-cache.md --architecture
-impl  09 --dir ~/src/widgets --land branch
+triage "panic: assignment to entry in nil map in loop.go, after an abort"
+fix    https://github.com/acme/widgets/issues/42 --dir ~/src/widgets
+spec   ./docs/prds/widget-cache.md --architecture
+impl   09 --dir ~/src/widgets --land branch
 
-kubectl logs deploy/api --since 1h | issue - --repo acme/widgets --dry-run
+kubectl logs deploy/api --since 1h | triage - --repo acme/widgets --dry-run
 ```
 
 Each writes exactly one JSON object to stdout, on every program-driven path
@@ -95,7 +95,7 @@ applies it to the legacy orchestrator that `impl` replaces.
 | `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
 | `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
 | `internal/project/` | `project` | What a repository is written in, and the audit that refuses a plan naming another ecosystem's tooling. |
-| `cmd/spec/`, `cmd/issue/`, `cmd/fix/`, `cmd/impl/` | `main` | The four tools. |
+| `cmd/spec/`, `cmd/triage/`, `cmd/fix/`, `cmd/impl/` | `main` | The four tools. |
 
 The spec format itself is specified in the
 [`spec`](https://github.com/agent-fox-dev/spec) repository
@@ -127,7 +127,7 @@ git clone https://github.com/agent-fox-dev/agentkit-go ../agentkit-go
 
 ```bash
 make check          # gofmt + go vet + all tests
-make build          # go install spec, issue, fix and impl; af and nightshift into bin/
+make build          # go install spec, triage, fix and impl; af and nightshift into bin/
 make build-all      # static cross-builds of the four tools into dist/
 ```
 

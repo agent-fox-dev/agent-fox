@@ -9,7 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// The body the `issue` tool writes, and the one people write by hand: a
+// The body the `triage` tool writes, and the one people write by hand: a
 // heading, labelled items, and prose after the list that is commentary rather
 // than a criterion.
 const issueWithCriteria = `## Problem
