@@ -143,6 +143,11 @@ Rules:
   leaving `queued`/`running`. Only the exhausted case reaches `failed`.
 - `unread` is **per user**, not a state: a task has a `read_at` per member,
   set when they open it. Pizza-bot's Unread is "terminal since my `read_at`".
+- **Snooze** is per user as well: a member hides a task from their own
+  Attention and Unread views until a time or until the task changes state.
+  It touches nothing on the task, so a snoozed `blocked` task still holds
+  its dependents and a strict workspace, and still shows in every other
+  member's Attention. Pausing is for the work; snoozing is for the reader.
 - `paused` differs from `cancelled` in that it is reversible, keeps the
   task's position and its dependents, and starts no new task on resume.
   Pausing a `running` task stops its attempt and tears the sandbox down;
@@ -176,9 +181,12 @@ tasks that may run now:
      position only decides who is next.
    - `strict`: tasks run one at a time in position order, and the head of
      the order holds everything behind it until it is terminal. A `paused`
-     or `blocked` head therefore stops the workspace; reordering another
-     task ahead of it is how a member lets work continue without resuming
-     or answering it.
+     or `blocked` head therefore stops the workspace, on purpose: a strict
+     workspace is one where later tasks may assume the earlier results, so
+     a question nobody has answered is a reason to wait, not to skip.
+     Reordering another task ahead of the head is how a member lets work
+     continue without resuming or answering it, and that is a deliberate
+     act recorded in the audit trail.
 
 A dependent shows `waiting_on`, computed, naming the tasks that currently
 hold it and why (`paused`, `blocked`, `running`, `queued`, `ahead` in strict
@@ -244,7 +252,8 @@ attempt.
   "side_effects": [ /* the envelope's side effects */ ],
   "next": [ /* the envelope's suggestions, resolved to templates when possible */ ],
   "usage": { "cost_usd": 1.84, "input_tokens": …, "output_tokens": … },
-  "read_at": "…"                     // for the calling user; null = unread
+  "read_at": "…",                    // for the calling user; null = unread
+  "snoozed_until": null              // for the calling user; set by snooze, cleared on state change
 }
 ```
 
@@ -402,6 +411,8 @@ POST   /workspaces/:slug/tasks/reorder               {task_id, before?: task_id,
 POST   /workspaces/:slug/tasks/:id/answer            from blocked; body per reason
 POST   /workspaces/:slug/tasks/:id/archive
 POST   /workspaces/:slug/tasks/:id/read              sets read_at for the caller
+POST   /workspaces/:slug/tasks/:id/snooze            {until} or {until_state_change: true}; caller only
+DELETE /workspaces/:slug/tasks/:id/snooze
 GET    /workspaces/:slug/tasks/:id/attempts
 GET    /workspaces/:slug/tasks/:id/events?since=<seq> replay then tail (SSE)
 GET    /workspaces/:slug/tasks/:id/artifacts/:name   report, events, session log, diffs
@@ -429,10 +440,13 @@ claim and expires with the attempt.
 
 Computed over tasks the caller can read, never stored:
 
-- **Attention**: `blocked`, any reason. Sorted by `submitted_at`. This is
-  pizza-bot's Action.
-- **Unread**: `done | failed` with `finished_at > read_at` (or no `read_at`).
-  Pizza-bot's Unread.
+- **Attention**: `blocked`, any reason, not snoozed by the caller. Sorted
+  by `submitted_at`. This is pizza-bot's Action.
+- **Unread**: `done | failed` with `finished_at > read_at` (or no `read_at`),
+  not snoozed by the caller. Pizza-bot's Unread.
+- **Snoozed**: what the caller has snoozed, with when it returns. A state
+  change on a snoozed task clears the snooze, so a task that was answered by
+  someone else or failed again comes back on its own.
 - **Running**: `queued | running | paused`, in workspace order, with the
   latest event's `stage` as a one-line status, or `waiting_on` when the
   task cannot start, or who paused it and when.
@@ -487,7 +501,7 @@ as the edge. A later PRD adds a **workflow template**
 | Sandbox image lineage | `sandbox`, `agents`, `tools` images | `af-runner` on the images; the sandbox API is baseline |
 | Identity, scopes, secrets, vars | hub | `tasks:*`, `templates:manage`, `schedules:manage`; the task-scoped token |
 | Session usage and cost | hub sessions endpoints | attempts report into them |
-| Tables | | `task_templates`, `tasks` (with `position`), `task_attempts`, `task_events`, `task_reads`, `task_answers`, `task_dependencies`, `schedules`, `schedule_firings` |
+| Tables | | `task_templates`, `tasks` (with `position`), `task_attempts`, `task_events`, `task_reads` (with `snoozed_until`), `task_answers`, `task_dependencies`, `schedules`, `schedule_firings` |
 | Queue gating | `jobqueue` claims by `available_at` | the task service: position, `depends_on`, pause and `TASK_ORDER` evaluated in one place; `jobqueue` holds only runnable work; reorder endpoint as for patches |
 | Freeform program | `agents` image (pi, opencode, claude) | the contract adapter for the chosen agent, or a freeform agent-fox tool |
 | Clients | `afc` | `afc task` and `afc inbox`; the web client; later a desktop app |
@@ -508,6 +522,13 @@ as the edge. A later PRD adds a **workflow template**
 | 12 | Pausing a running task: stop the sandbox, or freeze it? | Stop it, in v1. Freezing keeps an in-flight model request that will time out anyway, and a microVM snapshot is a sandbox feature this PRD does not assume. The program's own resumability (`impl` from its commits) is what makes a resume cheap. |
 | 13 | Does pause cascade to dependents as a state? | No. Dependents stay `queued` and show `waiting_on`. Cascading a state would have to be undone on resume and would collide with a dependent a member paused on purpose. The gate is the mechanism. |
 | 14 | Strict order: per workspace, or per task? | Per workspace, as a variable. A per-task barrier ("nothing behind me starts until I finish") is expressible with `depends_on` today and can become a flag later if it is wanted often. |
+
+Taken:
+
+| # | Question | Decision |
+|---|---|---|
+| 15 | Can a `blocked` task be paused so an unanswered question leaves Attention? | No. Attention is cleared per reader with **snooze**, which changes nothing on the task. A `blocked` task stays blocked, keeps holding its dependents, and stays in every other member's Attention. |
+| 16 | In strict order, does a `blocked` head hold the workspace or get skipped? | It **holds**, as a precaution: later tasks in a strict workspace may assume the earlier result. Letting work past it is a reorder a member performs and the audit trail records. |
 | 9 | Landing | The template policy's `land` maps to the tools' `--land`. Routing a task's branch through hub's merge queue instead of a forge PR is a `land: merge_queue` value added later; nothing in the schema prevents it. |
 | 10 | Approval gates | Only `open_pr` and `push` in v1, implemented by running the program with `--land none`, stopping `blocked:approval` on a `done` envelope with a branch artifact, and on `approve` running a second attempt that lands the existing branch. No in-agent interception. |
 
@@ -515,13 +536,6 @@ as the edge. A later PRD adds a **workflow template**
 
 - Should a `draft` be shareable, so that a person prepares a task and another
   submits it, or is a draft private to its creator?
-- Should a `blocked` task be pausable, so that a question nobody will answer
-  soon stops appearing in Attention without being cancelled? The draft says
-  no; a `snooze` on the inbox view may be the better tool.
-- In strict order, should a `blocked` head hold the workspace, as drafted,
-  or should blocked tasks be skipped automatically and only `paused` hold?
-  Holding is safer for chains that assume the previous result; skipping
-  keeps a team unblocked overnight.
 - Does archiving keep artifacts, or does retention delete the events and
   report after a period? hub's audit retention exists and could own this.
 - Is the desktop app in this PRD's horizon at all, or is "web client or
@@ -535,8 +549,8 @@ as the edge. A later PRD adds a **workflow template**
 2. **Execution.** `af-runner`, the task-scoped token, the claim loop over
    `jobqueue` against the sandbox API, events and the stop envelope. The
    four built-in templates run end to end. `afc task` drives it.
-3. **Inbox and answering.** Views, `read_at`, `answer` for all three
-   reasons, pause, resume and reorder, the web client over the API.
+3. **Inbox and answering.** Views, `read_at`, snooze, `answer` for all
+   three reasons, pause, resume and reorder, the web client over the API.
 4. **Schedules and chains.** Cron tick, webhook firing, `depends_on` gating,
    `TASK_ORDER=strict`, `next` with `auto`.
 5. **Freeform and derived templates.** The freeform program, org and
