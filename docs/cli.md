@@ -337,6 +337,10 @@ quite what it appears to be; `low` is informational.
 | `architecture_not_written` | low | write | spec |
 | `activation_failed` | high | activate | spec |
 | `effort_clamped` | low | preflight | shared |
+| `review_not_run` | high | review | impl |
+| `unmet_requirements` | high | review | impl |
+| `deviation_not_tracked` | high | land | impl |
+| `fix_not_proven` | high | verify | fix |
 | `rejected_path_calls` | low | analyse | issue |
 | `report_file_not_written` | low | report | shared |
 | `events_file_not_written` | low | report | shared |

@@ -18,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -39,10 +40,59 @@ type scriptedBrain struct {
 	// never expected and fails the test if it runs.
 	repair func(root string, attempt int) (RepairSubmission, error)
 
-	surveys   int
-	inputs    []taskInput
-	repairIns []repairInput
-	surveyIn  surveyInput
+	// review decides what the conformance review answers. Nil means every
+	// id in scope is answered met.
+	review func(in conform.ReviewInput) (conform.Review, error)
+	// resolve decides what the resolve phase does. Nil means the phase is
+	// never expected and fails the test if it runs.
+	resolve func(root string, in resolveInput) (ResolveSubmission, error)
+
+	surveys    int
+	inputs     []taskInput
+	repairIns  []repairInput
+	surveyIn   surveyInput
+	reviewIns  []conform.ReviewInput
+	resolveIns []resolveInput
+}
+
+func (b *scriptedBrain) Review(_ context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	b.reviewIns = append(b.reviewIns, in)
+	_ = conform.ReviewPrompt(in) // every prompt must render
+	res := agentrun.Result{Name: conform.PhaseReview, Turns: 4}
+	if b.review != nil {
+		r, err := b.review(in)
+		return r, res, err
+	}
+	return conformingReview(in.Scope), res, nil
+}
+
+// conformingReview answers every id in scope as met.
+func conformingReview(sc conform.ReviewScope) conform.Review {
+	r := conform.Review{Summary: "Every requirement and test in scope is met."}
+	for _, id := range sc.Requirements {
+		r.Requirements = append(r.Requirements, conform.RequirementRow{ID: id, Status: conform.StatusImplemented,
+			Evidence: "task1.go:1 does it"})
+	}
+	for _, id := range sc.Tests {
+		r.Tests = append(r.Tests, conform.TestRow{ID: id, Assessment: conform.AssessAssertsContract,
+			Evidence: "task1_test.go:1 asserts the outcome"})
+	}
+	for _, d := range sc.Decisions {
+		r.Decisions = append(r.Decisions, conform.DecisionRow{ID: d.ID, Status: conform.DecisionFollowed,
+			Evidence: "task1.go:1 follows it"})
+	}
+	return r
+}
+
+func (b *scriptedBrain) Resolve(_ context.Context, in resolveInput) (ResolveSubmission, agentrun.Result, error) {
+	b.resolveIns = append(b.resolveIns, in)
+	_ = resolvePrompt(in) // every prompt must render
+	res := agentrun.Result{Name: PhaseResolve, Turns: 6}
+	if b.resolve == nil {
+		return ResolveSubmission{}, res, errors.New("the resolve phase ran and the test did not script it")
+	}
+	sub, err := b.resolve(in.Root, in)
+	return sub, res, err
 }
 
 func (b *scriptedBrain) Repair(_ context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
@@ -155,6 +205,12 @@ func newSpecRepo(t *testing.T) (*tools.Workspace, *gitx.Git, string) {
 				t.Fatal(err)
 			}
 			doc["test_commands"] = map[string]any{"all_tests": "make test", "linter": "make lint"}
+			// The example's touches name cmd/spec files the scripted work
+			// never writes; a spec without them does not restrict the change,
+			// and the scope check has a test of its own.
+			for _, task := range doc["tasks"].([]any) {
+				delete(task.(map[string]any), "touches")
+			}
 			if b, err = json.MarshalIndent(doc, "", "  "); err != nil {
 				t.Fatal(err)
 			}
@@ -1473,6 +1529,12 @@ func TestTS05_17_CheckUpstreamSetsBlocker(t *testing.T) {
 			doc["spec"] = "08"
 			doc["spec_id"] = "08"
 			doc["test_commands"] = map[string]any{"all_tests": "make test", "linter": "make lint"}
+			// The example's touches name cmd/spec files the scripted work
+			// never writes; a spec without them does not restrict the change,
+			// and the scope check has a test of its own.
+			for _, task := range doc["tasks"].([]any) {
+				delete(task.(map[string]any), "touches")
+			}
 			if b, err = json.MarshalIndent(doc, "", "  "); err != nil {
 				t.Fatal(err)
 			}

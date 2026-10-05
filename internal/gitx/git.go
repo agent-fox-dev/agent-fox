@@ -389,3 +389,9 @@ func (g *Git) ShowFile(ctx context.Context, ref, path string) (string, bool, err
 	}
 	return out, true, nil
 }
+
+// MergeBase is the commit where HEAD left ref: the base a branch's whole
+// change is measured from, however far ref has moved since.
+func (g *Git) MergeBase(ctx context.Context, ref string) (string, error) {
+	return g.must(ctx, "merge-base", ref, "HEAD")
+}

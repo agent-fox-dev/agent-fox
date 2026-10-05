@@ -178,6 +178,9 @@ func TestRunPreflightReportsAContinuationBranch(t *testing.T) {
 // unless --no-survey was given.
 //
 // Verifies: 11-REQ-5.5
+//
+// The conformance review after the last task is a phase the plan decides too,
+// so it is counted; --no-review takes it out.
 func TestTS11_31_EstimateCountsPendingTasksPlusSurvey(t *testing.T) {
 	ws, g, _ := newSpecRepo(t) // three pending tasks
 	o := preflightOptions(t, ws, g)
@@ -190,8 +193,17 @@ func TestTS11_31_EstimateCountsPendingTasksPlusSurvey(t *testing.T) {
 	if e == nil {
 		t.Fatal("no estimate")
 	}
-	if e.Phases != 4 || e.MaxTurnsPerPhase != 10 || e.MaxBudgetPerPhaseUSD != 2.0 || e.MaxTotalUSD != 8.0 {
-		t.Errorf("Estimate = %+v, want {4 10 2 8}", *e)
+	if e.Phases != 5 || e.MaxTurnsPerPhase != 10 || e.MaxBudgetPerPhaseUSD != 2.0 || e.MaxTotalUSD != 10.0 {
+		t.Errorf("Estimate = %+v, want {5 10 2 10}: three tasks, the survey and the review", *e)
+	}
+
+	o.NoReview = true
+	res, err = RunPreflight(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := res.Estimate; e == nil || e.Phases != 4 || e.MaxTotalUSD != 8.0 {
+		t.Errorf("--no-review Estimate = %+v, want 4 phases and $8", e)
 	}
 
 	o.NoSurvey = true

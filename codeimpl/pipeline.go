@@ -15,6 +15,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -42,8 +43,11 @@ type RunState struct {
 	todo       []int
 	brain      brain
 	survey     *Survey
-	prior      []priorTask
-	cost       float64
+	// start is the commit the branch's whole change is measured from: where
+	// it left the base branch.
+	start string
+	prior []priorTask
+	cost  float64
 	// upstreamVerified and upstreamUnchecked are what checkUpstream found of
 	// the spec's dependencies: those it confirmed sealed or done, and those it
 	// could not look at (a missing or unreadable package). Preflight reports
@@ -74,7 +78,12 @@ type runState = RunState
 //	             on a landable comparison — the state write and the commit.
 //	             When asked for, the integration task's red checks go to
 //	             the same repair loop, on top of its work, before it lands
-//	land         push, open the pull request
+//	conformance  after the last task: the structural checks, the scope check,
+//	             the checks again in a clean environment, an independent
+//	             review; one phase to fix or declare what they find. What is
+//	             left decides whether the pull request says the work is done
+//	land         push, open the pull request — a draft when the conformance
+//	             stage left blocking findings
 func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Workspace == nil {
 		return nil, failf("preflight", agentrun.CategoryInternal, "no workspace configured")
@@ -144,6 +153,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		o.Progress.Step("branch", "branched %s from %s", st.branch, st.base)
 	}
+	start, err := st.git.MergeBase(ctx, st.base)
+	if err != nil {
+		return result, fail("branch", CategoryGit, err)
+	}
+	st.start = start
 
 	// ----------------------------------------------------------- repair --
 	// Once, before the first task, and only on a red baseline: a green one
@@ -180,6 +194,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
+	// ------------------------------------------------------ conformance --
+	if err := conformance(ctx, o, st, result); err != nil {
+		return result, err
+	}
+	nonconformant := len(result.Blocking) > 0
+	if nonconformant {
+		o.Progress.Step(conform.PhaseReview, "%d blocking finding(s) were neither fixed nor declared; "+
+			"the pull request will be a draft", len(result.Blocking))
+		o.Draft = true
+	}
+
 	// ------------------------------------------------------------- land --
 	result.Stage = "committed"
 	if o.Land.Pushes() && !o.DryRun {
@@ -195,6 +220,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		result.Stage = "pushed"
 		o.Progress.Step("push", "pushed origin/%s", st.branch)
 	}
+	trackDeviations(ctx, o, st, result)
 	if o.Land == LandPR && result.Pushed && st.target.Valid() {
 		// A failed pull request is not a failed run: the branch is pushed
 		// and every task on it is verified, so the work is safe and a person
@@ -210,6 +236,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		result.Stage = "landed"
 	}
 	o.Progress.Step("land", "%d task(s) landed on %s", result.TasksDone, st.branch)
+	if nonconformant {
+		keys := make([]string, len(result.Blocking))
+		for i, b := range result.Blocking {
+			keys[i] = b.Key
+		}
+		return result, failf(conform.PhaseReview, CategoryNonconformant,
+			"every task landed, and %d blocking finding(s) were neither fixed nor declared (%s); the work "+
+				"is on %s and is not presented as done", len(keys), strings.Join(keys, ", "), st.branch)
+	}
 	return result, nil
 }
 
@@ -392,12 +427,15 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: the survey (unless
-	// skipped, and never when there is nothing to implement) and one per
-	// pending task. A repair phase is a decision the model makes once it
-	// runs, so it is not counted.
+	// skipped, and never when there is nothing to implement), one per
+	// pending task, and the conformance review (unless skipped). A repair or
+	// resolve phase is decided by what the run finds, so it is not counted.
 	phases := len(st.todo)
 	if phases > 0 && !o.NoSurvey {
 		phases++
+	}
+	if phases > 0 && !o.NoReview {
+		phases++ // the conformance review; its resolve phase runs only on findings
 	}
 	maxTurns, maxBudget := o.Runner.ResolvedBounds()
 	result.Estimate = &toolio.Estimate{
@@ -890,7 +928,7 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
 		Failing: st.baseline, Survey: st.survey,
 		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
-		Profile: st.profile,
+		Profile: st.profile, Now: o.now(),
 	})
 	if rf != nil {
 		report.Outcome, report.Error = rf.outcome, rf.reason
@@ -947,7 +985,7 @@ func repairAfterTask(ctx context.Context, o Options, st *runState, result *Resul
 		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate,
 		Failing: failing, Survey: st.survey, Task: &task, Prior: st.prior,
 		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
-		Profile: st.profile,
+		Profile: st.profile, Now: o.now(),
 	})
 	// Whatever happened, the hold is undone and the task's change is back
 	// in the tree, staged, beside whatever the last attempt left.
@@ -996,6 +1034,8 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),
 			Profile: st.profile,
 			Context: o.Input.Context,
+			Now:     o.now(),
+			Scope:   specScope(st).Allow,
 		})
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))
@@ -1096,6 +1136,20 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			result.Verification, result.Verdict = after, verdict
 		case !landable(verdict, len(st.gate) == 0):
 			failure = &attemptFailure{Reason: fmt.Sprintf("the checks did not pass (%s)", verdict), Gate: &after}
+		}
+		if failure == nil && len(st.gate) > 0 && len(task.Tests) > 0 &&
+			(o.NoTestFirst || strings.TrimSpace(sub.TestFirstDeviation) != "") {
+			rc, err := revertCheck(ctx, o, st, head)
+			if err != nil {
+				return report, fail("task", CategoryGit, err)
+			}
+			report.RevertCheck = &rc
+			if rc.Ran && !rc.Proves {
+				failure = &attemptFailure{Reason: "test-first was waived, and with the implementation taken " +
+					"out the checks still pass (" + strings.Join(rc.Reverted, ", ") + " put back as they " +
+					"were): the tests the task owns do not depend on the work. Make them fail when the " +
+					"wired component is removed or the behaviour inverted"}
+			}
 		}
 		if failure != nil {
 			if stat, e := st.git.DiffStat(ctx, head); e == nil {
@@ -1338,4 +1392,41 @@ func recordPhase(run *toolio.Run, st *runState, res agentrun.Result) {
 		return
 	}
 	run.AddPhase(toolio.PhaseFromResult(res, ""))
+}
+
+// revertCheck stands in for the red run a task that waived test-first did
+// not make: the tests run with the implementation taken out, and must fail.
+// The implementation is the task's own non-test change when it made one; a
+// task that only added tests — an integration task over wiring the earlier
+// tasks built — is measured against the whole branch's implementation.
+func revertCheck(ctx context.Context, o Options, st *runState, head string) (conform.RevertResult, error) {
+	check := func(ctx context.Context) checks.Result {
+		cmd := st.gate[len(st.gate)-1]
+		done := o.Progress.Begin("revert check: %s with the implementation taken out", cmd)
+		r := checks.Run(ctx, o.CheckRunner, st.root, cmd, o.VerifyTimeout)
+		done(fmt.Sprintf("exit %d", r.ExitCode))
+		return r
+	}
+	without := func(files []string) []string {
+		var out []string
+		for _, f := range files {
+			if !underSpec(st, f) {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	changed, err := st.git.ChangedFiles(ctx, head)
+	if err != nil {
+		return conform.RevertResult{}, err
+	}
+	rc, err := conform.Revert(ctx, st.git, st.root, head, without(changed), check)
+	if err != nil || rc.Ran || head == st.start {
+		return rc, err
+	}
+	all, err := st.git.ChangedFiles(ctx, st.start)
+	if err != nil {
+		return conform.RevertResult{}, err
+	}
+	return conform.Revert(ctx, st.git, st.root, st.start, without(all), check)
 }

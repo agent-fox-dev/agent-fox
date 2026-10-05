@@ -72,6 +72,20 @@ const (
 	// catalog.ClampThinkingLevel. The warning message names both levels
 	// and the model.
 	WarnEffortClamped WarnCode = "effort_clamped"
+	// WarnReviewNotRun is recorded when the independent conformance review
+	// did not complete: nothing but the authors checked the change against
+	// the spec, and the result says so instead of passing for reviewed.
+	WarnReviewNotRun WarnCode = "review_not_run"
+	// WarnUnmetRequirements is recorded when the change knowingly does not
+	// meet part of its specification. The pull request opens with the list.
+	WarnUnmetRequirements WarnCode = "unmet_requirements"
+	// WarnDeviationNotTracked is recorded for a declared deviation that no
+	// erratum in the change records and no issue could be filed for.
+	WarnDeviationNotTracked WarnCode = "deviation_not_tracked"
+	// WarnFixNotProven is recorded when the checks still pass with a fix's
+	// implementation taken out: no test depends on the fix, so the issue is
+	// referenced rather than closed.
+	WarnFixNotProven WarnCode = "fix_not_proven"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -117,6 +131,10 @@ var warnStages = map[WarnCode]string{
 	WarnOutputMatchesReportFile: "emit",
 	WarnEventsFileNotWritten:    "report",
 	WarnEffortClamped:           "preflight",
+	WarnReviewNotRun:            "review",
+	WarnUnmetRequirements:       "review",
+	WarnDeviationNotTracked:     "land",
+	WarnFixNotProven:            "verify",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -168,5 +186,9 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnOutputMatchesReportFile,
 		WarnEventsFileNotWritten,
 		WarnEffortClamped,
+		WarnReviewNotRun,
+		WarnUnmetRequirements,
+		WarnDeviationNotTracked,
+		WarnFixNotProven,
 	}
 }

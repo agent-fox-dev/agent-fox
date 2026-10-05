@@ -739,7 +739,7 @@ func ExitCodeFor(category string) int {
 		return ExitUsage
 	case "ambiguous", "blocked":
 		return ExitNeedsHuman
-	case "unverified":
+	case "unverified", "nonconformant":
 		return ExitUnverified
 	default:
 		return ExitFailed

@@ -28,7 +28,7 @@ var toolFlags = map[string][]string{
 	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",
-		"no-test-first", "task-attempts", "repair", "repair-attempts", "repair-model",
+		"no-test-first", "no-review", "max-func-lines", "task-attempts", "repair", "repair-attempts", "repair-model",
 		"repair-model-effort"},
 }
 

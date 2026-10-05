@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 )
 
 // The footer every pull request this tool opens carries. It says what wrote
@@ -90,6 +91,24 @@ func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission, repair *
 	return msg + "\n\n" + specRef(spec, task) + "\n"
 }
 
+// resolveCommitMessage is the message of the commit the resolve phase's
+// change lands as: a fix:, because it corrects the branch's own work, with
+// the gate as the tool measured it.
+func resolveCommitMessage(spec *afspec.Spec, sub ResolveSubmission, gate GateResult) string {
+	msg := "fix: " + strings.TrimSuffix(strings.TrimSpace(sub.CommitSubject), ".")
+	if body := checks.StripClaims(strings.TrimSpace(sub.Summary)); body != "" {
+		msg += "\n\n" + body
+	}
+	if gate.Ran() && gate.OK() {
+		var cmds []string
+		for _, c := range gate.Checks {
+			cmds = append(cmds, "`"+c.Command+"`")
+		}
+		msg += "\n\nChecks (run by the tool): " + strings.Join(cmds, ", ") + " passed."
+	}
+	return msg + "\n\n" + fmt.Sprintf("%s %s, %s", specTrailer, filepath.Base(spec.Dir), conformanceMarker) + "\n"
+}
+
 // holdCommitMessage is the commit that holds a task's work while its
 // checks are repaired: every repair attempt starts from it, and it is
 // undone — soft, keeping the work — before the task is committed for real.
@@ -121,15 +140,38 @@ func pullRequestTitle(spec *afspec.Spec) string {
 // pullRequestBody is the PR description. Every line of every verification
 // cell is rendered from a measured gate, so the body cannot claim a run
 // that did not happen.
+//
+// It opens with what the change knowingly does not meet, and the summary line
+// says the work is complete only when that list and the blocking findings are
+// both empty: "N of N tasks landed" over an unmet requirement is the claim
+// this body exists not to make.
 func pullRequestBody(r *Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
+
+	if len(r.Blocking) > 0 {
+		p("## ❌ Not ready: blocking findings\n\n")
+		p("The conformance stage found %d problem(s) that were neither fixed nor declared. This pull "+
+			"request is a draft until they are:\n\n", len(r.Blocking))
+		for _, x := range r.Blocking {
+			p("- **%s**: %s\n", x.Key, strings.TrimSpace(x.What))
+		}
+		p("\n")
+	}
+	b.WriteString(conform.RenderUnmet(r.Unmet))
 
 	p("## Summary\n\n")
 	p("Implements specification `%s` (\"%s\"): %d of %d task(s) landed in this run", r.SpecDir,
 		r.Title, r.TasksDone, r.TasksTotal)
 	if r.TasksSkipped > 0 {
 		p(", %d already done", r.TasksSkipped)
+	}
+	switch {
+	case len(r.Blocking) > 0 || len(r.Unmet) > 0:
+		p(". **The work is not complete:** %d unmet item(s) and %d blocking finding(s) are listed above",
+			len(r.Unmet), len(r.Blocking))
+	case r.Review != nil:
+		p(", and an independent review found every requirement and test in scope met")
 	}
 	p(".\n\n")
 
@@ -180,12 +222,35 @@ func pullRequestBody(r *Result) string {
 			p("> ⚠️ **Test-first not followed.** %s\n\n", dev)
 		}
 		b.WriteString(verdictSection(t.Submission.TestVerdicts))
+		if rc := t.RevertCheck; rc != nil {
+			b.WriteString(revertCheckLine(*rc))
+		}
 		if strings.TrimSpace(t.Submission.Notes) != "" {
 			p("**Notes:** %s\n\n", strings.TrimSpace(t.Submission.Notes))
 		}
 	}
 
+	if r.Review != nil {
+		b.WriteString(conform.RenderReview(*r.Review, nil))
+	}
+	if res := r.Resolve; res != nil && res.Submission != nil {
+		p("## Findings answered after the last task\n\n%s", strings.TrimSpace(res.Submission.Summary))
+		if res.Commit != "" {
+			p(" (`%s`)", res.Commit)
+		} else if res.Outcome == "discarded" {
+			p(" The change was discarded: %s.", res.Error)
+		}
+		p("\n\n")
+	}
+	b.WriteString(conform.RenderFindings(r.Structural))
+	if len(r.OutOfScope) > 0 {
+		p("## Outside the spec's scope\n\n`%s`\n\n", strings.Join(r.OutOfScope, "`, `"))
+	}
+
 	p("## Verification\n\n%s\n\n", verificationLines(r.Gate, r.Baseline, r.Verification))
+	if r.FinalVerification != nil {
+		b.WriteString(cleanEnvironmentLines(r.Gate, *r.FinalVerification, r.Environment))
+	}
 	p("---\n%s\n", footer)
 	return b.String()
 }
@@ -288,6 +353,50 @@ func verificationLines(cmds []string, baseline, last GateResult) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// cleanEnvironmentLines is the final verification, run with an empty HOME and
+// no global git configuration, and the environment it ran in.
+func cleanEnvironmentLines(cmds []string, g GateResult, env *checks.Environment) string {
+	var b strings.Builder
+	b.WriteString("In a clean environment (an empty HOME, no global or system git configuration):\n\n")
+	for i, cmd := range cmds {
+		if i >= len(g.Checks) || !g.Checks[i].Ran() {
+			fmt.Fprintf(&b, "⚠️ `%s` did not run.\n", cmd)
+			continue
+		}
+		c := g.Checks[i]
+		switch {
+		case c.ExitCode == -1 || c.TimedOut:
+			fmt.Fprintf(&b, "❌ `%s` could not run (%s).\n", cmd, runFailure(c))
+		case c.OK:
+			fmt.Fprintf(&b, "✅ `%s` passes (exit 0, %s).\n", cmd, ms(c.DurationMS))
+		default:
+			fmt.Fprintf(&b, "❌ `%s` fails (exit %d).\n", cmd, c.ExitCode)
+		}
+	}
+	if env != nil {
+		b.WriteString("\n| Environment | |\n|---|---|\n")
+		fmt.Fprintf(&b, "| git | %s |\n| init.defaultBranch | %s |\n", orDash(env.GitVersion), orDash(env.InitDefaultBranch))
+		if env.GoVersion != "" {
+			fmt.Fprintf(&b, "| go | %s |\n", env.GoVersion)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// revertCheckLine says what the tests did with the implementation taken out.
+func revertCheckLine(rc conform.RevertResult) string {
+	switch {
+	case rc.Proves:
+		return fmt.Sprintf("**Revert check:** with %s taken out, the checks fail (exit %d), so the tests "+
+			"depend on the work.\n\n", "`"+strings.Join(rc.Reverted, "`, `")+"`", rc.Check.ExitCode)
+	case rc.Ran:
+		return "**Revert check:** ❌ " + rc.Reason + ".\n\n"
+	default:
+		return "**Revert check:** not run — " + rc.Reason + ".\n\n"
+	}
 }
 
 func runFailure(r checks.Result) string {

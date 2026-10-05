@@ -4,32 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
+	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
-// The three terminating tools.
+// The terminating tools of the phases this package defines. The review's is
+// conform.ToolSubmitReview.
 const (
-	ToolSubmitSurvey = "submit_survey"
-	ToolSubmitRepair = "submit_repair"
-	ToolSubmitTask   = "submit_task"
+	ToolSubmitSurvey  = "submit_survey"
+	ToolSubmitRepair  = "submit_repair"
+	ToolSubmitTask    = "submit_task"
+	ToolSubmitResolve = "submit_resolve"
 )
 
-// The three phase names. They are stable across tasks and runs on purpose:
+// The phase names, with conform.PhaseReview. They are stable across tasks and runs on purpose:
 // the phase name is the provider's cache key, and every task's system prompt
 // and tool schema are the same — the task itself is in the user prompt.
 const (
 	PhaseSurvey    = "survey"
 	PhaseRepair    = "repair"
 	PhaseImplement = "implement"
+	PhaseResolve   = "resolve"
 )
 
 // constrainedJSON asks the wire to constrain sampling to the tool's schema
@@ -85,6 +92,8 @@ type repairInput struct {
 	Instructions string
 	Steering     string
 	Profile      project.Profile
+	// Now is today, for any date the phase writes.
+	Now time.Time
 }
 
 // taskInput is what one implementation phase is given.
@@ -111,6 +120,32 @@ type taskInput struct {
 	Profile      project.Profile
 	// Context is the rendered additional context block from --context flags.
 	Context string
+	// Now is today, for any date the phase writes.
+	Now time.Time
+	// Scope is the set of paths the spec's tasks list; empty when the spec
+	// does not restrict them.
+	Scope []string
+}
+
+// resolveInput is what the phase that answers the conformance stage is
+// given.
+type resolveInput struct {
+	Spec     *afspec.Spec
+	Root     string
+	Branch   string
+	Gate     []string
+	Baseline GateResult
+	Survey   *Survey
+	// Blockers are what must be fixed or declared; Findings the structural
+	// problems to fix where it is safe to.
+	Blockers []conform.Blocker
+	Findings []conform.Finding
+	// Hermetic is the clean-environment run, when it failed.
+	Hermetic     *GateResult
+	Instructions string
+	Steering     string
+	Profile      project.Profile
+	Now          time.Time
 }
 
 // priorTask is what an earlier task leaves for the ones after it.
@@ -234,7 +269,7 @@ func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentru
 		System:             implementSystemPrompt,
 		User:               taskPrompt(in),
 		Terminator:         ToolSubmitTask,
-		Custom:             []core.Tool{submitTaskTool(out, in.Task, !b.noTestFirst)},
+		Custom:             []core.Tool{submitTaskTool(out, in.Task, !b.noTestFirst, docsChanged(in.Root, b.protected), in.Root)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
@@ -256,6 +291,63 @@ func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, a
 		return Submission{}, res, agentrun.NoResultError(PhaseImplement, ToolSubmitTask, res)
 	}
 	return got, res, nil
+}
+
+// Review runs the independent conformance review.
+func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	return conform.RunReview(ctx, b.runner, in)
+}
+
+// Resolve runs the phase that fixes or declares what the conformance stage
+// found. It is a writing phase, like a task's.
+func (b *agentBrain) Resolve(ctx context.Context, in resolveInput) (ResolveSubmission, agentrun.Result, error) {
+	var out sink[ResolveSubmission]
+	programs, tools := b.writingPhase()
+	res, err := b.runner.Run(ctx, agentrun.Phase{
+		Name:               PhaseResolve,
+		System:             resolveSystemPrompt,
+		User:               resolvePrompt(in),
+		Terminator:         ToolSubmitResolve,
+		Custom:             []core.Tool{submitResolveTool(&out, in.Blockers)},
+		BuiltinTools:       tools,
+		ReadOnly:           false,
+		Programs:           programs,
+		ProtectedPaths:     []string{b.protected},
+		Temperature:        0.2,
+		LoadProjectContext: true,
+	})
+	if err != nil {
+		return ResolveSubmission{}, res, err
+	}
+	got, ok := out.get()
+	if !ok {
+		return ResolveSubmission{}, res, agentrun.NoResultError(PhaseResolve, ToolSubmitResolve, res)
+	}
+	return got, res, nil
+}
+
+// docsChanged reports, when called, the documentation files the phase has
+// changed so far: the submit tool asks at submission time, after the edits.
+// With no workspace there is nothing to ask, and it is nil.
+func docsChanged(root, protected string) func(context.Context) []string {
+	if root == "" {
+		return nil
+	}
+	return func(ctx context.Context) []string {
+		changed, err := gitx.New(root, nil).ChangedFiles(ctx, "HEAD")
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, protected)
+		rel = filepath.ToSlash(rel)
+		var out []string
+		for _, f := range changed {
+			if project.IsDocsFile(f) && f != rel && !strings.HasPrefix(f, rel+"/") {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
 }
 
 // sink is the guarded destination a tool handler writes into. The loop
@@ -396,9 +488,39 @@ func submissionSchema(task afspec.Task) *schema.Schema {
 		schema.Opt("gotchas", schema.Array(schema.String(),
 			"The surprises: an API that does not behave as the spec assumes, a fragile test, "+
 				"an assumption a later task depends on. They are carried into the next task's prompt.")),
+		schema.Opt("deviations", schema.Array(deviationSchema(),
+			"Every requirement, test or survey decision (D-n) the work knows it does not meet — an "+
+				"exit code the host library cannot produce, a dependency that cannot change, an "+
+				"unverified API. They open the pull request; a deviation written only in notes is "+
+				"a footnote nobody reads.")),
+		schema.Opt("doc_sources", schema.Array(docSourceSchema(),
+			"Required when you changed documentation: for every quoted string, field name, enum "+
+				"value, exit code, endpoint path and sample payload you wrote, the code or test line "+
+				"it was copied from. Each is checked against the file.")),
 		schema.Opt("blocker", blockerSchema()),
 	)
 	return s
+}
+
+func deviationSchema() *schema.Schema {
+	return schema.Object(
+		schema.Prop("key", schema.String("The requirement id, test id or D-n not met")),
+		schema.Opt("test", schema.String("The test id concerned, when key is a requirement")),
+		schema.Prop("reason", schema.String(
+			"What the code does instead, and what stops it doing what the spec asks")),
+		schema.Opt("errata", schema.String(
+			"The erratum you added or edited for it in this change (for example docs/errata/20_exit_code.md), "+
+				"citing the code line and the test of the delivered behaviour. Without one, an issue is "+
+				"filed for it when the pull request is opened.")),
+	)
+}
+
+func docSourceSchema() *schema.Schema {
+	return schema.Object(
+		schema.Prop("claim", schema.String("The fact as your documentation states it")),
+		schema.Prop("source", schema.String("The code or test line it comes from, as file:line — never a PRD or other docs")),
+		schema.Prop("quote", schema.String("The text on that line that shows it, copied exactly")),
+	)
 }
 
 func firstOr(ss []string, fallback string) string {
@@ -504,7 +626,12 @@ func submitRepairTool(dest *sink[RepairSubmission]) core.Tool {
 // test_first_deviation reason. The evidence is the model's own claim — the
 // tool can only refuse its absence — and the deviation is rendered into the
 // pull request so a reviewer sees it.
-func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst bool) core.Tool {
+//
+// docs, when it is not nil, reports the documentation the phase changed: a
+// submission that changed any must say, for every fact it wrote, which code
+// or test line the fact comes from, and each is checked against root.
+func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst bool,
+	docs func(context.Context) []string, root string) core.Tool {
 	doneWhenIDs := doneWhenIDs(task)
 	return core.Tool{
 		Name: ToolSubmitTask,
@@ -522,7 +649,7 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst b
 				"(the command and the failure seen). If that was impossible, set test_first_deviation " +
 				"with the reason instead.",
 		},
-		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
+		Execute: func(ctx context.Context, in json.RawMessage) core.ToolResult {
 			var s Submission
 			if err := json.Unmarshal(in, &s); err != nil {
 				return core.ErrResult("invalid_arguments", err.Error())
@@ -556,6 +683,29 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst b
 						code = "thin_test_first_deviation"
 					}
 					return core.ErrResult(code, err.Error())
+				}
+			}
+			for i, d := range s.Deviations {
+				if strings.TrimSpace(d.Key) == "" || len([]rune(strings.TrimSpace(d.Reason))) < minEvidenceRunes {
+					return core.ErrResult("thin_deviation", fmt.Sprintf(
+						"deviations[%d] needs the requirement, test or decision id it answers and the reason "+
+							"it is not met, in a sentence", i))
+				}
+			}
+			if docs != nil {
+				if changed := docs(ctx); len(changed) > 0 {
+					if len(s.DocSources) == 0 {
+						return core.ErrResult("missing_doc_sources", fmt.Sprintf(
+							"you changed documentation (%s): give doc_sources, the code or test line each "+
+								"fact you wrote comes from", strings.Join(changed, ", ")))
+					}
+					for _, src := range s.DocSources {
+						if err := conform.VerifyDocSource(root, src); err != nil {
+							return core.ErrResult("unverified_doc_source", err.Error()+
+								". Copy documentation from the code, not from the PRD: if the code does "+
+								"something else, document what it does and declare the deviation.")
+						}
+					}
 				}
 			}
 			s.TestVerdicts = normalizeVerdicts(task.Tests, s.TestVerdicts)
@@ -704,4 +854,76 @@ func failedVerdicts(verdicts []Verdict) []Verdict {
 		}
 	}
 	return out
+}
+
+func resolveSchema() *schema.Schema {
+	fileChange := schema.Object(
+		schema.Prop("path", schema.String("Repository-relative path you changed")),
+		schema.Prop("change", schema.String("One line: what you changed in it")),
+	)
+	return schema.Object(
+		schema.Prop("summary", schema.String("1-3 sentences: what you fixed, and what you declared instead")),
+		schema.Opt("commit_subject", schema.String(
+			"A conventional-commit subject under 72 characters, WITHOUT the type prefix. Required when "+
+				"you changed files.")),
+		schema.Opt("changes", schema.Array(fileChange, "Every file you changed")),
+		schema.Opt("deviations", schema.Array(deviationSchema(),
+			"The findings you could not fix and declare as known deviations: key is the finding's key "+
+				"exactly as listed. A finding marked fix-only cannot be declared.")),
+		schema.Opt("notes", schema.String("Anything a reviewer should know")),
+	)
+}
+
+// submitResolveTool ends the resolve phase. A declaration must answer a
+// finding that can be declared, with a reason; a finding that can only be
+// fixed — a file outside the spec's scope, a document that contradicts the
+// code — cannot be talked out of.
+func submitResolveTool(dest *sink[ResolveSubmission], blockers []conform.Blocker) core.Tool {
+	declarable := map[string]bool{}
+	var keys []string
+	for _, b := range blockers {
+		if b.Declarable {
+			declarable[strings.ToUpper(b.Key)] = true
+			keys = append(keys, b.Key)
+		}
+	}
+	return core.Tool{
+		Name: ToolSubmitResolve,
+		Description: "Submit a report of what you fixed and what you declare, and end this phase. Call it " +
+			"once, after the checks pass when you run them.",
+		InputSchema:         resolveSchema(),
+		ConstrainedSampling: constrainedJSON,
+		PromptGuidelines: []string{
+			"Report by calling " + ToolSubmitResolve + "; do not write it as prose.",
+			"The commit is made by the program from what you submit, after it has run the checks itself.",
+		},
+		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
+			var s ResolveSubmission
+			if err := json.Unmarshal(in, &s); err != nil {
+				return core.ErrResult("invalid_arguments", err.Error())
+			}
+			if strings.TrimSpace(s.Summary) == "" {
+				return core.ErrResult("missing_summary", "summary is empty")
+			}
+			if len(s.Changes) > 0 && strings.TrimSpace(s.CommitSubject) == "" {
+				return core.ErrResult("missing_commit_subject",
+					"you changed files and commit_subject is empty; it is the subject of the commit")
+			}
+			for i, d := range s.Deviations {
+				switch {
+				case !declarable[strings.ToUpper(strings.TrimSpace(d.Key))]:
+					return core.ErrResult("undeclarable", fmt.Sprintf(
+						"deviations[%d] answers %q, which is not a finding that can be declared (%s); "+
+							"fix-only findings must be fixed", i, d.Key, strings.Join(keys, ", ")))
+				case len([]rune(strings.TrimSpace(d.Reason))) < minEvidenceRunes:
+					return core.ErrResult("thin_deviation", fmt.Sprintf(
+						"deviations[%d] gives no reason; say what the code does instead and why", i))
+				}
+			}
+			dest.set(s)
+			res := core.OKResult(map[string]any{"accepted": true})
+			res.Terminate = true
+			return res
+		},
+	}
 }
