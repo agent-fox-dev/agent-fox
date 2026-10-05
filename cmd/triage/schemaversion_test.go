@@ -123,7 +123,7 @@ func TestTS09_46_OrdinaryRunReportsTheSchemaVersionSchemaAdvertised_Smoke(t *tes
 	if err := os.WriteFile(filepath.Join(ws, "widget.go"), []byte("package widget\nfunc Count() int { return 1 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", ws, "init", "-q").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", ws, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	env := []string{

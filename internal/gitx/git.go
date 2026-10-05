@@ -340,3 +340,52 @@ func (g *Git) Restore(ctx context.Context, path string) error {
 	_, err := g.must(ctx, "clean", "-fdq", "--", path)
 	return err
 }
+
+// TrackedFiles lists every file git tracks, plus the untracked files that are
+// not ignored: the repository as a reader of it sees it.
+func (g *Git) TrackedFiles(ctx context.Context) ([]string, error) {
+	out, err := g.must(ctx, "ls-files", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return nonEmptyLines(out), nil
+}
+
+// NameOnlySince lists the paths that differ between a commit and HEAD, as
+// `git diff --name-only <since> HEAD` reports them: what a pull request from
+// this branch would show.
+func (g *Git) NameOnlySince(ctx context.Context, since string) ([]string, error) {
+	out, err := g.must(ctx, "diff", "--name-only", since, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return nonEmptyLines(out), nil
+}
+
+// CheckoutPaths sets paths to their content at ref, leaving everything else
+// in the tree as it is.
+func (g *Git) CheckoutPaths(ctx context.Context, ref string, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	_, err := g.must(ctx, append([]string{"checkout", ref, "--"}, paths...)...)
+	return err
+}
+
+// ShowFile is a file's content at ref, byte for byte, and whether it exists
+// there.
+func (g *Git) ShowFile(ctx context.Context, ref, path string) (string, bool, error) {
+	_, code, err := g.git(ctx, "cat-file", "-e", ref+":"+path)
+	if err != nil || code != 0 {
+		return "", false, err
+	}
+	// Not g.git: that trims the trailing newline, and this is file content.
+	out, code, err := g.run(ctx, g.Dir, []string{"git", "show", ref + ":" + path})
+	if err != nil {
+		return "", false, err
+	}
+	if code != 0 {
+		return "", false, fmt.Errorf("git show %s:%s exited %d: %s", ref, path, code, out)
+	}
+	return out, true, nil
+}

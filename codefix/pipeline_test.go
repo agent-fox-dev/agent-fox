@@ -470,7 +470,7 @@ func sideEffectFixture(t *testing.T, pullStatus int) (Options, *[]string) {
 	ctx := context.Background()
 	origin := filepath.Join(t.TempDir(), "origin.git")
 	for _, argv := range [][]string{
-		{"git", "init", "-q", "--bare", origin},
+		{"git", "init", "-q", "--bare", "-b", "main", origin},
 		{"git", "remote", "add", "origin", origin},
 	} {
 		if out, code, err := gitx.ExecRunner(ctx, ws.Root, argv); err != nil || code != 0 {

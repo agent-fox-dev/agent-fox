@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 )
 
 // trackedFiles lists what git tracks, relative to the repository root.
@@ -106,6 +108,31 @@ func TestGitignoreHoldsNoPersonalPatterns(t *testing.T) {
 		switch strings.TrimSpace(line) {
 		case "# own stuff", "prompts.md", "hack/", "hack.md":
 			t.Errorf(".gitignore holds the personal pattern %q: move it to .git/info/exclude", line)
+		}
+	}
+}
+
+// A fixture that runs git init without naming the branch passes
+// on a machine whose global configuration sets init.defaultBranch and fails on
+// a clean image. Every one names its branch.
+func TestGitFixturesNameTheirBranch(t *testing.T) {
+	root := findWorkspaceRoot(t)
+	for _, f := range trackedFiles(t, root) {
+		if !strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(root, f))
+		if err != nil {
+			continue
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			if strings.Contains(line, "UnpinnedGitBranch") || strings.Contains(line, "t.Fatalf") || strings.Contains(line, "t.Errorf") ||
+				strings.HasPrefix(strings.TrimSpace(line), "//") {
+				continue
+			}
+			if conform.UnpinnedGitBranch(line) {
+				t.Errorf("%s:%d runs git init without -b: %s", f, i+1, strings.TrimSpace(line))
+			}
 		}
 	}
 }

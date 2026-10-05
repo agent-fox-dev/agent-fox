@@ -1368,7 +1368,7 @@ func implOriginFixture(t *testing.T, originPath string) Options {
 	ws, g, _ := newSpecRepo(t)
 	ctx := context.Background()
 	for _, argv := range [][]string{
-		{"git", "init", "-q", "--bare", originPath},
+		{"git", "init", "-q", "--bare", "-b", "main", originPath},
 		{"git", "remote", "add", "origin", originPath},
 	} {
 		if out, code, err := gitx.ExecRunner(ctx, ws.Root, argv); err != nil || code != 0 {

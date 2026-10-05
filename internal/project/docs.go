@@ -25,10 +25,10 @@ func MissingDocs(root string, changed []string) string {
 	var surface []string
 	for _, f := range changed {
 		f = filepath.ToSlash(f)
-		if isDocsFile(f) {
+		if IsDocsFile(f) {
 			return ""
 		}
-		if isSourceFile(f) && !isTestPath(f) && isSurface(f) {
+		if IsSourceFile(f) && !IsTestPath(f) && isSurface(f) {
 			surface = append(surface, f)
 		}
 	}
@@ -49,7 +49,9 @@ func hasDocs(root string) bool {
 	return len(matches) > 0
 }
 
-func isDocsFile(p string) bool {
+// IsDocsFile reports whether p, a slash-separated repository path, is
+// documentation: under docs/ or doc/, or a prose file by extension.
+func IsDocsFile(p string) bool {
 	if strings.HasPrefix(p, "docs/") || strings.HasPrefix(p, "doc/") {
 		return true
 	}
@@ -65,9 +67,12 @@ var sourceExts = map[string]bool{
 	".java": true, ".kt": true, ".rb": true, ".cs": true, ".c": true, ".cc": true, ".cpp": true, ".h": true,
 }
 
-func isSourceFile(p string) bool { return sourceExts[strings.ToLower(path.Ext(p))] }
+// IsSourceFile reports whether p is source code by its extension.
+func IsSourceFile(p string) bool { return sourceExts[strings.ToLower(path.Ext(p))] }
 
-func isTestPath(p string) bool {
+// IsTestPath reports whether p is a test or test data, by the naming and
+// directory conventions of the common languages.
+func IsTestPath(p string) bool {
 	base := path.Base(p)
 	if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") ||
 		strings.HasPrefix(base, "test_") || strings.Contains(base, ".test.") ||

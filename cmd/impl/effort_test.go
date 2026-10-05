@@ -341,7 +341,7 @@ func TestImplRepoFlagReachesTheLandTarget(t *testing.T) {
 	dir, _ := preflightSpecRepo(t)
 	// --land pr pushes, so the repository needs an origin to push to.
 	origin := filepath.Join(t.TempDir(), "origin.git")
-	gitIn(t, dir, "init", "-q", "--bare", origin)
+	gitIn(t, dir, "init", "-q", "--bare", "-b", "main", origin)
 	gitIn(t, dir, "remote", "add", "origin", origin)
 
 	var stdout, stderr bytes.Buffer
