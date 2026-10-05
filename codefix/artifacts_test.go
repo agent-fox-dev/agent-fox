@@ -1,7 +1,10 @@
 package codefix
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -184,5 +187,57 @@ func TestTS0625_ExistingResultFieldsUnchangedAlongsideArtifacts(t *testing.T) {
 	}
 	if r.PullRequestURL != "https://github.com/o/r/pull/5" {
 		t.Errorf("result.pull_request_url changed: %v", r.PullRequestURL)
+	}
+}
+
+// TS-06-23 (comment case): under --dry-run on an issue input, the comment the
+// run would have posted is reported as a hypothetical comment artifact with
+// dry_run: true, and nothing reached the forge (06-REQ-4.3).
+func TestTS0623_DryRunCommentMarkedHypothetical(t *testing.T) {
+	o, forgeLog := sideEffectFixture(t, http.StatusOK)
+	o.DryRun = true
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(*forgeLog) != 0 {
+		t.Fatalf("dry run reached the forge: %v", *forgeLog)
+	}
+
+	var roles []string
+	for _, a := range got.Artifacts() {
+		if a.Kind != toolio.ArtifactComment {
+			continue
+		}
+		if !a.DryRun {
+			t.Errorf("comment artifact %+v does not carry dry_run", a)
+		}
+		if a.URL != "" {
+			t.Errorf("a comment that was not posted has a URL: %+v", a)
+		}
+		roles = append(roles, a.Role)
+	}
+	want := []string{"analysis", "summary"}
+	sort.Strings(roles)
+	if !reflect.DeepEqual(roles, want) {
+		t.Errorf("hypothetical comment roles = %v, want %v", roles, want)
+	}
+	if len(got.Comments) != 0 || len(got.CommentRefs) != 0 {
+		t.Errorf("a dry run reported posted comments: %v %v", got.Comments, got.CommentRefs)
+	}
+}
+
+// A comment that was posted carries no dry_run marker.
+func TestPostedCommentCarriesNoDryRunMarker(t *testing.T) {
+	r := &Result{
+		Comments:    []string{"https://github.com/o/r/issues/1#c"},
+		CommentRefs: []CommentRef{{Kind: "summary", URL: "https://github.com/o/r/issues/1#c"}},
+	}
+	c := findKind(t, r.Artifacts(), toolio.ArtifactComment)
+	if c == nil {
+		t.Fatal("expected a comment artifact")
+	}
+	if _, ok := c["dry_run"]; ok {
+		t.Errorf("a posted comment carries a dry_run marker: %v", c)
 	}
 }

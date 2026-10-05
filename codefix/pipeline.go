@@ -668,6 +668,7 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 		return
 	}
 	if o.DryRun {
+		result.dryRunComments = append(result.dryRunComments, kind)
 		o.Progress.Detail("dry run: the %s comment was not posted", kind)
 		return
 	}
