@@ -63,6 +63,12 @@ func TestSpecFlagsMatchTheToolFlagTable(t *testing.T) {
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("spec registers %v, the unsupported-flag table says %v", names, want)
 	}
+	// An unsplit input is one PRD phase's worth of work with no interior
+	// boundary, so --total-budget folds into --budget (06-REQ-9.4, 06-REQ-9.6),
+	// as it does for triage.
+	if !app.SinglePhase {
+		t.Error("spec's unsplit input has one phase: --total-budget must fold into --budget")
+	}
 }
 
 func TestSpecAcceptsSharedDryRun(t *testing.T) {
