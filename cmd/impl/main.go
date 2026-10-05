@@ -238,10 +238,15 @@ func resolveRepairRunner(d toolio.Deps, repairModel, repairModelEffort string) (
 	return r, choice, nil
 }
 
-// repairModelFailure is the envelope error for a repair model that could not
-// be resolved or whose credential is missing.
-func repairModelFailure(err error) *toolio.ErrorInfo {
-	return &toolio.ErrorInfo{Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error()}
+// repairModelFailure is the exit code and envelope error for a repair model
+// that could not be resolved, whose credential is missing, or whose effort it
+// cannot serve. The last is a usage error, as it is for the run's own model.
+func repairModelFailure(err error) (int, *toolio.ErrorInfo) {
+	info := &toolio.ErrorInfo{Stage: "preflight", Category: agentrun.CategoryOf(err), Message: err.Error()}
+	if info.Category == "usage" {
+		info.Stage = "usage"
+	}
+	return toolio.ExitCodeFor(info.Category), info
 }
 
 func newApp() toolio.App {
@@ -332,7 +337,8 @@ func newApp() toolio.App {
 		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			repairRunner, _, err := resolveRepairRunner(d, f.repairModel, f.repairModelEffort)
 			if err != nil {
-				return toolio.ExitFailed, nil, repairModelFailure(err)
+				code, info := repairModelFailure(err)
+				return code, nil, info
 			}
 
 			result, err := codeimpl.Run(ctx, f.implOptions(d, repairRunner))
@@ -349,7 +355,8 @@ func newApp() toolio.App {
 		PreflightExec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 			repairRunner, _, err := resolveRepairRunner(d, f.repairModel, f.repairModelEffort)
 			if err != nil {
-				return toolio.ExitFailed, nil, repairModelFailure(err)
+				code, info := repairModelFailure(err)
+				return code, nil, info
 			}
 
 			result, err := codeimpl.RunPreflight(ctx, f.implOptions(d, repairRunner))

@@ -350,3 +350,34 @@ func TestRepairEffortClampingIsRecordedOnTheRun(t *testing.T) {
 		})
 	}
 }
+
+// 13-REQ-2.3 for the repair phase: an explicit --repair-model-effort that no
+// level of the repair model can serve is a usage error (exit 2, category
+// usage), as it is for the run's own model, before the first request.
+func TestUnreachableRepairEffortIsAUsageError(t *testing.T) {
+	implEnv(t)
+	t.Setenv("GOOGLE_API_KEY", "test-key")
+	t.Setenv("AF_MODEL_EFFORT", "")
+	dir, _ := preflightSpecRepo(t)
+
+	// google/gemini-3.8-flash supports no thinking level at all.
+	for _, mode := range [][]string{{"--preflight"}, {}} {
+		argv := append(append([]string{}, mode...), "--dir", dir, "--land", "none",
+			"--repair-model", "google/gemini-3.8-flash", "--repair-model-effort", "high", "09")
+		var stdout, stderr bytes.Buffer
+		code := newApp().Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+		if code != toolio.ExitUsage {
+			t.Errorf("%v: exit = %d, want %d\nstdout:\n%s", mode, code, toolio.ExitUsage, stdout.String())
+		}
+		var env toolio.Envelope
+		if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+			t.Fatalf("%v: stdout is not an envelope: %v\n%s", mode, err, stdout.String())
+		}
+		if env.Error == nil || env.Error.Category != "usage" {
+			t.Errorf("%v: error = %+v, want category usage", mode, env.Error)
+		}
+		if env.Error != nil && !strings.Contains(env.Error.Message, "gemini-3.8-flash") {
+			t.Errorf("%v: the message should name the repair model: %q", mode, env.Error.Message)
+		}
+	}
+}
