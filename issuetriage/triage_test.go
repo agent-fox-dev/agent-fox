@@ -761,7 +761,7 @@ func TestIssueTriageResultSummary(t *testing.T) {
 			{Path: "d.go"},
 		},
 	}
-	want := "issue: filed acme/widgets#57 (high severity, 4 files cited)"
+	want := "triage: filed acme/widgets#57 (high severity, 4 files cited)"
 	if r.Summary() != want {
 		t.Errorf("got %q, want %q", r.Summary(), want)
 	}

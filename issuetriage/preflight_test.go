@@ -259,11 +259,11 @@ func TestTS11_35_RunPreflightNeverCallsTheRunner(t *testing.T) {
 // Verifies: 11-REQ-6.3
 func TestTS11_39_SummaryReportsChecklistCount(t *testing.T) {
 	r := Result{Stage: "preflight", Preflight: make([]toolio.PreflightCheck, 2)}
-	if got, want := r.Summary(), "issue: preflight passed (2 checks)"; got != want {
+	if got, want := r.Summary(), "triage: preflight passed (2 checks)"; got != want {
 		t.Errorf("Summary() = %q, want %q", got, want)
 	}
 	// An ordinary run's summary is unchanged.
-	if got := (Result{Action: "created", Repo: "a/b", Number: 3, Severity: "high"}).Summary(); got != "issue: created a/b#3 (high severity, 0 files cited)" {
+	if got := (Result{Action: "created", Repo: "a/b", Number: 3, Severity: "high"}).Summary(); got != "triage: created a/b#3 (high severity, 0 files cited)" {
 		t.Errorf("ordinary Summary() = %q", got)
 	}
 }
