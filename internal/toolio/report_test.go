@@ -113,12 +113,14 @@ func TestTS06_8_UnwritableReportFileRecordsWarningWithoutFailing(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
-	reportDir := t.TempDir()
-	if err := os.Chmod(reportDir, 0o500); err != nil {
+	// The report's parent cannot be created because an ancestor is a regular
+	// file. That fails the write for any user, root included; a read-only
+	// directory (chmod 0500) would not, since root bypasses the mode.
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(reportDir, 0o700) })
-	reportPath := filepath.Join(reportDir, "x.json")
+	reportPath := filepath.Join(blocker, "sub", "x.json")
 
 	app, _ := newApp(t, nil)
 	env, code, _ := runApp(t, app, []string{"--dir", dir, "--report-file", reportPath, "some text"}, "")

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/envtest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/specgen"
 )
@@ -82,6 +83,9 @@ func TestTS11_22_PreflightDoesNotChangeAPreModelFailure(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Hermetic: a machine that carries a gateway, a token or a forge
+			// credential of its own must not change which scenarios fail.
+			envtest.Clean(t)
 			t.Setenv("XDG_STATE_HOME", t.TempDir())
 			t.Setenv(specgen.SpecDirEnv, "")
 			for k, v := range tc.env {
