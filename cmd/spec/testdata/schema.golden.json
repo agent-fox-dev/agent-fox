@@ -572,6 +572,30 @@
             "description": "The comment the finished PRD was posted as, when it was.",
             "x-trust": "fact"
           },
+          "relevant_files": {
+            "type": "array",
+            "description": "Files the PRD phase found relevant for later phases.",
+            "x-trust": "model",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Repository-relative file path.",
+                  "x-trust": "fact"
+                },
+                "why": {
+                  "type": "string",
+                  "description": "Why a later phase should read this file first.",
+                  "x-trust": "model"
+                }
+              },
+              "required": [
+                "path",
+                "why"
+              ]
+            }
+          },
           "detail": {
             "type": "string",
             "description": "Which view of this result was emitted: summary or full.",
@@ -807,6 +831,30 @@
                   "type": "string",
                   "description": "The comment the finished PRD was posted as, when it was.",
                   "x-trust": "fact"
+                },
+                "relevant_files": {
+                  "type": "array",
+                  "description": "Files the PRD phase found relevant for later phases.",
+                  "x-trust": "model",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "description": "Repository-relative file path.",
+                        "x-trust": "fact"
+                      },
+                      "why": {
+                        "type": "string",
+                        "description": "Why a later phase should read this file first.",
+                        "x-trust": "model"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "why"
+                    ]
+                  }
                 },
                 "detail": {
                   "type": "string",

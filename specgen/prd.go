@@ -26,8 +26,8 @@ var specNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // RelevantFile is one file the PRD phase identified as important for later
 // generation phases.
 type RelevantFile struct {
-	Path string `json:"path"`
-	Why  string `json:"why"`
+	Path string `json:"path" trust:"fact" description:"Repository-relative file path."`
+	Why  string `json:"why" trust:"model" description:"Why a later phase should read this file first."`
 }
 
 // PRD is the first phase's result.

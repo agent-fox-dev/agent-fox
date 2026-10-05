@@ -329,6 +329,7 @@ quite what it appears to be; `low` is informational.
 | `name_flag_ignored` | low | usage | spec |
 | `scope_renamed` | low | prd | spec |
 | `scope_count_mismatch` | low | prd | spec |
+| `relevant_files_unavailable` | low | prd | spec |
 | `split_plan_foreign` | low | split | spec |
 | `split_plan_unreadable` | low | split | spec |
 | `split_plan_stale` | high | split | spec |
