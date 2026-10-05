@@ -2,9 +2,12 @@ package issuex
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -15,6 +18,10 @@ const MaxResponseBodyBytes = 8 << 20
 
 // MaxResponseBytes is an alias for MaxResponseBodyBytes.
 const MaxResponseBytes = MaxResponseBodyBytes
+
+// maxRateLimitWait is the longest rate-limit backoff a request waits out; a
+// longer one aborts the request instead.
+const maxRateLimitWait = 120 * time.Second
 
 // LimitResponseBody wraps an io.Reader in an io.LimitReader bounded to MaxResponseBodyBytes (8 MB).
 func LimitResponseBody(r io.Reader) io.Reader {
@@ -38,121 +45,148 @@ func ReadResponse(resp *http.Response) ([]byte, error) {
 	return ReadResponseBody(resp.Body)
 }
 
-// Transport wraps an HTTP round-tripper with rate-limiting retry backoff,
-// bounded response reading safety, and error handling.
-type Transport struct {
-	// Base is the underlying RoundTripper. If nil, http.DefaultTransport is used.
-	Base http.RoundTripper
-
-	// Sleep is the sleep function invoked for rate-limiting backoffs.
-	// If nil, time.Sleep is used.
-	Sleep func(time.Duration)
-
-	// Authenticated indicates whether the client using this transport is authenticated.
-	Authenticated bool
+// forgeHTTP is the one request loop every forge adapter runs on: the bounded
+// body read, the single rate-limit retry with an injectable sleep, the status
+// to sentinel mapping and the 404 annotation. What differs between forges is
+// passed in: the headers, the error payload, and the statuses a forge reports
+// as a conflict. An adapter builds it per request from its own fields, so a
+// sleep set on the adapter later is the one used.
+type forgeHTTP struct {
+	baseURL string
+	client  *http.Client
+	// sleep waits out a rate-limit backoff. If nil, time.Sleep is used.
+	sleep func(time.Duration)
+	// authenticated reports whether the adapter holds a credential; an
+	// unauthenticated 404 is annotated.
+	authenticated bool
+	// header sets the forge's headers, credential included, on a request.
+	header func(*http.Request)
+	// newError builds the forge's HTTPError from a response and its body,
+	// reading the forge's error payload and rate-limit headers.
+	newError func(method, path string, resp *http.Response, body []byte) *HTTPError
+	// conflicts lists the statuses, beyond 405 and 409, the forge reports as
+	// ErrConflict.
+	conflicts []int
 }
 
-// RoundTrip implements http.RoundTripper, delegating to ExecuteRequest.
-func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return t.ExecuteRequest(req)
-}
-
-// ExecuteRequest executes req using the underlying transport. If the response indicates
-// rate limiting (HTTP 429 or HTTP 403 with quota exhausted):
-//   - If the calculated RetryAfter duration <= 120 seconds, it invokes the configured
-//     sleep function and retries the request once.
-//   - If the calculated RetryAfter duration > 120 seconds, it aborts immediately and returns
-//     an error wrapping ErrRateLimited without retrying.
-//   - If a retry attempt also encounters rate limiting, it returns an error wrapping ErrRateLimited.
-func (t *Transport) ExecuteRequest(req *http.Request) (*http.Response, error) {
-	base := t.Base
-	if base == nil {
-		base = http.DefaultTransport
+// do sends one request and returns the successful response, whose body has
+// already been read (bounded to MaxResponseBodyBytes) and closed, with that
+// body. A rate-limited response whose backoff is within 120 seconds is retried
+// once after sleeping; a longer backoff, or a retry that is limited again, is
+// an error wrapping ErrRateLimited. reqBody may be []byte, string, io.Reader
+// or any value json.Marshal accepts; a 2xx body is decoded into respTarget,
+// or written to it when it is an io.Writer.
+func (h forgeHTTP) do(ctx context.Context, method, path string, reqBody, respTarget any) (*http.Response, []byte, error) {
+	var bodyBytes []byte
+	if reqBody != nil {
+		switch v := reqBody.(type) {
+		case []byte:
+			if len(v) > 0 {
+				bodyBytes = v
+			}
+		case string:
+			if len(v) > 0 {
+				bodyBytes = []byte(v)
+			}
+		case io.Reader:
+			b, err := io.ReadAll(v)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
+			}
+			if len(b) > 0 {
+				bodyBytes = b
+			}
+		default:
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
+			}
+			bodyBytes = b
+		}
 	}
-	sleepFn := t.Sleep
-	if sleepFn == nil {
-		sleepFn = time.Sleep
+
+	fullURL := path
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		p := path
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		fullURL = strings.TrimRight(h.baseURL, "/") + p
 	}
 
-	// Preserve request body for retry if body exists and GetBody is not yet populated.
-	if req.Body != nil && req.GetBody == nil {
-		bodyBytes, err := ReadResponseBody(req.Body)
+	sleep := h.sleep
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		var bodyReader io.Reader
+		if len(bodyBytes) > 0 {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
-		_ = req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		if h.header != nil {
+			h.header(req)
 		}
-	}
-
-	resp, err := base.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-
-	httpErr := HTTPErrorFromResponse(resp)
-	wait, isRateLimit := httpErr.RetryAfter()
-	if !isRateLimit {
-		return resp, nil
-	}
-
-	// RetryAfter duration exceeds 120 seconds: abort without retrying.
-	if wait > 120*time.Second {
-		if resp.Body != nil {
-			_ = resp.Body.Close()
+		if len(bodyBytes) > 0 {
+			req.Header.Set("Content-Type", "application/json")
 		}
-		return nil, fmt.Errorf("%w: rate limit backoff %v exceeds 120 seconds: %w", ErrRateLimited, wait, httpErr)
-	}
 
-	// Close the initial response body before waiting and retrying.
-	if resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-
-	select {
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
-	default:
-	}
-
-	sleepFn(wait)
-
-	select {
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
-	default:
-	}
-
-	if req.GetBody != nil {
-		newBody, err := req.GetBody()
+		resp, err := h.client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
-		req.Body = newBody
-	}
 
-	// Retry once.
-	retryResp, err := base.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-
-	retryErr := HTTPErrorFromResponse(retryResp)
-	if _, retryIsRateLimit := retryErr.RetryAfter(); retryIsRateLimit {
-		if retryResp.Body != nil {
-			_ = retryResp.Body.Close()
+		raw, err := ReadResponse(resp)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
 		}
-		return nil, fmt.Errorf("%w: rate limit retries exhausted: %w", ErrRateLimited, retryErr)
+
+		// 2xx response
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if respTarget != nil {
+				if w, ok := respTarget.(io.Writer); ok {
+					if _, err := w.Write(raw); err != nil {
+						return nil, nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
+					}
+				} else {
+					if err := json.Unmarshal(raw, respTarget); err != nil {
+						return nil, nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
+					}
+				}
+			}
+			return resp, raw, nil
+		}
+
+		httpErr := h.newError(method, path, resp, raw)
+
+		// Rate limiting: wait out a short backoff and retry once.
+		if wait, isRateLimit := httpErr.RetryAfter(); isRateLimit {
+			if attempt == 0 && wait <= maxRateLimitWait {
+				select {
+				case <-ctx.Done():
+					return nil, nil, ctx.Err()
+				default:
+				}
+				sleep(wait)
+				select {
+				case <-ctx.Done():
+					return nil, nil, ctx.Err()
+				default:
+				}
+				continue
+			}
+			return nil, nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
+		}
+
+		return nil, nil, classifyError(httpErr, h.authenticated, h.conflicts)
 	}
 
-	return retryResp, nil
-}
-
-// HandleResponse inspects an HTTP response using the transport's Authenticated setting.
-func (t *Transport) HandleResponse(resp *http.Response) error {
-	return HandleResponse(resp, t.Authenticated)
+	return nil, nil, nil
 }
 
 // HTTPErrorFromResponse constructs an HTTPError from an http.Response.
@@ -199,35 +233,38 @@ func getHeader(h http.Header, key string) string {
 	return ""
 }
 
-// HandleResponse inspects an HTTP response and client authentication state.
-// If the status indicates an error (status >= 400), it returns a corresponding typed error:
-//   - 404 on unauthenticated client returns an error wrapping ErrNotFound with guidance that
-//     the resource may be private and require credentials.
-//   - 404 on authenticated client returns an error wrapping ErrNotFound.
-//   - 409 returns an error wrapping ErrConflict.
-//   - 429 or 403 (with exhausted quota) returns an error wrapping ErrRateLimited.
-//   - other >= 400 statuses return the HTTPError.
-//
-// For successful responses (status < 400), it returns nil.
-func HandleResponse(resp *http.Response, authenticated bool) error {
-	if resp == nil || resp.StatusCode < 400 {
-		return nil
-	}
-	httpErr := HTTPErrorFromResponse(resp)
-	if resp.StatusCode == http.StatusNotFound {
+// classifyError maps an error response to the package's sentinel errors, the
+// one mapping every adapter and HandleResponse share:
+//   - 404 on an unauthenticated client wraps ErrNotFound with guidance that
+//     the resource may be private and require credentials;
+//   - 404 on an authenticated client wraps ErrNotFound;
+//   - 405, 409 and the forge's own conflict statuses wrap ErrConflict;
+//   - 429, or 403 with an exhausted quota, wraps ErrRateLimited;
+//   - any other status is the HTTPError itself.
+func classifyError(httpErr *HTTPError, authenticated bool, conflicts []int) error {
+	switch {
+	case httpErr.Status == http.StatusNotFound:
 		if !authenticated {
 			return fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
 		}
 		return fmt.Errorf("%w: %w", ErrNotFound, httpErr)
-	}
-	if resp.StatusCode == http.StatusConflict {
+	case httpErr.Status == http.StatusConflict || httpErr.Status == http.StatusMethodNotAllowed || slices.Contains(conflicts, httpErr.Status):
 		return fmt.Errorf("%w: %w", ErrConflict, httpErr)
-	}
-	if resp.StatusCode == http.StatusTooManyRequests ||
-		(resp.StatusCode == http.StatusForbidden && strings.TrimSpace(getHeader(resp.Header, "X-RateLimit-Remaining")) == "0") {
+	case IsRateLimited(httpErr):
 		return fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
 	}
 	return httpErr
+}
+
+// HandleResponse inspects an HTTP response and client authentication state.
+// If the status indicates an error (status >= 400), it returns the error
+// classifyError describes; for successful responses (status < 400), it
+// returns nil.
+func HandleResponse(resp *http.Response, authenticated bool) error {
+	if resp == nil || resp.StatusCode < 400 {
+		return nil
+	}
+	return classifyError(HTTPErrorFromResponse(resp), authenticated, nil)
 }
 
 // HandleResponseStatus evaluates an HTTP status code and client authentication state.

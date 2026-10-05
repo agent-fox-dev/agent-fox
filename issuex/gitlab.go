@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,127 +104,27 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, reqBody, res
 }
 
 func (c *gitlabClient) doWithResponse(ctx context.Context, method, path string, reqBody, respTarget any) (*http.Response, []byte, error) {
-	var bodyBytes []byte
-	if reqBody != nil {
-		switch v := reqBody.(type) {
-		case []byte:
-			if len(v) > 0 {
-				bodyBytes = v
+	return c.forge().do(ctx, method, path, reqBody, respTarget)
+}
+
+// forge describes GitLab to the shared request executor. GitLab reports a
+// merge request that cannot be accepted as 406 as well as 405 and 409.
+func (c *gitlabClient) forge() forgeHTTP {
+	return forgeHTTP{
+		baseURL:       c.baseURL,
+		client:        c.httpClient,
+		sleep:         c.sleep,
+		authenticated: c.Authenticated(),
+		header: func(req *http.Request) {
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("User-Agent", c.userAgent)
+			if c.Authenticated() {
+				req.Header.Set("PRIVATE-TOKEN", c.token)
 			}
-		case string:
-			if len(v) > 0 {
-				bodyBytes = []byte(v)
-			}
-		case io.Reader:
-			b, err := io.ReadAll(v)
-			if err != nil {
-				return nil, nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
-			}
-			if len(b) > 0 {
-				bodyBytes = b
-			}
-		default:
-			b, err := json.Marshal(v)
-			if err != nil {
-				return nil, nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
-			}
-			bodyBytes = b
-		}
+		},
+		newError:  newGitLabHTTPError,
+		conflicts: []int{http.StatusNotAcceptable},
 	}
-
-	fullURL := path
-	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
-		p := path
-		if !strings.HasPrefix(p, "/") {
-			p = "/" + p
-		}
-		fullURL = strings.TrimRight(c.baseURL, "/") + p
-	}
-
-	for attempt := 0; attempt < 2; attempt++ {
-		var bodyReader io.Reader
-		if len(bodyBytes) > 0 {
-			bodyReader = bytes.NewReader(bodyBytes)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
-		}
-
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", c.userAgent)
-		if c.Authenticated() {
-			req.Header.Set("PRIVATE-TOKEN", c.token)
-		}
-		if len(bodyBytes) > 0 {
-			req.Header.Set("Content-Type", "application/json")
-		}
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s %s: %w", method, path, err)
-		}
-
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodyBytes))
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
-		}
-
-		// 2xx response
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if respTarget != nil {
-				if w, ok := respTarget.(io.Writer); ok {
-					if _, err := w.Write(raw); err != nil {
-						return nil, nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
-					}
-				} else {
-					if err := json.Unmarshal(raw, respTarget); err != nil {
-						return nil, nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
-					}
-				}
-			}
-			return resp, raw, nil
-		}
-
-		httpErr := newGitLabHTTPError(method, path, resp, raw)
-
-		// Check rate limiting (429)
-		wait, isRateLimit := httpErr.RetryAfter()
-		if isRateLimit {
-			if attempt == 0 && wait <= 120*time.Second {
-				select {
-				case <-ctx.Done():
-					return nil, nil, ctx.Err()
-				default:
-				}
-				c.sleep(wait)
-				select {
-				case <-ctx.Done():
-					return nil, nil, ctx.Err()
-				default:
-				}
-				continue
-			}
-			return nil, nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
-		}
-
-		// Map status codes to sentinels
-		if resp.StatusCode == http.StatusNotFound {
-			if !c.Authenticated() {
-				return nil, nil, fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
-			}
-			return nil, nil, fmt.Errorf("%w: %w", ErrNotFound, httpErr)
-		}
-		if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotAcceptable || resp.StatusCode == http.StatusConflict {
-			return nil, nil, fmt.Errorf("%w: %w", ErrConflict, httpErr)
-		}
-
-		return nil, nil, httpErr
-	}
-
-	return nil, nil, nil
 }
 
 func newGitLabHTTPError(method, path string, resp *http.Response, body []byte) *HTTPError {

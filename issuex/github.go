@@ -1,11 +1,9 @@
 package issuex
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"slices"
@@ -108,128 +106,27 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 // doWithResponse is do, also returning the response of the successful
 // request, whose body is already read, for its headers.
 func (c *githubClient) doWithResponse(ctx context.Context, method, path string, reqBody, respTarget any) (*http.Response, error) {
-	var bodyBytes []byte
-	if reqBody != nil {
-		switch v := reqBody.(type) {
-		case []byte:
-			if len(v) > 0 {
-				bodyBytes = v
+	resp, _, err := c.forge().do(ctx, method, path, reqBody, respTarget)
+	return resp, err
+}
+
+// forge describes GitHub to the shared request executor.
+func (c *githubClient) forge() forgeHTTP {
+	return forgeHTTP{
+		baseURL:       c.baseURL,
+		client:        c.httpClient,
+		sleep:         c.sleep,
+		authenticated: c.Authenticated(),
+		header: func(req *http.Request) {
+			req.Header.Set("Accept", "application/vnd.github+json")
+			req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+			req.Header.Set("User-Agent", c.userAgent)
+			if c.Authenticated() {
+				req.Header.Set("Authorization", "Bearer "+c.token)
 			}
-		case string:
-			if len(v) > 0 {
-				bodyBytes = []byte(v)
-			}
-		case io.Reader:
-			b, err := io.ReadAll(v)
-			if err != nil {
-				return nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
-			}
-			if len(b) > 0 {
-				bodyBytes = b
-			}
-		default:
-			b, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
-			}
-			bodyBytes = b
-		}
+		},
+		newError: newGitHubHTTPError,
 	}
-
-	fullURL := path
-	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
-		p := path
-		if !strings.HasPrefix(p, "/") {
-			p = "/" + p
-		}
-		fullURL = strings.TrimRight(c.baseURL, "/") + p
-	}
-
-	for attempt := 0; attempt < 2; attempt++ {
-		var bodyReader io.Reader
-		if len(bodyBytes) > 0 {
-			bodyReader = bytes.NewReader(bodyBytes)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
-		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", method, path, err)
-		}
-
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-		req.Header.Set("User-Agent", c.userAgent)
-		if c.Authenticated() {
-			req.Header.Set("Authorization", "Bearer "+c.token)
-		}
-		if len(bodyBytes) > 0 {
-			req.Header.Set("Content-Type", "application/json")
-		}
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", method, path, err)
-		}
-
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodyBytes))
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
-		}
-
-		// 2xx response
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if respTarget != nil {
-				if w, ok := respTarget.(io.Writer); ok {
-					if _, err := w.Write(raw); err != nil {
-						return nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
-					}
-				} else {
-					if err := json.Unmarshal(raw, respTarget); err != nil {
-						return nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
-					}
-				}
-			}
-			return resp, nil
-		}
-
-		httpErr := newGitHubHTTPError(method, path, resp, raw)
-
-		// Check rate limiting
-		wait, isRateLimit := httpErr.RetryAfter()
-		if isRateLimit {
-			if attempt == 0 && wait <= 120*time.Second {
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				default:
-				}
-				c.sleep(wait)
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				default:
-				}
-				continue
-			}
-			return nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
-		}
-
-		// Map status codes to sentinels
-		if resp.StatusCode == http.StatusNotFound {
-			if !c.Authenticated() {
-				return nil, fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
-			}
-			return nil, fmt.Errorf("%w: %w", ErrNotFound, httpErr)
-		}
-		if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusMethodNotAllowed {
-			return nil, fmt.Errorf("%w: %w", ErrConflict, httpErr)
-		}
-
-		return nil, httpErr
-	}
-
-	return nil, nil
 }
 
 // hasNextPage reports whether a response's Link header offers a rel="next"
