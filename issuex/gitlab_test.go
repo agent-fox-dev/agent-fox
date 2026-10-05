@@ -3,7 +3,6 @@ package issuex
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -123,55 +122,6 @@ func TestGitLab_Factory_Wiring_TS_03_3(t *testing.T) {
 	}
 	if gc.repo.String() != "group/subgroup/project" {
 		t.Errorf("repo = %q, want group/subgroup/project", gc.repo.String())
-	}
-}
-
-// TestGitLab_Factory_AmbiguousHostProbe_TS_03_4 verifies TS-03-4:
-// NewWithOptions probes ambiguous hosts with GET /api/v4/version to detect self-hosted GitLab instances before returning ErrAmbiguousForge.
-// Verifies: 03-REQ-1.4
-func TestGitLab_Factory_AmbiguousHostProbe_TS_03_4(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v4/version" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"version": "16.8.0-ee", "revision": "abc123"}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer srv.Close()
-
-	client, err := NewWithOptions(Options{
-		Repo:      Repo{Owner: "corp", Name: "app"},
-		RemoteURL: srv.URL + "/corp/app.git",
-		Token:     "glpat-token",
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if client == nil {
-		t.Fatalf("expected non-nil client")
-	}
-	gc, ok := client.(*gitlabClient)
-	if !ok {
-		t.Fatalf("expected *gitlabClient, got %T", client)
-	}
-	if gc.baseURL != srv.URL+"/api/v4" {
-		t.Errorf("baseURL = %q, want %q", gc.baseURL, srv.URL+"/api/v4")
-	}
-
-	// Negative case: ambiguous host that is not GitLab returns ErrAmbiguousForge
-	srvNonGitLab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer srvNonGitLab.Close()
-
-	_, errNonGitLab := NewWithOptions(Options{
-		Repo:      Repo{Owner: "corp", Name: "app"},
-		RemoteURL: srvNonGitLab.URL + "/corp/app.git",
-		Token:     "glpat-token",
-	})
-	if !errors.Is(errNonGitLab, ErrAmbiguousForge) && !strings.Contains(fmt.Sprint(errNonGitLab), "ambiguous") {
-		t.Errorf("expected ambiguous forge error for non-GitLab host, got %v", errNonGitLab)
 	}
 }
 

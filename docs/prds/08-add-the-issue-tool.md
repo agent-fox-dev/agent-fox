@@ -182,10 +182,12 @@ advertise `--budget` on a tool that spends nothing, and a caller passing
 
 - `auth` answers "what would this process talk to, and can it write" without
   a write: the forge type, the API base URL, whether a token is configured,
-  and the repository the target resolves to. It makes no request, with one
-  exception it reports when it happens: `issuex.NewWithOptions` probes
-  `/api/v4/version` on a host whose name says neither `github` nor `gitlab`
-  to decide whether it is a self-hosted GitLab.
+  and the repository the target resolves to. It makes no request. A host
+  whose name says neither `github` nor `gitlab` is not probed to see whether
+  it is a self-hosted GitLab: `issuex.NewWithOptions` returns
+  `ErrAmbiguousForge`, and a self-hosted GitLab is named with
+  `GITLAB_API_URL` (see
+  [the erratum](../errata/unclassified_host_probe.md)).
 
 ### 3. The positional is the target
 

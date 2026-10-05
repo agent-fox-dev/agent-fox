@@ -546,11 +546,9 @@ func TestSmoke_GitLabRateLimitBackoffAndRetry_TS_03_31(t *testing.T) {
 	}
 }
 
-// TS-03-32 (smoke): Ambiguous host probe detects self-hosted GitLab instance and fetches repository metadata
-// Verifies: 03-PATH-4, 03-REQ-1.4, 03-REQ-2.1
-func TestSmoke_GitLabAmbiguousHostProbe_TS_03_32(t *testing.T) {
-	t.Parallel()
-
+// TS-03-32 (smoke): A self-hosted GitLab named with GITLAB_API_URL is reached without a probe, and its repository metadata is fetched
+// Verifies: 03-PATH-4, 03-REQ-2.1; supersedes 03-REQ-1.4 (docs/errata/unclassified_host_probe.md)
+func TestSmoke_GitLabSelfHostedViaAPIURL_TS_03_32(t *testing.T) {
 	var (
 		versionProbed  bool
 		repoPathCalled string
@@ -559,7 +557,7 @@ func TestSmoke_GitLabAmbiguousHostProbe_TS_03_32(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// Step 2: client factory executes GET /api/v4/version against the host to detect self-hosted GitLab instance
+		// Step 2: the factory must not probe the host; this answer exists to catch it if it does
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v4/version" {
 			versionProbed = true
 			w.WriteHeader(http.StatusOK)
@@ -591,13 +589,14 @@ func TestSmoke_GitLabAmbiguousHostProbe_TS_03_32(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Step 1: caller invokes NewWithOptions with an ambiguous host URL and repository target
-	// RemoteURL points to srv.URL (which does not contain "github" or "gitlab")
+	// Step 1: the host is named by GITLAB_API_URL; srv.URL contains neither "github" nor "gitlab"
+	clearForgeEnv(t)
+	t.Setenv("GITLAB_API_URL", srv.URL+"/api/v4")
+	t.Setenv("GITLAB_TOKEN", "glpat-tok")
 	remoteURL := srv.URL + "/selfhosted/sub/app.git"
 	c, err := issuex.NewWithOptions(issuex.Options{
 		Repo:      issuex.Repo{Owner: "selfhosted/sub", Name: "app"},
 		RemoteURL: remoteURL,
-		Token:     "glpat-tok",
 	})
 	if err != nil {
 		t.Fatalf("NewWithOptions failed: %v", err)
@@ -607,8 +606,8 @@ func TestSmoke_GitLabAmbiguousHostProbe_TS_03_32(t *testing.T) {
 	if !c.Authenticated() {
 		t.Fatal("expected client to be authenticated")
 	}
-	if !versionProbed {
-		t.Error("expected version probe GET /api/v4/version to be executed")
+	if versionProbed {
+		t.Error("expected no GET /api/v4/version probe")
 	}
 
 	// Step 4: caller calls GetRepository to retrieve project metadata
