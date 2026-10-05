@@ -13,13 +13,22 @@ import (
 
 // HermeticRunner is ReducedEnvRunner in a clean environment: HOME is home (an
 // empty directory the caller owns), git reads no global and no system
-// configuration, and the variables that inject git configuration or an
-// identity are removed.
+// configuration, the variables that inject git configuration or an identity
+// are removed, and git never asks for a credential.
 //
 // It is what a final verification runs under. A suite that passes on the
 // author's machine because ~/.gitconfig sets init.defaultBranch=main, or a
 // user.email, fails on a clean CI image; under this runner it fails here
 // first, before a pull request says the checks pass.
+//
+// A clean CI image has no credential helper and no one to answer a prompt,
+// so a git command that needs a credential fails there at once. Here the
+// configuration that names the helper (osxkeychain on macOS) is skipped too,
+// but git would still ask GIT_ASKPASS, which an editor's terminal points at a
+// dialog that waits for an answer, and then the terminal (go turns that off
+// for the git it runs; nothing does for a check that runs git another way).
+// Either holds the command until the gate's timeout. No askpass program and
+// GIT_TERMINAL_PROMPT=0 make it fail at once, as it does on CI.
 //
 // The language toolchains' download caches are pointed at where they already
 // are, so a clean HOME does not mean downloading every module again: the
@@ -64,17 +73,20 @@ func HermeticEnv(base []string, home string) []string {
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
 		"GIT_CONFIG_GLOBAL="+os.DevNull,
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
 	)
 }
 
 // dropInHermetic names the variables a clean environment does not have: the
-// ones replaced below, and every way git can be handed configuration or an
-// identity from outside the repository.
+// ones replaced below, every way git can be handed configuration or an
+// identity from outside the repository, and the programs that would ask
+// someone for a credential.
 func dropInHermetic(name string) bool {
 	switch name {
 	case "HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
 		"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_WORK_TREE",
-		"GIT_INDEX_FILE", "GIT_TEMPLATE_DIR", "EMAIL":
+		"GIT_INDEX_FILE", "GIT_TEMPLATE_DIR", "EMAIL",
+		"GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
 		return true
 	}
 	for _, p := range []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_AUTHOR_", "GIT_COMMITTER_"} {

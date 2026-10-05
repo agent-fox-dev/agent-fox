@@ -1589,8 +1589,12 @@ where it left the base branch:
   paths (documentation and the spec package exempt). Anything else is a
   "while here" change that belongs in a pull request of its own.
 - **A clean environment.** The gate runs again with an empty `HOME`, no
-  global or system git configuration and no injected git identity (the
-  language toolchains' download caches stay where they are). The result is
+  global or system git configuration, no injected git identity and nothing
+  to answer a credential prompt (no askpass program, `GIT_TERMINAL_PROMPT=0`),
+  so a test that reaches a forge without a credential fails at once, as on
+  CI, instead of waiting on an editor's credential dialog or the terminal
+  `impl` was started from (the language toolchains' download caches stay
+  where they are). The result is
   `final_verification`, and `environment` is its fingerprint: `git_version`,
   `init_default_branch` (`unset` in a clean environment) and `go_version`.
   Checks that pass here and fail there lean on the author's machine.

@@ -97,9 +97,9 @@ go mod download
 
 - **internal/gitx**, **internal/checks** — every git command a tool runs, and
   the detection and execution of the command that decides whether a change is
-  correct. `gitx.HermeticRunner` runs a command with an empty `HOME` and no
-  global git configuration; `checks.Fingerprint` records what that
-  environment was.
+  correct. `gitx.HermeticRunner` runs a command with an empty `HOME`, no
+  global git configuration and no way for git to ask for a credential;
+  `checks.Fingerprint` records what that environment was.
 
 - **internal/conform** — what `impl` and `fix` check after the checks pass
   ([ADR 09](adr/09-grade-the-work-independently.md)): the structural checks
