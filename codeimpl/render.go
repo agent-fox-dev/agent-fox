@@ -149,16 +149,7 @@ func pullRequestBody(r *Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
-	if len(r.Blocking) > 0 {
-		p("## ❌ Not ready: blocking findings\n\n")
-		p("The conformance stage found %d problem(s) that were neither fixed nor declared. This pull "+
-			"request is a draft until they are:\n\n", len(r.Blocking))
-		for _, x := range r.Blocking {
-			p("- **%s**: %s\n", x.Key, strings.TrimSpace(x.What))
-		}
-		p("\n")
-	}
-	b.WriteString(conform.RenderUnmet(r.Unmet))
+	b.WriteString(openingSections(r))
 
 	p("## Summary\n\n")
 	p("Implements specification `%s` (\"%s\"): %d of %d task(s) landed in this run", r.SpecDir,
@@ -230,28 +221,53 @@ func pullRequestBody(r *Result) string {
 		}
 	}
 
-	if r.Review != nil {
-		b.WriteString(conform.RenderReview(*r.Review, nil))
-	}
-	if res := r.Resolve; res != nil && res.Submission != nil {
-		p("## Findings answered after the last task\n\n%s", strings.TrimSpace(res.Submission.Summary))
-		if res.Commit != "" {
-			p(" (`%s`)", res.Commit)
-		} else if res.Outcome == "discarded" {
-			p(" The change was discarded: %s.", res.Error)
-		}
-		p("\n\n")
-	}
-	b.WriteString(conform.RenderFindings(r.Structural))
-	if len(r.OutOfScope) > 0 {
-		p("## Outside the spec's scope\n\n`%s`\n\n", strings.Join(r.OutOfScope, "`, `"))
-	}
+	b.WriteString(conformanceSections(r))
 
 	p("## Verification\n\n%s\n\n", verificationLines(r.Gate, r.Baseline, r.Verification))
 	if r.FinalVerification != nil {
 		b.WriteString(cleanEnvironmentLines(r.Gate, *r.FinalVerification, r.Environment))
 	}
 	p("---\n%s\n", footer)
+	return b.String()
+}
+
+// openingSections is what a pull request opens with when the work is not
+// done: the blocking findings, then the unmet requirements.
+func openingSections(r *Result) string {
+	var b strings.Builder
+	if len(r.Blocking) > 0 {
+		fmt.Fprintf(&b, "## ❌ Not ready: blocking findings\n\nThe conformance stage found %d problem(s) "+
+			"that were neither fixed nor declared. This pull request is a draft until they are:\n\n", len(r.Blocking))
+		for _, x := range r.Blocking {
+			fmt.Fprintf(&b, "- **%s**: %s\n", x.Key, strings.TrimSpace(x.What))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(conform.RenderUnmet(r.Unmet))
+	return b.String()
+}
+
+// conformanceSections is the conformance stage's account: the review, what
+// the resolve phase did, the structural findings left, and the files out of
+// scope.
+func conformanceSections(r *Result) string {
+	var b strings.Builder
+	if r.Review != nil {
+		b.WriteString(conform.RenderReview(*r.Review, nil))
+	}
+	if res := r.Resolve; res != nil && res.Submission != nil {
+		fmt.Fprintf(&b, "## Findings answered after the last task\n\n%s", strings.TrimSpace(res.Submission.Summary))
+		if res.Commit != "" {
+			fmt.Fprintf(&b, " (`%s`)", res.Commit)
+		} else if res.Outcome == "discarded" {
+			fmt.Fprintf(&b, " The change was discarded: %s.", res.Error)
+		}
+		b.WriteString("\n\n")
+	}
+	b.WriteString(conform.RenderFindings(r.Structural))
+	if len(r.OutOfScope) > 0 {
+		fmt.Fprintf(&b, "## Outside the spec's scope\n\n`%s`\n\n", strings.Join(r.OutOfScope, "`, `"))
+	}
 	return b.String()
 }
 

@@ -126,11 +126,7 @@ func TestGitFixturesNameTheirBranch(t *testing.T) {
 			continue
 		}
 		for i, line := range strings.Split(string(b), "\n") {
-			if strings.Contains(line, "UnpinnedGitBranch") || strings.Contains(line, "t.Fatalf") || strings.Contains(line, "t.Errorf") ||
-				strings.HasPrefix(strings.TrimSpace(line), "//") {
-				continue
-			}
-			if conform.UnpinnedGitBranch(line) {
+			if conform.UnpinnedGitInit(line, false) {
 				t.Errorf("%s:%d runs git init without -b: %s", f, i+1, strings.TrimSpace(line))
 			}
 		}

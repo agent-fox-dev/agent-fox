@@ -1570,10 +1570,12 @@ where it left the base branch:
 
 - **Structural checks** over the files the change touched, run by the tool
   rather than the project's Makefile: `gofmt -l`, `go vet` on the touched
-  packages, duplication (eight meaningful lines repeated from elsewhere in the
-  repository), an error discarded with `_ =` under a comment that says it is
+  packages, duplication (eight meaningful lines, at least half of them new,
+  repeated from elsewhere in the repository; imports and tests are not
+  counted), an error discarded with `_ =` under a comment that says it is
   logged, a comment deferring to "a later task", an unexported declaration
-  nothing uses, a function over `--max-func-lines`, a Go test with no
+  nothing uses, a function the change wrote or grew past `--max-func-lines`
+  (one that was already long and was only touched is not reported), a Go test with no
   assertion, a `var _ = pkg.Symbol` import suppressor, `git init` without
   `-b`, a date after today in an ADR or erratum, and an erratum that cites no
   code line or no test.

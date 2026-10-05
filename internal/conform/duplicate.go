@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/project"
@@ -14,6 +15,10 @@ import (
 // maxIndexedFileBytes bounds what one file contributes to the duplication
 // index: generated and vendored blobs are not where a change copies from.
 const maxIndexedFileBytes = 512 << 10
+
+// importSpecRe is a line of an import block: a quoted path, perhaps named.
+// Two files importing the same packages are not a copy.
+var importSpecRe = regexp.MustCompile(`^(\w+ |\. |_ )?"[^"]*"$`)
 
 // meaningful is one line that counts toward a duplicate: its text with the
 // whitespace collapsed, and where it is.
@@ -32,7 +37,8 @@ func meaningfulLines(src string) []meaningful {
 			continue
 		}
 		if strings.HasPrefix(t, "//") || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "*") ||
-			strings.HasPrefix(t, "/*") || strings.HasPrefix(t, "import ") || strings.HasPrefix(t, "package ") {
+			strings.HasPrefix(t, "/*") || strings.HasPrefix(t, "import ") || strings.HasPrefix(t, "package ") ||
+			importSpecRe.MatchString(t) {
 			continue
 		}
 		out = append(out, meaningful{t, i + 1})
@@ -49,6 +55,16 @@ func windowHash(lines []meaningful) uint64 {
 	return h.Sum64()
 }
 
+func addedIn(added Added, p string, win []meaningful) int {
+	n := 0
+	for _, l := range win {
+		if _, ok := added[p][l.line]; ok {
+			n++
+		}
+	}
+	return n
+}
+
 type site struct {
 	path string
 	line int
@@ -56,7 +72,7 @@ type site struct {
 
 // duplicates reports where the change wrote code that already exists
 // elsewhere in the repository: duplicateWindow consecutive meaningful lines,
-// at least one of them added, that match a window in another place. Tests are
+// at least half of them added, that match a window in another place. Tests are
 // not checked — a fixture repeated per test is a style, not a second
 // implementation.
 func duplicates(root string, changed []string, added Added, tracked []string) []Finding {
@@ -103,7 +119,9 @@ func duplicates(root string, changed []string, added Added, tracked []string) []
 		reportedUntil := 0
 		for i := 0; i+duplicateWindow <= len(lines); i++ {
 			win := lines[i : i+duplicateWindow]
-			if win[0].line <= reportedUntil || !added.Touches(p, win[0].line, win[len(win)-1].line) {
+			// At least half the window is new: the copy is what the change
+			// wrote, not a line it added beside an older look-alike.
+			if win[0].line <= reportedUntil || addedIn(added, p, win)*2 < len(win) {
 				continue
 			}
 			var other *site

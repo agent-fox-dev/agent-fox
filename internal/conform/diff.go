@@ -41,14 +41,17 @@ func ParseAdded(patch string) Added {
 
 // Touches reports whether any of lines from..to (inclusive) of path was
 // added.
-func (a Added) Touches(path string, from, to int) bool {
-	lines := a[path]
-	for n := range lines {
-		if n >= from && n <= to {
-			return true
+func (a Added) Touches(path string, from, to int) bool { return a.Count(path, from, to) > 0 }
+
+// Count is how many of lines from..to (inclusive) of path were added.
+func (a Added) Count(path string, from, to int) int {
+	n := 0
+	for line := range a[path] {
+		if line >= from && line <= to {
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // hunkStart is the first new line number of a hunk header

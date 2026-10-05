@@ -250,3 +250,37 @@ func TestRevertWithOnlyTestsHasNothingToTakeOut(t *testing.T) {
 		t.Errorf("result = %+v, %v", res, err)
 	}
 }
+
+// The shapes that look like a finding and are not, each one a false
+// positive this scanner reported against its own branch: a long function the
+// change only touched, an import block two files share, the same field added
+// to two older look-alike structs, a sentence that mentions git init, and a
+// comment that says a change belongs elsewhere.
+func TestScanIsQuietOnLookAlikes(t *testing.T) {
+	long := "package pkg\n\nfunc Old() {\n" + strings.Repeat("\tprintln()\n", 14) + "}\n"
+	imports := "import (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n\t\"time\"\n\t\"errors\"\n\t\"sort\"\n)\n"
+	fields := "type Options struct {\n\tA int\n\tB int\n\tC string\n\tD string\n\tE bool\n\tF bool\n\tG float64\n\tH []string\n}\n"
+	g, dir, base := newRepo(t, map[string]string{
+		"go.mod":     "module x\n\ngo 1.22\n",
+		"pkg/old.go": long,
+		"pkg/a.go":   "package pkg\n\n" + imports + "\n" + fields,
+		"pkg/b.go":   "package pkg\n\n" + strings.ReplaceAll(fields, "Options", "Other"),
+	})
+	writeFiles(t, dir, map[string]string{
+		"pkg/old.go": strings.Replace(long, "\tprintln()\n", "\tprintln(1)\n", 1),
+		"pkg/c.go":   "package pkg\n\n" + imports + "\nvar _ = fmt.Sprint\n",
+		"pkg/a.go":   "package pkg\n\n" + imports + "\n" + strings.Replace(fields, "\tH []string\n", "\tH []string\n\tI int\n", 1),
+		"pkg/b.go": "package pkg\n\n" + strings.Replace(strings.ReplaceAll(fields, "Options", "Other"),
+			"\tH []string\n", "\tH []string\n\tI int\n", 1),
+		"pkg/msg.go": "package pkg\n\n// Fixtures that run git init without -b are flagged.\n" +
+			"const m = \"git init without an explicit branch\"\n\n" +
+			"// A file outside the scope belongs in another change.\nconst n = 1\n",
+	})
+	got := scanChange(t, g, dir, base, time.Now())
+	for _, f := range got {
+		switch f.Check {
+		case CheckLongFunction, CheckDuplicate, CheckGitInitBranch, CheckLaterTask:
+			t.Errorf("false positive: %s (%s): %s", f.Ref(), f.Check, f.Message)
+		}
+	}
+}

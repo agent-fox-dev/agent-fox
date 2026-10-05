@@ -131,15 +131,18 @@ var (
 	// logClaimRe is a comment that says the value is logged or reported.
 	logClaimRe = regexp.MustCompile(`(?i)\b(log|logged|logs|logging|report|reported|warn)\b`)
 	// laterTaskRe is a comment that defers to work this change does not do.
-	laterTaskRe = regexp.MustCompile(`(?i)\b(a |the )?(later|future|subsequent|follow-?up|next|another) (task|spec|pr|pull request|change)\b`)
+	laterTaskRe = regexp.MustCompile(`(?i)\b(later|future|subsequent|follow-?up) (task|spec|pr|pull request|change|commit)\b|\bnext task\b`)
 	// suppressorRe is `var _ = pkg.Symbol`: an import kept alive by a
 	// reference that tests nothing.
 	suppressorRe = regexp.MustCompile(`^\s*var\s+_\s*=\s*[A-Za-z_]\w*\.[A-Za-z_]\w*\s*(//.*)?$`)
-	// gitInitRe finds a git init invocation, in a shell line or an argv
-	// literal.
-	gitInitRe   = gitSubcommandRe("init")
-	branchArgRe = regexp.MustCompile(`(^|[\s"'])(-b|--initial-branch(=\S*)?)([\s"',]|$)`)
-	dateRe      = regexp.MustCompile(`\b(20\d\d)-(\d\d)-(\d\d)\b`)
+	// gitInitShellRe is git init in a shell line (`git -C d init`);
+	// gitInitArgvRe is git init as an argv literal (`"git", "-C", d,
+	// "init"`), the only form a program's source runs it in — a sentence that
+	// mentions git init is not an invocation.
+	gitInitShellRe = regexp.MustCompile(`\bgit(\s+-C\s+\S+)?\s+init\b`)
+	gitInitArgvRe  = regexp.MustCompile(`"git",\s*("-C",\s*[^,]+,\s*)?"init"`)
+	branchArgRe    = regexp.MustCompile(`(^|[\s"'])(-b|--initial-branch(=\S*)?)([\s"',]|$)`)
+	dateRe         = regexp.MustCompile(`\b(20\d\d)-(\d\d)-(\d\d)\b`)
 )
 
 // scanAddedText is the line checks: the ones that only need the text the
@@ -154,7 +157,8 @@ func scanAddedText(p string, lines map[int]string, today time.Time) []Finding {
 	for _, n := range sortedLines(lines) {
 		text := lines[n]
 		comment := commentOf(text)
-		if code && discardRe.MatchString(text) && !strings.Contains(text, ":=") {
+		production := code && !project.IsTestPath(p)
+		if production && discardRe.MatchString(text) && !strings.Contains(text, ":=") {
 			claim := logClaimRe.MatchString(comment) ||
 				logClaimRe.MatchString(commentOf(lines[n-1])) && strings.TrimSpace(codeOf(lines[n-1])) == ""
 			if claim {
@@ -163,7 +167,7 @@ func scanAddedText(p string, lines map[int]string, today time.Time) []Finding {
 						"log it, return it, or say plainly that it is ignored and why"})
 			}
 		}
-		if code && comment != "" && laterTaskRe.MatchString(comment) {
+		if production && comment != "" && laterTaskRe.MatchString(comment) {
 			out = append(out, Finding{Check: CheckLaterTask, Path: p, Line: n,
 				Message: fmt.Sprintf("the comment defers to work outside this change (%q); do the work, or "+
 					"record it as an unmet requirement with a tracking issue", strings.TrimSpace(comment))})
@@ -173,9 +177,11 @@ func scanAddedText(p string, lines map[int]string, today time.Time) []Finding {
 				Message: "`var _ = pkg.Symbol` keeps an import alive without testing anything; use the symbol " +
 					"in an assertion or drop the import"})
 		}
-		if code || strings.HasSuffix(p, ".sh") || path.Base(p) == "Makefile" {
-			if f, ok := gitBranchFinding(p, n, text); ok {
-				out = append(out, f)
+		if shell := isShellFile(p); code || shell {
+			if UnpinnedGitInit(text, shell) {
+				out = append(out, Finding{Check: CheckGitInitBranch, Path: p, Line: n,
+					Message: "git init without an explicit branch (-b): the branch depends on the machine's " +
+						"init.defaultBranch, and a clean image does not have the author's"})
 			}
 		}
 		if dated {
@@ -195,30 +201,28 @@ func scanAddedText(p string, lines map[int]string, today time.Time) []Finding {
 	return out
 }
 
-// UnpinnedGitBranch reports whether line runs git init without naming the
-// initial branch.
+// UnpinnedGitInit reports whether line runs git init without naming the
+// initial branch: in a shell line when shell is true, as an argv literal
+// otherwise. A comment is not a command.
 //
 // A clone is not reported: it checks out the remote's HEAD, which the
 // fixture's own init already pins, and -b on a clone of an empty repository
 // fails rather than pins anything.
-func UnpinnedGitBranch(line string) bool {
-	return gitInitRe.MatchString(line) && !branchArgRe.MatchString(line)
-}
-
-// gitSubcommandRe matches git running sub, as a shell line (`git -C d init`)
-// or as an argv literal (`"git", "-C", d, "init"`), and not the word in a
-// commit message.
-func gitSubcommandRe(sub string) *regexp.Regexp {
-	return regexp.MustCompile(`\bgit(\s+-C\s+\S+)?\s+` + sub + `\b|"git",\s*("-C",\s*[^,]+,\s*)?"` + sub + `"`)
-}
-
-func gitBranchFinding(p string, n int, text string) (Finding, bool) {
-	if !UnpinnedGitBranch(text) {
-		return Finding{}, false
+func UnpinnedGitInit(line string, shell bool) bool {
+	cmd := codeOf(line)
+	re := gitInitArgvRe
+	if shell {
+		re = gitInitShellRe
 	}
-	return Finding{Check: CheckGitInitBranch, Path: p, Line: n,
-		Message: "git init without an explicit branch (-b): the branch depends on the machine's " +
-			"init.defaultBranch, and a clean image does not have the author's"}, true
+	return re.MatchString(cmd) && !branchArgRe.MatchString(cmd)
+}
+
+func isShellFile(p string) bool {
+	switch path.Ext(p) {
+	case ".sh", ".bash", ".mk":
+		return true
+	}
+	return path.Base(p) == "Makefile"
 }
 
 func truncateDay(t time.Time) time.Time {
@@ -303,10 +307,14 @@ func scanGoFile(root, p string, added Added, maxLines int) []Finding {
 			continue
 		}
 		from, to := fset.Position(fn.Pos()).Line, fset.Position(fn.End()).Line
-		if !added.Touches(p, from, to) {
+		grown := added.Count(p, from, to)
+		if grown == 0 {
 			continue
 		}
-		if length := to - from + 1; length > maxLines {
+		// Reported when the change wrote it, or grew it past the limit; a
+		// function that was already long and was only touched is not this
+		// change's to split.
+		if length := to - from + 1; length > maxLines && length-grown <= maxLines {
 			out = append(out, Finding{Check: CheckLongFunction, Path: p, Line: from,
 				Message: fmt.Sprintf("%s is %d lines long (the limit is %d); split it where its steps are",
 					fn.Name.Name, length, maxLines)})
