@@ -120,7 +120,10 @@ whether re-running could help, and `retryable` says so directly — see the
 column below. `resumable` says whether re-running the *same input* continues
 the work rather than starting it over (true for `impl` whenever a branch was
 named, and for `spec` whenever an unfinished split plan exists; always false
-for `fix` and `triage`). `fix_hint`, where present, names a mechanical remedy:
+for `fix` and `triage`) — except for a result at stage `preflight`, from
+`--preflight` or from an ordinary run that was refused there, which is never
+resumable: the branch name it carries is the one the run would have used, and
+it wrote nothing to continue. `fix_hint`, where present, names a mechanical remedy:
 
 ```jsonc
 "error": { "stage": "implement", "category": "budget",
@@ -374,7 +377,11 @@ a typo. An existing directory is never flagged.
 `--context` does not change `input.bytes` — it is rendered separately and
 reported as `input.context_bytes`, which counts toward the same 256 KB input
 bound as the input itself: when the two together exceed it, the run is
-refused as a usage error before anything is fetched. Resuming a `needs_human`
+refused as a usage error before any model phase. For text given as the
+argument that is decided before anything is fetched; for a file, an issue URL or
+stdin the input has to be read first to be measured, so the refusal comes after
+the read. Without `--context`, an input over the bound is not refused but
+truncated, with an `input_truncated` warning. Resuming a `needs_human`
 stop is `<tool> <same input> --context "<answer>"`, as given in the prior
 run's `needs_human.resume`.
 
