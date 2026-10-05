@@ -8,6 +8,8 @@ import (
 	"flag"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -239,6 +241,72 @@ func TestTS05_20_ContextExceedingMaxInputBytesRefused(t *testing.T) {
 	}
 	if env.Error == nil || env.Error.Category != "usage" {
 		t.Errorf("expected error.category == 'usage', got %+v", env.Error)
+	}
+}
+
+// Issue #93: An oversized stdin with no --context must be truncated (exit 0 +
+// input_truncated warning), not refused as a usage error.
+func TestIssue93_OversizedStdinNoContextTruncated(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	wsDir := t.TempDir()
+	for _, argv := range [][]string{
+		{"git", "init", "-q", "-b", "main", wsDir},
+		{"git", "-C", wsDir, "config", "user.email", "test@example.com"},
+		{"git", "-C", wsDir, "config", "user.name", "Tester"},
+		{"git", "-C", wsDir, "config", "commit.gpgsign", "false"},
+	} {
+		if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("git setup %v: %v\n%s", argv, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	body := strings.Repeat("a", 300_000)
+
+	var execCalled bool
+	app := toolio.App{
+		Name:    "fix",
+		Version: "v1",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			execCalled = true
+			if !d.Input.Truncated {
+				t.Error("expected d.Input.Truncated to be true")
+			}
+			return toolio.ExitOK, nil, nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(), []string{"--dir", wsDir, "-"}, strings.NewReader(body), &stdout, &stderr)
+
+	if code != toolio.ExitOK {
+		t.Fatalf("expected code %d (ExitOK), got %d; stderr: %s\nstdout: %s", toolio.ExitOK, code, stderr.String(), stdout.String())
+	}
+	if !execCalled {
+		t.Error("Exec should have been called; oversized stdin without context should truncate, not refuse")
+	}
+
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal stdout failed: %v\nstdout: %s", err, stdout.String())
+	}
+	var found bool
+	for _, w := range env.Warnings {
+		if w.Code == toolio.WarnInputTruncated {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected an %q warning, got %+v", toolio.WarnInputTruncated, env.Warnings)
 	}
 }
 
