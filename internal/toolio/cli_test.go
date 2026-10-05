@@ -211,6 +211,56 @@ func TestTS05_19_ContextFlagsRenderBlock(t *testing.T) {
 	}
 }
 
+// TS-05-19 (integration): through App.Main, repeated --context flags reach the
+// pipeline as one rendered block in Input.Context, Input.Body is the argument
+// unchanged, and input.context_bytes reports the block, not the body
+// Verifies: 05-REQ-3.7
+func TestTS05_19_ContextReachesDepsSeparatelyFromBody(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const body = "the original report"
+
+	var in toolio.Input
+	var block string
+	app := toolio.App{
+		Name:    "fix",
+		Version: "v1",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			in, block = d.Input, d.Common.ContextBlock()
+			return toolio.ExitOK, nil, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", t.TempDir(), "--context", "first note", "--context", "second note", body},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	if in.Body != body {
+		t.Errorf("Input.Body = %q, want the argument unchanged", in.Body)
+	}
+	if in.Context == "" || in.Context != block {
+		t.Errorf("Input.Context = %q, want the rendered block %q", in.Context, block)
+	}
+	if !strings.HasPrefix(in.Context, "## Additional context from the caller") ||
+		!strings.Contains(in.Context, "first note") || !strings.Contains(in.Context, "second note") {
+		t.Errorf("Input.Context is not one labelled block of both notes: %q", in.Context)
+	}
+	if strings.Contains(in.Body, "note") {
+		t.Errorf("the notes leaked into Input.Body: %q", in.Body)
+	}
+
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not an envelope: %v", err)
+	}
+	if env.Input == nil || env.Input.Bytes != len(body) || env.Input.ContextBytes != len(in.Context) {
+		t.Errorf("input = %+v, want bytes %d and context_bytes %d", env.Input, len(body), len(in.Context))
+	}
+}
+
 // TS-05-20 (unit): An input plus context block exceeding MaxInputBytes is refused as a usage error before anything is fetched
 func TestTS05_20_ContextExceedingMaxInputBytesRefused(t *testing.T) {
 	body := strings.Repeat("a", 200000)

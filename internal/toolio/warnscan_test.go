@@ -11,8 +11,9 @@ import (
 	"testing"
 )
 
-// warnViolation is one Run.Warn call site whose first argument is a bare
-// string literal rather than a declared WarnCode.
+// warnViolation is one Run.Warn call site whose first argument is a string
+// literal, bare or converted (WarnCode("x")), rather than a declared WarnCode
+// constant.
 type warnViolation struct {
 	pos  string
 	text string
@@ -20,9 +21,10 @@ type warnViolation struct {
 
 // scanWarnCallSites walks every non-test .go file directly under each of
 // dirs (relative to root) looking for a call shaped like `x.Warn(...)`, and
-// flags one whose first argument is a raw string literal: that still
-// type-checks against a WarnCode parameter (WarnCode's underlying type is
-// string), so only a syntactic check catches it.
+// flags one whose first argument is a raw string literal, or a literal
+// converted to WarnCode: both still type-check against a WarnCode parameter
+// (WarnCode's underlying type is string), so only a syntactic check catches
+// them.
 func scanWarnCallSites(t *testing.T, root string, dirs []string) []warnViolation {
 	t.Helper()
 	var violations []warnViolation
@@ -56,7 +58,7 @@ func scanWarnCallSites(t *testing.T, root string, dirs []string) []warnViolation
 				if len(call.Args) == 0 {
 					return true
 				}
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if lit, ok := literalWarnCode(call.Args[0]); ok {
 					violations = append(violations, warnViolation{
 						pos:  fset.Position(call.Pos()).String(),
 						text: lit.Value,
@@ -71,6 +73,30 @@ func scanWarnCallSites(t *testing.T, root string, dirs []string) []warnViolation
 		}
 	}
 	return violations
+}
+
+// literalWarnCode reports whether arg is a string literal, or a conversion of
+// one to WarnCode (WarnCode("x") or toolio.WarnCode("x")), and returns it.
+func literalWarnCode(arg ast.Expr) (*ast.BasicLit, bool) {
+	if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+		return lit, true
+	}
+	conv, ok := arg.(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 {
+		return nil, false
+	}
+	name := ""
+	switch f := conv.Fun.(type) {
+	case *ast.Ident:
+		name = f.Name
+	case *ast.SelectorExpr:
+		name = f.Sel.Name
+	}
+	if name != "WarnCode" {
+		return nil, false
+	}
+	lit, ok := conv.Args[0].(*ast.BasicLit)
+	return lit, ok && lit.Kind == token.STRING
 }
 
 // TS-05-36 (unit): a source scan flags a Run.Warn call site that passes a
@@ -89,11 +115,13 @@ func TestTS05_36_SourceScanFlagsLiteralWarnCode(t *testing.T) {
 	fixture := scanWarnCallSites(t, root, []string{
 		strings.TrimPrefix(strings.TrimPrefix(fixtureDir, root), string(filepath.Separator)),
 	})
-	if len(fixture) != 1 {
-		t.Fatalf("the fixture should report exactly 1 violation, got %d: %v", len(fixture), fixture)
+	// Two violations: a bare literal, and a literal converted to WarnCode.
+	if len(fixture) != 2 {
+		t.Fatalf("the fixture should report exactly 2 violations, got %d: %v", len(fixture), fixture)
 	}
-	want := fmt.Sprintf("%q", "some_code")
-	if fixture[0].text != want {
-		t.Errorf("fixture violation literal = %s, want %s", fixture[0].text, want)
+	for i, lit := range []string{"some_code", "undeclared"} {
+		if want := fmt.Sprintf("%q", lit); fixture[i].text != want {
+			t.Errorf("fixture violation %d literal = %s, want %s", i, fixture[i].text, want)
+		}
 	}
 }
