@@ -167,3 +167,29 @@ func TestSpec11ErratumRecordsTheDeviations(t *testing.T) {
 		}
 	}
 }
+
+// The --effort default in the shared-flags table is the whole precedence below
+// the flag: $AF_MODEL_EFFORT, else the tier's own effort, else unset
+// (internal/toolio/cli.go, docs/configuration.md "Effort precedence").
+func TestCLIDocEffortDefaultNamesTheTierStep(t *testing.T) {
+	row, ok := tableRow(docSection(t, readDoc(t, "cli.md"), "Shared flags"), "| `--effort`")
+	if !ok {
+		t.Fatal("docs/cli.md has no --effort row in the shared-flags table")
+	}
+	if !strings.Contains(row, "`$AF_MODEL_EFFORT`, else the tier's effort, else unset") {
+		t.Errorf("--effort row = %s, want its default to name the tier step", row)
+	}
+}
+
+// The errata index describes the model-resolution erratum as it now reads: the
+// variant layer was removed, so it no longer concerns an "extended-variant
+// model".
+func TestErrataIndexLineForModelResolutionIsCurrent(t *testing.T) {
+	line, ok := tableRow(readDoc(t, "README.md"), "| [agentkit_model_resolution]")
+	if !ok {
+		t.Fatal("docs/README.md has no line for the agentkit_model_resolution erratum")
+	}
+	if strings.Contains(line, "extended-variant") || !strings.Contains(line, "variant layer was removed") {
+		t.Errorf("index line = %s, want it to say the variant layer was removed", line)
+	}
+}

@@ -355,7 +355,7 @@ a typo. An existing directory is never flagged.
 | `--dir` | `.` | the repository to work in; the file tools cannot reach outside it |
 | `--model` | `$AF_MODEL`, else `STANDARD` | a tier (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec |
 | `--vendor` | `$AF_MODEL_VENDOR`, else `anthropic` | which tier table the tier names resolve against |
-| `--effort` | `$AF_MODEL_EFFORT`, else unset | reasoning effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; applies to any model, whether from a tier or named by id |
+| `--effort` | `$AF_MODEL_EFFORT`, else the tier's effort, else unset | reasoning effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; applies to any model, whether from a tier or named by id |
 | `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
 | `--budget` | per tool | per-phase spend ceiling, in dollars |
 | `--phase-timeout` | — | wall-clock ceiling on one phase |
