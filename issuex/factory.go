@@ -37,13 +37,9 @@ func NewWithOptions(o Options) (Client, error) {
 		return nil, err
 	}
 
-	if forgeType == ForgeTypeGitHub {
-		return NewGitHub(resolvedOpts)
-	}
-	if forgeType == ForgeTypeGitLab {
-		return NewGitLab(resolvedOpts)
-	}
-
+	// Every forge reaches its adapter through the registry, GitHub and GitLab
+	// (registered in init) included: a resolved forge with no adapter is
+	// ErrUnsupportedForge (01-REQ-4.8).
 	adaptersMu.RLock()
 	factory, ok := adapters[forgeType]
 	adaptersMu.RUnlock()

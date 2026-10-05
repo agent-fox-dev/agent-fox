@@ -235,20 +235,7 @@ func TestNewWithOptions_UnclassifiedHostSendsNothing(t *testing.T) {
 	}
 }
 
-// TestNewWithOptions_UnsupportedForge_TS_01_19 verifies TS-01-19:
-// NewWithOptions returns an error wrapping ErrUnsupportedForge when provider adapter is not registered.
-// Verifies: 01-REQ-4.8
-func TestNewWithOptions_UnsupportedForge_TS_01_19(t *testing.T) {
-	clearForgeEnv(t)
-
-	client, err := issuex.NewWithOptions(issuex.Options{BaseURL: "https://bitbucket.example.com", Token: "fake"})
-	if client != nil {
-		t.Errorf("expected nil client, got %v", client)
-	}
-	if !errors.Is(err, issuex.ErrUnsupportedForge) {
-		t.Errorf("expected error wrapping ErrUnsupportedForge, got %v", err)
-	}
-}
+// TS-01-19 (the registry miss) is in registry_test.go, which can reach the registry.
 
 // TestNew_Shorthand verifies New(userAgent) constructor shorthand.
 func TestNew_Shorthand(t *testing.T) {

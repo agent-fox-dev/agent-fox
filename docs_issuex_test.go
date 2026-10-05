@@ -95,3 +95,18 @@ func TestIssueURLHostErratumExists(t *testing.T) {
 		}
 	}
 }
+
+// The detect.go changes that landed outside spec 03's task list are recorded,
+// and the third forge type that came with them is withdrawn.
+func TestDetectScopeErratumExists(t *testing.T) {
+	root := findWorkspaceRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "docs", "errata", "03_detect_scope.md"))
+	if err != nil {
+		t.Fatalf("no erratum for the detect.go changes: %v", err)
+	}
+	for _, want := range []string{"detect.go", "extractHostFromRemote", "ForgeTypeBitbucket", "TS-01-19", "registry"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the erratum does not mention %q", want)
+		}
+	}
+}

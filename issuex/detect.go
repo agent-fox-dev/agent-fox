@@ -18,8 +18,6 @@ const (
 	ForgeTypeGitHub ForgeType = "github"
 	// ForgeTypeGitLab represents the GitLab platform.
 	ForgeTypeGitLab ForgeType = "gitlab"
-	// ForgeTypeBitbucket represents the Bitbucket platform.
-	ForgeTypeBitbucket ForgeType = "bitbucket"
 )
 
 var (
@@ -52,17 +50,13 @@ func detectForge(o Options) (ForgeType, Options, error) {
 		u := strings.ToLower(opts.BaseURL)
 		hasGH := strings.Contains(u, "github")
 		hasGL := strings.Contains(u, "gitlab")
-		hasBB := strings.Contains(u, "bitbucket")
-		if hasGH && !hasGL && !hasBB {
+		if hasGH && !hasGL {
 			return ForgeTypeGitHub, opts, nil
 		}
-		if hasGL && !hasGH && !hasBB {
+		if hasGL && !hasGH {
 			return ForgeTypeGitLab, opts, nil
 		}
-		if hasBB && !hasGH && !hasGL {
-			return ForgeTypeBitbucket, opts, nil
-		}
-		if (hasGH && hasGL) || (hasGH && hasBB) || (hasGL && hasBB) {
+		if hasGH && hasGL {
 			return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot determine forge from base URL %q", ErrAmbiguousForge, opts.BaseURL)
 		}
 		// BaseURL contains neither "github" nor "gitlab" (e.g. test mock server or GHE custom domain)
