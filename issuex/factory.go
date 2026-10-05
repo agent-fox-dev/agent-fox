@@ -26,10 +26,6 @@ func NewWithOptions(o Options) (Client, error) {
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 30 * time.Second}
-	} else if o.HTTPClient.Timeout == 0 {
-		clientCopy := *o.HTTPClient
-		clientCopy.Timeout = 30 * time.Second
-		o.HTTPClient = &clientCopy
 	}
 
 	// A host that names neither forge is ErrAmbiguousForge, and nothing is

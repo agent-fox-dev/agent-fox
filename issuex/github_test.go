@@ -90,6 +90,33 @@ func TestGitHub_Constructor_TS_02_2(t *testing.T) {
 	if gh2.httpClient == nil || gh2.httpClient.Timeout != 30*time.Second {
 		t.Errorf("expected httpClient timeout 30s, got %v", gh2.httpClient)
 	}
+
+	// GH_TOKEN is the token fallback and api.github.com the base URL fallback.
+	t.Setenv("GITHUB_API_URL", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "tok3")
+	c3, err := NewGitHub(Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	gh3 := c3.(*githubClient)
+	if gh3.baseURL != "https://api.github.com" {
+		t.Errorf("expected baseURL https://api.github.com, got %s", gh3.baseURL)
+	}
+	if gh3.token != "tok3" {
+		t.Errorf("expected token tok3 from GH_TOKEN, got %s", gh3.token)
+	}
+
+	// A supplied client is used as is, with or without a timeout of its own.
+	for _, supplied := range []*http.Client{{}, {Timeout: time.Minute}} {
+		c4, err := NewGitHub(Options{HTTPClient: supplied})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := c4.(*githubClient).httpClient; got != supplied {
+			t.Errorf("expected the supplied *http.Client (timeout %v), got a different one (timeout %v)", supplied.Timeout, got.Timeout)
+		}
+	}
 }
 
 // TestGitHub_Factory_TS_02_3 verifies TS-02-3:
