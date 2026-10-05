@@ -372,6 +372,64 @@ func TestGitLab_Comments_TS_03_15(t *testing.T) {
 	}
 }
 
+// TestGitLab_NoteURLFallback verifies 03-REQ-4.1 for the payload a real GitLab
+// sends: a note carries no web_url, so the URL is built as
+// {issue web URL}#note_{id} on the web host, not the /api/v4 host.
+func TestGitLab_NoteURLFallback(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string // path the instance is served under, before /api/v4
+		repo   Repo
+		path   string // expected project path in the web URL
+	}{
+		{"root", "", Repo{Owner: "org", Name: "repo"}, "org/repo"},
+		{"subgroup", "", Repo{Owner: "group/sub", Name: "proj"}, "group/sub/proj"},
+		{"relative URL root", "/gitlab", Repo{Owner: "org", Name: "repo"}, "org/repo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/notes"):
+					w.WriteHeader(http.StatusCreated)
+					_, _ = w.Write([]byte(`{"id": 77, "body": "a note", "author": {"username": "u"}}`))
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/notes"):
+					_, _ = w.Write([]byte(`[{"id": 77, "body": "a note", "system": false, "author": {"username": "u"}}]`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, err := NewGitLab(Options{BaseURL: srv.URL + tc.prefix + "/api/v4", Token: "tok"})
+			if err != nil {
+				t.Fatalf("NewGitLab failed: %v", err)
+			}
+			ref := IssueRef{Repo: tc.repo, Number: 1}
+			want := srv.URL + tc.prefix + "/" + tc.path + "/-/issues/1#note_77"
+
+			got, err := c.AddComment(context.Background(), ref, "a note")
+			if err != nil {
+				t.Fatalf("AddComment failed: %v", err)
+			}
+			if got != want {
+				t.Errorf("AddComment URL = %q, want %q", got, want)
+			}
+
+			list, err := c.ListComments(context.Background(), ref)
+			if err != nil {
+				t.Fatalf("ListComments failed: %v", err)
+			}
+			if len(list.Comments) != 1 {
+				t.Fatalf("expected 1 comment, got %d", len(list.Comments))
+			}
+			if list.Comments[0].HTMLURL != want {
+				t.Errorf("ListComments HTMLURL = %q, want %q", list.Comments[0].HTMLURL, want)
+			}
+		})
+	}
+}
+
 // TS-03-16: AddLabels and RemoveLabel manage issue labels with no-op on empty labels and idempotent removal
 func TestGitLab_AddAndRemoveLabels_TS_03_16(t *testing.T) {
 	var addedLabels string
