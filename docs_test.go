@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
 // TS-05-40 (unit): docs/cli.md's output example includes status, summary and
@@ -24,47 +26,87 @@ func TestDocsCliOutputExample_TS_05_40(t *testing.T) {
 	}
 }
 
-// TS-05-41 (unit): docs/cli.md's error-category table gains a retryable
-// column and a new warning-codes table
+// TS-05-41 (unit): docs/cli.md's error-category table has a retryable column,
+// and its warning-codes table has one row per declared warning code, naming the
+// code's stage and a legal severity
 // Verifies: 05-REQ-6.2
 func TestDocsCliRetryableAndWarningCodes_TS_05_41(t *testing.T) {
-	root := findWorkspaceRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "docs", "cli.md"))
-	if err != nil {
-		t.Fatalf("reading docs/cli.md: %v", err)
+	doc := readDoc(t, "cli.md")
+
+	// The error-category table: its header names the retryable column, and
+	// every row says yes or no in it.
+	header := "| Category | Means | `retryable` |"
+	i := strings.Index(doc, header)
+	if i < 0 {
+		t.Fatalf("docs/cli.md has no error-category table headed %q", header)
 	}
-	text := string(body)
-	if !strings.Contains(text, "retryable") {
-		t.Errorf("docs/cli.md missing a retryable column")
+	rows := 0
+	for _, l := range strings.Split(doc[i+len(header):], "\n")[2:] {
+		if !strings.HasPrefix(l, "|") {
+			break
+		}
+		rows++
+		cells := strings.Split(strings.Trim(l, "| "), "|")
+		if last := strings.TrimSpace(cells[len(cells)-1]); last != "yes" && last != "no" {
+			t.Errorf("error-category row %q: retryable cell is %q, want yes or no", l, last)
+		}
 	}
-	if !strings.Contains(text, "input_truncated") {
-		t.Errorf("docs/cli.md missing the warning-codes table (no input_truncated)")
+	if rows == 0 {
+		t.Error("the error-category table has no rows")
 	}
-	if !strings.Contains(text, "severity") {
-		t.Errorf("docs/cli.md warning-codes table missing a severity column")
+
+	// The warning-codes table: a Code | Severity | Stage | Tool(s) header and a
+	// row for every declared code, with the stage the code is raised from.
+	idx := strings.Index(doc, "### Warning codes")
+	if idx < 0 {
+		t.Fatal("docs/cli.md has no ### Warning codes section")
 	}
-	if !strings.Contains(text, "stage") {
-		t.Errorf("docs/cli.md warning-codes table missing a stage column")
+	table := doc[idx:]
+	if end := strings.Index(table[len("### Warning codes"):], "\n#"); end >= 0 {
+		table = table[:len("### Warning codes")+end]
+	}
+	if !strings.Contains(table, "| Code | Severity | Stage |") {
+		t.Error("the warning-codes table has no Code | Severity | Stage header")
+	}
+	for _, code := range toolio.DeclaredWarnCodes() {
+		row, ok := tableRow(table, "| `"+string(code)+"` |")
+		if !ok {
+			t.Errorf("the warning-codes table has no row for %q", code)
+			continue
+		}
+		cells := strings.Split(strings.Trim(row, "| "), "|")
+		if len(cells) < 3 {
+			t.Errorf("row for %q has too few cells: %s", code, row)
+			continue
+		}
+		severity, stage := strings.TrimSpace(cells[1]), strings.TrimSpace(cells[2])
+		if severity != "high" && severity != "low" {
+			t.Errorf("%q: severity cell is %q, want high or low", code, severity)
+		}
+		if want, _ := toolio.WarnStage(code); stage != want {
+			t.Errorf("%q: the table says stage %q, the code raises it at stage %q", code, stage, want)
+		}
 	}
 }
 
-// TS-05-42 (unit): docs/cli.md documents --context under the shared flags
-// section
+// TS-05-42 (unit): docs/cli.md documents --context in the shared-flags table,
+// as repeatable, and says where its block goes
 // Verifies: 05-REQ-6.3
 func TestDocsCliContextFlag_TS_05_42(t *testing.T) {
-	root := findWorkspaceRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "docs", "cli.md"))
-	if err != nil {
-		t.Fatalf("reading docs/cli.md: %v", err)
+	shared := docSection(t, readDoc(t, "cli.md"), "Shared flags")
+	row, ok := tableRow(shared, "| `--context`")
+	if !ok {
+		t.Fatal("the shared-flags table has no --context row")
 	}
-	text := string(body)
-	if !strings.Contains(text, "--context") {
-		t.Errorf("docs/cli.md does not document --context")
+	for _, want := range []string{"repeatable", "## Additional context from the caller", "not to the input itself"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the --context row does not say %q: %s", want, row)
+		}
 	}
 }
 
 // TS-05-43 (unit): README.md's exit-code sentence names the matching status
-// value for each of the five exit codes
+// value for each of the five exit codes, in that sentence
 // Verifies: 05-REQ-6.4
 func TestReadmeExitCodeStatusNames_TS_05_43(t *testing.T) {
 	root := findWorkspaceRoot(t)
@@ -72,10 +114,20 @@ func TestReadmeExitCodeStatusNames_TS_05_43(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading README.md: %v", err)
 	}
-	text := string(body)
-	for _, s := range []string{"done", "failed", "usage", "needs_human", "unverified"} {
-		if !strings.Contains(text, s) {
-			t.Errorf("README.md exit-code sentence missing status word %q", s)
+	text := strings.Join(strings.Fields(string(body)), " ")
+	i := strings.Index(text, "Exit codes are shared:")
+	if i < 0 {
+		t.Fatal("README.md has no \"Exit codes are shared:\" sentence")
+	}
+	sentence := text[i:]
+	if end := strings.Index(sentence, ". "); end >= 0 {
+		// The sentence ends at the first full stop outside parentheses; the
+		// exit-code list runs to "(`status: \"unverified\"`)."
+		sentence = sentence[:strings.Index(sentence, "unverified")+len("unverified")+3]
+	}
+	for code, status := range map[string]string{"0": "done", "1": "failed", "2": "usage", "3": "needs_human", "4": "unverified"} {
+		if !strings.Contains(sentence, "`"+code+"`") || !strings.Contains(sentence, `status: "`+status+`"`) {
+			t.Errorf("README.md's exit-code sentence does not pair exit %s with status %q:\n%s", code, status, sentence)
 		}
 	}
 }

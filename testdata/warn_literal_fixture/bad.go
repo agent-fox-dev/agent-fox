@@ -6,11 +6,18 @@ package fixture
 // Warn call site.
 type Run struct{}
 
+// WarnCode stands in for toolio.WarnCode.
+type WarnCode string
+
 // Warn stands in for toolio.Run.Warn.
-func (r *Run) Warn(code string, severity string, format string, args ...any) {}
+func (r *Run) Warn(code any, severity string, format string, args ...any) {}
 
 func doSomething(r *Run) {
 	// This is the one violation the scan must catch: a bare string literal
 	// where a declared WarnCode constant belongs.
 	r.Warn("some_code", "high", "message")
+
+	// And the other way round: a literal converted to WarnCode type-checks
+	// against a WarnCode parameter just as well, and is no more declared.
+	r.Warn(WarnCode("undeclared"), "high", "message")
 }
