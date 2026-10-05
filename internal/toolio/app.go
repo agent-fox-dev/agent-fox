@@ -546,9 +546,10 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	contextBlock := e.common.ContextBlock()
 	contextLen := len(contextBlock)
 
-	// Check if source length + context length exceeds MaxInputBytes before fetching anything.
-	// For text argument, we can check e.argument directly.
-	if len(e.argument)+contextLen > MaxInputBytes {
+	// When context is present, refuse early if argument + context already
+	// exceeds the limit (before fetching anything). Without context an
+	// oversized body is truncated by Resolve, not refused.
+	if contextLen > 0 && len(e.argument)+contextLen > MaxInputBytes {
 		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
 			MaxInputBytes, len(e.argument)+contextLen))
 	}
@@ -590,7 +591,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error(), err: err}
 	}
-	if len(in.Body)+contextLen > MaxInputBytes {
+	if contextLen > 0 && (in.Truncated || len(in.Body)+contextLen > MaxInputBytes) {
 		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
 			MaxInputBytes, len(in.Body)+contextLen))
 	}
