@@ -28,6 +28,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -102,6 +103,21 @@ type Options struct {
 	// RepairRunner drives the repair phase, when it should run on another
 	// model than the tasks. Nil means Runner.
 	RepairRunner *agentrun.Runner
+	// NoReview skips the two model phases of the conformance stage: the
+	// independent review and the phase that resolves what it finds. The
+	// structural checks, the scope check and the clean-environment
+	// verification still run; they are the program's, not a model's.
+	NoReview bool
+	// MaxFuncLines is the length past which the structural checks report a
+	// function the change wrote or grew. Zero means
+	// conform.DefaultMaxFuncLines.
+	MaxFuncLines int
+	// HermeticRunner builds the runner the final verification runs under,
+	// given an empty directory to use as HOME. Nil means
+	// gitx.HermeticRunner.
+	HermeticRunner func(home string) gitx.Runner
+	// Now is the clock the run reads today's date from. Nil means time.Now.
+	Now func() time.Time
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
@@ -207,6 +223,10 @@ const (
 	CategoryGitHub = CategoryForge
 	// CategoryEmpty means a task reported work and changed nothing.
 	CategoryEmpty = "empty_change"
+	// CategoryNonconformant means every task landed and the conformance
+	// stage found blocking problems that were neither fixed nor declared as
+	// known deviations. The pull request, when one is opened, is a draft.
+	CategoryNonconformant = "nonconformant"
 )
 
 // Verdicts a submitted test or done_when entry can carry. There is no
@@ -318,6 +338,14 @@ type Submission struct {
 	TestFirstDeviation string `json:"test_first_deviation,omitempty" trust:"model" description:"Why the tests could not be written and run red first, when that was the case."`
 	// Notes is what a reviewer or the next task should know.
 	Notes string `json:"notes,omitempty" trust:"model" description:"What a reviewer or the next task should know."`
+	// Deviations are the requirements the task knows it does not meet. They
+	// open the pull request, each tracked by an erratum or an issue; a
+	// deviation written only in Notes is the footnote this field replaces.
+	Deviations []conform.Deviation `json:"deviations,omitempty" description:"The requirements the task knows it does not meet, each with the reason and the erratum that records it."`
+	// DocSources are where in the code each fact the task wrote into the
+	// documentation comes from. They are required, and checked, when the
+	// task changed documentation.
+	DocSources []conform.DocSource `json:"doc_sources,omitempty" description:"Where in the code each fact written into the documentation comes from, checked against the file."`
 	// Gotchas are the surprises — the things the next task's prompt carries.
 	Gotchas []string `json:"gotchas,omitempty" trust:"model" description:"Surprises the next task prompt carries."`
 	// Blocker is set when the task cannot be implemented as specified.
@@ -414,6 +442,9 @@ type TaskReport struct {
 	// Repair is the repair of the checks after this task, when the run was
 	// asked for one and this is the integration task whose checks failed.
 	Repair *RepairReport `json:"repair,omitempty" description:"The repair of the checks after this task, when one was run."`
+	// RevertCheck is the tests run with the task's implementation taken
+	// out, when test-first was waived and nothing else shows they can fail.
+	RevertCheck *conform.RevertResult `json:"revert_check,omitempty" description:"The tests run with the implementation taken out, when test-first was waived."`
 	// Error says why a task did not land.
 	Error string `json:"error,omitempty" trust:"fact" description:"Why the task did not land."`
 }
@@ -459,6 +490,26 @@ type Result struct {
 	// the baseline was red. The repair after the integration task is on
 	// that task's entry.
 	Repair *RepairReport `json:"repair,omitempty" description:"The baseline repair, when one was run."`
+
+	// FinalVerification is the gate run once more after the last task, in a
+	// clean environment: an empty HOME and no global git configuration.
+	// Environment is that environment's fingerprint.
+	FinalVerification *GateResult         `json:"final_verification,omitempty" description:"The checks run after the last task in a clean environment: an empty HOME and no global git configuration."`
+	Environment       *checks.Environment `json:"environment,omitempty" description:"The fingerprint of the environment the final verification ran in."`
+	// Review is the independent conformance review; Structural the
+	// structural findings left in the change; OutOfScope the paths it
+	// touches that the spec's tasks do not.
+	Review     *conform.Review   `json:"review,omitempty" description:"The independent conformance review of the finished change."`
+	Structural []conform.Finding `json:"structural,omitempty" description:"The structural findings left in the change."`
+	OutOfScope []string          `json:"out_of_scope,omitempty" trust:"fact" description:"Paths the change touches that no task of the spec lists."`
+	// Resolve is the phase that fixed or declared what the conformance stage
+	// found, when one ran.
+	Resolve *ResolveReport `json:"resolve,omitempty" description:"The phase that fixed or declared what the conformance stage found, when one ran."`
+	// Unmet is what the change knowingly does not meet. Blocking is what
+	// the conformance stage found that was neither fixed nor declared; a run
+	// with any is nonconformant.
+	Unmet    []conform.Unmet   `json:"unmet,omitempty" description:"What the change knowingly does not meet; the pull request opens with this list."`
+	Blocking []conform.Blocker `json:"blocking,omitempty" description:"What the conformance stage found that was neither fixed nor declared."`
 
 	// Survey and Blocker are the model's.
 	Survey  *Survey  `json:"survey,omitempty" description:"The read-only survey, the model own account."`
@@ -519,6 +570,12 @@ func (r Result) Summary() string {
 	} else if r.Verdict != "" {
 		parts = append(parts, fmt.Sprintf("verdict: %s", r.Verdict))
 	}
+	if n := len(r.Blocking); n > 0 {
+		parts = append(parts, fmt.Sprintf("nonconformant: %d blocking finding(s)", n))
+	}
+	if n := len(r.Unmet); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d unmet requirement(s)", n))
+	}
 
 	return strings.Join(parts, "; ")
 }
@@ -557,10 +614,38 @@ func (r Result) Resumable() bool {
 	return r.Branch != ""
 }
 
-// brain is the model-driven half: the survey, the baseline repair and the
-// per-task implementation, and nothing else.
+// ResolveSubmission is the model's report of the phase that answers the
+// conformance stage: what it fixed, and what it declares it cannot meet.
+type ResolveSubmission struct {
+	Summary       string       `json:"summary" trust:"model" description:"The model account of what it fixed."`
+	CommitSubject string       `json:"commit_subject,omitempty" trust:"model" description:"The commit subject the model proposed."`
+	Changes       []FileChange `json:"changes,omitempty" description:"The files the model reports having changed."`
+	// Deviations are the findings the phase declares rather than fixes, each
+	// answering one finding's key.
+	Deviations []conform.Deviation `json:"deviations,omitempty" description:"The findings declared as known deviations rather than fixed."`
+	Notes      string              `json:"notes,omitempty" trust:"model" description:"What a reviewer should know."`
+}
+
+// ResolveReport is what happened to the resolve phase.
+type ResolveReport struct {
+	// Outcome is done (its change landed, or it declared without changing
+	// anything), discarded (its change did not pass the checks), or failed.
+	Outcome      string             `json:"outcome" trust:"fact" description:"done, discarded or failed."`
+	Commit       string             `json:"commit,omitempty" trust:"fact" description:"The commit of the change, when it landed."`
+	ChangedFiles []string           `json:"changed_files,omitempty" trust:"fact" description:"The files in the diff, from git."`
+	Verification *GateResult        `json:"verification,omitempty" description:"The gate after the change."`
+	Verdict      string             `json:"verdict,omitempty" trust:"fact" description:"How that gate compares with the gate before it."`
+	Submission   *ResolveSubmission `json:"submission,omitempty" description:"The model report, kept separate from the facts above."`
+	Error        string             `json:"error,omitempty" trust:"fact" description:"Why the change did not land."`
+}
+
+// brain is the model-driven half: the survey, the baseline repair, the
+// per-task implementation, the independent review and the phase that
+// resolves its findings, and nothing else.
 type brain interface {
 	Survey(context.Context, surveyInput) (Survey, agentrun.Result, error)
 	Repair(context.Context, repairInput) (RepairSubmission, agentrun.Result, error)
 	Implement(context.Context, taskInput) (Submission, agentrun.Result, error)
+	Review(context.Context, conform.ReviewInput) (conform.Review, agentrun.Result, error)
+	Resolve(context.Context, resolveInput) (ResolveSubmission, agentrun.Result, error)
 }

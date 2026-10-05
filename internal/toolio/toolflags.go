@@ -24,11 +24,11 @@ var toolOrder = []string{"triage", "fix", "spec", "impl"}
 var toolFlags = map[string][]string{
 	"triage": {"repo", "label", "overwrite"},
 	"fix": {"repo", "land", "verify", "no-verify", "verify-timeout", "push-attempts",
-		"allow", "draft", "pull", "branch-prefix"},
+		"allow", "draft", "pull", "branch-prefix", "no-review"},
 	"spec": {"specs-dir", "name", "architecture", "no-activate", "comment"},
 	"impl": {"specs-dir", "task", "branch", "repo", "land", "verify", "no-verify",
 		"verify-timeout", "push-attempts", "allow", "draft", "pull", "no-survey",
-		"no-test-first", "task-attempts", "repair", "repair-attempts", "repair-model",
+		"no-test-first", "no-review", "max-func-lines", "task-attempts", "repair", "repair-attempts", "repair-model",
 		"repair-model-effort"},
 }
 

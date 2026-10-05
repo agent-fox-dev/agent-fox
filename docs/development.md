@@ -29,8 +29,9 @@ internal/
   toolio/                 # Input classification, the JSON envelope, the shared CLI shell
   agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
   project/                # Language detection and the test-command audit
-  gitx/                   # git, and the process runner
+  gitx/                   # git, the process runner, and the clean-environment runner
   checks/                 # Detecting and running a project's own quality command
+  conform/                # Structural checks, the revert check, scope, and the independent review
 cmd/
   spec/  triage/  fix/  impl/  # The four tools
   af/  nightshift/        # Stubs that print the build identity
@@ -96,7 +97,17 @@ go mod download
 
 - **internal/gitx**, **internal/checks** — every git command a tool runs, and
   the detection and execution of the command that decides whether a change is
-  correct.
+  correct. `gitx.HermeticRunner` runs a command with an empty `HOME` and no
+  global git configuration; `checks.Fingerprint` records what that
+  environment was.
+
+- **internal/conform** — what `impl` and `fix` check after the checks pass
+  ([ADR 09](adr/09-grade-the-work-independently.md)): the structural checks
+  over a change's files, the revert check (the tests with the implementation
+  taken out), the scope a spec's `touches` allow, and the independent review
+  phase with its schema, submit tool and prompt. Its tests drive real git
+  repositories; the review phase also runs end to end through the scripted
+  provider.
 
 - **internal/project** — what a repository is written in, and the audit that
   refuses a plan whose test commands belong to another ecosystem. `spec`

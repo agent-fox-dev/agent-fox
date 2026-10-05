@@ -119,7 +119,7 @@ func TestParseRemoteRejections_TS_01_10(t *testing.T) {
 func setupTempGitRepoWithOrigin(t *testing.T, originURL string) string {
 	t.Helper()
 	dir := t.TempDir()
-	initCmd := exec.Command("git", "init", dir)
+	initCmd := exec.Command("git", "init", "-b", "main", dir)
 	if err := initCmd.Run(); err != nil {
 		t.Fatalf("git init %s failed: %v", dir, err)
 	}

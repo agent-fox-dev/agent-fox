@@ -130,7 +130,7 @@ func TestSubmitTaskToolEnforcesTheVerdicts(t *testing.T) {
 	task := afspec.Task{Id: 2, Kind: afspec.TaskKindImplement, Tests: []string{"TS-09-4", "TS-09-5"},
 		DoneWhen: []string{"the thing holds"}}
 	var out sink[Submission]
-	tool := submitTaskTool(&out, task, true)
+	tool := submitTaskTool(&out, task, true, nil, "")
 	call := func(v any) (bool, string) {
 		raw, _ := json.Marshal(v)
 		res := tool.Execute(context.Background(), raw)
@@ -194,11 +194,11 @@ func TestSubmitTaskToolEnforcesTheVerdicts(t *testing.T) {
 
 	// A blocker needs no verdicts: the phase is stopping, not reporting work.
 	var blocked sink[Submission]
-	if res := submitTaskTool(&blocked, task, true).Execute(context.Background(), json.RawMessage(
+	if res := submitTaskTool(&blocked, task, true, nil, "").Execute(context.Background(), json.RawMessage(
 		`{"blocker":{"reason":"the spec assumes cobra; there is no CLI","needed":"decide"}}`)); !res.OK {
 		t.Errorf("a blocker was refused: %s", res.Detail)
 	}
-	if res := submitTaskTool(&blocked, task, true).Execute(context.Background(), json.RawMessage(
+	if res := submitTaskTool(&blocked, task, true, nil, "").Execute(context.Background(), json.RawMessage(
 		`{"blocker":{"reason":"","needed":"decide"}}`)); res.OK {
 		t.Error("an empty blocker was accepted")
 	}
@@ -225,7 +225,7 @@ func TestSubmitTaskToolRequiresRedEvidence(t *testing.T) {
 	run := func(require bool, v any) (core.ToolResult, *sink[Submission]) {
 		var out sink[Submission]
 		raw, _ := json.Marshal(v)
-		return submitTaskTool(&out, task, require).Execute(context.Background(), raw), &out
+		return submitTaskTool(&out, task, require, nil, "").Execute(context.Background(), raw), &out
 	}
 
 	// AC-1: no red evidence and no deviation is refused, naming the tests.
@@ -270,7 +270,7 @@ func TestSubmitTaskToolRequiresRedEvidence(t *testing.T) {
 	var none sink[Submission]
 	raw, _ := json.Marshal(map[string]any{"summary": "docs", "commit_subject": "docs",
 		"changes": []map[string]string{{"path": "README.md", "change": "x"}}})
-	if res := submitTaskTool(&none, afspec.Task{Id: 3}, true).Execute(context.Background(), raw); !res.OK {
+	if res := submitTaskTool(&none, afspec.Task{Id: 3}, true, nil, "").Execute(context.Background(), raw); !res.OK {
 		t.Errorf("a task without tests was refused: %q", res.Detail)
 	}
 }

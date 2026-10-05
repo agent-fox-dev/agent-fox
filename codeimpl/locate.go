@@ -11,29 +11,16 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// DefaultSpecDirName is where spec packages live under the repository root.
-const DefaultSpecDirName = ".specs"
-
-// SpecDirEnv overrides the spec root. The --specs-dir flag wins over it.
-const SpecDirEnv = "AF_SPEC_DIR"
+// DefaultSpecDirName and SpecDirEnv are afspec's, named here for impl's
+// callers.
+const (
+	DefaultSpecDirName = afspec.DefaultSpecDirName
+	SpecDirEnv         = afspec.SpecDirEnv
+)
 
 // ResolveSpecsDir picks the spec root: the flag, then the environment, then
-// the repository's own .specs. A relative value is taken against root.
-func ResolveSpecsDir(flag, root string) string {
-	pick := func(v string) string {
-		if filepath.IsAbs(v) {
-			return filepath.Clean(v)
-		}
-		return filepath.Join(root, v)
-	}
-	if v := strings.TrimSpace(flag); v != "" {
-		return pick(v)
-	}
-	if v := strings.TrimSpace(os.Getenv(SpecDirEnv)); v != "" {
-		return pick(v)
-	}
-	return filepath.Join(root, DefaultSpecDirName)
-}
+// the repository's own .specs.
+func ResolveSpecsDir(flag, root string) string { return afspec.ResolveSpecsDir(flag, root) }
 
 // Locate turns the classified input into the absolute directory of one spec
 // package.

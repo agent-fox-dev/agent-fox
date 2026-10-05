@@ -112,6 +112,10 @@ const (
 	specTrailer  = "Spec:"
 	wipPrefix    = "wip:"
 	repairMarker = "repair"
+	// conformanceMarker is the trailer of the commit that answers the
+	// conformance stage. It is never parked: a resolve that does not land is
+	// discarded.
+	conformanceMarker = "conformance"
 )
 
 // parkedTask reports whether a commit message is this tool's parked

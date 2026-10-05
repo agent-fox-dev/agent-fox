@@ -1,6 +1,9 @@
 package codeimpl
 
-import "github.com/agent-fox-dev/agentfox/internal/toolio"
+import (
+	"github.com/agent-fox-dev/agentfox/internal/conform"
+	"github.com/agent-fox-dev/agentfox/internal/toolio"
+)
 
 // summaryTask is one task reduced to what a caller acts on next, kept in
 // impl's --detail summary view (06-REQ-3.3).
@@ -34,6 +37,10 @@ type summaryResult struct {
 	Verdict        string        `json:"verdict" trust:"fact"`
 	PullRequestURL string        `json:"pull_request_url,omitempty" trust:"fact"`
 	Verification   *GateResult   `json:"verification,omitempty"`
+	// Unmet and Blocking are what stops the work from being done; a caller
+	// that reads only this view must still see them.
+	Unmet    []conform.Unmet   `json:"unmet,omitempty"`
+	Blocking []conform.Blocker `json:"blocking,omitempty"`
 	// Preflight and Estimate are the whole point of a --preflight run, so the
 	// default view keeps them. They are absent on every ordinary run.
 	Preflight []toolio.PreflightCheck `json:"preflight,omitempty"`
@@ -62,6 +69,8 @@ func (r *Result) SummaryView() any {
 		Tasks:          tasks,
 		Verdict:        r.Verdict,
 		PullRequestURL: r.PullRequestURL,
+		Unmet:          r.Unmet,
+		Blocking:       r.Blocking,
 		Preflight:      r.Preflight,
 		Estimate:       r.Estimate,
 		Detail:         "summary",

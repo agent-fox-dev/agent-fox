@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -241,6 +242,23 @@ type Result struct {
 	// hypothetical (06-REQ-4.3).
 	dryRunComments []string
 
+	// RevertCheck is the checks run with the fix's implementation taken out
+	// and its tests left in. The issue is closed only when they then fail:
+	// a test that passes without the fix does not prove it.
+	RevertCheck *conform.RevertResult `json:"revert_check,omitempty" description:"The checks run with the fix taken out and its tests left in; the issue is closed only when they fail."`
+	// ClosesIssue is true when the commit and the pull request close the
+	// input issue, and false when they only reference it: the fix is not
+	// proven, or the review of the requirements the report cites left
+	// blocking findings.
+	ClosesIssue bool `json:"closes_issue" description:"True when the change closes the input issue; false when it only references it."`
+	// Structural is the structural findings in the change.
+	Structural []conform.Finding `json:"structural,omitempty" description:"The structural findings in the change."`
+	// Review is the independent review of the change against the
+	// requirements and tests the report cites; Blocking what it found that
+	// keeps the issue open.
+	Review   *conform.Review   `json:"review,omitempty" description:"The independent review against the requirements and tests the report cites."`
+	Blocking []conform.Blocker `json:"blocking,omitempty" description:"What the review found that keeps the issue open."`
+
 	// Implementation is the model's report of the work, kept separate from
 	// the facts above.
 	Implementation *Implementation `json:"implementation,omitempty" description:"The model report of the work, kept separate from the facts above."`
@@ -298,6 +316,9 @@ func (r Result) Summary() string {
 		parts = append(parts, fmt.Sprintf("checks %s", r.Verdict))
 	}
 
+	if r.IssueNumber > 0 && r.Commit != "" && !r.ClosesIssue && r.Stage != "unverified" {
+		parts = append(parts, fmt.Sprintf("does not close #%d", r.IssueNumber))
+	}
 	if r.PullRequestURL != "" {
 		if r.PullRequestNumber > 0 {
 			parts = append(parts, fmt.Sprintf("landed PR #%d", r.PullRequestNumber))

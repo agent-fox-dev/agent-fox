@@ -99,6 +99,11 @@
         "default": "pr",
         "description": "what to do once every task is done: pr, branch, none; default $AF_LAND, else pr"
       },
+      "max-func-lines": {
+        "type": "integer",
+        "default": 100,
+        "description": "length past which the structural checks report a function the change wrote or grew"
+      },
       "max-turns": {
         "type": "integer",
         "default": 0,
@@ -108,6 +113,11 @@
         "type": "string",
         "default": "",
         "description": "model tier (SIMPLE, STANDARD, ADVANCED) or catalog spec; default $AF_MODEL, else STANDARD"
+      },
+      "no-review": {
+        "type": "boolean",
+        "default": false,
+        "description": "skip the independent conformance review after the last task, and the phase that resolves its findings; the structural, scope and clean-environment checks still run"
       },
       "no-survey": {
         "type": "boolean",
@@ -723,6 +733,68 @@
                       "description": "What a reviewer or the next task should know.",
                       "x-trust": "model"
                     },
+                    "deviations": {
+                      "type": "array",
+                      "description": "The requirements the task knows it does not meet, each with the reason and the erratum that records it.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "description": "The requirement id, test id, D-n or finding key the deviation answers.",
+                            "x-trust": "model"
+                          },
+                          "test": {
+                            "type": "string",
+                            "description": "The test id concerned, when the key is a requirement.",
+                            "x-trust": "model"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Why the requirement is not met: what the code does instead and what stops it.",
+                            "x-trust": "model"
+                          },
+                          "errata": {
+                            "type": "string",
+                            "description": "The erratum file in this change that records it.",
+                            "x-trust": "model"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "reason"
+                        ]
+                      }
+                    },
+                    "doc_sources": {
+                      "type": "array",
+                      "description": "Where in the code each fact written into the documentation comes from, checked against the file.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "claim": {
+                            "type": "string",
+                            "description": "The fact as the documentation states it.",
+                            "x-trust": "model"
+                          },
+                          "source": {
+                            "type": "string",
+                            "description": "The code or test line it was copied from, as file:line.",
+                            "x-trust": "model"
+                          },
+                          "quote": {
+                            "type": "string",
+                            "description": "The text on that line that shows it.",
+                            "x-trust": "model"
+                          }
+                        },
+                        "required": [
+                          "claim",
+                          "source",
+                          "quote"
+                        ]
+                      }
+                    },
                     "gotchas": {
                       "type": "array",
                       "description": "Surprises the next task prompt carries.",
@@ -990,6 +1062,87 @@
                   },
                   "required": [
                     "outcome"
+                  ]
+                },
+                "revert_check": {
+                  "type": "object",
+                  "description": "The tests run with the implementation taken out, when test-first was waived.",
+                  "properties": {
+                    "ran": {
+                      "type": "boolean",
+                      "description": "True when the checks ran with the implementation removed."
+                    },
+                    "reverted": {
+                      "type": "array",
+                      "description": "The implementation files put back to the base for the run.",
+                      "x-trust": "fact",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "tests": {
+                      "type": "array",
+                      "description": "The test files left in place.",
+                      "x-trust": "fact",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "check": {
+                      "type": "object",
+                      "description": "The checks with the implementation removed.",
+                      "properties": {
+                        "command": {
+                          "type": "string",
+                          "description": "What ran. Empty together with skipped means nothing did.",
+                          "x-trust": "fact"
+                        },
+                        "skipped": {
+                          "type": "boolean",
+                          "description": "True when no command was run: none could be detected, or none was asked for. Not a pass."
+                        },
+                        "ok": {
+                          "type": "boolean",
+                          "description": "True only when the command ran and exited zero."
+                        },
+                        "exit_code": {
+                          "type": "integer",
+                          "description": "The exit status of the command, or -1 when it could not run."
+                        },
+                        "output": {
+                          "type": "string",
+                          "description": "The bounded tail of the combined output.",
+                          "x-trust": "external"
+                        },
+                        "timed_out": {
+                          "type": "boolean",
+                          "description": "True when the run was killed by the timeout."
+                        },
+                        "duration_ms": {
+                          "type": "integer",
+                          "description": "How long the run took in milliseconds."
+                        }
+                      },
+                      "required": [
+                        "command",
+                        "ok",
+                        "exit_code",
+                        "duration_ms"
+                      ]
+                    },
+                    "proves": {
+                      "type": "boolean",
+                      "description": "True when the checks failed with the implementation removed, so the tests catch its absence."
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Why the check did not run or proves nothing.",
+                      "x-trust": "fact"
+                    }
+                  },
+                  "required": [
+                    "ran",
+                    "proves"
                   ]
                 },
                 "error": {
@@ -1373,6 +1526,517 @@
             "required": [
               "outcome"
             ]
+          },
+          "final_verification": {
+            "type": "object",
+            "description": "The checks run after the last task in a clean environment: an empty HOME and no global git configuration.",
+            "properties": {
+              "checks": {
+                "type": "array",
+                "description": "One run of each check command, in order.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "description": "What ran. Empty together with skipped means nothing did.",
+                      "x-trust": "fact"
+                    },
+                    "skipped": {
+                      "type": "boolean",
+                      "description": "True when no command was run: none could be detected, or none was asked for. Not a pass."
+                    },
+                    "ok": {
+                      "type": "boolean",
+                      "description": "True only when the command ran and exited zero."
+                    },
+                    "exit_code": {
+                      "type": "integer",
+                      "description": "The exit status of the command, or -1 when it could not run."
+                    },
+                    "output": {
+                      "type": "string",
+                      "description": "The bounded tail of the combined output.",
+                      "x-trust": "external"
+                    },
+                    "timed_out": {
+                      "type": "boolean",
+                      "description": "True when the run was killed by the timeout."
+                    },
+                    "duration_ms": {
+                      "type": "integer",
+                      "description": "How long the run took in milliseconds."
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "ok",
+                    "exit_code",
+                    "duration_ms"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "checks"
+            ]
+          },
+          "environment": {
+            "type": "object",
+            "description": "The fingerprint of the environment the final verification ran in.",
+            "properties": {
+              "hermetic": {
+                "type": "boolean",
+                "description": "True when the checks ran with an empty HOME and no global or system git configuration."
+              },
+              "git_version": {
+                "type": "string",
+                "description": "git --version, as the checks' environment saw it.",
+                "x-trust": "fact"
+              },
+              "init_default_branch": {
+                "type": "string",
+                "description": "init.defaultBranch as that environment resolves it, or unset.",
+                "x-trust": "fact"
+              },
+              "go_version": {
+                "type": "string",
+                "description": "go version, for a repository with a go.mod.",
+                "x-trust": "fact"
+              }
+            },
+            "required": [
+              "hermetic"
+            ]
+          },
+          "review": {
+            "type": "object",
+            "description": "The independent conformance review of the finished change.",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "description": "The reviewer's overall reading of the change.",
+                "x-trust": "model"
+              },
+              "requirements": {
+                "type": "array",
+                "description": "One row per requirement id in scope.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The requirement or criterion id.",
+                      "x-trust": "fact"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "implemented, partial, missing or different.",
+                      "x-trust": "model"
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "description": "The file:line that shows it, and what is there.",
+                      "x-trust": "model"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "status",
+                    "evidence"
+                  ]
+                }
+              },
+              "tests": {
+                "type": "array",
+                "description": "One row per test id in scope.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The test id from the test spec.",
+                      "x-trust": "fact"
+                    },
+                    "test": {
+                      "type": "string",
+                      "description": "The test function that implements it, as file:line.",
+                      "x-trust": "model"
+                    },
+                    "assessment": {
+                      "type": "string",
+                      "description": "asserts_contract, weaker, tautological, no_assertions or missing.",
+                      "x-trust": "model"
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "description": "What the test asserts, against what the contract names.",
+                      "x-trust": "model"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "assessment",
+                    "evidence"
+                  ]
+                }
+              },
+              "decisions": {
+                "type": "array",
+                "description": "One row per recorded decision.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "D-n, the decision answered.",
+                      "x-trust": "fact"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "followed or not_followed.",
+                      "x-trust": "model"
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "description": "Where the code follows the decision, or how it departs from it.",
+                      "x-trust": "model"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "status",
+                    "evidence"
+                  ]
+                }
+              },
+              "docs": {
+                "type": "array",
+                "description": "Documentation statements the code contradicts.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "doc": {
+                      "type": "string",
+                      "description": "The documentation line, as file:line.",
+                      "x-trust": "model"
+                    },
+                    "statement": {
+                      "type": "string",
+                      "description": "What the documentation says.",
+                      "x-trust": "model"
+                    },
+                    "code": {
+                      "type": "string",
+                      "description": "The code line that contradicts it, as file:line.",
+                      "x-trust": "model"
+                    },
+                    "actual": {
+                      "type": "string",
+                      "description": "What the code actually does.",
+                      "x-trust": "model"
+                    }
+                  },
+                  "required": [
+                    "doc",
+                    "statement",
+                    "code",
+                    "actual"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "summary"
+            ]
+          },
+          "structural": {
+            "type": "array",
+            "description": "The structural findings left in the change.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "check": {
+                  "type": "string",
+                  "description": "Which structural check found it.",
+                  "x-trust": "fact"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The file, relative to the repository root.",
+                  "x-trust": "fact"
+                },
+                "line": {
+                  "type": "integer",
+                  "description": "The line, when the check names one."
+                },
+                "message": {
+                  "type": "string",
+                  "description": "What is wrong.",
+                  "x-trust": "fact"
+                }
+              },
+              "required": [
+                "check",
+                "path",
+                "message"
+              ]
+            }
+          },
+          "out_of_scope": {
+            "type": "array",
+            "description": "Paths the change touches that no task of the spec lists.",
+            "x-trust": "fact",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resolve": {
+            "type": "object",
+            "description": "The phase that fixed or declared what the conformance stage found, when one ran.",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "description": "done, discarded or failed.",
+                "x-trust": "fact"
+              },
+              "commit": {
+                "type": "string",
+                "description": "The commit of the change, when it landed.",
+                "x-trust": "fact"
+              },
+              "changed_files": {
+                "type": "array",
+                "description": "The files in the diff, from git.",
+                "x-trust": "fact",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "verification": {
+                "type": "object",
+                "description": "The gate after the change.",
+                "properties": {
+                  "checks": {
+                    "type": "array",
+                    "description": "One run of each check command, in order.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string",
+                          "description": "What ran. Empty together with skipped means nothing did.",
+                          "x-trust": "fact"
+                        },
+                        "skipped": {
+                          "type": "boolean",
+                          "description": "True when no command was run: none could be detected, or none was asked for. Not a pass."
+                        },
+                        "ok": {
+                          "type": "boolean",
+                          "description": "True only when the command ran and exited zero."
+                        },
+                        "exit_code": {
+                          "type": "integer",
+                          "description": "The exit status of the command, or -1 when it could not run."
+                        },
+                        "output": {
+                          "type": "string",
+                          "description": "The bounded tail of the combined output.",
+                          "x-trust": "external"
+                        },
+                        "timed_out": {
+                          "type": "boolean",
+                          "description": "True when the run was killed by the timeout."
+                        },
+                        "duration_ms": {
+                          "type": "integer",
+                          "description": "How long the run took in milliseconds."
+                        }
+                      },
+                      "required": [
+                        "command",
+                        "ok",
+                        "exit_code",
+                        "duration_ms"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "checks"
+                ]
+              },
+              "verdict": {
+                "type": "string",
+                "description": "How that gate compares with the gate before it.",
+                "x-trust": "fact"
+              },
+              "submission": {
+                "type": "object",
+                "description": "The model report, kept separate from the facts above.",
+                "properties": {
+                  "summary": {
+                    "type": "string",
+                    "description": "The model account of what it fixed.",
+                    "x-trust": "model"
+                  },
+                  "commit_subject": {
+                    "type": "string",
+                    "description": "The commit subject the model proposed.",
+                    "x-trust": "model"
+                  },
+                  "changes": {
+                    "type": "array",
+                    "description": "The files the model reports having changed.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "Path of the file, relative to the repository root.",
+                          "x-trust": "model"
+                        },
+                        "change": {
+                          "type": "string",
+                          "description": "What was done to the file.",
+                          "x-trust": "model"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "change"
+                      ]
+                    }
+                  },
+                  "deviations": {
+                    "type": "array",
+                    "description": "The findings declared as known deviations rather than fixed.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "description": "The requirement id, test id, D-n or finding key the deviation answers.",
+                          "x-trust": "model"
+                        },
+                        "test": {
+                          "type": "string",
+                          "description": "The test id concerned, when the key is a requirement.",
+                          "x-trust": "model"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "description": "Why the requirement is not met: what the code does instead and what stops it.",
+                          "x-trust": "model"
+                        },
+                        "errata": {
+                          "type": "string",
+                          "description": "The erratum file in this change that records it.",
+                          "x-trust": "model"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "reason"
+                      ]
+                    }
+                  },
+                  "notes": {
+                    "type": "string",
+                    "description": "What a reviewer should know.",
+                    "x-trust": "model"
+                  }
+                },
+                "required": [
+                  "summary"
+                ]
+              },
+              "error": {
+                "type": "string",
+                "description": "Why the change did not land.",
+                "x-trust": "fact"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "unmet": {
+            "type": "array",
+            "description": "What the change knowingly does not meet; the pull request opens with this list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Where it came from: declared, review, structural, verification or unresolved.",
+                  "x-trust": "fact"
+                },
+                "requirement": {
+                  "type": "string",
+                  "description": "The requirement or decision id concerned, when there is one.",
+                  "x-trust": "model"
+                },
+                "test": {
+                  "type": "string",
+                  "description": "The test id concerned, when there is one.",
+                  "x-trust": "model"
+                },
+                "what": {
+                  "type": "string",
+                  "description": "What is not met, and why.",
+                  "x-trust": "model"
+                },
+                "tracking": {
+                  "type": "string",
+                  "description": "The erratum in the change or the issue that tracks it. Empty when nothing does.",
+                  "x-trust": "fact"
+                }
+              },
+              "required": [
+                "source",
+                "what"
+              ]
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "description": "What the conformance stage found that was neither fixed nor declared.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "What the finding is about: a requirement or test id, D-n, doc:path:line, scope:path or hermetic.",
+                  "x-trust": "fact"
+                },
+                "requirement": {
+                  "type": "string",
+                  "description": "The requirement id concerned, when there is one.",
+                  "x-trust": "fact"
+                },
+                "test": {
+                  "type": "string",
+                  "description": "The test id concerned, when there is one.",
+                  "x-trust": "fact"
+                },
+                "what": {
+                  "type": "string",
+                  "description": "What is wrong.",
+                  "x-trust": "model"
+                },
+                "declarable": {
+                  "type": "boolean",
+                  "description": "False when the finding can only be fixed, not declared as a known deviation."
+                }
+              },
+              "required": [
+                "key",
+                "what",
+                "declarable"
+              ]
+            }
           },
           "survey": {
             "type": "object",

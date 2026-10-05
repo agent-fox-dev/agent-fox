@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 )
 
 // The footer every comment this tool posts carries. It says what wrote the
@@ -17,7 +18,11 @@ const footer = "*Written by [`fix`](https://github.com/agent-fox-dev/agent-fox).
 // The subject comes from the model; the type prefix and the issue trailer do
 // not, because those are facts about the run rather than judgements about the
 // change.
-func commitMessage(class Classification, impl Implementation, issue issueRef, body string) string {
+//
+// closes decides the trailer: "Closes #N" only for a fix whose tests were
+// shown to fail without it; "Refs #N" otherwise, so that merging a change
+// that proves nothing does not close the report it answers.
+func commitMessage(class Classification, impl Implementation, issue issueRef, closes bool, body string) string {
 	subject := strings.TrimSpace(impl.CommitSubject)
 	subject = strings.TrimSuffix(subject, ".")
 	msg := fmt.Sprintf("%s: %s", class.CommitType(), subject)
@@ -28,9 +33,16 @@ func commitMessage(class Classification, impl Implementation, issue issueRef, bo
 		msg += "\n\n" + b
 	}
 	if issue != nil {
-		msg += fmt.Sprintf("\n\nCloses #%d", issue.Number)
+		msg += fmt.Sprintf("\n\n%s #%d", closingWord(closes), issue.Number)
 	}
 	return msg + "\n"
+}
+
+func closingWord(closes bool) string {
+	if closes {
+		return "Closes"
+	}
+	return "Refs"
 }
 
 // commitBody is the model's summary for the commit body, without any claim
@@ -229,6 +241,12 @@ func summaryComment(r *Result) string {
 	b.WriteString(criteriaVerdictSection("###", r.AcceptanceCriteria, r.Implementation))
 
 	p("### Verification\n\n%s\n\n", verificationLines(r.Baseline, r.Verification))
+	if rc := r.RevertCheck; rc != nil {
+		p("%s\n\n", revertCheckLine(*rc))
+	}
+	if r.IssueNumber > 0 && !r.ClosesIssue {
+		p("**This change does not close the issue:** %s.\n\n", notClosedReason(r))
+	}
 
 	p("### Where it is\n\n")
 	p("- Branch: `%s`", r.Branch)
@@ -282,9 +300,20 @@ func pullRequestBody(r *Result) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
+	if len(r.Blocking) > 0 {
+		p("## ❌ Not ready: the cited requirements are not met\n\n")
+		for _, x := range r.Blocking {
+			p("- **%s**: %s\n", x.Key, strings.TrimSpace(x.What))
+		}
+		p("\n")
+	}
 	p("## Summary\n\n%s\n\n", strings.TrimSpace(r.FixSummary))
 	if r.IssueNumber > 0 {
-		p("Closes #%d\n\n", r.IssueNumber)
+		if r.ClosesIssue {
+			p("Closes #%d\n\n", r.IssueNumber)
+		} else {
+			p("Refs #%d — **this change does not close the issue**: %s\n\n", r.IssueNumber, notClosedReason(r))
+		}
 	}
 	if strings.TrimSpace(r.RootCause) != "" {
 		p("## Root cause\n\n%s\n\n", strings.TrimSpace(r.RootCause))
@@ -322,11 +351,43 @@ func pullRequestBody(r *Result) string {
 	// out which criteria the change claims to meet.
 	b.WriteString(criteriaVerdictSection("##", r.AcceptanceCriteria, r.Implementation))
 	p("## Verification\n\n%s\n\n", verificationLines(r.Baseline, r.Verification))
+	if rc := r.RevertCheck; rc != nil {
+		p("%s\n\n", revertCheckLine(*rc))
+	}
+	if r.Review != nil {
+		b.WriteString(conform.RenderReview(*r.Review, nil))
+	}
+	b.WriteString(conform.RenderFindings(r.Structural))
 	if r.Implementation != nil && strings.TrimSpace(r.Implementation.Notes) != "" {
 		p("## Notes\n\n%s\n\n", strings.TrimSpace(r.Implementation.Notes))
 	}
 	p("---\n%s\n", footer)
 	return b.String()
+}
+
+// notClosedReason says why a landed change only references its issue.
+func notClosedReason(r *Result) string {
+	switch {
+	case len(r.Blocking) > 0:
+		return fmt.Sprintf("the review of the requirements the report cites left %d blocking finding(s)", len(r.Blocking))
+	case r.RevertCheck != nil && !r.RevertCheck.Proves:
+		return r.RevertCheck.Reason
+	default:
+		return "the review of the requirements the report cites did not complete"
+	}
+}
+
+// revertCheckLine says what the checks did with the fix taken out.
+func revertCheckLine(rc conform.RevertResult) string {
+	switch {
+	case rc.Proves:
+		return fmt.Sprintf("**Revert check:** with %s taken out and the tests left in, the checks fail "+
+			"(exit %d): the tests depend on the fix.", "`"+strings.Join(rc.Reverted, "`, `")+"`", rc.Check.ExitCode)
+	case rc.Ran:
+		return "**Revert check:** ❌ " + rc.Reason + "."
+	default:
+		return "**Revert check:** not run — " + rc.Reason + "."
+	}
 }
 
 // pullRequestTitle is the commit subject, which is the analysis title as the

@@ -32,7 +32,7 @@ The input is exactly one of:
   a GitHub or GitLab issue or pull/merge-request URL
                                        the issue is the problem; the run
                                        comments on it and the pull request
-                                       closes it
+                                       closes it, when the fix is proven
   a path to a readable file            the file's contents are the problem
   any other text                       the text is the problem
   -                                    the problem is read from stdin
@@ -44,6 +44,16 @@ The working tree must be clean. The run branches from the current branch
 checks, and only lands the work if they pass — comparing against a baseline
 taken before anything changed, so a repository that was already failing is
 reported honestly rather than as a regression.
+
+A verified change is then proven before it is committed: the checks run once
+more with its non-test files taken out and its tests left in. The issue is
+closed (Closes #N) only when they then fail; a fix whose tests pass without it
+only references the issue (Refs #N) and the run warns fix_not_proven. When the
+report cites requirement or test ids a spec under .specs (or $AF_SPEC_DIR)
+defines, an independent review on a fresh context checks the change against
+them; a blocking finding keeps the issue open, makes the pull request a
+draft, and the run exits 4. --no-review skips that review. Structural checks
+over the touched files are reported in the pull request.
 
 --dry-run makes no remote change: nothing is pushed, no pull request is opened,
 no comment is posted. It still does everything local — the branch is created and
@@ -58,6 +68,8 @@ Exit codes:
      posted to the issue. No branch, no code.
   4  code was written and the checks do not pass. The work is committed on
      the branch as a wip: commit and the checkout is back on the base branch.
+     Also: the change landed and the review of the requirements the report
+     cites found them unmet (category nonconformant).
 
 Flags:
 `
@@ -77,6 +89,7 @@ type fixFlags struct {
 	allow         string
 	draft         bool
 	pull          pullFlag
+	noReview      bool
 }
 
 // fixOptions builds the codefix.Options for one run from the parsed flags and
@@ -101,6 +114,7 @@ func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
 		Draft:          f.draft,
 		Pull:           f.pull.set,
 		PullBranch:     f.pull.branch,
+		NoReview:       f.noReview,
 		Runner:         d.Runner,
 		Forge:          d.Forge,
 		CheckRunner:    gitx.ReducedEnvRunner,
@@ -143,6 +157,7 @@ func newApp() toolio.App {
 			fs.StringVar(&f.allow, "allow", "", "comma-separated extra programs the implementation phase's shell may run")
 			fs.BoolVar(&f.draft, "draft", false, "open the pull request as a draft")
 			fs.Var(&f.pull, "pull", "checkout and pull origin before branching; optional branch name, default origin's default branch")
+			fs.BoolVar(&f.noReview, "no-review", false, "skip the independent review of the change against the requirement and test ids the report cites")
 		},
 		// Implementing is the expensive phase: it reads, writes, and runs the
 		// suite repeatedly. Both numbers are ceilings, not targets.

@@ -375,6 +375,7 @@ func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
 				Land:         codeimpl.LandPR,
 				NoVerify:     true,
 				NoSurvey:     true,
+				NoReview:     true,
 				TaskAttempts: 1,
 				Runner:       runner,
 				Forge:        d.Forge,

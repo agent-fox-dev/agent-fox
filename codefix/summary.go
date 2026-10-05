@@ -2,6 +2,7 @@ package codefix
 
 import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -23,6 +24,10 @@ type summaryResult struct {
 	PullRequestURL  string         `json:"pull_request_url,omitempty" trust:"fact"`
 	DryRun          bool           `json:"dry_run"`
 	Verification    *checks.Result `json:"verification,omitempty"`
+	// ClosesIssue says, for a committed change on an issue, whether it closes
+	// the issue or only references it; Blocking is why it stays open.
+	ClosesIssue *bool             `json:"closes_issue,omitempty"`
+	Blocking    []conform.Blocker `json:"blocking,omitempty"`
 	// Preflight and Estimate are what a --preflight run exists to report, so
 	// they survive the default view.
 	Preflight []toolio.PreflightCheck `json:"preflight,omitempty"`
@@ -46,6 +51,11 @@ func (r *Result) SummaryView() any {
 		Estimate:        r.Estimate,
 		Detail:          "summary",
 	}
+	if r.IssueNumber > 0 && r.Commit != "" && r.Stage != "unverified" {
+		closes := r.ClosesIssue
+		s.ClosesIssue = &closes
+	}
+	s.Blocking = r.Blocking
 	// A run that stopped before verification has the zero Result here, which
 	// reads as a failed check though none ran; leave it out.
 	if (r.Verification.Ran() || r.Verification.Skipped) && !checks.Verdict(r.Verdict).Landable() {

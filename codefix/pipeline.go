@@ -8,8 +8,10 @@ import (
 
 	"github.com/agentfox/agentkit-go/tools"
 
+	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -62,6 +64,11 @@ type Options struct {
 	// PullBranch is the branch to checkout and pull when Pull is enabled.
 	// Empty means the base branch.
 	PullBranch string
+	// NoReview skips the independent review of the change against the
+	// requirement and test ids the report cites.
+	NoReview bool
+	// Now is the clock the run reads today's date from. Nil means time.Now.
+	Now func() time.Time
 
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
@@ -120,6 +127,9 @@ const (
 	CategoryGit = "git"
 	// CategoryEmpty means the model reported a fix and changed nothing.
 	CategoryEmpty = "empty_change"
+	// CategoryNonconformant means the change landed and the review of the
+	// requirements the report cites found them unmet: the issue stays open.
+	CategoryNonconformant = "nonconformant"
 )
 
 // Run drives the whole pipeline.
@@ -186,6 +196,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		b = &agentBrain{runner: o.Runner, extraPrograms: programs}
 	}
+	o.brain = b
 
 	// ---------------------------------------------------------- analyse --
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
@@ -239,7 +250,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	impl, stats, err := b.Implement(ctx, implementInput{
 		Input: o.Input, Analysis: analysis, Baseline: baseline, VerifyCommand: command,
 		Branch: branch, Root: root, Instructions: projectInstructions(root),
-		Criteria: criteria,
+		Criteria: criteria, Now: o.now(),
 	})
 	recordPhase(o.Run, stats)
 	done(toolio.PhaseSummary(stats))
@@ -298,9 +309,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return parkUnverified(ctx, o, git, result, impl, analysis, verdict, base)
 	}
 
+	// ------------------------------------------------------------ prove --
+	if err := prove(ctx, o, git, root, command, changed, result); err != nil {
+		return result, err
+	}
+	if len(result.Blocking) > 0 {
+		o.Draft = true
+	}
+
 	// ------------------------------------------------------------- land --
 	commit, err := git.CommitAll(ctx, commitMessage(analysis.Classification, impl, o.Input.Issue,
-		commitBody(impl.Summary, after)))
+		result.ClosesIssue, commitBody(impl.Summary, after)))
 	if err != nil {
 		return result, fail("commit", CategoryGit, err)
 	}
@@ -340,7 +359,96 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	postComment(ctx, o, result, summaryComment(result), "summary")
+	if len(result.Blocking) > 0 {
+		return result, failf("review", CategoryNonconformant,
+			"the change landed and the review of the requirements the report cites left %d blocking "+
+				"finding(s); the issue stays open and the pull request is a draft", len(result.Blocking))
+	}
 	return result, nil
+}
+
+func (o Options) now() time.Time {
+	if o.Now != nil {
+		return o.Now()
+	}
+	return time.Now()
+}
+
+// prove establishes what the verified change shows, before it is committed:
+// whether its tests fail with the fix taken out, what the structural checks
+// find in it, and — when the report cites requirement or test ids a spec in
+// the repository defines — whether an independent review finds those met.
+// The issue is closed only when the tests prove the fix and the review left
+// nothing blocking.
+func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, changed []string, result *Result) error {
+	rc, err := conform.Revert(ctx, git, root, "HEAD", changed, func(ctx context.Context) checks.Result {
+		return runChecks(ctx, o, root, command, "revert check")
+	})
+	if err != nil {
+		return fail("verify", CategoryGit, err)
+	}
+	result.RevertCheck = &rc
+	result.ClosesIssue = o.Input.Issue != nil && rc.Proves
+	if o.Input.Issue != nil && !rc.Proves {
+		o.Run.Warn(toolio.WarnFixNotProven, "high", "%s is referenced, not closed: %s", o.Input.Issue, rc.Reason)
+		o.Progress.Step("verify", "the fix is not proven (%s); the issue will be referenced, not closed", rc.Reason)
+	}
+
+	_, patch, err := git.DiffSince(ctx, "HEAD")
+	if err != nil {
+		return fail("verify", CategoryGit, err)
+	}
+	tracked, err := git.TrackedFiles(ctx)
+	if err != nil {
+		return fail("verify", CategoryGit, err)
+	}
+	runner := o.CheckRunner
+	if runner == nil {
+		runner = gitx.ReducedEnvRunner
+	}
+	result.Structural = conform.Scan(ctx, conform.ScanInput{Root: root, Changed: changed,
+		Added: conform.ParseAdded(patch), Tracked: tracked, Today: o.now(), Runner: runner})
+
+	if o.NoReview {
+		return nil
+	}
+	cited := conform.FindCited(o.Input.Body, afspec.ResolveSpecsDir("", root))
+	if len(cited.Specs) == 0 {
+		return nil
+	}
+	var spec strings.Builder
+	for _, s := range cited.Specs {
+		spec.WriteString(s.RenderCombined())
+		spec.WriteString("\n\n")
+	}
+	stat, _ := git.DiffStat(ctx, "HEAD")
+	done := o.Progress.Begin("reviewing the fix against %s", strings.Join(append(append([]string(nil),
+		cited.Scope.Requirements...), cited.Scope.Tests...), ", "))
+	review, stats, err := o.brain.Review(ctx, conform.ReviewInput{
+		Root: root, Base: "HEAD", Spec: spec.String(), Scope: cited.Scope, ChangedFiles: changed,
+		DiffStat: stat, TestCommands: nonEmpty(command),
+		Context: "## The problem report the change answers\n\n" + reportBlock(o.Input),
+	})
+	recordPhase(o.Run, stats)
+	done(toolio.PhaseSummary(stats))
+	if err != nil {
+		o.Run.Warn(toolio.WarnReviewNotRun, "high", "the review of the cited requirements did not complete: %v", err)
+		result.ClosesIssue = false
+		return nil
+	}
+	result.Review = &review
+	result.Blocking = review.Blockers()
+	if len(result.Blocking) > 0 {
+		result.ClosesIssue = false
+	}
+	return nil
+}
+
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
 }
 
 // applyDefaults fills the options a caller may leave zero. Run and

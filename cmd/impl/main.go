@@ -20,6 +20,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/codeimpl"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -57,7 +58,26 @@ unless every test verdict carries red_evidence (the command and the failure
 seen before implementing) or the submission gives a test_first_deviation
 reason, which the pull request shows as "Test-first not followed". The evidence
 is the model's own claim, not a measured fact. --no-test-first stops the tool
-requiring it; the prompt still asks for test-first work.
+requiring it; the prompt still asks for test-first work. Where test-first is
+waived, by the flag or by a task's test_first_deviation, the task's tests are
+run once more with its implementation taken out, and the task lands only if
+they then fail.
+
+After the last task the change is checked as a whole before anything is
+pushed. Structural checks run over the files it touches (gofmt, go vet,
+duplication, discarded errors, comments deferring to a later task, unused
+declarations, functions over --max-func-lines, tests with no assertion,
+git init without -b, future dates and uncited errata). A spec whose every task
+lists touches restricts the change to those files (documentation exempt). The
+checks run again in a clean environment — an empty HOME, no global git
+configuration — and the pull request records its fingerprint. An independent
+review, on a fresh context that sees the spec, the diff and the repository
+but no task's report, answers for every requirement, test and survey decision
+in scope. One phase then fixes what was found or declares it a known
+deviation, recorded by an erratum or filed as an issue. The pull request
+opens with every unmet item and does not claim the work is complete while
+any remains; findings neither fixed nor declared make it a draft and the run
+exits 4. --no-review skips the review and the resolve phase.
 
 Checks that fail before any change are recorded and every task is judged by
 comparison. --repair makes them a phase of their own instead, at the two
@@ -83,7 +103,9 @@ Exit codes:
      upstream spec is not done. The question is in the JSON.
   4  a task was implemented and its checks do not pass — or, with --repair,
      the checks could not be repaired. The work is parked on the branch as
-     a wip: commit and the checkout is back on the base branch.
+     a wip: commit and the checkout is back on the base branch. Also: every
+     task landed and the conformance checks left findings neither fixed nor
+     declared (category nonconformant); the pull request is a draft.
 
 Flags:
 `
@@ -112,6 +134,8 @@ type implFlags struct {
 	repairTries       int
 	repairModel       string
 	repairModelEffort string
+	noReview          bool
+	maxFuncLines      int
 }
 
 // implOptions builds the codeimpl.Options for one run from the parsed flags,
@@ -138,6 +162,8 @@ func (f *implFlags) implOptions(d toolio.Deps, repairRunner *agentrun.Runner) co
 		Pull:           f.pull,
 		NoSurvey:       f.noSurvey,
 		NoTestFirst:    f.noTestFirst,
+		NoReview:       f.noReview,
+		MaxFuncLines:   f.maxFuncLines,
 		TaskAttempts:   f.attempts,
 		TotalBudgetUSD: d.Common.TotalBudgetUSD,
 		Repair:         f.repair,
@@ -285,6 +311,8 @@ func newApp() toolio.App {
 			fs.BoolVar(&f.pull, "pull", false, "checkout and pull the base branch from origin before anything else")
 			fs.BoolVar(&f.noSurvey, "no-survey", false, "skip the read-only survey phase")
 			fs.BoolVar(&f.noTestFirst, "no-test-first", false, "do not require red-first evidence (red_evidence or test_first_deviation) when a task is submitted")
+			fs.BoolVar(&f.noReview, "no-review", false, "skip the independent conformance review after the last task, and the phase that resolves its findings; the structural, scope and clean-environment checks still run")
+			fs.IntVar(&f.maxFuncLines, "max-func-lines", conform.DefaultMaxFuncLines, "length past which the structural checks report a function the change wrote or grew")
 			fs.IntVar(&f.attempts, "task-attempts", codeimpl.DefaultTaskAttempts, "implementation attempts per task before the run parks")
 			fs.BoolVar(&f.repair, "repair", false, "repair the checks when they fail before the first task or after the integration task; the run stops if they cannot be repaired")
 			fs.IntVar(&f.repairTries, "repair-attempts", codeimpl.DefaultRepairAttempts, "repair attempts before the run gives up")

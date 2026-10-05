@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -130,6 +131,9 @@ func implementPrompt(in implementInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Implement the change diagnosed below, in %s. You are on branch `%s`, "+
 		"created for this work.\n\n", in.Root, in.Branch)
+	if !in.Now.IsZero() {
+		b.WriteString(conform.DateLine(in.Now))
+	}
 
 	b.WriteString("## The problem\n\n")
 	b.WriteString(reportBlock(in.Input))

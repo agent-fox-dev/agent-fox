@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
@@ -96,7 +97,17 @@ Method:
    repeats it — at a minute or more per run. Run the full command yourself
    only when a failure cannot be reproduced any smaller, and fix what it
    reports: there is no benefit in leaving it failing.
-6. Update the documentation the change makes wrong.
+6. Update the documentation the change makes wrong, from the code: every
+   quoted string, field name, enum value, exit code, endpoint path and sample
+   payload you write is copied from the code or a test, not from the PRD, and
+   you report the line it came from in doc_sources. When the code does not do
+   what the spec asks, the documentation says what the code does.
+
+Anything you know the work does not meet — a requirement, a test's contract,
+a decision from the survey — goes in deviations, with the reason and the
+erratum you wrote for it. An independent reviewer reads the finished change
+against the spec after the last task; a gap you declare is reported as one, a
+gap you bury in notes is reported as a defect.
 
 Do not write in your summary that tests or checks pass. The program runs them
 and states the result itself; a sentence of yours that asserts one is removed
@@ -292,6 +303,9 @@ func repairPrompt(in repairInput) string {
 		fmt.Fprintf(&b, " This is attempt %d of %d.", in.Attempt, in.Attempts)
 	}
 	b.WriteString("\n\n")
+	if !in.Now.IsZero() {
+		b.WriteString(conform.DateLine(in.Now))
+	}
 	b.WriteString(languageBlock(in.Profile))
 
 	if in.Task != nil {
@@ -400,6 +414,14 @@ func taskPrompt(in taskInput) string {
 		fmt.Fprintf(&b, " This is attempt %d of %d.", in.Attempt, in.Attempts)
 	}
 	b.WriteString("\n\n")
+	if !in.Now.IsZero() {
+		b.WriteString(conform.DateLine(in.Now))
+	}
+	if len(in.Scope) > 0 {
+		fmt.Fprintf(&b, "The spec restricts the files a change may touch to what its tasks list: %s "+
+			"(documentation is exempt). A file outside that list fails the run's scope check: a "+
+			"\"while I was here\" fix belongs in a separate change.\n\n", "`"+strings.Join(in.Scope, "`, `")+"`")
+	}
 	if task.Kind == afspec.TaskKindIntegration {
 		b.WriteString("This is the spec's integration task: it exists to catch the wiring gaps that " +
 			"component tests cannot see. Its smoke tests run against real components, and an execution " +
@@ -594,4 +616,106 @@ func languageBlock(p project.Profile) string {
 	}
 	return fmt.Sprintf("This project is **%s**, detected from `%s`. A stub marker in this "+
 		"language is `%s`.\n\n", p.Language, p.Manifest, p.StubMarker)
+}
+
+// resolveSystemPrompt is the mandate of the phase that answers the
+// conformance stage. It is a repair with a different bar: not "the checks
+// pass" but "the change does what the spec says, or says plainly where it
+// does not".
+const resolveSystemPrompt = `You are a senior engineer answering an independent review of a finished change, before it is presented as done.
+
+Every task of the specification has landed and the project's checks pass.
+After that, the program checked the change: an independent reviewer read it
+against the spec, and the program ran structural checks over the files it
+touches, compared them with the files the spec's tasks list, and ran the
+checks again in a clean environment. What it found is below.
+
+For each finding, do one of two things:
+
+1. Fix it. A requirement missing or implemented differently is implemented
+   as the spec says. A test that does not assert its contract is rewritten to
+   drive the real component and assert the observable outcome. A document
+   that contradicts the code is corrected to what the code does. A file
+   outside the spec's scope has its change reverted (git checkout is not
+   available to you: restore the file's content by hand). A test that fails
+   in a clean environment is fixed — usually a fixture that relies on the
+   machine's git configuration (git init without -b, a commit without a
+   configured identity).
+2. Declare it, when it cannot be fixed in this change: a limitation of a
+   library the code depends on, a requirement that contradicts another. The
+   declaration names the finding's key, says what the code does instead and
+   why, and is recorded in an erratum you write in this change citing the
+   code line and the test of the delivered behaviour. The pull request opens
+   with every declaration. Findings marked fix-only cannot be declared.
+
+Structural findings (formatting, vet, duplication, discarded errors,
+comments deferring to a later task, unused declarations, long functions,
+dates) are fixed where the fix is local and safe; what you leave is listed
+in the pull request.
+
+Do not weaken or delete a test to make a finding go away, and do not touch
+anything the findings do not name.
+
+Constraints that are mechanical, not advisory:
+
+- git is limited to its read-only subcommands; the commit is made by the
+  program after this phase, from what you submit.
+- The spec package is read-only to you: writes under it are refused.
+
+When you are done and the checks pass when you run them, call submit_resolve
+exactly once.`
+
+func resolvePrompt(in resolveInput) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Answer the conformance findings on branch `%s` in %s, where specification %s (\"%s\") "+
+		"has been implemented.\n\n", in.Branch, in.Root, filepath.Base(in.Spec.Dir), in.Spec.Title)
+	if !in.Now.IsZero() {
+		b.WriteString(conform.DateLine(in.Now))
+	}
+	b.WriteString(languageBlock(in.Profile))
+	if len(in.Blockers) > 0 {
+		b.WriteString("## Findings to fix or declare\n\n")
+		for _, x := range in.Blockers {
+			tag := ""
+			if !x.Declarable {
+				tag = " (fix-only)"
+			}
+			fmt.Fprintf(&b, "- **%s**%s: %s\n", x.Key, tag, strings.TrimSpace(x.What))
+		}
+		b.WriteString("\n")
+	}
+	if in.Hermetic != nil {
+		for _, c := range in.Hermetic.failing() {
+			fmt.Fprintf(&b, "In the clean environment `%s` exited %d. Its output ended:\n\n```\n%s\n```\n\n",
+				c.Command, c.ExitCode, checks.Tail(c.Output, 60))
+		}
+	}
+	if len(in.Findings) > 0 {
+		b.WriteString("## Structural findings\n\n")
+		for _, f := range in.Findings {
+			fmt.Fprintf(&b, "- `%s` (%s): %s\n", f.Ref(), f.Check, f.Message)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("## Verification\n\n")
+	b.WriteString(gateBlock(in.Gate, in.Baseline))
+	b.WriteString("\n")
+	if in.Survey != nil {
+		b.WriteString(surveyBlock(*in.Survey))
+	}
+	b.WriteString("## The specification\n\n")
+	b.WriteString(strings.TrimSpace(in.Spec.RenderCombined()))
+	b.WriteString("\n\n")
+	if in.Instructions != "" {
+		b.WriteString("## Project instructions\n\n--- BEGIN PROJECT INSTRUCTIONS ---\n")
+		b.WriteString(strings.TrimSpace(in.Instructions))
+		b.WriteString("\n--- END PROJECT INSTRUCTIONS ---\n\n")
+	}
+	if in.Steering != "" {
+		b.WriteString("## Steering\n\n--- BEGIN STEERING ---\n")
+		b.WriteString(strings.TrimSpace(in.Steering))
+		b.WriteString("\n--- END STEERING ---\n\n")
+	}
+	b.WriteString("Fix what can be fixed, declare what cannot, run the checks, then call " + ToolSubmitResolve + ".")
+	return b.String()
 }

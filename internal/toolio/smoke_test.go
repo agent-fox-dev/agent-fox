@@ -148,10 +148,31 @@ func writeSpecPackage(t *testing.T, destDir, specID, specName string) {
 		text = strings.ReplaceAll(text, `"01"`, `"`+specID+`"`)
 		text = strings.ReplaceAll(text, `"test_feature"`, `"`+specName+`"`)
 		text = strings.ReplaceAll(text, `"draft"`, `"active"`)
+		if filename == "tasks.json" {
+			// The scripted runs write whatever file their scenario needs; a
+			// spec that lists no touches does not restrict them.
+			text = stripTouches(t, text)
+		}
 		if err := os.WriteFile(filepath.Join(destDir, filename), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+func stripTouches(t *testing.T, tasksJSON string) string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(tasksJSON), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range doc["tasks"].([]any) {
+		delete(task.(map[string]any), "touches")
+	}
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // TS-04-36 (smoke): Triaging a GitLab issue via triage CLI
@@ -940,6 +961,7 @@ func TestTS0439_GitLabNestedProjectImpl_Smoke(t *testing.T) {
 				Land:      mode,
 				Task:      task1.Id,
 				NoSurvey:  true,
+				NoReview:  true,
 				NoVerify:  true,
 				Runner:    runner,
 				Forge:     d.Forge,
@@ -1365,6 +1387,7 @@ func TestTS0546_ImplBudgetCeilingResumesOnSameBranch_Smoke(t *testing.T) {
 				Land:         codeimpl.LandNone,
 				NoVerify:     true,
 				NoSurvey:     true,
+				NoReview:     true,
 				TaskAttempts: 1,
 				Runner:       runner,
 				Forge:        issuex.NewNoOp(),
@@ -1463,6 +1486,7 @@ func TestTS0546_ImplBudgetCeilingResumesOnSameBranch_Smoke(t *testing.T) {
 				Land:         codeimpl.LandNone,
 				NoVerify:     true,
 				NoSurvey:     true,
+				NoReview:     true,
 				TaskAttempts: 1,
 				Runner:       runner,
 				Forge:        issuex.NewNoOp(),
@@ -2654,6 +2678,7 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 				Land:         codeimpl.LandNone,
 				NoVerify:     true,
 				NoSurvey:     true,
+				NoReview:     true,
 				TaskAttempts: 1,
 				Runner:       runner,
 				Forge:        issuex.NewNoOp(),
