@@ -490,7 +490,7 @@ func TestSmoke_GitLabRateLimitBackoffAndRetry_TS_03_31(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		att := atomic.AddInt32(&attempts, 1)
 		if att == 1 {
-			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Retry-After", "2")
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(`{"message": "429 Too Many Requests"}`))
 			return
@@ -521,19 +521,21 @@ func TestSmoke_GitLabRateLimitBackoffAndRetry_TS_03_31(t *testing.T) {
 		t.Fatalf("NewGitLab failed: %v", err)
 	}
 
-	// Inject sleep function to avoid sleeping for real 2 seconds
+	// Inject sleep function to avoid sleeping for real 3 seconds
 	issuex.SetGitLabSleep(c, func(d time.Duration) {
 		slept = d
 	})
 
-	// Step 2-5: GetRepository encounters HTTP 429, sleeps 2s, retries once, and returns Repository
+	// Step 2-5: GetRepository encounters HTTP 429 with Retry-After 2, sleeps 3s
+	// (the header plus the one second HTTPError.RetryAfter adds; see
+	// docs/errata/03_retry_after_buffer.md), retries once, and returns Repository
 	ctx := context.Background()
 	repo, err := c.GetRepository(ctx, issuex.Repo{Owner: "group", Name: "project"})
 	if err != nil {
 		t.Fatalf("GetRepository failed: %v", err)
 	}
-	if slept != 2*time.Second {
-		t.Errorf("slept = %v, want %v", slept, 2*time.Second)
+	if slept != 3*time.Second {
+		t.Errorf("slept = %v, want %v", slept, 3*time.Second)
 	}
 	if repo.FullName != "group/project" {
 		t.Errorf("repo.FullName = %q, want 'group/project'", repo.FullName)

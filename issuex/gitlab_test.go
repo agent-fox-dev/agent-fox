@@ -265,8 +265,10 @@ func TestGitLab_Transport_RateLimit_TS_03_26(t *testing.T) {
 	if err1 != nil {
 		t.Fatalf("expected err1 == nil, got %v", err1)
 	}
-	if len(sleepDurations) != 1 || (sleepDurations[0] != 10*time.Second && sleepDurations[0] != 11*time.Second) {
-		t.Errorf("expected sleep duration 10s-11s, got %v", sleepDurations)
+	// Exactly the Retry-After plus the one second HTTPError.RetryAfter adds
+	// (docs/errata/03_retry_after_buffer.md).
+	if len(sleepDurations) != 1 || sleepDurations[0] != 11*time.Second {
+		t.Errorf("expected exactly one sleep of 11s (Retry-After 10 + 1), got %v", sleepDurations)
 	}
 
 	// Case 2: Retry-After > 120s aborts immediately with ErrRateLimited
