@@ -57,26 +57,26 @@ func TestTS12_43_ArgumentsRecordedVerbatimAndEmptyIsEmptyObject(t *testing.T) {
 	pending := make(map[string]core.ToolUseBlock)
 
 	// First call: input with whitespace.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{
 			ID:    "c1",
 			Name:  "read_file",
 			Input: json.RawMessage(`{ "path": "a b",  "n": 1 }`),
 		},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file"},
 	})
 
 	// Second call: empty input (the SDK normalizes nil/empty to {}).
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{
 			ID:    "c2",
 			Name:  "list_files",
 			Input: json.RawMessage(`{}`),
 		},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c2", ToolName: "list_files"},
 	})
 
@@ -111,38 +111,38 @@ func TestTS12_45_OKFollowsIsErrorNotExitStatus(t *testing.T) {
 	pending := make(map[string]core.ToolUseBlock)
 
 	// Case 1: non-error read (ok=true).
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "read_file", Input: json.RawMessage(`{}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file", IsError: false},
 	})
 
 	// Case 2: error result (ok=false).
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c2", Name: "read_file", Input: json.RawMessage(`{}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c2", ToolName: "read_file", IsError: true,
 			Content: core.Content{core.TextBlock{Text: "not found"}}},
 	})
 
 	// Case 3: shell result with IsError false and exit 1 (ok=true).
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c3", Name: "execute", Input: json.RawMessage(`{"command":"false"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c3", ToolName: "execute", IsError: false,
 			Content: core.Content{core.TextBlock{Text: `{"ok":true,"data":{"exit_code":1,"output":""}}`}}},
 	})
 
 	// Case 4: guard-refused call (ok=false, blocked=true).
 	blocks.inc("execute")
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c4", Name: "execute", Input: json.RawMessage(`{"command":"rm -rf /"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c4", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: "guard refused"}}},
 	})
@@ -175,39 +175,39 @@ func TestTS12_46_ExitCodeOnlyForShellWithReadableStatus(t *testing.T) {
 	pending := make(map[string]core.ToolUseBlock)
 
 	// Case 1: shell result with readable exit_code 3.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: json.RawMessage(`{"command":"exit 3"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: `{"ok":false,"data":{"exit_code":3,"output":""},"error":"exit"}`}}},
 	})
 
 	// Case 2: shell result with no readable status (no data.exit_code).
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c2", Name: "execute", Input: json.RawMessage(`{"command":"ls"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c2", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: `some error text`}}},
 	})
 
 	// Case 3: refused shell call.
 	blocks.inc("execute")
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c3", Name: "execute", Input: json.RawMessage(`{"command":"rm -rf /"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c3", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: "guard refused"}}},
 	})
 
 	// Case 4: non-shell tool result.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c4", Name: "read_file", Input: json.RawMessage(`{}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c4", ToolName: "read_file"},
 	})
 
@@ -239,30 +239,30 @@ func TestTS12_47_ErrorPresentExactlyWhenOKFalse(t *testing.T) {
 	pending := make(map[string]core.ToolUseBlock)
 
 	// Case 1: error result with text 'boom'.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "read_file", Input: json.RawMessage(`{}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file", IsError: true,
 			Content: core.Content{core.TextBlock{Text: "boom"}}},
 	})
 
 	// Case 2: refused call with guard message.
 	blocks.inc("execute")
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c2", Name: "execute", Input: json.RawMessage(`{"command":"rm -rf /"}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c2", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: "guard refused: dangerous"}}},
 	})
 
 	// Case 3: successful call.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c3", Name: "read_file", Input: json.RawMessage(`{}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c3", ToolName: "read_file",
 			Content: core.Content{core.TextBlock{Text: "RESULT_CONTENT_HERE"}}},
 	})
@@ -299,18 +299,18 @@ func TestTS12_48_ParallelCallsMatchedByID(t *testing.T) {
 
 	// Two ToolCallEndEvents for the tool 'read_file' with ids c1, c2 and
 	// different inputs.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "read_file", Input: json.RawMessage(`{"p":1}`)},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c2", Name: "read_file", Input: json.RawMessage(`{"p":2}`)},
 	})
 
 	// Results arrive in the order c2, c1.
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c2", ToolName: "read_file"},
 	})
-	r.trace("ph", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "read_file"},
 	})
 
