@@ -437,6 +437,10 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 
 	buildEnv := func() Envelope {
 		env := run.Envelope(code, full, failure)
+		// The report file's reading of the clock is the run's duration: a
+		// second reading, taken after the file was written, would make the
+		// two documents differ under --detail full (06-REQ-2.8).
+		env.DurationMS = fileEnv.DurationMS
 		env.ReportFile = reportFile
 		env.Artifacts = artifacts
 		env.Next = next

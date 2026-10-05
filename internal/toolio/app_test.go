@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/statetest"
@@ -1342,6 +1343,46 @@ func TestTS07_16_RunStartFirstWhenAWarningPrecedesModelResolution(t *testing.T) 
 				t.Errorf("the %s warning was lost from the stream: %v", sc.code, types)
 			}
 		})
+	}
+}
+
+// slowResult takes a few milliseconds to encode, as a large result does. It is
+// encoded while the report file is written, which is after the report
+// envelope is built and before the stdout envelope is.
+type slowResult struct{}
+
+func (slowResult) MarshalJSON() ([]byte, error) {
+	time.Sleep(5 * time.Millisecond)
+	return []byte(`{"stage":"done"}`), nil
+}
+
+// 06-REQ-2.8: under --detail full the report file is byte for byte what is
+// printed to stdout, so duration_ms is the one the report file carries, not a
+// second reading of the clock taken after the file was written.
+func TestReportFileIsByteIdenticalToDetailFullStdout(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	report := filepath.Join(t.TempDir(), "report.json")
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		return ExitOK, slowResult{}, nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", t.TempDir(), "--detail", "full", "--report-file", report, "x"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("code = %d, stderr:\n%s", code, stderr.String())
+	}
+	file, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(file, []byte(`"duration_ms"`)) {
+		t.Fatalf("the report has no duration_ms:\n%s", file)
+	}
+	if !bytes.Equal(file, stdout.Bytes()) {
+		t.Errorf("the report file differs from --detail full stdout:\nfile:\n%s\nstdout:\n%s", file, stdout.Bytes())
 	}
 }
 
