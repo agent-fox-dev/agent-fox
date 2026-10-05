@@ -2,7 +2,11 @@ package issuex_test
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -175,6 +179,59 @@ func TestNewWithOptions_AmbiguousForge_TS_01_18(t *testing.T) {
 	}
 	if !errors.Is(err, issuex.ErrAmbiguousForge) {
 		t.Errorf("expected error wrapping ErrAmbiguousForge, got %v", err)
+	}
+}
+
+// TestNewWithOptions_UnclassifiedHostSendsNothing verifies 01-REQ-4.7 and the
+// rule behind it: a host whose name says neither github nor gitlab is
+// ErrAmbiguousForge, and no request, with or without a credential, leaves for
+// it. The server answers like a GitLab would, so a probe would succeed.
+func TestNewWithOptions_UnclassifiedHostSendsNothing(t *testing.T) {
+	var requests atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		t.Errorf("unexpected request %s %s with PRIVATE-TOKEN %q", r.Method, r.URL.Path, r.Header.Get("PRIVATE-TOKEN"))
+		_, _ = w.Write([]byte(`{"version": "16.8.0-ee"}`))
+	})
+	plain := httptest.NewServer(handler)
+	defer plain.Close()
+	secure := httptest.NewTLSServer(handler)
+	defer secure.Close()
+	secureHost := strings.TrimPrefix(secure.URL, "https://")
+
+	nonGitDir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working dir: %v", err)
+	}
+	if err := os.Chdir(nonGitDir); err != nil {
+		t.Fatalf("failed to chdir to %s: %v", nonGitDir, err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	cases := map[string]issuex.Options{
+		"BaseURL":   {BaseURL: plain.URL},
+		"RemoteURL": {RemoteURL: plain.URL + "/corp/app.git", Repo: issuex.Repo{Owner: "corp", Name: "app"}},
+		"Repo.Host": {Repo: issuex.Repo{Owner: "corp", Name: "app", Host: secureHost}, HTTPClient: secure.Client()},
+		"Token":     {BaseURL: plain.URL, Token: "glpat-explicit"},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			clearForgeEnv(t)
+			t.Setenv("GITLAB_TOKEN", "glpat-SECRET-from-env")
+			t.Setenv("GITHUB_TOKEN", "ghp-SECRET-from-env")
+
+			client, err := issuex.NewWithOptions(opts)
+			if client != nil {
+				t.Errorf("expected nil client, got %T", client)
+			}
+			if !errors.Is(err, issuex.ErrAmbiguousForge) {
+				t.Errorf("expected ErrAmbiguousForge, got %v", err)
+			}
+		})
+	}
+	if n := requests.Load(); n != 0 {
+		t.Errorf("%d request(s) reached an unclassified host, want 0", n)
 	}
 }
 
