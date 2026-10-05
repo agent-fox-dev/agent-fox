@@ -284,13 +284,10 @@ func TestTS12_35_WithoutEmitEventsStderrMatchesBaseline(t *testing.T) {
 		t.Fatalf("code = %d", code)
 	}
 	stderrStr := stderr.String()
-	// Should contain human-readable step line.
-	if !strings.Contains(stderrStr, "[tool] checking model") {
-		t.Errorf("stderr lacks human step line: %q", stderrStr)
-	}
-	// Should NOT contain JSON events.
-	if strings.Contains(stderrStr, `"type":`) {
-		t.Errorf("stderr contains JSON events without --emit-events: %q", stderrStr)
+	// The baseline, byte for byte: the one Step line the run printed, and
+	// nothing else (Detail needs --verbose, the JSON stream --emit-events).
+	if stderrStr != "[tool] checking model\n" {
+		t.Errorf("stderr = %q, want exactly %q", stderrStr, "[tool] checking model\n")
 	}
 
 	// With --emit-events, stderr should carry JSON events and no human lines.
@@ -344,8 +341,15 @@ func TestTS12_35_WithoutEmitEventsStderrMatchesBaseline(t *testing.T) {
 	if code4 != ExitOK {
 		t.Fatalf("code = %d", code4)
 	}
-	if !strings.Contains(stderr4.String(), "verbose detail") {
-		t.Errorf("--verbose stderr lacks detail line: %q", stderr4.String())
+	// Detail lines are indented two spaces; everything Main itself prints
+	// under --verbose (the input, the model) comes first, in the same form.
+	if !strings.HasSuffix(stderr4.String(), "  verbose detail\n") {
+		t.Errorf("--verbose stderr does not end with the indented detail line: %q", stderr4.String())
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(stderr4.String(), "\n"), "\n") {
+		if !strings.HasPrefix(line, "  ") {
+			t.Errorf("--verbose stderr line %q is not an indented detail line", line)
+		}
 	}
 
 	// Verify --show-text without --emit-events streams prose.
@@ -359,8 +363,8 @@ func TestTS12_35_WithoutEmitEventsStderrMatchesBaseline(t *testing.T) {
 	if code5 != ExitOK {
 		t.Fatalf("code = %d", code5)
 	}
-	if !strings.Contains(stderr5.String(), "model prose") {
-		t.Errorf("--show-text stderr lacks prose: %q", stderr5.String())
+	if stderr5.String() != "model prose" {
+		t.Errorf("--show-text stderr = %q, want the prose exactly, as written", stderr5.String())
 	}
 
 	// Verify --show-text with --emit-events does NOT stream prose.

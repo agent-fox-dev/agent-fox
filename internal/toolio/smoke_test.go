@@ -3797,6 +3797,113 @@ func TestTS1261_EmitEventsStreamsCompleteModelActivity_Smoke(t *testing.T) {
 	}
 }
 
+// TS-12-61 (smoke, dedicated script): the stream records what the model said,
+// what it called in parallel, and how a shell call ended. The scripted first
+// turn has prose and three parallel tool calls — two read_file calls with
+// different arguments and an execute that fails — which the shared
+// smokeFixTurns script has none of, so the checks that need them (text before
+// turn, per-call arguments matched by id, exit_code) run over real events.
+//
+// Verifies: 12-REQ-6.1, 12-REQ-7.3, 12-REQ-8.5, 12-PATH-2
+// Real components: agentrun.Runner, AgentKit's real read_file and execute
+// tools, toolio.Progress, events sink, events file, App.Main.
+func TestTS1261_ProseParallelCallsAndShellExitCode_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	wsDir := smokeWidgetRepo(t, "")
+
+	const prose = "Reading the counter and its test before deciding."
+	explore := faux.Turn{
+		Blocks: []core.ContentBlock{
+			faux.FauxText(prose),
+			faux.FauxToolCall("p1", "read_file", `{"path":"widget.go"}`),
+			faux.FauxToolCall("p2", "read_file", `{"path":"widget_test.go"}`),
+			faux.FauxToolCall("p3", "execute", `{"command":"ls does-not-exist"}`),
+		},
+		StopReason: core.StopReasonToolUse,
+		Usage:      core.Usage{CostUSD: 0.01, InputTokens: 100, OutputTokens: 20},
+	}
+	turns := append([]faux.Turn{explore}, smokeFixTurns()...)
+	app := smokeFixApp(turns, "")
+
+	var stdout, stderr bytes.Buffer
+	code := app.Main(context.Background(),
+		[]string{"--dir", wsDir, "--emit-events", "Count() in widget.go returns 1 where it should return 2"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	evs := smokeParseEvents(t, "fix", stderr.String())
+
+	// The model's prose is one text event, directly before the turn event for
+	// the same turn.
+	var texts int
+	for i, e := range evs {
+		if e.Type != "text" {
+			continue
+		}
+		texts++
+		if e.Raw["text"] != prose {
+			t.Errorf("text event = %v, want the scripted prose", e.Raw["text"])
+		}
+		if i+1 >= len(evs) || evs[i+1].Type != "turn" || evs[i+1].Raw["turn"] != e.Raw["turn"] {
+			t.Errorf("text at %d is not directly followed by the turn event of the same turn", i)
+		}
+	}
+	if texts != 1 {
+		t.Errorf("got %d text events, want the one the model's prose made", texts)
+	}
+
+	// Parallel calls to one tool each carry their own arguments.
+	paths := map[string]bool{}
+	var execCall *smokeEvent
+	for i, e := range evs {
+		if e.Type != "tool_call" {
+			continue
+		}
+		switch e.Raw["name"] {
+		case "read_file":
+			args, _ := e.Raw["arguments"].(map[string]any)
+			p, _ := args["path"].(string)
+			paths[p] = true
+			if e.Raw["ok"] != true {
+				t.Errorf("read_file %q: ok = %v", p, e.Raw["ok"])
+			}
+		case "execute":
+			execCall = &evs[i]
+		}
+	}
+	if !paths["widget.go"] || !paths["widget_test.go"] || len(paths) != 2 {
+		t.Errorf("the two parallel read_file calls were recorded as %v, want widget.go and widget_test.go", paths)
+	}
+
+	// The failing shell call records its exit status, read from the real
+	// execute tool's result: non-zero, with ok false.
+	if execCall == nil {
+		t.Fatal("no tool_call event for the execute call")
+	}
+	if execCall.Raw["blocked"] == true {
+		t.Fatalf("the guard refused the execute call: %v", execCall.Raw)
+	}
+	ec, ok := execCall.Raw["exit_code"].(float64)
+	if !ok || ec == 0 {
+		t.Errorf("execute exit_code = %v, want the non-zero status ls ended with", execCall.Raw["exit_code"])
+	}
+	if execCall.Raw["ok"] != false {
+		t.Errorf("execute ok = %v, want false for a command that failed", execCall.Raw["ok"])
+	}
+
+	// The file carries the same stream the supervisor tails.
+	files, _ := filepath.Glob(filepath.Join(stateDir, "agent-fox", "events", "*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("want one events file, got %v", files)
+	}
+	if fileContent, err := os.ReadFile(files[0]); err != nil || string(fileContent) != stderr.String() {
+		t.Errorf("the events file differs from the stream on stderr (read error %v)", err)
+	}
+}
+
 // TS-12-62 (smoke): A removed flag produces a usage error with a report,
 // session_id and no events file.
 //
