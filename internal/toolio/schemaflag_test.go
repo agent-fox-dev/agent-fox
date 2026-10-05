@@ -294,19 +294,23 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// TS-09-4 (integration): --schema beside --report-file and --emit-events
-// creates no files and has no run.
+// TS-09-4 (integration): --schema beside --report-file, --output and
+// --emit-events creates no files and has no run (09-REQ-1.4).
 func TestTS09_4_SchemaWithReportAndEmitEventsFlagsCreatesNothing(t *testing.T) {
 	bin := schemaBin(t, "fix")
 	tmp, state := t.TempDir(), t.TempDir()
 	r := runBin(t, bin, state, "--schema",
 		"--report-file", filepath.Join(tmp, "out.json"),
+		"--output", filepath.Join(tmp, "result.json"),
 		"--emit-events")
 	if r.code != 0 {
 		t.Fatalf("exit %d, stderr:\n%s", r.code, r.stderr)
 	}
 	if exists(filepath.Join(tmp, "out.json")) {
 		t.Error("out.json exists after --schema")
+	}
+	if exists(filepath.Join(tmp, "result.json")) {
+		t.Error("the --output file exists after --schema")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(state, "agent-fox")); len(entries) != 0 {
 		t.Errorf("the default report directory was populated: %v", entries)

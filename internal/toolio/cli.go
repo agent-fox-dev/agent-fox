@@ -195,6 +195,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.StringVar(&c.Detail, "detail", "summary", "result view: summary (default, a trimmed subset) or full (everything computed)")
 	DeclareEnum(fs, "detail", []string{"summary", "full"})
 	fs.StringVar(&c.InputKind, "input-kind", "", "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)")
+	DeclareEnum(fs, "input-kind", []string{string(KindFile), string(KindText), string(KindIssue), string(KindStdin)})
 	fs.BoolVar(&c.DryRun, "dry-run", false, DryRunUsage)
 	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
 	fs.BoolVar(&c.EmitEvents, "emit-events", false, "write the JSON event stream to stderr instead of the human progress lines")

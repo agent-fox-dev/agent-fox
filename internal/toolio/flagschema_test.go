@@ -242,7 +242,8 @@ func TestTS09_20_CommonEnums(t *testing.T) {
 	_, doc := flagsDoc(t, fs)
 	props := propsOf(t, doc)
 	for name, want := range map[string][]any{
-		"detail": {"summary", "full"},
+		"detail":     {"summary", "full"},
+		"input-kind": {"file", "text", "issue", "stdin"},
 	} {
 		if got := props[name].(map[string]any)["enum"]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s enum = %v, want %v", name, got, want)
