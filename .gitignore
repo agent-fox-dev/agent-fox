@@ -32,12 +32,14 @@ go.work.sum
 # Build output
 bin/
 dist/
+
+# What `go build ./cmd/<tool>` leaves in the working directory: at the root
+# and in the tool's own directory, for each of the four tools.
 /fix
-
-# Build output
-dist/
-
-# own stuff
-prompts.md
-hack/
-hack.md
+/impl
+/spec
+/triage
+/cmd/fix/fix
+/cmd/impl/impl
+/cmd/spec/spec
+/cmd/triage/triage
