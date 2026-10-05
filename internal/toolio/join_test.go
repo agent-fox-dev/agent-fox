@@ -384,6 +384,25 @@ func TestTS12_18_EarlyEndRunsLeaveRunEndAsLastLine(t *testing.T) {
 			},
 			args: []string{"--dir", "TMPDIR", "--dry-run", "x"},
 		},
+		{
+			name: "failing run",
+			exec: func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+				return ExitFailed, nil, &ErrorInfo{Stage: "verify", Category: "internal", Message: "stop"}
+			},
+			args: []string{"--dir", "TMPDIR", "x"},
+		},
+		{
+			name: "refused in preflight",
+			exec: func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+				return ExitUsage, nil, &ErrorInfo{Stage: "preflight", Category: "usage", Message: "refused"}
+			},
+			args: []string{"--dir", "TMPDIR", "x"},
+		},
+		{
+			name: "--preflight",
+			exec: nil, // PreflightExec is set below
+			args: []string{"--dir", "TMPDIR", "--preflight", "x"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -402,6 +421,11 @@ func TestTS12_18_EarlyEndRunsLeaveRunEndAsLastLine(t *testing.T) {
 			if tc.name == "later usage error (PreCheck)" {
 				app.PreCheck = func(*Common) error {
 					return Usagef("bad flag combo")
+				}
+			}
+			if tc.name == "--preflight" {
+				app.PreflightExec = func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
+					return ExitOK, map[string]string{"stage": "preflight"}, nil
 				}
 			}
 
@@ -456,6 +480,17 @@ func TestTS12_19_PreSinkRefusalsCreateNoEventsFile(t *testing.T) {
 		{"invalid --detail", []string{"--detail", "wrong", "x"}, ExitUsage},
 		{"invalid --total-budget", []string{"--total-budget", "-1", "x"}, ExitUsage},
 		{"invalid --input-kind", []string{"--input-kind", "nonexistent", "x"}, ExitUsage},
+		{"-h", []string{"-h"}, ExitOK},
+		{"bare invocation, stdout not a terminal", nil, ExitUsage},
+		{"invalid --output", []string{"--output", "-", "x"}, ExitUsage},
+	}
+	// Which of them still report: everything that is an error envelope. --version,
+	// --schema and -h print their own text, and a bare invocation on a terminal
+	// (not reproducible here: the writers are buffers) prints help only.
+	reports := map[string]bool{
+		"undefined flag": true, "--events-file removed": true, "--events removed": true,
+		"invalid --detail": true, "invalid --total-budget": true, "invalid --input-kind": true,
+		"bare invocation, stdout not a terminal": true, "invalid --output": true,
 	}
 
 	for _, tc := range cases {
@@ -485,6 +520,15 @@ func TestTS12_19_PreSinkRefusalsCreateNoEventsFile(t *testing.T) {
 						}
 					}
 				}
+			}
+			// "...but still report" (12-REQ-4.5): a refusal that is an error
+			// envelope leaves its report in the state directory.
+			runs, _ := filepath.Glob(filepath.Join(stateDir, "agent-fox", "runs", "*.json"))
+			if reports[tc.name] && len(runs) != 1 {
+				t.Errorf("a refused invocation left %d reports, want 1: %v", len(runs), runs)
+			}
+			if !reports[tc.name] && len(runs) != 0 {
+				t.Errorf("a human-driven path left a report: %v", runs)
 			}
 			if code != tc.code {
 				t.Errorf("code = %d, want %d", code, tc.code)
@@ -690,9 +734,12 @@ func TestTS12_32_EventsFileIndependentOfHumanFlags(t *testing.T) {
 		{"--verbose", "--show-text", "--quiet"},
 	}
 
-	// Collect event types from each run.
+	// Collect each run's events, whole: normalised so that what differs between
+	// any two runs by nature (time, session, the report's path) is set aside and
+	// everything else (types, steps' messages, tool calls' arguments, run_end's
+	// status) is compared. A flag that changed any of it fails.
 	type runResult struct {
-		types []string
+		lines []string
 	}
 	var results []runResult
 
@@ -726,7 +773,7 @@ func TestTS12_32_EventsFileIndependentOfHumanFlags(t *testing.T) {
 			t.Fatalf("flags %v: reading events file: %v", flags, err)
 		}
 
-		var types []string
+		var lines []string
 		for _, line := range strings.Split(strings.TrimSuffix(string(content), "\n"), "\n") {
 			if line == "" {
 				continue
@@ -735,23 +782,31 @@ func TestTS12_32_EventsFileIndependentOfHumanFlags(t *testing.T) {
 			if err := json.Unmarshal([]byte(line), &ev); err != nil {
 				t.Fatalf("flags %v: line is not JSON: %v", flags, err)
 			}
-			types = append(types, ev["type"].(string))
+			for _, k := range []string{"ts", "session_id", "report_file", "duration_ms", "elapsed_ms"} {
+				delete(ev, k)
+			}
+			norm, err := json.Marshal(ev) // map keys are sorted: a stable form
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines = append(lines, string(norm))
 		}
-		results = append(results, runResult{types: types})
+		results = append(results, runResult{lines: lines})
 	}
 
-	// All runs should have the same sequence of event types.
-	base := results[0].types
+	// All runs should have the same events, whole.
+	base := results[0].lines
+	if len(base) < 3 {
+		t.Fatalf("the base run has %d events, want run_start, the step and run_end: %v", len(base), base)
+	}
 	for i, r := range results[1:] {
-		if len(r.types) != len(base) {
-			t.Errorf("combo %d (%v): %d event types, want %d (base)",
-				i+1, combos[i+1], len(r.types), len(base))
+		if len(r.lines) != len(base) {
+			t.Errorf("combo %d (%v): %d events, want %d (base)", i+1, combos[i+1], len(r.lines), len(base))
 			continue
 		}
-		for j, ty := range r.types {
-			if ty != base[j] {
-				t.Errorf("combo %d (%v): event %d type = %q, want %q",
-					i+1, combos[i+1], j, ty, base[j])
+		for j, line := range r.lines {
+			if line != base[j] {
+				t.Errorf("combo %d (%v): event %d = %s, want %s", i+1, combos[i+1], j, line, base[j])
 			}
 		}
 	}

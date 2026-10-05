@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,6 +228,62 @@ func TestTS12_15_EventsFileExclusiveCreate(t *testing.T) {
 	}
 	if string(after) != string(knownBytes) {
 		t.Errorf("collision file was modified: got %q, want %q", after, knownBytes)
+	}
+}
+
+// 12-REQ-4.1 / 12-REQ-4.4: the events file is created with O_EXCL, so a path a
+// run computes that is already occupied is never truncated or appended to. The
+// same Run opens its sink twice, so both attempts compute the same
+// <tool>-<started_at>-<session_id>.jsonl; the second finds the first's file,
+// leaves its bytes intact, and records the failure to be warned about at stage
+// report, with no events file for the envelope's artifacts.
+func TestEventsFileCollisionLeavesTheFirstFileIntact(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	app, _ := newApp(t, nil)
+	run := NewRun("tool", "test")
+
+	var common Common
+	first, closeFirst := app.openEvents(&common, run, io.Discard)
+	if run.eventsOpenErr != nil || run.eventsPath == "" {
+		t.Fatalf("the first open failed: path %q, err %v", run.eventsPath, run.eventsOpenErr)
+	}
+	path := run.eventsPath
+	first.Emit(newStepEvent("preflight", "from the first run"))
+	closeFirst()
+	before, err := os.ReadFile(path)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("the first file holds %q (%v)", before, err)
+	}
+
+	// A second open on the same Run computes the same path.
+	run.eventsPath, run.eventsOpenErr = "", nil
+	second, closeSecond := app.openEvents(&common, run, io.Discard)
+	defer closeSecond()
+	if run.eventsOpenErr == nil {
+		t.Fatal("opening an occupied events path succeeded: the file is not created exclusively")
+	}
+	if !errors.Is(run.eventsOpenErr, os.ErrExist) {
+		t.Errorf("open error = %v, want a file-exists error", run.eventsOpenErr)
+	}
+	if run.eventsPath != "" {
+		t.Errorf("run.eventsPath = %q after a failed open, want none: an events_file artifact would name a file this run did not write", run.eventsPath)
+	}
+	second.Emit(newStepEvent("preflight", "from the second run"))
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("the occupied events file was changed:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+
+	// The warning Main records for the failure is the low one at stage report.
+	run.Warn(WarnEventsFileNotWritten, "low", "the events file could not be created: %v", run.eventsOpenErr)
+	w := run.Warnings()
+	if len(w) != 1 || w[0].Code != WarnEventsFileNotWritten || w[0].Stage != "report" || w[0].Severity != "low" {
+		t.Errorf("warnings = %+v, want one low events_file_not_written at stage report", w)
 	}
 }
 

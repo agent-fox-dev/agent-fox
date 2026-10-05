@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -142,9 +141,6 @@ func TestTS12_4_SessionIDUsesCryptoRandOnly(t *testing.T) {
 	if !hasHex {
 		t.Error("envelope.go does not import encoding/hex")
 	}
-	// Check go.mod has not gained new dependencies (we just verify crypto/rand
-	// and encoding/hex are standard library, which they are).
-	_ = ast.NewIdent // use ast to avoid unused import
 }
 
 // TS-12-6 (integration): The envelope has a required session_id right after
