@@ -28,6 +28,10 @@ type UsageError struct{ msg string }
 
 func (e *UsageError) Error() string { return e.msg }
 
+// Category is "usage", so a UsageError that reaches agentrun.CategoryOf or
+// ErrorFrom is classified, and exits, as a usage error rather than internal.
+func (e *UsageError) Category() string { return "usage" }
+
 // Usagef builds a UsageError.
 func Usagef(format string, args ...any) error {
 	return &UsageError{msg: fmt.Sprintf(format, args...)}

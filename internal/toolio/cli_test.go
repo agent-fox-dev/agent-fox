@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -882,5 +883,17 @@ func TestTS13_20_ResolveModelNamedNoVariantReference(t *testing.T) {
 	_, _, compileErr := agentrun.ResolveModel("STANDARD", "")
 	if compileErr != nil {
 		t.Fatalf("ResolveModel(STANDARD, \"\"): %v", compileErr)
+	}
+}
+
+// A *UsageError is classified as usage wherever its category is read, so a
+// pipeline that returns one is exit 2, not internal.
+func TestUsageErrorHasTheUsageCategory(t *testing.T) {
+	err := fmt.Errorf("resolving the repair model: %w", toolio.Usagef("no reachable thinking level"))
+	if got := agentrun.CategoryOf(err); got != "usage" {
+		t.Errorf("CategoryOf(UsageError) = %q, want usage", got)
+	}
+	if got := toolio.ExitCodeFor(agentrun.CategoryOf(err)); got != toolio.ExitUsage {
+		t.Errorf("exit = %d, want %d", got, toolio.ExitUsage)
 	}
 }
