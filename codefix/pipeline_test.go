@@ -1125,6 +1125,46 @@ func TestTS0414_PreflightDetectsRepo(t *testing.T) {
 	}
 }
 
+// 04-REQ-4.2: the pull request's target is --repo, else the origin remote, else
+// the input issue's repository. With both an origin and an issue, the origin
+// wins: the branch is pushed there, so that is where the pull request goes.
+func TestPreflightTargetPrefersTheOriginRemoteOverTheIssuesRepo(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	ctx := context.Background()
+	if out, code, err := gitx.ExecRunner(ctx, ws.Root, []string{
+		"git", "remote", "add", "origin", "https://github.com/acme/repo.git",
+	}); err != nil || code != 0 {
+		t.Fatalf("git remote add: %v (%d) %s", err, code, out)
+	}
+	opts := Options{
+		Workspace: ws,
+		Forge:     &mockAuthClient{authenticated: true},
+		Git:       g,
+		Land:      LandNone,
+		Input: toolio.Input{
+			Kind:  toolio.KindIssue,
+			Issue: &issuex.IssueRef{Repo: issuex.Repo{Owner: "elsewhere", Name: "tracker", Host: "github.com"}, Number: 7},
+		},
+	}
+	target, _, pfErr := Preflight(ctx, opts, g, &Result{Stage: "preflight"})
+	if pfErr != nil {
+		t.Fatalf("Preflight: %v", pfErr)
+	}
+	if target.Owner != "acme" || target.Name != "repo" {
+		t.Errorf("target = %+v, want the origin remote acme/repo", target)
+	}
+
+	// An explicit --repo beats both.
+	opts.Repo = issuex.Repo{Owner: "explicit", Name: "target", Host: "github.com"}
+	target, _, pfErr = Preflight(ctx, opts, g, &Result{Stage: "preflight"})
+	if pfErr != nil {
+		t.Fatalf("Preflight: %v", pfErr)
+	}
+	if target.Owner != "explicit" || target.Name != "target" {
+		t.Errorf("target = %+v, want the explicit --repo", target)
+	}
+}
+
 // TS-04-15 (unit): codefix preflight returns auth failure when unauthenticated for PR landing or commenting
 // Verifies: 04-REQ-4.3
 type mockAuthClient struct {

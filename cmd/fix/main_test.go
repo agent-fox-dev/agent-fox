@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -383,5 +384,47 @@ func TestCLICommandsRejectMalformedRepo_TS_04_33(t *testing.T) {
 				t.Errorf("cmdTriage with --repo %q output does not indicate cannot be parsed: %s", badRepo, outIssue)
 			}
 		})
+	}
+}
+
+// fix's --repo default is described the way the code resolves it (04-REQ-4.2):
+// the origin remote of --dir, else the input issue's repository. The flag help,
+// the --schema golden that publishes it, and the flag table in docs/cli.md must
+// all say so; they once described the opposite order.
+func TestRepoDefaultIsDescribedOriginFirst(t *testing.T) {
+	const stale = "default the input issue's, else the origin remote"
+	const want = "default the origin remote of --dir, else the input issue's"
+
+	app := newApp()
+	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
+	app.Flags(fs)
+	help := fs.Lookup("repo").Usage
+	if !strings.Contains(help, want) || strings.Contains(help, stale) {
+		t.Errorf("--repo help = %q, want it to say %q", help, want)
+	}
+
+	golden, err := os.ReadFile(filepath.Join("testdata", "schema.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(golden), want) || strings.Contains(string(golden), stale) {
+		t.Errorf("the --schema golden does not describe the --repo default as %q", want)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row string
+	for _, l := range strings.Split(string(doc), "\n") {
+		if row == "" && strings.HasPrefix(l, "| `--repo owner/repo` |") && strings.Contains(l, "where the pull request is opened") {
+			row = l // the first is fix's; impl's follows it
+		}
+	}
+	if row == "" {
+		t.Fatal("docs/cli.md has no fix --repo row")
+	}
+	if !strings.Contains(row, "the `origin` remote of `--dir`, else the input issue's") {
+		t.Errorf("fix --repo row in docs/cli.md = %q, want the origin remote first", row)
 	}
 }
