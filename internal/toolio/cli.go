@@ -84,6 +84,11 @@ type Common struct {
 	// written. Empty means no copy. It is resolved against the process's
 	// working directory, never --dir; see ResolveOutput.
 	Output string
+	// output is --output as Main validated it, absolute, once outputChecked
+	// is true. emit writes to it without validating again, so a path that
+	// changed after the check is reported when the write fails, not dropped.
+	output        string
+	outputChecked bool
 	// Preflight runs every check that would refuse the run, then stops
 	// before any model phase: see App.PreflightExec.
 	Preflight bool

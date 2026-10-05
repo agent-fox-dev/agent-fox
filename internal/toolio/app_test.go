@@ -1386,6 +1386,40 @@ func TestReportFileIsByteIdenticalToDetailFullStdout(t *testing.T) {
 	}
 }
 
+// 08-REQ-3.1: a copy that does not land is visible as an output_not_written
+// warning. --output is validated once, in Main; if the path has become a
+// directory by the time the envelope is emitted, emit does not re-validate it
+// away and drop the copy silently — the write fails and is reported.
+func TestOutputThatBecameADirectoryIsReportedNotDropped(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	out := filepath.Join(t.TempDir(), "result.json")
+	app, _ := newApp(t, func(context.Context, Deps) (int, any, *ErrorInfo) {
+		// Validation has passed; now the path turns into a directory.
+		if err := os.MkdirAll(out, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return ExitOK, map[string]string{"stage": "done"}, nil
+	})
+
+	env, code, _ := runApp(t, app, []string{"--dir", t.TempDir(), "--output", out, "x"}, "")
+	if code != ExitOK || !env.OK {
+		t.Fatalf("code = %d, ok = %v: a copy that did not land must not change the outcome", code, env.OK)
+	}
+	var warned bool
+	for _, w := range env.Warnings {
+		if w.Code == WarnOutputNotWritten {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("no %s warning for a copy that could not be written: %+v", WarnOutputNotWritten, env.Warnings)
+	}
+	if info, err := os.Stat(out); err != nil || !info.IsDir() {
+		t.Errorf("the directory at --output was disturbed: %v %v", info, err)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// The tests above resolve a model, and a stray credential variable in the
 	// developer's shell would change which vendor they resolve against.
