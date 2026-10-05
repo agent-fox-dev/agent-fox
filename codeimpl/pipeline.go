@@ -42,6 +42,11 @@ type RunState struct {
 	survey     *Survey
 	prior      []priorTask
 	cost       float64
+	// upstreamVerified and upstreamUnchecked are what checkUpstream found of
+	// the spec's dependencies: those it confirmed sealed or done, and those it
+	// could not look at (a missing or unreadable package). Preflight reports
+	// them as they are.
+	upstreamVerified, upstreamUnchecked int
 }
 
 type runState = RunState
@@ -338,7 +343,16 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		add("test_commands", true, strings.Join(st.gate, " · "))
 	}
 	if n := len(st.spec.Tasks.Dependencies); n > 0 {
-		add("dependencies", true, fmt.Sprintf("%d upstream spec(s) sealed or done", n))
+		// What checkUpstream verified, not how many there are: a dependency it
+		// could not look at is not reported as sealed or done. The entry stays
+		// ok, since the ordinary run tolerates it (with an upstream_missing
+		// warning).
+		if st.upstreamUnchecked == 0 {
+			add("dependencies", true, fmt.Sprintf("%d upstream spec(s) sealed or done", n))
+		} else {
+			add("dependencies", true, fmt.Sprintf("%d upstream spec(s): %d verified sealed or done, %d could not be checked",
+				n, st.upstreamVerified, st.upstreamUnchecked))
+		}
 	} else {
 		add("dependencies", true, "no upstream specs")
 	}
@@ -603,9 +617,11 @@ func checkUpstream(o Options, st *runState, result *Result) *Failure {
 	if len(deps) == 0 {
 		return nil
 	}
+	st.upstreamVerified, st.upstreamUnchecked = 0, 0
 	metas, err := afspec.DiscoverSpecs(st.specsDir)
 	if err != nil {
 		o.Run.Warn(toolio.WarnUpstreamMissing, "low", "the spec's dependencies could not be checked: %v", err)
+		st.upstreamUnchecked = len(deps)
 		return nil
 	}
 	byID := map[string]afspec.SpecMeta{}
@@ -616,17 +632,21 @@ func checkUpstream(o Options, st *runState, result *Result) *Failure {
 		m, ok := byID[d.Spec]
 		if !ok {
 			o.Run.Warn(toolio.WarnUpstreamMissing, "low", "dependency on spec %s could not be checked: no such package under %s", d.Spec, st.specsDir)
+			st.upstreamUnchecked++
 			continue
 		}
 		if m.Status == "sealed" {
+			st.upstreamVerified++
 			continue
 		}
 		up, err := afspec.LoadSpec(m.Dir)
 		if err != nil {
 			o.Run.Warn(toolio.WarnUpstreamMissing, "low", "dependency on spec %s could not be checked: %v", d.Spec, err)
+			st.upstreamUnchecked++
 			continue
 		}
 		if up.Tasks == nil {
+			st.upstreamVerified++
 			continue
 		}
 		for _, t := range up.Tasks.Tasks {
@@ -642,6 +662,7 @@ func checkUpstream(o Options, st *runState, result *Result) *Failure {
 				return failf("preflight", CategoryBlocked, "%s", reason)
 			}
 		}
+		st.upstreamVerified++
 	}
 	return nil
 }

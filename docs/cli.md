@@ -1321,7 +1321,11 @@ a check that cannot run before any change; and, for `--land=pr`, a missing
 credential or target repository. A `draft` package is implemented with a
 warning. A package whose `dependencies`
 name an upstream spec that is neither sealed nor done stops the run with exit
-3; an upstream that is not in the spec root is a warning.
+3; an upstream that is not in the spec root is a warning. `--preflight`'s
+`dependencies` entry says what was verified, not how many there are: `1 upstream
+spec(s) sealed or done` when every one was checked, `1 upstream spec(s): 0
+verified sealed or done, 1 could not be checked` when one was missing (the entry
+stays `ok`, as the ordinary run goes on).
 
 ### The branch
 
