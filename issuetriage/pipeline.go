@@ -102,12 +102,17 @@ type Result struct {
 // SetDetail implements toolio.DetailedResult.
 func (r *Result) SetDetail(d string) { r.Detail = d }
 
-// Summary returns one sentence describing the outcome in issue's vocabulary.
+// ToolName is the tool's name: the envelope's `tool`, and the prefix of every
+// summary this package writes. cmd/triage takes its App.Name from it, so a
+// rename is made once.
+const ToolName = "triage"
+
+// Summary returns one sentence describing the outcome in triage's vocabulary.
 func (r Result) Summary() string {
 	// An ordinary run never sets a stage, so "preflight" here is a
 	// --preflight run, and only a run whose checks passed has a checklist.
 	if r.Stage == "preflight" && len(r.Preflight) > 0 {
-		return fmt.Sprintf("issue: preflight passed (%d checks)", len(r.Preflight))
+		return fmt.Sprintf("%s: preflight passed (%d checks)", ToolName, len(r.Preflight))
 	}
 	action := r.Action
 	if action == "" {
@@ -133,11 +138,11 @@ func (r Result) Summary() string {
 		sev = "unknown"
 	}
 
-	return fmt.Sprintf("issue: %s%s (%s severity, %d %s cited)", action, target, sev, filesCount, filesLabel)
+	return fmt.Sprintf("%s: %s%s (%s severity, %d %s cited)", ToolName, action, target, sev, filesCount, filesLabel)
 }
 
 // Resumable implements toolio.Resumabler. For issuetriage, this is always false
-// because issue has no notion of continuing a prior run.
+// because triage has no notion of continuing a prior run.
 func (r Result) Resumable() bool {
 	// A preflight result is no exception: there is nothing to continue.
 	return false

@@ -154,3 +154,21 @@ func TestTS11_22_PreflightDoesNotChangeAPreModelFailure(t *testing.T) {
 		})
 	}
 }
+
+// 11-REQ-6.3, 05-REQ-2: a summary is in the tool's own vocabulary, so it begins
+// with the tool's name as the envelope reports it. The expectation is read from
+// the envelope's own `tool`, so a rename that misses the summary strings fails
+// here.
+func TestSummaryBeginsWithTheToolsName(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	code, env := runIssueApp(t, "--preflight", "--dir", t.TempDir(), "--repo", "acme/widgets", "a report")
+	if code != toolio.ExitOK {
+		t.Fatalf("exit = %d: %v", code, env)
+	}
+	tool, _ := env["tool"].(string)
+	summary, _ := env["summary"].(string)
+	if tool == "" || !strings.HasPrefix(summary, tool+": ") {
+		t.Errorf("summary = %q, want it to begin with %q", summary, tool+": ")
+	}
+}

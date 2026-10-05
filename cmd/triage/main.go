@@ -97,7 +97,7 @@ func newApp() toolio.App {
 	f := &triageFlags{}
 
 	return toolio.App{
-		Name:             "triage",
+		Name:             issuetriage.ToolName,
 		Version:          agentfox.Version,
 		Usage:            usage,
 		Description:      "Triages a problem report read-only and files it as an issue on GitHub or GitLab.",
