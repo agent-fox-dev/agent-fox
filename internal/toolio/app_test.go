@@ -477,9 +477,10 @@ func TestApp_Execute_HostSpecificForgeClient_TS_04_10(t *testing.T) {
 	oldTransport := http.DefaultTransport
 	defer func() { http.DefaultTransport = oldTransport }()
 
-	var interceptedHost string
+	var interceptedHost, interceptedUA string
 	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
 		interceptedHost = req.URL.Host
+		interceptedUA = req.Header.Get("User-Agent")
 		if strings.Contains(req.URL.Path, "/issues/42/notes") {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -528,6 +529,10 @@ func TestApp_Execute_HostSpecificForgeClient_TS_04_10(t *testing.T) {
 	if !strings.Contains(fmt.Sprintf("%+v", receivedForge), "gitlab.com") {
 		t.Errorf("expected forge client to target gitlab.com, got %+v", receivedForge)
 	}
+	// The client carries the tool's own user agent, <name>/<version>.
+	if interceptedUA != "testapp/1.0" {
+		t.Errorf("expected User-Agent testapp/1.0, got %q", interceptedUA)
+	}
 }
 
 // TS-04-11: App.execute falls back to NoOpClient when forge client creation fails for non-issue input (04-REQ-3.3).
@@ -536,7 +541,20 @@ func TestApp_Execute_FallbackNoOp_TS_04_11(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITHUB_API_URL", "")
+	t.Setenv("GITLAB_API_URL", "")
 	dir := t.TempDir()
+	// Forge detection falls back to the origin remote of the process's working
+	// directory; run from one with none, so the fallback is what is under test
+	// and not whatever remote the checkout running the suite has.
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(old) }()
 
 	var receivedForge issuex.Client
 	app := &App{
@@ -559,6 +577,11 @@ func TestApp_Execute_FallbackNoOp_TS_04_11(t *testing.T) {
 	}
 	if receivedForge.Authenticated() {
 		t.Errorf("expected NoOpClient fallback to be unauthenticated")
+	}
+	// A GitHub or GitLab client built without a token is unauthenticated too;
+	// only the fallback itself is a NoOpClient.
+	if _, ok := receivedForge.(*issuex.NoOpClient); !ok {
+		t.Errorf("expected the fallback to be *issuex.NoOpClient, got %T", receivedForge)
 	}
 }
 
