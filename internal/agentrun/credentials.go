@@ -42,6 +42,16 @@ func CredentialVars(m *core.Model) []string {
 	return vars
 }
 
+// BaseURLVar is the environment variable that points the model's vendor at a
+// gateway or a local server, or "" when it has none. Setting it alone is a
+// credential: such a deployment is `ambient`.
+func BaseURLVar(m *core.Model) string {
+	if m == nil {
+		return ""
+	}
+	return vendorAuth(m).BaseURLVar
+}
+
 // CheckCredentials reports whether a credential for the model's vendor can be
 // found, before anything expensive happens.
 //
