@@ -1583,9 +1583,9 @@ pull request are the program's.
 | `AF_MODEL_VENDOR` | which tier table `SIMPLE`/`STANDARD`/`ADVANCED` resolve against |
 | `AF_SPEC_DIR` | the spec root (`spec` and `impl`); `--specs-dir` wins |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
-| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for `origin` and for issue URLs |
+| `GITHUB_API_URL` | the GitHub REST API base URL, used as given: `https://ghe.example.com/api/v3` for GitHub Enterprise Server (default `https://api.github.com`). Its host is then also accepted for `origin` and for issue URLs; see [Choosing the forge](configuration.md#choosing-the-forge) |
 | `GITLAB_TOKEN` | GitLab credential, on the same terms |
-| `GITLAB_API_URL` | a self-hosted GitLab host; its host is then also accepted for `origin` and for issue URLs |
+| `GITLAB_API_URL` | a GitLab address, with or without `/api/v4` (it is added when missing; default `https://gitlab.com/api/v4`). Its host is then also accepted for `origin` and for issue URLs |
 | vendor keys and base URLs | see [Configuration](configuration.md) |
 
 ## See also
