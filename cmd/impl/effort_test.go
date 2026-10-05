@@ -87,179 +87,123 @@ func TestTS13_12_RepairModelEffortRegisteredOnImpl(t *testing.T) {
 	}
 }
 
-// TS-13-13 (unit): Repair effort precedence: --repair-model-effort >
-// repair model's tier effort > run's effort.
+// implPreflight runs the real impl app, as main does, with --preflight and the
+// given flags against a prepared spec repository, and returns the exit code and
+// the envelope: the run's resolved model, its warnings and error, and the
+// preflight checklist. The tests below assert on that, not on a stub that
+// calls resolveRepairRunner by hand.
+type implPreflightEnvelope struct {
+	toolio.Envelope
+	Result struct {
+		Preflight []toolio.PreflightCheck `json:"preflight"`
+	} `json:"result"`
+}
+
+func implPreflight(t *testing.T, dir string, args ...string) (int, implPreflightEnvelope) {
+	t.Helper()
+	argv := append([]string{"--preflight", "--dir", dir, "--land", "none"}, args...)
+	argv = append(argv, "09")
+	var stdout, stderr bytes.Buffer
+	code := newApp().Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+	var env implPreflightEnvelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not an envelope: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	return code, env
+}
+
+// repairEntry is the repair_model_credential check, which names the model and
+// the effort the repair phase will run at.
+func (e implPreflightEnvelope) repairEntry() (toolio.PreflightCheck, bool) {
+	for _, c := range e.Result.Preflight {
+		if c.Check == "repair_model_credential" {
+			return c, true
+		}
+	}
+	return toolio.PreflightCheck{}, false
+}
+
+// TS-13-13: repair effort precedence is --repair-model-effort, then the repair
+// model's tier effort, then the run's effort — through the real --preflight,
+// where the checklist reports the model and effort the repair phase will run at.
+// Verifies: 13-REQ-3.2
 func TestTS13_13_RepairEffortPrecedence(t *testing.T) {
 	implEnv(t)
+	t.Setenv("AF_MODEL_EFFORT", "")
 	dir, _ := preflightSpecRepo(t)
 
 	cases := []struct {
-		name              string
-		repairModel       string
-		repairModelEffort string
-		runEffort         string
-		wantThinking      core.ThinkingLevel
+		name        string
+		args        []string
+		wantEffort  string // in the repair_model_credential detail; "" means no repair entry
+		wantRunLow  bool
+		wantModelIn string
 	}{
-		{
-			name:              "repair-model-effort wins over tier",
-			repairModel:       "ADVANCED",
-			repairModelEffort: "high",
-			runEffort:         "low",
-			wantThinking:      core.ThinkingHigh,
-		},
-		{
-			name:              "tier's own effort when no repair-model-effort",
-			repairModel:       "ADVANCED",
-			repairModelEffort: "",
-			runEffort:         "low",
-			wantThinking:      core.ThinkingXHigh,
-		},
-		{
-			name:              "run's effort when no repair-model",
-			repairModel:       "",
-			repairModelEffort: "",
-			runEffort:         "low",
-			wantThinking:      core.ThinkingLow,
-		},
+		{"--repair-model-effort wins over the tier's", []string{"--model", "STANDARD", "--effort", "low", "--repair-model", "ADVANCED", "--repair-model-effort", "high"}, "effort high", true, "opus"},
+		{"the tier's own effort when no --repair-model-effort", []string{"--model", "STANDARD", "--effort", "low", "--repair-model", "ADVANCED"}, "effort xhigh", true, "opus"},
+		// With no --repair-model and no --repair-model-effort the repair phase
+		// runs on the run's own runner: nothing separate is resolved or reported.
+		{"the run's own runner when neither is given", []string{"--model", "STANDARD", "--effort", "low"}, "", true, ""},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("AF_MODEL_EFFORT", "")
-			app := newApp()
-			var gotThinking core.ThinkingLevel
-			called := false
-			app.PreflightExec = func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-				called = true
-				rr, choice, err := resolveRepairRunner(d, tc.repairModel, tc.repairModelEffort)
-				if err != nil {
-					t.Fatalf("resolveRepairRunner: %v", err)
+			code, env := implPreflight(t, dir, tc.args...)
+			if code != toolio.ExitOK {
+				t.Fatalf("code = %d, error %+v", code, env.Error)
+			}
+			entry, ok := env.repairEntry()
+			if tc.wantEffort == "" {
+				if ok {
+					t.Errorf("a repair_model_credential entry was reported with no repair model: %+v", entry)
 				}
-				if tc.repairModel == "" && tc.repairModelEffort == "" {
-					// No repair model and no repair effort: repair uses the run's model.
-					// The run's effort is on d.Model.
-					gotThinking = d.Model.Thinking
-				} else {
-					if rr == nil || choice == nil {
-						t.Fatal("expected a repair runner and choice")
-					}
-					gotThinking = choice.Thinking
+			} else {
+				if !ok || !entry.OK {
+					t.Fatalf("no ok repair_model_credential entry in %+v", env.Result.Preflight)
 				}
-				return toolio.ExitOK, &codeimpl.Result{}, nil
+				if !strings.Contains(entry.Detail, tc.wantEffort) || !strings.Contains(entry.Detail, tc.wantModelIn) {
+					t.Errorf("repair_model_credential detail = %q, want the %s model at %s", entry.Detail, tc.wantModelIn, tc.wantEffort)
+				}
 			}
-
-			args := []string{"--preflight", "--dir", dir, "--land", "none", "--model", "STANDARD"}
-			if tc.runEffort != "" {
-				args = append(args, "--effort", tc.runEffort)
-			}
-			args = append(args, "09")
-
-			var stdout, stderr bytes.Buffer
-			code := app.Main(context.Background(), args,
-				strings.NewReader(""), &stdout, &stderr)
-			if code != toolio.ExitOK || !called {
-				t.Fatalf("code = %d, called = %v\nstdout:\n%s\nstderr:\n%s",
-					code, called, stdout.String(), stderr.String())
-			}
-			if gotThinking != tc.wantThinking {
-				t.Errorf("repair thinking = %q, want %q", gotThinking, tc.wantThinking)
+			// The run's own effort is untouched by the repair phase's.
+			if tc.wantRunLow && (env.Model == nil || env.Model.Thinking != "low") {
+				t.Errorf("the run's model = %+v, want thinking low", env.Model)
 			}
 		})
 	}
 }
 
-// TS-13-14 (unit): --repair-model-effort alone (without --repair-model)
-// implies --repair and runs on the run's model at the stated effort.
+// TS-13-14: --repair-model-effort alone implies --repair and runs the repair
+// phase on the run's own model at the stated effort — through the real app.
+// "Implies --repair" is observable in PreCheck: --repair cannot be combined with
+// --no-verify, so --repair-model-effort with --no-verify is refused as usage.
+// Verifies: 13-REQ-3.3
 func TestTS13_14_RepairModelEffortAloneImpliesRepair(t *testing.T) {
 	implEnv(t)
-	dir, _ := preflightSpecRepo(t)
 	t.Setenv("AF_MODEL_EFFORT", "")
-
-	app := newApp()
-	called := false
-	app.PreflightExec = func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-		called = true
-		rr, choice, err := resolveRepairRunner(d, "", "high")
-		if err != nil {
-			t.Fatalf("resolveRepairRunner: %v", err)
-		}
-		if rr == nil || choice == nil {
-			t.Fatal("expected a repair runner when --repair-model-effort is given alone")
-		}
-		// Should run on the run's model at the stated effort.
-		if choice.Model.ID != d.Model.Model.ID {
-			t.Errorf("repair model = %q, want run's model %q", choice.Model.ID, d.Model.Model.ID)
-		}
-		if choice.Thinking != core.ThinkingHigh {
-			t.Errorf("repair thinking = %q, want %q", choice.Thinking, core.ThinkingHigh)
-		}
-		return toolio.ExitOK, &codeimpl.Result{}, nil
-	}
-
-	// Also verify that --repair-model-effort implies --repair in PreCheck.
-	// We test this by checking that the flag parsing and PreCheck set repair=true.
-	var stdout, stderr bytes.Buffer
-	code := app.Main(context.Background(),
-		[]string{"--preflight", "--dir", dir, "--land", "none",
-			"--repair-model-effort", "high", "09"},
-		strings.NewReader(""), &stdout, &stderr)
-	if code != toolio.ExitOK || !called {
-		t.Fatalf("code = %d, called = %v\nstdout:\n%s\nstderr:\n%s",
-			code, called, stdout.String(), stderr.String())
-	}
-}
-
-// TS-13-15 (unit): Repair phase clamping records an effort_clamped warning
-// naming the repair phase.
-func TestTS13_15_RepairClampingWarningNamesRepairPhase(t *testing.T) {
-	implEnv(t)
 	dir, _ := preflightSpecRepo(t)
-	t.Setenv("AF_MODEL_EFFORT", "")
 
-	app := newApp()
-	called := false
-	app.PreflightExec = func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-		called = true
-		// claude-opus-4-5 supports off through high but NOT xhigh or max.
-		// Requesting xhigh should clamp to high and produce a warning.
-		rr, choice, err := resolveRepairRunner(d, "anthropic/claude-opus-4-5", "xhigh")
-		if err != nil {
-			t.Fatalf("resolveRepairRunner: %v", err)
-		}
-		if rr == nil || choice == nil {
-			t.Fatal("expected a repair runner and choice")
-		}
-		if choice.Thinking != core.ThinkingHigh {
-			t.Errorf("repair thinking = %q, want %q (clamped from xhigh)", choice.Thinking, core.ThinkingHigh)
-		}
-		var found bool
-		for _, w := range choice.Warnings {
-			if w.Code == toolio.WarnEffortClamped {
-				found = true
-				if !strings.Contains(w.Message, "repair") {
-					t.Errorf("effort_clamped warning should mention 'repair': %q", w.Message)
-				}
-				if !strings.Contains(w.Message, "xhigh") {
-					t.Errorf("warning should name requested level xhigh: %q", w.Message)
-				}
-				if !strings.Contains(w.Message, string(core.ThinkingHigh)) {
-					t.Errorf("warning should name clamped level: %q", w.Message)
-				}
-			}
-		}
-		if !found {
-			t.Error("expected an effort_clamped warning in repair choice.Warnings")
-		}
-		return toolio.ExitOK, &codeimpl.Result{}, nil
+	code, env := implPreflight(t, dir, "--repair-model-effort", "high")
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d, error %+v", code, env.Error)
+	}
+	entry, ok := env.repairEntry()
+	if !ok || !entry.OK {
+		t.Fatalf("no repair_model_credential entry for --repair-model-effort alone: %+v", env.Result.Preflight)
+	}
+	if env.Model == nil || !strings.Contains(entry.Detail, env.Model.ID) {
+		t.Errorf("repair_model_credential detail = %q, want the run's own model %v", entry.Detail, env.Model)
+	}
+	if !strings.Contains(entry.Detail, "effort high") {
+		t.Errorf("repair_model_credential detail = %q, want it to name effort high", entry.Detail)
 	}
 
-	var stdout, stderr bytes.Buffer
-	code := app.Main(context.Background(),
-		[]string{"--preflight", "--dir", dir, "--land", "none", "09"},
-		strings.NewReader(""), &stdout, &stderr)
-	if code != toolio.ExitOK || !called {
-		t.Fatalf("code = %d, called = %v\nstdout:\n%s\nstderr:\n%s",
-			code, called, stdout.String(), stderr.String())
+	// The implication itself.
+	code, env = implPreflight(t, dir, "--repair-model-effort", "high", "--no-verify")
+	if code != toolio.ExitUsage {
+		t.Fatalf("--repair-model-effort with --no-verify: code = %d, want a usage error: the flag implies --repair", code)
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "--repair and --no-verify") {
+		t.Errorf("error = %+v, want the --repair/--no-verify refusal", env.Error)
 	}
 }
 
@@ -302,7 +246,7 @@ func TestTS13_16_RepairModelEffortNoEnvFallback(t *testing.T) {
 	}
 }
 
-// 13-REQ-3.4, through the real PreflightExec: when the repair effort is
+// TS-13-15 (through the real app): 13-REQ-3.4 — when the repair effort is
 // clamped, an effort_clamped warning naming the repair phase reaches the
 // envelope. The tests above replace PreflightExec and look at the value
 // resolveRepairRunner returns; this one looks at what the run reports.

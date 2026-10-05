@@ -257,6 +257,10 @@ func NewRunner(cfg Config) (*Runner, error) {
 // Model reports the model every phase runs on.
 func (r *Runner) Model() *core.Model { return r.cfg.Model }
 
+// Thinking is the reasoning effort this Runner's model runs at; ThinkingUnset
+// when none was asked for and the vendor's default applies.
+func (r *Runner) Thinking() core.ThinkingLevel { return r.cfg.Thinking }
+
 // ResolvedBounds reports the per-phase ceilings this Runner will apply —
 // the tool's own defaults after any --max-turns/--budget override, the same
 // defaulting Run applies internally. It is for a caller that needs to

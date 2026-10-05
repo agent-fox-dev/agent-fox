@@ -904,14 +904,11 @@ func TestTS13_9_EffortClampedWarningRecorded(t *testing.T) {
 	for _, w := range choice.Warnings {
 		if w.Code == toolio.WarnEffortClamped {
 			found = true
-			if !strings.Contains(w.Message, "xhigh") {
-				t.Errorf("warning message should name the requested level xhigh: %q", w.Message)
-			}
-			if !strings.Contains(w.Message, "high") {
-				t.Errorf("warning message should name the clamped level high: %q", w.Message)
-			}
-			if !strings.Contains(w.Message, "claude-opus-4-5") {
-				t.Errorf("warning message should name the model: %q", w.Message)
+			// The exact message: it names the requested level, the level it was
+			// clamped to, and the model. (A substring check for "high" would be
+			// satisfied by "xhigh" alone.)
+			if want := "effort xhigh clamped to high for model claude-opus-4-5"; w.Message != want {
+				t.Errorf("warning message = %q, want %q", w.Message, want)
 			}
 		}
 	}
