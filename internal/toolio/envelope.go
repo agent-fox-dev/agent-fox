@@ -326,7 +326,7 @@ type Warning struct {
 // SchemaVersion is the version of the envelope interface shared by all four
 // tools: one shell, one envelope shape, one version. The compatibility rule
 // is in docs/cli.md (Interface versions) and ADR 06.
-const SchemaVersion = "3.0.0"
+const SchemaVersion = "3.1.0"
 
 // Envelope is the single JSON object every agent-fox tool writes to stdout.
 //
@@ -450,19 +450,21 @@ type TimingInfo struct {
 
 // PhaseInfo is one model-facing step of a pipeline.
 type PhaseInfo struct {
-	Name                string         `json:"name" description:"The phase name, in the tool own vocabulary."`
-	Task                string         `json:"task,omitempty" description:"The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."`
-	ToolErrors          map[string]int `json:"tool_errors,omitempty" description:"Tool calls that came back as errors, counted by tool or tool/error-code. Each cost the model a turn."`
-	Blocked             int            `json:"blocked_calls,omitempty" description:"Tool calls the authorization guard refused during the phase, when any were."`
-	Scope               string         `json:"scope,omitempty" description:"The spec the phase worked on, when a run covers several, such as the scopes of a split."`
-	Turns               int            `json:"turns" description:"Model turns the phase took."`
-	StopReason          string         `json:"stop_reason" description:"Why the phase ended."`
-	InputTokens         int64          `json:"input_tokens" description:"Input tokens the phase used, not counting those read from or written to the prompt cache."`
-	OutputTokens        int64          `json:"output_tokens" description:"Output tokens the phase used."`
-	CacheReadTokens     int64          `json:"cache_read_tokens,omitempty" description:"Tokens the phase read from the prompt cache, when any were."`
-	CacheCreationTokens int64          `json:"cache_creation_tokens,omitempty" description:"Tokens the phase wrote to the prompt cache, when any were."`
-	CostUSD             float64        `json:"cost_usd" description:"Cost of the phase in US dollars, cache reads and writes included."`
-	DurationMS          int64          `json:"duration_ms" description:"Duration of the phase in milliseconds."`
+	Name                string           `json:"name" description:"The phase name, in the tool own vocabulary."`
+	Task                string           `json:"task,omitempty" description:"The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."`
+	ToolCalls           map[string]int   `json:"tool_calls,omitempty" description:"The number of calls to each tool by name, including blocked calls."`
+	ToolResultBytes     map[string]int64 `json:"tool_result_bytes,omitempty" description:"The total bytes of the model-facing text returned by each tool, by name."`
+	ToolErrors          map[string]int   `json:"tool_errors,omitempty" description:"Tool calls that came back as errors, counted by tool or tool/error-code. Each cost the model a turn."`
+	Blocked             int              `json:"blocked_calls,omitempty" description:"Tool calls the authorization guard refused during the phase, when any were."`
+	Scope               string           `json:"scope,omitempty" description:"The spec the phase worked on, when a run covers several, such as the scopes of a split."`
+	Turns               int              `json:"turns" description:"Model turns the phase took."`
+	StopReason          string           `json:"stop_reason" description:"Why the phase ended."`
+	InputTokens         int64            `json:"input_tokens" description:"Input tokens the phase used, not counting those read from or written to the prompt cache."`
+	OutputTokens        int64            `json:"output_tokens" description:"Output tokens the phase used."`
+	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty" description:"Tokens the phase read from the prompt cache, when any were."`
+	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty" description:"Tokens the phase wrote to the prompt cache, when any were."`
+	CostUSD             float64          `json:"cost_usd" description:"Cost of the phase in US dollars, cache reads and writes included."`
+	DurationMS          int64            `json:"duration_ms" description:"Duration of the phase in milliseconds."`
 }
 
 // FixHint is a machine-usable remedy for a failure.

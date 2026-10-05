@@ -45,10 +45,10 @@ func TestTS09_29_EnvelopeSchemaVersionFieldShape(t *testing.T) {
 	}
 }
 
-// TS-09-31 (unit): toolio.SchemaVersion is the literal string 3.0.0.
+// TS-09-31 (unit): toolio.SchemaVersion is the literal string 3.1.0.
 func TestTS09_31_SchemaVersionConstant(t *testing.T) {
-	if toolio.SchemaVersion != "3.0.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 3.0.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "3.1.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
 	}
 }
 
@@ -641,6 +641,45 @@ func extractNestedKeyOrder(data []byte, parentKey string) ([]string, error) {
 // 06-REQ-5.3: SideEffect.Target's published description says where a pull
 // request that could not be opened is recorded, as the code does
 // (<owner>/<repo>, no number).
+// TS-13-6 (unit): PhaseInfo carries ToolCalls and ToolResultBytes with correct JSON tags and trust classification
+func TestTS_13_6_PhaseInfoToolCallsAndToolResultBytesJSONTags(t *testing.T) {
+	// Populated maps: both keys must appear
+	pi := toolio.PhaseInfo{
+		ToolCalls:       map[string]int{"read_file": 2},
+		ToolResultBytes: map[string]int64{"read_file": 1024},
+	}
+	b, err := json.Marshal(pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"tool_calls"`) {
+		t.Errorf("JSON does not contain tool_calls key: %s", b)
+	}
+	if !strings.Contains(string(b), `"tool_result_bytes"`) {
+		t.Errorf("JSON does not contain tool_result_bytes key: %s", b)
+	}
+
+	// Nil maps: neither key should appear (omitempty)
+	pi2 := toolio.PhaseInfo{}
+	b2, err := json.Marshal(pi2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b2), `"tool_calls"`) {
+		t.Errorf("JSON contains tool_calls key when nil: %s", b2)
+	}
+	if strings.Contains(string(b2), `"tool_result_bytes"`) {
+		t.Errorf("JSON contains tool_result_bytes key when nil: %s", b2)
+	}
+}
+
+// TS-13-8 (unit): SchemaVersion is bumped to 3.1.0
+func TestTS_13_8_SchemaVersionBumpedTo310(t *testing.T) {
+	if toolio.SchemaVersion != "3.1.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
+	}
+}
+
 func TestSideEffectTargetDescriptionCoversAFailedPullRequest(t *testing.T) {
 	f, ok := reflect.TypeOf(toolio.SideEffect{}).FieldByName("Target")
 	if !ok {

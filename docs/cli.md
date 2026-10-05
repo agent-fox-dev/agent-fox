@@ -746,7 +746,12 @@ narrowing a field documented as a closed enum. The reasoning is in
 envelope states in its own PRD which kind of change it makes. Each future
 major bump appends its own entry below.
 
-**3.0.0** — the current version. The `text` event's `delta` field was removed
+**3.1.0** — the current version. `usage.phases[]` gained `tool_calls`
+(per-tool call counts) and `tool_result_bytes` (per-tool byte volumes). The
+`relevant_files` field was added to the spec result. These came from the
+`13_tool_call_counts_and_relevant_files` spec.
+
+**3.0.0** — The `text` event's `delta` field was removed
 and replaced by `turn` and `text` (one event per model turn instead of one per
 text delta). The `--events` and `--events-file` flags were removed and replaced
 by `--emit-events` (boolean). The event header gained `session_id` as its third

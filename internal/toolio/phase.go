@@ -19,6 +19,8 @@ func PhaseFromResult(res agentrun.Result, scope string) PhaseInfo {
 		Scope:               scope,
 		Task:                res.Task,
 		Blocked:             res.Blocked,
+		ToolCalls:           res.ToolCalls,
+		ToolResultBytes:     res.ToolResultBytes,
 		ToolErrors:          res.ToolErrors,
 		Turns:               res.Turns,
 		StopReason:          string(res.StopReason),
