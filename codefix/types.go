@@ -235,6 +235,11 @@ type Result struct {
 	Comments []string `json:"comments,omitempty" trust:"fact" description:"URLs of the comments posted on the issue."`
 	// CommentRefs says which comment each URL is.
 	CommentRefs []CommentRef `json:"comment_refs,omitempty" description:"The comments posted on the issue, each with its kind, in the order posted."`
+	// dryRunComments are the kinds of the comments a --dry-run run would have
+	// posted, in order. They are not a result field — nothing was posted, so
+	// there is nothing to report there — only what Artifacts() marks
+	// hypothetical (06-REQ-4.3).
+	dryRunComments []string
 
 	// Implementation is the model's report of the work, kept separate from
 	// the facts above.

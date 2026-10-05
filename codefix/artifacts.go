@@ -4,7 +4,8 @@ import "github.com/agent-fox-dev/agentfox/internal/toolio"
 
 // Artifacts implements toolio.ArtifactsProvider (06-REQ-4). Every entry is
 // read off a fact this package already established on Result — Branch,
-// Commit, PullRequestURL, Comments — never from Implementation, which is
+// Commit, PullRequestURL, Comments (and, under --dry-run, the comments that
+// would have been posted) — never from Implementation, which is
 // the model's own account of its work.
 func (r *Result) Artifacts() []toolio.Artifact {
 	if r == nil {
@@ -33,6 +34,11 @@ func (r *Result) Artifacts() []toolio.Artifact {
 	}
 	for _, url := range r.Comments {
 		out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, URL: url, Role: roles[url]})
+	}
+	// Under --dry-run no comment was posted; each one that would have been is
+	// reported as such, with no URL (06-REQ-4.3).
+	for _, kind := range r.dryRunComments {
+		out = append(out, toolio.Artifact{Kind: toolio.ArtifactComment, Role: kind, DryRun: true})
 	}
 	return out
 }
