@@ -230,6 +230,11 @@ func resolveRepairRunner(d toolio.Deps, repairModel, repairModelEffort string) (
 		return nil, nil, err
 	}
 	d.Progress.Detail("repair model: %s (%s)", choice.Model.ID, choice.Model.Provider)
+	// The repair phase's own warnings are recorded here, as the run's are for
+	// its model, so every caller reports them (13-REQ-3.4).
+	for _, w := range choice.Warnings {
+		d.Run.Warn(w.Code, w.Severity, "%s", w.Message)
+	}
 	return r, choice, nil
 }
 

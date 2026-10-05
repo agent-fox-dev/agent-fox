@@ -300,3 +300,53 @@ func TestTS13_16_RepairModelEffortNoEnvFallback(t *testing.T) {
 			code, called, stdout.String(), stderr.String())
 	}
 }
+
+// 13-REQ-3.4, through the real PreflightExec: when the repair effort is
+// clamped, an effort_clamped warning naming the repair phase reaches the
+// envelope. The tests above replace PreflightExec and look at the value
+// resolveRepairRunner returns; this one looks at what the run reports.
+func TestRepairEffortClampingIsRecordedOnTheRun(t *testing.T) {
+	cases := []struct {
+		name       string
+		effort     string
+		wantWarned bool
+	}{
+		// claude-opus-4-5 reaches high but not xhigh: xhigh is clamped.
+		{"clamped", "xhigh", true},
+		{"within reach", "high", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			implEnv(t)
+			t.Setenv("AF_MODEL_EFFORT", "")
+			dir, _ := preflightSpecRepo(t)
+
+			var stdout, stderr bytes.Buffer
+			code := newApp().Main(context.Background(),
+				[]string{"--preflight", "--dir", dir, "--land", "none",
+					"--repair-model", "anthropic/claude-opus-4-5", "--repair-model-effort", tc.effort, "09"},
+				strings.NewReader(""), &stdout, &stderr)
+			if code != toolio.ExitOK {
+				t.Fatalf("code = %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+			}
+			var env toolio.Envelope
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("stdout is not an envelope: %v\n%s", err, stdout.String())
+			}
+			var got *toolio.Warning
+			for i, w := range env.Warnings {
+				if w.Code == toolio.WarnEffortClamped {
+					got = &env.Warnings[i]
+				}
+			}
+			switch {
+			case tc.wantWarned && got == nil:
+				t.Fatalf("no effort_clamped warning in the envelope: %+v", env.Warnings)
+			case tc.wantWarned && (!strings.Contains(got.Message, "repair") || !strings.Contains(got.Message, tc.effort)):
+				t.Errorf("the warning should name the repair phase and the requested effort: %q", got.Message)
+			case !tc.wantWarned && got != nil:
+				t.Errorf("an effort within reach was reported clamped: %q", got.Message)
+			}
+		})
+	}
+}
