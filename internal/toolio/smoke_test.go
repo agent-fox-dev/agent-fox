@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1708,8 +1707,6 @@ func smokeFixApp(turns []faux.Turn, verify string) toolio.App {
 	}
 }
 
-var smokeDurationRe = regexp.MustCompile(`"duration_ms": \d+`)
-
 // smokeNormalize parses one envelope and drops what is different between
 // two runs of the same scenario by nature: timings, the start instant, and
 // the report file's own path (which names a different temp directory per
@@ -1847,11 +1844,9 @@ func TestTS0664_SummaryEnvelopeIsSmallAndReportFileHoldsTheRest_Smoke(t *testing
 	}
 
 	// --detail full prints the very document it also writes: the same bytes,
-	// once the clock is set aside.
+	// the clock included.
 	full := run("full")
-	got := smokeDurationRe.ReplaceAll(full.file, nil)
-	want := smokeDurationRe.ReplaceAll(full.stdout, nil)
-	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
+	if !bytes.Equal(full.file, full.stdout) {
 		t.Errorf("--detail full: the report file differs from stdout:\nfile:\n%s\nstdout:\n%s", full.file, full.stdout)
 	}
 
