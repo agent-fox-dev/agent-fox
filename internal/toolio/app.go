@@ -255,12 +255,14 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	// --output is validated here, once: after the two purely human-driven
 	// returns (-h, bare on a terminal) that produce no envelope, and before
 	// openEvents, PreCheck, Workspace(), Resolve or model resolution.
-	if _, oerr := common.ResolveOutput(); oerr != nil {
+	outputPath, oerr := common.ResolveOutput()
+	if oerr != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, oerr)
 		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: oerr.Error(), err: oerr,
 		})
 	}
+	common.output, common.outputChecked = outputPath, true
 
 	sink, closeSink := a.openEvents(&common, run, stderr)
 	defer closeSink()
@@ -389,11 +391,17 @@ func (a App) emit(stdout io.Writer, common *Common, run *Run, code int, result a
 		next = np.Next()
 	}
 
-	// --output is resolved here, at the one funnel every envelope passes
-	// through, so each branch of Main is covered. A malformed value (refused
-	// as a usage error, or not yet reached by an earlier usage failure)
-	// names nothing to write to, so it yields "".
-	outPath, _ := common.ResolveOutput()
+	// --output is resolved at the one funnel every envelope passes through,
+	// so each branch of Main is covered. Once Main has validated it, that
+	// result is used as it was: a path that has since become unwritable is not
+	// re-validated away, the write fails and says so (08-REQ-3.1). On a path
+	// that returns before the check (a flag-parse failure, say) it is resolved
+	// here for the first time, and a malformed value names nothing to write
+	// to, so it yields "".
+	outPath := common.output
+	if !common.outputChecked {
+		outPath, _ = common.ResolveOutput()
+	}
 
 	path, perr := reportPath(common, a.Name, run)
 	// A collision is decided from the two configured destinations alone,
