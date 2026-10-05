@@ -191,6 +191,29 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: err.Error(), err: err,
 		})
 	}
+	// --version and --schema answer before any value is checked: they take no
+	// action on the other flags ("parsed but never acted on"), so a value the
+	// checks below would refuse cannot pre-empt them. Only a flag-parse error
+	// comes first.
+	if common.Version {
+		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
+		return ExitOK
+	}
+	if common.Schema {
+		// The tool describes itself and returns, before the bare-input check,
+		// PreCheck, Workspace, Resolve or model resolution, and before any
+		// Progress, events sink or report file exists: no run happens for
+		// them to describe. A positional argument is ignored.
+		doc, merr := renderSelfDescription(a.describe(fs))
+		if merr != nil {
+			fmt.Fprintf(stderr, "%s: building the --schema document: %v\n", a.Name, merr)
+			return ExitFailed
+		}
+		if _, werr := stdout.Write(doc); werr != nil {
+			return ExitFailed
+		}
+		return ExitOK
+	}
 	if derr := common.ValidDetail(); derr != nil {
 		// Checked before Workspace(), Resolve() or model resolution: an
 		// unrecognized --detail value is a usage error like any other, and
@@ -215,25 +238,6 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 		})
 	}
 
-	if common.Version {
-		fmt.Fprintf(stdout, "%s %s\n", a.Name, a.Version)
-		return ExitOK
-	}
-	if common.Schema {
-		// The tool describes itself and returns, before the bare-input check,
-		// PreCheck, Workspace, Resolve or model resolution, and before any
-		// Progress, events sink or report file exists: no run happens for
-		// them to describe. A positional argument is ignored.
-		doc, merr := renderSelfDescription(a.describe(fs))
-		if merr != nil {
-			fmt.Fprintf(stderr, "%s: building the --schema document: %v\n", a.Name, merr)
-			return ExitFailed
-		}
-		if _, werr := stdout.Write(doc); werr != nil {
-			return ExitFailed
-		}
-		return ExitOK
-	}
 	if strings.TrimSpace(input) == "" {
 		// A bare invocation with no positional argument (or only whitespace)
 		// prints the help text to stderr. When stdout is a terminal, stdout

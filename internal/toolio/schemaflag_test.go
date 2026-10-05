@@ -142,6 +142,45 @@ func TestTS09_3_VersionBeatsSchema(t *testing.T) {
 	}
 }
 
+// 09-REQ-1.4, 09-REQ-1.7: --schema takes no action on any other flag, so a
+// value another check would refuse (--detail, --input-kind, --total-budget)
+// does not pre-empt it; and --version, which wins over everything, is not
+// pre-empted either. Only a flag-parse error comes first. Nothing is written
+// to the state directory.
+func TestTS09_SchemaAndVersionAreNotPreemptedByValueChecks(t *testing.T) {
+	bad := [][]string{
+		{"--detail", "bogus"},
+		{"--input-kind", "bogus"},
+		{"--total-budget", "-1"},
+	}
+	for _, flags := range bad {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
+			state := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", state)
+			app := schemaApp(t)
+
+			var stdout, stderr bytes.Buffer
+			code := app.Main(context.Background(), append([]string{"--schema"}, flags...), strings.NewReader(""), &stdout, &stderr)
+			if code != ExitOK {
+				t.Fatalf("--schema %v: code = %d, want 0; stdout:\n%s", flags, code, stdout.String())
+			}
+			var doc map[string]json.RawMessage
+			if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil || doc["flags"] == nil {
+				t.Errorf("--schema %v did not print the self-description document:\n%s", flags, stdout.String())
+			}
+			if entries, _ := os.ReadDir(state); len(entries) != 0 {
+				t.Errorf("--schema %v wrote to the state directory: %v", flags, entries)
+			}
+
+			stdout.Reset()
+			code = app.Main(context.Background(), append([]string{"--version"}, flags...), strings.NewReader(""), &stdout, &stderr)
+			if code != ExitOK || stdout.String() != "tool 9.9.9\n" {
+				t.Errorf("--version %v: code=%d stdout=%q", flags, code, stdout.String())
+			}
+		})
+	}
+}
+
 // 09-REQ-1.5, in process: a positional argument beside --schema is ignored.
 func TestTS09_5_SchemaIgnoresPositionalInProcess(t *testing.T) {
 	app := schemaApp(t)
