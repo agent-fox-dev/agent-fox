@@ -974,7 +974,7 @@ wrapped items are all read; at most 30 criteria are taken.
 | `--pull [branch]` | off | checkout and pull latest changes from `origin` before branching; default origin's default branch |
 | `--land` | `$AF_LAND`, else `pr` | `pr` · `branch` (push only) · `none` (commit only) |
 | `--branch-prefix` | `$AF_BRANCH_PREFIX`, else `fix` for a bug and `feature` otherwise | first segments of the branch name, e.g. `feature` gives `feature/issue-42-nil-map`; slash-separated words of letters, digits, `.`, `_`, `-` |
-| `--repo owner/repo` | the input issue's, else the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
+| `--repo owner/repo` | the `origin` remote of `--dir`, else the input issue's | where the pull request is opened (the branch is pushed to `origin`, so that is where it goes); `group/subgroup/project` for a nested GitLab path |
 | `--verify` | detected | the command that decides success |
 | `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
 | `--verify-timeout` | `10m` | timeout for one verification run |

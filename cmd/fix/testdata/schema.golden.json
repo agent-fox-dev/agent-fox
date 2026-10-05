@@ -148,7 +148,7 @@
       "repo": {
         "type": "string",
         "default": "",
-        "description": "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir"
+        "description": "target repository as owner/repo or group/subgroup/project; default the origin remote of --dir, else the input issue's"
       },
       "report-file": {
         "type": "string",

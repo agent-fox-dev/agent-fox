@@ -26,7 +26,7 @@ type Options struct {
 	// Workspace roots the file tools at the repository. Required.
 	Workspace *tools.Workspace
 	// Repo is the target repository for the pull request. Zero means the
-	// input issue's, else the origin remote.
+	// origin remote of the workspace, else the input issue's.
 	Repo issuex.Repo
 	// Land decides what happens once the change is verified.
 	Land LandMode

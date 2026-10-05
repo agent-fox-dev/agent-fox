@@ -130,7 +130,7 @@ func newApp() toolio.App {
 		ResultSample: codefix.Result{},
 		Flags: func(fs *flag.FlagSet) {
 			flags = fs
-			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the input issue's, else the origin remote of --dir")
+			fs.StringVar(&f.repo, "repo", "", "target repository as owner/repo or group/subgroup/project; default the origin remote of --dir, else the input issue's")
 			fs.StringVar(&f.land, "land", string(codefix.LandPR),
 				"what to do with a verified change: "+strings.Join(codefix.LandModes, ", ")+"; default $"+landEnv+", else pr")
 			toolio.DeclareEnum(fs, "land", codefix.LandModes)
