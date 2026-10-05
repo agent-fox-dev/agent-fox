@@ -781,7 +781,7 @@ for every type:
 
 | `type` | Fields | Emitted |
 |---|---|---|
-| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`), `schema_version` (as in the envelope) | once, after the input is classified and the model resolved |
+| `run_start` | `input_kind`, `model` (`spec`, `id`, `vendor`, as in the envelope's `model`), `schema_version` (as in the envelope) | once, after the input is classified and the model resolved; it is always the first line of the stream (see below) |
 | `step` | `stage`, `message` | wherever the human progress prints a line; `stage` is the same vocabulary as the envelope's `stage` |
 | `phase_start` | `phase`, `task`, `max_turns`, `budget_usd` | when a model phase begins; `task` is present only for `impl`'s per-task `implement` phase; the ceilings are the ones the run actually resolved |
 | `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
@@ -795,11 +795,18 @@ for every type:
 
 What a parser can rely on, and what it must not:
 
-- A run produces at least one event every 15 seconds, so silence longer than
-  that means the process is hung or gone.
+- When a run gets as far as `run_start`, it is the first line of the stream.
+  A warning recorded while the input is read or the model resolved (an events
+  file that could not be created, an input cut at the byte ceiling, an effort
+  that was clamped) is held and written right after it, in the order it was
+  recorded, so the first line is always the run's header.
+- From `run_start` on, a run produces at least one event every 15 seconds, so
+  silence longer than that means the process is hung or gone. Before it, while
+  the input is read and the model resolved, there are no heartbeats.
 - `run_end` is the last event of a run that gets as far as writing an envelope.
   A run that fails before the model is resolved (a missing input, a refused
-  forge) writes `run_end` without a preceding `run_start`. A run refused as a
+  forge) writes `run_end` without a preceding `run_start`, after any warning
+  recorded by then. A run refused as a
   usage error before the event sink is built — a flag-parse failure, an invalid
   `--detail` or `--input-kind`, a bare invocation off-terminal, or an invalid
   `--output` — emits no events at all, and neither do `-h`/`--help` or a bare

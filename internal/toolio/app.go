@@ -260,6 +260,9 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 
 	sink, closeSink := a.openEvents(&common, run, stderr)
 	defer closeSink()
+	// run_start is the stream's first line, whatever is recorded before the
+	// input is read and the model resolved.
+	sink.HoldUntilRunStart()
 
 	progress := NewProgress(stderr, a.Name, common.Verbose, common.Quiet)
 	progress.SetEvents(sink)
