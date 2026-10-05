@@ -217,6 +217,68 @@ func TestAFailedScopeLeavesAPlanTheNextRunResumesFrom(t *testing.T) {
 	}
 }
 
+// A resumed split that stops again leaves the plan on disk, and the result
+// says so: SplitPlan names it, Resumable() is true and next[] suggests spec on
+// the same input, whichever scope the second run stops on (06-REQ-6.3,
+// 06-REQ-6.8).
+func TestAResumedSplitThatStopsAgainIsStillResumable(t *testing.T) {
+	cases := []struct {
+		name       string
+		failScope  string // the scope the resumed run stops on
+		wantStates string
+	}{
+		{"at the first pending scope", "widget_github", "done,failed,pending"},
+		{"after writing one more", "widget_adopt", "done,done,failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := newWorkspace(t)
+			first := splitAuthor(t)
+			first.followOnErr["widget_github"] = errors.New("first run stops here")
+			if _, err := Run(context.Background(), fileOptions(ws, first)); err == nil {
+				t.Fatal("want an error from the first run")
+			}
+			planPath := filepath.Join(".specs", "widget_core"+SplitPlanSuffix)
+
+			resumed := splitAuthor(t)
+			resumed.followOnErr[tc.failScope] = errors.New("the resumed run stops here")
+			got, err := Run(context.Background(), fileOptions(ws, resumed))
+			if err == nil {
+				t.Fatal("want an error from the resumed run")
+			}
+			if len(resumed.prdRequests) == 0 || resumed.prdRequests[0].Split == nil {
+				t.Fatalf("the second run should resume the plan, not plan again; requests: %d", len(resumed.prdRequests))
+			}
+			if _, statErr := os.Stat(filepath.Join(ws.Root, planPath)); statErr != nil {
+				t.Fatalf("the plan should remain on disk: %v", statErr)
+			}
+			states := []string{got.Split[0].Status, got.Split[1].Status, got.Split[2].Status}
+			if strings.Join(states, ",") != tc.wantStates {
+				t.Errorf("scope states = %v, want %s", states, tc.wantStates)
+			}
+
+			if got.SplitPlan != planPath {
+				t.Errorf("SplitPlan = %q, want %q", got.SplitPlan, planPath)
+			}
+			if !got.Resumable() {
+				t.Error("Resumable() = false, but the plan is still on disk")
+			}
+			var spec *toolio.Next
+			for _, n := range got.Next() {
+				if n.Tool == "spec" {
+					spec = &n
+				}
+			}
+			if spec == nil {
+				t.Fatalf("next[] has no spec entry: %+v", got.Next())
+			}
+			if spec.Input != toolio.ResumePlaceholder(fileOptions(ws, resumed).Input) {
+				t.Errorf("the spec entry's input = %q", spec.Input)
+			}
+		})
+	}
+}
+
 // An edited file resumes by origin; the plan names the package whatever the
 // model called it.
 func TestResumeMatchesByOriginAndNamesFromThePlan(t *testing.T) {
