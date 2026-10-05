@@ -45,13 +45,11 @@ func NewGitHub(o Options) (Client, error) {
 		}
 	}
 
+	// A supplied client is used as is: its timeout, or the lack of one, is
+	// the caller's choice. The default is for a caller that supplies none.
 	hc := o.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
-	} else if hc.Timeout == 0 {
-		clientCopy := *hc
-		clientCopy.Timeout = 30 * time.Second
-		hc = &clientCopy
 	}
 
 	ua := strings.TrimSpace(o.UserAgent)
