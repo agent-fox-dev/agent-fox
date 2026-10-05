@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -572,13 +574,17 @@ func (r *Runner) toolCall(phase string, msg core.ToolResultMessage, block core.T
 	} else {
 		info.Arguments = json.RawMessage(`{}`)
 	}
-	// Error text when the call failed.
+	// Error text when the call failed; for a refused call, the guard's own
+	// message rather than the SDK's JSON envelope around it.
 	if msg.IsError {
 		info.Error = msg.Content.Text()
+		if refused {
+			info.Error = guardMessage(info.Error)
+		}
 	}
 	// Exit code only for shell tools with a readable status.
 	if isShellTool(msg.ToolName) && !refused {
-		if code, ok := parseExitCode(msg.Content.Text()); ok {
+		if code, ok := parseExitCode(msg.Content.Text(), msg.IsError); ok {
 			info.ExitCode = &code
 		}
 	}
@@ -610,28 +616,63 @@ func isShellTool(name string) bool {
 	return false
 }
 
-// parseExitCode extracts data.exit_code from a shell tool's result text.
-// The result is the JSON envelope the tool handler produces, e.g.
-// {"ok":true,"data":{"exit_code":0,"output":"..."}}
-// It returns (code, true) when the field is present and numeric, and
-// (0, false) otherwise. It never guesses or defaults to 0.
-func parseExitCode(resultText string) (int, bool) {
+// exitTrailer matches the status line AgentKit appends to a shell command's
+// output when it exited non-zero: `[exit 3]`.
+var exitTrailer = regexp.MustCompile(`^\[exit (-?\d+)\]$`)
+
+// parseExitCode reads a shell call's exit status from its result, as the
+// model is shown it. AgentKit renders that as the command's own output
+// followed by one status line only when there is something to say, so a
+// result is read in the order it can take:
+//
+//   - the JSON envelope {"data":{"exit_code":N}}, which is what a result with
+//     no output is shown as;
+//   - for a failed call, a final `[exit N]` line. `[killed by signal N]`,
+//     `[timeout ...]` and `[aborted]` carry no exit code, and a failed call
+//     with no trailer (the command could not be started) has none to read;
+//   - for a call that did not fail, no line at all: a command that exited 0
+//     adds nothing to its output, so a result that is not an error and has no
+//     envelope is an exit 0.
+//
+// It returns (code, true) when the status is readable and (0, false)
+// otherwise, and never guesses: an unreadable status is absent, not 0.
+func parseExitCode(resultText string, isError bool) (int, bool) {
 	var envelope struct {
 		Data struct {
 			ExitCode *json.Number `json:"exit_code"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal([]byte(resultText), &envelope); err != nil {
-		return 0, false
+	if json.Unmarshal([]byte(resultText), &envelope) == nil && envelope.Data.ExitCode != nil {
+		n, err := envelope.Data.ExitCode.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(n), true
 	}
-	if envelope.Data.ExitCode == nil {
-		return 0, false
+	if !isError {
+		return 0, true
 	}
-	n, err := envelope.Data.ExitCode.Int64()
-	if err != nil {
-		return 0, false
+	last := resultText[strings.LastIndex(resultText, "\n")+1:]
+	if m := exitTrailer.FindStringSubmatch(last); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			return n, true
+		}
 	}
-	return int(n), true
+	return 0, false
+}
+
+// guardMessage is the reason a guard gave for refusing a call. AgentKit shows
+// the model a refusal as {"detail":"<reason>","error":"blocked_by_policy",
+// "ok":false}; any other text is returned as it is.
+func guardMessage(text string) string {
+	var envelope struct {
+		Error  string `json:"error"`
+		Detail string `json:"detail"`
+	}
+	if json.Unmarshal([]byte(text), &envelope) == nil && envelope.Error == core.BlockErrorCode && envelope.Detail != "" {
+		return envelope.Detail
+	}
+	return text
 }
 
 func (r *Runner) detail(format string, args ...any) {
