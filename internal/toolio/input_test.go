@@ -269,6 +269,33 @@ func TestTS0402_ResolveParsesGitHubAndGitLabURLs(t *testing.T) {
 	if inGL.Thread == nil || inGL.Thread.Issue.Number != 99 {
 		t.Errorf("inGL.Thread = %+v", inGL.Thread)
 	}
+
+	// All four shapes of 04-REQ-10.1: a GitHub pull request and a GitLab issue
+	// too, each with its kind, repository, number and pull-request flag.
+	for _, tc := range []struct {
+		url         string
+		owner, name string
+		number      int
+		isPR        bool
+	}{
+		{"https://github.com/org/repo/issues/42", "org", "repo", 42, false},
+		{"https://github.com/org/repo/pull/17", "org", "repo", 17, true},
+		{"https://gitlab.com/group/sub/project/-/issues/5", "group/sub", "project", 5, false},
+		{"https://gitlab.com/group/sub/project/-/merge_requests/99", "group/sub", "project", 99, true},
+	} {
+		in, err := Resolve(ctx, tc.url, nil, client, nil)
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", tc.url, err)
+		}
+		if in.Kind != KindIssue || in.Issue == nil {
+			t.Errorf("%s: Kind = %s, Issue = %+v", tc.url, in.Kind, in.Issue)
+			continue
+		}
+		got := in.Issue
+		if got.Repo.Owner != tc.owner || got.Repo.Name != tc.name || got.Number != tc.number || got.IsPullRequest != tc.isPR {
+			t.Errorf("%s: parsed %+v, want %s/%s#%d IsPullRequest=%v", tc.url, got, tc.owner, tc.name, tc.number, tc.isPR)
+		}
+	}
 }
 
 // TS-04-3 (unit): Resolve rejects issue URLs when no forge client is configured

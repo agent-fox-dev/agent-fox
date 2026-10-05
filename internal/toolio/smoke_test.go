@@ -172,9 +172,22 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 	_ = cmd.Run()
 
 	var issueRead, notesRead bool
+	var updates []map[string]any
+	var updatePath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/issues/42"):
+			// The last step of 04-PATH-1: the diagnosis rewrites the issue.
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			updates = append(updates, body)
+			updatePath = r.URL.EscapedPath()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 42, "iid": 42, "title": body["title"], "description": body["description"],
+				"state": "opened", "web_url": "https://gitlab.com/group/subgroup/project/-/issues/42",
+				"author": map[string]any{"username": "alice"},
+			})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/issues/42"):
 			issueRead = true
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -276,6 +289,7 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 				Workspace: d.Workspace,
 				Repo:      target,
 				DryRun:    d.Common.DryRun,
+				Overwrite: overwrite,
 				Runner:    runner,
 				Forge:     d.Forge,
 				Run:       d.Run,
@@ -290,7 +304,9 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := app.Main(context.Background(), []string{"--dir", wsDir, "--dry-run", "https://gitlab.com/group/subgroup/project/-/issues/42"}, strings.NewReader(""), &stdout, &stderr)
+	// No --dry-run: the run writes, so the whole path is exercised, down to the
+	// forge's update of the issue.
+	code := app.Main(context.Background(), []string{"--dir", wsDir, "--overwrite", "https://gitlab.com/group/subgroup/project/-/issues/42"}, strings.NewReader(""), &stdout, &stderr)
 
 	if code != toolio.ExitOK {
 		t.Fatalf("app.Main failed with code %d; stderr:\n%s", code, stderr.String())
@@ -343,6 +359,33 @@ func TestTS0436_GitLabIssueTriage_Smoke(t *testing.T) {
 	}
 	if triageResult == nil || triageResult.Severity != "High" {
 		t.Errorf("triageResult = %+v, want severity High", triageResult)
+	}
+
+	// 5. The pipeline's write reaches the GitLab server: one PUT to the issue,
+	// carrying the diagnosis, and the run records it.
+	if len(updates) != 1 {
+		t.Fatalf("the GitLab server received %d issue updates, want 1", len(updates))
+	}
+	if updatePath != "/api/v4/projects/group%2Fsubgroup%2Fproject/issues/42" {
+		t.Errorf("update path = %q", updatePath)
+	}
+	if title, _ := updates[0]["title"].(string); !strings.Contains(title, "token refresh skips expiry check") {
+		t.Errorf("update title = %q, want the diagnosis's title", title)
+	}
+	if desc, _ := updates[0]["description"].(string); !strings.Contains(desc, "Refresh returns cached token without comparing expiry") {
+		t.Errorf("update description does not carry the diagnosis: %q", desc)
+	}
+	if triageResult.Action != "updated" || triageResult.Number != 42 {
+		t.Errorf("triageResult = action %q number %d, want updated #42", triageResult.Action, triageResult.Number)
+	}
+	var recorded bool
+	for _, se := range env.SideEffects {
+		if se.Action == "update_issue" && se.OK {
+			recorded = true
+		}
+	}
+	if !recorded {
+		t.Errorf("no successful update_issue side effect in %+v", env.SideEffects)
 	}
 }
 
@@ -744,7 +787,10 @@ func TestTS0438_GitLabSpecPRDComment_Smoke(t *testing.T) {
 
 // TS-04-39 (smoke): Implementing a specification with pull request landing on a nested GitLab project
 // Verifies: 04-PATH-4
-// Real components: cmd/impl, codeimpl.Run, afspec.LoadSpec, internal/gitx.Git, issuex.GitLabClient
+// Real components: codeimpl.Run, afspec.LoadSpec, internal/gitx.Git, issuex.GitLabClient,
+// toolio.App (a test-local one: cmd/impl is package main and cannot be imported here;
+// its own --repo parsing, PreCheck and option wiring are driven by
+// TestImplRepoFlagReachesTheLandTarget in cmd/impl)
 func TestTS0439_GitLabNestedProjectImpl_Smoke(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "gl-smoke-token")
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")

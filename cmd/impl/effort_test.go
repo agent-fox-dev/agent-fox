@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -379,5 +380,56 @@ func TestUnreachableRepairEffortIsAUsageError(t *testing.T) {
 		if env.Error != nil && !strings.Contains(env.Error.Message, "gemini-3.8-flash") {
 			t.Errorf("%v: the message should name the repair model: %q", mode, env.Error.Message)
 		}
+	}
+}
+
+// 04-REQ-4 / 04-PATH-4 through the real cmd/impl app: a nested GitLab
+// --repo is parsed by impl's own flag handling and reaches the options, so the
+// preflight's land target is that project (and a GitLab credential from the
+// environment is what satisfies the forge check). TS-04-39's smoke test in
+// internal/toolio cannot import this package.
+func TestImplRepoFlagReachesTheLandTarget(t *testing.T) {
+	implEnv(t)
+	t.Setenv("GITLAB_TOKEN", "gl-token")
+	for _, v := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITHUB_API_URL", "GITLAB_API_URL", "AF_MODEL_EFFORT"} {
+		t.Setenv(v, "")
+	}
+	dir, _ := preflightSpecRepo(t)
+	// --land pr pushes, so the repository needs an origin to push to.
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	gitIn(t, dir, "init", "-q", "--bare", origin)
+	gitIn(t, dir, "remote", "add", "origin", origin)
+
+	var stdout, stderr bytes.Buffer
+	code := newApp().Main(context.Background(),
+		[]string{"--preflight", "--dir", dir, "--land", "pr", "--repo", "gitlab-org/subgroup/repo", "09"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitOK {
+		t.Fatalf("code = %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	var env struct {
+		Result struct {
+			Preflight []toolio.PreflightCheck `json:"preflight"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not an envelope: %v\n%s", err, stdout.String())
+	}
+	var target *toolio.PreflightCheck
+	for i, c := range env.Result.Preflight {
+		if c.Check == "land_target" {
+			target = &env.Result.Preflight[i]
+		}
+	}
+	if target == nil || target.Detail != "gitlab-org/subgroup/repo" {
+		t.Errorf("land_target = %+v, want the nested project gitlab-org/subgroup/repo", target)
+	}
+
+	// An unparsable --repo is refused by impl's own PreCheck, as a usage error.
+	code = newApp().Main(context.Background(),
+		[]string{"--preflight", "--dir", dir, "--repo", "not a repo", "09"},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitUsage {
+		t.Errorf("--repo %q: code = %d, want a usage error (%d)", "not a repo", code, toolio.ExitUsage)
 	}
 }
