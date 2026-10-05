@@ -78,3 +78,52 @@ func TestSpecPreflightThroughTheShell(t *testing.T) {
 		t.Error("--preflight created a spec root")
 	}
 }
+
+// 06-REQ-9.6 through the real spec app: an unsplit input is bound only by the
+// single-phase min(--budget, --total-budget) fold. --preflight reports the
+// per-phase ceiling the Runner resolved (estimate.max_budget_per_phase_usd), so
+// the fold is observed where it takes effect, not by a stub recording a bound.
+func TestSpecTotalBudgetFoldsIntoTheOnePhase(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv(specgen.SpecDirEnv, "")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want float64
+	}{
+		{"--budget above --total-budget", []string{"--budget", "10", "--total-budget", "4"}, 4},
+		{"--total-budget above --budget", []string{"--budget", "4", "--total-budget", "10"}, 4},
+		// The tool's own default ceiling is above a small total: the total wins.
+		{"--total-budget alone, below the default", []string{"--total-budget", "1"}, 1},
+		{"neither given: the tool's default stands", nil, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			argv := append([]string{"--preflight", "--dir", dir}, tc.args...)
+			argv = append(argv, "a library that does a thing")
+			var stdout, stderr bytes.Buffer
+			code := newApp().Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
+			if code != toolio.ExitOK {
+				t.Fatalf("code = %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+			}
+			var env struct {
+				Result struct {
+					Estimate struct {
+						MaxBudgetPerPhaseUSD float64 `json:"max_budget_per_phase_usd"`
+					} `json:"estimate"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+				t.Fatalf("stdout is not an envelope: %v\n%s", err, stdout.String())
+			}
+			if got := env.Result.Estimate.MaxBudgetPerPhaseUSD; got != tc.want {
+				t.Errorf("estimate.max_budget_per_phase_usd = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
