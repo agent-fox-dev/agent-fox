@@ -2587,7 +2587,8 @@ func TestTS0744_FixEventsJSONLSeesSpendBeforeFinish_Smoke(t *testing.T) {
 // Real components: toolio.App, toolio.Progress JSONL sink, internal/agentrun.Runner, codeimpl pipeline, events file writer
 func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
 	// A window short enough for a half-second phase to cross.
 	toolio.ShortenHeartbeat(t, 20*time.Millisecond, 100*time.Millisecond)
 
@@ -2691,6 +2692,94 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 	}
 	if len(human) == 0 {
 		t.Fatal("no human progress on stderr")
+	}
+
+	// The supervisor's side: the events file, always written under the state
+	// directory, carries the whole run as JSONL.
+	matches, _ := filepath.Glob(filepath.Join(stateDir, "agent-fox", "events", "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("want exactly one events file under the state directory, got %v", matches)
+	}
+	raw, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("the events file was not written: %v", err)
+	}
+	evs := smokeParseEvents(t, "impl", string(raw))
+	if len(evs) == 0 || evs[len(evs)-1].Type != "run_end" {
+		t.Fatalf("run_end must be the file's last line:\n%s", raw)
+	}
+
+	// Each human step has its step event, in order, with the same message.
+	var humanSteps []string
+	for _, line := range human {
+		if msg, ok := strings.CutPrefix(line, "[impl] "); ok {
+			humanSteps = append(humanSteps, msg)
+		}
+	}
+	var steps []string
+	for _, e := range evs {
+		if e.Type == "step" {
+			steps = append(steps, e.Raw["message"].(string))
+			if s, _ := e.Raw["stage"].(string); s == "" {
+				t.Errorf("step event without a stage: %v", e.Raw)
+			}
+		}
+	}
+	// Every step event is a human line, in the same order and with the same
+	// message. The human lines also hold what Progress.Begin prints for a
+	// phase (the task header), which the stream announces as a phase_start, so
+	// the steps are a subsequence of the lines rather than all of them.
+	if len(steps) == 0 {
+		t.Fatalf("no step events in the events file:\n%s", raw)
+	}
+	next := 0
+	for _, line := range humanSteps {
+		if next < len(steps) && strings.TrimSpace(line) == steps[next] {
+			next++
+		}
+	}
+	if next != len(steps) {
+		t.Errorf("step events are not, in order, human [impl] lines\nsteps:\n%s\nhuman:\n%s",
+			strings.Join(steps, "\n"), strings.Join(humanSteps, "\n"))
+	}
+
+	// The long phase crossed the shortened window: a heartbeat landed in the
+	// file, naming the stage, the time elapsed and the spend so far.
+	var beats []smokeEvent
+	for _, e := range evs {
+		if e.Type == "heartbeat" {
+			beats = append(beats, e)
+		}
+	}
+	if len(beats) == 0 {
+		t.Fatalf("no heartbeat in the events file:\n%s", raw)
+	}
+	prev := float64(-1)
+	for _, b := range beats {
+		if s, _ := b.Raw["stage"].(string); s == "" {
+			t.Errorf("heartbeat without a stage: %v", b.Raw)
+		}
+		el, ok := b.Raw["elapsed_ms"].(float64)
+		if !ok || el <= prev {
+			t.Errorf("heartbeat elapsed_ms = %v after %v, want increasing: %v", b.Raw["elapsed_ms"], prev, b.Raw)
+		}
+		prev = el
+		if _, ok := b.Raw["cost_usd"].(float64); !ok {
+			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
+		}
+	}
+	// No heartbeat follows run_end, and the implement phase carried its task.
+	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {
+		t.Error("a heartbeat followed run_end")
+	}
+	var sawTask bool
+	for _, e := range evs {
+		if e.Type == "phase_start" && e.Raw["phase"] == "implement" && e.Raw["task"] != nil {
+			sawTask = true
+		}
+	}
+	if !sawTask {
+		t.Errorf("no phase_start for implement carrying a task:\n%s", raw)
 	}
 }
 

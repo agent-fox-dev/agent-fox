@@ -829,6 +829,53 @@ func eventsRun(t *testing.T, app *App, argv []string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
+// stateEventsFile returns the one events file a run left under
+// $XDG_STATE_HOME/agent-fox/events/ (12-REQ-1.1): the file is always written,
+// whatever reaches stderr.
+func stateEventsFile(t *testing.T, state string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(state, "agent-fox", "events", "*.jsonl"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("want exactly one events file under %s, got %v (%v)", state, matches, err)
+	}
+	return matches[0]
+}
+
+// eventTypesOfLines returns the type of every event in the lines.
+func eventTypesOfLines(t *testing.T, lines []string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range lines {
+		var e struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(l), &e); err != nil {
+			t.Fatalf("events file line is not JSON: %q: %v", l, err)
+		}
+		out = append(out, e.Type)
+	}
+	return out
+}
+
+// stepMessages returns the message of every step event in the lines.
+func stepMessages(t *testing.T, lines []string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range lines {
+		var e struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(l), &e); err != nil {
+			t.Fatalf("events file line is not JSON: %q: %v", l, err)
+		}
+		if e.Type == "step" {
+			out = append(out, e.Message)
+		}
+	}
+	return out
+}
+
 // fileLines reads path and returns its lines, requiring every one to be
 // complete valid JSON and the content to end in a newline.
 func fileLines(t *testing.T, path string) []string {
@@ -932,7 +979,8 @@ func TestTS07_2_RemovedEventsFlagIsUsageError(t *testing.T) {
 // TS-07-4 (integration): without --emit-events stderr stays free of JSON.
 func TestTS07_4_DefaultModeKeepsStderrHuman(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 		emitSteps(d, 2)
 		return ExitOK, nil, nil
@@ -943,6 +991,17 @@ func TestTS07_4_DefaultModeKeepsStderrHuman(t *testing.T) {
 	}
 	if strings.Contains(stderr, `{"ts"`) {
 		t.Errorf("stderr carries JSON without --emit-events: %s", stderr)
+	}
+
+	// The stream is not lost: the events file always carries it, from
+	// run_start to run_end, with the steps the run emitted.
+	lines := fileLines(t, stateEventsFile(t, state))
+	types := eventTypesOfLines(t, lines)
+	if len(types) < 4 || types[0] != "run_start" || types[len(types)-1] != "run_end" {
+		t.Fatalf("events file types = %v, want run_start ... run_end", types)
+	}
+	if got := len(stepMessages(t, lines)); got != 2 {
+		t.Errorf("the events file holds %d step events, want the 2 the run emitted", got)
 	}
 }
 
@@ -979,7 +1038,8 @@ func TestEventsFileFlagIsRemovedUsageError(t *testing.T) {
 // TS-07-5 (unit): --quiet silences stderr under --emit-events.
 func TestTS07_5_QuietSuppressesStderr(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	app, _ := newApp(t, func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 		d.Progress.Step("preflight", "hello")
 		emitSteps(d, 2)
@@ -991,6 +1051,18 @@ func TestTS07_5_QuietSuppressesStderr(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("--emit-events --quiet: stderr = %q, want empty", stderr)
+	}
+
+	// --quiet silences stderr, not the file (12-REQ-5.2): it holds the full
+	// stream, including the step the run emitted before emitSteps.
+	lines := fileLines(t, stateEventsFile(t, state))
+	types := eventTypesOfLines(t, lines)
+	if len(types) < 5 || types[0] != "run_start" || types[len(types)-1] != "run_end" {
+		t.Fatalf("under --quiet the events file types = %v, want run_start ... run_end", types)
+	}
+	steps := stepMessages(t, lines)
+	if len(steps) != 3 || steps[0] != "hello" {
+		t.Errorf("under --quiet the events file holds steps %q, want hello and the 2 emitted", steps)
 	}
 }
 
