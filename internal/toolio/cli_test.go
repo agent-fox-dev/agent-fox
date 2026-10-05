@@ -245,6 +245,44 @@ func TestTS05_20_ContextExceedingMaxInputBytesRefused(t *testing.T) {
 	}
 }
 
+// The --context bound for an input that has to be read first (a file here): the
+// input is read, then input and context together are measured, and the run is
+// refused as a usage error before any model phase. docs/cli.md says so.
+func TestContextExceedingMaxInputBytesRefusedAfterReadingAFile(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(report, []byte(strings.Repeat("a", 200000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var execCalled bool
+	app := toolio.App{
+		Name:    "fix",
+		Version: "v1",
+		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+			execCalled = true
+			return toolio.ExitOK, nil, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	// The argument is a path, a few bytes long: the argument-only check cannot
+	// refuse it; only measuring what was read can.
+	code := app.Main(context.Background(),
+		[]string{"--dir", dir, "--context", strings.Repeat("b", 70000), report},
+		strings.NewReader(""), &stdout, &stderr)
+	if code != toolio.ExitUsage || execCalled {
+		t.Fatalf("code = %d, Exec called = %v, want a usage refusal before Exec\nstdout:\n%s", code, execCalled, stdout.String())
+	}
+	var env toolio.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not an envelope: %v", err)
+	}
+	if env.Error == nil || env.Error.Category != "usage" || !strings.Contains(env.Error.Message, "exceed") {
+		t.Errorf("error = %+v, want a usage error saying input and context exceed the bound", env.Error)
+	}
+}
+
 // Issue #93: An oversized stdin with no --context must be truncated (exit 0 +
 // input_truncated warning), not refused as a usage error.
 func TestIssue93_OversizedStdinNoContextTruncated(t *testing.T) {
