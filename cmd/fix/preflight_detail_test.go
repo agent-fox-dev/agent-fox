@@ -113,12 +113,21 @@ func TestTS11_43_PreflightEmitsOnlyStepEventsBetweenStartAndEnd(t *testing.T) {
 	// The baseline run --preflight keeps reports its result as a check
 	// event, and a no-verify-command warning as a warning event; both come
 	// from the reused checks, not from a model phase.
+	var sawCheck bool
 	for _, ty := range types[1 : len(types)-1] {
 		switch ty {
-		case "step", "check", "warning", "heartbeat":
+		case "check":
+			sawCheck = true
+		case "step", "warning", "heartbeat":
 		default:
 			t.Errorf("unexpected %q event in a --preflight run: %v", ty, types)
 		}
+	}
+	// --verify true ran, so the baseline's own check event is in the stream:
+	// the real stream is wider than TS-11-43's {run_start, step, heartbeat,
+	// run_end} (docs/errata/11_preflight.md).
+	if !sawCheck {
+		t.Errorf("events = %v, want the baseline's check event between run_start and run_end", types)
 	}
 }
 
@@ -259,6 +268,38 @@ func TestTS11_46_PreflightResultHasNoUntrustedFields(t *testing.T) {
 			if list, _ := v.([]any); len(list) != 0 {
 				t.Errorf("--detail %s: untrusted_fields = %v, want empty", detail, v)
 			}
+		}
+	}
+}
+
+// 11-REQ-1.4 as built: --dry-run changes what --preflight checks, because a run
+// that writes nothing to a forge needs no forge credential. With no token and
+// the default --land pr, --preflight is refused for the missing credential while
+// --preflight --dry-run answers whether `fix --dry-run` would start.
+func TestPreflightDryRunSkipsTheForgeChecks(t *testing.T) {
+	fixPreflightEnv(t)
+	for _, v := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"} {
+		t.Setenv(v, "")
+	}
+	dir := preflightRepo(t)
+
+	code, env := runFix(t, "--preflight", "--verify", "true", "--dir", dir, "--repo", "acme/widgets", "the counter double-counts")
+	if code == toolio.ExitOK {
+		t.Fatalf("--preflight with no credential and --land pr passed: %v", env)
+	}
+	if e, _ := env["error"].(map[string]any); e == nil || e["stage"] != "preflight" || e["category"] != "auth" {
+		t.Errorf("error = %v, want preflight/auth", env["error"])
+	}
+
+	code, env = runFix(t, "--preflight", "--dry-run", "--verify", "true", "--dir", dir, "--repo", "acme/widgets", "the counter double-counts")
+	if code != toolio.ExitOK {
+		t.Fatalf("--preflight --dry-run exit = %d: %v", code, env)
+	}
+	res, _ := env["result"].(map[string]any)
+	for _, c := range res["preflight"].([]any) {
+		switch c.(map[string]any)["check"] {
+		case "forge_credential", "land_target", "remote_configured":
+			t.Errorf("--preflight --dry-run lists a forge check: %v", c)
 		}
 	}
 }

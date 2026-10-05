@@ -433,7 +433,9 @@ ran), and two fields:
   the Runner's resolved ceilings (`--max-turns`, `--budget`). It counts the
   phases the plan already decides; a repair phase (`impl --repair`) and a
   split a not-yet-written PRD might call for (`spec`) are decisions a model
-  makes once it runs, so the figure is a lower bound on phases.
+  makes once it runs, so the figure is a lower bound on phases. For `impl`,
+  when no task is pending there is nothing to survey or implement, and
+  `estimate.phases` is `0`, with no total ceiling.
 
 Both fields survive `--detail summary`.
 
@@ -452,8 +454,13 @@ the real run would start from:
 - the checkout of an existing `impl` continuation branch, which is left checked
   out, and the discarding of a parked `wip:` commit at its head.
 
-`--preflight` composes with every other flag. `--dry-run` adds nothing to it —
-`--preflight` already makes no remote write — and neither implies the other.
+`--preflight` composes with every other flag, and neither it nor `--dry-run`
+implies the other. `--dry-run` is not nothing beside it: a run that writes
+nothing to a forge needs no forge credential, so the forge checks
+(`forge_credential`, `land_target`, `remote_configured`) are skipped under
+`--dry-run`. `--preflight` alone is refused for a missing credential with the
+default `--land pr`; `--preflight --dry-run` answers whether the same run with
+`--dry-run` would start.
 `--schema` wins when both are given, as `--version` wins over everything. It
 emits the same progress lines and event types as the checks it reuses, and
 `--output` receives its envelope like any other. It leaves `next[]` empty.
@@ -898,6 +905,9 @@ Under `--detail summary` (the default) `result` keeps only:
 
 | Field | Kept as |
 |---|---|
+| `stage` | unchanged; `preflight` on a `--preflight` run, absent otherwise |
+| `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
+| `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `action` | unchanged |
 | `repo` | unchanged |
 | `url` | unchanged |
@@ -1029,6 +1039,8 @@ Under `--detail summary` (the default) `result` keeps only:
 | `criteria_outcome` | unchanged |
 | `pull_request_url` | unchanged |
 | `dry_run` | unchanged |
+| `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
+| `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `verification` | only when the verdict is not landable (`regressed`, `still_failing`, …), with the failing command's tail output — the one place the summary is deliberately not smaller |
 
 The baseline, the model's `implementation` report, the analysis and the
@@ -1266,6 +1278,9 @@ Under `--detail summary` (the default) `result` keeps only:
 
 | Field | Kept as |
 |---|---|
+| `stage` | unchanged; `preflight` on a `--preflight` run, absent otherwise |
+| `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
+| `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `spec_dir` | unchanged |
 | `spec_id` | unchanged |
 | `spec_name` | unchanged |
@@ -1565,6 +1580,8 @@ Under `--detail summary` (the default) `result` keeps only:
 | `tasks` | one entry per task, `{id, outcome, commit, verdict}` only |
 | `verdict` | unchanged |
 | `pull_request_url` | unchanged |
+| `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
+| `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `verification` | only when the run stopped on a verdict that is not landable, with the gate's checks and their tail output |
 
 The per-task gates, diff stats and submissions, the `survey`, the `baseline`

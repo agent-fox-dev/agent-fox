@@ -107,3 +107,63 @@ func TestSpec06ErratumRecordsTheDeviations(t *testing.T) {
 		}
 	}
 }
+
+// --dry-run is not nothing beside --preflight: a run that writes nothing to a
+// forge needs no forge credential, so the forge checks are skipped under it.
+func TestCLIDocPreflightDryRunParagraphIsTrue(t *testing.T) {
+	doc := oneLine(readDoc(t, "cli.md"))
+	if strings.Contains(doc, "`--dry-run` adds nothing to it") {
+		t.Error("docs/cli.md still says --dry-run adds nothing to --preflight")
+	}
+	for _, want := range []string{"`--preflight --dry-run` answers whether the same run with `--dry-run` would start", "credential"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/cli.md does not say %q about --preflight with --dry-run", want)
+		}
+	}
+}
+
+// Each tool's --detail summary table lists what the view keeps, preflight and
+// estimate included, as docs/cli.md already says they survive.
+func TestCLIDocSummaryTablesListPreflightEstimateAndStage(t *testing.T) {
+	doc := readDoc(t, "cli.md")
+	const marker = "Under `--detail summary` (the default) `result` keeps only:"
+	parts := strings.Split(doc, marker)
+	if len(parts) != 5 {
+		t.Fatalf("found %d summary tables, want 4 (triage, fix, spec, impl)", len(parts)-1)
+	}
+	for i, tool := range []string{"triage", "fix", "spec", "impl"} {
+		// The table runs from its first row to the next blank line.
+		table := parts[i+1]
+		table = table[strings.Index(table, "|"):]
+		if cut := strings.Index(table, "\n\n"); cut >= 0 {
+			table = table[:cut]
+		}
+		for _, field := range []string{"stage", "preflight", "estimate"} {
+			if _, ok := tableRow(table, "| `"+field+"` |"); !ok {
+				t.Errorf("%s's summary table has no `%s` row", tool, field)
+			}
+		}
+	}
+}
+
+// impl's estimate counts no phase when nothing is pending, and the docs say so.
+func TestCLIDocEstimateStatesTheZeroPendingRule(t *testing.T) {
+	doc := oneLine(readDoc(t, "cli.md"))
+	if !strings.Contains(doc, "no task is pending") || !strings.Contains(doc, "`estimate.phases` is `0`") {
+		t.Error("docs/cli.md does not say impl's estimate.phases is 0 when no task is pending")
+	}
+}
+
+// The deviations from spec 11 are recorded.
+func TestSpec11ErratumRecordsTheDeviations(t *testing.T) {
+	root := findWorkspaceRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "docs", "errata", "11_preflight.md"))
+	if err != nil {
+		t.Fatalf("no erratum for the spec 11 deviations: %v", err)
+	}
+	for _, want := range []string{"11-REQ-1.4", "11-REQ-5.5", "TS-11-43", "check"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the erratum does not mention %q", want)
+		}
+	}
+}
