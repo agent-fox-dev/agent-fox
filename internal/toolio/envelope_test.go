@@ -637,3 +637,17 @@ func extractNestedKeyOrder(data []byte, parentKey string) ([]string, error) {
 	}
 	return extractTopLevelKeyOrder(raw)
 }
+
+// 06-REQ-5.3: SideEffect.Target's published description says where a pull
+// request that could not be opened is recorded, as the code does
+// (<owner>/<repo>, no number).
+func TestSideEffectTargetDescriptionCoversAFailedPullRequest(t *testing.T) {
+	f, ok := reflect.TypeOf(toolio.SideEffect{}).FieldByName("Target")
+	if !ok {
+		t.Fatal("SideEffect has no Target")
+	}
+	desc := f.Tag.Get("description")
+	if !strings.Contains(desc, "pull request that could not be opened") {
+		t.Errorf("Target description = %q, want it to cover a pull request that could not be opened", desc)
+	}
+}

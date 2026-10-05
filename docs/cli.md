@@ -205,7 +205,7 @@ package it wrote, and `triage` reports `{"kind": "issue", "url", "number"}`.
 happened: `action` is `create_issue`, `update_issue`, `comment`, `push` or
 `open_pr`; `target` names what was written to; `ok` says whether it
 succeeded, and a failed write carries the `warning` code the run recorded for
-it. A `comment` write also carries its `kind` (the same as the artifact's
+it. A pull request that could not be opened is recorded with `target` `<owner>/<repo>` with no number, since it never got one. A `comment` write also carries its `kind` (the same as the artifact's
 `role`) and, once posted, its `url`, so a side effect can be matched to its
 artifact and a failed one to the comment that was lost. The array is absent when the run made no remote write, which is always the
 case under `--dry-run`.
@@ -247,7 +247,7 @@ placeholder `<same input>`, as in `needs_human.resume`.
 | Tool | Suggests |
 |---|---|
 | `triage` | `fix` on the issue's URL, when one was filed or updated (nothing under `--dry-run`) |
-| `spec` | `impl` on the first package that validates; `spec` again on the same input while a split is unfinished |
+| `spec` | `impl` on every package that validates, in split order; `spec` again on the same input while a split is unfinished |
 | `impl` | `impl` again on the same spec when the run parked, with `--repair` when it parked on a red baseline and no repair was attempted |
 | `fix` | nothing on success; on an ambiguity, `fix <same input> --context "<answer>"`, identical to `needs_human.resume` |
 
@@ -368,7 +368,7 @@ a typo. An existing directory is never flagged.
 | `--output` | none | `--output <path>` writes a second copy of the same envelope stdout gets — the same `--detail` view, `warnings` and `error` — to that file. The write is atomic (a temp file in the target's directory, synced, then renamed over the path, so a reader sees nothing or the whole document) and happens before anything is written to stdout, on every path that produces an envelope, including the internal fallback for a `result` that cannot be encoded. A relative path resolves against the process's working directory, not `--dir`; a missing parent directory is created. `-` and an existing directory are usage errors (exit 2), refused before anything is fetched. It is written under `--dry-run` too. A failed write never changes the exit code: it adds a low `output_not_written` warning naming the path and the cause. When `--output` and `--report-file` (explicit or the default) resolve to the same path, `--output`'s own write is skipped and a low `output_matches_report_file` warning is recorded: the file there is the complete report, not the `--detail` view `--output` alone would have produced, and if the report write fails nothing lands there (the envelope then also carries `report_file_not_written`) |
 | `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `triage` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
 | `--emit-events` | off | write the JSON event stream to stderr instead of the human progress lines. Without it, stderr carries the human progress exactly as the default does today. With it, stderr carries one JSON event per line and no human line. `--quiet` silences stderr under both settings and never affects the events file. See [Machine-readable progress](#machine-readable-progress-the-event-types) |
-| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `issue`). `impl` checks between phases and tasks, with everything landed so far committed |
+| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `triage`). `impl` checks between phases and tasks, with everything landed so far committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
 | `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream, `--report-file` or `--output` file written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
@@ -1272,7 +1272,7 @@ Under `--detail summary` (the default) `result` keeps only:
 | `status` | unchanged |
 | `artifacts` | unchanged (the list of file names) |
 | `validation` | `{valid, error_count, errors}` — `warning_count` and `warnings` dropped |
-| `traceability` | `{criteria_uncovered, paths_uncovered, tests_unowned}` — the covered counts dropped |
+| `traceability` | `{criteria_covered, paths_covered, criteria_uncovered, paths_uncovered, tests_unowned}` — the covered counts are kept, so a package with no gaps does not print `{}` |
 | `open_questions` | unchanged |
 | `split` | unchanged; it already names every scope with its status |
 
