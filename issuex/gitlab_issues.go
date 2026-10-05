@@ -280,8 +280,15 @@ func (c *gitlabClient) AddComment(ctx context.Context, ref IssueRef, body string
 	if note.WebURL != "" {
 		return note.WebURL, nil
 	}
-	// Fallback to {issue_url}#note_{note_id}
-	return fmt.Sprintf("%s/%s/-/issues/%d#note_%d", strings.TrimRight(c.baseURL, "/"), ref.Repo.String(), ref.Number, note.ID), nil
+	return c.noteURL(ref, note.ID), nil
+}
+
+// noteURL builds {issue web URL}#note_{id} for a note. GitLab's Notes API
+// returns no web_url, so this is the URL a real instance gets. The web host is
+// the API base URL without its /api/v4 suffix, which NewGitLab guarantees.
+func (c *gitlabClient) noteURL(ref IssueRef, id int) string {
+	webURL := strings.TrimSuffix(c.baseURL, "/api/v4")
+	return fmt.Sprintf("%s/%s/-/issues/%d#note_%d", webURL, ref.Repo.String(), ref.Number, id)
 }
 
 // ListComments retrieves chronological comments on an issue up to 500 total notes, filtering out system notes.
@@ -306,11 +313,15 @@ func (c *gitlabClient) ListComments(ctx context.Context, ref IssueRef) (CommentL
 			if n.System {
 				continue
 			}
+			htmlURL := n.WebURL
+			if htmlURL == "" {
+				htmlURL = c.noteURL(ref, n.ID)
+			}
 			all = append(all, Comment{
 				Body:      n.Body,
 				User:      User{Login: n.Author.Username},
 				CreatedAt: n.CreatedAt,
-				HTMLURL:   n.WebURL,
+				HTMLURL:   htmlURL,
 			})
 		}
 		if page == 5 && len(batch) == 100 {
