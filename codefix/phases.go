@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -86,7 +88,12 @@ Method:
 1. Write the test first. For a defect, write the test that reproduces it and
    confirm it fails; for a feature, write the test that pins the new behaviour.
    Use the project's existing test framework and conventions — read a
-   neighbouring test file rather than inventing a style.
+   neighbouring test file rather than inventing a style. The test asserts the
+   outcome the report is about, as a user observes it — the process exit
+   code, the printed output, the classifier's answer — not an internal value
+   that stands in for it. After you submit, the program runs the checks with
+   your non-test changes taken out: the issue is closed only if they then
+   fail, so a test that passes without your fix does not close it.
 2. Make the minimal, correct change. Follow the conventions already in the
    files you are editing.
 3. Introduce nothing unrelated. A "while I was here" cleanup makes the change
@@ -97,8 +104,9 @@ Method:
    here only repeats it — often for minutes. Run the full command yourself
    only when a failure cannot be reproduced any smaller, and fix what it
    reports: there is no benefit in leaving it failing.
-5. Update the documentation the change makes wrong: a README, a doc comment, a
-   configuration reference.
+5. Update the documentation the change makes wrong, in this change: a README,
+   a doc comment, a configuration reference, an erratum when the code now
+   departs from a spec. Copy every value you document from the code.
 
 Do not write in your summary that tests or checks pass. The program runs them
 and states the result itself; a sentence of yours that asserts one is removed
@@ -197,6 +205,7 @@ func implementationSchema() *schema.Schema {
 type brain interface {
 	Analyze(context.Context, analysisInput) (Analysis, agentrun.Result, error)
 	Implement(context.Context, implementInput) (Implementation, agentrun.Result, error)
+	Review(context.Context, conform.ReviewInput) (conform.Review, agentrun.Result, error)
 }
 
 type analysisInput struct {
@@ -228,6 +237,8 @@ type implementInput struct {
 	// because an AgentKit agent has no implicit behaviour that picks such a
 	// file up.
 	Instructions string
+	// Now is today, for any date the phase writes.
+	Now time.Time
 }
 
 // agentBrain runs both phases against the configured model.
@@ -265,6 +276,12 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		return Analysis{}, res, rej.wrap(agentrun.NoResultError("analyse", ToolSubmitAnalysis, res))
 	}
 	return got, res, nil
+}
+
+// Review runs the independent conformance review of the fix against the
+// requirements and tests the report cites.
+func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	return conform.RunReview(ctx, b.runner, in)
 }
 
 func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implementation, agentrun.Result, error) {

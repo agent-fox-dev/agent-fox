@@ -19,6 +19,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
+	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -41,8 +42,33 @@ type scriptedBrain struct {
 	// analyzeCost is the spend the analyse phase reports.
 	analyzeCost float64
 
+	// review answers the review of cited requirements; nil answers every id
+	// in scope met.
+	review func(in conform.ReviewInput) (conform.Review, error)
+
 	analyzed, implemented int
 	implementPrompt       string
+	reviewIns             []conform.ReviewInput
+}
+
+func (b *scriptedBrain) Review(_ context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	b.reviewIns = append(b.reviewIns, in)
+	_ = conform.ReviewPrompt(in) // every prompt must render
+	res := agentrun.Result{Name: conform.PhaseReview, Turns: 3}
+	if b.review != nil {
+		r, err := b.review(in)
+		return r, res, err
+	}
+	r := conform.Review{Summary: "Met."}
+	for _, id := range in.Scope.Requirements {
+		r.Requirements = append(r.Requirements, conform.RequirementRow{ID: id, Status: conform.StatusImplemented,
+			Evidence: "count.go:1 does it"})
+	}
+	for _, id := range in.Scope.Tests {
+		r.Tests = append(r.Tests, conform.TestRow{ID: id, Assessment: conform.AssessAssertsContract,
+			Evidence: "count_test.go:1 asserts it"})
+	}
+	return r, res, nil
 }
 
 func (b *scriptedBrain) Analyze(_ context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
@@ -87,6 +113,9 @@ func defaultBrain() *scriptedBrain {
 			Tests:         []string{"count_test.go: a retry increments once"},
 		},
 		edit: func(root string) error {
+			if err := os.WriteFile(filepath.Join(root, "count_test.go"), []byte("package x // regression\n"), 0o644); err != nil {
+				return err
+			}
 			return os.WriteFile(filepath.Join(root, "count.go"), []byte("package x // fixed\n"), 0o644)
 		},
 	}
@@ -112,7 +141,10 @@ func newRepo(t *testing.T, testExit int) (*tools.Workspace, *gitx.Git) {
 		}
 	}
 	write(t, dir, "count.go", "package x\n")
-	write(t, dir, "Makefile", "test:\n\t@exit "+itoa(testExit)+"\n")
+	// The test target fails while count_test.go exists and count.go is not
+	// fixed: the regression test the default brain writes depends on the fix,
+	// which is what the revert check looks for.
+	write(t, dir, "Makefile", "test:\n\t@[ ! -f count_test.go ] || grep -q fixed count.go\n\t@exit "+itoa(testExit)+"\n")
 
 	g := gitx.New(dir, gitx.ExecRunner)
 	g.SetSleep(func(time.Duration) {})
@@ -178,7 +210,7 @@ func TestPipelineLandsAVerifiedChange(t *testing.T) {
 	if got.Pushed {
 		t.Error("--land=none must not push")
 	}
-	if len(got.ChangedFiles) != 1 || got.ChangedFiles[0] != "count.go" {
+	if strings.Join(got.ChangedFiles, ",") != "count.go,count_test.go" {
 		t.Errorf("ChangedFiles = %v — this list comes from git, not from the model", got.ChangedFiles)
 	}
 
