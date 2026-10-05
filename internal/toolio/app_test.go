@@ -1346,7 +1346,7 @@ func TestTS07_16_RunStartFirstAndRunEndLast(t *testing.T) {
 		{"long success", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {
 			emitSteps(d, 50)
 			d.Progress.events.Emit(newPhaseStartEvent("implement", "1", 5, 1))
-			d.Progress.events.Emit(newPhaseEndEvent("implement", "end_turn", 3, 0.1, 10))
+			d.Progress.events.Emit(newPhaseEndEvent("implement", "end_turn", 3, 0.1, 10, nil))
 			return ExitOK, nil, nil
 		}},
 		{"failure", func(_ context.Context, d Deps) (int, any, *ErrorInfo) {

@@ -38,6 +38,7 @@ type endCall struct {
 	turns       int
 	cost        float64
 	durationMS  int64
+	toolCalls   map[string]int
 }
 
 type turnCall struct {
@@ -74,11 +75,11 @@ func (o *recObserver) PhaseStart(phase, task string, maxTurns int, budgetUSD flo
 	o.starts = append(o.starts, startCall{phase, task, maxTurns, budgetUSD})
 }
 
-func (o *recObserver) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64) {
+func (o *recObserver) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log = append(o.log, "phase_end")
-	o.ends = append(o.ends, endCall{phase, stopReason, turns, costUSD, durationMS})
+	o.ends = append(o.ends, endCall{phase, stopReason, turns, costUSD, durationMS, toolCalls})
 }
 
 func (o *recObserver) Turn(phase string, turn int, costUSD float64, in, out int64) {
@@ -170,7 +171,7 @@ func TestTS07_27_PhaseEndOnceFromTheResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []endCall{{"phase", string(res.StopReason), res.Turns, res.Usage.CostUSD, res.Elapsed.Milliseconds()}}
+	want := []endCall{{"phase", string(res.StopReason), res.Turns, res.Usage.CostUSD, res.Elapsed.Milliseconds(), res.ToolCalls}}
 	if !reflect.DeepEqual(obs.ends, want) {
 		t.Fatalf("PhaseEnd calls = %+v, want %+v", obs.ends, want)
 	}

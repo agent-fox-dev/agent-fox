@@ -114,7 +114,7 @@ type Observer interface {
 	// run resolved. task is empty except for impl's per-task phase.
 	PhaseStart(phase, task string, maxTurns int, budgetUSD float64)
 	// PhaseEnd reports that the phase ended.
-	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64)
+	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int)
 	// Turn reports one finished model turn.
 	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
 	// ToolCall reports one model tool call. It is emitted for every call,
@@ -289,7 +289,7 @@ func (r *Runner) Run(ctx context.Context, p Phase) (Result, error) {
 	}
 	out, err := r.run(ctx, p)
 	if o := r.cfg.Observer; o != nil {
-		o.PhaseEnd(p.Name, string(out.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds())
+		o.PhaseEnd(p.Name, string(out.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds(), out.ToolCalls)
 	}
 	return out, err
 }

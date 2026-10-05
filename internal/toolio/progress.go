@@ -225,12 +225,12 @@ func (p *Progress) PhaseStart(phase, task string, maxTurns int, budgetUSD float6
 }
 
 // PhaseEnd emits phase_end and forgets the current phase.
-func (p *Progress) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64) {
+func (p *Progress) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int) {
 	if p == nil {
 		return
 	}
 	if s := p.sink(); s != nil {
-		s.Emit(newPhaseEndEvent(phase, stopReason, turns, costUSD, durationMS))
+		s.Emit(newPhaseEndEvent(phase, stopReason, turns, costUSD, durationMS, toolCalls))
 	}
 	p.mu.Lock()
 	p.phase = ""

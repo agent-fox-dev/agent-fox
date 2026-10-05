@@ -129,11 +129,12 @@ type CheckEvent struct {
 // PhaseEndEvent is emitted when a model phase ends.
 type PhaseEndEvent struct {
 	eventHeader
-	Phase      string  `json:"phase"`
-	StopReason string  `json:"stop_reason"`
-	Turns      int     `json:"turns"`
-	CostUSD    float64 `json:"cost_usd"`
-	DurationMS int64   `json:"duration_ms"`
+	Phase      string         `json:"phase"`
+	StopReason string         `json:"stop_reason"`
+	Turns      int            `json:"turns"`
+	CostUSD    float64        `json:"cost_usd"`
+	DurationMS int64          `json:"duration_ms"`
+	ToolCalls  map[string]int `json:"tool_calls,omitempty"`
 }
 
 // WarningEvent mirrors a recorded Warning.
@@ -229,8 +230,8 @@ func newCheckEvent(command string, ok bool, exitCode int, durationMS int64) *Che
 	return e
 }
 
-func newPhaseEndEvent(phase, stopReason string, turns int, costUSD float64, durationMS int64) *PhaseEndEvent {
-	e := &PhaseEndEvent{Phase: phase, StopReason: stopReason, Turns: turns, CostUSD: costUSD, DurationMS: durationMS}
+func newPhaseEndEvent(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int) *PhaseEndEvent {
+	e := &PhaseEndEvent{Phase: phase, StopReason: stopReason, Turns: turns, CostUSD: costUSD, DurationMS: durationMS, ToolCalls: toolCalls}
 	e.Type = EventPhaseEnd
 	return e
 }
