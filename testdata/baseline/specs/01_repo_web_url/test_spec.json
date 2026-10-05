@@ -1,0 +1,80 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "01",
+  "spec_name": "repo_web_url",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-01-1",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-1.1"
+      ],
+      "title": "A repository with no host is on github.com",
+      "given": [
+        "Repo{Owner: \"octocat\", Name: \"Hello-World\"}"
+      ],
+      "when": "WebURL is called",
+      "then": [
+        "the result is https://github.com/octocat/Hello-World"
+      ],
+      "pseudocode": "assert Repo{Owner: 'octocat', Name: 'Hello-World'}.WebURL() == 'https://github.com/octocat/Hello-World'"
+    },
+    {
+      "id": "TS-01-2",
+      "kind": "unit",
+      "verifies": [
+        "01-REQ-1.2"
+      ],
+      "title": "Host, scheme, trailing slash and nested owner",
+      "given": [
+        "Repo{Host: \"gitlab.com\", Owner: \"group/subgroup\", Name: \"repo\"}",
+        "Repo{Host: \"http://forge.internal/\", Owner: \"team\", Name: \"tool\"}",
+        "Repo{Host: \" https://git.example.com \", Owner: \"o\", Name: \"n\"}"
+      ],
+      "when": "WebURL is called on each",
+      "then": [
+        "the results are https://gitlab.com/group/subgroup/repo, http://forge.internal/team/tool and https://git.example.com/o/n"
+      ],
+      "pseudocode": "for repo, want in cases: assert repo.WebURL() == want"
+    },
+    {
+      "id": "TS-01-3",
+      "kind": "property",
+      "verifies": [
+        "01-REQ-2.1"
+      ],
+      "title": "IssueRef.URL is unchanged for any reference",
+      "given": [
+        "a copy of IssueRef.URL as it was before this change, kept in the test",
+        "references over hosts (empty, github.com, gitlab.com, a self-hosted GitLab, http:// and https:// prefixes, a trailing slash), owners (flat and nested), numbers and IsPullRequest"
+      ],
+      "when": "for any such reference, URL is called",
+      "then": [
+        "the result equals the copy's result"
+      ],
+      "pseudocode": "for ref in refs: assert ref.URL() == oldURL(ref)"
+    },
+    {
+      "id": "TS-01-4",
+      "kind": "smoke",
+      "verifies": [
+        "01-PATH-1",
+        "01-REQ-1.2"
+      ],
+      "title": "An origin remote in a GitLab subgroup becomes its project page",
+      "given": [
+        "the remote git@gitlab.com:acme/platform/billing.git"
+      ],
+      "when": "ParseRemote parses it and WebURL is called on the result",
+      "then": [
+        "ParseRemote reports ok",
+        "the URL is https://gitlab.com/acme/platform/billing"
+      ],
+      "real_components": [
+        "issuex.ParseRemote",
+        "issuex.Repo.WebURL"
+      ]
+    }
+  ]
+}

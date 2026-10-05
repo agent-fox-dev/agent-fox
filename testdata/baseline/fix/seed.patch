@@ -1,0 +1,13 @@
+diff --git a/issuex/parse.go b/issuex/parse.go
+index 236d9bc..e7f1d63 100644
+--- a/issuex/parse.go
++++ b/issuex/parse.go
+@@ -124,7 +124,7 @@ func ParseRemote(remote string) (Repo, bool) {
+ 	}
+ 
+ 	name := parts[len(parts)-1]
+-	owner := strings.Join(parts[:len(parts)-1], "/")
++	owner := parts[0]
+ 
+ 	return Repo{
+ 		Host:  host,

@@ -189,94 +189,138 @@ The generated files are `afspec/*.v2.go`. Always run `make check` afterwards.
 Every phase of every tool starts with the same four read-only file tools
 (`read_file`, `list_files`, `find_files`, `search_files`) and no prior
 knowledge of the repository's shape. The tables below record how many
-`tool_calls` each phase makes on a fixed set of inputs so that the effect of
+`tool_calls` each phase makes on a fixed set of inputs, so that the effect of
 later navigation changes (repository map, symbol tools, indexed search) is
-visible in review.
+visible in review, per tool.
+
+The four tools that run a model each have a table: `triage`, `fix`, `spec`
+and `impl`. Spec 13 and PRD 06 call the first one `issue`, its name before it
+became `triage`; the `issue` program of PRD 08 runs no model and makes no tool
+calls, so it has no table ([erratum](errata/13_navigation_baseline.md)).
+
+### Inputs
+
+The inputs are fixed and live in `testdata/baseline/`:
+
+| Tool | Input | What it is |
+|---|---|---|
+| `triage` | `triage/stack-trace.txt` | a stack trace: `impl` panicking in pre-flight on a hand-written package |
+| `triage` | `triage/prose-report.txt` | a prose report: two spec packages numbered 13 |
+| `fix` | `fix/failing-test.txt` | the test failure the seeded defect causes |
+| `fix` | `fix/prose-report.txt` | the seeded defect as a user sees it |
+| `spec` | `spec/summary-tool-bytes.md` | a small idea in `internal/toolio` |
+| `spec` | `spec/triage-several-traces.md` | a feature of one tool, `triage` |
+| `spec` | `spec/max-tool-calls.md` | a shared flag across all four tools |
+| `impl` | `specs/01_repo_web_url/` | a valid spec package of three tasks in `issuex` |
+
+`fix/seed.patch` is the seeded defect: one line in `issuex.ParseRemote` that
+drops a GitLab owner's subgroups. Both `fix` inputs name it, one as the test it
+breaks and one as its symptom. `TestTS_13_33_NavigationBaselineSection`
+(`docs_development_test.go`) fails when an input is missing, the seed no
+longer applies to the tree, or the package stops validating, so the inputs
+stay runnable as the code moves.
 
 ### Procedure
 
-Run each tool against this repository with `--dry-run` using the fixed inputs
-listed below. For `fix` and `impl`, use a throwaway clone so the working tree
-is clean. Record the per-phase `tool_calls` from the envelope's
-`usage.phases[]` into the tables.
-
-**triage** — two inputs (a stack trace and a prose report):
+Measure with the tools built from the commit under review, against a
+throwaway clone of that same commit, so that a before-and-after pair differs
+only in the tools. The runs need a live model and its credential; the forge
+needs none, because every run is `--dry-run`.
 
 ```sh
-triage --dry-run ./testdata/baseline/stack_trace.txt
-triage --dry-run ./testdata/baseline/prose_report.txt
+make build                              # spec, triage, fix and impl
+git clone . ../agent-fox-nav            # the throwaway clone, beside ../agentkit-go
+cd ../agent-fox-nav && git switch -q -c nav-base
+B=testdata/baseline O=/tmp/nav-out && mkdir -p "$O"
+
+triage --dry-run --report-file "$O/triage-trace.json"  "$B/triage/stack-trace.txt"
+triage --dry-run --report-file "$O/triage-report.json" "$B/triage/prose-report.txt"
+
+spec --dry-run --report-file "$O/spec-bytes.json"  "$B/spec/summary-tool-bytes.md"
+spec --dry-run --report-file "$O/spec-traces.json" "$B/spec/triage-several-traces.md"
+spec --dry-run --report-file "$O/spec-bound.json"  "$B/spec/max-tool-calls.md"
+
+impl --dry-run --report-file "$O/impl.json" "$B/specs/01_repo_web_url"
+git switch -q nav-base                  # impl --dry-run leaves its branch checked out
+
+git switch -q -c nav-seeded && git apply "$B/fix/seed.patch" && git commit -qam "seed the baseline defect"
+fix --dry-run --report-file "$O/fix-test.json"   "$B/fix/failing-test.txt"
+git switch -q nav-seeded                # so does fix --dry-run
+fix --dry-run --report-file "$O/fix-report.json" "$B/fix/prose-report.txt"
 ```
 
-**fix** — two inputs naming a seeded defect (run in a throwaway clone):
+`triage` and `spec` change nothing under `--dry-run`; `fix` and `impl` still
+make their branch and commits, which is why they run in the clone, and run
+the project's checks there, which is why the clone sits beside
+`agentkit-go`. Remove the clone afterwards. Read each
+phase's counts from the report files:
 
 ```sh
-fix --dry-run "the frobulator returns nil when the input is empty"
-fix --dry-run "TestFrobulate fails on arm64 with index out of range"
+for f in "$O"/*.json; do
+  jq -r --arg run "$(basename "$f" .json)" '.usage.phases[] | [$run, .name, (.task // .scope // ""),
+    (.tool_calls.read_file // 0), (.tool_calls.list_files // 0),
+    (.tool_calls.find_files // 0), (.tool_calls.search_files // 0),
+    ([.tool_calls[]?] | add // 0)] | @tsv' "$f"
+done
 ```
 
-**spec** — three inputs:
-
-```sh
-spec --dry-run "add a repository map to reduce navigation tool calls"
-spec --dry-run "symbol navigation tools: file_outline and find_symbol"
-spec --dry-run "indexed code search backed by a trigram index"
-```
-
-**impl** — one small fixed spec package of at least three tasks:
-
-```sh
-impl --dry-run .specs/13_tool_call_counts_and_relevant_files
-```
+The last column counts every tool the phase called, the submit tools and the
+shell included; the four before it are the navigation.
 
 ### Baseline tables
 
-The `tool_calls` column shows the total number of tool calls the phase made.
-Values are from the envelope's `usage.phases[].tool_calls`.
+**Not measured yet.** No run of the procedure has been recorded: the change
+that added it had no live model to run it with
+([erratum](errata/13_navigation_baseline.md)). The first run replaces the
+dashes and names the commit and the model it measured. A phase that runs only
+sometimes (`fix`'s `review`, `impl`'s `repair` and `resolve`, `spec`'s
+`architecture`) gets a row when it ran.
+
+Measured at: — (commit), — (model).
 
 #### triage
 
-| Input | Phase | read_file | list_files | find_files | search_files | tool_calls total |
-|-------|-------|-----------|------------|------------|--------------|------------------|
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
 | stack trace | triage | — | — | — | — | — |
 | prose report | triage | — | — | — | — | — |
 
 #### fix
 
-| Input | Phase | read_file | list_files | find_files | search_files | tool_calls total |
-|-------|-------|-----------|------------|------------|--------------|------------------|
-| defect 1 | analyze | — | — | — | — | — |
-| defect 1 | fix | — | — | — | — | — |
-| defect 1 | verify | — | — | — | — | — |
-| defect 2 | analyze | — | — | — | — | — |
-| defect 2 | fix | — | — | — | — | — |
-| defect 2 | verify | — | — | — | — | — |
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| failing test | analyse | — | — | — | — | — |
+| failing test | implement | — | — | — | — | — |
+| prose report | analyse | — | — | — | — | — |
+| prose report | implement | — | — | — | — | — |
 
 #### spec
 
-| Input | Phase | read_file | list_files | find_files | search_files | tool_calls total |
-|-------|-------|-----------|------------|------------|--------------|------------------|
-| repo map | prd | — | — | — | — | — |
-| repo map | generate:requirements | — | — | — | — | — |
-| repo map | generate:test_spec | — | — | — | — | — |
-| repo map | generate:tasks | — | — | — | — | — |
-| symbol nav | prd | — | — | — | — | — |
-| symbol nav | generate:requirements | — | — | — | — | — |
-| symbol nav | generate:test_spec | — | — | — | — | — |
-| symbol nav | generate:tasks | — | — | — | — | — |
-| indexed search | prd | — | — | — | — | — |
-| indexed search | generate:requirements | — | — | — | — | — |
-| indexed search | generate:test_spec | — | — | — | — | — |
-| indexed search | generate:tasks | — | — | — | — | — |
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| summary tool bytes | prd | — | — | — | — | — |
+| summary tool bytes | generate:requirements | — | — | — | — | — |
+| summary tool bytes | generate:test_spec | — | — | — | — | — |
+| summary tool bytes | generate:tasks | — | — | — | — | — |
+| several traces | prd | — | — | — | — | — |
+| several traces | generate:requirements | — | — | — | — | — |
+| several traces | generate:test_spec | — | — | — | — | — |
+| several traces | generate:tasks | — | — | — | — | — |
+| max tool calls | prd | — | — | — | — | — |
+| max tool calls | generate:requirements | — | — | — | — | — |
+| max tool calls | generate:test_spec | — | — | — | — | — |
+| max tool calls | generate:tasks | — | — | — | — | — |
 
 #### impl
 
-| Input | Phase | read_file | list_files | find_files | search_files | tool_calls total |
-|-------|-------|-----------|------------|------------|--------------|------------------|
-| spec 13, task 1 | implement | — | — | — | — | — |
-| spec 13, task 2 | implement | — | — | — | — | — |
-| spec 13, task 3 | implement | — | — | — | — | — |
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| repo web URL | survey | — | — | — | — | — |
+| repo web URL | implement (task 1) | — | — | — | — | — |
+| repo web URL | implement (task 2) | — | — | — | — | — |
+| repo web URL | implement (task 3) | — | — | — | — | — |
+| repo web URL | review | — | — | — | — | — |
 
-> **Note:** The dashes (—) are placeholders. Fill them from actual `--dry-run`
-> runs against this repository. The tables are regenerated by hand whenever a
-> navigation change ships, so the effect of each change is visible in review.
-> No live-model run enters `make test`.
+The tables are regenerated by hand whenever a navigation change ships, from a
+run of the tools before the change and one after it, so the effect of each
+change is visible in review. No live-model run enters `make test`.

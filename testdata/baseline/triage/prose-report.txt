@@ -1,0 +1,11 @@
+Two spec packages in this repository share the number 13:
+.specs/13_replace_variant_with_effort and
+.specs/13_tool_call_counts_and_relevant_files. Both were written by `spec`,
+on different days, and nobody renamed either by hand.
+
+`impl 13` now refuses to choose between them, and every cross-reference
+that says "spec 13" is ambiguous. I expected `spec` to give the second
+package 14, the way it numbers a split's follow-on packages one after the
+other. Either `spec` does not look at every package when it picks the next
+number, or something else wrote the second package while the first was not
+yet in the tree.
