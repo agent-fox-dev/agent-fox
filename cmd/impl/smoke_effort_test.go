@@ -47,11 +47,6 @@ func TestTS13_35_ImplRepairPhaseRunsAtOwnEffort(t *testing.T) {
 		repairThinking = choice.Thinking
 		repairModelID = choice.Model.ID
 
-		// Record any warnings on the run
-		for _, w := range choice.Warnings {
-			d.Run.Warn(w.Code, w.Severity, "%s", w.Message)
-		}
-
 		return toolio.ExitOK, &codeimpl.Result{}, nil
 	}
 
