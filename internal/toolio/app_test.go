@@ -1291,6 +1291,60 @@ func TestTS07_16_RunStartFirstAndRunEndLast(t *testing.T) {
 	}
 }
 
+// 07-REQ-3.5: run_start is the first event even when a warning is recorded
+// before the model is resolved — an events file that could not be created, an
+// input cut at MaxInputBytes. The warnings are not lost; they follow run_start
+// in the order they were recorded.
+func TestTS07_16_RunStartFirstWhenAWarningPrecedesModelResolution(t *testing.T) {
+	scenarios := []struct {
+		name  string
+		setup func(t *testing.T) (stdin string)
+		code  WarnCode
+	}{
+		{"unwritable events directory", func(t *testing.T) string {
+			// A state home that is a file: agent-fox/events cannot be created.
+			f := filepath.Join(t.TempDir(), "state")
+			if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("XDG_STATE_HOME", f)
+			return ""
+		}, WarnEventsFileNotWritten},
+		{"input cut at the byte ceiling", func(t *testing.T) string {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			return strings.Repeat("a line of log output\n", MaxInputBytes/10)
+		}, WarnInputTruncated},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			t.Setenv("ANTHROPIC_API_KEY", "test-key")
+			stdin := sc.setup(t)
+			app, _ := newApp(t, nil)
+			argv := []string{"--dir", t.TempDir(), "--emit-events", "-"}
+			if stdin == "" {
+				argv, stdin = []string{"--dir", t.TempDir(), "--emit-events", "x"}, ""
+			}
+			var stdout, stderr bytes.Buffer
+			app.Main(context.Background(), argv, strings.NewReader(stdin), &stdout, &stderr)
+
+			events := parseEventLines(t, stderr.String())
+			types := eventTypes(events)
+			if len(types) < 3 || types[0] != "run_start" || types[len(types)-1] != "run_end" {
+				t.Fatalf("events = %v, want run_start first and run_end last", types)
+			}
+			var warned bool
+			for _, ev := range events {
+				if ev["type"] == "warning" && ev["code"] == string(sc.code) {
+					warned = true
+				}
+			}
+			if !warned {
+				t.Errorf("the %s warning was lost from the stream: %v", sc.code, types)
+			}
+		})
+	}
+}
+
 func TestMain(m *testing.M) {
 	// The tests above resolve a model, and a stray credential variable in the
 	// developer's shell would change which vendor they resolve against.

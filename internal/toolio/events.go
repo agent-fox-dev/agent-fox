@@ -274,6 +274,12 @@ type eventsSink struct {
 	lastEmit time.Time
 	stage    string
 
+	// holding is true from HoldUntilRunStart until run_start is written or the
+	// run ends: every other event is stamped when it happens, kept in held and
+	// written, in order, straight after run_start.
+	holding bool
+	held    [][]byte
+
 	// Heartbeat state. interval, idle and newTicker are injectable so a test
 	// advances a fake clock instead of sleeping.
 	interval  time.Duration
@@ -354,9 +360,55 @@ func (s *eventsSink) emitLocked(e event) {
 		return
 	}
 	line = append(line, '\n')
+	if s.holding {
+		switch e.(type) {
+		case *RunStartEvent:
+			// Written first; what happened before it follows.
+		case *RunEndEvent:
+			// The run ends without a run_start (it failed before the model
+			// was resolved); what was held is still written, before run_end.
+			s.flushHeldLocked()
+		default:
+			s.held = append(s.held, line)
+			return
+		}
+		defer func() {
+			s.holding = false
+			s.flushHeldLocked()
+		}()
+	}
+	s.writeLocked(line)
+}
+
+// writeLocked writes one finished line to every writer in a single Write each.
+func (s *eventsSink) writeLocked(line []byte) {
 	for _, w := range s.writers {
 		_, _ = w.Write(line)
 	}
+}
+
+// flushHeldLocked writes the held lines in the order they were recorded.
+func (s *eventsSink) flushHeldLocked() {
+	for _, line := range s.held {
+		s.writeLocked(line)
+	}
+	s.held = nil
+}
+
+// HoldUntilRunStart makes run_start the stream's first line: until it is
+// emitted, every other event is held and written right after it, so a warning
+// recorded while the input is read or the model resolved cannot precede it. A
+// run that ends first (run_end) writes what was held, then run_end. Heartbeats
+// are not held but skipped: they are liveness for the model phases, and start
+// with run_start. A sink that is never told to hold writes every event as it
+// happens.
+func (s *eventsSink) HoldUntilRunStart() {
+	if !s.Active() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.holding = true
 }
 
 // StartHeartbeat runs the one ticker for the run's lifetime: every interval it
@@ -429,7 +481,7 @@ func (s *eventsSink) checkHeartbeat() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.ticking {
+	if !s.ticking || s.holding {
 		return
 	}
 	now := s.now()
