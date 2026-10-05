@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
+	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
 // ---------------------------------------------------------------------------
@@ -271,23 +273,60 @@ func TestTS08_26_LostStdoutStillRecoversEnvelopeFromOutput_Smoke(t *testing.T) {
 // TS-08-27 (smoke): A failed --output write is downgraded to a warning and
 // never changes impl's exit code
 // Verifies: 08-PATH-2, 08-REQ-3.1
-// Real components: toolio.App, codeimpl.Run, internal/gitx.Git, issuex.Client
+// Real components: toolio.App, codeimpl.Run, internal/gitx.Git, issuex.Client (GitHub, over an httptest server)
 func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "gh-smoke-token")
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
+	originDir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "-q", "-b", "main", originDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init bare: %v\n%s", err, out)
+	}
 	wsDir := t.TempDir()
-	initGitRepo(t, wsDir, "", "")
+	initGitRepo(t, wsDir, "https://github.com/acme/widgets.git", originDir)
 	specDir := filepath.Join(wsDir, ".specs", "09_output_spec")
 	writeSpecPackage(t, specDir, "09", "output_spec")
 	for _, argv := range [][]string{
 		{"git", "-C", wsDir, "add", ".specs"},
 		{"git", "-C", wsDir, "commit", "-q", "-m", "chore: initial"},
+		{"git", "-C", wsDir, "push", "-q", "origin", "main"},
 	} {
 		if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %v\n%s", argv, err, out)
 		}
 	}
+
+	// A real forge server: impl lands a pull request on it while the --output
+	// write fails, so the failed copy is shown not to disturb what the run did.
+	var mu sync.Mutex
+	var pulls []map[string]any
+	forge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/pulls" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			pulls = append(pulls, body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 31, "number": 31, "title": body["title"], "body": body["body"],
+				"html_url": "https://github.com/acme/widgets/pull/31",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer forge.Close()
+	oldTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldTransport }()
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "github.com" || req.URL.Host == "api.github.com" {
+			req.URL.Scheme = "http"
+			req.URL.Host = forge.Listener.Addr().String()
+		}
+		return oldTransport.RoundTrip(req)
+	})
 	loaded, err := afspec.LoadSpec(specDir)
 	if err != nil {
 		t.Fatalf("afspec.LoadSpec: %v", err)
@@ -333,7 +372,7 @@ func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
 				Input:        d.Input,
 				Workspace:    d.Workspace,
 				Task:         task1.Id,
-				Land:         codeimpl.LandNone,
+				Land:         codeimpl.LandPR,
 				NoVerify:     true,
 				NoSurvey:     true,
 				TaskAttempts: 1,
@@ -365,12 +404,29 @@ func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
 	if code != toolio.ExitOK {
 		t.Fatalf("code = %d, want 0 despite the unwritable --output; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
-	var env toolio.Envelope
+	var env struct {
+		toolio.Envelope
+		Result struct {
+			Stage          string `json:"stage"`
+			PullRequestURL string `json:"pull_request_url"`
+		} `json:"result"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
 		t.Fatalf("stdout is not one JSON envelope: %v\n%s", err, stdout.String())
 	}
 	if !env.OK || env.ExitCode != toolio.ExitOK || env.Status != "done" {
 		t.Errorf("ok=%v exit_code=%d status=%q, want true/0/done as without --output", env.OK, env.ExitCode, env.Status)
+	}
+	// The forge saw the pull request and the run reports it: the failed copy
+	// changed nothing the run did.
+	mu.Lock()
+	opened := len(pulls)
+	mu.Unlock()
+	if opened != 1 {
+		t.Errorf("the forge received %d pull requests, want 1", opened)
+	}
+	if env.Result.Stage != "landed" || env.Result.PullRequestURL != "https://github.com/acme/widgets/pull/31" {
+		t.Errorf("result stage %q, pull_request_url %q, want landed on the forge's pull request", env.Result.Stage, env.Result.PullRequestURL)
 	}
 	var found *toolio.Warning
 	for i, w := range env.Warnings {
@@ -401,8 +457,9 @@ func TestTS08_27_FailedOutputWriteIsAWarningNotAFailure_Smoke(t *testing.T) {
 // TS-08-28 (smoke): spec's --output and --report-file, pointed at the same
 // path, land the complete report rather than the --detail view
 // Verifies: 08-PATH-3, 08-REQ-4.3, 08-REQ-4.4
-// Real components: toolio.App, specgen.Run, issuex.GitLabClient
+// Real components: toolio.App, specgen.Run, issuex.GitLabClient (over an httptest server)
 func TestTS08_28_OutputAndReportFileCollideCompleteReportLands_Smoke(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "gl-smoke-token")
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
@@ -411,13 +468,55 @@ func TestTS08_28_OutputAndReportFileCollideCompleteReportLands_Smoke(t *testing.
 	if err := os.WriteFile(filepath.Join(wsDir, "go.mod"), []byte("module example.com/widgets\n\ngo 1.26\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	draft := filepath.Join(wsDir, "widgets.md")
-	if err := os.WriteFile(draft, []byte("widgets: a model and a store\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+
+	// The input is a GitLab issue, read through the real GitLab client from an
+	// httptest server; the write-side warnings the contract is about do not
+	// depend on it, but the path now runs through it.
+	var mu sync.Mutex
+	var issueRead bool
+	var tokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		tokens = append(tokens, r.Header.Get("PRIVATE-TOKEN"))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/issues/7"):
+			issueRead = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 7, "iid": 7, "title": "Widgets: a model and a store",
+				"description": "widgets: a model and a store", "state": "opened",
+				"web_url": "https://gitlab.com/group/widgets/-/issues/7",
+				"author":  map[string]any{"username": "alice"},
+			})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/issues/7/notes"):
+			_ = json.NewEncoder(w).Encode([]any{})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/issues/7/notes"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 9, "body": "posted"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	oldTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldTransport }()
+	http.DefaultTransport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "gitlab.com" {
+			req.URL.Scheme = "http"
+			req.URL.Host = server.Listener.Addr().String()
+		}
+		return oldTransport.RoundTrip(req)
+	})
 
 	var p *faux.Provider
 	app := smokeSpecApp(t, smokeSpecTurns(t, "01", "widget_core", 0, nil), &p)
+	inner := app.Exec
+	var receivedForge issuex.Client
+	app.Exec = func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+		receivedForge = d.Forge
+		return inner(ctx, d)
+	}
 
 	// Both flags name ./run.json, spelled two ways, from the working directory.
 	// (The fixtures are loaded above, relative to the repository's cwd.)
@@ -425,10 +524,27 @@ func TestTS08_28_OutputAndReportFileCollideCompleteReportLands_Smoke(t *testing.
 	t.Chdir(cwd)
 	var stdout, stderr bytes.Buffer
 	code := app.Main(context.Background(),
-		[]string{"--dir", wsDir, "--detail", "summary", "--output", "./run.json", "--report-file", "run.json", draft},
+		[]string{"--dir", wsDir, "--detail", "summary", "--output", "./run.json", "--report-file", "run.json", "https://gitlab.com/group/widgets/-/issues/7"},
 		strings.NewReader(""), &stdout, &stderr)
 	if code != toolio.ExitOK {
 		t.Fatalf("code = %d; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// The run went through the GitLab client: it read the issue from the
+	// server, with the credential in GitLab's own header.
+	if !strings.Contains(fmt.Sprintf("%T", receivedForge), "gitlab") {
+		t.Errorf("the run's forge client is %T, want the GitLab client", receivedForge)
+	}
+	mu.Lock()
+	read, seen := issueRead, append([]string(nil), tokens...)
+	mu.Unlock()
+	if !read {
+		t.Error("the GitLab issue was never read from the server")
+	}
+	for _, tok := range seen {
+		if tok != "gl-smoke-token" {
+			t.Errorf("a request reached the GitLab server with PRIVATE-TOKEN %q, want the configured credential", tok)
+		}
 	}
 
 	var env struct {
