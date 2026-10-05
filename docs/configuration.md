@@ -305,6 +305,34 @@ tool a program drives takes its configuration from its flags and its
 environment, where the caller can see it, rather than from a file two
 directories up that changes what the same command does.
 
+## Choosing the forge
+
+The tools reach GitHub or GitLab through one client, and which of the two is
+decided from names and variables, never by asking the host what it is. In this
+order:
+
+1. **The host's name.** The host of the issue URL, or of the repository the tool
+   is working in (the `origin` remote of `--dir`), is GitHub when its name
+   contains `github` and GitLab when it contains `gitlab`. A name with both, or
+   with neither, decides nothing here.
+2. **The environment.** When only one forge's variables are set (`GITHUB_API_URL`,
+   `GITHUB_TOKEN`, `GH_TOKEN` for GitHub; `GITLAB_API_URL`, `GITLAB_TOKEN` for
+   GitLab), that forge.
+3. **The `origin` remote of the working directory,** when both forges' variables
+   are set or neither is: its host is GitHub or GitLab when its name says so, or
+   when it is the host of `GITHUB_API_URL` or `GITLAB_API_URL`.
+4. **Otherwise the forge is ambiguous.** No request is sent to the host (a host
+   that is only guessed at never receives a credential), and the tool goes on
+   with a client that reads nothing from and writes nothing to a forge; a run
+   that has to write to one then stops at preflight, as it does without a
+   credential.
+
+A self-hosted forge whose name says neither `github` nor `gitlab` is therefore
+named with its API URL variable (`GITLAB_API_URL=https://git.example.com`), which
+also gives the client the address to talk to. This replaced an earlier design in
+which an unclassified host was probed with `GET /api/v4/version`; see
+[the erratum](errata/unclassified_host_probe.md).
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -319,9 +347,9 @@ directories up that changes what the same command does.
 | `AF_BRANCH_PREFIX` | the default for `fix --branch-prefix`, e.g. `feature`; the flag wins |
 | `XDG_STATE_HOME` | where report and events files go (`$XDG_STATE_HOME/agent-fox/runs` and `events/`); `~/.local/state` when unset; `--report-file` overrides the report path only. Tests set it to a temporary directory |
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub credential. Reading a public issue needs none; every write does |
-| `GITHUB_API_URL` | a GitHub Enterprise host; its host is then also accepted for the `origin` remote and for issue URLs |
+| `GITHUB_API_URL` | the GitHub REST API base URL, used as given with a trailing slash removed: `https://ghe.example.com/api/v3` for GitHub Enterprise Server (default `https://api.github.com`). Its host, without a leading `api.`, is then also accepted for the `origin` remote and for issue URLs. See [Choosing the forge](#choosing-the-forge) |
 | `GITLAB_TOKEN` | GitLab credential, on the same terms |
-| `GITLAB_API_URL` | a self-hosted GitLab host; its host is then also accepted for the `origin` remote and for issue URLs |
+| `GITLAB_API_URL` | a GitLab address: `https://gitlab.example.com` and `https://gitlab.example.com/api/v4` are the same (a trailing slash is removed and `/api/v4` is added when it is missing; default `https://gitlab.com/api/v4`). Its host is then also accepted for the `origin` remote and for issue URLs |
 | `CLAUDE_CODE_USE_VERTEX` | selects Claude on Vertex AI; see above |
 | `CLAUDE_CODE_USE_BEDROCK` | **refused**; see above |
 

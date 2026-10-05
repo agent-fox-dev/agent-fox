@@ -81,8 +81,12 @@ go mod download
   [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
 
 - **issuex** (`issuex/`) — the forge client. One `Client` interface over
-  GitHub and GitLab: reading an issue and its comments, filing and rewriting
-  an issue, commenting, and opening a pull or merge request. `ParseIssueURL`,
+  GitHub and GitLab, twenty operations: reading, filing, rewriting, closing and
+  listing issues; comments; labels; and pull or merge requests — opening,
+  reading and closing them, their changed files, state, CI check runs and
+  reviews, review comments, and merging by the repository's own policy.
+  `SetGitHubSleep` and `SetGitLabSleep` are exported only so the tests of other
+  packages can run rate-limit backoff without waiting; nothing else uses them. `ParseIssueURL`,
   `ParseRepo` and `DetectRepo` are the only places a URL, a `--repo` value or
   an `origin` remote is parsed. It is the one path to a forge in this
   repository: the shell in `toolio` builds the client, the pipelines call it,

@@ -27,6 +27,9 @@ of the previous version would expect.
 | Erratum | Subject |
 |---|---|
 | [04_ghapi_removed](errata/04_ghapi_removed.md) | Spec 04 asked for `internal/ghapi` to stay as a deprecated layer; it is deleted, and `issuex` is the only path to a forge |
+| [04_issue_url_host](errata/04_issue_url_host.md) | Spec 04 asked the shell to build the forge client with `BaseURL` set to the issue URL's host; it passes the parsed repository, so the API host is derived (`api.github.com`, not `github.com`) |
+| [unclassified_host_probe](errata/unclassified_host_probe.md) | `NewWithOptions` no longer probes a host whose name says neither `github` nor `gitlab` with the GitLab token; `03-REQ-1.4` is withdrawn |
+| [issuex_shared_request_loop](errata/issuex_shared_request_loop.md) | The shared transport is one request loop both adapters run on, not an exported `Transport` they bypassed |
 | [agentkit_model_resolution](errata/agentkit_model_resolution.md) | Bedrock refusal, Claude on Vertex, the extended-variant model, cache policy, forced tool calls |
 | [google_function_response_references](errata/google_function_response_references.md) | Gemini resolves `$ref` inside a tool result; fixed in `agentkit-go`'s Google provider |
 | [tool_schema_property_names](errata/tool_schema_property_names.md) | Why the generation tools do not declare the artifact's `$schema`, and who writes it |

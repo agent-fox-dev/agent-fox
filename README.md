@@ -90,7 +90,7 @@ applies it to the legacy orchestrator that `impl` replaces.
 | `issuetriage/` | `issuetriage` | The triage pipeline: the diagnosis schema, the citation check, the rendered issue. |
 | `codefix/` | `codefix` | The fix pipeline: pre-flight, analysis, implementation, verification, landing. |
 | `codeimpl/` | `codeimpl` | The implementation pipeline: a spec's tasks in order, each verified by the spec's own checks and committed with its state. |
-| `issuex/` | `issuex` | The forge client: one interface over GitHub and GitLab for reading issues, filing them, commenting, and opening pull or merge requests. Every forge call the tools make goes through it. |
+| `issuex/` | `issuex` | The forge client: one interface over GitHub and GitLab, twenty operations: reading, filing, rewriting, closing, listing and commenting on issues, labels, and pull or merge requests with their changed files, state, CI check runs and reviews, review comments, and merging by the repository's own policy. Every forge call the tools make goes through it. |
 | `internal/toolio/` | `toolio` | Input classification, the JSON envelope, exit codes, and the shell the commands share. |
 | `internal/agentrun/` | `agentrun` | Model and credential resolution, the phase runner, the read-only invariant, the shell guard. |
 | `internal/gitx/`, `internal/checks/` | | git, and the command that decides whether a change is correct. |
