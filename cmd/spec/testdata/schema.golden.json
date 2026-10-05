@@ -75,6 +75,12 @@
       },
       "input-kind": {
         "type": "string",
+        "enum": [
+          "file",
+          "text",
+          "issue",
+          "stdin"
+        ],
         "default": "",
         "description": "force how the argument is classified: file, text, issue or stdin; a mismatch is a usage error (default: guess)"
       },
