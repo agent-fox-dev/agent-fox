@@ -71,46 +71,4 @@ func TestTS10_4_FactsAndCompleteness(t *testing.T) {
 	if got := trustOf(t, reflect.TypeOf(TaskReport{}), "ID"); got != "" {
 		t.Errorf("TaskReport.ID trust = %q, want none", got)
 	}
-
-	for _, typ := range []reflect.Type{
-		reflect.TypeOf(Result{}), reflect.TypeOf(summaryResult{}),
-		reflect.TypeOf(summaryTask{}),
-	} {
-		for _, p := range untaggedStrings(typ, typ.Name(), map[reflect.Type]bool{}) {
-			t.Errorf("string field without trust tag: %s", p)
-		}
-	}
-}
-
-// untaggedStrings lists the dotted path of every string or []string field
-// reachable from typ that carries no trust tag.
-func untaggedStrings(typ reflect.Type, prefix string, seen map[reflect.Type]bool) []string {
-	for typ.Kind() == reflect.Ptr || typ.Kind() == reflect.Slice {
-		typ = typ.Elem()
-	}
-	if typ.Kind() != reflect.Struct || seen[typ] {
-		return nil
-	}
-	seen[typ] = true
-	defer delete(seen, typ)
-	var out []string
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
-		if !f.IsExported() || f.Tag.Get("json") == "-" {
-			continue
-		}
-		path := prefix + "." + f.Name
-		ft := f.Type
-		isStr := ft.Kind() == reflect.String || (ft.Kind() == reflect.Slice && ft.Elem().Kind() == reflect.String)
-		if isStr {
-			switch f.Tag.Get("trust") {
-			case "fact", "model", "external":
-			default:
-				out = append(out, path)
-			}
-			continue
-		}
-		out = append(out, untaggedStrings(ft, path, seen)...)
-	}
-	return out
 }

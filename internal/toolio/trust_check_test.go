@@ -83,6 +83,74 @@ func TestTS10_10_FourResultTreesFullyClassified(t *testing.T) {
 	}
 }
 
+// TS-10-10 (unit, summary views): the default envelope's untrusted_fields is
+// computed over the --detail summary view, which App.emit swaps in after the
+// full Result is built, so the views are outside the four Result trees TS-10-10
+// walks. Each view's string fields must be classified too; a model-authored
+// string added to a summary view without a trust tag would otherwise be absent
+// from the default view's untrusted_fields with no test failing (10-REQ-2.3).
+//
+// Verifies: 10-REQ-2.2, 10-REQ-2.3
+func TestTS10_10_SummaryViewsFullyClassified(t *testing.T) {
+	for name, sample := range map[string]toolio.Summarizable{
+		"codefix":     &codefix.Result{},
+		"codeimpl":    &codeimpl.Result{},
+		"issuetriage": &issuetriage.Result{},
+		"specgen":     &specgen.Result{},
+	} {
+		view := sample.SummaryView()
+		typ := reflect.TypeOf(view)
+		if typ == nil {
+			t.Errorf("%s: SummaryView() returned nil", name)
+			continue
+		}
+		if missing := toolio.CheckTrust(typ); len(missing) != 0 {
+			t.Errorf("%s: %s has string fields without a trust tag: %v", name, typ, missing)
+		}
+	}
+}
+
+// A trust tag's value is one of the three the label knows (10-REQ-1.1): the
+// untrusted_fields list is built from "model" and "external", so a misspelled
+// value would classify a field as neither and leave it out without a test
+// failing. Checked over every Result and every summary view, nested types
+// included; this is the one walker the per-package tests used to carry copies of.
+func TestTS10_TrustTagValuesAreLegal(t *testing.T) {
+	legal := map[string]bool{"fact": true, "model": true, "external": true}
+	var walk func(typ reflect.Type, path string, seen map[reflect.Type]bool)
+	walk = func(typ reflect.Type, path string, seen map[reflect.Type]bool) {
+		for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array || typ.Kind() == reflect.Map {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		defer delete(seen, typ)
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			if !f.IsExported() || f.Tag.Get("json") == "-" {
+				continue
+			}
+			fieldPath := path + "." + f.Name
+			if v, tagged := f.Tag.Lookup(toolio.TrustTag); tagged && !legal[v] {
+				t.Errorf("%s: trust tag %q is not fact, model or external", fieldPath, v)
+			}
+			walk(f.Type, fieldPath, seen)
+		}
+	}
+	results := map[string]toolio.Summarizable{
+		"codefix":     &codefix.Result{},
+		"codeimpl":    &codeimpl.Result{},
+		"issuetriage": &issuetriage.Result{},
+		"specgen":     &specgen.Result{},
+	}
+	for name, r := range results {
+		walk(reflect.TypeOf(r), name+".Result", map[reflect.Type]bool{})
+		walk(reflect.TypeOf(r.SummaryView()), name+".SummaryView", map[reflect.Type]bool{})
+	}
+}
+
 // TS-10-11 (unit): InputInfo's string fields are deliberately untagged;
 // CheckTrust would report them, so the shipped test must never walk it.
 //
