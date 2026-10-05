@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
+	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -95,6 +96,7 @@ type architectureRequest struct {
 // agentAuthor runs the phases against the configured model.
 type agentAuthor struct {
 	runner *agentrun.Runner
+	ws     *tools.Workspace
 }
 
 func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentrun.Result, error) {
@@ -105,7 +107,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input, req.Context,
 			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split)),
 		Terminator:         ToolSubmitPRD,
-		Custom:             []core.Tool{submitPRDTool(&sink)},
+		Custom:             []core.Tool{submitPRDTool(&sink, a.ws)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
 		ReadOnly:           true,
 		MaxTokens:          prdMaxTokens,

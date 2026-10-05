@@ -470,7 +470,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
-		env.author = &agentAuthor{runner: o.Runner}
+		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace}
 	}
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
+	"github.com/agentfox/agentkit-go/tools"
 )
 
 // ToolSubmitPRD is the terminating tool of the PRD phase.
@@ -20,6 +22,13 @@ const ToolSubmitPRD = "submit_prd"
 // correct on the next turn is better than a spec that fails to validate after
 // three more phases have been paid for.
 var specNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// RelevantFile is one file the PRD phase identified as important for later
+// generation phases.
+type RelevantFile struct {
+	Path string `json:"path"`
+	Why  string `json:"why"`
+}
 
 // PRD is the first phase's result.
 type PRD struct {
@@ -37,6 +46,9 @@ type PRD struct {
 	// RecommendedSplit is set when the input describes more than one spec's
 	// worth of work. The PRD then covers the first scope only.
 	RecommendedSplit []SplitScope `json:"recommended_split,omitempty"`
+	// RelevantFiles lists the files the PRD phase found important for later
+	// generation phases.
+	RelevantFiles []RelevantFile `json:"relevant_files,omitempty"`
 }
 
 // OpenQuestion is one decision made under uncertainty.
@@ -82,7 +94,19 @@ func prdSchema() *schema.Schema {
 			schema.Prop("scope", schema.String("What this spec would cover, in one or two sentences")),
 		), "Set ONLY when the input is more than one spec's worth of work. List every scope, "+
 			"first one first — the PRD you submit covers that first scope alone.")),
+		schema.Opt("relevant_files", relevantFilesArraySchema()),
 	)
+}
+
+// relevantFilesArraySchema returns the schema for the relevant_files array.
+func relevantFilesArraySchema() *schema.Schema {
+	maxItems := 30
+	s := schema.Array(schema.Object(
+		schema.Prop("path", schema.String("Repository-relative file path")),
+		schema.Prop("why", schema.String("Why a later phase should read this file first")),
+	), "The files a later phase should read first to write requirements, tests and tasks for this PRD")
+	s.MaxItems = &maxItems
+	return s
 }
 
 // prdSink is the guarded destination the tool handler writes into.
@@ -111,7 +135,7 @@ func (p *prdSink) get() (PRD, bool) {
 // more phases, an empty title fails the frontmatter schema, and a body with
 // no `## Intent` section cannot be activated at all. Each is repairable on
 // the next turn, so each is an error result rather than a Go error.
-func submitPRDTool(sink *prdSink) core.Tool {
+func submitPRDTool(sink *prdSink, ws *tools.Workspace) core.Tool {
 	return core.Tool{
 		Name: ToolSubmitPRD,
 		Description: "Submit the finished PRD and end this phase. Call this once, after you " +
@@ -152,6 +176,14 @@ func submitPRDTool(sink *prdSink) core.Tool {
 			}
 			if err := checkSplit(prd.SpecName, prd.RecommendedSplit); err != nil {
 				return core.ErrResult("invalid_split", err.Error())
+			}
+
+			if len(prd.RelevantFiles) > 0 && ws != nil {
+				if bad := validateRelevantFiles(ws, prd.RelevantFiles); len(bad) > 0 {
+					return core.ErrResult("invalid_relevant_files",
+						fmt.Sprintf("these paths are not regular files in the workspace: %s",
+							strings.Join(bad, ", ")))
+				}
 			}
 
 			sink.set(prd)
@@ -201,6 +233,24 @@ func checkSplit(specName string, split []SplitScope) error {
 			"covers the first scope, so the two must be the same name.", first, specName)
 	}
 	return nil
+}
+
+// validateRelevantFiles checks that every path in the list is a regular file
+// in the workspace. It returns the paths that are not.
+func validateRelevantFiles(ws *tools.Workspace, files []RelevantFile) []string {
+	var bad []string
+	for _, rf := range files {
+		abs, err := ws.Resolve(rf.Path)
+		if err != nil {
+			bad = append(bad, rf.Path)
+			continue
+		}
+		info, err := os.Stat(abs)
+		if err != nil || !info.Mode().IsRegular() {
+			bad = append(bad, rf.Path)
+		}
+	}
+	return bad
 }
 
 // intentRE matches the `## Intent` heading, in the spellings a model
