@@ -1,15 +1,18 @@
 # skills/
 
-Two markdown skills for a coding CLI, for the work that stays a conversation
-with a person:
+Markdown skills for a coding CLI, for the work that stays a conversation with
+a person:
 
 | Skill | What it does |
 |---|---|
 | [`af-prd`](af-prd.md) | Writes a PRD with the user, in the shape the `spec` tool's own PRD phase produces, and saves it under `docs/prds/` ready for `spec <path>` |
 | [`af-code-simplifier`](af-code-simplifier.md) | Makes existing code smaller and clearer without changing its behaviour, one verified commit at a time |
+| [`af-code-quality`](af-code-quality.md) | Reviews how the code is built against the rules the project has written for itself (ADRs, steering, conventions), and turns agreed findings into verified changes and recorded decisions |
+| [`af-bug-hunter`](af-bug-hunter.md) | Hunts for exploitable bugs from the trust boundaries inward, proves each with a local reproduction, and reports them ranked by who can trigger them and what it gets them |
 
-Both are workflows a person drives: an interview and a review. That is the
-line [ADR 03](../docs/adr/03-rebuild-the-skills-as-tools.md) draws. The three
+All four are workflows a person drives: an interview, a review, a decision.
+That is the line [ADR 03](../docs/adr/03-rebuild-the-skills-as-tools.md)
+draws. The three
 skills that ran unattended — `af-issue`, `af-fix` and `af-spec` — were rebuilt
 as programs and removed from this directory:
 
