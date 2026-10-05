@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -335,5 +337,60 @@ func TestRunPreflightReportsTheRepairModel(t *testing.T) {
 	c, ok := findCheck(res.Preflight, "repair_model_credential")
 	if !ok || !c.OK || !strings.Contains(c.Detail, "repair-model") {
 		t.Errorf("repair_model_credential = %+v (present %v)", c, ok)
+	}
+}
+
+// 11-REQ-7.6: the dependencies entry's detail is a fact. An upstream spec the
+// run could not find is not reported as sealed or done; the entry says it
+// could not be checked, beside the upstream_missing warning, and stays ok
+// because the ordinary run tolerates it.
+func TestPreflightDependenciesDetailSaysWhatWasNotChecked(t *testing.T) {
+	ws, g, specDir := newSpecRepo(t)
+
+	tasksFile := filepath.Join(specDir, "tasks.json")
+	raw, err := os.ReadFile(tasksFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["dependencies"] = []map[string]any{{"spec": "08", "reason": "needs the upstream foundation"}}
+	raw, err = json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, specDir, "tasks.json", string(raw))
+	if _, err := g.CommitAll(context.Background(), "chore: depend on a spec that is not there\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	o := preflightOptions(t, ws, g)
+	res, err := RunPreflight(context.Background(), o)
+	if err != nil {
+		t.Fatalf("RunPreflight: %v", err)
+	}
+	c, ok := findCheck(res.Preflight, "dependencies")
+	if !ok {
+		t.Fatalf("checklist lacks dependencies: %v", res.Preflight)
+	}
+	if !c.OK {
+		t.Errorf("dependencies: OK = false (%s); an unchecked upstream is tolerated", c.Detail)
+	}
+	if strings.Contains(c.Detail, "sealed or done") && !strings.Contains(c.Detail, "could not be checked") {
+		t.Errorf("detail claims what was never verified: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "1 could not be checked") || !strings.Contains(c.Detail, "0 verified") {
+		t.Errorf("detail = %q, want it to say 0 verified and 1 could not be checked", c.Detail)
+	}
+	var warned bool
+	for _, w := range o.Run.Warnings() {
+		if w.Code == toolio.WarnUpstreamMissing {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("no upstream_missing warning beside the entry")
 	}
 }
