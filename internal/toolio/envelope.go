@@ -220,12 +220,13 @@ type ArtifactsProvider interface {
 // Target names what was written to: "origin <branch>" for a push,
 // "<owner>/<repo>#<number>" for a comment or an issue update,
 // "<owner>/<repo>" for an issue that has no number yet, and
-// "<owner>/<repo>#<pr-number>" for a pull request. Warning is set only when
+// "<owner>/<repo>#<pr-number>" for a pull request that was opened; a pull
+// request that could not be opened is "<owner>/<repo>", it has no number. Warning is set only when
 // OK is false and the call site recorded a Run.Warn for the same failure: the
 // two come from one call site, so they cannot disagree.
 type SideEffect struct {
 	Action string `json:"action" description:"What was written: one of create_issue, update_issue, comment, push, open_pr."`
-	Target string `json:"target" description:"What it was written to: origin <branch> for a push, <owner>/<repo>#<number> for a comment, an issue update or a pull request, <owner>/<repo> for an issue that has no number yet."`
+	Target string `json:"target" description:"What it was written to: origin <branch> for a push, <owner>/<repo>#<number> for a comment, an issue update or a pull request that was opened, <owner>/<repo> for an issue that has no number yet or a pull request that could not be opened."`
 	// Kind and URL tell two writes of the same action apart: which comment it
 	// was, and where it went when it was posted.
 	Kind    string   `json:"kind,omitempty" description:"For a comment, which one: analysis, summary, failure, clarification or prd. Absent for other actions."`

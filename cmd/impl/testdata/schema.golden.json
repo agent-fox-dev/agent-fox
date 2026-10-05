@@ -1677,7 +1677,7 @@
             },
             "target": {
               "type": "string",
-              "description": "What it was written to: origin \u003cbranch\u003e for a push, \u003cowner\u003e/\u003crepo\u003e#\u003cnumber\u003e for a comment, an issue update or a pull request, \u003cowner\u003e/\u003crepo\u003e for an issue that has no number yet."
+              "description": "What it was written to: origin \u003cbranch\u003e for a push, \u003cowner\u003e/\u003crepo\u003e#\u003cnumber\u003e for a comment, an issue update or a pull request that was opened, \u003cowner\u003e/\u003crepo\u003e for an issue that has no number yet or a pull request that could not be opened."
             },
             "kind": {
               "type": "string",

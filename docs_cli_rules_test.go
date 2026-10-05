@@ -1,6 +1,8 @@
 package agentfox
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -42,6 +44,66 @@ func TestCLIDocContextBoundOrderMatchesTheCode(t *testing.T) {
 	for _, want := range []string{"before anything is fetched", "a file, an issue URL or stdin", "after", "truncated"} {
 		if !strings.Contains(para, want) {
 			t.Errorf("the --context paragraph does not mention %q:\n%s", want, para)
+		}
+	}
+}
+
+// The spec summary view's traceability keeps the covered counts, so a package
+// with no gaps does not print {} (specgen/summary.go, issue #57).
+func TestCLIDocSummaryTraceabilityKeepsTheCoveredCounts(t *testing.T) {
+	row, ok := tableRow(readDoc(t, "cli.md"), "| `traceability` | `{")
+	if !ok {
+		t.Fatal("docs/cli.md has no summary-view traceability row")
+	}
+	for _, want := range []string{"criteria_covered", "paths_covered", "criteria_uncovered", "paths_uncovered", "tests_unowned"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the traceability row does not name %q: %s", want, row)
+		}
+	}
+	if strings.Contains(row, "dropped") {
+		t.Errorf("the traceability row still says something is dropped: %s", row)
+	}
+}
+
+// spec's next[] suggests impl on every package that validates, in split order
+// (specgen/next.go), not only the first.
+func TestCLIDocNextTableSuggestsImplOnEveryValidPackage(t *testing.T) {
+	row, ok := tableRow(readDoc(t, "cli.md"), "| `spec` | `impl` on")
+	if !ok {
+		t.Fatal("docs/cli.md has no spec row in the next[] table")
+	}
+	if strings.Contains(row, "the first package") || !strings.Contains(row, "every package that validates") {
+		t.Errorf("spec next[] row = %s, want impl on every package that validates", row)
+	}
+}
+
+// triage was called issue until d8d8db5; no sentence still folds "like issue".
+func TestCLIDocUsesTheToolsCurrentName(t *testing.T) {
+	if doc := readDoc(t, "cli.md"); strings.Contains(doc, "folds like `issue`") {
+		t.Error("docs/cli.md still says an unsplit input folds like `issue`")
+	}
+}
+
+// A pull request that could not be opened is recorded on <owner>/<repo> with no
+// number (06-REQ-5.3), and the docs say so.
+func TestCLIDocSaysWhereAFailedOpenPRIsRecorded(t *testing.T) {
+	doc := oneLine(readDoc(t, "cli.md"))
+	if !strings.Contains(doc, "pull request that could not be opened") || !strings.Contains(doc, "`<owner>/<repo>` with no number") {
+		t.Error("docs/cli.md does not say a pull request that could not be opened is recorded on `<owner>/<repo>` with no number")
+	}
+}
+
+// The deliberate divergences from spec 06 are recorded, so the spec package
+// does not read as unmet.
+func TestSpec06ErratumRecordsTheDeviations(t *testing.T) {
+	root := findWorkspaceRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "docs", "errata", "06_summary_and_next.md"))
+	if err != nil {
+		t.Fatalf("no erratum for the spec 06 deviations: %v", err)
+	}
+	for _, want := range []string{"06-REQ-3.4", "06-REQ-6.2", "06-REQ-6.6", "criteria_covered", "Command()"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the erratum does not mention %q", want)
 		}
 	}
 }
