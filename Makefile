@@ -38,6 +38,11 @@ lint:
 format:
 	gofmt -w .
 
+# Generate test coverage
+coverage:
+	go test ./... -coverprofile=coverage.txt -covermode=atomic
+	go tool cover -func=coverage.txt
+
 # Build all CLIs
 build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o bin/af ./cmd/af
@@ -90,8 +95,9 @@ build-tools-container:
 		-f containers/tools/Containerfile .
 
 clean:
-	rm -rf bin/af bin/nightshift
-	rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
+	-rm -f coverage.txt
+	-rm -rf bin/af bin/nightshift
+	-rm -rf $(DIST_DIR)/*-arm64 $(DIST_DIR)/*-amd64
 
 # Regenerate the Go artifact types from the bundled JSON Schemas.
 # The canonical schemas live in the agent-fox-dev/spec repository; the copies
