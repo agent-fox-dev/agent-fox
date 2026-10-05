@@ -669,6 +669,7 @@ func (e *runEnv) writePRD(ctx context.Context, split *splitContext) (PRD, error)
 		SourceKind:   o.Input.Kind.String(),
 		SourceOrigin: o.Input.Origin,
 		Input:        o.Input.Body,
+		Context:      o.Input.Context,
 		Profile:      e.profile,
 		Landscape:    e.landscape,
 		SpecRoot:     relativeTo(e.root, e.specsDir),

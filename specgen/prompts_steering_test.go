@@ -12,7 +12,7 @@ func TestSteeringReachesThePRDAndGenerationPrompts(t *testing.T) {
 	if !strings.Contains(block, "BEGIN STEERING") || !strings.Contains(block, "Always write tests first.") {
 		t.Fatalf("block = %q", block)
 	}
-	prd := prdUserPrompt("/r", "text", "", "idea", "", "", block, "")
+	prd := prdUserPrompt("/r", "text", "", "idea", "", "", "", block, "")
 	if !strings.Contains(prd, "Always write tests first.") {
 		t.Error("the PRD prompt lacks the steering")
 	}

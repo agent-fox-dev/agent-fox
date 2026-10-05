@@ -50,17 +50,29 @@ func prdSystemPrompt() string { return template("prd_system.md") }
 // splitBlock is empty for an undivided input. For one scope of a split it
 // carries the decided plan, so the same phase writes a follow-on PRD without
 // a second template.
-func prdUserPrompt(root, sourceKind, sourceOrigin, input, projectBlock, landscapeBlock, steeringBlock, splitBlock string) string {
+func prdUserPrompt(root, sourceKind, sourceOrigin, input, contextBlock, projectBlock, landscapeBlock, steeringBlock, splitBlock string) string {
 	return fill(template("prd_user.md"), map[string]string{
 		"root":            root,
 		"source_kind":     sourceKind,
 		"source_origin":   sourceOrigin,
 		"input":           strings.TrimSpace(input),
+		"context_block":   callerContextBlock(contextBlock),
 		"project_block":   projectBlock,
 		"landscape_block": landscapeBlock,
 		"steering_block":  steeringBlock,
 		"split_block":     splitBlock,
 	})
+}
+
+// callerContextBlock places the caller's --context block, already rendered by
+// the shared flag, after the input it qualifies. It is empty when there is
+// none, so a run without --context sends the prompt it always did.
+func callerContextBlock(context string) string {
+	context = strings.TrimSpace(context)
+	if context == "" {
+		return ""
+	}
+	return "\n" + context + "\n"
 }
 
 // generationSystemPrompt is shared by all three generation steps. It is one

@@ -53,8 +53,11 @@ type prdRequest struct {
 	SourceKind   string
 	SourceOrigin string
 	Input        string
-	Profile      project.Profile
-	Landscape    []afspec.SpecMeta
+	// Context is the caller's rendered --context block, or "". It qualifies
+	// the input and is shown with it, never merged into it.
+	Context   string
+	Profile   project.Profile
+	Landscape []afspec.SpecMeta
 	// SpecRoot is the directory the specs live in, relative to Root.
 	SpecRoot string
 	// Steering is the project's steering.md, or "".
@@ -99,7 +102,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 	res, err := a.runner.Run(ctx, agentrun.Phase{
 		Name:   "prd",
 		System: prdSystemPrompt(),
-		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input,
+		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input, req.Context,
 			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split)),
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink)},
