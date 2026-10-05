@@ -529,10 +529,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				if err := plan.save(specsDir); err != nil {
 					return nil, fail("plan", CategoryDisk, fmt.Errorf("recording the split: %w", err))
 				}
-				result.SplitPlan = relativeTo(root, plan.Path(specsDir))
 			}
 		}
 		first = &prd
+	}
+
+	// The plan is on disk from here until it is removed, whether this run
+	// wrote it or found it, so the result names it from here: Resumable() and
+	// next[] describe the disk, whichever way the run stops. A dry run reads
+	// and writes no plan.
+	if plan != nil && !o.DryRun {
+		result.SplitPlan = relativeTo(root, plan.Path(specsDir))
 	}
 
 	// ---------------------------------------------------- one package --
@@ -570,9 +577,6 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			// so the next run on the same input resumes from this scope.
 			if spent := o.Run.CostUSD(); o.TotalBudgetUSD > 0 && spent >= o.TotalBudgetUSD {
 				result.setSplit(splitReport(root, specsDir, plan, -1))
-				if !o.DryRun && result.SplitPlan == "" {
-					result.SplitPlan = relativeTo(root, plan.Path(specsDir))
-				}
 				bf := failf("budget", agentrun.CategoryBudget,
 					"the run has spent $%.2f of its $%.2f total budget; the packages written so far "+
 						"are on disk, re-run on the same input to continue", spent, o.TotalBudgetUSD)
