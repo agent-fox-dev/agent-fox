@@ -15,6 +15,7 @@
 *.out
 coverage.out
 coverage.html
+coverage.txt
 *.coverprofile
 profile.cov
 
