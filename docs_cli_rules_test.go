@@ -193,3 +193,14 @@ func TestErrataIndexLineForModelResolutionIsCurrent(t *testing.T) {
 		t.Errorf("index line = %s, want it to say the variant layer was removed", line)
 	}
 }
+
+// impl's preflight checklist reports the repair phase's model and effort, and
+// docs/cli.md says what the entry holds.
+func TestCLIDocNamesTheRepairModelCredentialEntry(t *testing.T) {
+	doc := oneLine(readDoc(t, "cli.md"))
+	for _, want := range []string{"`repair_model_credential`", "names the model and the effort the repair phase will run at"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/cli.md does not say %q about impl's repair_model_credential entry", want)
+		}
+	}
+}

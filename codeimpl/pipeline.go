@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentfox/agentkit-go/core"
+
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -376,9 +378,14 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 	if o.RepairRunner != nil {
+		// The model and the effort the repair phase will run at, so what the
+		// flags asked for is what preflight reports.
 		detail := ""
 		if m := o.RepairRunner.Model(); m != nil {
 			detail = fmt.Sprintf("%s (%s)", m.ID, m.Provider)
+			if t := o.RepairRunner.Thinking(); t != core.ThinkingUnset {
+				detail += fmt.Sprintf(", effort %s", t)
+			}
 		}
 		add("repair_model_credential", true, detail)
 	}

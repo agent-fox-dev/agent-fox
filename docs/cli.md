@@ -411,7 +411,10 @@ then the tool's own checks:
   verification command, and the baseline run of it.
 - `impl`: the repository, the clean tree, `--pull`, the spec package and its
   validity and status, the `test_commands` audit, the upstream dependencies, the
-  work branch, and the baseline gate.
+  work branch, and the baseline gate. When a separate repair model or effort is
+  asked for (`--repair-model`, `--repair-model-effort`), its resolution is the
+  `repair_model_credential` entry, whose detail names the model and the effort
+  the repair phase will run at (`claude-opus-4-5 (anthropic), effort high`).
 - `spec`: `--name`, `--comment`'s preconditions, the schemas, and any split
   plan to resume.
 - `triage`: the target repository and the forge credential.
