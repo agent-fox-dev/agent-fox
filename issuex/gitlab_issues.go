@@ -219,9 +219,8 @@ func (c *gitlabClient) ListIssues(ctx context.Context, repo Repo, filter IssueFi
 	}
 
 	var (
-		collected  []Issue
-		incomplete bool
-		page       = 1
+		collected []Issue
+		page      = 1
 	)
 
 	for {
@@ -238,27 +237,21 @@ func (c *gitlabClient) ListIssues(ctx context.Context, repo Repo, filter IssueFi
 
 		for _, item := range batch {
 			if len(collected) >= limit {
-				incomplete = true
-				break
+				return IssueList{Issues: collected, Incomplete: true}, nil
 			}
 			collected = append(collected, item.toIssue())
 		}
-		if incomplete || len(collected) >= limit {
-			if len(batch) == 100 || (resp != nil && resp.Header.Get("X-Next-Page") != "") {
-				incomplete = true
-			}
+		// GitLab leaves X-Next-Page empty on the last page.
+		if resp == nil || resp.Header.Get("X-Next-Page") == "" {
 			break
 		}
-		if len(batch) < 100 {
-			break
+		if len(collected) >= limit {
+			return IssueList{Issues: collected, Incomplete: true}, nil
 		}
 		page++
 	}
 
-	return IssueList{
-		Issues:     collected,
-		Incomplete: incomplete,
-	}, nil
+	return IssueList{Issues: collected}, nil
 }
 
 // AddComment posts a new note (comment) to an issue.
@@ -306,7 +299,8 @@ func (c *gitlabClient) ListComments(ctx context.Context, ref IssueRef) (CommentL
 		path := fmt.Sprintf("/projects/%s/issues/%d/notes?per_page=100&page=%d&sort=asc&order_by=created_at",
 			projectPath(ref.Repo), ref.Number, page)
 		var batch []gitlabNote
-		if _, err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+		resp, _, err := c.doWithResponse(ctx, http.MethodGet, path, nil, &batch)
+		if err != nil {
 			return CommentList{}, err
 		}
 		for _, n := range batch {
@@ -324,11 +318,11 @@ func (c *gitlabClient) ListComments(ctx context.Context, ref IssueRef) (CommentL
 				HTMLURL:   htmlURL,
 			})
 		}
-		if page == 5 && len(batch) == 100 {
-			truncated = true
-		}
-		if len(batch) < 100 {
+		if resp == nil || resp.Header.Get("X-Next-Page") == "" {
 			break
+		}
+		if page == 5 {
+			truncated = true
 		}
 	}
 

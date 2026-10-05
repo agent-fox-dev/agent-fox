@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -370,11 +371,10 @@ func TestGitHub_Comment_Operations_TS_02_13(t *testing.T) {
 			w.Write([]byte(`{"html_url": "https://github.com/o/r/issues/1#issuecomment-1"}`))
 			return
 		}
-		page := r.URL.Query().Get("page")
-		if page == "5" {
-			w.Write(makeCommentPageJSON(100))
-			return
-		}
+		// More than 500 comments exist: every page is full and GitHub
+		// announces the next one.
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		githubNext(w, r, page+1)
 		w.Write(makeCommentPageJSON(100))
 	}))
 	defer srv.Close()

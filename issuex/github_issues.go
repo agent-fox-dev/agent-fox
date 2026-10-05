@@ -190,16 +190,16 @@ func (c *githubClient) ListIssues(ctx context.Context, repo Repo, filter IssueFi
 	}
 
 	var (
-		collected  []Issue
-		incomplete bool
-		page       = 1
+		collected []Issue
+		page      = 1
 	)
 
 	for {
 		q.Set("page", strconv.Itoa(page))
 		path := fmt.Sprintf("/repos/%s/%s/issues?%s", repo.Owner, repo.Name, q.Encode())
 		var batch []ghIssue
-		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+		resp, err := c.doWithResponse(ctx, http.MethodGet, path, nil, &batch)
+		if err != nil {
 			return IssueList{}, err
 		}
 		if len(batch) == 0 {
@@ -210,27 +210,20 @@ func (c *githubClient) ListIssues(ctx context.Context, repo Repo, filter IssueFi
 				continue
 			}
 			if len(collected) >= limit {
-				incomplete = true
-				break
+				// An issue beyond the limit: more remain. Pull requests
+				// do not count, and the issues endpoint lists them, so
+				// a next page alone does not prove it.
+				return IssueList{Issues: collected, Incomplete: true}, nil
 			}
 			collected = append(collected, item.toIssue())
 		}
-		if incomplete || len(collected) >= limit {
-			if len(batch) == 100 {
-				incomplete = true
-			}
-			break
-		}
-		if len(batch) < 100 {
+		if !hasNextPage(resp) {
 			break
 		}
 		page++
 	}
 
-	return IssueList{
-		Issues:     collected,
-		Incomplete: incomplete,
-	}, nil
+	return IssueList{Issues: collected}, nil
 }
 
 // AddComment posts a new comment to an issue or pull request.
@@ -264,15 +257,16 @@ func (c *githubClient) ListComments(ctx context.Context, ref IssueRef) (CommentL
 	for page := 1; page <= 5; page++ {
 		path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments?per_page=100&page=%d", ref.Repo.Owner, ref.Repo.Name, ref.Number, page)
 		var batch []Comment
-		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+		resp, err := c.doWithResponse(ctx, http.MethodGet, path, nil, &batch)
+		if err != nil {
 			return CommentList{}, err
 		}
 		all = append(all, batch...)
-		if page == 5 && len(batch) == 100 {
-			truncated = true
-		}
-		if len(batch) < 100 {
+		if !hasNextPage(resp) {
 			break
+		}
+		if page == 5 {
+			truncated = true
 		}
 	}
 	return CommentList{

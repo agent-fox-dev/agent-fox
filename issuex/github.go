@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -100,6 +101,13 @@ func SetGitHubSleep(c Client, fn func(time.Duration)) {
 }
 
 func (c *githubClient) do(ctx context.Context, method, path string, reqBody, respTarget any) error {
+	_, err := c.doWithResponse(ctx, method, path, reqBody, respTarget)
+	return err
+}
+
+// doWithResponse is do, also returning the response of the successful
+// request, whose body is already read, for its headers.
+func (c *githubClient) doWithResponse(ctx context.Context, method, path string, reqBody, respTarget any) (*http.Response, error) {
 	var bodyBytes []byte
 	if reqBody != nil {
 		switch v := reqBody.(type) {
@@ -114,7 +122,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 		case io.Reader:
 			b, err := io.ReadAll(v)
 			if err != nil {
-				return fmt.Errorf("%s %s: reading request body: %w", method, path, err)
+				return nil, fmt.Errorf("%s %s: reading request body: %w", method, path, err)
 			}
 			if len(b) > 0 {
 				bodyBytes = b
@@ -122,7 +130,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 		default:
 			b, err := json.Marshal(v)
 			if err != nil {
-				return fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
+				return nil, fmt.Errorf("%s %s: encoding request body: %w", method, path, err)
 			}
 			bodyBytes = b
 		}
@@ -145,7 +153,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 
 		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 		if err != nil {
-			return fmt.Errorf("%s %s: %w", method, path, err)
+			return nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
 
 		req.Header.Set("Accept", "application/vnd.github+json")
@@ -160,13 +168,13 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("%s %s: %w", method, path, err)
+			return nil, fmt.Errorf("%s %s: %w", method, path, err)
 		}
 
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBodyBytes))
 		_ = resp.Body.Close()
 		if err != nil {
-			return fmt.Errorf("%s %s: reading response: %w", method, path, err)
+			return nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
 		}
 
 		// 2xx response
@@ -174,15 +182,15 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 			if respTarget != nil {
 				if w, ok := respTarget.(io.Writer); ok {
 					if _, err := w.Write(raw); err != nil {
-						return fmt.Errorf("%s %s: writing response: %w", method, path, err)
+						return nil, fmt.Errorf("%s %s: writing response: %w", method, path, err)
 					}
 				} else {
 					if err := json.Unmarshal(raw, respTarget); err != nil {
-						return fmt.Errorf("%s %s: decoding response: %w", method, path, err)
+						return nil, fmt.Errorf("%s %s: decoding response: %w", method, path, err)
 					}
 				}
 			}
-			return nil
+			return resp, nil
 		}
 
 		httpErr := newGitHubHTTPError(method, path, resp, raw)
@@ -193,35 +201,55 @@ func (c *githubClient) do(ctx context.Context, method, path string, reqBody, res
 			if attempt == 0 && wait <= 120*time.Second {
 				select {
 				case <-ctx.Done():
-					return ctx.Err()
+					return nil, ctx.Err()
 				default:
 				}
 				c.sleep(wait)
 				select {
 				case <-ctx.Done():
-					return ctx.Err()
+					return nil, ctx.Err()
 				default:
 				}
 				continue
 			}
-			return fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
+			return nil, fmt.Errorf("%w: %w", ErrRateLimited, httpErr)
 		}
 
 		// Map status codes to sentinels
 		if resp.StatusCode == http.StatusNotFound {
 			if !c.Authenticated() {
-				return fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
+				return nil, fmt.Errorf("%w: resource may be private and require credentials: %w", ErrNotFound, httpErr)
 			}
-			return fmt.Errorf("%w: %w", ErrNotFound, httpErr)
+			return nil, fmt.Errorf("%w: %w", ErrNotFound, httpErr)
 		}
 		if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusMethodNotAllowed {
-			return fmt.Errorf("%w: %w", ErrConflict, httpErr)
+			return nil, fmt.Errorf("%w: %w", ErrConflict, httpErr)
 		}
 
-		return httpErr
+		return nil, httpErr
 	}
 
-	return nil
+	return nil, nil
+}
+
+// hasNextPage reports whether a response's Link header offers a rel="next"
+// page, which GitHub omits on the last page.
+func hasNextPage(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	for _, header := range resp.Header.Values("Link") {
+		for _, link := range strings.Split(header, ",") {
+			_, params, _ := strings.Cut(link, ";")
+			for _, param := range strings.Split(params, ";") {
+				name, value, _ := strings.Cut(strings.TrimSpace(param), "=")
+				if strings.EqualFold(name, "rel") && slices.Contains(strings.Fields(strings.Trim(value, `"`)), "next") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func parseGitHubError(status int, method, path string, body []byte) *HTTPError {
