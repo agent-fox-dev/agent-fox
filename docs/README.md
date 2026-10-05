@@ -18,6 +18,7 @@
 | [04](adr/04-implement-a-spec-as-a-tool.md) | Implement a spec as a tool: `impl` |
 | [05](adr/05-write-every-scope-of-a-split.md) | Write every scope of a split, and record the split until it is done |
 | [06](adr/06-version-the-envelope-interface.md) | Version the envelope interface: additive within a major version |
+| [09](adr/09-grade-the-work-independently.md) | Grade the work independently of the phase that did it: `impl`'s conformance stage and `fix`'s proof |
 
 ## Errata
 
@@ -29,7 +30,7 @@ of the previous version would expect.
 | [04_ghapi_removed](errata/04_ghapi_removed.md) | Spec 04 asked for `internal/ghapi` to stay as a deprecated layer; it is deleted, and `issuex` is the only path to a forge |
 | [03_detect_scope](errata/03_detect_scope.md) | `detect.go` was changed outside spec 03's task list; the Bitbucket forge type it added is withdrawn, and `ErrUnsupportedForge` is now a registry miss |
 | [03_retry_after_buffer](errata/03_retry_after_buffer.md) | The rate-limit backoff is the `Retry-After` the forge sent plus one second, for both adapters; spec 03's pseudocode expects it to equal the header |
-| [11_preflight](errata/11_preflight.md) | Spec 11: `--dry-run` skips the forge checks under `--preflight`, `impl`'s estimate is zero phases with nothing pending, and the event stream has the baseline's `check` event |
+| [11_preflight](errata/11_preflight.md) | Spec 11: `--dry-run` skips the forge checks under `--preflight`, `impl`'s estimate is zero phases with nothing pending and counts the conformance review, and the event stream has the baseline's `check` event |
 | [06_summary_and_next](errata/06_summary_and_next.md) | Spec 06's summary view keeps the covered counts, `next[]` suggests `impl` on every package a split wrote, and the ambiguity entry equals `needs_human.resume` only when rendered |
 | [04_issue_url_host](errata/04_issue_url_host.md) | Spec 04 asked the shell to build the forge client with `BaseURL` set to the issue URL's host; it passes the parsed repository, so the API host is derived (`api.github.com`, not `github.com`) |
 | [unclassified_host_probe](errata/unclassified_host_probe.md) | `NewWithOptions` no longer probes a host whose name says neither `github` nor `gitlab` with the GitLab token; `03-REQ-1.4` is withdrawn |

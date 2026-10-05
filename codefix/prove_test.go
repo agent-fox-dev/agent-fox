@@ -2,6 +2,7 @@ package codefix
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -89,6 +90,9 @@ func TestAFixWhoseTestsPassWithoutItOnlyReferencesTheIssue(t *testing.T) {
 	}
 	if !strings.Contains(got.Summary(), "does not close #1") {
 		t.Errorf("Summary() = %q", got.Summary())
+	}
+	if view, _ := json.Marshal(got.SummaryView()); !strings.Contains(string(view), `"closes_issue":false`) {
+		t.Errorf("the default view hides that the issue stays open: %s", view)
 	}
 }
 

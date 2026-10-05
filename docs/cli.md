@@ -286,7 +286,7 @@ count in `summary`.
 | `1` | `failed` | failed; the stage is named in the JSON |
 | `2` | `usage` | usage error — nothing was fetched, nothing was written |
 | `3` | `needs_human` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
-| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) |
+| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) — or it landed and the conformance checks left blocking findings (category `nonconformant`) |
 
 A bare invocation — no positional argument, or one that is all whitespace —
 is also program-driven when stdout is not a terminal: it still writes the
@@ -531,16 +531,18 @@ impl 09 --preflight
       {"check": "verify_baseline", "ok": true, "detail": "passed"}
     ],
     "estimate": {
-      "phases": 4,
+      "phases": 5,
       "max_turns_per_phase": 150,
       "max_budget_per_phase_usd": 5,
-      "max_total_usd": 20
+      "max_total_usd": 25
     }
   }
 }
 ```
 
-`phases` is one per task still pending, plus the survey unless `--no-survey`.
+`phases` is one per task still pending, plus the survey unless `--no-survey`,
+plus the conformance review unless `--no-review`. A repair or resolve phase
+runs only on what the run finds, so it is not counted.
 
 ### `spec --preflight`
 
@@ -963,6 +965,28 @@ returns the checkout to the base branch, and exits 4. A run that reports a fix
 and changed no file exits 1 rather than committing an empty tree — the diff
 comes from git, not from the model.
 
+### Proving the fix
+
+A verified change is proven before it is committed. The checks run once
+more with the change's non-test files put back as they were and its tests
+left in (`result.revert_check`). When they then fail, the tests depend on the
+fix, and the commit and the pull request close the issue (`Closes #N`). When
+they still pass — or cannot run — the change still lands, since it is
+verified, but it only references the issue (`Refs #N`), the pull request
+says why, and the run warns `fix_not_proven`. `result.closes_issue` records
+which.
+
+When the report cites requirement or test ids (`20-REQ-1.2`, `TS-20-3`) that
+a spec under `.specs` (or `$AF_SPEC_DIR`) defines, an independent review on a
+fresh context checks the change against exactly those ids, with the report
+as context; ids no spec defines are dropped. A blocking finding — a
+requirement `missing` or `different`, a test that does not assert its
+contract — keeps the issue open: the pull request is a draft headed "Not
+ready", `result.blocking` lists the findings, and the run exits 4 with
+category `nonconformant`. `--no-review` skips the review. The structural
+checks `impl` runs after its last task also run over the change, and are
+listed in the pull request (`result.structural`).
+
 ### Acceptance criteria
 
 When the report defines acceptance criteria — the `## Acceptance Criteria`
@@ -1005,6 +1029,7 @@ wrapped items are all read; at most 30 criteria are taken.
 | `--push-attempts` | `4` | push retries, with exponential backoff |
 | `--allow a,b` | — | extra programs the implementation phase's shell may run |
 | `--draft` | off | open the pull request as a draft |
+| `--no-review` | off | skip the independent review of the change against the requirement and test ids the report cites |
 
 Bounds: 150 turns, $5.00 per phase. With `--dry-run`, `fix` makes no remote
 change — push nothing, open nothing, post nothing — but still makes the
@@ -1031,7 +1056,10 @@ on a stranger's report is not something to hand an API key to.
 from the facts. When the report defined acceptance criteria it also carries
 `acceptance_criteria` (the criteria, as extracted), `criteria_outcome`
 (`pass` when every one was met, `fail` otherwise), and the verdict and
-evidence for each under `implementation.criteria_verdicts`.
+evidence for each under `implementation.criteria_verdicts`. A verified change
+also carries `revert_check`, `closes_issue`, `structural`, and — when the
+report cites spec ids — `review` and `blocking` (see
+[Proving the fix](#proving-the-fix)).
 
 Under `--detail summary` (the default) `result` keeps only:
 
@@ -1046,6 +1074,8 @@ Under `--detail summary` (the default) `result` keeps only:
 | `criteria_outcome` | unchanged |
 | `pull_request_url` | unchanged |
 | `dry_run` | unchanged |
+| `closes_issue` | present for a committed change on an issue |
+| `blocking` | unchanged |
 | `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
 | `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `verification` | only when the verdict is not landable (`regressed`, `still_failing`, …), with the failing command's tail output — the one place the summary is deliberately not smaller |
@@ -1524,7 +1554,72 @@ is rendered in the pull request under its task as "Test-first not followed".
 When tests need a new signature or interface method to compile, the prompt
 tells the model to stub it first and see the tests fail on behaviour. The
 evidence is the model's own claim; the run does not re-run the tests red.
-`--no-test-first` stops the tool requiring it.
+`--no-test-first` stops the tool requiring it. Where test-first is waived —
+by the flag, or by a task's `test_first_deviation` — the run measures what
+the red run would have shown: after the gate passes, the task's tests run
+once more with its implementation taken out (its non-test files put back as
+they were; for a task that changed only tests, the whole branch's), and the
+task lands only if they then fail. The result is `tasks[].revert_check`.
+
+### The conformance stage
+
+Every task was verified by the checks; after the last one lands, and before
+anything is pushed, the run asks what the checks cannot — whether the
+finished change does what the spec says. It measures the whole branch, from
+where it left the base branch:
+
+- **Structural checks** over the files the change touched, run by the tool
+  rather than the project's Makefile: `gofmt -l`, `go vet` on the touched
+  packages, duplication (eight meaningful lines repeated from elsewhere in the
+  repository), an error discarded with `_ =` under a comment that says it is
+  logged, a comment deferring to "a later task", an unexported declaration
+  nothing uses, a function over `--max-func-lines`, a Go test with no
+  assertion, a `var _ = pkg.Symbol` import suppressor, `git init` without
+  `-b`, a date after today in an ADR or erratum, and an erratum that cites no
+  code line or no test.
+- **Scope.** When every task lists `touches`, the change may touch only those
+  paths (documentation and the spec package exempt). Anything else is a
+  "while here" change that belongs in a pull request of its own.
+- **A clean environment.** The gate runs again with an empty `HOME`, no
+  global or system git configuration and no injected git identity (the
+  language toolchains' download caches stay where they are). The result is
+  `final_verification`, and `environment` is its fingerprint: `git_version`,
+  `init_default_branch` (`unset` in a clean environment) and `go_version`.
+  Checks that pass here and fail there lean on the author's machine.
+- **An independent review** (`--no-review` skips it). A read-only phase on a
+  fresh context sees the spec, the diff and the repository — no task's
+  report — and answers for every requirement and test of the done tasks and
+  every survey decision (`D-1`, `D-2`, …): `implemented`, `partial`,
+  `missing` or `different`; `asserts_contract`, `weaker`, `tautological`,
+  `no_assertions` or `missing`; `followed` or `not_followed`; and every
+  documentation statement the code contradicts. `submit_review` refuses a
+  review that skips an id or cites a `file:line` that does not exist.
+
+A requirement `missing` or `different`, a test `tautological`,
+`no_assertions` or `missing`, a decision `not_followed`, a contradicted
+document, a file out of scope and a clean-environment failure are
+**blocking**. When anything was found, one writing phase (`resolve`) fixes
+it or declares it a known deviation with the reason and an erratum in the
+change; scope and documentation findings can only be fixed. Its change lands
+as a `fix:` commit only on checks that still pass, and the change is then
+measured again. Tasks declare deviations the same way, in `submit_task`'s
+`deviations`, rather than in their notes.
+
+What remains is reported in two lists. `unmet` is what the change knowingly
+does not meet — declared deviations, a requirement `partial`, a test
+`weaker`, structural findings — each with `tracking`: the erratum in the
+change, or, with `--land pr`, an issue the run files for it
+(`deviation_not_tracked` when neither). The pull request opens with an
+"Unmet requirements" table, and its summary says the work is not complete
+while the list is non-empty. `blocking` is what was neither fixed nor
+declared: the pull request is opened as a draft headed "Not ready", and the
+run exits 4 with category `nonconformant`.
+
+A task that changed documentation must also give `doc_sources`: for every
+fact it wrote, the code or test `file:line` it was copied from and the text on
+that line. `submit_task` checks each against the file and refuses one that is
+not there, or that cites documentation. Every writing phase is told today's
+date.
 
 | Flag | Default | Effect |
 |---|---|---|
@@ -1541,7 +1636,9 @@ evidence is the model's own claim; the run does not re-run the tests red.
 | `--draft` | off | open the pull request as a draft |
 | `--pull` | off | checkout and pull the base branch from `origin` first |
 | `--no-survey` | off | skip the survey phase |
-| `--no-test-first` | off | do not require red-first evidence when a task is submitted |
+| `--no-test-first` | off | do not require red-first evidence when a task is submitted; the task's tests are revert-checked instead |
+| `--no-review` | off | skip the independent review and the resolve phase; the structural, scope and clean-environment checks still run |
+| `--max-func-lines` | `100` | length past which the structural checks report a function the change wrote or grew |
 | `--task-attempts` | `2` | implementation attempts per task before the run parks |
 | `--repair` | off | repair the checks when they fail before the first task or after the integration task; the run stops if it cannot |
 | `--repair-attempts` | `3` | repair attempts before the run gives up |
@@ -1567,7 +1664,12 @@ and the model's own `submission` kept separate — plus `gate`, `baseline`,
 way — `outcome`, `attempts`, `model` when it differed, the `failing` gate,
 `commit`, `changed_files`, `diff_stat`, `verification`, and the model's
 `submission` with its `cause` — as `repair` at the top level for the
-baseline and on the integration task's entry for the one after it.
+baseline and on the integration task's entry for the one after it. The
+conformance stage adds `final_verification` and `environment`, the `review`,
+the `structural` findings, `out_of_scope`, the `resolve` report (`outcome`,
+`commit`, `changed_files`, `verification`, `verdict`, `submission`), `unmet`
+and `blocking`; a task entry adds `revert_check` (`ran`, `reverted`, `tests`,
+`check`, `proves`, `reason`) when test-first was waived.
 
 Under `--detail summary` (the default) `result` keeps only:
 
@@ -1590,14 +1692,16 @@ Under `--detail summary` (the default) `result` keeps only:
 | `preflight` | unchanged; present only on a `--preflight` run whose checks passed |
 | `estimate` | unchanged; present only on a `--preflight` run whose checks passed |
 | `verification` | only when the run stopped on a verdict that is not landable, with the gate's checks and their tail output |
+| `unmet` | unchanged |
+| `blocking` | unchanged |
 
 The per-task gates, diff stats and submissions, the `survey`, the `baseline`
 and the `repair` report are in the report file.
 
 ### What the model may and may not do
 
-The survey phase is read-only, with `execute` under the reporting allowlist.
-The implementation and repair phases have the file tools and a shell under the
+The survey and review phases are read-only, with `execute` under the reporting
+allowlist. The implementation, repair and resolve phases have the file tools and a shell under the
 same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
 allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one
 addition: `write_file` and `edit_file` refuse any path under the spec

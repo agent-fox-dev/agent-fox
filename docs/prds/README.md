@@ -49,3 +49,10 @@ Proposed for a fifth tool without a model phase.
 | Document | What it asks for |
 |---|---|
 | [08-add-the-issue-tool.md](08-add-the-issue-tool.md) | `issue`: every `issuex.Client` operation as `issue --op <name> <target>` on GitHub and GitLab, on the shared envelope and exit codes, with the forge, host and token resolved from the same environment variables the four tools read; no model is resolved. Not the tool that was renamed to `triage`. Needs the shell in `internal/toolio` to run a tool that has no model phase |
+
+Proposed for how `impl` and `fix` grade their own work, and built: see
+[ADR 09](../adr/09-grade-the-work-independently.md).
+
+| Document | What it asks for |
+|---|---|
+| [10-make-shipped-prs-match-their-specs.md](10-make-shipped-prs-match-their-specs.md) | An independent conformance review before the pull request; unmet requirements at its top, tracked; tests held to their observable contract; verification in a clean environment; survey decisions as checks; structural checks; docs copied from code; scope; `fix` closing an issue only on a proven fix |

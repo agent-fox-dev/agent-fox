@@ -147,6 +147,9 @@ func TestADeclaredDeviationIsUnmetAndOpensThePullRequest(t *testing.T) {
 	if !hasWarning(o.Run, toolio.WarnUnmetRequirements) {
 		t.Error("no unmet_requirements warning")
 	}
+	if view := string(mustJSON(t, got.SummaryView())); !strings.Contains(view, `"unmet":[{"source":"declared","requirement":"09-REQ-1"`) {
+		t.Errorf("the default view hides the unmet list: %s", view)
+	}
 }
 
 // A blocker nobody fixed or declared keeps the run from being presented as
