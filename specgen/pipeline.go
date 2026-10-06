@@ -430,6 +430,9 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 			add("split_plan", true, "no unfinished split for this input")
 		}
 	}
+	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
+		add("symbol_backend", true, backend)
+	}
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: one PRD phase and one per

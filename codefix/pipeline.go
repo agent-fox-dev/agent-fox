@@ -678,6 +678,9 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 			add("verify_baseline", false, fmt.Sprintf("failed (exit %d)", b.ExitCode))
 		}
 	}
+	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
+		add("symbol_backend", true, backend)
+	}
 	result.Preflight = list
 
 	maxTurns, maxBudget := o.Runner.ResolvedBounds()

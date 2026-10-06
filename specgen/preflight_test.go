@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -294,5 +295,45 @@ func TestSummaryViewKeepsPreflightAndEstimate(t *testing.T) {
 	}
 	if v.Stage != "preflight" || len(v.Preflight) != 1 || v.Estimate == nil || v.Estimate.Phases != 4 {
 		t.Errorf("view = %+v", v)
+	}
+}
+
+// TS-15-9 (unit): RunPreflight adds a symbol_backend check, OK true, with the
+// detail "ctags" or "heuristics".
+//
+// Verifies: 15-REQ-4.1, 15-REQ-4.2
+func TestTS15_9_PreflightReportsSymbolBackend(t *testing.T) {
+	res, err := RunPreflight(context.Background(), preflightOptions(t))
+	if err != nil {
+		t.Fatalf("RunPreflight: %v", err)
+	}
+	c, ok := findCheck(res.Preflight, "symbol_backend")
+	if !ok {
+		t.Fatalf("no symbol_backend check in %+v", res.Preflight)
+	}
+	if !c.OK || (c.Detail != "ctags" && c.Detail != "heuristics") {
+		t.Errorf("symbol_backend = %+v, want OK with ctags or heuristics", c)
+	}
+}
+
+// TS-15-10 (unit): a failing detection omits the check and leaves the rest.
+//
+// Verifies: 15-REQ-4.3
+func TestTS15_10_PreflightOmitsSymbolBackendWhenDetectionFails(t *testing.T) {
+	orig := agentrun.DetectSymbolBackend
+	agentrun.DetectSymbolBackend = func(*tools.Workspace) (string, error) {
+		return "", errors.New("detection failed")
+	}
+	t.Cleanup(func() { agentrun.DetectSymbolBackend = orig })
+
+	res, err := RunPreflight(context.Background(), preflightOptions(t))
+	if err != nil {
+		t.Fatalf("RunPreflight: %v", err)
+	}
+	if _, ok := findCheck(res.Preflight, "symbol_backend"); ok {
+		t.Errorf("symbol_backend present after a failed detection: %+v", res.Preflight)
+	}
+	if len(res.Preflight) == 0 {
+		t.Errorf("other checks missing: %+v", res.Preflight)
 	}
 }

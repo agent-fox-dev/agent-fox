@@ -325,6 +325,9 @@ func RunPreflight(o Options) (*Result, error) {
 	if !o.DryRun {
 		list = append(list, toolio.PreflightCheck{Check: "forge_credential", OK: true})
 	}
+	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
+		list = append(list, toolio.PreflightCheck{Check: "symbol_backend", OK: true, Detail: backend})
+	}
 
 	est := &toolio.Estimate{Phases: 1}
 	est.MaxTurnsPerPhase, est.MaxBudgetPerPhaseUSD = o.Runner.ResolvedBounds()

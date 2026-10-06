@@ -439,6 +439,9 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		}
 		add("repair_model_credential", true, detail)
 	}
+	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
+		add("symbol_backend", true, backend)
+	}
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: the survey (unless
