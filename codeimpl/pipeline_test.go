@@ -1224,6 +1224,18 @@ type mockAuthClient struct {
 	createPRErr   error
 	capturedReq   issuex.CreatePullRequestRequest
 	capturedRepo  issuex.Repo
+	comments      []string
+	commentRefs   []issuex.IssueRef
+	commentErr    error
+}
+
+func (m *mockAuthClient) PostReviewComment(ctx context.Context, ref issuex.IssueRef, body string) error {
+	if m.commentErr != nil {
+		return m.commentErr
+	}
+	m.commentRefs = append(m.commentRefs, ref)
+	m.comments = append(m.comments, body)
+	return nil
 }
 
 func (m *mockAuthClient) Authenticated() bool {

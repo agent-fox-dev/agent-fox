@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
@@ -146,6 +147,15 @@ func pullRequestTitle(spec *afspec.Spec) string {
 // both empty: "N of N tasks landed" over an unmet requirement is the claim
 // this body exists not to make.
 func pullRequestBody(r *Result) string {
+	lead, detail, tail := pullRequestParts(r)
+	return lead + strings.Join(detail, "") + tail
+}
+
+// pullRequestParts is the body in the three parts fitPullRequest needs: the
+// lead a reviewer must read first (what is not met, the summary, the tasks),
+// the detail sections (each task's report and the conformance review), and
+// the tail (the verification and the footer).
+func pullRequestParts(r *Result) (lead string, detail []string, tail string) {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
@@ -200,10 +210,13 @@ func pullRequestBody(r *Result) string {
 		b.WriteString(driftSection(r.Survey.Drift))
 	}
 
+	lead = b.String()
+
 	for _, t := range r.Tasks {
 		if t.Submission == nil || t.Outcome != OutcomeDone {
 			continue
 		}
+		b.Reset()
 		p("### Task %d: %s\n\n%s\n\n", t.ID, t.Title, strings.TrimSpace(t.Submission.Summary))
 		if t.Repair != nil && t.Repair.Outcome == OutcomeDone && t.Repair.Submission != nil {
 			p("**The checks failed after this task and were repaired in its commit.** Cause: %s %s\n\n",
@@ -219,16 +232,97 @@ func pullRequestBody(r *Result) string {
 		if strings.TrimSpace(t.Submission.Notes) != "" {
 			p("**Notes:** %s\n\n", strings.TrimSpace(t.Submission.Notes))
 		}
+		detail = append(detail, b.String())
+	}
+	if c := conformanceSections(r); c != "" {
+		detail = append(detail, c)
 	}
 
-	b.WriteString(conformanceSections(r))
-
+	b.Reset()
 	p("## Verification\n\n%s\n\n", verificationLines(r.Gate, r.Baseline, r.Verification))
 	if r.FinalVerification != nil {
 		b.WriteString(cleanEnvironmentLines(r.Gate, *r.FinalVerification, r.Environment))
 	}
 	p("---\n%s\n", footer)
-	return b.String()
+	return lead, detail, b.String()
+}
+
+// fitPullRequest is the body to open the pull request with and the comments
+// that follow it, each within limit bytes.
+//
+// A body that fits is sent whole. One that does not keeps the lead and the
+// tail — what is not met, the tasks, the verification — and moves the detail
+// sections to comments, packed at section boundaries: a forge refuses a body
+// over its limit outright, and a pull request that is never opened is worse
+// than one whose detail is a scroll away. The JSON report holds everything.
+func fitPullRequest(r *Result, limit int) (body string, comments []string) {
+	lead, detail, tail := pullRequestParts(r)
+	if full := lead + strings.Join(detail, "") + tail; len(full) <= limit {
+		return full, nil
+	}
+	// Room for the "(n of m)" heading each comment carries.
+	const commentHeading = 64
+	comments = packSections(detail, limit-commentHeading)
+	for i, c := range comments {
+		comments[i] = fmt.Sprintf("**The full account, continued (%d of %d)**\n\n%s", i+1, len(comments), c)
+	}
+	note := fmt.Sprintf("## The full account\n\nThe per-task reports and the conformance review do not fit in "+
+		"this description (the forge accepts at most %d characters). They follow as %d comment(s) on this pull "+
+		"request, and the run's JSON report holds them in full.\n\n", limit, len(comments))
+	if room := limit - len(note) - len(tail); len(lead) > room {
+		const cut = "\n\n*…cut to fit the forge's limit; the JSON report holds the rest.*\n\n"
+		lead = truncateUTF8(lead, room-len(cut)) + cut
+	}
+	return lead + note + tail, comments
+}
+
+// packSections joins sections into as few pieces of at most max bytes as
+// their order allows. A section larger than max is split at line breaks, and
+// a line larger than max is cut.
+func packSections(sections []string, max int) []string {
+	var pieces []string
+	for _, s := range sections {
+		for len(s) > max {
+			i := strings.LastIndex(s[:max], "\n")
+			if i <= 0 {
+				i = len(truncateUTF8(s, max))
+			} else {
+				i++
+			}
+			pieces = append(pieces, s[:i])
+			s = s[i:]
+		}
+		if s != "" {
+			pieces = append(pieces, s)
+		}
+	}
+	var out []string
+	var cur strings.Builder
+	for _, p := range pieces {
+		if cur.Len() > 0 && cur.Len()+len(p) > max {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+		cur.WriteString(p)
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// truncateUTF8 is s cut to at most n bytes without splitting a character.
+func truncateUTF8(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // openingSections is what a pull request opens with when the work is not
