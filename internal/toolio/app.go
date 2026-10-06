@@ -349,6 +349,9 @@ func (a App) openEvents(common *Common, run *Run, stderr io.Writer) (*eventsSink
 
 	sink := newEventsSink(a.Name, writers...)
 	sink.sessionID = run.SessionID()
+	if eventsFile != nil {
+		sink.slowHeartbeats(eventsFile, heartbeatFileIdle)
+	}
 
 	// Record the warning after the sink is built and attached to the run,
 	// so it is also emitted as a warning event under --emit-events.

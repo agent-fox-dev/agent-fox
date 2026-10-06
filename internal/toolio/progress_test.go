@@ -214,7 +214,7 @@ func TestTS07_25_ProgressIsAnObserver(t *testing.T) {
 func TestProgressObserverHooksEmit(t *testing.T) {
 	p, _, events := sinkProgress(true, false, true)
 	p.PhaseStart("implement", "3", 40, 5)
-	p.Turn("implement", 1, 0.25, 100, 50)
+	p.Turn("implement", 1, agentrun.TurnUsage{CostUSD: 0.25, Input: 100, Output: 50})
 	p.ToolCall(agentrun.ToolCallInfo{Phase: "implement", Name: "bash", Blocked: true, Arguments: json.RawMessage(`{}`), OK: true})
 	p.PhaseEnd("implement", "end_turn", 1, 0.25, 900, nil)
 	var types []string

@@ -44,6 +44,7 @@ of the previous version would expect.
 | [agentkit_model_resolution](errata/agentkit_model_resolution.md) | Bedrock refusal, Claude on Vertex, the `[1m]` long-context model id (the variant layer was removed), cache policy, forced tool calls |
 | [google_function_response_references](errata/google_function_response_references.md) | Gemini resolves `$ref` inside a tool result; fixed in `agentkit-go`'s Google provider |
 | [tool_schema_property_names](errata/tool_schema_property_names.md) | Why the generation tools do not declare the artifact's `$schema`, and who writes it |
+| [tool_call_exit_status](errata/tool_call_exit_status.md) | A shell command's exit status is not a tool error (`ok` true, no `error`), and the events file's heartbeat window is 60 seconds |
 
 ## PRDs
 

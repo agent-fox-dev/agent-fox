@@ -102,6 +102,13 @@ type TurnEvent struct {
 	CostUSD      float64 `json:"cost_usd"`
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
+	// CacheReadTokens and CacheWriteTokens are the prompt-cache tokens the
+	// turn read and wrote: input_tokens is net of them, so with caching it is
+	// a handful while the prompt is tens of thousands. ContextTokens is the
+	// whole prompt the turn sent, the three together.
+	CacheReadTokens  int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+	ContextTokens    int64 `json:"context_tokens,omitempty"`
 }
 
 // ToolCallEvent is emitted per model tool call. omitempty is applied to
@@ -192,8 +199,9 @@ func newPhaseStartEvent(phase, task string, maxTurns int, budgetUSD float64) *Ph
 	return e
 }
 
-func newTurnEvent(phase string, turn int, costUSD float64, in, out int64) *TurnEvent {
-	e := &TurnEvent{Phase: phase, Turn: turn, CostUSD: costUSD, InputTokens: in, OutputTokens: out}
+func newTurnEvent(phase string, turn int, costUSD float64, in, out, cacheRead, cacheWrite int64) *TurnEvent {
+	e := &TurnEvent{Phase: phase, Turn: turn, CostUSD: costUSD, InputTokens: in, OutputTokens: out,
+		CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite, ContextTokens: in + cacheRead + cacheWrite}
 	e.Type = EventTurn
 	return e
 }
@@ -274,6 +282,9 @@ type eventsSink struct {
 	// phase_start event named.
 	lastEmit time.Time
 	stage    string
+	// slow are the writers heartbeats reach only after a longer silence of
+	// their own: the events file. See slowHeartbeats.
+	slow map[io.Writer]*slowWriter
 
 	// holding is true from HoldUntilRunStart until run_start is written or the
 	// run ends: every other event is stamped when it happens, kept in held and
@@ -299,6 +310,9 @@ type eventsSink struct {
 var (
 	heartbeatInterval = time.Second
 	heartbeatIdle     = 15 * time.Second
+	// heartbeatFileIdle is the events file's own window: a heartbeat reaches
+	// the file only after this long with nothing written to it.
+	heartbeatFileIdle = 60 * time.Second
 )
 
 func realTicker(d time.Duration) (<-chan time.Time, func()) {
@@ -311,6 +325,9 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 func newEventsSink(tool string, writers ...io.Writer) *eventsSink {
 	s := &eventsSink{
 		tool: tool, now: time.Now,
+		// Nothing has named a stage before the first step or phase, and what
+		// runs then — the baseline checks among it — is the preflight.
+		stage:    "preflight",
 		interval: heartbeatInterval, idle: heartbeatIdle,
 		newTicker: realTicker,
 	}
@@ -320,6 +337,29 @@ func newEventsSink(tool string, writers ...io.Writer) *eventsSink {
 		}
 	}
 	return s
+}
+
+// slowHeartbeats writes a heartbeat to w only after idle of silence on w
+// itself, rather than the stream's window. The events file is tailed by a
+// supervisor, which needs to tell a long silent phase from a dead run, but a
+// heartbeat every fifteen seconds was more than a quarter of its lines.
+func (s *eventsSink) slowHeartbeats(w io.Writer, idle time.Duration) {
+	if s == nil || w == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.slow == nil {
+		s.slow = map[io.Writer]*slowWriter{}
+	}
+	s.slow[w] = &slowWriter{idle: idle, last: s.now()}
+}
+
+// slowWriter is a writer heartbeats reach only after its own idle window:
+// last is when anything was last written to it.
+type slowWriter struct {
+	idle time.Duration
+	last time.Time
 }
 
 // Active reports whether the sink has anywhere to write.
@@ -377,6 +417,21 @@ func (s *eventsSink) emitLocked(e event) {
 			s.holding = false
 			s.flushHeldLocked()
 		}()
+	}
+	if _, beat := e.(*HeartbeatEvent); beat {
+		for _, w := range s.writers {
+			if sw, ok := s.slow[w]; ok {
+				if now.Sub(sw.last) < sw.idle {
+					continue
+				}
+				sw.last = now
+			}
+			_, _ = w.Write(line)
+		}
+		return
+	}
+	for _, sw := range s.slow {
+		sw.last = now
 	}
 	s.writeLocked(line)
 }

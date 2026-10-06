@@ -99,8 +99,9 @@ func TestTS12_43_ArgumentsRecordedVerbatimAndEmptyIsEmptyObject(t *testing.T) {
 	}
 }
 
-// TS-12-45 (unit): ok follows the result's error flag, not the exit status,
-// and is false for a guard-refused call.
+// TS-12-45 (unit): ok follows the result's error flag and is false for a
+// guard-refused call — except that a shell command which ran to an exit
+// status is ok whatever the status (docs/errata/tool_call_exit_status.md).
 func TestTS12_45_OKFollowsIsErrorNotExitStatus(t *testing.T) {
 	obs := &recObserver{verbose: false}
 	r := &Runner{cfg: Config{Observer: obs}}
@@ -147,11 +148,20 @@ func TestTS12_45_OKFollowsIsErrorNotExitStatus(t *testing.T) {
 			Content: core.Content{core.TextBlock{Text: "guard refused"}}},
 	})
 
-	if len(obs.toolCalls) != 4 {
-		t.Fatalf("got %d tool calls, want 4: %+v", len(obs.toolCalls), obs.toolCalls)
+	// Case 5: shell result with IsError true and a readable exit 1 (ok=true).
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
+		Block: core.ToolUseBlock{ID: "c5", Name: "execute", Input: json.RawMessage(`{"command":"grep x y"}`)},
+	})
+	r.trace("ph", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
+		Message: core.ToolResultMessage{ToolUseID: "c5", ToolName: "execute", IsError: true,
+			Content: core.Content{core.TextBlock{Text: "no match\n[exit 1]"}}},
+	})
+
+	if len(obs.toolCalls) != 5 {
+		t.Fatalf("got %d tool calls, want 5: %+v", len(obs.toolCalls), obs.toolCalls)
 	}
 
-	wantOK := []bool{true, false, true, false}
+	wantOK := []bool{true, false, true, false, true}
 	for i, want := range wantOK {
 		if obs.toolCalls[i].info.OK != want {
 			t.Errorf("call %d: ok = %v, want %v", i, obs.toolCalls[i].info.OK, want)

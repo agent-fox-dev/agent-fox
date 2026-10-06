@@ -77,8 +77,14 @@ func TestExitCodeFromTheRealShellToolsResults(t *testing.T) {
 			case tc.want != nil && *info.ExitCode != *tc.want:
 				t.Errorf("exit_code = %d, want %d", *info.ExitCode, *tc.want)
 			}
-			if wantOK := tc.want != nil && *tc.want == 0; info.OK != wantOK {
+			// A command that ran to an exit status is ok, whatever the
+			// status; one killed by a signal did not
+			// (docs/errata/tool_call_exit_status.md).
+			if wantOK := tc.want != nil; info.OK != wantOK {
 				t.Errorf("ok = %v, want %v", info.OK, wantOK)
+			}
+			if info.OK && info.Error != "" {
+				t.Errorf("error = %q on an ok call", info.Error)
 			}
 		})
 	}

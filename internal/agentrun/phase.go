@@ -106,6 +106,14 @@ type ToolCallInfo struct {
 	Error     string // present only when OK is false
 }
 
+// TurnUsage is one model turn's spend. Input is net of the prompt cache:
+// CacheRead and CacheWrite are the tokens read from and written to it, which a
+// cached prompt sends on every turn.
+type TurnUsage struct {
+	CostUSD                              float64
+	Input, Output, CacheRead, CacheWrite int64
+}
+
 // Observer receives a phase's progress. toolio.Progress satisfies it; a test
 // passes nil.
 type Observer interface {
@@ -119,7 +127,7 @@ type Observer interface {
 	// PhaseEnd reports that the phase ended.
 	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int)
 	// Turn reports one finished model turn.
-	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
+	Turn(phase string, turn int, usage TurnUsage)
 	// ToolCall reports one model tool call. It is emitted for every call,
 	// regardless of --verbose.
 	ToolCall(info ToolCallInfo)
@@ -569,7 +577,8 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *
 		// Emit the accumulated text event before the turn event.
 		tb.flush(r.cfg.Observer, phase, *turn)
 		if r.cfg.Observer != nil {
-			r.cfg.Observer.Turn(phase, *turn, v.Usage.CostUSD, v.Usage.InputTokens, v.Usage.OutputTokens)
+			r.cfg.Observer.Turn(phase, *turn, TurnUsage{CostUSD: v.Usage.CostUSD, Input: v.Usage.InputTokens,
+				Output: v.Usage.OutputTokens, CacheRead: v.Usage.CacheReadTokens, CacheWrite: v.Usage.CacheWriteTokens})
 		}
 	case core.ToolCallEndEvent:
 		r.detail("→ %s %s", v.Block.Name, firstLine(string(v.Block.Input), 100))
@@ -649,18 +658,24 @@ func (r *Runner) toolCall(phase string, msg core.ToolResultMessage, block core.T
 	} else {
 		info.Arguments = json.RawMessage(`{}`)
 	}
-	// Error text when the call failed; for a refused call, the guard's own
-	// message rather than the SDK's JSON envelope around it.
-	if msg.IsError {
-		info.Error = msg.Content.Text()
-		if refused {
-			info.Error = guardMessage(info.Error)
-		}
-	}
-	// Exit code only for shell tools with a readable status.
+	// Exit code only for shell tools with a readable status. A command that
+	// ran and exited non-zero is a tool call that worked: its exit code says
+	// how the command ended, and its output is not an error. ok and error are
+	// left for a refusal and for a call that did not run to an exit — killed,
+	// timed out, never started — or a tool that failed (see
+	// docs/errata/tool_call_exit_status.md).
 	if isShellTool(msg.ToolName) && !refused {
 		if code, ok := parseExitCode(msg.Content.Text(), msg.IsError); ok {
 			info.ExitCode = &code
+			info.OK = true
+		}
+	}
+	// Error text when the call failed; for a refused call, the guard's own
+	// message rather than the SDK's JSON envelope around it.
+	if !info.OK {
+		info.Error = msg.Content.Text()
+		if refused {
+			info.Error = guardMessage(info.Error)
 		}
 	}
 	r.cfg.Observer.ToolCall(info)
