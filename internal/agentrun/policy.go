@@ -28,8 +28,10 @@ var MutatingTools = []string{"write_file", "edit_file", "execute", "run_command"
 // them must install an interceptor; AgentKit refuses the run otherwise.
 var ShellTools = []string{"execute", "run_command", "powershell"}
 
-// ReadOnlyFileTools are the built-in tools that only read.
-var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "search_files"}
+// ReadOnlyFileTools are the built-in tools that only read. file_outline and
+// find_symbol navigate by declaration; neither writes, so neither is in
+// MutatingTools.
+var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
 
 // WriteFileTools are what an implementing phase gets on top of them.
 var WriteFileTools = []string{"write_file", "edit_file"}
