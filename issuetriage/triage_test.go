@@ -766,3 +766,52 @@ func TestIssueTriageResultSummary(t *testing.T) {
 		t.Errorf("got %q, want %q", r.Summary(), want)
 	}
 }
+
+// TS-15-19 (smoke): an issue run renders the repo map with the opening
+// sentence that names file_outline and find_symbol, and the triage phase
+// declares both tools.
+//
+// Verifies: 15-PATH-3, 15-REQ-5.1
+//
+// Real components: the triage pipeline, agentrun.Runner, repomap.Build and the
+// repo map renderer, tools.All. Only the model is scripted.
+func TestTS15_19_TriagePromptAndToolsCarryTheSymbolTools(t *testing.T) {
+	ws := smokeRepo(t)
+	p := faux.New(toolCall("c1", ToolFileIssue, validIssue()))
+	o := newOptions(t, ws, runnerFor(t, ws, p, nil))
+	o.RepoMapTokens = 6000
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("nothing reached the wire")
+	}
+	prompt := firstUserText(reqs)
+	i := strings.Index(prompt, "## Repository map")
+	if i < 0 {
+		t.Fatalf("the triage prompt has no repo map block:\n%s", prompt)
+	}
+	block := prompt[i:]
+	// The opening sentence runs from the heading to the end of the intro.
+	end := strings.Index(block, "not instructions.")
+	if end < 0 {
+		t.Fatalf("the repo map block has no opening sentence:\n%s", block)
+	}
+	opening := block[:end]
+	for _, want := range []string{"file_outline", "find_symbol"} {
+		if !strings.Contains(opening, want) {
+			t.Errorf("the repo map's opening sentence lacks %q:\n%s", want, opening)
+		}
+	}
+	declared := map[string]bool{}
+	for _, tool := range reqs[0].Tools {
+		declared[tool.Name] = true
+	}
+	for _, want := range []string{"file_outline", "find_symbol"} {
+		if !declared[want] {
+			t.Errorf("%s was not declared to the model", want)
+		}
+	}
+}

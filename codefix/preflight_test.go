@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -437,5 +438,110 @@ func TestTS15_10_PreflightOmitsSymbolBackendWhenDetectionFails(t *testing.T) {
 	}
 	if _, ok := findCheck(res.Preflight, "git_repository"); !ok {
 		t.Errorf("other checks missing: %+v", res.Preflight)
+	}
+}
+
+// TS-15-18 (smoke): fix --preflight reports the symbol_backend check with OK
+// true, through the real RunPreflight and the real detection.
+//
+// Verifies: 15-PATH-2, 15-REQ-4.1
+//
+// Real components: RunPreflight, agentrun.DetectSymbolBackend,
+// toolio.PreflightCheck.
+func TestTS15_18_FixPreflightReportsTheSymbolBackend(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	res, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+	if err != nil {
+		t.Fatalf("RunPreflight: %v", err)
+	}
+	var found []toolio.PreflightCheck
+	for _, c := range res.Preflight {
+		if c.Check == "symbol_backend" {
+			found = append(found, c)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly one symbol_backend entry, got %+v", res.Preflight)
+	}
+	if !found[0].OK {
+		t.Errorf("symbol_backend is not OK: %+v", found[0])
+	}
+	if d := found[0].Detail; d != "ctags" && d != "heuristics" {
+		t.Errorf("symbol_backend detail = %q, want ctags or heuristics", d)
+	}
+}
+
+// TS-15-17 (smoke): the real fix brain's analyse (read-only) and implement
+// (writing) phases each declare the six read tools; analyse declares no write
+// tool, implement declares write_file, edit_file and execute.
+//
+// Verifies: 15-PATH-1, 15-REQ-1.2, 15-REQ-1.3, 15-REQ-1.4
+//
+// Real components: agentBrain (the phases codefix really builds),
+// agentrun.Runner, agentrun.SelectTools, tools.All. Only the model is
+// scripted; neither phase has a valid submission, so the runs end in errors
+// that are ignored: what is asserted is what reached the wire.
+func TestTS15_17_FixPhasesDeclareTheSixReadTools(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	text := func(s string) faux.Turn {
+		return faux.Turn{Blocks: []core.ContentBlock{faux.FauxText(s)}, StopReason: core.StopReasonStop}
+	}
+	p := faux.New(text("a"), text("b"), text("c"), text("d"), text("e"), text("f"))
+	r, err := agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+		Workspace:     ws,
+		Bounds:        agentrun.Bounds{MaxTurns: 4, MaxBudgetUSD: 1, MaxAttempts: 1},
+		SessionPrefix: "fix",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &agentBrain{runner: r}
+	in := toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "crash on nil pointer"}
+	_, _, _ = b.Analyze(context.Background(), analysisInput{Input: in, Root: ws.Root})
+	nAnalyse := len(p.Requests())
+	_, _, _ = b.Implement(context.Background(), implementInput{Input: in, Root: ws.Root})
+
+	reqs := p.Requests()
+	if nAnalyse == 0 || len(reqs) == nAnalyse {
+		t.Fatalf("expected requests from both phases, got %d then %d", nAnalyse, len(reqs))
+	}
+	declared := func(req core.Request) map[string]bool {
+		m := map[string]bool{}
+		for _, tool := range req.Tools {
+			m[tool.Name] = true
+		}
+		return m
+	}
+	analyse, implement := declared(reqs[0]), declared(reqs[nAnalyse])
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !analyse[n] {
+			t.Errorf("analyse did not declare %s", n)
+		}
+		if !implement[n] {
+			t.Errorf("implement did not declare %s", n)
+		}
+	}
+	for _, n := range []string{"file_outline", "find_symbol"} {
+		if !analyse[n] || !implement[n] {
+			t.Errorf("%s missing from a phase (analyse %v, implement %v)", n, analyse[n], implement[n])
+		}
+	}
+	for _, n := range []string{"write_file", "edit_file"} {
+		if analyse[n] {
+			t.Errorf("analyse declared %s", n)
+		}
+		if !implement[n] {
+			t.Errorf("implement did not declare %s", n)
+		}
+	}
+	if !implement["execute"] {
+		t.Error("implement did not declare execute")
+	}
+	// analyse keeps a shell, but behind the read-only guard: no phase of fix
+	// is without it.
+	if !analyse["execute"] {
+		t.Error("analyse did not declare execute")
 	}
 }
