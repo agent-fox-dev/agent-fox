@@ -129,6 +129,9 @@ func SelectTools(all []core.Tool, readOnly bool, programs []string, names ...str
 			continue
 		}
 		t.Description = describeForPhase(t, readOnly, programs)
+		if t.Name == "execute" {
+			t.Description += shellReadNote(want)
+		}
 		if !shell {
 			// A guideline like "prefer search_files over execute+grep" points
 			// at a tool this phase does not have.
@@ -172,6 +175,28 @@ func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
 			"objects, never a string. The path must be inside the repository."
 	}
 	return t.Description
+}
+
+// shellReadNote is the sentence that steers execute away from reading and
+// searching files, naming the built-in tools the phase has for that; "" when
+// it has neither (17-REQ-5). The allowlist is left as it is: the description
+// still states what the guard enforces.
+func shellReadNote(selected map[string]bool) string {
+	var use []string
+	for _, n := range []string{"read_file", "search_files"} {
+		if selected[n] {
+			use = append(use, "`"+n+"`")
+		}
+	}
+	if len(use) == 0 {
+		return ""
+	}
+	verb := "respects .gitignore and returns structured results"
+	if len(use) > 1 {
+		verb = "respect .gitignore and return structured results"
+	}
+	return " Do not use cat, head, tail, grep or rg to read or search repository files: use " +
+		strings.Join(use, " and ") + ", which " + verb + "."
 }
 
 func hasShell(ts []core.Tool) bool {

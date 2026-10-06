@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1027,15 +1028,105 @@ func (c *toolCallCounter) snapshotBytes() map[string]int64 {
 // from the registered set so it cannot drift from it, and says so when none of
 // them is a shell. A model that is not told reaches for `bash`: one read-only
 // run called it, got an unknown-tool error, and lost a turn.
+//
+// It also carries what AgentKit would have said about the tools (17-REQ-1):
+// prompt.Build renders the tools' PromptGuidelines only when the system prompt
+// is its own, and every phase here supplies one, so the guidance that steers a
+// model from `execute` + grep to search_files never reached it. A phase with a
+// shell and the file tools is told which to use for what (17-REQ-3).
 func toolsNote(registered []core.Tool) string {
-	names := make([]string, 0, len(registered))
-	for _, t := range registered {
+	sorted := slices.Clone(registered)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	names := make([]string, 0, len(sorted))
+	for _, t := range sorted {
 		names = append(names, t.Name)
 	}
-	sort.Strings(names)
 	note := "\n\nYour tools are exactly: " + strings.Join(names, ", ") + ". Calling any other tool is an error."
-	if !hasShell(registered) {
+	shell := shellName(sorted)
+	if shell == "" {
 		note += " There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`."
+	} else if line := preferenceLine(sorted, shell); line != "" {
+		note += " " + line
+	}
+	if g := renderGuidelines(sorted, shell != ""); g != "" {
+		note += "\n\n" + g
 	}
 	return note
+}
+
+// shellName is the registered shell tool's name, or "" when there is none.
+func shellName(sorted []core.Tool) string {
+	for _, t := range sorted {
+		if slices.Contains(ShellTools, t.Name) {
+			return t.Name
+		}
+	}
+	return ""
+}
+
+// fileToolUses are the built-in file tools a phase with a shell is told to use
+// instead of it, each with what it is for, in the order the sentence names them.
+var fileToolUses = []struct{ tool, use string }{
+	{"read_file", "read files with"},
+	{"search_files", "search with"},
+	{"find_files", "find files with"},
+	{"list_files", "list directories with"},
+}
+
+// preferenceLine names the registered file tools and what each is for, and
+// limits the shell to git — and, in a phase that writes, to building,
+// formatting and testing. A phase with none of the file tools has none.
+func preferenceLine(sorted []core.Tool, shell string) string {
+	has := func(n string) bool {
+		return slices.ContainsFunc(sorted, func(t core.Tool) bool { return t.Name == n })
+	}
+	var parts []string
+	for _, f := range fileToolUses {
+		if has(f.tool) {
+			parts = append(parts, f.use+" `"+f.tool+"`")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	list := parts[0]
+	if len(parts) > 1 {
+		list = strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+	list = strings.ToUpper(list[:1]) + list[1:]
+	limit := "use `" + shell + "` only for git"
+	if has("write_file") || has("edit_file") {
+		limit += " and for building, formatting and testing"
+	}
+	return list + "; " + limit + "."
+}
+
+// renderGuidelines is every registered tool's PromptGuidelines, in sorted
+// tool order and each tool's own order, without blanks or repeats, under a
+// fixed heading; "" when there are none. With a shell, search_files is
+// followed by AgentKit's search-over-execute guideline, which prompt.Build
+// adds by condition rather than search_files declaring it.
+func renderGuidelines(sorted []core.Tool, shell bool) string {
+	var lines []string
+	seen := map[string]bool{}
+	add := func(g string) {
+		g = strings.TrimSpace(g)
+		if g == "" || seen[g] {
+			return
+		}
+		seen[g] = true
+		lines = append(lines, "- "+g)
+	}
+	for _, t := range sorted {
+		for _, g := range t.PromptGuidelines {
+			add(g)
+		}
+		if shell && t.Name == "search_files" {
+			add(tools.SearchOverExecuteGuideline)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Tool guidelines:\n" + strings.Join(lines, "\n")
 }

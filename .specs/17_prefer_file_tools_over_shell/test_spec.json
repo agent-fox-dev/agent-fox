@@ -1,0 +1,417 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "17",
+  "spec_name": "prefer_file_tools_over_shell",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-17-1",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.1",
+        "17-REQ-2.1"
+      ],
+      "title": "A shell set with search_files renders every tool's guidelines under one heading and the search-over-execute line once",
+      "given": [
+        "a registered set {read_file (guideline 'Read in ranges.'), search_files (guideline 'Use a glob.'), execute, submit_x (guideline 'Report by calling submit_x.')}"
+      ],
+      "when": "toolsNote is called on the set",
+      "then": [
+        "the note contains \"Tool guidelines:\" exactly once, after \"Your tools are exactly:\"",
+        "each of the three declared guidelines appears as a \"- <text>\" line",
+        "the search-over-execute guideline appears exactly once"
+      ],
+      "pseudocode": "n = toolsNote(set); assert count(n,'Tool guidelines:')==1; assert index(n,'Your tools are exactly:') < index(n,'Tool guidelines:'); for g in ['Read in ranges.','Use a glob.','Report by calling submit_x.']: assert contains(n,'\\n- '+g); assert count(n, searchOverExecuteText)==1"
+    },
+    {
+      "id": "TS-17-2",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.2"
+      ],
+      "title": "Guidelines follow sorted tool-name order and each tool's declared order",
+      "given": [
+        "a registered set passed in the order zeta (guidelines 'z1','z2'), alpha (guidelines 'a2','a1'), mid (guideline 'm1'), no shell"
+      ],
+      "when": "toolsNote is called on the set",
+      "then": [
+        "the bullets appear in the order a2, a1, m1, z1, z2"
+      ],
+      "pseudocode": "n = toolsNote([zeta, alpha, mid]); assert index(n,'- a2')<index(n,'- a1')<index(n,'- m1')<index(n,'- z1')<index(n,'- z2')"
+    },
+    {
+      "id": "TS-17-3",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.3"
+      ],
+      "title": "Empty and whitespace-only guidelines produce no bullet",
+      "given": [
+        "a tool with guidelines ['', '   ', '\\t\\n', 'Real one.']"
+      ],
+      "when": "toolsNote is called on a set holding that tool",
+      "then": [
+        "the guidelines section has exactly one bullet, '- Real one.'",
+        "no line equals '-' or '- ' followed only by whitespace"
+      ],
+      "pseudocode": "n = toolsNote([t]); bullets = [l for l in lines(section(n)) if l.startswith('-')]; assert bullets == ['- Real one.']; for l in lines(n): assert not re.match('^-\\s*$', l)"
+    },
+    {
+      "id": "TS-17-4",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.4"
+      ],
+      "title": "Exact-duplicate guidelines on the same or different tools appear once",
+      "given": [
+        "tool a with guidelines ['Same text.', 'Same text.'] and tool b with guideline '  Same text.  ' and 'Other.'"
+      ],
+      "when": "toolsNote is called on {a, b}",
+      "then": [
+        "'Same text.' appears in the guidelines section exactly once",
+        "'Other.' appears once"
+      ],
+      "pseudocode": "n = toolsNote([a,b]); assert count(n,'Same text.')==1; assert count(n,'Other.')==1"
+    },
+    {
+      "id": "TS-17-5",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.5"
+      ],
+      "title": "A set with no non-empty guideline, or an empty set, gets no guidelines section",
+      "given": [
+        "a set {read_file, find_files, submit_prd} with no PromptGuidelines",
+        "a set whose only guidelines are whitespace",
+        "an empty set"
+      ],
+      "when": "toolsNote is called on each",
+      "then": [
+        "none of the notes contains \"Tool guidelines:\"",
+        "the first note still contains \"find_files, read_file, submit_prd\" and the \"There is no shell\" sentence"
+      ],
+      "pseudocode": "for s in [plain, blanks, []]: assert 'Tool guidelines:' not in toolsNote(s); assert 'find_files, read_file, submit_prd' in toolsNote(plain) and 'There is no shell' in toolsNote(plain)"
+    },
+    {
+      "id": "TS-17-6",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.1"
+      ],
+      "title": "The search-over-execute line appears once whether or not search_files already carries it",
+      "given": [
+        "set A: search_files with no guidelines plus execute",
+        "set B: search_files whose PromptGuidelines contain the search-over-execute text plus execute",
+        "set C: like B but with run_command instead of execute"
+      ],
+      "when": "toolsNote is called on each set",
+      "then": [
+        "in each note the search-over-execute text occurs exactly once"
+      ],
+      "pseudocode": "for s in [A,B,C]: assert strings.Count(toolsNote(s), searchOverExecuteText)==1"
+    },
+    {
+      "id": "TS-17-7",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.2"
+      ],
+      "title": "Without search_files or without a shell the search-over-execute line is not added",
+      "given": [
+        "set D: search_files selected by SelectTools with no shell (its execute guideline dropped)",
+        "set E: read_file and execute, no search_files, no tool declaring the line"
+      ],
+      "when": "toolsNote is called on each set",
+      "then": [
+        "strings.Count(note, searchOverExecuteText) is 0 for both"
+      ],
+      "pseudocode": "D = SelectTools(all, true, nil, 'search_files','read_file'); assert count(toolsNote(D), sOE)==0; assert count(toolsNote([read_file, execute]), sOE)==0"
+    },
+    {
+      "id": "TS-17-8",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.1",
+        "17-REQ-3.3"
+      ],
+      "title": "A read-only shell set gets one preference line naming only its registered file tools and limiting the shell to git",
+      "given": [
+        "set R: {read_file, search_files, find_files, list_files, execute}",
+        "set S: {read_file, list_files, execute}"
+      ],
+      "when": "toolsNote is called on each",
+      "then": [
+        "R's note contains \"Read files with `read_file`, search with `search_files`, find files with `find_files` and list directories with `list_files`\" exactly once",
+        "R's note contains \"use `execute` only for git\" and not \"building, formatting and testing\"",
+        "S's note names `read_file` and `list_files` in the preference line and does not contain \"search with\" or \"find files with\""
+      ],
+      "pseudocode": "r = toolsNote(R); assert count(r, fullPreference)==1; assert 'use `execute` only for git' in r; assert 'building, formatting and testing' not in r; s = toolsNote(S); assert 'Read files with `read_file`' in s and 'list directories with `list_files`' in s; assert 'search with' not in s and 'find files with' not in s"
+    },
+    {
+      "id": "TS-17-9",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.2"
+      ],
+      "title": "A writing shell set's preference line allows the shell for git and building, formatting and testing",
+      "given": [
+        "set W1: {read_file, search_files, write_file, execute}",
+        "set W2: {read_file, edit_file, run_command}"
+      ],
+      "when": "toolsNote is called on each",
+      "then": [
+        "W1's note contains \"use `execute` only for git and for building, formatting and testing\"",
+        "W2's note contains \"use `run_command` only for git and for building, formatting and testing\""
+      ],
+      "pseudocode": "assert 'use `execute` only for git and for building, formatting and testing' in toolsNote(W1); assert 'use `run_command` only for git and for building, formatting and testing' in toolsNote(W2)"
+    },
+    {
+      "id": "TS-17-10",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.4"
+      ],
+      "title": "The preference line sits between the tool list and the guidelines section",
+      "given": [
+        "a set {read_file, search_files (guideline 'Use a glob.'), execute}"
+      ],
+      "when": "toolsNote is called",
+      "then": [
+        "index of \"Your tools are exactly:\" < index of \"Read files with\" < index of \"Tool guidelines:\""
+      ],
+      "pseudocode": "n = toolsNote(set); assert n.index('Your tools are exactly:') < n.index('Read files with') < n.index('Tool guidelines:')"
+    },
+    {
+      "id": "TS-17-11",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.5"
+      ],
+      "title": "A shell set with none of the four file tools has no preference line",
+      "given": [
+        "a set {execute, write_file, submit_x}"
+      ],
+      "when": "toolsNote is called",
+      "then": [
+        "the note contains none of \"Read files with\", \"search with\", \"list directories with\", \"find files with\"",
+        "the note still lists \"execute, submit_x, write_file\""
+      ],
+      "pseudocode": "n = toolsNote([execute, write_file, submit_x]); for s in ['Read files with','search with','list directories with','find files with']: assert s not in n; assert 'execute, submit_x, write_file' in n"
+    },
+    {
+      "id": "TS-17-12",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1"
+      ],
+      "title": "A no-shell set keeps the no-shell sentence and gets no preference line or search-over-execute line",
+      "given": [
+        "a set {read_file, search_files, find_files, list_files, submit_issue (guideline 'File it with submit_issue.')}"
+      ],
+      "when": "toolsNote is called",
+      "then": [
+        "the note contains \"There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`.\"",
+        "the note contains no \"Read files with\" and no search-over-execute text",
+        "TestToolsNoteListsTheToolsAndSaysWhenThereIsNoShell and TestTS15_6_ToolsNoteListsTheSymbolTools still pass"
+      ],
+      "pseudocode": "n = toolsNote(set); assert noShellSentence in n; assert 'Read files with' not in n; assert count(n, sOE)==0"
+    },
+    {
+      "id": "TS-17-13",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-4.2"
+      ],
+      "title": "Guidelines that mention execute never reach the rendered note of a no-shell selection",
+      "given": [
+        "all tools where search_files has guidelines ['Prefer this over execute+grep.', 'Use a glob.'] and read_file has 'Do not use execute to cat files.'"
+      ],
+      "when": "SelectTools(all, true, nil, 'read_file', 'search_files') is passed to toolsNote",
+      "then": [
+        "the guidelines section contains '- Use a glob.'",
+        "no line of the note after \"Tool guidelines:\" contains 'execute'",
+        "TestSelectToolsDropsExecuteGuidelinesWithoutAShell still passes"
+      ],
+      "pseudocode": "n = toolsNote(SelectTools(all,true,nil,'read_file','search_files')); sec = after(n,'Tool guidelines:'); assert '- Use a glob.' in sec; assert 'execute' not in sec"
+    },
+    {
+      "id": "TS-17-14",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.1"
+      ],
+      "title": "The execute description discourages cat/grep reads and names only the selected built-in tools, in both variants",
+      "given": [
+        "the registered built-in tools and ReadOnlyPrograms / a writing program list"
+      ],
+      "when": "SelectTools is called (readOnly true and false) with execute+read_file+search_files, and with execute+read_file only",
+      "then": [
+        "with both selected, the execute Description contains a sentence mentioning cat, head, tail, grep and rg and naming `read_file` and `search_files` and .gitignore, in both variants",
+        "with only read_file selected, the sentence names `read_file` and does not name `search_files`"
+      ],
+      "pseudocode": "for ro in [true,false]: d = find(SelectTools(all,ro,progs,'execute','read_file','search_files'),'execute').Description; for w in ['cat','head','tail','grep','rg','`read_file`','`search_files`','.gitignore']: assert w in d; d2 = find(SelectTools(all,true,progs,'execute','read_file'),'execute').Description; assert '`read_file`' in d2 and '`search_files`' not in d2"
+    },
+    {
+      "id": "TS-17-15",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.2"
+      ],
+      "title": "Without read_file or search_files the execute description is exactly the old describeForPhase text",
+      "given": [
+        "the registered built-in tools"
+      ],
+      "when": "SelectTools is called with execute and write_file only, for readOnly true and false",
+      "then": [
+        "the execute Description equals describeForPhase(execute, readOnly, programs) for each flag",
+        "it contains no discouraging sentence (no \"respect .gitignore\" wording)"
+      ],
+      "pseudocode": "for ro in [true,false]: d = find(SelectTools(all,ro,progs,'execute','write_file'),'execute').Description; assert d == describeForPhase(execTool, ro, progs)"
+    },
+    {
+      "id": "TS-17-16",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.3"
+      ],
+      "title": "The allowlist text still lists exactly the guard's programs after the added sentence",
+      "given": [
+        "a program slice progs used by the guard"
+      ],
+      "when": "SelectTools is called with execute, read_file and search_files",
+      "then": [
+        "the Description contains \"The only programs allowed are: \" followed by strings.Join(progs, \", \")",
+        "TestSelectToolsTellsThePhaseItsRules still passes"
+      ],
+      "pseudocode": "d = find(SelectTools(all,true,ReadOnlyPrograms,'execute','read_file','search_files'),'execute').Description; assert 'The only programs allowed are: '+join(ReadOnlyPrograms,', ') in d"
+    },
+    {
+      "id": "TS-17-17",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-6.1"
+      ],
+      "title": "toolsNote is byte-identical across repeated calls and input permutations",
+      "given": [
+        "a generator of tool sets drawn from read_file, search_files, find_files, list_files, execute, run_command, write_file, edit_file and submit_* names, each with random guideline lists including empty, whitespace and duplicate entries"
+      ],
+      "when": "for any generated set s and any permutation p of it, toolsNote is called on s twice and on p once",
+      "then": [
+        "all three results are byte-identical"
+      ],
+      "pseudocode": "for s in gen_sets(): for p in permutations_sample(s): a=toolsNote(s); b=toolsNote(s); c=toolsNote(p); assert a==b==c"
+    },
+    {
+      "id": "TS-17-18",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-7.1"
+      ],
+      "title": "The system prompt reaching the faux provider carries the guidelines, the preference line and the search-over-execute line",
+      "given": [
+        "a Runner built with fauxConfig and a workspace",
+        "a Phase with System 'system', Tools read_file, search_files, execute and a Custom submit tool whose PromptGuidelines is ['Report by calling submit.']"
+      ],
+      "when": "Runner.Run executes the phase and the faux provider answers with a submit call",
+      "then": [
+        "the first request's system prompt starts with 'system' and contains \"Tool guidelines:\"",
+        "it contains '- Report by calling submit.'",
+        "it contains the search-over-execute text exactly once",
+        "it contains \"Read files with `read_file`\" and \"use `execute` only for git\""
+      ],
+      "pseudocode": "p = faux.New(toolCallTurn('c1','submit',{...})); r = NewRunner(fauxConfig(p, ws)); r.Run(ctx, phase); sys = p.Requests()[0].SystemPrompt; assert sys.startswith('system'); assert 'Tool guidelines:' in sys; assert '- Report by calling submit.' in sys; assert count(sys,sOE)==1; assert 'use `execute` only for git' in sys"
+    },
+    {
+      "id": "TS-17-19",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.2"
+      ],
+      "title": "The new prompt text lives only in internal/agentrun and the allowlists and repo-map intro are unchanged",
+      "given": [
+        "the repository source tree"
+      ],
+      "when": "the non-test .go files of codefix, codeimpl, specgen, issuetriage and internal/conform are scanned, and ReadOnlyPrograms and the repomap golden files are checked",
+      "then": [
+        "no pipeline package source contains \"Tool guidelines:\", \"Read files with\" or the search-over-execute text",
+        "ReadOnlyPrograms still contains cat, head, tail, wc, rg and grep",
+        "the internal/repomap golden tests still pass"
+      ],
+      "pseudocode": "for pkg in pipelines: for f in nonTestGo(pkg): src=read(f); assert 'Tool guidelines:' not in src and 'Read files with' not in src and sOE not in src; for prog in ['cat','head','tail','wc','rg','grep']: assert prog in ReadOnlyPrograms"
+    },
+    {
+      "id": "TS-17-20",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.1"
+      ],
+      "title": "docs/cli.md and docs/model-usage.md describe the tool guidelines and the file-tool preference",
+      "given": [
+        "the repository docs"
+      ],
+      "when": "a root-level docs test reads docs/cli.md's \"What the model may and may not do\" section and docs/model-usage.md",
+      "then": [
+        "both texts contain \"Tool guidelines\" and \"search_files\"",
+        "both state the shell is for git and building/testing",
+        "make check exits 0"
+      ],
+      "pseudocode": "cli = section(read('docs/cli.md'),'What the model may and may not do'); mu = read('docs/model-usage.md'); for d in [cli,mu]: assert 'Tool guidelines' in d and 'search_files' in d and 'git' in d"
+    },
+    {
+      "id": "TS-17-21",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-7.1",
+        "17-REQ-5.1"
+      ],
+      "title": "The codefix analyse phase sends a system prompt with the guidelines and the read-only preference line",
+      "given": [
+        "a temporary git repository with a seeded failure",
+        "a faux provider scripted to answer the analyse phase with a submit_analysis call"
+      ],
+      "when": "codefix.Run is executed against an issue through the real agentrun.Runner",
+      "then": [
+        "the analyse request's system prompt contains \"Tool guidelines:\" and submit_analysis's guideline \"Report the diagnosis by calling submit_analysis; do not write it as prose.\"",
+        "it contains the search-over-execute text exactly once",
+        "it contains the preference line and \"use `execute` only for git\" without \"building, formatting and testing\"",
+        "the execute tool declared in that request has a description discouraging cat and grep"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "agentrun.Runner",
+        "agentrun.SelectTools",
+        "agentrun.toolsNote",
+        "agentkit tools.All",
+        "provider/faux"
+      ]
+    },
+    {
+      "id": "TS-17-22",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-2",
+        "17-REQ-4.1"
+      ],
+      "title": "The triage phase keeps the no-shell sentence and carries its submit tool's guideline",
+      "given": [
+        "a temporary repository",
+        "a faux provider scripted to answer with a valid file_issue call"
+      ],
+      "when": "issuetriage.Run is executed through the real agentrun.Runner",
+      "then": [
+        "the request's system prompt contains \"There is no shell\" and \"Tool guidelines:\"",
+        "it contains the triage submit tool's PromptGuidelines text if it declares one",
+        "it contains no \"Read files with\" line, no search-over-execute text, and no guideline line mentioning execute"
+      ],
+      "real_components": [
+        "issuetriage.Run",
+        "agentrun.Runner",
+        "agentrun.SelectTools",
+        "agentrun.toolsNote",
+        "agentkit tools.All",
+        "provider/faux"
+      ]
+    }
+  ]
+}
