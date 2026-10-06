@@ -13,14 +13,16 @@ tool".
 
 **Is:** every table has a `file_outline` and a `find_symbol` column after
 `search_files` (15-REQ-8.2), and the `jq` snippet in the procedure extracts
-both (`.tool_calls.file_outline`, `.tool_calls.find_symbol`). Every count is
+both (`.tool_calls.file_outline`, `.tool_calls.find_symbol`,
+`docs/development.md:283`). The `triage` table header is at
+`docs/development.md:310`. Every count is
 still a dash, as it was before this spec: spec 13's tables were never filled
 ([erratum](13_navigation_baseline.md)), so there is no "before" figure to
 compare with, and a run needs a live model and its credential, which this
 change did not have. A number made up to fill the table would be the figure
 later navigation changes are compared to, and worse than none.
 
-`TestTS15_16_NavigationBaselineHasSymbolColumns` (`docs_symbols_test.go`)
+`TestTS15_16_NavigationBaselineHasSymbolColumns` (`docs_symbols_test.go:119`)
 checks the columns, that every row has as many cells as its header, and that
 the procedure extracts both counts. The first person to run the procedure with a
 model, once on the commit before the symbol tools and once on the commit that
