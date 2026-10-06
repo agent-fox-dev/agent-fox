@@ -74,6 +74,9 @@ type Options struct {
 	// user prompt (14-REQ-6.2). Zero, the zero value, disables the map.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab. Required unless DryRun,
@@ -175,6 +178,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.applyDefaults()
 
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). The index itself reaches the model through the Runner's
+	// Config.Index, which the caller builds from the same Options.Index.
+	indexed := o.Index != nil
+
 	result := newResult(o)
 
 	target, base, pfErr := preflight(ctx, o, git, result)
@@ -203,7 +211,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if p := checks.Program(command); p != "" {
 			programs = append(programs, p)
 		}
-		b = &agentBrain{runner: o.Runner, extraPrograms: programs}
+		b = &agentBrain{runner: o.Runner, extraPrograms: programs, codeSearch: indexed}
 	}
 	o.brain = b
 

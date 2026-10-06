@@ -189,6 +189,23 @@ type agentBrain struct {
 	protected string
 	// noTestFirst relaxes submit_task: red-first evidence is not required.
 	noTestFirst bool
+	// codeSearch grants the code_search tool to every phase this brain runs.
+	// Run sets it once, from Options.Index (16-REQ-2.1).
+	codeSearch bool
+}
+
+// ToolCodeSearch names the indexed search tool. It is granted only when the
+// run has an index, so it is not part of agentrun.ReadOnlyFileTools.
+const ToolCodeSearch = "code_search"
+
+// withCodeSearch returns the grant with code_search appended when the run has
+// an index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2).
+// The result is a copy, so the shared read-only list is never grown.
+func withCodeSearch(grant []string, on bool) []string {
+	if !on {
+		return grant
+	}
+	return append(append([]string(nil), grant...), ToolCodeSearch)
 }
 
 func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentrun.Result, error) {
@@ -200,7 +217,7 @@ func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentr
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitSurvey,
 		Custom:             []core.Tool{submitSurveyTool(&out)},
-		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
+		BuiltinTools:       withCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
 		ReadOnly:           true,
 		Programs:           append([]string(nil), agentrun.ReadOnlyPrograms...),
 		Temperature:        0.2,
@@ -224,7 +241,7 @@ func (b *agentBrain) writingPhase() (programs, tools []string) {
 	programs = append(programs, b.extraPrograms...)
 	tools = append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
 	tools = append(tools, "execute")
-	return programs, tools
+	return programs, withCodeSearch(tools, b.codeSearch)
 }
 
 func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {

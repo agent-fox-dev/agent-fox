@@ -123,6 +123,9 @@ type Options struct {
 	// user prompt (14-REQ-6.2). Zero, the zero value, disables the map.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab. Required when Land is

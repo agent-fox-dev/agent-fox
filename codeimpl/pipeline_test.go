@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
@@ -1646,5 +1649,134 @@ func TestTS05_16_CodeimplBlockerMapsOntoNeedsHuman(t *testing.T) {
 	}
 	if len(env.NeedsHuman.Options) != 0 {
 		t.Errorf("expected len(Options) == 0, got %d", len(env.NeedsHuman.Options))
+	}
+}
+
+// fakeIndex is a tools.Index test double. Tools returns a code_search tool, as
+// the real codesearch index does.
+type fakeIndex struct{ closed int }
+
+func (f *fakeIndex) Symbols(context.Context, tools.SymbolQuery) (tools.SymbolAnswer, bool, error) {
+	return tools.SymbolAnswer{}, false, nil
+}
+func (f *fakeIndex) Tools() []core.Tool {
+	return []core.Tool{{
+		Name: "code_search", Description: "ranked search",
+		Execute: func(context.Context, json.RawMessage) core.ToolResult { return core.OKResult(map[string]any{}) },
+	}}
+}
+func (f *fakeIndex) Invalidate(string) {}
+func (f *fakeIndex) Close() error      { f.closed++; return nil }
+
+// indexedRunner is a Runner whose Config carries idx — the Config the shell
+// builds from the same index it hands the tool's Options.
+func indexedRunner(t *testing.T, ws *tools.Workspace, p *faux.Provider, idx tools.Index) *agentrun.Runner {
+	t.Helper()
+	r, err := agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+		Workspace:     ws,
+		Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
+		SessionPrefix: "impl",
+		Index:         idx,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// wireTools is the names of the tools the first request offered the model.
+func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
+	t.Helper()
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the model")
+	}
+	got := map[string]bool{}
+	for _, w := range reqs[0].Tools {
+		got[w.Name] = true
+	}
+	return got
+}
+
+// TS-16-5 (unit): codeimpl.Options.Index is forwarded to agentrun.Config.Index.
+// Run builds the real agentBrain, so the survey phase is granted code_search,
+// and the model is offered it because the index reached the Runner's Config.
+//
+// Verifies: 16-REQ-1.6, 16-REQ-2.1
+func TestTS16_5_IndexReachesTheSurveyPhase(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	idx := &fakeIndex{}
+	p := faux.New()
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, idx)
+	o.Index = idx
+
+	// The unscripted model ends the survey with no result: the run stops
+	// there, which is all this test needs of it.
+	_, _ = Run(context.Background(), o)
+
+	got := wireTools(t, p)
+	if !got["code_search"] {
+		t.Errorf("code_search was not offered to the survey phase: %v", got)
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !got[n] {
+			t.Errorf("%s is missing from the survey phase", n)
+		}
+	}
+}
+
+// 16-REQ-2.1: the writing phases — implement, repair, resolve — share one
+// grant, and it carries code_search.
+func TestTS16_5_TheWritingPhasesAreGrantedCodeSearch(t *testing.T) {
+	task := afspec.Task{Id: 3, Title: "three"}
+	in := taskInput{Spec: &afspec.Spec{}, Task: task}
+	var out sink[Submission]
+
+	on := (&agentBrain{protected: "/spec", codeSearch: true}).implementPhase(in, &out)
+	if !slices.Contains(on.BuiltinTools, "code_search") || !slices.Contains(on.BuiltinTools, "write_file") {
+		t.Errorf("implement grant = %v, want code_search beside the write tools", on.BuiltinTools)
+	}
+	_, grant := (&agentBrain{codeSearch: true}).writingPhase()
+	if !slices.Contains(grant, "code_search") {
+		t.Errorf("writing grant = %v", grant)
+	}
+
+	// 16-REQ-2.2
+	off := (&agentBrain{protected: "/spec"}).implementPhase(in, &out)
+	if slices.Contains(off.BuiltinTools, "code_search") {
+		t.Errorf("implement grant without an index = %v", off.BuiltinTools)
+	}
+}
+
+// 16-REQ-2.2: with no index the survey is offered no code_search.
+func TestTS16_5_NilIndexLeavesTheSurveyGrantUnchanged(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	p := faux.New()
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, nil)
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); got["code_search"] {
+		t.Errorf("the survey offered code_search without an index: %v", got)
+	}
+}
+
+// The grant is a copy: appending code_search must not grow the shared
+// ReadOnlyFileTools slice.
+func TestTS16_5_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
+	before := len(agentrun.ReadOnlyFileTools)
+	got := withCodeSearch(agentrun.ReadOnlyFileTools, true)
+	if len(agentrun.ReadOnlyFileTools) != before {
+		t.Fatal("ReadOnlyFileTools was modified")
+	}
+	if got[len(got)-1] != "code_search" || len(got) != before+1 {
+		t.Errorf("grant = %v", got)
+	}
+	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+		t.Errorf("grant without an index = %v", same)
 	}
 }

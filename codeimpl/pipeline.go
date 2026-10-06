@@ -96,6 +96,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.applyDefaults()
 
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). The index itself reaches the model through the Runner's
+	// Config.Index, which the caller builds from the same Options.Index.
+	indexed := o.Index != nil
+
 	result := newResult(o)
 	st, pfErr := preflight(ctx, o, result)
 	if pfErr != nil {
@@ -116,7 +121,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 		}
 		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir,
-			noTestFirst: o.NoTestFirst}
+			noTestFirst: o.NoTestFirst, codeSearch: indexed}
 	}
 	st.brain = b
 	st.maps = repomap.NewSource(o.Workspace, o.RepoMapTokens, o.buildMap, o.treeState, st.git, o.Run)

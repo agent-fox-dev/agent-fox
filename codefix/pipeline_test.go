@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -1432,5 +1433,134 @@ func TestTS05_15_CodefixAmbiguityMapsOntoNeedsHuman(t *testing.T) {
 	}
 	if env.NeedsHuman.Needed != "" {
 		t.Errorf("expected Needed to be empty, got %q", env.NeedsHuman.Needed)
+	}
+}
+
+// fakeIndex is a tools.Index test double. Tools returns a code_search tool, as
+// the real codesearch index does.
+type fakeIndex struct{ closed int }
+
+func (f *fakeIndex) Symbols(context.Context, tools.SymbolQuery) (tools.SymbolAnswer, bool, error) {
+	return tools.SymbolAnswer{}, false, nil
+}
+func (f *fakeIndex) Tools() []core.Tool {
+	return []core.Tool{{
+		Name: "code_search", Description: "ranked search",
+		Execute: func(context.Context, json.RawMessage) core.ToolResult { return core.OKResult(map[string]any{}) },
+	}}
+}
+func (f *fakeIndex) Invalidate(string) {}
+func (f *fakeIndex) Close() error      { f.closed++; return nil }
+
+// indexedRunner is a Runner whose Config carries idx — the Config the shell
+// builds from the same index it hands the tool's Options.
+func indexedRunner(t *testing.T, ws *tools.Workspace, p *faux.Provider, idx tools.Index) *agentrun.Runner {
+	t.Helper()
+	r, err := agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+		Workspace:     ws,
+		Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
+		SessionPrefix: "fix",
+		Index:         idx,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// wireTools is the names of the tools the first request offered the model.
+func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
+	t.Helper()
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the model")
+	}
+	got := map[string]bool{}
+	for _, w := range reqs[0].Tools {
+		got[w.Name] = true
+	}
+	return got
+}
+
+// TS-16-3 (unit): codefix.Options.Index is forwarded to agentrun.Config.Index.
+// Run builds the real agentBrain, so both of fix's phases are granted
+// code_search, and the model is offered it because the index reached the
+// Runner's Config.
+//
+// Verifies: 16-REQ-1.4, 16-REQ-2.1
+func TestTS16_3_IndexReachesTheAnalysePhase(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	idx := &fakeIndex{}
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, idx)
+	o.Index = idx
+
+	// The unscripted model ends the analyse phase with no result: the run
+	// fails there, which is all this test needs of it.
+	_, _ = Run(context.Background(), o)
+
+	got := wireTools(t, p)
+	if !got["code_search"] {
+		t.Errorf("code_search was not offered to the analyse phase: %v", got)
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !got[n] {
+			t.Errorf("%s is missing from the analyse phase", n)
+		}
+	}
+}
+
+// 16-REQ-2.1: the implement phase is granted code_search too.
+func TestTS16_3_IndexReachesTheImplementPhase(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	idx := &fakeIndex{}
+	p := faux.New()
+	b := &agentBrain{runner: indexedRunner(t, ws, p, idx), codeSearch: true}
+
+	_, _, _ = b.Implement(context.Background(), implementInput{Root: ws.Root})
+
+	got := wireTools(t, p)
+	if !got["code_search"] || !got["write_file"] {
+		t.Errorf("implement phase tools = %v, want code_search beside the write tools", got)
+	}
+}
+
+// 16-REQ-2.2: with no index no phase names code_search.
+func TestTS16_3_NilIndexLeavesBothGrantsUnchanged(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, nil)
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); got["code_search"] {
+		t.Errorf("analyse offered code_search without an index: %v", got)
+	}
+
+	p2 := faux.New()
+	b := &agentBrain{runner: indexedRunner(t, ws, p2, nil)}
+	_, _, _ = b.Implement(context.Background(), implementInput{Root: ws.Root})
+	if got := wireTools(t, p2); got["code_search"] {
+		t.Errorf("implement offered code_search without an index: %v", got)
+	}
+}
+
+// The grant is a copy: appending code_search must not grow the shared
+// ReadOnlyFileTools slice.
+func TestTS16_3_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
+	before := len(agentrun.ReadOnlyFileTools)
+	got := withCodeSearch(agentrun.ReadOnlyFileTools, true)
+	if len(agentrun.ReadOnlyFileTools) != before {
+		t.Fatal("ReadOnlyFileTools was modified")
+	}
+	if got[len(got)-1] != "code_search" || len(got) != before+1 {
+		t.Errorf("grant = %v", got)
+	}
+	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+		t.Errorf("grant without an index = %v", same)
 	}
 }

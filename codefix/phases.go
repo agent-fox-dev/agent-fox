@@ -253,6 +253,23 @@ type agentBrain struct {
 	// not offered to the analysis phase, because that phase is read-only and
 	// the programs in question — go, make, npm — compile and write.
 	extraPrograms []string
+	// codeSearch grants the code_search tool to every phase this brain runs.
+	// Run sets it once, from Options.Index (16-REQ-2.1).
+	codeSearch bool
+}
+
+// ToolCodeSearch names the indexed search tool. It is granted only when the
+// run has an index, so it is not part of agentrun.ReadOnlyFileTools.
+const ToolCodeSearch = "code_search"
+
+// withCodeSearch returns the grant with code_search appended when the run has
+// an index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2).
+// The result is a copy, so the shared read-only list is never grown.
+func withCodeSearch(grant []string, on bool) []string {
+	if !on {
+		return grant
+	}
+	return append(append([]string(nil), grant...), ToolCodeSearch)
 }
 
 func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
@@ -267,7 +284,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitAnalysis,
 		Custom:             []core.Tool{rej.track(submitAnalysisTool(&out))},
-		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
+		BuiltinTools:       withCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
 		ReadOnly:           true,
 		Programs:           programs,
 		Temperature:        0.2,
@@ -296,7 +313,7 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 	programs = append(programs, b.extraPrograms...)
 
 	tools := append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
-	tools = append(tools, "execute")
+	tools = withCodeSearch(append(tools, "execute"), b.codeSearch)
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
 		Name:               "implement",

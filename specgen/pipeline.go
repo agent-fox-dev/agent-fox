@@ -61,6 +61,9 @@ type Options struct {
 	// phase's user prompt (14-REQ-6.2). Zero, the zero value, disables it.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab, used only by Comment.
@@ -486,7 +489,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
-		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace}
+		// Whether the run has an index is decided once, here, for every
+		// phase (16-REQ-2.1); the index itself reaches the model through the
+		// Runner's Config.Index, built from the same Options.Index.
+		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace, codeSearch: o.Index != nil}
 	}
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {
