@@ -76,6 +76,14 @@ func (st *runState) invalidate() {
 	}
 }
 
+// runGate runs the project's checks and invalidates the index afterwards: the
+// checks are the project's own programs, and they can write into the tree
+// (generated code, snapshots, build output) the next phase will search.
+func (st *runState) runGate(ctx context.Context, o Options, label string) GateResult {
+	defer st.invalidate()
+	return runGate(ctx, o, st.root, st.gate, label)
+}
+
 // Run drives the whole pipeline.
 //
 // The order is the shape of the program:
@@ -694,7 +702,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	}
 
 	// ---------------------------------------------------------- baseline --
-	st.baseline = runGate(ctx, o, st.root, st.gate, "baseline")
+	st.baseline = st.runGate(ctx, o, "baseline")
 	result.Baseline = st.baseline
 	if r, bad := st.baseline.couldNotRun(); bad {
 		return nil, failf("preflight", "usage",
@@ -924,7 +932,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 
 		// The gate, held to green rather than compared: the comparison is
 		// what the repair exists to make unnecessary.
-		after := runGate(ctx, o, st.root, st.gate, "repair verification")
+		after := st.runGate(ctx, o, "repair verification")
 		report.Verification = &after
 		result.Verification = after
 		result.Verdict = compareGate(st.baseline, after)
@@ -1159,7 +1167,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		}
 
 		// The gate, compared with the one before this task.
-		after := runGate(ctx, o, st.root, st.gate, "verification")
+		after := st.runGate(ctx, o, "verification")
 		verdict := compareGate(st.baseline, after)
 		report.Verification = &after
 		report.Verdict = verdict
@@ -1242,8 +1250,8 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			landedGate = *report.Verification
 		}
 		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired, landedGate))
-		// The next task's phase starts from the tree this commit left, hooks
-		// included (16-REQ-4.5).
+		// Commit hooks may rewrite files, so the tree after the commit is not
+		// the tree the index last saw (16-REQ-4.5).
 		st.invalidate()
 		if err != nil {
 			return report, fail("commit", CategoryGit, err)
@@ -1469,6 +1477,9 @@ func recordPhase(run *toolio.Run, st *runState, res agentrun.Result) {
 // task that only added tests — an integration task over wiring the earlier
 // tasks built — is measured against the whole branch's implementation.
 func revertCheck(ctx context.Context, o Options, st *runState, head string) (conform.RevertResult, error) {
+	// The revert takes the implementation out and puts it back: the tree the
+	// index saw is not the tree the next phase starts from.
+	defer st.invalidate()
 	check := func(ctx context.Context) checks.Result {
 		cmd := st.gate[len(st.gate)-1]
 		done := o.Progress.Begin("revert check: %s with the implementation taken out", cmd)

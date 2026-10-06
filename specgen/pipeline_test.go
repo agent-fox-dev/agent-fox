@@ -939,14 +939,14 @@ func TestTS16_4_NilIndexLeavesTheGrantUnchanged(t *testing.T) {
 // ReadOnlyFileTools slice.
 func TestTS16_4_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	before := len(agentrun.ReadOnlyFileTools)
-	got := withCodeSearch(agentrun.ReadOnlyFileTools, true)
+	got := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, true)
 	if len(agentrun.ReadOnlyFileTools) != before {
 		t.Fatal("ReadOnlyFileTools was modified")
 	}
 	if got[len(got)-1] != "code_search" || len(got) != before+1 {
 		t.Errorf("grant = %v", got)
 	}
-	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+	if same := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
 	}
 }

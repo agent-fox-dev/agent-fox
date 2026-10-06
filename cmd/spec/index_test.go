@@ -14,9 +14,7 @@ import (
 
 func indexHarness() indextest.Harness {
 	return indextest.Harness{
-		NewApp:   newApp,
-		Indexed:  indexed,
-		NewIndex: &newIndex,
+		NewApp: newApp,
 		Setup: func(t *testing.T) []string {
 			envtest.Clean(t)
 			t.Setenv("XDG_STATE_HOME", t.TempDir())

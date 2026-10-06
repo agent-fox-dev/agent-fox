@@ -133,17 +133,17 @@ func TestTS16_34_ImplInvalidatesTheIndexAcrossTreeChanges_Smoke(t *testing.T) {
 				gitIn(t, dir, "branch", implBranch)
 			}
 			probe := &indextest.Probe{}
-			oldIndex := newIndex
-			newIndex = func(ws *tools.Workspace) (tools.Index, error) { probe.Root = ws.Root; return probe, nil }
-			t.Cleanup(func() { newIndex = oldIndex })
+			t.Cleanup(toolio.SetIndexBuilder(func(ws *tools.Workspace) (tools.Index, error) {
+				probe.Root = ws.Root
+				return probe, nil
+			}))
 
 			p := faux.New(implSmokeTurns()...)
-			configureRunner = func(cfg *agentrun.Config) {
+			t.Cleanup(toolio.SetRunnerConfigHook(func(cfg *agentrun.Config) {
 				cfg.Model = faux.Model()
 				cfg.Thinking = core.ThinkingUnset
 				cfg.Providers = core.ProviderRegistry{faux.API: p.APIProvider()}
-			}
-			t.Cleanup(func() { configureRunner = nil })
+			}))
 
 			code, env, log := runImplSmoke(t, dir)
 			res, _ := env["result"].(map[string]any)

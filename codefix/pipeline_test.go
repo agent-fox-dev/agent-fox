@@ -1554,14 +1554,14 @@ func TestTS16_3_NilIndexLeavesBothGrantsUnchanged(t *testing.T) {
 // ReadOnlyFileTools slice.
 func TestTS16_3_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	before := len(agentrun.ReadOnlyFileTools)
-	got := withCodeSearch(agentrun.ReadOnlyFileTools, true)
+	got := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, true)
 	if len(agentrun.ReadOnlyFileTools) != before {
 		t.Fatal("ReadOnlyFileTools was modified")
 	}
 	if got[len(got)-1] != "code_search" || len(got) != before+1 {
 		t.Errorf("grant = %v", got)
 	}
-	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+	if same := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
 	}
 }
@@ -1612,15 +1612,19 @@ func TestTS16_15_CodefixInvalidatesTheIndexAfterCreateBranch(t *testing.T) {
 	if len(seen) == 0 {
 		t.Fatal("Invalidate was never called")
 	}
-	first := seen[0]
-	if first.Rel != "" {
-		t.Errorf("Invalidate(%q): want the whole index, \"\"", first.Rel)
+	// Earlier invalidations (after the baseline run) are fine; what matters is
+	// that one falls between the branch and the start of the implement phase.
+	found := false
+	for _, e := range seen {
+		if e.Rel != "" {
+			t.Errorf("Invalidate(%q): want the whole index, \"\"", e.Rel)
+		}
+		if e.Seq > branchSeq && e.Seq < implementSeq {
+			found = true
+		}
 	}
-	if first.Seq < branchSeq {
-		t.Errorf("Invalidate (%d) came before git.CreateBranch (%d)", first.Seq, branchSeq)
-	}
-	if first.Seq > implementSeq {
-		t.Errorf("Invalidate (%d) came after the implement phase started (%d)", first.Seq, implementSeq)
+	if !found {
+		t.Errorf("no Invalidate between git.CreateBranch (%d) and the implement phase (%d): %v", branchSeq, implementSeq, seen)
 	}
 }
 
@@ -1629,5 +1633,58 @@ func TestTS16_15_NilIndexRunsWithoutInvalidating(t *testing.T) {
 	ws, g := newRepo(t, 0)
 	if _, err := Run(context.Background(), newOptions(ws, g, defaultBrain())); err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+// The project's checks are its own programs and can write into the tree, and
+// the revert check takes the fix out and puts it back: the index is
+// invalidated after each, before whatever runs next (16-REQ-4, design
+// decision 9).
+func TestCodefixInvalidatesTheIndexAfterEveryCheckRun(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	var stamps []int64
+	runner := func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		out, code, err := gitx.ExecRunner(ctx, dir, argv, stdin...)
+		for _, a := range argv {
+			if a == "make" || strings.HasSuffix(a, "make test") {
+				stamps = append(stamps, indextest.Next())
+				break
+			}
+		}
+		return out, code, err
+	}
+	g := gitx.New(ws.Root, gitx.ExecRunner)
+	g.SetSleep(func(time.Duration) {})
+	idx := &indextest.Index{}
+	o := newOptions(ws, g, defaultBrain())
+	o.CheckRunner = runner
+	o.Index = idx
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// baseline, verification and at least one revert check
+	if len(stamps) < 3 {
+		t.Fatalf("the checks ran %d times, want at least 3 (baseline, verification, revert check)", len(stamps))
+	}
+	var inv []int64
+	for _, e := range idx.Events() {
+		if e.Kind == "invalidate" {
+			inv = append(inv, e.Seq)
+		}
+	}
+	for i, s := range stamps {
+		next := int64(1) << 62
+		if i+1 < len(stamps) {
+			next = stamps[i+1]
+		}
+		found := false
+		for _, q := range inv {
+			if q > s && q < next {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no Invalidate after check run %d (seq %d) before the next one (seq %d); invalidations: %v", i, s, next, inv)
+		}
 	}
 }

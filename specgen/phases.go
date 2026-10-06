@@ -113,20 +113,6 @@ type agentAuthor struct {
 	codeSearch bool
 }
 
-// ToolCodeSearch names the indexed search tool. It is granted only when the
-// run has an index, so it is not part of agentrun.ReadOnlyFileTools.
-const ToolCodeSearch = "code_search"
-
-// withCodeSearch returns the grant with code_search appended when the run has
-// an index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2).
-// The result is a copy, so the shared read-only list is never grown.
-func withCodeSearch(grant []string, on bool) []string {
-	if !on {
-		return grant
-	}
-	return append(append([]string(nil), grant...), ToolCodeSearch)
-}
-
 func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentrun.Result, error) {
 	var sink prdSink
 	res, err := a.runner.Run(ctx, agentrun.Phase{
@@ -137,7 +123,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink, a.ws)},
-		BuiltinTools:       withCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          prdMaxTokens,
 		Temperature:        specTemperature,
@@ -176,7 +162,7 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 		RepoMap:            req.RepoMap,
 		Terminator:         name,
 		Custom:             []core.Tool{submitArtifactTool(req.Step, toolSchema, req.Partial, &sink, audit)},
-		BuiltinTools:       withCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          generateMaxTokens,
 		Temperature:        specTemperature,
@@ -210,7 +196,7 @@ func (a *agentAuthor) WriteArchitecture(ctx context.Context, req architectureReq
 		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitArchitecture,
 		Custom:             []core.Tool{submitArchitectureTool(&sink)},
-		BuiltinTools:       withCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          architectureMaxTokens,
 		Temperature:        specTemperature,

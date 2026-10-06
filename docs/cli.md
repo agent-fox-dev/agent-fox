@@ -1136,10 +1136,11 @@ when it is not (`--preflight` reports which, as `symbol_backend`).
 **Indexed search.** `code_search` joins the six read tools in the `analyse` and
 `implement` phases when the code-search index is built (`--preflight` reports
 it as `code_search_index`). `fix` invalidates the index after it creates the
-work branch, so `implement` searches the tree it will change. The independent
-review phase does not get `code_search`
-([erratum](errata/16_navigation_baseline.md)). Without the index the run is
-unchanged and `search_files` does the searching.
+work branch, so `implement` searches the tree it will change, and again after
+each run of the verification command and after the revert check, so the
+independent review phase, which also gets `code_search`, searches the tree as
+it now is. Without the index the run is unchanged and `search_files` does the
+searching.
 
 **Allowlists, per phase.** A command whose program is not on the phase's list is
 refused. The lists are generated from the same source the guard enforces, so the
@@ -1766,12 +1767,13 @@ and the `repair` report are in the report file.
 Every phase of `impl` can call the six read tools — `read_file`, `list_files`,
 `find_files`, `search_files`, `file_outline` and `find_symbol` — whatever else
 it is granted. When the code-search index is built (`--preflight` reports it as
-`code_search_index`), the survey, implementation, repair and resolve phases
-can also call `code_search`, and `impl` invalidates the index after every
-change it makes to the tree itself — the work branch, a revert, a discarded
-attempt, a gate run, a commit — so each phase searches the tree as it now is.
-The review phase does not get `code_search`
-([erratum](errata/16_navigation_baseline.md)). The survey and review phases are read-only, with `execute` under the reporting
+`code_search_index`), the survey, implementation, repair, review and resolve
+phases can also call `code_search`, and `impl` invalidates the index after the
+changes it makes to the tree itself — the work branch, a parked attempt's
+reset, a spec-directory revert or scratch-file drop, a discarded attempt, a
+repair's reset, each run of the checks, each commit — and before the
+conformance review and the resolve phase, so each phase searches the tree as it
+now is. The survey and review phases are read-only, with `execute` under the reporting
 allowlist. The implementation, repair and resolve phases have the file tools and a shell under the
 same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
 allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one

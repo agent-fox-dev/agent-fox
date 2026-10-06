@@ -13,21 +13,15 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
-// Inner is what an entry point runs once its index is built: the tool's
-// pipeline, given the Deps with the Runner that carries the index and the
-// index itself (nil when none could be built).
-type Inner = func(context.Context, toolio.Deps, tools.Index) (int, any, *toolio.ErrorInfo)
+// Inner is what replaces an entry point's Exec in a lifecycle test: it gets the
+// Deps the shell built, whose Index is the run's one index (nil when none could
+// be built) and whose Runner carries it.
+type Inner = func(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo)
 
 // Harness is one cmd/ entry point, as the lifecycle tests see it.
 type Harness struct {
 	// NewApp is the entry point's newApp.
 	NewApp func() toolio.App
-	// Indexed is the entry point's wrapper that builds the index, defers its
-	// Close, and calls Inner. Exec and PreflightExec are built from it.
-	Indexed func(Inner) func(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo)
-	// NewIndex points at the entry point's package-level index constructor,
-	// the seam that stands in for codesearch.New.
-	NewIndex *func(*tools.Workspace) (tools.Index, error)
 	// Setup prepares the environment and a workspace and returns the argv of
 	// an ordinary run, without --preflight.
 	Setup func(t *testing.T) []string
@@ -52,19 +46,16 @@ func (r result) warning(code, severity string) bool {
 
 func (h Harness) factory(t *testing.T, f *Factory) {
 	t.Helper()
-	old := *h.NewIndex
-	*h.NewIndex = f.New
-	t.Cleanup(func() { *h.NewIndex = old })
+	t.Cleanup(toolio.SetIndexBuilder(f.New))
 }
 
-// run drives the real shell. A non-nil inner replaces Exec with the entry
-// point's Indexed wrapper around it; nil leaves the real closures, and
-// preflight selects PreflightExec.
+// run drives the real shell. A non-nil inner replaces Exec; nil leaves the
+// real closures, and preflight selects PreflightExec.
 func (h Harness) run(t *testing.T, ctx context.Context, argv []string, inner Inner, preflight bool) result {
 	t.Helper()
 	app := h.NewApp()
 	if inner != nil {
-		app.Exec = h.Indexed(inner)
+		app.Exec = inner
 	}
 	if preflight {
 		argv = append([]string{"--preflight"}, argv...)
@@ -78,7 +69,7 @@ func (h Harness) run(t *testing.T, ctx context.Context, argv []string, inner Inn
 	return result{code: code, env: env}
 }
 
-func ok(context.Context, toolio.Deps, tools.Index) (int, any, *toolio.ErrorInfo) {
+func ok(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo) {
 	return toolio.ExitOK, nil, nil
 }
 
@@ -110,7 +101,7 @@ func TS11(t *testing.T, h Harness) {
 	argv := h.Setup(t)
 	f := &Factory{}
 	h.factory(t, f)
-	r := h.run(t, context.Background(), argv, func(context.Context, toolio.Deps, tools.Index) (int, any, *toolio.ErrorInfo) {
+	r := h.run(t, context.Background(), argv, func(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo) {
 		return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "run", Category: "internal", Message: "boom"}
 	}, false)
 	if r.code != toolio.ExitFailed {
@@ -129,7 +120,7 @@ func TS12(t *testing.T, h Harness) {
 	h.factory(t, f)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h.run(t, ctx, argv, func(ctx context.Context, _ toolio.Deps, _ tools.Index) (int, any, *toolio.ErrorInfo) {
+	h.run(t, ctx, argv, func(ctx context.Context, _ toolio.Deps) (int, any, *toolio.ErrorInfo) {
 		cancel()
 		<-ctx.Done()
 		return toolio.ExitFailed, nil, &toolio.ErrorInfo{Stage: "run", Category: "cancelled", Message: ctx.Err().Error()}
@@ -154,10 +145,10 @@ func TS13(t *testing.T, h Harness, errUnsupported error) {
 			f := &Factory{Err: tc.err}
 			h.factory(t, f)
 			ran := false
-			r := h.run(t, context.Background(), argv, func(_ context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
+			r := h.run(t, context.Background(), argv, func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 				ran = true
-				if idx != nil {
-					t.Errorf("index = %v, want nil", idx)
+				if d.Index != nil {
+					t.Errorf("index = %v, want nil", d.Index)
 				}
 				if d.Runner == nil {
 					t.Error("no Runner: the run must continue without code_search")
@@ -200,8 +191,8 @@ func TS14(t *testing.T, h Harness) {
 	h.factory(t, f)
 	var seen []tools.Index
 	var root string
-	h.run(t, context.Background(), argv, func(_ context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
-		seen = append(seen, idx)
+	h.run(t, context.Background(), argv, func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+		seen = append(seen, d.Index)
 		if d.Runner == nil {
 			t.Error("no Runner")
 		}

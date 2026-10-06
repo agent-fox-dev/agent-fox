@@ -33,6 +33,20 @@ var ShellTools = []string{"execute", "run_command", "powershell"}
 // MutatingTools.
 var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
 
+// ToolCodeSearch names the indexed search tool. It is granted only when the
+// run has an index, so it is not part of ReadOnlyFileTools.
+const ToolCodeSearch = "code_search"
+
+// WithCodeSearch returns the grant with code_search appended when the run has an
+// index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2). The
+// result is a copy, so the shared read-only list is never grown.
+func WithCodeSearch(grant []string, on bool) []string {
+	if !on {
+		return grant
+	}
+	return append(append([]string(nil), grant...), ToolCodeSearch)
+}
+
 // WriteFileTools are what an implementing phase gets on top of them.
 var WriteFileTools = []string{"write_file", "edit_file"}
 

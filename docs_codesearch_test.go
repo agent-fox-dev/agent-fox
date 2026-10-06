@@ -64,14 +64,6 @@ func TestTS16_28_ModelUsageListsCodeSearchAndDescribesIndex(t *testing.T) {
 		if !strings.HasPrefix(line, "| `") || !strings.Contains(line, "`") {
 			continue
 		}
-		// The conformance review phases are built outside the pipelines and
-		// do not get code_search (docs/errata/16_navigation_baseline.md).
-		if strings.Contains(line, "`review`") {
-			if strings.Contains(line, "code_search") {
-				t.Errorf("review row lists code_search, which the shared review phase does not get: %s", line)
-			}
-			continue
-		}
 		if strings.Contains(line, "the six read tools") ||
 			strings.HasPrefix(line, "| `triage` | `triage` |") {
 			rows++

@@ -24,7 +24,7 @@ import (
 // entry point's index lifecycle, the real Runner, codefix.Run, the real tools
 // and the real git — with two things stood in for: the index (the recording
 // indextest.Probe takes the place of codesearch.New) and the model (a scripted
-// provider/faux takes the place of a vendor, through configureRunner).
+// provider/faux takes the place of a vendor, through toolio.SetRunnerConfigHook).
 
 // fixTurns scripts a fix run that succeeds. navigate is the tool call each of
 // the two phases opens with: code_search when the run has an index, read_file
@@ -57,16 +57,15 @@ func fixTurns(navigate string) []faux.Turn {
 	}
 }
 
-// scriptModel points configureRunner at a scripted provider for the test.
+// scriptModel makes the shell build its Runner on a scripted provider for the test.
 func scriptModel(t *testing.T, turns []faux.Turn) *faux.Provider {
 	t.Helper()
 	p := faux.New(turns...)
-	configureRunner = func(cfg *agentrun.Config) {
+	t.Cleanup(toolio.SetRunnerConfigHook(func(cfg *agentrun.Config) {
 		cfg.Model = faux.Model()
 		cfg.Thinking = core.ThinkingUnset
 		cfg.Providers = core.ProviderRegistry{faux.API: p.APIProvider()}
-	}
-	t.Cleanup(func() { configureRunner = nil })
+	}))
 	return p
 }
 
@@ -74,20 +73,16 @@ func scriptModel(t *testing.T, turns []faux.Turn) *faux.Provider {
 // workspace it is asked to index, in place of codesearch.New.
 func useProbe(t *testing.T, probe *indextest.Probe) {
 	t.Helper()
-	old := newIndex
-	newIndex = func(ws *tools.Workspace) (tools.Index, error) {
+	t.Cleanup(toolio.SetIndexBuilder(func(ws *tools.Workspace) (tools.Index, error) {
 		probe.Root = ws.Root
 		return probe, nil
-	}
-	t.Cleanup(func() { newIndex = old })
+	}))
 }
 
 // useBuildError makes the entry point's index builder fail with err.
 func useBuildError(t *testing.T, err error) {
 	t.Helper()
-	old := newIndex
-	newIndex = func(*tools.Workspace) (tools.Index, error) { return nil, err }
-	t.Cleanup(func() { newIndex = old })
+	t.Cleanup(toolio.SetIndexBuilder(func(*tools.Workspace) (tools.Index, error) { return nil, err }))
 }
 
 // smokeResult is one run of the real App.

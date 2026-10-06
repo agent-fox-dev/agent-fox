@@ -1770,14 +1770,14 @@ func TestTS16_5_NilIndexLeavesTheSurveyGrantUnchanged(t *testing.T) {
 // ReadOnlyFileTools slice.
 func TestTS16_5_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	before := len(agentrun.ReadOnlyFileTools)
-	got := withCodeSearch(agentrun.ReadOnlyFileTools, true)
+	got := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, true)
 	if len(agentrun.ReadOnlyFileTools) != before {
 		t.Fatal("ReadOnlyFileTools was modified")
 	}
 	if got[len(got)-1] != "code_search" || len(got) != before+1 {
 		t.Errorf("grant = %v", got)
 	}
-	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+	if same := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
 	}
 }
@@ -1902,6 +1902,16 @@ func (b *tracedBrain) Repair(ctx context.Context, in repairInput) (RepairSubmiss
 func (b *tracedBrain) Implement(ctx context.Context, in taskInput) (Submission, agentrun.Result, error) {
 	b.tr.add("implement", in.Task.Id, in.Attempt)
 	return b.scriptedBrain.Implement(ctx, in)
+}
+
+func (b *tracedBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	b.tr.add("review", 0, 0)
+	return b.scriptedBrain.Review(ctx, in)
+}
+
+func (b *tracedBrain) Resolve(ctx context.Context, in resolveInput) (ResolveSubmission, agentrun.Result, error) {
+	b.tr.add("resolve", 0, 0)
+	return b.scriptedBrain.Resolve(ctx, in)
 }
 
 // indexedRun runs the pipeline with a snapshotting index, a traced brain and a
@@ -2229,4 +2239,79 @@ func anyIndexSnap(snaps []indextest.Snap, ok func(indextest.Snap) bool) bool {
 		}
 	}
 	return false
+}
+
+// The project's checks are its own programs and can write into the tree: the
+// index is invalidated after every gate run, before whatever runs next
+// (16-REQ-4, design decision 9).
+func TestInvalidatesAfterEveryGateRun(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	_, err, idx, tr := indexedRun(t, ws, g, &scriptedBrain{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	gates := 0
+	for i, m := range tr.marks {
+		if m.Kind != "check" {
+			continue
+		}
+		gates++
+		// The next mark that is not another check run of the same step.
+		next := int64(1) << 62
+		for _, later := range tr.marks[i+1:] {
+			if later.Kind != "check" {
+				next = later.Seq
+				break
+			}
+		}
+		if len(idx.between(m.Seq, next)) == 0 {
+			t.Errorf("no Invalidate after the gate run at seq %d before seq %d", m.Seq, next)
+		}
+	}
+	if gates == 0 {
+		t.Fatal("no gate ran")
+	}
+}
+
+// The conformance review and the resolve phase each start from a tree the
+// stage's own checks may have touched: the index is invalidated before each.
+func TestInvalidatesBeforeTheReviewAndResolvePhases(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	b := &scriptedBrain{
+		review: func(in conform.ReviewInput) (conform.Review, error) {
+			r := conformingReview(in.Scope)
+			if len(r.Requirements) > 0 {
+				r.Requirements[0].Status = conform.StatusMissing
+				r.Requirements[0].Evidence = ""
+			}
+			return r, nil
+		},
+		resolve: func(string, resolveInput) (ResolveSubmission, error) {
+			return ResolveSubmission{Summary: "nothing to change"}, nil
+		},
+	}
+	var hermetic []int64
+	_, _, idx, tr := indexedRun(t, ws, g, b, func(o *Options) {
+		o.NoReview = false
+		o.HermeticRunner = func(home string) gitx.Runner {
+			inner := gitx.HermeticRunner(home)
+			return func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+				if len(hermetic) == 0 {
+					hermetic = append(hermetic, indextest.Next())
+				}
+				return inner(ctx, dir, argv, stdin...)
+			}
+		}
+	})
+	review := tr.find(t, "review", 0, 0)
+	resolve := tr.find(t, "resolve", 0, 0)
+	if len(hermetic) == 0 {
+		t.Fatal("the clean-environment gate did not run")
+	}
+	if len(idx.between(hermetic[0], review.Seq)) == 0 {
+		t.Errorf("no Invalidate between the clean-environment gate (%d) and the review phase (%d)", hermetic[0], review.Seq)
+	}
+	if len(idx.between(review.Seq, resolve.Seq)) == 0 {
+		t.Errorf("no Invalidate between the review (%d) and the resolve phase (%d)", review.Seq, resolve.Seq)
+	}
 }

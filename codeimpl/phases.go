@@ -194,20 +194,6 @@ type agentBrain struct {
 	codeSearch bool
 }
 
-// ToolCodeSearch names the indexed search tool. It is granted only when the
-// run has an index, so it is not part of agentrun.ReadOnlyFileTools.
-const ToolCodeSearch = "code_search"
-
-// withCodeSearch returns the grant with code_search appended when the run has
-// an index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2).
-// The result is a copy, so the shared read-only list is never grown.
-func withCodeSearch(grant []string, on bool) []string {
-	if !on {
-		return grant
-	}
-	return append(append([]string(nil), grant...), ToolCodeSearch)
-}
-
 func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentrun.Result, error) {
 	var out sink[Survey]
 	res, err := b.runner.Run(ctx, agentrun.Phase{
@@ -217,7 +203,7 @@ func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentr
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitSurvey,
 		Custom:             []core.Tool{submitSurveyTool(&out)},
-		BuiltinTools:       withCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
+		BuiltinTools:       agentrun.WithCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
 		ReadOnly:           true,
 		Programs:           append([]string(nil), agentrun.ReadOnlyPrograms...),
 		Temperature:        0.2,
@@ -241,7 +227,7 @@ func (b *agentBrain) writingPhase() (programs, tools []string) {
 	programs = append(programs, b.extraPrograms...)
 	tools = append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
 	tools = append(tools, "execute")
-	return programs, withCodeSearch(tools, b.codeSearch)
+	return programs, agentrun.WithCodeSearch(tools, b.codeSearch)
 }
 
 func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
@@ -321,6 +307,7 @@ func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, a
 
 // Review runs the independent conformance review.
 func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	in.CodeSearch = b.codeSearch
 	return conform.RunReview(ctx, b.runner, in)
 }
 

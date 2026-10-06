@@ -221,7 +221,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	t := &triager{ws: o.Workspace}
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
 	phase := t.phase(o.Input, o.Workspace.Root, repoMap)
-	phase.BuiltinTools = withCodeSearch(phase.BuiltinTools, indexed)
+	phase.BuiltinTools = agentrun.WithCodeSearch(phase.BuiltinTools, indexed)
 	res, runErr := o.Runner.Run(ctx, phase)
 	o.Run.AddPhase(toolio.PhaseFromResult(res, ""))
 	done(toolio.PhaseSummary(res))
@@ -468,20 +468,6 @@ func joinLimited(ss []string, n int) string {
 		return strings.Join(ss, ", ")
 	}
 	return strings.Join(ss[:n], ", ") + fmt.Sprintf(" (and %d more)", len(ss)-n)
-}
-
-// ToolCodeSearch names the indexed search tool. It is granted only when the
-// run has an index, so it is not part of agentrun.ReadOnlyFileTools.
-const ToolCodeSearch = "code_search"
-
-// withCodeSearch returns the grant with code_search appended when the run has
-// an index (16-REQ-2.1), and the grant itself when it has none (16-REQ-2.2).
-// The result is a copy, so the shared read-only list is never grown.
-func withCodeSearch(grant []string, on bool) []string {
-	if !on {
-		return grant
-	}
-	return append(append([]string(nil), grant...), ToolCodeSearch)
 }
 
 // indexDetail is the detail of the informational code_search_index preflight

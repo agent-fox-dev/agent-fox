@@ -222,7 +222,7 @@ func TestTS13_16_RepairModelEffortNoEnvFallback(t *testing.T) {
 		// With --repair-model STANDARD and no --repair-model-effort flag,
 		// the repair effort should be the STANDARD tier's own effort (high),
 		// NOT max from the env var.
-		rr, choice, err := resolveRepairRunner(d, nil, "STANDARD", "")
+		rr, choice, err := resolveRepairRunner(d, "STANDARD", "")
 		if err != nil {
 			t.Fatalf("resolveRepairRunner: %v", err)
 		}

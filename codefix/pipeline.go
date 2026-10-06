@@ -271,11 +271,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// The checkout is a Go-initiated tree change: whatever the index learned
 	// while the analyse phase ran is stale before the implement phase starts
-	// (16-REQ-4.1). The implement phase is the last one that writes, so this
-	// is the only point that needs it.
-	if o.Index != nil {
-		o.Index.Invalidate("")
-	}
+	// (16-REQ-4.1).
+	invalidate(o)
 
 	// The analysis comment goes up now: the run is known to be able to
 	// start, a branch exists, and the comment can name it.
@@ -426,6 +423,9 @@ func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, 
 	rc, err := conform.Revert(ctx, git, root, "HEAD", changed, func(ctx context.Context) checks.Result {
 		return runChecks(ctx, o, root, command, "revert check")
 	})
+	// The revert took the fix out and put it back: the review phase that may
+	// follow searches the tree as it is now.
+	invalidate(o)
 	if err != nil {
 		return fail("verify", CategoryGit, err)
 	}
@@ -845,11 +845,23 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 	o.Progress.Detail("posted the %s comment", kind)
 }
 
-// runChecks runs the verification command and reports it.
+// invalidate marks the whole code-search index stale after a Go-initiated
+// change to the tree, so the next phase's code_search results reflect it
+// (16-REQ-4). A run without an index does nothing.
+func invalidate(o Options) {
+	if o.Index != nil {
+		o.Index.Invalidate("")
+	}
+}
+
+// runChecks runs the verification command and reports it. The command is the
+// project's own program and can write into the tree, so the index is
+// invalidated once it has run.
 func runChecks(ctx context.Context, o Options, root, command, label string) checks.Result {
 	if strings.TrimSpace(command) == "" {
 		return checks.Result{Skipped: true}
 	}
+	defer invalidate(o)
 	done := o.Progress.Begin("%s: %s", label, command)
 	res := checks.Run(ctx, o.CheckRunner, root, command, o.VerifyTimeout)
 	o.Progress.Check(res)
