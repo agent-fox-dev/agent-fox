@@ -203,6 +203,11 @@ type Package struct {
 	// CommentURL is set when the finished PRD was posted back to the issue.
 	CommentURL string `json:"comment_url,omitempty" trust:"fact" description:"The comment the finished PRD was posted as, when it was."`
 
+	// RelevantFiles are the files the PRD phase identified as important for
+	// later generation phases. They live only in the envelope and the
+	// run-time pipeline, never inside the spec package directory.
+	RelevantFiles []RelevantFile `json:"relevant_files,omitempty" trust:"model" description:"Files the PRD phase found relevant for later phases."`
+
 	// Detail records which view of this result was emitted: "summary" or
 	// "full". It is present on both. It lives on Package (rather than on
 	// Result, which embeds it) so it is set once for the first package and
@@ -470,7 +475,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
-		env.author = &agentAuthor{runner: o.Runner}
+		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace}
 	}
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {
@@ -507,6 +512,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if o.Name != "" {
 			o.Run.Warn(toolio.WarnNameFlagIgnored, "low", "--name %q is ignored while resuming a split: the planned names are used", o.Name)
 		}
+		o.Run.Warn(toolio.WarnRelevantFilesUnavailable, "low",
+			"the PRD phase was not run (resuming a split); the later phases run without the relevant-files block")
 		o.Progress.Step("plan", "resuming the split planned for %s: %d of %d scopes to write",
 			plan.Input.Origin, plan.Pending(), len(plan.Scopes))
 	} else {
@@ -731,6 +738,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		Status:        "draft",
 		Source:        sourceField(o.Input),
 		OpenQuestions: prd.OpenQuestions,
+		RelevantFiles: prd.RelevantFiles,
 	}
 
 	// ------------------------------------------------------- generation --
@@ -745,16 +753,17 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 	for _, step := range afspec.GenerationSteps {
 		done := o.Progress.Begin("generating %s", afspec.ArtifactFileName(step))
 		_, stats, err := e.author.GenerateArtifact(ctx, artifactRequest{
-			Step:      step,
-			SpecID:    specID,
-			SpecName:  prd.SpecName,
-			Root:      e.root,
-			PRD:       spec.PRDBody,
-			Profile:   e.profile,
-			Landscape: e.landscape,
-			SpecRoot:  relativeTo(e.root, e.specsDir),
-			Steering:  project.Steering(e.specsDir),
-			Partial:   &partial,
+			Step:          step,
+			SpecID:        specID,
+			SpecName:      prd.SpecName,
+			Root:          e.root,
+			PRD:           spec.PRDBody,
+			Profile:       e.profile,
+			Landscape:     e.landscape,
+			SpecRoot:      relativeTo(e.root, e.specsDir),
+			Steering:      project.Steering(e.specsDir),
+			Partial:       &partial,
+			RelevantFiles: prd.RelevantFiles,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)
 		done(toolio.PhaseSummary(stats))
@@ -771,6 +780,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		done := o.Progress.Begin("writing architecture.md")
 		doc, stats, err := e.author.WriteArchitecture(ctx, architectureRequest{
 			SpecID: specID, SpecName: prd.SpecName, Root: e.root, PRD: spec.PRDBody, Partial: &partial,
+			RelevantFiles: prd.RelevantFiles,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)
 		done(toolio.PhaseSummary(stats))

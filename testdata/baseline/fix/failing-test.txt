@@ -1,0 +1,7 @@
+$ go test ./issuex/ -run TestParseRemote -count=1
+--- FAIL: TestParseRemote_TS_01_9 (0.00s)
+    parse_test.go:72: ParseRemote scp mismatch = group/repo, want Host: "gitlab.com", Owner: "group/subgroup", Name: "repo"
+    parse_test.go:85: ParseRemote multi-segment scp mismatch = deep/project, ok = true
+FAIL
+FAIL	github.com/agent-fox-dev/agentfox/issuex	0.016s
+FAIL

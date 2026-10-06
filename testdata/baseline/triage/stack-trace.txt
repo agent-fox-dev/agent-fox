@@ -1,0 +1,20 @@
+$ impl .specs/17_widget_cache --dry-run
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x2 addr=0x48 pc=0x1029c7e54]
+
+goroutine 1 [running]:
+github.com/agent-fox-dev/agentfox/codeimpl.preflight({0x1034e6f30, 0x140001a4000}, {{0x14000126a50, 0x1}, 0x140002a6000, ...}, 0x14000384000)
+	/Users/dev/src/agent-fox/codeimpl/pipeline.go:616 +0x7b4
+github.com/agent-fox-dev/agentfox/codeimpl.Run({0x1034e6f30, 0x140001a4000}, {{0x14000126a50, 0x1}, 0x140002a6000, ...})
+	/Users/dev/src/agent-fox/codeimpl/pipeline.go:97 +0x1a8
+main.newApp.func1({0x1034e6f30, 0x140001a4000}, {0x140000c6e00, {0x14000126a20, 0x1d}, ...})
+	/Users/dev/src/agent-fox/cmd/impl/main.go:372 +0x158
+github.com/agent-fox-dev/agentfox/internal/toolio.App.execute({{0x10329c1e8, 0x4}, {0x1032c5a10, 0x7}, ...}, ...)
+	/Users/dev/src/agent-fox/internal/toolio/app.go:699 +0x5c8
+github.com/agent-fox-dev/agentfox/internal/toolio.App.Main({{0x10329c1e8, 0x4}, {0x1032c5a10, 0x7}, ...}, ...)
+	/Users/dev/src/agent-fox/internal/toolio/app.go:295 +0x9e0
+main.main()
+	/Users/dev/src/agent-fox/cmd/impl/main.go:401 +0x84
+exit status 2
+
+The package was written by hand. Its tasks.json is a single line: {}

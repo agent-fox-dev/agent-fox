@@ -38,6 +38,7 @@ type endCall struct {
 	turns       int
 	cost        float64
 	durationMS  int64
+	toolCalls   map[string]int
 }
 
 type turnCall struct {
@@ -74,11 +75,11 @@ func (o *recObserver) PhaseStart(phase, task string, maxTurns int, budgetUSD flo
 	o.starts = append(o.starts, startCall{phase, task, maxTurns, budgetUSD})
 }
 
-func (o *recObserver) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64) {
+func (o *recObserver) PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log = append(o.log, "phase_end")
-	o.ends = append(o.ends, endCall{phase, stopReason, turns, costUSD, durationMS})
+	o.ends = append(o.ends, endCall{phase, stopReason, turns, costUSD, durationMS, toolCalls})
 }
 
 func (o *recObserver) Turn(phase string, turn int, costUSD float64, in, out int64) {
@@ -170,7 +171,7 @@ func TestTS07_27_PhaseEndOnceFromTheResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []endCall{{"phase", string(res.StopReason), res.Turns, res.Usage.CostUSD, res.Elapsed.Milliseconds()}}
+	want := []endCall{{"phase", string(res.StopReason), res.Turns, res.Usage.CostUSD, res.Elapsed.Milliseconds(), res.ToolCalls}}
 	if !reflect.DeepEqual(obs.ends, want) {
 		t.Fatalf("PhaseEnd calls = %+v, want %+v", obs.ends, want)
 	}
@@ -244,11 +245,11 @@ func TestTS07_29_TraceReportsToolCallWhenVerbose(t *testing.T) {
 	var turn int
 	var tb textBuffer
 	pending := make(map[string]core.ToolUseBlock)
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "write_file", Input: json.RawMessage(`{}`)}})
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "write_file", Input: json.RawMessage(`{}`)}})
 	if len(obs.toolCalls) != 0 {
 		t.Fatalf("a call was reported before its result: %+v", obs.toolCalls)
 	}
-	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolResultEvent{Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "write_file"}})
+	r.trace("implement", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "write_file"}})
 	if len(obs.toolCalls) != 1 {
 		t.Fatalf("got %d tool calls, want 1: %+v", len(obs.toolCalls), obs.toolCalls)
 	}
@@ -268,9 +269,9 @@ func TestARefusedCallIsReportedOnce(t *testing.T) {
 	errs := &toolErrorCounter{}
 	pending := make(map[string]core.ToolUseBlock)
 	blocks.inc("execute")
-	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: json.RawMessage(`{}`)}})
-	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("p", &turn, errs, blocks, &tb, pending, core.ToolResultEvent{Message: core.ToolResultMessage{
+	r.trace("p", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: json.RawMessage(`{}`)}})
+	r.trace("p", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("p", &turn, errs, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{Message: core.ToolResultMessage{
 		ToolUseID: "c1", ToolName: "execute", IsError: true, Content: core.Content{core.TextBlock{Text: "guard refused"}}}})
 	if len(obs.toolCalls) != 1 || obs.toolCalls[0].info.Name != "execute" || obs.toolCalls[0].info.Phase != "p" || !obs.toolCalls[0].info.Blocked {
 		t.Errorf("tool calls = %+v, want one blocked execute in phase p", obs.toolCalls)

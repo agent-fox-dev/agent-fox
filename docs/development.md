@@ -97,9 +97,9 @@ go mod download
 
 - **internal/gitx**, **internal/checks** — every git command a tool runs, and
   the detection and execution of the command that decides whether a change is
-  correct. `gitx.HermeticRunner` runs a command with an empty `HOME` and no
-  global git configuration; `checks.Fingerprint` records what that
-  environment was.
+  correct. `gitx.HermeticRunner` runs a command with an empty `HOME`, no
+  global git configuration and no way for git to ask for a credential;
+  `checks.Fingerprint` records what that environment was.
 
 - **internal/conform** — what `impl` and `fix` check after the checks pass
   ([ADR 09](adr/09-grade-the-work-independently.md)): the structural checks
@@ -183,3 +183,144 @@ The generated files are `afspec/*.v2.go`. Always run `make check` afterwards.
 - Use conventional commit messages: `feat:`, `fix:`, `refactor:`, `docs:`,
   `test:`, `chore:`.
 - Run `make check` before every commit.
+
+## Navigation baseline
+
+Every phase of every tool starts with the same four read-only file tools
+(`read_file`, `list_files`, `find_files`, `search_files`) and no prior
+knowledge of the repository's shape. The tables below record how many
+`tool_calls` each phase makes on a fixed set of inputs, so that the effect of
+later navigation changes (repository map, symbol tools, indexed search) is
+visible in review, per tool.
+
+The four tools that run a model each have a table: `triage`, `fix`, `spec`
+and `impl`. Spec 13 and PRD 06 call the first one `issue`, its name before it
+became `triage`; the `issue` program of PRD 08 runs no model and makes no tool
+calls, so it has no table ([erratum](errata/13_navigation_baseline.md)).
+
+### Inputs
+
+The inputs are fixed and live in `testdata/baseline/`:
+
+| Tool | Input | What it is |
+|---|---|---|
+| `triage` | `triage/stack-trace.txt` | a stack trace: `impl` panicking in pre-flight on a hand-written package |
+| `triage` | `triage/prose-report.txt` | a prose report: two spec packages numbered 13 |
+| `fix` | `fix/failing-test.txt` | the test failure the seeded defect causes |
+| `fix` | `fix/prose-report.txt` | the seeded defect as a user sees it |
+| `spec` | `spec/summary-tool-bytes.md` | a small idea in `internal/toolio` |
+| `spec` | `spec/triage-several-traces.md` | a feature of one tool, `triage` |
+| `spec` | `spec/max-tool-calls.md` | a shared flag across all four tools |
+| `impl` | `specs/01_repo_web_url/` | a valid spec package of three tasks in `issuex` |
+
+`fix/seed.patch` is the seeded defect: one line in `issuex.ParseRemote` that
+drops a GitLab owner's subgroups. Both `fix` inputs name it, one as the test it
+breaks and one as its symptom. `TestTS_13_33_NavigationBaselineSection`
+(`docs_development_test.go`) fails when an input is missing, the seed no
+longer applies to the tree, or the package stops validating, so the inputs
+stay runnable as the code moves.
+
+### Procedure
+
+Measure with the tools built from the commit under review, against a
+throwaway clone of that same commit, so that a before-and-after pair differs
+only in the tools. The runs need a live model and its credential; the forge
+needs none, because every run is `--dry-run`.
+
+```sh
+make build                              # spec, triage, fix and impl
+git clone . ../agent-fox-nav            # the throwaway clone, beside ../agentkit-go
+cd ../agent-fox-nav && git switch -q -c nav-base
+B=testdata/baseline O=/tmp/nav-out && mkdir -p "$O"
+
+triage --dry-run --report-file "$O/triage-trace.json"  "$B/triage/stack-trace.txt"
+triage --dry-run --report-file "$O/triage-report.json" "$B/triage/prose-report.txt"
+
+spec --dry-run --report-file "$O/spec-bytes.json"  "$B/spec/summary-tool-bytes.md"
+spec --dry-run --report-file "$O/spec-traces.json" "$B/spec/triage-several-traces.md"
+spec --dry-run --report-file "$O/spec-bound.json"  "$B/spec/max-tool-calls.md"
+
+impl --dry-run --report-file "$O/impl.json" "$B/specs/01_repo_web_url"
+git switch -q nav-base                  # impl --dry-run leaves its branch checked out
+
+git switch -q -c nav-seeded && git apply "$B/fix/seed.patch" && git commit -qam "seed the baseline defect"
+fix --dry-run --report-file "$O/fix-test.json"   "$B/fix/failing-test.txt"
+git switch -q nav-seeded                # so does fix --dry-run
+fix --dry-run --report-file "$O/fix-report.json" "$B/fix/prose-report.txt"
+```
+
+`triage` and `spec` change nothing under `--dry-run`; `fix` and `impl` still
+make their branch and commits, which is why they run in the clone, and run
+the project's checks there, which is why the clone sits beside
+`agentkit-go`. Remove the clone afterwards. Read each
+phase's counts from the report files:
+
+```sh
+for f in "$O"/*.json; do
+  jq -r --arg run "$(basename "$f" .json)" '.usage.phases[] | [$run, .name, (.task // .scope // ""),
+    (.tool_calls.read_file // 0), (.tool_calls.list_files // 0),
+    (.tool_calls.find_files // 0), (.tool_calls.search_files // 0),
+    ([.tool_calls[]?] | add // 0)] | @tsv' "$f"
+done
+```
+
+The last column counts every tool the phase called, the submit tools and the
+shell included; the four before it are the navigation.
+
+### Baseline tables
+
+**Not measured yet.** No run of the procedure has been recorded: the change
+that added it had no live model to run it with
+([erratum](errata/13_navigation_baseline.md)). The first run replaces the
+dashes and names the commit and the model it measured. A phase that runs only
+sometimes (`fix`'s `review`, `impl`'s `repair` and `resolve`, `spec`'s
+`architecture`) gets a row when it ran.
+
+Measured at: — (commit), — (model).
+
+#### triage
+
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| stack trace | triage | — | — | — | — | — |
+| prose report | triage | — | — | — | — | — |
+
+#### fix
+
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| failing test | analyse | — | — | — | — | — |
+| failing test | implement | — | — | — | — | — |
+| prose report | analyse | — | — | — | — | — |
+| prose report | implement | — | — | — | — | — |
+
+#### spec
+
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| summary tool bytes | prd | — | — | — | — | — |
+| summary tool bytes | generate:requirements | — | — | — | — | — |
+| summary tool bytes | generate:test_spec | — | — | — | — | — |
+| summary tool bytes | generate:tasks | — | — | — | — | — |
+| several traces | prd | — | — | — | — | — |
+| several traces | generate:requirements | — | — | — | — | — |
+| several traces | generate:test_spec | — | — | — | — | — |
+| several traces | generate:tasks | — | — | — | — | — |
+| max tool calls | prd | — | — | — | — | — |
+| max tool calls | generate:requirements | — | — | — | — | — |
+| max tool calls | generate:test_spec | — | — | — | — | — |
+| max tool calls | generate:tasks | — | — | — | — | — |
+
+#### impl
+
+| Input | Phase | read_file | list_files | find_files | search_files | all tools |
+|---|---|---|---|---|---|---|
+| repo web URL | survey | — | — | — | — | — |
+| repo web URL | implement (task 1) | — | — | — | — | — |
+| repo web URL | implement (task 2) | — | — | — | — | — |
+| repo web URL | implement (task 3) | — | — | — | — | — |
+| repo web URL | review | — | — | — | — | — |
+
+The tables are regenerated by hand whenever a navigation change ships, from a
+run of the tools before the change and one after it, so the effect of each
+change is visible in review. No live-model run enters `make test`.

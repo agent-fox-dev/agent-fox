@@ -166,7 +166,7 @@ func TestTS11_22_PreflightDoesNotChangeAPreModelFailure(t *testing.T) {
 func TestSummaryBeginsWithTheToolsName(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	code, env := runIssueApp(t, "--preflight", "--dir", t.TempDir(), "--repo", "acme/widgets", "a report")
+	code, env := runIssueApp(t, "--preflight", "--dry-run", "--dir", t.TempDir(), "--repo", "acme/widgets", "a report")
 	if code != toolio.ExitOK {
 		t.Fatalf("exit = %d: %v", code, env)
 	}

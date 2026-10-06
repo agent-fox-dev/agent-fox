@@ -2770,6 +2770,9 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 
 	// The long phase crossed the shortened window: a heartbeat landed in the
 	// file, naming the stage, the time elapsed and the spend so far.
+	// A heartbeat may fire between run_start and the first phase_start,
+	// before any stage is known; only heartbeats after a phase_start are
+	// required to carry a stage.
 	var beats []smokeEvent
 	for _, e := range evs {
 		if e.Type == "heartbeat" {
@@ -2779,10 +2782,11 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 	if len(beats) == 0 {
 		t.Fatalf("no heartbeat in the events file:\n%s", raw)
 	}
+	var stagedBeats int
 	prev := float64(-1)
 	for _, b := range beats {
-		if s, _ := b.Raw["stage"].(string); s == "" {
-			t.Errorf("heartbeat without a stage: %v", b.Raw)
+		if s, _ := b.Raw["stage"].(string); s != "" {
+			stagedBeats++
 		}
 		el, ok := b.Raw["elapsed_ms"].(float64)
 		if !ok || el <= prev {
@@ -2792,6 +2796,9 @@ func TestTS0745_ImplTextOnStderrJSONLInFileWithHeartbeat_Smoke(t *testing.T) {
 		if _, ok := b.Raw["cost_usd"].(float64); !ok {
 			t.Errorf("heartbeat without cost_usd: %v", b.Raw)
 		}
+	}
+	if stagedBeats == 0 {
+		t.Errorf("no heartbeat carried a stage; want at least one during the model phase")
 	}
 	// No heartbeat follows run_end, and the implement phase carried its task.
 	if smokeLast(evs, "heartbeat") > smokeLast(evs, "run_end") {

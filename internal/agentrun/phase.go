@@ -114,7 +114,7 @@ type Observer interface {
 	// run resolved. task is empty except for impl's per-task phase.
 	PhaseStart(phase, task string, maxTurns int, budgetUSD float64)
 	// PhaseEnd reports that the phase ended.
-	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64)
+	PhaseEnd(phase, stopReason string, turns int, costUSD float64, durationMS int64, toolCalls map[string]int)
 	// Turn reports one finished model turn.
 	Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64)
 	// ToolCall reports one model tool call. It is emitted for every call,
@@ -223,6 +223,13 @@ type Result struct {
 	// "tool" or "tool/code" when the error carries a code. Each one cost the
 	// model a turn, and none of it shows in the transcript the report keeps.
 	ToolErrors map[string]int
+	// ToolCalls counts the number of calls to each tool by name, including
+	// blocked calls. Nil when no tool calls were made.
+	ToolCalls map[string]int
+	// ToolResultBytes sums the byte length of Content.Text() of each
+	// ToolResultMessage by tool name. Blocked calls do not contribute.
+	// Nil when no tool calls were made.
+	ToolResultBytes map[string]int64
 }
 
 // Runner builds and drives one agent per phase.
@@ -282,7 +289,7 @@ func (r *Runner) Run(ctx context.Context, p Phase) (Result, error) {
 	}
 	out, err := r.run(ctx, p)
 	if o := r.cfg.Observer; o != nil {
-		o.PhaseEnd(p.Name, string(out.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds())
+		o.PhaseEnd(p.Name, string(out.StopReason), out.Turns, out.Usage.CostUSD, out.Elapsed.Milliseconds(), out.ToolCalls)
 	}
 	return out, err
 }
@@ -315,10 +322,11 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	}
 	var turn int
 	var toolErrs toolErrorCounter
+	var tc toolCallCounter
 	var tb textBuffer
 	pending := make(map[string]core.ToolUseBlock)
 	for e := range stream.Events() {
-		r.trace(p.Name, &turn, &toolErrs, blocked, &tb, pending, e)
+		r.trace(p.Name, &turn, &toolErrs, blocked, &tb, pending, &tc, e)
 	}
 	// Flush any prose buffered in an interrupted turn (cancellation,
 	// stream error) before PhaseEnd.
@@ -326,14 +334,16 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	res, runErr := stream.RunResult()
 
 	out := Result{
-		Name:       p.Name,
-		Task:       p.Task,
-		Turns:      res.TurnCount,
-		StopReason: res.StopReason,
-		Usage:      res.Usage,
-		Elapsed:    time.Since(start),
-		Blocked:    blocked.count(),
-		ToolErrors: toolErrs.snapshot(),
+		Name:            p.Name,
+		Task:            p.Task,
+		Turns:           res.TurnCount,
+		StopReason:      res.StopReason,
+		Usage:           res.Usage,
+		Elapsed:         time.Since(start),
+		Blocked:         blocked.count(),
+		ToolErrors:      toolErrs.snapshot(),
+		ToolCalls:       tc.snapshotCalls(),
+		ToolResultBytes: tc.snapshotBytes(),
 	}
 	return out, r.wrap(p, res, runErr)
 }
@@ -498,7 +508,7 @@ func (r *Runner) promptBlocks(agent *agentkit.Agent, p Phase) []string {
 // the loop's own TurnEndEvent advances. tb accumulates prose for the
 // per-turn text event. pending maps tool-call IDs to their ToolUseBlock
 // so the result can be matched to its arguments.
-func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *blockCounter, tb *textBuffer, pending map[string]core.ToolUseBlock, e core.Event) {
+func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *blockCounter, tb *textBuffer, pending map[string]core.ToolUseBlock, tc *toolCallCounter, e core.Event) {
 	switch v := e.(type) {
 	case core.TurnEndEvent:
 		*turn++
@@ -534,6 +544,13 @@ func (r *Runner) trace(phase string, turn *int, errs *toolErrorCounter, blocks *
 			delete(pending, v.Message.ToolUseID)
 		}
 		r.toolCall(phase, v.Message, block, found, refused)
+		// Count every call, including blocked ones.
+		tc.addCall(v.Message.ToolName)
+		// Count bytes only for non-blocked calls. A blocked call's result
+		// is the guard's refusal message, already counted as a tool error.
+		if !refused {
+			tc.addBytes(v.Message.ToolName, int64(len(v.Message.Content.Text())))
+		}
 		if v.Message.IsError && !refused {
 			// Counted here and not at ToolExecutionEndEvent: a call to a tool
 			// that does not exist never executes, and still costs a turn.
@@ -883,6 +900,58 @@ func (b *blockCounter) count() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.n
+}
+
+// toolCallCounter counts per-tool call counts and byte sums across the
+// goroutines the loop uses to execute tool calls.
+type toolCallCounter struct {
+	mu    sync.Mutex
+	calls map[string]int
+	bytes map[string]int64
+}
+
+func (c *toolCallCounter) addCall(tool string) {
+	c.mu.Lock()
+	if c.calls == nil {
+		c.calls = map[string]int{}
+	}
+	c.calls[tool]++
+	c.mu.Unlock()
+}
+
+func (c *toolCallCounter) addBytes(tool string, n int64) {
+	c.mu.Lock()
+	if c.bytes == nil {
+		c.bytes = map[string]int64{}
+	}
+	c.bytes[tool] += n
+	c.mu.Unlock()
+}
+
+func (c *toolCallCounter) snapshotCalls() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.calls) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(c.calls))
+	for k, v := range c.calls {
+		out[k] = v
+	}
+	return out
+}
+
+func (c *toolCallCounter) snapshotBytes() map[string]int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.bytes) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(c.bytes))
+	for k, v := range c.bytes {
+		out[k] = v
+	}
+	return out
 }
 
 // toolsNote closes a phase's system prompt with the tools it has, generated

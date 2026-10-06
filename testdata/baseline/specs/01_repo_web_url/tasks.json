@@ -1,0 +1,84 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "01",
+  "spec_name": "repo_web_url",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./issuex/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add Repo.WebURL",
+      "criteria": [
+        "01-REQ-1"
+      ],
+      "tests": [
+        "TS-01-1",
+        "TS-01-2"
+      ],
+      "steps": [
+        "Write TS-01-1 and TS-01-2 in issuex/types_test.go and confirm they fail",
+        "Add Repo.WebURL to issuex/types.go with the host, scheme and trailing-slash rules IssueRef.URL uses",
+        "Run TS-01-1 and TS-01-2 and confirm they pass"
+      ],
+      "touches": [
+        "issuex/types.go",
+        "issuex/types_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Build IssueRef.URL on Repo.WebURL",
+      "criteria": [
+        "01-REQ-2"
+      ],
+      "tests": [
+        "TS-01-3"
+      ],
+      "steps": [
+        "Write TS-01-3 with a copy of today's IssueRef.URL as the oracle and confirm it passes against today's code",
+        "Rewrite IssueRef.URL as Repo.WebURL plus the issue or pull/merge request suffix",
+        "Run TS-01-3 and the existing ParseIssueURL tests and confirm they pass"
+      ],
+      "touches": [
+        "issuex/types.go",
+        "issuex/types_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "integration",
+      "title": "Verify the remote-to-page path end to end",
+      "criteria": [],
+      "tests": [
+        "TS-01-4"
+      ],
+      "steps": [
+        "Write TS-01-4 against the real ParseRemote and confirm it passes",
+        "Trace 01-PATH-1 through ParseRemote and WebURL; confirm no stub remains on the path"
+      ],
+      "touches": [
+        "issuex/types_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "done_when": [
+        "`go test ./issuex/... -count=1` passes"
+      ],
+      "state": "pending"
+    }
+  ]
+}

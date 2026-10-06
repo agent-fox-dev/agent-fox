@@ -16,7 +16,7 @@ func TestSteeringReachesThePRDAndGenerationPrompts(t *testing.T) {
 	if !strings.Contains(prd, "Always write tests first.") {
 		t.Error("the PRD prompt lacks the steering")
 	}
-	gen := generationUserPrompt("requirements", "01", "x", "/r", "prd", "", block, "", "")
+	gen := generationUserPrompt("requirements", "01", "x", "/r", "prd", "", block, "", "", "")
 	if !strings.Contains(gen, "Always write tests first.") {
 		t.Error("the generation prompt lacks the steering")
 	}

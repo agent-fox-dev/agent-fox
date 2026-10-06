@@ -76,8 +76,8 @@ func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 			if err := json.Unmarshal(doc["schema_version"], &sv); err != nil {
 				t.Fatalf("cannot parse schema_version: %v", err)
 			}
-			if sv != "3.0.0" {
-				t.Errorf("schema_version = %q, want 3.0.0", sv)
+			if sv != "3.1.0" {
+				t.Errorf("schema_version = %q, want 3.1.0", sv)
 			}
 
 			text := string(live)
@@ -118,8 +118,8 @@ func TestTS12_55_SchemaVersionAndGoldenFiles(t *testing.T) {
 	}
 
 	// Also verify the Go constant
-	if toolio.SchemaVersion != "3.0.0" {
-		t.Errorf("toolio.SchemaVersion = %q, want 3.0.0", toolio.SchemaVersion)
+	if toolio.SchemaVersion != "3.1.0" {
+		t.Errorf("toolio.SchemaVersion = %q, want 3.1.0", toolio.SchemaVersion)
 	}
 }
 

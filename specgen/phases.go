@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
+	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -82,19 +83,24 @@ type artifactRequest struct {
 	// Partial carries the artifacts produced so far. The submit handler
 	// validates against it and writes the accepted artifact back into it.
 	Partial *afspec.PartialSpec
+	// RelevantFiles carries the files the PRD phase found important, so
+	// the generation prompt can include them.
+	RelevantFiles []RelevantFile
 }
 
 type architectureRequest struct {
-	SpecID   string
-	SpecName string
-	Root     string
-	PRD      string
-	Partial  *afspec.PartialSpec
+	SpecID        string
+	SpecName      string
+	Root          string
+	PRD           string
+	Partial       *afspec.PartialSpec
+	RelevantFiles []RelevantFile
 }
 
 // agentAuthor runs the phases against the configured model.
 type agentAuthor struct {
 	runner *agentrun.Runner
+	ws     *tools.Workspace
 }
 
 func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentrun.Result, error) {
@@ -105,7 +111,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input, req.Context,
 			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split)),
 		Terminator:         ToolSubmitPRD,
-		Custom:             []core.Tool{submitPRDTool(&sink)},
+		Custom:             []core.Tool{submitPRDTool(&sink, a.ws)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
 		ReadOnly:           true,
 		MaxTokens:          prdMaxTokens,
@@ -140,7 +146,8 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 		User: generationUserPrompt(req.Step, req.SpecID, req.SpecName, req.Root, req.PRD,
 			landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering),
 			priorArtifactsBlock(*req.Partial, req.Step),
-			req.Profile.LanguageBlock()),
+			req.Profile.LanguageBlock(),
+			relevantFilesBlock(req.RelevantFiles)),
 		Terminator:         name,
 		Custom:             []core.Tool{submitArtifactTool(req.Step, toolSchema, req.Partial, &sink, audit)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
@@ -162,11 +169,12 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 func (a *agentAuthor) WriteArchitecture(ctx context.Context, req architectureRequest) (string, agentrun.Result, error) {
 	var sink textSink
 	user := fill(template("architecture_user.md"), map[string]string{
-		"spec_id":     req.SpecID,
-		"spec_name":   req.SpecName,
-		"root":        req.Root,
-		"prd":         strings.TrimSpace(req.PRD),
-		"prior_block": priorArtifactsBlock(*req.Partial, afspec.StepTasks) + renderTasks(req.Partial),
+		"spec_id":              req.SpecID,
+		"spec_name":            req.SpecName,
+		"root":                 req.Root,
+		"prd":                  strings.TrimSpace(req.PRD),
+		"relevant_files_block": relevantFilesBlock(req.RelevantFiles),
+		"prior_block":          priorArtifactsBlock(*req.Partial, afspec.StepTasks) + renderTasks(req.Partial),
 	})
 	res, err := a.runner.Run(ctx, agentrun.Phase{
 		Name:               "architecture",

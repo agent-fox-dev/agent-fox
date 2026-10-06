@@ -329,6 +329,7 @@ quite what it appears to be; `low` is informational.
 | `name_flag_ignored` | low | usage | spec |
 | `scope_renamed` | low | prd | spec |
 | `scope_count_mismatch` | low | prd | spec |
+| `relevant_files_unavailable` | low | prd | spec |
 | `split_plan_foreign` | low | split | spec |
 | `split_plan_unreadable` | low | split | spec |
 | `split_plan_stale` | high | split | spec |
@@ -746,7 +747,12 @@ narrowing a field documented as a closed enum. The reasoning is in
 envelope states in its own PRD which kind of change it makes. Each future
 major bump appends its own entry below.
 
-**3.0.0** — the current version. The `text` event's `delta` field was removed
+**3.1.0** — the current version. `usage.phases[]` gained `tool_calls`
+(per-tool call counts) and `tool_result_bytes` (per-tool byte volumes). The
+`relevant_files` field was added to the spec result. These came from the
+`13_tool_call_counts_and_relevant_files` spec.
+
+**3.0.0** — The `text` event's `delta` field was removed
 and replaced by `turn` and `text` (one event per model turn instead of one per
 text delta). The `--events` and `--events-file` flags were removed and replaced
 by `--emit-events` (boolean). The event header gained `session_id` as its third
@@ -810,7 +816,7 @@ for every type:
 | `turn` | `phase`, `turn`, `cost_usd`, `input_tokens`, `output_tokens` | after every model turn; `turn` counts from 1 within the phase, and the cost and tokens are that turn's own |
 | `tool_call` | `phase`, `name`, `blocked`, `arguments`, `ok`, `exit_code`, `error` | per model tool call; `blocked` is true when the shell guard refused it; `arguments` is the call's arguments as JSON; `ok` is true when the result was not an error; `exit_code` is present only for shell tools whose exit status could be read from the result: the status the command exited with, `0` included, and absent for a refused call, a command killed by a signal, timed out or aborted, and one that could not be started; `error` is present only when `ok` is false, and for a refused call is the guard's reason |
 | `check` | `command`, `ok`, `exit_code`, `duration_ms` | after every verification command (`fix`'s baseline and post-change runs; `impl`'s gate before and after every task and in the repair loop) |
-| `phase_end` | `phase`, `stop_reason`, `turns`, `cost_usd`, `duration_ms` | when a model phase ends; `cost_usd` is the phase's total |
+| `phase_end` | `phase`, `stop_reason`, `turns`, `cost_usd`, `duration_ms`, `tool_calls` | when a model phase ends; `cost_usd` is the phase's total; `tool_calls` is a map of tool name to call count for the phase, omitted when no tool calls were made |
 | `warning` | `code`, `severity`, `stage`, `message` | when a warning is recorded; the same object as an entry of the envelope's `warnings` |
 | `heartbeat` | `stage`, `elapsed_ms`, `cost_usd` | every 15 seconds in which no other event was emitted; `stage` is the last one a `step` or `phase_start` named, `cost_usd` the run's spend so far |
 | `run_end` | `status`, `exit_code`, `report_file` | once, immediately before the envelope is written to stdout; `status` is the envelope's `status`; `report_file` is the path the report was written to, or the empty string when it was not written |
@@ -865,7 +871,7 @@ before the next phase:
 {"ts":"2025-03-04T09:12:11Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"turn","phase":"analyse","turn":1,"cost_usd":0.0412,"input_tokens":9120,"output_tokens":311}
 {"ts":"2025-03-04T09:12:19Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"tool_call","phase":"analyse","name":"read_file","blocked":false,"arguments":{"path":"main.go"},"ok":true}
 {"ts":"2025-03-04T09:12:24Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"turn","phase":"analyse","turn":2,"cost_usd":0.0587,"input_tokens":11840,"output_tokens":402}
-{"ts":"2025-03-04T09:12:31Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"phase_end","phase":"analyse","stop_reason":"tool_terminate","turns":2,"cost_usd":0.0999,"duration_ms":25100}
+{"ts":"2025-03-04T09:12:31Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"phase_end","phase":"analyse","stop_reason":"tool_terminate","turns":2,"cost_usd":0.0999,"duration_ms":25100,"tool_calls":{"read_file":1}}
 {"ts":"2025-03-04T09:12:46Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"heartbeat","stage":"analyse","elapsed_ms":45000,"cost_usd":0.0999}
 {"ts":"2025-03-04T09:13:02Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"warning","code":"no_verify_command","severity":"high","stage":"preflight","message":"no verification command could be determined"}
 {"ts":"2025-03-04T09:13:03Z","tool":"fix","session_id":"a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8","type":"run_end","status":"failed","exit_code":1,"report_file":"/home/ci/.local/state/agent-fox/runs/fix-20250304T091201Z-a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8.json"}
@@ -1583,8 +1589,12 @@ where it left the base branch:
   paths (documentation and the spec package exempt). Anything else is a
   "while here" change that belongs in a pull request of its own.
 - **A clean environment.** The gate runs again with an empty `HOME`, no
-  global or system git configuration and no injected git identity (the
-  language toolchains' download caches stay where they are). The result is
+  global or system git configuration, no injected git identity and nothing
+  to answer a credential prompt (no askpass program, `GIT_TERMINAL_PROMPT=0`),
+  so a test that reaches a forge without a credential fails at once, as on
+  CI, instead of waiting on an editor's credential dialog or the terminal
+  `impl` was started from (the language toolchains' download caches stay
+  where they are). The result is
   `final_verification`, and `environment` is its fingerprint: `git_version`,
   `init_default_branch` (`unset` in a clean environment) and `go_version`.
   Checks that pass here and fail there lean on the author's machine.

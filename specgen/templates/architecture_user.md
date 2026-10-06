@@ -5,7 +5,7 @@ It is the optional fifth artifact of a spec package, and it exists for one reaso
 PRD:
 
 {{prd}}
-
+{{relevant_files_block}}
 Generated artifacts:
 {{prior_block}}
 Write it as Markdown with these sections:

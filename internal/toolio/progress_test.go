@@ -216,7 +216,7 @@ func TestProgressObserverHooksEmit(t *testing.T) {
 	p.PhaseStart("implement", "3", 40, 5)
 	p.Turn("implement", 1, 0.25, 100, 50)
 	p.ToolCall(agentrun.ToolCallInfo{Phase: "implement", Name: "bash", Blocked: true, Arguments: json.RawMessage(`{}`), OK: true})
-	p.PhaseEnd("implement", "end_turn", 1, 0.25, 900)
+	p.PhaseEnd("implement", "end_turn", 1, 0.25, 900, nil)
 	var types []string
 	for _, ev := range decodeLines(t, events.String()) {
 		types = append(types, ev["type"].(string))

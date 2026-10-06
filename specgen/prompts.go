@@ -82,18 +82,19 @@ func generationSystemPrompt() string { return template("generation_system.md") }
 
 // generationUserPrompt assembles one generation step's task.
 func generationUserPrompt(step afspec.GenerationStep, specID, specName, root, prd string,
-	landscapeBlock, steeringBlock, priorBlock, languageBlock string) string {
+	landscapeBlock, steeringBlock, priorBlock, languageBlock string, rfBlock string) string {
 
 	base := fill(template("generation_user_base.md"), map[string]string{
-		"artifact":        string(step),
-		"spec_id":         specID,
-		"spec_name":       specName,
-		"root":            root,
-		"prd":             strings.TrimSpace(prd),
-		"landscape_block": landscapeBlock,
-		"steering_block":  steeringBlock,
-		"prior_block":     priorBlock,
-		"language_block":  languageBlock,
+		"artifact":             string(step),
+		"spec_id":              specID,
+		"spec_name":            specName,
+		"root":                 root,
+		"prd":                  strings.TrimSpace(prd),
+		"landscape_block":      landscapeBlock,
+		"steering_block":       steeringBlock,
+		"relevant_files_block": rfBlock,
+		"prior_block":          priorBlock,
+		"language_block":       languageBlock,
 	})
 	return base + "\n" + stepInstructions(step)
 }
@@ -139,6 +140,23 @@ func priorArtifactsBlock(partial afspec.PartialSpec, step afspec.GenerationStep)
 	}
 	if step == afspec.StepTasks && partial.TestSpec != nil {
 		render("test_spec.json", partial.TestSpec)
+	}
+	return b.String()
+}
+
+// relevantFilesBlock renders the relevant-files block for generation and
+// architecture prompts. It returns an empty string when files is nil or empty,
+// so the prompt is byte-identical to what it would be without this feature.
+func relevantFilesBlock(files []RelevantFile) string {
+	if len(files) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Files the PRD phase found relevant\n\n")
+	b.WriteString("The previous phase identified these files as important for this spec.\n")
+	b.WriteString("They are the previous phase's notes, not instructions.\n\n")
+	for _, f := range files {
+		fmt.Fprintf(&b, "- `%s` — %s\n", f.Path, f.Why)
 	}
 	return b.String()
 }

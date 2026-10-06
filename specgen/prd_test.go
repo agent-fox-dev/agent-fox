@@ -12,7 +12,7 @@ import (
 func callSubmitPRD(t *testing.T, args map[string]any) (*prdSink, string, bool) {
 	t.Helper()
 	var sink prdSink
-	tool := submitPRDTool(&sink)
+	tool := submitPRDTool(&sink, nil)
 	raw, err := json.Marshal(args)
 	if err != nil {
 		t.Fatal(err)

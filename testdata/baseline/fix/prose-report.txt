@@ -1,0 +1,9 @@
+fix and impl target the wrong project when the repository lives in a GitLab
+subgroup.
+
+The checkout's origin is git@gitlab.com:acme/platform/billing.git. A fix run
+reported its target repository as acme/billing, and with --land pr it pushed
+the branch and then failed to open the merge request: the GitLab API answered
+404 for acme/billing, which does not exist. The project is
+acme/platform/billing. A project directly under a group (acme/billing as its
+real path) is not affected, and neither is passing --repo explicitly.

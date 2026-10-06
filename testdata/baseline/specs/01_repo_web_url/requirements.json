@@ -1,0 +1,69 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "01",
+  "spec_name": "repo_web_url",
+  "schema_version": 2,
+  "introduction": "A repository's web URL, built once in issuex.Repo and reused by IssueRef.URL.",
+  "glossary": {
+    "web URL": "The address of a repository's or an issue's page on its forge, as a browser opens it.",
+    "system": "The issuex package."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Repo.WebURL",
+      "rationale": "A caller that wants a project's page should not repeat the host and scheme rules IssueRef.URL already holds.",
+      "criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "pattern": "event_driven",
+          "condition": "Repo.WebURL is called on a repository whose Host is empty",
+          "system": "issuex",
+          "action": "return https://github.com/<Owner>/<Name>",
+          "contract": "the string \"https://github.com/\" + Owner + \"/\" + Name"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "Repo.WebURL is called on a repository whose Host is set",
+          "system": "issuex",
+          "action": "return <scheme>://<host>/<Owner>/<Name>, where an http:// or https:// prefix on Host sets the scheme (https otherwise), surrounding space and a trailing slash on Host are dropped, and a nested GitLab Owner is kept whole",
+          "contract": "a URL whose path is Owner + \"/\" + Name with no doubled slash"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "IssueRef.URL builds on Repo.WebURL",
+      "rationale": "The host and scheme rules should live in one place, and no URL a tool already prints may change.",
+      "criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "issuex",
+          "action": "for any IssueRef, return from URL() exactly the string it returned before this change, built from Repo.WebURL plus the issue or pull/merge request suffix"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "A caller turns an origin remote into its project page",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "parses the origin remote with issuex.ParseRemote"
+        },
+        {
+          "actor": "issuex",
+          "action": "returns the Repo with its host, nested owner and name"
+        },
+        {
+          "actor": "caller",
+          "action": "calls WebURL on that Repo and opens the page"
+        }
+      ]
+    }
+  ]
+}

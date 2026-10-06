@@ -2,6 +2,8 @@ package gitx
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +79,66 @@ func TestHermeticEnvKeepsToolchainCachesWhereTheyAre(t *testing.T) {
 	for _, k := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "RUSTUP_HOME"} {
 		if v, ok := got[k]; ok {
 			t.Errorf("%s = %q survived; a clean environment does not have it", k, v)
+		}
+	}
+}
+
+// A test that reaches a forge over https with no credential helper makes git
+// ask for a username: the askpass program first, then the terminal. On a clean
+// CI image there is neither and the command fails at once. Started from an
+// editor's terminal, git asked the editor's askpass, which showed a dialog and
+// waited until the gate's timeout. Under the hermetic runner neither is asked.
+func TestHermeticRunnerNeverAsksForACredential(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="forge"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	asked := filepath.Join(t.TempDir(), "asked")
+	askpass := filepath.Join(t.TempDir(), "askpass.sh")
+	if err := os.WriteFile(askpass, []byte("#!/bin/sh\necho \"$1\" >> '"+asked+"'\necho someone\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_ASKPASS", askpass)
+	t.Setenv("SSH_ASKPASS", askpass)
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	t.Setenv("NO_PROXY", "127.0.0.1,localhost")
+	t.Setenv("no_proxy", "127.0.0.1,localhost")
+
+	out, code, err := HermeticRunner(t.TempDir())(context.Background(), t.TempDir(),
+		[]string{"git", "ls-remote", "--heads", srv.URL + "/acme/widgets.git", "main"})
+	if err != nil {
+		t.Fatalf("git ls-remote did not run: %v", err)
+	}
+	if code == 0 {
+		t.Fatalf("git ls-remote against a server that wants a credential succeeded: %q", out)
+	}
+	if b, err := os.ReadFile(asked); err == nil {
+		t.Errorf("the askpass program was asked for %q; a clean environment has none", strings.TrimSpace(string(b)))
+	}
+	if !strings.Contains(out, "terminal prompts disabled") {
+		t.Errorf("git ls-remote output = %q, want git to refuse to prompt (terminal prompts disabled)", out)
+	}
+}
+
+func TestHermeticEnvDisablesCredentialPrompts(t *testing.T) {
+	env := HermeticEnv([]string{"HOME=/home/me", "PATH=/bin", "GIT_TERMINAL_PROMPT=1",
+		"GIT_ASKPASS=/opt/editor/askpass.sh", "SSH_ASKPASS=/usr/libexec/ssh-askpass", "SSH_ASKPASS_REQUIRE=force"}, "/clean")
+	got := map[string][]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = append(got[k], v)
+	}
+	if v := got["GIT_TERMINAL_PROMPT"]; len(v) != 1 || v[0] != "0" {
+		t.Errorf("GIT_TERMINAL_PROMPT = %q, want exactly one value, 0", v)
+	}
+	for _, k := range []string{"GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"} {
+		if v, ok := got[k]; ok {
+			t.Errorf("%s = %q survived; a clean environment has no one to ask", k, v)
 		}
 	}
 }

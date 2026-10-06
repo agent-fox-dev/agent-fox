@@ -38,10 +38,10 @@ func shellToolCall(t *testing.T, command string) ToolCallInfo {
 	var turn int
 	var tb textBuffer
 	pending := make(map[string]core.ToolUseBlock)
-	r.trace("ph", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: args},
 	})
-	r.trace("ph", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, &toolErrorCounter{}, &blockCounter{}, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "execute", IsError: !res.OK,
 			Content: core.Content{core.TextBlock{Text: res.LLMText()}}},
 	})
@@ -96,11 +96,11 @@ func TestARefusedCallsErrorIsTheGuardsMessage(t *testing.T) {
 	pending := make(map[string]core.ToolUseBlock)
 
 	blocks.inc("execute")
-	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, core.ToolCallEndEvent{
+	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, &toolCallCounter{}, core.ToolCallEndEvent{
 		Block: core.ToolUseBlock{ID: "c1", Name: "execute", Input: json.RawMessage(`{"command":"git push"}`)},
 	})
-	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
-	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, core.ToolResultEvent{
+	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, &toolCallCounter{}, core.ToolExecutionEndEvent{Name: "execute", IsError: true})
+	r.trace("ph", &turn, &toolErrorCounter{}, blocks, &tb, pending, &toolCallCounter{}, core.ToolResultEvent{
 		Message: core.ToolResultMessage{ToolUseID: "c1", ToolName: "execute", IsError: true,
 			Content: core.Content{core.TextBlock{Text: core.ErrResult(core.BlockErrorCode, reason).LLMText()}}},
 	})

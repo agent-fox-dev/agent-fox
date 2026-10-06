@@ -1,6 +1,6 @@
 {
   "tool": "fix",
-  "schema_version": "3.0.0",
+  "schema_version": "3.1.0",
   "description": "Diagnoses a problem, writes the change on a branch, verifies it with the project's own checks, and lands it.",
   "input": {
     "description": "Exactly one of: a GitHub or GitLab issue or pull/merge-request URL (the issue is the problem), a path to a readable file (its contents are the problem), any other text (the text is the problem), or - to read the problem from stdin.",
@@ -1358,6 +1358,20 @@
                 "task": {
                   "type": "string",
                   "description": "The task the phase worked on, when a run is divided into tasks, such as impl's per-task phases."
+                },
+                "tool_calls": {
+                  "type": "object",
+                  "description": "The number of calls to each tool by name, including blocked calls.",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                },
+                "tool_result_bytes": {
+                  "type": "object",
+                  "description": "The total bytes of the model-facing text returned by each tool, by name.",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
                 },
                 "tool_errors": {
                   "type": "object",

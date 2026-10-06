@@ -114,3 +114,22 @@ func TestEnvelopeReportsTimingsOutsideModelPhases(t *testing.T) {
 	var nilRun *toolio.Run
 	nilRun.AddTiming("git", "x", time.Second) // must not panic
 }
+
+// TS-13-7 (unit): PhaseFromResult copies ToolCalls and ToolResultBytes from agentrun.Result into PhaseInfo
+func TestTS_13_7_PhaseFromResultCopiesToolCallsAndToolResultBytes(t *testing.T) {
+	res := agentrun.Result{
+		Name:            "prd",
+		Turns:           5,
+		Elapsed:         time.Second,
+		Usage:           core.Usage{InputTokens: 100, OutputTokens: 50, CostUSD: 0.5},
+		ToolCalls:       map[string]int{"read_file": 5, "search_files": 3},
+		ToolResultBytes: map[string]int64{"read_file": 8192, "search_files": 2048},
+	}
+	pi := toolio.PhaseFromResult(res, "")
+	if len(pi.ToolCalls) != 2 || pi.ToolCalls["read_file"] != 5 || pi.ToolCalls["search_files"] != 3 {
+		t.Errorf("ToolCalls = %v, want map[read_file:5 search_files:3]", pi.ToolCalls)
+	}
+	if len(pi.ToolResultBytes) != 2 || pi.ToolResultBytes["read_file"] != 8192 || pi.ToolResultBytes["search_files"] != 2048 {
+		t.Errorf("ToolResultBytes = %v, want map[read_file:8192 search_files:2048]", pi.ToolResultBytes)
+	}
+}
