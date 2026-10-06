@@ -1154,12 +1154,28 @@ refused. The lists are generated from the same source the guard enforces, so the
 | Phase | Programs |
 |---|---|
 | read-only (`fix` analyse, `impl` survey) | `git`, `ls`, `cat`, `head`, `tail`, `wc`, `rg`, `grep`, `file`, `echo`, `printf`, `pwd`, `true`, `test`, `du` |
-| implementing (`fix` implement, `impl` task and repair) | the read-only list plus `go`, `gofmt`, `goimports`, `make`, `npm`, `npx`, `node`, `yarn`, `pnpm`, `python`, `python3`, `pytest`, `uv`, `pip`, `cargo`, `rustfmt`, `mkdir`, `cp`, `mv`, `sed`, `awk`, `diff`, `sort`, `uniq`, `touch`, the verification command's own program, and whatever `--allow` adds |
+| implementing (`fix` implement, `impl` task and repair) | the read-only list plus `go`, `gofmt`, `goimports`, `make`, `npm`, `npx`, `node`, `yarn`, `pnpm`, `python`, `python3`, `pytest`, `uv`, `pip`, `cargo`, `rustfmt`, `mkdir`, `cp`, `mv`, `rm`, `sed`, `awk`, `diff`, `sort`, `uniq`, `touch`, the verification command's own program, and whatever `--allow` adds |
 
 `find` is on neither: `find_files` covers the reading, and `-exec`, `-execdir`,
 `-ok`, `-okdir`, `-delete` and the `-fprint*` family are refused for a phase that
-adds `find` back with `--allow`. `env`, `rm` and `perl` are on neither either:
-they run any program, delete, or run any code.
+adds `find` back with `--allow`. `env` and `perl` are on neither either: they run
+any program or any code. `rm` is on the implementing list, confined: every
+operand must resolve inside the repository, and the repository itself, `.git`,
+the spec package (or a directory holding it), a path outside, a glob and an
+expansion are refused. Refusing it outright protected nothing, since `python3`
+can delete a file, and cost the model a turn.
+
+A program the list names twice (the verification command's `make` beside the
+toolchains') is listed once, in the refusal and in the shell's description.
+
+**Misread lines.** AgentKit's floor policy misreads an assignment from a
+command substitution (`d=$(go list -m ...)`) and names an argument as the
+program. The guard's own parse judges every program on the line first, so in
+an implementing phase such a line runs when its programs are allowed, and in a
+read-only phase the refusal says substitution is not permitted. A backtick
+outside single quotes, even inside double quotes, starts a command
+substitution; a refused line that has one says so, and an unclosed one is
+reported as that alone rather than naming the word it swallowed.
 
 **Operators.** A read-only phase gets no shell operators: pipes, redirection,
 `&&`, `;` and `$(...)` are refused, so it runs one program per call. An
