@@ -45,6 +45,27 @@ func gateCommands(tc afspec.TestCommands, override string, none bool) []string {
 	return out
 }
 
+// suiteCommand is the gate's command that runs the whole test suite: the
+// --verify-command that replaces the gate, else all_tests. The implement and
+// resolve phases' shells refuse it, because the program runs it after them.
+func suiteCommand(tc afspec.TestCommands, override string, none bool) string {
+	if none {
+		return ""
+	}
+	if o := strings.TrimSpace(override); o != "" {
+		return o
+	}
+	return strings.TrimSpace(tc.AllTests)
+}
+
+// suiteList is a phase's Suite: the command, or none.
+func suiteList(cmd string) []string {
+	if strings.TrimSpace(cmd) == "" {
+		return nil
+	}
+	return []string{cmd}
+}
+
 // shellOnly are the characters checks.Run cannot honour: it runs a program,
 // not a shell, so a command that needs one would run with them as literal
 // arguments and report a failure that is nobody's.

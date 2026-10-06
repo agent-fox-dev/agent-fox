@@ -102,6 +102,9 @@ type repairInput struct {
 
 // taskInput is what one implementation phase is given.
 type taskInput struct {
+	// Suite is the gate's test-suite command, which the phase's shell
+	// refuses: the program runs it after the phase.
+	Suite    string
 	Spec     *afspec.Spec
 	Task     afspec.Task
 	Root     string
@@ -136,6 +139,8 @@ type taskInput struct {
 // resolveInput is what the phase that answers the conformance stage is
 // given.
 type resolveInput struct {
+	// Suite is as taskInput's.
+	Suite    string
 	Spec     *afspec.Spec
 	Root     string
 	Branch   string
@@ -230,27 +235,33 @@ func (b *agentBrain) writingPhase() (programs, tools []string) {
 	return programs, agentrun.WithCodeSearch(tools, b.codeSearch)
 }
 
-func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
-	var out sink[RepairSubmission]
+// repairPhase builds the repair phase. It names no Suite: making the failing
+// suite pass is its work, and it has to run the suite to do it.
+func (b *agentBrain) repairPhase(in repairInput, out *sink[RepairSubmission]) agentrun.Phase {
 	programs, tools := b.writingPhase()
-	runner := b.repairRunner
-	if runner == nil {
-		runner = b.runner
-	}
-	res, err := runner.Run(ctx, agentrun.Phase{
+	return agentrun.Phase{
 		Name:               PhaseRepair,
 		System:             repairSystemPrompt,
 		User:               repairPrompt(in),
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitRepair,
-		Custom:             []core.Tool{submitRepairTool(&out)},
+		Custom:             []core.Tool{submitRepairTool(out)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
 		Temperature:        0.2,
 		LoadProjectContext: true,
-	})
+	}
+}
+
+func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
+	var out sink[RepairSubmission]
+	runner := b.repairRunner
+	if runner == nil {
+		runner = b.runner
+	}
+	res, err := runner.Run(ctx, b.repairPhase(in, &out))
 	if err != nil {
 		return RepairSubmission{}, res, err
 	}
@@ -286,6 +297,7 @@ func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentru
 		ReadOnly:           false,
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
+		Suite:              suiteList(in.Suite),
 		Temperature:        0.2,
 		LoadProjectContext: true,
 	}
@@ -311,24 +323,30 @@ func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (confor
 	return conform.RunReview(ctx, b.runner, in)
 }
 
-// Resolve runs the phase that fixes or declares what the conformance stage
-// found. It is a writing phase, like a task's.
-func (b *agentBrain) Resolve(ctx context.Context, in resolveInput) (ResolveSubmission, agentrun.Result, error) {
-	var out sink[ResolveSubmission]
+// resolvePhase builds the resolve phase.
+func (b *agentBrain) resolvePhase(in resolveInput, out *sink[ResolveSubmission]) agentrun.Phase {
 	programs, tools := b.writingPhase()
-	res, err := b.runner.Run(ctx, agentrun.Phase{
+	return agentrun.Phase{
 		Name:               PhaseResolve,
 		System:             resolveSystemPrompt,
 		User:               resolvePrompt(in),
 		Terminator:         ToolSubmitResolve,
-		Custom:             []core.Tool{submitResolveTool(&out, in.Blockers)},
+		Custom:             []core.Tool{submitResolveTool(out, in.Blockers)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
+		Suite:              suiteList(in.Suite),
 		Temperature:        0.2,
 		LoadProjectContext: true,
-	})
+	}
+}
+
+// Resolve runs the phase that fixes or declares what the conformance stage
+// found. It is a writing phase, like a task's.
+func (b *agentBrain) Resolve(ctx context.Context, in resolveInput) (ResolveSubmission, agentrun.Result, error) {
+	var out sink[ResolveSubmission]
+	res, err := b.runner.Run(ctx, b.resolvePhase(in, &out))
 	if err != nil {
 		return ResolveSubmission{}, res, err
 	}
