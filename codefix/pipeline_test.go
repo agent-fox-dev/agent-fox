@@ -19,6 +19,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -1562,5 +1563,71 @@ func TestTS16_3_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	}
 	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
+	}
+}
+
+// TS-16-15 (unit): codefix invalidates the whole index after git.CreateBranch
+// and before the implement phase starts (16-REQ-4.1).
+//
+// The git runner is wrapped to stamp the moment `checkout -b` runs and the
+// scripted brain stamps the moment the implement phase starts, so the order
+// is observed rather than assumed.
+//
+// Verifies: 16-REQ-4.1
+func TestTS16_15_CodefixInvalidatesTheIndexAfterCreateBranch(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	var branchSeq, implementSeq int64
+	runner := func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		out, code, err := gitx.ExecRunner(ctx, dir, argv, stdin...)
+		if len(argv) >= 3 && argv[1] == "checkout" && argv[2] == "-b" && code == 0 && err == nil {
+			branchSeq = indextest.Next()
+		}
+		return out, code, err
+	}
+	g := gitx.New(ws.Root, runner)
+	g.SetSleep(func(time.Duration) {})
+
+	idx := &indextest.Index{}
+	b := defaultBrain()
+	edit := b.edit
+	b.edit = func(root string) error {
+		implementSeq = indextest.Next()
+		return edit(root)
+	}
+	o := newOptions(ws, g, b)
+	o.Index = idx
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if branchSeq == 0 || implementSeq == 0 {
+		t.Fatalf("the branch (%d) or the implement phase (%d) was not observed", branchSeq, implementSeq)
+	}
+	var seen []indextest.Event
+	for _, e := range idx.Events() {
+		if e.Kind == "invalidate" {
+			seen = append(seen, e)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("Invalidate was never called")
+	}
+	first := seen[0]
+	if first.Rel != "" {
+		t.Errorf("Invalidate(%q): want the whole index, \"\"", first.Rel)
+	}
+	if first.Seq < branchSeq {
+		t.Errorf("Invalidate (%d) came before git.CreateBranch (%d)", first.Seq, branchSeq)
+	}
+	if first.Seq > implementSeq {
+		t.Errorf("Invalidate (%d) came after the implement phase started (%d)", first.Seq, implementSeq)
+	}
+}
+
+// A run without an index must not trip over the invalidation call.
+func TestTS16_15_NilIndexRunsWithoutInvalidating(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	if _, err := Run(context.Background(), newOptions(ws, g, defaultBrain())); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 }

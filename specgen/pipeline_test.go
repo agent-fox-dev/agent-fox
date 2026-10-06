@@ -16,6 +16,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -947,5 +948,23 @@ func TestTS16_4_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	}
 	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
+	}
+}
+
+// TS-16-22 (unit): the spec pipeline never changes the working tree, so it
+// never invalidates the index (16-REQ-4.8).
+//
+// Verifies: 16-REQ-4.8
+func TestTS16_22_SpecgenNeverInvalidatesTheIndex(t *testing.T) {
+	ws := newWorkspace(t)
+	idx := &indextest.Index{}
+	o := newOptions(ws, newAuthor(t, "01", "test_feature"))
+	o.Index = idx
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n := idx.InvalidateCalls(); n != 0 {
+		t.Errorf("Invalidate was called %d times; spec never changes the tree: %v", n, idx.Events())
 	}
 }

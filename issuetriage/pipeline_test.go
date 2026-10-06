@@ -10,6 +10,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 )
 
 // fakeIndex is a tools.Index test double. Tools returns a code_search tool, as
@@ -113,5 +114,27 @@ func TestTS16_2_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	}
 	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
+	}
+}
+
+// TS-16-22 (unit): the triage pipeline never changes the working tree, so it
+// never invalidates the index (16-REQ-4.8).
+//
+// Verifies: 16-REQ-4.8
+func TestTS16_22_TriageNeverInvalidatesTheIndex(t *testing.T) {
+	ws := newWorkspace(t)
+	idx := &indextest.Index{}
+	p := faux.New(toolCall("c1", ToolFileIssue, validIssue()))
+	o := newOptions(t, ws, indexedRunner(t, ws, p, idx))
+	o.Index = idx
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !wireTools(t, p)["code_search"] {
+		t.Fatal("the run did not use the index, so the assertion below proves nothing")
+	}
+	if n := idx.InvalidateCalls(); n != 0 {
+		t.Errorf("Invalidate was called %d times; triage never changes the tree: %v", n, idx.Events())
 	}
 }

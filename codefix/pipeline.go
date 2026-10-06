@@ -265,6 +265,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Branch = branch
 	o.Progress.Step("branch", "branched %s from %s", branch, base)
 
+	// The checkout is a Go-initiated tree change: whatever the index learned
+	// while the analyse phase ran is stale before the implement phase starts
+	// (16-REQ-4.1). The implement phase is the last one that writes, so this
+	// is the only point that needs it.
+	if o.Index != nil {
+		o.Index.Invalidate("")
+	}
+
 	// The analysis comment goes up now: the run is known to be able to
 	// start, a branch exists, and the comment can name it.
 	postComment(ctx, o, result, analysisComment(analysis, criteria, branch, command, baseline),
