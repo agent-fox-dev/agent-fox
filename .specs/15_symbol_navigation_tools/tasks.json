@@ -56,7 +56,7 @@
         "internal/agentrun/policy_test.go",
         "internal/agentrun/phase_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -86,12 +86,13 @@
         "codefix/preflight_test.go",
         "codeimpl/preflight_test.go",
         "specgen/preflight_test.go",
-        "issuetriage/preflight_test.go"
+        "issuetriage/preflight_test.go",
+        "cmd/triage/preflight_test.go"
       ],
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -110,12 +111,13 @@
         "Run make test and make lint; fix any failures."
       ],
       "touches": [
-        "internal/repomap/repomap.go"
+        "internal/repomap/repomap.go",
+        "internal/repomap/repomap_test.go"
       ],
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -148,13 +150,14 @@
       "touches": [
         "docs/model-usage.md",
         "docs/cli.md",
-        "docs/development.md"
+        "docs/development.md",
+        "docs_symbols_test.go"
       ],
       "depends_on": [
         1,
         2
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -187,7 +190,7 @@
         3,
         4
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

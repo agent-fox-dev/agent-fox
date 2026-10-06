@@ -70,8 +70,8 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 	if res["stage"] != "preflight" {
 		t.Errorf("stage = %v", res["stage"])
 	}
-	if list, ok := res["preflight"].([]any); !ok || len(list) != 2 {
-		t.Errorf("result.preflight = %v, want target_repository and forge_credential", res["preflight"])
+	if list, ok := res["preflight"].([]any); !ok || len(list) != 3 {
+		t.Errorf("result.preflight = %v, want target_repository, forge_credential and symbol_backend", res["preflight"])
 	}
 	if est, ok := res["estimate"].(map[string]any); !ok || est["phases"] != float64(1) {
 		t.Errorf("estimate = %v", res["estimate"])

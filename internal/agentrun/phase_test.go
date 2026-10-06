@@ -261,6 +261,196 @@ func TestAssertReadOnlyNamesTheOffender(t *testing.T) {
 	if err := AssertReadOnly([]core.Tool{{Name: "read_file"}}); err != nil {
 		t.Errorf("a clean set was rejected: %v", err)
 	}
+
+	// TS-15-4 (unit): the symbol tools are read tools.
+	// Verifies: 15-REQ-1.4, 15-REQ-10.1
+	t.Run("TS-15-4 symbol tools pass", func(t *testing.T) {
+		set := []core.Tool{
+			{Name: "read_file"}, {Name: "list_files"}, {Name: "find_files"},
+			{Name: "search_files"}, {Name: "file_outline"}, {Name: "find_symbol"},
+		}
+		if err := AssertReadOnly(set); err != nil {
+			t.Errorf("a set of the six read tools was rejected: %v", err)
+		}
+	})
+
+	// TS-15-5 (unit): write_file is named, the symbol tools are not.
+	// Verifies: 15-REQ-10.2
+	t.Run("TS-15-5 write_file named beside symbol tools", func(t *testing.T) {
+		err := AssertReadOnly([]core.Tool{
+			{Name: "read_file"}, {Name: "file_outline"}, {Name: "find_symbol"}, {Name: "write_file"},
+		})
+		if !errors.Is(err, ErrNotReadOnly) {
+			t.Fatalf("err = %v, want ErrNotReadOnly", err)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "write_file") {
+			t.Errorf("the error should name write_file: %v", err)
+		}
+		if strings.Contains(msg, "file_outline") || strings.Contains(msg, "find_symbol") {
+			t.Errorf("the error names a read tool: %v", err)
+		}
+	})
+}
+
+// TS-15-2 (unit): a read-only phase declares all six read tools and no
+// mutating tool.
+//
+// Verifies: 15-REQ-1.2, 15-REQ-9.1
+func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
+	var got string
+	var calls int
+	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "read", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: ReadOnlyFileTools,
+		ReadOnly: true,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	declared := declaredTools(t, p)
+	for _, n := range []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"} {
+		if !declared[n] {
+			t.Errorf("%s was not declared", n)
+		}
+	}
+	for _, n := range ReadOnlyFileTools {
+		if !declared[n] {
+			t.Errorf("%s was not declared", n)
+		}
+	}
+	for _, n := range MutatingTools {
+		if declared[n] {
+			t.Errorf("%s was declared in a read-only phase", n)
+		}
+	}
+}
+
+// TS-15-3 (unit): a writing phase declares the six read tools beside the
+// write tools and execute.
+//
+// Verifies: 15-REQ-1.3, 15-REQ-9.2
+func TestTS15_3_WritingPhaseDeclaresTheSixReadTools(t *testing.T) {
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
+	var got string
+	var calls int
+	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtins := append(append([]string(nil), ReadOnlyFileTools...), WriteFileTools...)
+	builtins = append(builtins, "execute")
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "write", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: builtins,
+		ReadOnly: false, Programs: ReadOnlyPrograms,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	declared := declaredTools(t, p)
+	for _, n := range ReadOnlyFileTools {
+		if !declared[n] {
+			t.Errorf("%s was not declared", n)
+		}
+	}
+	for _, n := range []string{"file_outline", "find_symbol", "write_file", "edit_file", "execute"} {
+		if !declared[n] {
+			t.Errorf("%s was not declared", n)
+		}
+	}
+}
+
+func declaredTools(t *testing.T, p *faux.Provider) map[string]bool {
+	t.Helper()
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the wire")
+	}
+	declared := map[string]bool{}
+	for _, tool := range reqs[0].Tools {
+		declared[tool.Name] = true
+	}
+	return declared
+}
+
+// TS-15-6 (unit): toolsNote names the symbol tools.
+//
+// Verifies: 15-REQ-1.5
+func TestTS15_6_ToolsNoteListsTheSymbolTools(t *testing.T) {
+	note := toolsNote([]core.Tool{
+		{Name: "read_file"}, {Name: "find_files"}, {Name: "file_outline"},
+		{Name: "find_symbol"}, {Name: "submit"},
+	})
+	for _, want := range []string{"file_outline", "find_symbol", "no shell"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note %q lacks %q", note, want)
+		}
+	}
+}
+
+// TS-15-7 (unit): each phase gets its own tool set from its own tools.All
+// call, so each holds its own symbol table.
+//
+// Verifies: 15-REQ-2.1, 15-REQ-2.2
+func TestTS15_7_RegisteredToolsIsFreshPerPhase(t *testing.T) {
+	r, err := NewRunner(fauxConfig(faux.New(), newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, err := r.registeredTools(Phase{Name: "a", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t2, err := r.registeredTools(Phase{Name: "b", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(ts []core.Tool, name string) bool {
+		for _, x := range ts {
+			if x.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range []string{"file_outline", "find_symbol"} {
+		if !has(t1, n) || !has(t2, n) {
+			t.Errorf("%s missing from a phase's tools", n)
+		}
+	}
+	if len(t1) == 0 || len(t2) == 0 || &t1[0] == &t2[0] {
+		t.Error("the two phases share a tool slice")
+	}
+}
+
+// TS-15-8 (unit): registeredTools leaves tools.Options.Symbols at its zero
+// value.
+//
+// Verifies: 15-REQ-3.1
+func TestTS15_8_RegisteredToolsSetsOnlyTheWorkspace(t *testing.T) {
+	src, err := os.ReadFile("phase.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	i := strings.Index(text, "func (r *Runner) registeredTools(")
+	if i < 0 {
+		t.Fatal("registeredTools not found")
+	}
+	body := text[i:]
+	if j := strings.Index(body, "\n}\n"); j >= 0 {
+		body = body[:j]
+	}
+	if !strings.Contains(body, "tools.All(tools.Options{Workspace: r.cfg.Workspace})") {
+		t.Errorf("tools.All should be called with only Workspace set:\n%s", body)
+	}
+	if strings.Contains(body, "Symbols") {
+		t.Error("registeredTools must not set Symbols")
+	}
 }
 
 // A phase's tool descriptions state its own rules, generated from its
@@ -446,5 +636,113 @@ func TestTS14_26_RunnerNeverInjectsRepoMap(t *testing.T) {
 	}
 	if !strings.Contains(string(msgs), "do the thing") {
 		t.Error("the user prompt did not reach the wire; the check proves nothing")
+	}
+}
+
+// TS-15-17 (smoke): a read-only phase and a writing phase on one Runner, the
+// way fix runs analyse then implement, each declare the six read tools, the
+// read-only invariant holds for a phase without a shell, and each phase gets
+// its own fresh symbol table: a declaration that appears between the phases is
+// found by the second phase's find_symbol and was not in the first's.
+//
+// Verifies: 15-PATH-1, 15-REQ-1.2, 15-REQ-1.3, 15-REQ-1.4, 15-REQ-2.1
+//
+// Real components: Runner, SelectTools, AssertReadOnly, tools.All. Only the
+// model is scripted.
+func TestTS15_17_AnalyseThenImplementRegisterSixReadToolsWithAFreshTable(t *testing.T) {
+	ws := newWorkspace(t)
+	p := faux.New(
+		toolCallTurn("a1", "find_symbol", map[string]any{"name": "LateArrival"}),
+		toolCallTurn("a2", "submit", map[string]any{"value": "x"}),
+		toolCallTurn("i1", "find_symbol", map[string]any{"name": "LateArrival"}),
+		toolCallTurn("i2", "submit", map[string]any{"value": "x"}),
+	)
+	r, err := NewRunner(fauxConfig(p, ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	var calls int
+
+	// The read-only phase's resolved set passes AssertReadOnly.
+	ro, err := r.registeredTools(Phase{Name: "analyse", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertReadOnly(core.ToolPolicy{ExcludeTools: MutatingTools}.Resolve(ro)); err != nil {
+		t.Errorf("AssertReadOnly refused the read-only set: %v", err)
+	}
+
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "analyse", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: ReadOnlyFileTools,
+		ReadOnly: true,
+	}); err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	nAnalyse := len(p.Requests())
+
+	// Go changes the tree between the phases.
+	late := filepath.Join(ws.Root, "late.go")
+	if err := os.WriteFile(late, []byte("package main\n\nfunc LateArrival() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	builtins := append(append([]string(nil), ReadOnlyFileTools...), WriteFileTools...)
+	builtins = append(builtins, "execute")
+	calls = 0
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "implement", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: builtins,
+		ReadOnly: false, Programs: ReadOnlyPrograms,
+	}); err != nil {
+		t.Fatalf("implement: %v", err)
+	}
+	reqs := p.Requests()
+	if nAnalyse == 0 || len(reqs) <= nAnalyse {
+		t.Fatalf("expected requests from both phases, got %d then %d", nAnalyse, len(reqs))
+	}
+
+	names := func(req core.Request) map[string]bool {
+		m := map[string]bool{}
+		for _, tool := range req.Tools {
+			m[tool.Name] = true
+		}
+		return m
+	}
+	analyse, implement := names(reqs[0]), names(reqs[nAnalyse])
+	for _, n := range []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"} {
+		if !analyse[n] {
+			t.Errorf("analyse did not declare %s", n)
+		}
+		if !implement[n] {
+			t.Errorf("implement did not declare %s", n)
+		}
+	}
+	for _, n := range MutatingTools {
+		if analyse[n] {
+			t.Errorf("analyse declared %s", n)
+		}
+	}
+	for _, n := range []string{"write_file", "edit_file", "execute"} {
+		if !implement[n] {
+			t.Errorf("implement did not declare %s", n)
+		}
+	}
+
+	// The last request of each phase carries its find_symbol result.
+	result := func(req core.Request) string {
+		raw, err := json.Marshal(req.Messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	if strings.Contains(result(reqs[nAnalyse-1]), "late.go") {
+		t.Error("analyse's find_symbol saw a file that did not exist yet")
+	}
+	if !strings.Contains(result(reqs[len(reqs)-1]), "late.go") {
+		t.Errorf("implement's find_symbol did not find the declaration added between the phases:\n%s",
+			result(reqs[len(reqs)-1]))
 	}
 }
