@@ -537,6 +537,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	// from what is there now.
 	st.invalidate()
 	done := o.Progress.Begin("resolving %d blocking finding(s) and %d structural finding(s)", len(blockers), len(a.findings))
+	st.noteUntracked(ctx)
 	sub, stats, err := st.brain.Resolve(ctx, resolveInput{
 		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate, Baseline: st.baseline,
 		Survey: st.survey, Blockers: blockers, Findings: a.findings, Hermetic: hermetic,
@@ -585,7 +586,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	if !landable(verdict, len(st.gate) == 0) {
 		return discardWith(fmt.Sprintf("the checks did not pass after it (%s)", verdict))
 	}
-	commit, err := st.git.CommitAll(ctx, resolveCommitMessage(st.spec, sub, after))
+	commit, err := st.commit(ctx, o, resolveCommitMessage(st.spec, sub, after), false, sub.Changes)
 	if err != nil {
 		return nil, false, fail("commit", CategoryGit, err)
 	}

@@ -333,6 +333,8 @@ quite what it appears to be; `low` is informational.
 | `relevant_files_unavailable` | low | prd | spec |
 | `repo_map_build_failed` | low | triage | shared |
 | `code_search_unavailable` | low | preflight | shared |
+| `untracked_files_left_alone` | low | commit | fix, impl |
+| `unlisted_file_committed` | low | commit | fix, impl |
 | `split_plan_foreign` | low | split | spec |
 | `split_plan_unreadable` | low | split | spec |
 | `split_plan_stale` | high | split | spec |
@@ -1574,11 +1576,21 @@ For each task that is not done, in array order:
 5. The gate runs and is compared with the baseline.
 6. A landable verdict, with a report that answers `pass` for every test the
    task owns and every `done_when` entry, marks the task `done`, writes
-   `tasks.json`, and commits everything as `feat: <subject>` with a `Spec:`
-   trailer naming the package and the task.
+   `tasks.json`, and commits the task's work as `feat: <subject>` with a
+   `Spec:` trailer naming the package and the task.
+
+The run shares its checkout with whoever else works in it, so it commits and
+removes only what it can own. Before each writing phase it notes the
+untracked files already in the tree; those, and any untracked file under the
+specs directory outside the run's own spec package (a package `spec` is
+writing), are left out of every commit and in the tree, and named once in an
+`untracked_files_left_alone` warning. `fix` does the same for the files there
+before its implementation phase. A new file a commit carries that the phase's
+report does not list among its `changes` is committed — the checks ran with
+it — and named in an `unlisted_file_committed` warning.
 
 Anything else is a failed attempt. The first one is discarded — the branch is
-reset to the last commit and the tree cleaned — and the task is tried once
+reset to the last commit and the attempt's own new files removed — and the task is tried once
 more with the failure in its prompt (`--task-attempts`, default 2). The last
 failure parks the work as a `wip:` commit with the task recorded as
 `in_progress`, returns the checkout to the base branch, and exits 4. A run

@@ -290,6 +290,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	for _, f := range analysis.Files {
 		implPaths = append(implPaths, f.Path)
 	}
+	before := untrackedNow(ctx, git)
 	impl, stats, err := b.Implement(ctx, implementInput{
 		Input: o.Input, Analysis: analysis, Baseline: baseline, VerifyCommand: command,
 		Branch: branch, Root: root, Instructions: projectInstructions(root),
@@ -350,7 +351,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	landable := verdict.Landable() || (verdict == checks.VerdictUnverified && command == "")
 	if !landable {
-		return parkUnverified(ctx, o, git, result, impl, analysis, verdict, base)
+		return parkUnverified(ctx, o, git, before, result, impl, analysis, verdict, base)
 	}
 
 	// ------------------------------------------------------------ prove --
@@ -362,8 +363,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// ------------------------------------------------------------- land --
-	commit, err := git.CommitAll(ctx, commitMessage(analysis.Classification, impl, o.Input.Issue,
-		result.ClosesIssue, commitBody(impl.Summary, after)))
+	commit, err := commitOwn(ctx, o, git, before, commitMessage(analysis.Classification, impl, o.Input.Issue,
+		result.ClosesIssue, commitBody(impl.Summary, after)), impl.Changes)
 	if err != nil {
 		return result, fail("commit", CategoryGit, err)
 	}
@@ -752,11 +753,11 @@ func stopOnAmbiguity(ctx context.Context, o Options, result *Result, a Ambiguity
 // edited real files and a person may want to look at them; it is committed
 // rather than left loose because a branch you can delete is easier to reason
 // about than a dirty tree. It is emphatically not landed.
-func parkUnverified(ctx context.Context, o Options, git *gitx.Git, result *Result,
+func parkUnverified(ctx context.Context, o Options, git *gitx.Git, before map[string]bool, result *Result,
 	impl Implementation, analysis Analysis, verdict checks.Verdict, base string) (*Result, error) {
 
 	result.Stage = "unverified"
-	if commit, err := git.CommitAll(ctx, wipCommitMessage(impl, o.Input.Issue, verdict)); err != nil {
+	if commit, err := commitOwn(ctx, o, git, before, wipCommitMessage(impl, o.Input.Issue, verdict), impl.Changes); err != nil {
 		o.Run.Warn(toolio.WarnCommitNotParked, "high", "the unverified work could not be committed on %s: %v", result.Branch, err)
 	} else {
 		result.Commit = commit

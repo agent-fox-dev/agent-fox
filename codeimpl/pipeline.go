@@ -62,6 +62,11 @@ type RunState struct {
 	// — discard, dropScratchFiles — invalidate it themselves, wherever they
 	// are called from.
 	index tools.Index
+	// untrackedBefore is the untracked files at the start of the current
+	// writing phase, and leftWarned the files a commit already named as left
+	// alone: see untracked.go.
+	untrackedBefore map[string]bool
+	leftWarned      map[string]bool
 }
 
 type runState = RunState
@@ -905,6 +910,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		in.RepoMap = st.maps.Get(ctx, PhaseRepair, specPaths(st, base.Task))
 
 		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
+		st.noteUntracked(ctx)
 		sub, stats, err := st.brain.Repair(ctx, in)
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))
@@ -1035,14 +1041,15 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 		return parkRepair(ctx, o, st, result, report, rf.reason, rf.outcome, rf.category)
 	}
 
-	commit, err := st.git.CommitAll(ctx, repairCommitMessage(st.spec, *report.Submission))
+	commit, err := st.commit(ctx, o, repairCommitMessage(st.spec, *report.Submission), false,
+		report.Submission.Changes)
 	// The commit runs the repository's hooks, which may rewrite files
 	// (16-REQ-4.6).
 	st.invalidate()
 	if err != nil {
 		return fail("commit", CategoryGit, err)
 	}
-	if dirty, err := st.git.DirtyFiles(ctx); err == nil && len(dirty) > 0 {
+	if dirty, err := st.dirtyAfterCommit(ctx); err == nil && len(dirty) > 0 {
 		return failf("commit", CategoryGit,
 			"the tree is dirty after committing the repair — a hook changed files the commit does "+
 				"not carry:\n%s", strings.Join(dirty, "\n"))
@@ -1073,7 +1080,7 @@ func repairAfterTask(ctx context.Context, o Options, st *runState, result *Resul
 	report.Repair = rr
 	o.Progress.Step("task", "task %d: the checks failed after the integration task; repairing them before it lands", task.Id)
 
-	if _, err := st.git.CommitAllNoVerify(ctx, holdCommitMessage(st.spec, task)); err != nil {
+	if _, err := st.commit(ctx, o, holdCommitMessage(st.spec, task), true, nil); err != nil {
 		return GateResult{}, fail("task", CategoryGit, err)
 	}
 	after, rf := repairLoop(ctx, o, st, result, rr, repairInput{
@@ -1083,9 +1090,16 @@ func repairAfterTask(ctx context.Context, o Options, st *runState, result *Resul
 		Profile: st.profile, Now: o.now(),
 	})
 	// Whatever happened, the hold is undone and the task's change is back
-	// in the tree, staged, beside whatever the last attempt left.
+	// in the tree, staged with whatever the last attempt left — but not with
+	// the files the run left alone.
 	bg, cancel := background(ctx)
 	err := st.git.ResetSoft(bg, head)
+	if err == nil {
+		var leave []string
+		if leave, err = st.leftAlone(bg); err == nil {
+			err = st.git.StageAllExcept(bg, leave)
+		}
+	}
 	cancel()
 	// The hold commit is gone and the tree holds the task's change plus the
 	// repair's: what the task's own commit will carry (16-REQ-4.7).
@@ -1125,6 +1139,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 
 		done := o.Progress.Begin("task %d/%d: %s (attempt %d of %d)", task.Id, result.TasksTotal,
 			task.Title, attempt, o.TaskAttempts)
+		st.noteUntracked(ctx)
 		sub, stats, err := st.brain.Implement(ctx, taskInput{
 			Spec: st.spec, Task: task, Root: st.root, Branch: st.branch, Gate: st.gate,
 			Baseline: st.baseline, Survey: st.survey, Prior: st.prior,
@@ -1283,14 +1298,14 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		if report.Verification != nil {
 			landedGate = *report.Verification
 		}
-		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired, landedGate))
+		commit, err := st.commit(ctx, o, commitMessage(st.spec, task, sub, repaired, landedGate), false, sub.Changes)
 		// Commit hooks may rewrite files, so the tree after the commit is not
 		// the tree the index last saw (16-REQ-4.5).
 		st.invalidate()
 		if err != nil {
 			return report, fail("commit", CategoryGit, err)
 		}
-		if dirty, err := st.git.DirtyFiles(ctx); err == nil && len(dirty) > 0 {
+		if dirty, err := st.dirtyAfterCommit(ctx); err == nil && len(dirty) > 0 {
 			return report, failf("commit", CategoryGit,
 				"the tree is dirty after committing task %d — a hook changed files the commit does "+
 					"not carry:\n%s", task.Id, strings.Join(dirty, "\n"))
@@ -1320,7 +1335,11 @@ func discard(ctx context.Context, st *runState, head string) error {
 	if err := st.git.ResetHard(bg, head); err != nil {
 		return err
 	}
-	return st.git.Clean(bg)
+	keep, err := st.leftAlone(bg)
+	if err != nil {
+		return err
+	}
+	return st.git.CleanExcept(bg, keep)
 }
 
 // revertSpecDir takes back any change the phase made under the spec
@@ -1437,7 +1456,7 @@ func parkWork(ctx context.Context, o Options, st *runState, result *Result, mess
 	defer cancel()
 	result.Stage = "parked"
 
-	commit, err := st.git.CommitAllNoVerify(bg, message)
+	commit, err := st.commit(bg, o, message, true, nil)
 	if err != nil {
 		o.Run.Warn(toolio.WarnCommitNotParked, "high", "the attempt could not be parked as a commit on %s; the tree is left as the "+
 			"phase left it: %v", st.branch, err)

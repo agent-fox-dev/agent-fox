@@ -99,6 +99,17 @@ const (
 	// (unsupported platform or build failure). The run continues without
 	// code_search; search_files remains available (16-REQ-5).
 	WarnCodeSearchUnavailable WarnCode = "code_search_unavailable"
+
+	// WarnUntrackedFilesLeftAlone is recorded once for each untracked file a
+	// commit left out because the run did not create it: it was in the tree
+	// before the phase started, or it is under the specs directory outside
+	// the run's own spec package. The file stays where it is.
+	WarnUntrackedFilesLeftAlone WarnCode = "untracked_files_left_alone"
+	// WarnUnlistedFileCommitted is recorded for a new file a commit carries
+	// that the phase's report does not list among its changes. It is
+	// committed — the gate ran with it — and named so a reviewer can check
+	// that it is the phase's work.
+	WarnUnlistedFileCommitted WarnCode = "unlisted_file_committed"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -151,6 +162,8 @@ var warnStages = map[WarnCode]string{
 	WarnRelevantFilesUnavailable: "prd",
 	WarnRepoMapBuildFailed:       "triage",
 	WarnCodeSearchUnavailable:    "preflight",
+	WarnUntrackedFilesLeftAlone:  "commit",
+	WarnUnlistedFileCommitted:    "commit",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -209,5 +222,7 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnRelevantFilesUnavailable,
 		WarnRepoMapBuildFailed,
 		WarnCodeSearchUnavailable,
+		WarnUntrackedFilesLeftAlone,
+		WarnUnlistedFileCommitted,
 	}
 }
