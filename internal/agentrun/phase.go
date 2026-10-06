@@ -22,6 +22,8 @@ import (
 	"github.com/agentfox/agentkit-go/skills"
 	"github.com/agentfox/agentkit-go/stop"
 	"github.com/agentfox/agentkit-go/tools"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 // Bounds are the ceilings on one phase. They are not the model's to choose,
@@ -175,6 +177,11 @@ type Phase struct {
 	// System and User are the two prompts.
 	System string
 	User   string
+	// RepoMap is the repository map the tool put into User. The runner never
+	// injects it (14-REQ-7.3): each tool's prompt function places it among its
+	// own blocks. The field exists so a test can assert on the map without
+	// parsing User and so the runner can log its size (14-REQ-7.2).
+	RepoMap string
 	// Terminator is the name of the tool that ends the phase by producing
 	// its result. A run that ends without it is a failure, not a partial
 	// success, which is what makes "there is a result" a fact rather than a
@@ -308,6 +315,11 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.cfg.Bounds.Timeout)
 		defer cancel()
+	}
+
+	// Observer.Detail is shown only under --verbose (14-REQ-7.2).
+	if p.RepoMap != "" {
+		r.detail("repo map: %d tokens", afspec.EstimateTokens(p.RepoMap))
 	}
 
 	agent, blocked, err := r.newAgent(p)
