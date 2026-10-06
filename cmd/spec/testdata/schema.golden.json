@@ -125,6 +125,11 @@
         "default": false,
         "description": "print nothing on stderr"
       },
+      "repo-map-tokens": {
+        "type": "integer",
+        "default": 6000,
+        "description": "token budget of the repository map in every phase's prompt; 0 disables the map"
+      },
       "report-file": {
         "type": "string",
         "default": "",

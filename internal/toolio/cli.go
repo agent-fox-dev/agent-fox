@@ -89,6 +89,10 @@ type Common struct {
 	// changed after the check is reported when the write fails, not dropped.
 	output        string
 	outputChecked bool
+	// RepoMapTokens is the token budget of the repository map injected into
+	// every phase's user prompt (--repo-map-tokens, 14-REQ-6.1). 0 disables
+	// the map.
+	RepoMapTokens int
 	// Preflight runs every check that would refuse the run, then stops
 	// before any model phase: see App.PreflightExec.
 	Preflight bool
@@ -205,6 +209,7 @@ func (c *Common) Register(fs *flag.FlagSet) {
 	fs.Float64Var(&c.TotalBudgetUSD, "total-budget", 0, TotalBudgetUsage)
 	fs.BoolVar(&c.EmitEvents, "emit-events", false, "write the JSON event stream to stderr instead of the human progress lines")
 	fs.StringVar(&c.Output, "output", "", "also write a copy of the stdout envelope to this file, atomically and before stdout; relative to the working directory")
+	fs.IntVar(&c.RepoMapTokens, "repo-map-tokens", 6000, "token budget of the repository map in every phase's prompt; 0 disables the map")
 	fs.BoolVar(&c.Preflight, "preflight", false, "run every check that would refuse the run, then stop; makes no change beyond a verification baseline")
 	fs.StringVar(&c.ReportFile, "report-file", "", "where to write the complete envelope; default $XDG_STATE_HOME/agent-fox/runs/<tool>-<started>-<session_id>.json")
 }

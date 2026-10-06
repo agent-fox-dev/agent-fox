@@ -982,3 +982,30 @@ func TestUsageErrorHasTheUsageCategory(t *testing.T) {
 		t.Errorf("exit = %d, want %d", got, toolio.ExitUsage)
 	}
 }
+
+// TS-14-21 (unit): Common.Register registers --repo-map-tokens with default
+// 6000 and stores it in RepoMapTokens.
+func TestTS_14_21_RegisterRepoMapTokens(t *testing.T) {
+	var c toolio.Common
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	c.Register(fs)
+	if fs.Lookup("repo-map-tokens") == nil {
+		t.Fatal("--repo-map-tokens is not registered")
+	}
+	if err := fs.Parse([]string{}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.RepoMapTokens != 6000 {
+		t.Errorf("RepoMapTokens = %d, want 6000", c.RepoMapTokens)
+	}
+
+	var c2 toolio.Common
+	fs2 := flag.NewFlagSet("test2", flag.ContinueOnError)
+	c2.Register(fs2)
+	if err := fs2.Parse([]string{"--repo-map-tokens", "0"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c2.RepoMapTokens != 0 {
+		t.Errorf("RepoMapTokens = %d, want 0", c2.RepoMapTokens)
+	}
+}
