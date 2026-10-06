@@ -331,6 +331,7 @@ quite what it appears to be; `low` is informational.
 | `scope_count_mismatch` | low | prd | spec |
 | `relevant_files_unavailable` | low | prd | spec |
 | `repo_map_build_failed` | low | triage | shared |
+| `code_search_unavailable` | low | preflight | shared |
 | `split_plan_foreign` | low | split | spec |
 | `split_plan_unreadable` | low | split | spec |
 | `split_plan_stale` | high | split | spec |

@@ -15,7 +15,10 @@ require (
 
 require (
 	github.com/agentfox/agentkit-go v0.0.0
-	golang.org/x/text v0.39.0 // indirect
+	github.com/agentfox/agentkit-go/codesearch v0.0.0
+	golang.org/x/text v0.40.0 // indirect
 )
 
 replace github.com/agentfox/agentkit-go => ../agentkit-go
+
+replace github.com/agentfox/agentkit-go/codesearch => ../agentkit-go/codesearch

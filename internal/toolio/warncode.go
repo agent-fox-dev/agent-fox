@@ -94,6 +94,11 @@ const (
 	// repository map failed. The phase runs without a map, as it did before
 	// the map existed; navigation is an optimisation and never fails a run.
 	WarnRepoMapBuildFailed WarnCode = "repo_map_build_failed"
+
+	// WarnCodeSearchUnavailable: the code-search index could not be built
+	// (unsupported platform or build failure). The run continues without
+	// code_search; search_files remains available (16-REQ-5).
+	WarnCodeSearchUnavailable WarnCode = "code_search_unavailable"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -145,6 +150,7 @@ var warnStages = map[WarnCode]string{
 	WarnFixNotProven:             "verify",
 	WarnRelevantFilesUnavailable: "prd",
 	WarnRepoMapBuildFailed:       "triage",
+	WarnCodeSearchUnavailable:    "preflight",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -202,5 +208,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnFixNotProven,
 		WarnRelevantFilesUnavailable,
 		WarnRepoMapBuildFailed,
+		WarnCodeSearchUnavailable,
 	}
 }
