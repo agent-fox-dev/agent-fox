@@ -238,9 +238,9 @@ func (p *Progress) PhaseEnd(phase, stopReason string, turns int, costUSD float64
 }
 
 // Turn emits a turn event after a model turn.
-func (p *Progress) Turn(phase string, turn int, costUSD float64, inputTokens, outputTokens int64) {
+func (p *Progress) Turn(phase string, turn int, u agentrun.TurnUsage) {
 	if s := p.sink(); s != nil {
-		s.Emit(newTurnEvent(phase, turn, costUSD, inputTokens, outputTokens))
+		s.Emit(newTurnEvent(phase, turn, u.CostUSD, u.Input, u.Output, u.CacheRead, u.CacheWrite))
 	}
 }
 

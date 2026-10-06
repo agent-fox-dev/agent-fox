@@ -3923,8 +3923,9 @@ func TestTS1261_ProseParallelCallsAndShellExitCode_Smoke(t *testing.T) {
 		t.Errorf("the two parallel read_file calls were recorded as %v, want widget.go and widget_test.go", paths)
 	}
 
-	// The failing shell call records its exit status, read from the real
-	// execute tool's result: non-zero, with ok false.
+	// The shell call records its exit status, read from the real execute
+	// tool's result: non-zero. The command ran, so the call is ok and has no
+	// error: its output is not one (docs/errata/tool_call_exit_status.md).
 	if execCall == nil {
 		t.Fatal("no tool_call event for the execute call")
 	}
@@ -3935,8 +3936,11 @@ func TestTS1261_ProseParallelCallsAndShellExitCode_Smoke(t *testing.T) {
 	if !ok || ec == 0 {
 		t.Errorf("execute exit_code = %v, want the non-zero status ls ended with", execCall.Raw["exit_code"])
 	}
-	if execCall.Raw["ok"] != false {
-		t.Errorf("execute ok = %v, want false for a command that failed", execCall.Raw["ok"])
+	if execCall.Raw["ok"] != true {
+		t.Errorf("execute ok = %v, want true for a command that ran to an exit status", execCall.Raw["ok"])
+	}
+	if _, has := execCall.Raw["error"]; has {
+		t.Errorf("execute carries the command's output as an error: %v", execCall.Raw["error"])
 	}
 
 	// The file carries the same stream the supervisor tails.

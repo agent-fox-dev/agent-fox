@@ -42,10 +42,9 @@ type endCall struct {
 }
 
 type turnCall struct {
-	phase         string
-	turn          int
-	cost          float64
-	input, output int64
+	phase string
+	turn  int
+	usage TurnUsage
 }
 
 type toolCall struct {
@@ -82,11 +81,11 @@ func (o *recObserver) PhaseEnd(phase, stopReason string, turns int, costUSD floa
 	o.ends = append(o.ends, endCall{phase, stopReason, turns, costUSD, durationMS, toolCalls})
 }
 
-func (o *recObserver) Turn(phase string, turn int, costUSD float64, in, out int64) {
+func (o *recObserver) Turn(phase string, turn int, u TurnUsage) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log = append(o.log, "turn")
-	o.turns = append(o.turns, turnCall{phase, turn, costUSD, in, out})
+	o.turns = append(o.turns, turnCall{phase, turn, u})
 }
 
 func (o *recObserver) ToolCall(info ToolCallInfo) {
@@ -227,10 +226,10 @@ func TestTS07_28_TurnOncePerBoundary(t *testing.T) {
 		if c.phase != "phase" || c.turn != i+1 {
 			t.Errorf("turn call %d = %+v", i, c)
 		}
-		if c.cost < 0 || c.input < 0 || c.output < 0 {
+		if c.usage.CostUSD < 0 || c.usage.Input < 0 || c.usage.Output < 0 {
 			t.Errorf("turn call %d has negative usage: %+v", i, c)
 		}
-		cost += c.cost
+		cost += c.usage.CostUSD
 	}
 	if diff := cost - res.Usage.CostUSD; diff > 1e-9 || diff < -1e-9 {
 		t.Errorf("turn costs sum to %v, phase cost is %v", cost, res.Usage.CostUSD)
