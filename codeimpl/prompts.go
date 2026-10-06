@@ -10,6 +10,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 )
 
 // surveySystemPrompt is the read-only mandate.
@@ -259,11 +260,24 @@ func gateBlock(cmds []string, baseline GateResult) string {
 	return b.String()
 }
 
+// repoMapBlock renders the '## Repository map' section with the blank line
+// that separates it from what follows, or nothing for an empty map, so a
+// prompt built without a map is byte-identical to one built before the map
+// existed (14-REQ-5.3). It sits after the language block and ahead of the
+// specification and of every prior phase's conclusions (14-REQ-5.1).
+func repoMapBlock(m string) string {
+	if block := repomap.Block(m); block != "" {
+		return block + "\n"
+	}
+	return ""
+}
+
 func surveyPrompt(in surveyInput) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Survey the specification below against the code in %s. ", in.Root)
 	fmt.Fprintf(&b, "This run will implement %d task(s) of it, in order, one phase each.\n\n", len(in.Pending))
 	b.WriteString(languageBlock(in.Profile))
+	b.WriteString(repoMapBlock(in.RepoMap))
 	b.WriteString("## The specification\n\n")
 	b.WriteString(in.Spec.RenderCombined())
 	b.WriteString("\n")
@@ -307,6 +321,7 @@ func repairPrompt(in repairInput) string {
 		b.WriteString(conform.DateLine(in.Now))
 	}
 	b.WriteString(languageBlock(in.Profile))
+	b.WriteString(repoMapBlock(in.RepoMap))
 
 	if in.Task != nil {
 		b.WriteString("## Where the work stands\n\n")
@@ -429,6 +444,7 @@ func taskPrompt(in taskInput) string {
 			"satisfy it.\n\n")
 	}
 	b.WriteString(languageBlock(in.Profile))
+	b.WriteString(repoMapBlock(in.RepoMap))
 
 	b.WriteString("## The specification, scoped to this task\n\n")
 	b.WriteString("Requirements the task does not own are listed by id only; other tasks are one line each. " +

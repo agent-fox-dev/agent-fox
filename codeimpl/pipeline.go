@@ -18,6 +18,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -42,7 +43,9 @@ type RunState struct {
 	exists     bool
 	todo       []int
 	brain      brain
-	survey     *Survey
+	// maps hands each phase its repository map, rebuilt when the tree changed.
+	maps   *repomap.Source
+	survey *Survey
 	// start is the commit the branch's whole change is measured from: where
 	// it left the base branch.
 	start string
@@ -116,6 +119,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			noTestFirst: o.NoTestFirst}
 	}
 	st.brain = b
+	st.maps = repomap.NewSource(o.Workspace, o.RepoMapTokens, o.buildMap, o.treeState, st.git, o.Run)
 	repair := o.Repair && len(st.baseline.failing()) > 0
 
 	// ----------------------------------------------------------- survey --
@@ -128,6 +132,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			Spec: st.spec, Root: st.root, Profile: st.profile, Gate: st.gate,
 			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo), Repair: repair,
 			Context: o.Input.Context,
+			RepoMap: st.maps.Get(ctx, PhaseSurvey, specPaths(st, nil)),
 		})
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))
@@ -246,6 +251,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				"is on %s and is not presented as done", len(keys), strings.Join(keys, ", "), st.branch)
 	}
 	return result, nil
+}
+
+// specPaths are the paths of the run's own input that the map reduces last
+// (14-REQ-3): the spec package, and the files the current task touches.
+func specPaths(st *runState, task *afspec.Task) []string {
+	paths := []string{st.relSpecDir}
+	if task != nil {
+		paths = append(paths, task.Touches...)
+	}
+	return paths
 }
 
 // applyDefaults fills the options a caller may leave zero. Run and
@@ -811,6 +826,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		}
 		in := base
 		in.Attempt, in.Attempts, in.Previous = attempt, o.RepairAttempts, previous
+		in.RepoMap = st.maps.Get(ctx, PhaseRepair, specPaths(st, base.Task))
 
 		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
 		sub, stats, err := st.brain.Repair(ctx, in)
@@ -1036,6 +1052,10 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			Context: o.Input.Context,
 			Now:     o.now(),
 			Scope:   specScope(st).Allow,
+			// A discarded attempt, a reset and every earlier commit change
+			// the tree, so the map is checked before each attempt and a
+			// declaration task N-1 added is in task N's map (14-REQ-9.2).
+			RepoMap: st.maps.Get(ctx, PhaseImplement, specPaths(st, &task)),
 		})
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))

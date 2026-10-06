@@ -1671,6 +1671,19 @@ func smokeGitDates(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_DATE", "2024-01-02T03:04:05Z")
 }
 
+// The smoke repositories name a forge in their origin so that the tools detect
+// it, and fix names its branch with `git ls-remote origin`, which reads that
+// URL. TestMain's envtest.NoGitNetwork has git refuse it before it connects,
+// so no smoke test reaches github.com or waits on a credential prompt.
+func TestSmokeReposNeverReachTheForge(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, "https://github.com/acme/widgets.git", "")
+	out, err := exec.Command("git", "-C", dir, "ls-remote", "--heads", "origin", "main").CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "not allowed") {
+		t.Errorf("git ls-remote origin = %v, %q; want the https transport refused before it connects", err, out)
+	}
+}
+
 // smokeWidgetRepo makes a committed Go repository with one fixable bug.
 func smokeWidgetRepo(t *testing.T, remote string) string {
 	t.Helper()

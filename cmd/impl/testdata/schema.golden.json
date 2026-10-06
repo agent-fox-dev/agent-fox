@@ -199,6 +199,11 @@
         "default": "",
         "description": "target repository as owner/repo or group/subgroup/project (GitHub or GitLab); default the origin remote of --dir"
       },
+      "repo-map-tokens": {
+        "type": "integer",
+        "default": 6000,
+        "description": "token budget of the repository map in every phase's prompt; 0 disables the map"
+      },
       "report-file": {
         "type": "string",
         "default": "",

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/envtest"
 	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -1524,5 +1525,8 @@ func TestMain(m *testing.M) {
 		"ANTHROPIC_VERTEX_PROJECT_ID", "ANTHROPIC_VERTEX_BASE_URL"} {
 		_ = os.Unsetenv(v)
 	}
+	// The tests drive fix and impl against repositories whose origin names a
+	// forge; git must never reach it or ask for a credential.
+	envtest.NoGitNetwork()
 	os.Exit(statetest.Run(m))
 }

@@ -219,6 +219,8 @@ type analysisInput struct {
 	// Instructions is the project's AGENTS.md or CLAUDE.md, as for the
 	// implement phase.
 	Instructions string
+	// RepoMap is the rendered repository map, or "" when there is none.
+	RepoMap string
 }
 
 type implementInput struct {
@@ -239,6 +241,8 @@ type implementInput struct {
 	Instructions string
 	// Now is today, for any date the phase writes.
 	Now time.Time
+	// RepoMap is the rendered repository map, or "" when there is none.
+	RepoMap string
 }
 
 // agentBrain runs both phases against the configured model.
@@ -260,6 +264,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		Name:               "analyse",
 		System:             analysisSystemPrompt,
 		User:               analysisPrompt(in),
+		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitAnalysis,
 		Custom:             []core.Tool{rej.track(submitAnalysisTool(&out))},
 		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
@@ -297,6 +302,7 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 		Name:               "implement",
 		System:             implementSystemPrompt,
 		User:               implementPrompt(in),
+		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitImplementation,
 		Custom:             []core.Tool{rej.track(submitImplementationTool(&out, in.Criteria))},
 		BuiltinTools:       tools,

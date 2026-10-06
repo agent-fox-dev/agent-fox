@@ -28,6 +28,7 @@ issuex/                   # The forge client: issues and pull/merge requests on 
 internal/
   toolio/                 # Input classification, the JSON envelope, the shared CLI shell
   agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
+  repomap/                # The token-budgeted repository map injected into the exploring phases' user prompts
   project/                # Language detection and the test-command audit
   gitx/                   # git, the process runner, and the clean-environment runner
   checks/                 # Detecting and running a project's own quality command
@@ -80,6 +81,21 @@ go mod download
   authorization boundary; `models.go` is the tier table over
   `catalog.ResolveModel`; `credentials.go` is the preflight. See
   [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
+
+- **internal/repomap** — builds a token-budgeted repository map from the
+  tracked file tree and top-level declarations. It is injected under a
+  `## Repository map` heading into the user prompt of `triage`'s phase, `fix`'s
+  analyse and implement phases, `spec`'s prd, generation and architecture
+  phases, and `impl`'s survey, repair and task phases. `impl`'s conformance
+  resolve phase and the conformance review (`internal/conform`) get no map.
+  `repomap.go` walks with AgentKit's `tools.Walk`, outlines each file, renders
+  the fenced block and reduces it to the `--repo-map-tokens` budget (unexported
+  declarations first, then test files, then the deepest directories, which
+  collapse to `dir/ (N files)`); `treechange.go` holds the detector `fix` and
+  `impl` use to rebuild the map only when `HEAD` or the dirty files changed,
+  while `triage` and `spec` build it once per run. A map that cannot be built
+  never fails a run. Its golden files are under `internal/repomap/testdata/`;
+  regenerate them with `go test ./internal/repomap -run TS14_35 -update`.
 
 - **issuex** (`issuex/`) — the forge client. One `Client` interface over
   GitHub and GitLab, twenty operations: reading, filing, rewriting, closing and
@@ -148,7 +164,11 @@ Tests need no API key, no GitHub token and no network:
 - GitHub and GitLab run against `httptest` servers;
 - git runs against real temporary repositories, because the wrapper's whole job
   is to get git's own behaviour right and a fake git would only confirm the
-  wrapper's assumptions about it.
+  wrapper's assumptions about it. A repository whose origin names a forge (how
+  the tools detect it) pushes to a local bare repository; the packages that
+  drive `fix` and `impl` call `envtest.NoGitNetwork` from `TestMain`, so git
+  refuses any non-local URL before it connects and never asks for a
+  credential, on a terminal or in CI.
 
 The pipelines are tested through their real `Run`, with only the model half
 replaced. That split — judgment in the model, everything else in Go — is the

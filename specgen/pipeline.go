@@ -16,6 +16,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -56,6 +57,10 @@ type Options struct {
 	// per-phase bound.
 	TotalBudgetUSD float64
 
+	// RepoMapTokens is the token budget of the repository map in every
+	// phase's user prompt (14-REQ-6.2). Zero, the zero value, disables it.
+	RepoMapTokens int
+
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab, used only by Comment.
@@ -67,6 +72,9 @@ type Options struct {
 
 	// author is the model half. It is unexported and injected by tests.
 	author author
+	// buildMap builds the repository map. It is unexported and injected by
+	// tests; nil means repomap.Build.
+	buildMap func(ctx context.Context, ws *tools.Workspace, budget int, inputPaths []string) (string, error)
 }
 
 // Result is what the tool reports as JSON.
@@ -491,6 +499,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			"commands cannot be checked against it", root)
 	}
 
+	// The spec tool never changes the tree, so the map is built once, before
+	// the first phase, and every phase of every scope of a split reuses it
+	// (14-REQ-8.2). A failure never fails the run: the phases go without it.
+	env.repoMap = buildRepoMap(ctx, o)
+
 	result := &Result{DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
 
 	// ---------------------------------------------------- resume or PRD --
@@ -653,6 +666,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	return result, nil
 }
 
+// buildRepoMap builds the run's repository map. It never fails the run:
+// navigation is an optimisation, so on an error the phases run without a map
+// and a low warning records why (14-REQ-10.2). A zero RepoMapTokens disables
+// the map. The idea's own words name the paths that are reduced last.
+func buildRepoMap(ctx context.Context, o Options) string {
+	build := o.buildMap
+	if build == nil {
+		build = repomap.Build
+	}
+	m, err := build(ctx, o.Workspace, o.RepoMapTokens, repomap.PathsIn(o.Input.Body))
+	if err != nil {
+		o.Run.Warn(toolio.WarnRepoMapBuildFailed, "low", "the repository map could not be built, so the phases run without it: %v", err)
+		return ""
+	}
+	return m
+}
+
 // runEnv is what every package of a run shares.
 type runEnv struct {
 	o         Options
@@ -661,6 +691,9 @@ type runEnv struct {
 	author    author
 	profile   project.Profile
 	landscape []afspec.SpecMeta
+	// repoMap is the run's repository map, or "" when it is disabled or could
+	// not be built.
+	repoMap string
 	// lastID is the highest numeric prefix this run has assigned, so a dry
 	// run — which leaves nothing on disk to count — still numbers its
 	// packages consecutively.
@@ -682,6 +715,7 @@ func (e *runEnv) writePRD(ctx context.Context, split *splitContext) (PRD, error)
 		SpecRoot:     relativeTo(e.root, e.specsDir),
 		Steering:     project.Steering(e.specsDir),
 		Split:        split,
+		RepoMap:      e.repoMap,
 	})
 	scope := prd.SpecName
 	if split != nil {
@@ -764,6 +798,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 			Steering:      project.Steering(e.specsDir),
 			Partial:       &partial,
 			RelevantFiles: prd.RelevantFiles,
+			RepoMap:       e.repoMap,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)
 		done(toolio.PhaseSummary(stats))
@@ -780,7 +815,7 @@ func (e *runEnv) buildPackage(ctx context.Context, prd PRD, label string) (*Pack
 		done := o.Progress.Begin("writing architecture.md")
 		doc, stats, err := e.author.WriteArchitecture(ctx, architectureRequest{
 			SpecID: specID, SpecName: prd.SpecName, Root: e.root, PRD: spec.PRDBody, Partial: &partial,
-			RelevantFiles: prd.RelevantFiles,
+			RelevantFiles: prd.RelevantFiles, RepoMap: e.repoMap,
 		})
 		recordPhase(o.Run, stats, prd.SpecName)
 		done(toolio.PhaseSummary(stats))

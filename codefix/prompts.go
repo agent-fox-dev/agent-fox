@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 )
 
@@ -118,6 +119,11 @@ func analysisPrompt(in analysisInput) string {
 	if ctx := contextBlock(in.Input); ctx != "" {
 		b.WriteString(ctx)
 	}
+	// The map follows the report and its context and precedes the criteria and
+	// the baseline (14-REQ-5.1). An empty map adds no byte (14-REQ-5.3).
+	if block := repomap.Block(in.RepoMap); block != "" {
+		b.WriteString(block + "\n")
+	}
 	b.WriteString(criteriaBlock(in.Criteria, false))
 	b.WriteString(baselineBlock(in.VerifyCommand, in.Baseline))
 	b.WriteString(instructionsBlock(in.Instructions,
@@ -139,6 +145,12 @@ func implementPrompt(in implementInput) string {
 	b.WriteString(reportBlock(in.Input))
 	if ctx := contextBlock(in.Input); ctx != "" {
 		b.WriteString("\n" + ctx)
+	}
+
+	// The map sits with the problem and ahead of the diagnosis, which is the
+	// prior phase's conclusion (14-REQ-5.1).
+	if block := repomap.Block(in.RepoMap); block != "" {
+		b.WriteString("\n" + block)
 	}
 
 	b.WriteString("\n## The diagnosis\n\n")

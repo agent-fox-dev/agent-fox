@@ -8,6 +8,7 @@
 package envtest
 
 import (
+	"os"
 	"testing"
 
 	"github.com/agentfox/agentkit-go/core"
@@ -72,4 +73,25 @@ func Clean(t testing.TB) {
 	t.Helper()
 	ClearModelCredentials(t)
 	ClearForgeCredentials(t)
+}
+
+// NoGitNetwork keeps every git command of the test binary, and of the
+// processes it starts, off the network for the rest of the process. A package
+// whose tests drive the fix or impl pipelines calls it from TestMain.
+//
+// Those tests give a repository a forge's origin, such as
+// https://github.com/acme/widgets.git, because that is how the tools detect
+// the forge; their pushes go to a local bare repository through the push URL.
+// But fix and impl name their branch with `git ls-remote origin`, which reads
+// the fetch URL and reaches the forge. The forge asks for a credential: on CI
+// git fails, but on a terminal, or under an editor's askpass, it waits for an
+// answer nobody gives. With only the file transport allowed, git refuses the
+// URL before it connects and before anyone is asked, a local remote still
+// works, and the tools read the refusal as what it stands for in a test: the
+// branch is not on the remote.
+func NoGitNetwork() {
+	_ = os.Setenv("GIT_ALLOW_PROTOCOL", "file")
+	_ = os.Setenv("GIT_TERMINAL_PROMPT", "0")
+	_ = os.Unsetenv("GIT_ASKPASS")
+	_ = os.Unsetenv("SSH_ASKPASS")
 }

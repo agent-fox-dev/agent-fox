@@ -90,6 +90,10 @@ const (
 	// the PRD phase and no relevant_files list is available for the later
 	// generation phases.
 	WarnRelevantFilesUnavailable WarnCode = "relevant_files_unavailable"
+	// WarnRepoMapBuildFailed is recorded (14-REQ-10.1) when building the
+	// repository map failed. The phase runs without a map, as it did before
+	// the map existed; navigation is an optimisation and never fails a run.
+	WarnRepoMapBuildFailed WarnCode = "repo_map_build_failed"
 )
 
 // warnStages is the single table mapping every declared WarnCode to the
@@ -140,6 +144,7 @@ var warnStages = map[WarnCode]string{
 	WarnDeviationNotTracked:      "land",
 	WarnFixNotProven:             "verify",
 	WarnRelevantFilesUnavailable: "prd",
+	WarnRepoMapBuildFailed:       "triage",
 }
 
 // WarnStage looks up the stage recorded for a declared WarnCode. ok is false
@@ -196,5 +201,6 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnDeviationNotTracked,
 		WarnFixNotProven,
 		WarnRelevantFilesUnavailable,
+		WarnRepoMapBuildFailed,
 	}
 }

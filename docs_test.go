@@ -1,6 +1,7 @@
 package agentfox
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -310,5 +311,39 @@ func TestTS06_63_ConfigurationReportFiles(t *testing.T) {
 		if !strings.Contains(doc, want) {
 			t.Errorf("docs/configuration.md does not mention %q", want)
 		}
+	}
+}
+
+// TS-14-21 (unit): the docs describe the --repo-map-tokens flag that
+// Common.Register registers, with the default the code registers, and name the
+// internal/repomap package in the development document
+// Verifies: 14-REQ-6.1
+func TestTS_14_21_DocsRepoMapTokens(t *testing.T) {
+	// The default in the docs is the one the code registers.
+	var c toolio.Common
+	fs := flag.NewFlagSet("docs", flag.ContinueOnError)
+	c.Register(fs)
+	f := fs.Lookup("repo-map-tokens")
+	if f == nil {
+		t.Fatal("--repo-map-tokens is not registered by Common.Register")
+	}
+
+	shared := docSection(t, readDoc(t, "cli.md"), "Shared flags")
+	row, ok := tableRow(shared, "| `--repo-map-tokens`")
+	if !ok {
+		t.Fatal("shared-flags table has no --repo-map-tokens row")
+	}
+	for _, want := range []string{"`" + f.DefValue + "`", "repository map", "user prompt", "`0` disables"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("--repo-map-tokens row does not mention %q: %s", want, row)
+		}
+	}
+
+	dev := readDoc(t, "development.md")
+	if !strings.Contains(docSection(t, dev, "Go package structure"), "**internal/repomap**") {
+		t.Error("docs/development.md's Go package structure has no internal/repomap entry")
+	}
+	if !strings.Contains(docSection(t, dev, "Repository layout"), "repomap/") {
+		t.Error("docs/development.md's repository layout has no repomap/ line")
 	}
 }

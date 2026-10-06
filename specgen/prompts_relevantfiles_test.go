@@ -14,7 +14,7 @@ func TestTS_13_22_GenerationPromptIncludesRelevantFilesBlock(t *testing.T) {
 	}
 	block := relevantFilesBlock(files)
 	prompt := generationUserPrompt("requirements", "13", "test", "/",
-		"prd body", "", "", "", "", block)
+		"prd body", "", "", "", "", block, "")
 	if !strings.Contains(prompt, "## Files the PRD phase found relevant") {
 		t.Error("prompt missing '## Files the PRD phase found relevant' heading")
 	}
@@ -30,11 +30,11 @@ func TestTS_13_22_GenerationPromptIncludesRelevantFilesBlock(t *testing.T) {
 // did not supply relevant_files.
 func TestTS_13_23_GenerationPromptOmitsRelevantFilesBlockWhenEmpty(t *testing.T) {
 	promptNil := generationUserPrompt("requirements", "13", "test", "/",
-		"prd body", "", "", "", "", relevantFilesBlock(nil))
+		"prd body", "", "", "", "", relevantFilesBlock(nil), "")
 	promptEmpty := generationUserPrompt("requirements", "13", "test", "/",
-		"prd body", "", "", "", "", relevantFilesBlock([]RelevantFile{}))
+		"prd body", "", "", "", "", relevantFilesBlock([]RelevantFile{}), "")
 	promptWithout := generationUserPrompt("requirements", "13", "test", "/",
-		"prd body", "", "", "", "", "")
+		"prd body", "", "", "", "", "", "")
 
 	if strings.Contains(promptNil, "## Files the PRD phase found relevant") {
 		t.Error("nil files produced a relevant-files block")

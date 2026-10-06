@@ -39,7 +39,7 @@
         "internal/toolio/warncode.go",
         "internal/toolio/cli.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
@@ -69,7 +69,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,
@@ -113,7 +113,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 4,
@@ -158,7 +158,7 @@
       "depends_on": [
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
@@ -186,7 +186,7 @@
       "depends_on": [
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 6,
@@ -231,7 +231,7 @@
         2,
         3
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 7,
@@ -270,7 +270,7 @@
         5,
         6
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 8,
@@ -295,7 +295,7 @@
       "depends_on": [
         1
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 9,
@@ -334,7 +334,7 @@
         7,
         8
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

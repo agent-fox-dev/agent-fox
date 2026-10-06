@@ -1,7 +1,13 @@
 package envtest
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agentfox/agentkit-go/core"
@@ -45,3 +51,58 @@ func TestClearModelCredentialsRestoresTheEnvironment(t *testing.T) {
 }
 
 func getenv(k string) string { return os.Getenv(k) }
+
+// Under NoGitNetwork git refuses a forge's URL before it connects, so a test
+// whose repository names a forge in its origin can neither reach it nor be
+// asked for a credential, while a local remote keeps working.
+func TestNoGitNetworkRefusesTheForgeBeforeAnyoneIsAsked(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("WWW-Authenticate", `Basic realm="forge"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	asked := filepath.Join(t.TempDir(), "asked")
+	askpass := filepath.Join(t.TempDir(), "askpass.sh")
+	if err := os.WriteFile(askpass, []byte("#!/bin/sh\necho \"$1\" >> '"+asked+"'\necho someone\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Each variable goes through t.Setenv first, so the test restores it. An
+	// empty GIT_ALLOW_PROTOCOL allows nothing, so it starts unset instead.
+	t.Setenv("GIT_ALLOW_PROTOCOL", "")
+	if err := os.Unsetenv("GIT_ALLOW_PROTOCOL"); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"GIT_TERMINAL_PROMPT": "1", "GIT_ASKPASS": askpass,
+		"SSH_ASKPASS": askpass, "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"} {
+		t.Setenv(k, v)
+	}
+	NoGitNetwork()
+
+	out, err := exec.Command("git", "ls-remote", "--heads", srv.URL+"/acme/widgets.git", "main").CombinedOutput()
+	if err == nil {
+		t.Fatalf("git ls-remote against a forge's URL succeeded: %s", out)
+	}
+	if !strings.Contains(string(out), "not allowed") {
+		t.Errorf("git ls-remote output = %q, want the transport refused", out)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("git reached the forge %d time(s)", n)
+	}
+	if b, err := os.ReadFile(asked); err == nil {
+		t.Errorf("git asked for %q", strings.TrimSpace(string(b)))
+	}
+
+	bare := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "main", bare).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "ls-remote", bare).CombinedOutput(); err != nil {
+		t.Errorf("a local remote no longer works under NoGitNetwork: %v\n%s", err, out)
+	}
+}

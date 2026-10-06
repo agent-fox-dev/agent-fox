@@ -74,6 +74,8 @@ func (f *triageFlags) triageOptions(d toolio.Deps) issuetriage.Options {
 		Forge:     d.Forge,
 		Run:       d.Run,
 		Progress:  d.Progress,
+
+		RepoMapTokens: d.Common.RepoMapTokens,
 	}
 }
 

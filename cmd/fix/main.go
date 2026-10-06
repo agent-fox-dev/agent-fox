@@ -120,6 +120,8 @@ func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
 		CheckRunner:    gitx.ReducedEnvRunner,
 		Run:            d.Run,
 		Progress:       d.Progress,
+
+		RepoMapTokens: d.Common.RepoMapTokens,
 	}
 }
 
@@ -245,26 +247,27 @@ func (p *pullFlag) IsBoolFlag() bool {
 
 // knownFixValueFlags lists flags that take a separate value token.
 var knownFixValueFlags = map[string]bool{
-	"repo":           true,
-	"land":           true,
-	"branch-prefix":  true,
-	"verify":         true,
-	"verify-timeout": true,
-	"push-attempts":  true,
-	"allow":          true,
-	"dir":            true,
-	"model":          true,
-	"vendor":         true,
-	"effort":         true,
-	"max-turns":      true,
-	"budget":         true,
-	"phase-timeout":  true,
-	"input-kind":     true,
-	"total-budget":   true,
-	"detail":         true,
-	"report-file":    true,
-	"output":         true,
-	"context":        true,
+	"repo":            true,
+	"land":            true,
+	"branch-prefix":   true,
+	"verify":          true,
+	"verify-timeout":  true,
+	"push-attempts":   true,
+	"allow":           true,
+	"dir":             true,
+	"model":           true,
+	"vendor":          true,
+	"effort":          true,
+	"max-turns":       true,
+	"budget":          true,
+	"phase-timeout":   true,
+	"input-kind":      true,
+	"total-budget":    true,
+	"detail":          true,
+	"report-file":     true,
+	"output":          true,
+	"context":         true,
+	"repo-map-tokens": true,
 }
 
 // normalizeArgs rewrites argv so that "-pull [branch]" doesn't cause the branch

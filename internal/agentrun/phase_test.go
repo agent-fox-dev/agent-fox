@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/schema"
 	"github.com/agentfox/agentkit-go/tools"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 // The tests below script a provider rather than mocking this package.
@@ -360,5 +363,88 @@ func TestSelectToolsDropsExecuteGuidelinesWithoutAShell(t *testing.T) {
 	all := []core.Tool{{Name: "search_files", PromptGuidelines: []string{"Prefer this over execute+grep.", "Use a glob."}}}
 	if got := SelectTools(all, true, nil, "search_files")[0].PromptGuidelines; len(got) != 1 || got[0] != "Use a glob." {
 		t.Errorf("guidelines = %v", got)
+	}
+}
+
+// runMapPhase runs one phase carrying repoMap and returns what the observer
+// heard and the requests that reached the provider.
+func runMapPhase(t *testing.T, repoMap, user string) (*recObserver, []core.Request) {
+	t.Helper()
+	var got string
+	var calls int
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "done"}))
+	cfg := fauxConfig(p, newWorkspace(t))
+	obs := &recObserver{verbose: true}
+	cfg.Observer = obs
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "phase", System: "system", User: user, RepoMap: repoMap,
+		Terminator: "submit", Custom: []core.Tool{submitTool(&got, &calls)},
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	return obs, p.Requests()
+}
+
+// TS-14-24 (unit): Phase carries a RepoMap string field.
+func TestTS14_24_PhaseCarriesRepoMap(t *testing.T) {
+	p := Phase{RepoMap: "test map"}
+	if p.RepoMap != "test map" {
+		t.Errorf("RepoMap = %q, want %q", p.RepoMap, "test map")
+	}
+}
+
+// TS-14-25 (unit): the runner reports the map's token count through
+// Observer.Detail when RepoMap is non-empty, and says nothing when it is empty.
+func TestTS14_25_RunnerLogsRepoMapTokens(t *testing.T) {
+	m := strings.Repeat("x", 400)
+	want := fmt.Sprint(afspec.EstimateTokens(m))
+	if want != "100" {
+		t.Fatalf("fixture is %s tokens, want 100", want)
+	}
+	obs, _ := runMapPhase(t, m, "do the thing")
+	found := false
+	for _, d := range obs.details {
+		if strings.Contains(d, "repo map") && strings.Contains(d, want) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no detail line carries the token count %s: %q", want, obs.details)
+	}
+
+	obs, _ = runMapPhase(t, "", "do the thing")
+	for _, d := range obs.details {
+		if strings.Contains(d, "repo map") {
+			t.Errorf("an empty map was logged: %q", d)
+		}
+	}
+}
+
+// TS-14-26 (unit): the runner never puts Phase.RepoMap into a prompt.
+func TestTS14_26_RunnerNeverInjectsRepoMap(t *testing.T) {
+	_, reqs := runMapPhase(t, "MARKER_STRING", "do the thing")
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the wire")
+	}
+	sys, err := json.Marshal(reqs[0].System)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := json.Marshal(reqs[0].Messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sys), "MARKER_STRING") {
+		t.Error("the system prompt contains the repository map")
+	}
+	if strings.Contains(string(msgs), "MARKER_STRING") {
+		t.Error("the user prompt contains the repository map")
+	}
+	if !strings.Contains(string(msgs), "do the thing") {
+		t.Error("the user prompt did not reach the wire; the check proves nothing")
 	}
 }
