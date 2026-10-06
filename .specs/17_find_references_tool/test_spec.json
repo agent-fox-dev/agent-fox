@@ -1,0 +1,1196 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "17",
+  "spec_name": "find_references_tool",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-17-1",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.1"
+      ],
+      "title": "ReadOnlyFileTools holds exactly the seven read tools in order with find_references last, and its doc comment names the new tool.",
+      "given": [
+        "internal/agentrun/policy.go as built",
+        "TS-15-1 (policy_test.go) rewritten to the seven names rather than loosened"
+      ],
+      "when": "agentrun.ReadOnlyFileTools and the doc comment on its declaration in policy.go are read",
+      "then": [
+        "the slice equals read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references element for element, in that order",
+        "its length is 7 and its last element is find_references",
+        "the declaration's doc comment contains the text find_references"
+      ],
+      "pseudocode": "want = ['read_file','list_files','find_files','search_files','file_outline','find_symbol','find_references']\nassert slices.Equal(ReadOnlyFileTools, want); assert len(ReadOnlyFileTools) == 7\nassert ReadOnlyFileTools[6] == 'find_references'\nf = parser.ParseFile(fset, 'policy.go', nil, parser.ParseComments)\ndoc = docOfVar(f, 'ReadOnlyFileTools')\nassert strings.Contains(doc.Text(), 'find_references')"
+    },
+    {
+      "id": "TS-17-2",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.3"
+      ],
+      "title": "find_references stays out of MutatingTools and ShellTools, code_search stays out of ReadOnlyFileTools, and WithCodeSearch leaves the shared slice unmodified.",
+      "given": [
+        "the package-level lists in internal/agentrun/policy.go"
+      ],
+      "when": "the lists are inspected and WithCodeSearch(ReadOnlyFileTools, true) and WithCodeSearch(ReadOnlyFileTools, false) are called",
+      "then": [
+        "MutatingTools and ShellTools do not contain find_references",
+        "ReadOnlyFileTools does not contain code_search",
+        "ReadOnlyFileTools still has length 7 after the call with true",
+        "the grant returned with true has length 8, ends with code_search and is a copy (writing to it does not change ReadOnlyFileTools)",
+        "the grant returned with false has length 7 and equals ReadOnlyFileTools"
+      ],
+      "pseudocode": "assert !slices.Contains(MutatingTools,'find_references'); assert !slices.Contains(ShellTools,'find_references')\nassert !slices.Contains(ReadOnlyFileTools,'code_search')\nbefore = slices.Clone(ReadOnlyFileTools)\ng = WithCodeSearch(ReadOnlyFileTools, true)\nassert len(g)==8 && g[7]=='code_search'; g[0]='x'; assert slices.Equal(ReadOnlyFileTools, before)\nassert slices.Equal(WithCodeSearch(ReadOnlyFileTools,false), before)"
+    },
+    {
+      "id": "TS-17-3",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.4"
+      ],
+      "title": "A read-only phase run through the real Runner and tools.All declares every name in ReadOnlyFileTools on its first request, find_references included, and no mutating tool.",
+      "given": [
+        "a Runner built on provider/faux with a temporary Go workspace",
+        "a Phase{BuiltinTools: ReadOnlyFileTools, ReadOnly: true} whose terminator is a scripted submit tool",
+        "the real tools.All, SelectTools and AssertReadOnly"
+      ],
+      "when": "the phase is run and the tool names of the first request that reached the provider are collected",
+      "then": [
+        "each element of agentrun.ReadOnlyFileTools is declared, asserted one by one by looping over the list itself so the assertion changes when the list does",
+        "find_references is declared, asserted by name as well",
+        "no element of MutatingTools is declared",
+        "the terminator is declared and Run returns no error"
+      ],
+      "pseudocode": "p = faux.New(toolCallTurn('c1','submit',{value:'x'}))\nr = NewRunner(fauxConfig(p, newWorkspace(t)))\nr.Run(ctx, Phase{Name:'read', System:'s', User:'u', Terminator:'submit', Custom:[submitTool], BuiltinTools: ReadOnlyFileTools, ReadOnly:true})\ndeclared = declaredTools(t, p)\nfor n in ReadOnlyFileTools: assert declared[n], n\nassert declared['find_references']\nfor n in MutatingTools: assert !declared[n]\n// TS-15-2 is updated in place to this form"
+    },
+    {
+      "id": "TS-17-4",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.4"
+      ],
+      "title": "A writing phase run through the real Runner declares every ReadOnlyFileTools name beside write_file, edit_file, execute and code_search when the run has an index.",
+      "given": [
+        "a Runner on provider/faux whose Config.Index is the package's fakeIndex (its Tools() offers code_search)",
+        "builtins = ReadOnlyFileTools + WriteFileTools + execute + code_search, with ReadOnly false and Programs ReadOnlyPrograms"
+      ],
+      "when": "the phase is run and the first request's declared tool names are collected",
+      "then": [
+        "every element of ReadOnlyFileTools is declared, find_references among them",
+        "write_file, edit_file, execute and code_search are declared",
+        "Run returns no error"
+      ],
+      "pseudocode": "cfg = fauxConfig(p, ws); cfg.Index = &fakeIndex{}\nbuiltins = WithCodeSearch(append(append(clone(ReadOnlyFileTools), WriteFileTools...), 'execute'), true)\nr.Run(ctx, Phase{..., BuiltinTools: builtins, ReadOnly:false, Programs: ReadOnlyPrograms})\nfor n in ReadOnlyFileTools: assert declared[n], n\nfor n in ['write_file','edit_file','execute','code_search']: assert declared[n], n\n// TS-15-3 is updated in place to this form"
+    },
+    {
+      "id": "TS-17-5",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-1.5"
+      ],
+      "title": "The wire-membership helper returns every ReadOnlyFileTools name a declared set lacks, so a replace target without find_references fails the tests by name.",
+      "given": [
+        "the helper missingTools(declared map[string]bool, want []string) []string in the internal/agentrun tests, which every wire test calls and reports through t.Errorf per missing name",
+        "the declared set of a real run, copied from provider/faux"
+      ],
+      "when": "the helper is called with the real declared set, with that set minus find_references, and with that set minus find_references and find_symbol",
+      "then": [
+        "with the full set it returns an empty list",
+        "without find_references it returns exactly [find_references]",
+        "without find_references and find_symbol it returns exactly [find_symbol, find_references], in ReadOnlyFileTools order",
+        "a wire test that reports the returned list fails with output that names find_references, so go test of internal/agentrun exits non-zero"
+      ],
+      "pseudocode": "full = declaredTools(t, runReadOnlyPhase(t))\nassert len(missingTools(full, ReadOnlyFileTools)) == 0\nwithout = copy(full); delete(without,'find_references')\nassert equal(missingTools(without, ReadOnlyFileTools), ['find_references'])\ndelete(without,'find_symbol')\nassert equal(missingTools(without, ReadOnlyFileTools), ['find_symbol','find_references'])\nrec = &recordingTB{}; requireDeclared(rec, without)\nassert rec.failed && strings.Contains(rec.output, 'find_references')"
+    },
+    {
+      "id": "TS-17-6",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.1"
+      ],
+      "title": "registeredTools makes one tools.All call per phase with only Workspace and Index set, and two phases receive separate tool slices that each include find_references.",
+      "given": [
+        "internal/agentrun/phase.go as built",
+        "a Runner on provider/faux with a temporary workspace"
+      ],
+      "when": "the body of registeredTools is read and registeredTools is called for two phases on one Runner",
+      "then": [
+        "the body contains exactly one call, tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index})",
+        "the body never mentions Symbols, so AgentKit's default bounds apply",
+        "both returned sets contain find_references",
+        "the two returned slices do not share backing storage"
+      ],
+      "pseudocode": "body = functionBody('phase.go', '(r *Runner) registeredTools')\nassert count(body, 'tools.All(') == 1\nassert contains(body, 'tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index})')\nassert !contains(body, 'Symbols')\nt1 = r.registeredTools(Phase{Name:'a', BuiltinTools: ReadOnlyFileTools, ReadOnly:true})\nt2 = r.registeredTools(Phase{Name:'b', BuiltinTools: ReadOnlyFileTools, ReadOnly:true})\nassert hasTool(t1,'find_references') && hasTool(t2,'find_references')\nassert &t1[0] != &t2[0]\n// TS-15-7 and TS-15-8 stay and still pass"
+    },
+    {
+      "id": "TS-17-7",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.1"
+      ],
+      "title": "Each phase holds its own reference table: a call site added between a read-only phase and a writing phase is absent from the first phase's find_references answer and present in the second's.",
+      "given": [
+        "a Runner on provider/faux with a temporary Go workspace holding a.go",
+        "a faux script of four turns: find_references LateArrival then submit for the first phase, the same two for the second",
+        "late.go is written between the phases and declares func LateArrival and func UseLate that calls it"
+      ],
+      "when": "the read-only phase runs, late.go is written, and the writing phase runs on the same Runner",
+      "then": [
+        "the first phase's find_references result does not mention UseLate or late.go",
+        "the second phase's find_references result mentions UseLate, the enclosing declaration of the new site",
+        "both phases ended on their terminating tool with no error"
+      ],
+      "pseudocode": "p = faux.New(toolCallTurn('a1','find_references',{name:'LateArrival'}), toolCallTurn('a2','submit',..), toolCallTurn('i1','find_references',{name:'LateArrival'}), toolCallTurn('i2','submit',..))\nrunReadOnly(r); nA = len(p.Requests())\nwriteFile(ws.Root+'/late.go', 'package main\\n\\nfunc LateArrival() {}\\n\\nfunc UseLate() { LateArrival() }\\n')\nrunWriting(r)\nfirst = toolResultText(p.Requests()[nA-1], 'a1'); second = toolResultText(last(p.Requests()), 'i1')\nassert !contains(first,'UseLate'); assert contains(second,'UseLate')"
+    },
+    {
+      "id": "TS-17-8",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.2"
+      ],
+      "title": "toolsNote lists find_references, generated from the registered set, in the system prompt of both a read-only and a writing phase.",
+      "given": [
+        "toolsNote called on a synthetic registered set that contains find_references",
+        "a Runner on provider/faux running a read-only phase and a writing phase with the real tools.All"
+      ],
+      "when": "the note is built and the system prompt of each phase's first request is read",
+      "then": [
+        "the synthetic note names find_references in the sorted comma-separated list",
+        "each real system prompt contains 'Your tools are exactly:' followed by a list in which find_files, find_references, find_symbol appear in that order",
+        "the read-only phase's note keeps the 'no shell' sentence only when the phase has no shell"
+      ],
+      "pseudocode": "note = toolsNote([{Name:'read_file'},{Name:'find_references'},{Name:'submit'}])\nassert contains(note, 'find_references, read_file, submit')\nfor phase in [readOnlyPhase, writingPhase]:\n  sys = systemText(runAndCapture(phase)[0])\n  assert contains(sys, 'find_files, find_references, find_symbol')\n  list = between(sys, 'Your tools are exactly: ', '. Calling any other tool')\n  assert strings.Split(list, ', ') == sorted(declaredNames(phase))"
+    },
+    {
+      "id": "TS-17-9",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-2.3"
+      ],
+      "title": "SelectTools keeps AgentKit's PromptGuidelines for find_references unchanged in a phase without a shell and in a phase with one.",
+      "given": [
+        "the real tools.All(tools.Options{Workspace: ws}) built set",
+        "the find_references tool taken from it, whose PromptGuidelines are non-empty"
+      ],
+      "when": "SelectTools is called for a read-only phase with no shell and for a writing phase with execute, both naming find_references",
+      "then": [
+        "the original guidelines are non-empty and none of them contains the word execute or the name of a mutating tool",
+        "the selected find_references tool in each phase has PromptGuidelines equal to the original, entry for entry"
+      ],
+      "pseudocode": "built = tools.All(tools.Options{Workspace: ws})\norig = find(built,'find_references').PromptGuidelines\nassert len(orig) > 0\nfor g in orig: assert !contains(g,'execute'); for m in MutatingTools: assert !contains(g,m)\nro = SelectTools(built, true, nil, ReadOnlyFileTools...)\nrw = SelectTools(built, false, ReadOnlyPrograms, append(clone(ReadOnlyFileTools), 'write_file','edit_file','execute')...)\nassert equal(find(ro,'find_references').PromptGuidelines, orig)\nassert equal(find(rw,'find_references').PromptGuidelines, orig)"
+    },
+    {
+      "id": "TS-17-10",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-5",
+        "17-REQ-2.4"
+      ],
+      "title": "An edit in a writing phase changes the next find_references answer by exactly the removed site, and a file written afterwards adds exactly its site.",
+      "given": [
+        "a temporary workspace with go.mod, a.go declaring func Target, b.go with func UseB calling Target and c.go with func UseC calling Target",
+        "a Runner on provider/faux scripted: find_references Target, edit_file b.go, find_references Target, write_file d.go with func UseD calling Target, find_references Target, submit",
+        "a writing Phase (ReadOnlyFileTools + write_file, edit_file, execute) with a scripted terminating tool"
+      ],
+      "when": "the phase runs to its terminating tool",
+      "then": [
+        "the first answer's sites are attributed to UseB and UseC",
+        "after edit_file removes the call in b.go, the second answer's sites are exactly UseC: UseB is gone and nothing else changed",
+        "after write_file adds d.go, the third answer's sites are exactly UseC and UseD",
+        "Run returns no error and the phase's tool_calls records find_references 3, edit_file 1 and write_file 1"
+      ],
+      "pseudocode": "p = faux.New(call('f1','find_references',{name:'Target'}), call('e1','edit_file',{path:'b.go', edits:[{old_string:'return Target()', new_string:'return 0'}]}), call('f2','find_references',{name:'Target'}), call('w1','write_file',{path:'d.go', content:'package p\\n\\nfunc UseD() int { return Target() }\\n'}), call('f3','find_references',{name:'Target'}), call('s1','submit',{value:'x'}))\nres, err = r.Run(ctx, writingPhase)\nassert err == nil\nenclosing = func(text) set of {'UseB','UseC','UseD'} found in text\nassert enclosing(text(f1)) == {UseB,UseC}; assert enclosing(text(f2)) == {UseC}; assert enclosing(text(f3)) == {UseC,UseD}\nassert res.ToolCalls['find_references']==3 && res.ToolCalls['edit_file']==1 && res.ToolCalls['write_file']==1",
+      "real_components": [
+        "Runner",
+        "SelectTools",
+        "tools.All",
+        "find_references tool",
+        "edit_file and write_file tools",
+        "toolCallCounter"
+      ]
+    },
+    {
+      "id": "TS-17-11",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-4",
+        "17-REQ-2.5"
+      ],
+      "title": "find_references calls that AgentKit refuses come back as tool results, are counted by name, and leave the phase to end on its terminating tool with no error.",
+      "given": [
+        "a Runner on provider/faux with a temporary workspace",
+        "a read-only phase with the real tools.All",
+        "a script of four turns: find_references with a path outside the workspace, find_references with a 257-byte name, find_references with kind 'no-such-kind', then the scripted submit tool"
+      ],
+      "when": "the phase is run",
+      "then": [
+        "Run returns a nil error",
+        "the result's ToolCalls['find_references'] is 3 and ToolCalls['submit'] is 1",
+        "each of the three refusals reached the model: the following request carries a tool result for that call id",
+        "the submit tool was executed and the phase's stop is the terminating tool, not max_turns or an error"
+      ],
+      "pseudocode": "p = faux.New(call('r1','find_references',{name:'Target', path: filepath.Dir(ws.Root)}), call('r2','find_references',{name: strings.Repeat('a',257)}), call('r3','find_references',{name:'Target', kind:'no-such-kind'}), call('r4','submit',{value:'done'}))\nres, err = r.Run(ctx, readOnlyPhase)\nassert err == nil\nassert res.ToolCalls['find_references']==3 && res.ToolCalls['submit']==1\nfor id in ['r1','r2','r3']: assert toolResultText(lastRequest(p), id) != ''\nassert got == 'done'\n// a bound hit that returns partial:true is not reachable at the default 50 000 files / 2 s; it is a normal tool result by the same path",
+      "real_components": [
+        "Runner",
+        "SelectTools",
+        "tools.All",
+        "find_references tool",
+        "toolCallCounter",
+        "toolErrorCounter"
+      ]
+    },
+    {
+      "id": "TS-17-12",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.6"
+      ],
+      "title": "SelectTools drops a listed name the built set lacks and returns the other tools in built order, and registeredTools returns a nil error.",
+      "given": [
+        "a built set of the six tools without find_references, in a known order",
+        "a Runner whose phase lists a name that tools.All does not offer"
+      ],
+      "when": "SelectTools is called with ReadOnlyFileTools (seven names) over the six-tool set, and registeredTools is called for a phase listing ReadOnlyFileTools plus 'no_such_tool'",
+      "then": [
+        "SelectTools returns exactly the six offered tools in built order and no error or panic",
+        "registeredTools returns a nil error and a set that holds every listed name the real tools.All offered and not no_such_tool"
+      ],
+      "pseudocode": "built = [{Name:'read_file'},{Name:'list_files'},{Name:'find_files'},{Name:'search_files'},{Name:'file_outline'},{Name:'find_symbol'}]\ngot = SelectTools(built, true, nil, ReadOnlyFileTools...)\nassert names(got) == names(built)\nts, err = r.registeredTools(Phase{Name:'a', BuiltinTools: append(clone(ReadOnlyFileTools),'no_such_tool'), ReadOnly:true})\nassert err == nil; assert !hasTool(ts,'no_such_tool'); for n in ReadOnlyFileTools: assert hasTool(ts,n)"
+    },
+    {
+      "id": "TS-17-13",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.1"
+      ],
+      "title": "AssertReadOnly returns nil for a tool set holding all seven read tools.",
+      "given": [
+        "a []core.Tool built from agentrun.ReadOnlyFileTools, one tool per name"
+      ],
+      "when": "AssertReadOnly is called on the set",
+      "then": [
+        "it returns nil",
+        "the set has seven tools, find_references among them"
+      ],
+      "pseudocode": "set = [core.Tool{Name:n} for n in ReadOnlyFileTools]\nassert len(set)==7 && hasTool(set,'find_references')\nassert AssertReadOnly(set) == nil\n// TS-15-4 is updated in place to the seven names"
+    },
+    {
+      "id": "TS-17-14",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.2"
+      ],
+      "title": "A set of the seven read tools plus write_file is refused with ErrNotReadOnly naming only write_file.",
+      "given": [
+        "a []core.Tool holding every ReadOnlyFileTools name and write_file"
+      ],
+      "when": "AssertReadOnly is called on the set",
+      "then": [
+        "errors.Is(err, ErrNotReadOnly) is true",
+        "the message contains write_file",
+        "the message contains none of the seven read tool names, find_references in particular"
+      ],
+      "pseudocode": "set = [Tool{n} for n in ReadOnlyFileTools] + [Tool{'write_file'}]\nerr = AssertReadOnly(set)\nassert errors.Is(err, ErrNotReadOnly)\nassert contains(err.Error(), 'write_file')\nfor n in ReadOnlyFileTools: assert !contains(err.Error(), n)\n// TS-15-5 is updated in place to this form"
+    },
+    {
+      "id": "TS-17-15",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-5.4"
+      ],
+      "title": "With ReadRoots configured, the find_references description is exactly as AgentKit offers it, while read_file and execute carry the read-root note.",
+      "given": [
+        "a Runner on provider/faux whose Config.ReadRoots holds one project.ReadRoot with a temporary Abs directory",
+        "the real tools.All(tools.Options{Workspace: ws}) description of find_references as the reference"
+      ],
+      "when": "registeredTools is called for a phase naming ReadOnlyFileTools and execute",
+      "then": [
+        "the find_references description equals AgentKit's own description byte for byte",
+        "it does not contain 'You may also read, but not change'",
+        "the read_file and execute descriptions do contain that note, so the roots were in effect"
+      ],
+      "pseudocode": "cfg.ReadRoots = [project.ReadRoot{Path:'../agentkit-go', Module:'github.com/agentfox/agentkit-go', Abs: t.TempDir()}]\nref = find(tools.All(tools.Options{Workspace: ws}),'find_references').Description\nts = r.registeredTools(Phase{Name:'a', BuiltinTools: append(clone(ReadOnlyFileTools),'execute'), ReadOnly:true, Programs: ReadOnlyPrograms})\nassert find(ts,'find_references').Description == ref\nassert !contains(that,'You may also read, but not change')\nassert contains(find(ts,'read_file').Description,'You may also read, but not change')"
+    },
+    {
+      "id": "TS-17-16",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.3"
+      ],
+      "title": "The go_typecheck detail formatter produces '<N> packages checked, <M> errors' and appends ', partial' exactly when a bound was hit.",
+      "given": [
+        "the unexported formatter DetectGoTypecheck uses to turn AgentKit's packages-checked count, errors-collected count and partial flag into the detail string"
+      ],
+      "when": "it is called with (12, 0, false), (1, 3, false), (0, 0, false), (12, 0, true) and (1, 41, true)",
+      "then": [
+        "(12,0,false) gives '12 packages checked, 0 errors'",
+        "(1,3,false) gives '1 packages checked, 3 errors', unpluralised",
+        "(0,0,false) gives '0 packages checked, 0 errors'",
+        "(12,0,true) gives '12 packages checked, 0 errors, partial'",
+        "(1,41,true) gives '1 packages checked, 41 errors, partial'"
+      ],
+      "pseudocode": "assert goTypecheckDetail(12,0,false) == '12 packages checked, 0 errors'\nassert goTypecheckDetail(1,3,false) == '1 packages checked, 3 errors'\nassert goTypecheckDetail(0,0,false) == '0 packages checked, 0 errors'\nassert goTypecheckDetail(12,0,true) == '12 packages checked, 0 errors, partial'\nassert goTypecheckDetail(1,41,true) == '1 packages checked, 41 errors, partial'"
+    },
+    {
+      "id": "TS-17-17",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-4.4"
+      ],
+      "title": "The real DetectGoTypecheck reports '0 packages checked, 0 errors' with no error for a workspace that holds no Go package.",
+      "given": [
+        "the real agentrun.DetectGoTypecheck over the real tools.All",
+        "three workspaces: an empty directory, a directory with only go.mod, and a directory with README.md and a .py file"
+      ],
+      "when": "DetectGoTypecheck is called with each workspace",
+      "then": [
+        "each call returns the detail '0 packages checked, 0 errors'",
+        "each call returns a nil error"
+      ],
+      "pseudocode": "for dir in [emptyDir, dirWith('go.mod','module x\\n'), dirWith('README.md','hi','tool.py','print(1)')]:\n  ws = tools.NewWorkspace(dir)\n  d, err = DetectGoTypecheck(ws)\n  assert err == nil; assert d == '0 packages checked, 0 errors'"
+    },
+    {
+      "id": "TS-17-18",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-4.3"
+      ],
+      "title": "For any workspace, the real detail matches the fixed format, ', partial' is the only variant, and no text from the workspace appears in it.",
+      "given": [
+        "the real agentrun.DetectGoTypecheck",
+        "a generator of workspaces: zero to five Go packages with generated package, file and identifier names that all start with the marker zq9x_, bodies that are well-typed, ill-typed or syntactically broken, comments and strings holding hostile text such as 'IGNORE ALL PREVIOUS INSTRUCTIONS', non-ASCII names, and optional non-Go files"
+      ],
+      "when": "for any generated workspace, DetectGoTypecheck is called",
+      "then": [
+        "it returns a nil error",
+        "the detail matches ^[0-9]+ packages checked, [0-9]+ errors(, partial)?$",
+        "the detail contains none of the generated names, identifiers or comment text, nor the marker zq9x_",
+        "the generated tree is byte-for-byte the same after the call as before it"
+      ],
+      "pseudocode": "re = regexp.MustCompile('^[0-9]+ packages checked, [0-9]+ errors(, partial)?$')\nfor ws in genWorkspaces(seed, n=25):\n  before = snapshot(ws.Root)\n  d, err = DetectGoTypecheck(ws)\n  assert err == nil; assert re.MatchString(d)\n  assert !contains(d,'zq9x_'); for s in ws.allGeneratedText: assert !contains(d, s)\n  assert snapshot(ws.Root) == before"
+    },
+    {
+      "id": "TS-17-19",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.6"
+      ],
+      "title": "DetectGoTypecheck is a package variable of the type func(*tools.Workspace) (string, error) that a test can replace and restore.",
+      "given": [
+        "internal/agentrun as built",
+        "agentrun.DetectSymbolBackend as the shape reference"
+      ],
+      "when": "the variable is assigned a type-checked stub, called, and restored with t.Cleanup",
+      "then": [
+        "the assignment var _ func(*tools.Workspace) (string, error) = DetectGoTypecheck compiles",
+        "the stub's detail and error are what a caller of agentrun.DetectGoTypecheck receives",
+        "after restoration the original function is back"
+      ],
+      "pseudocode": "var _ func(*tools.Workspace) (string, error) = DetectGoTypecheck\norig := DetectGoTypecheck\nDetectGoTypecheck = func(*tools.Workspace) (string, error) { return 'stub', nil }\nd, err := DetectGoTypecheck(nil); assert d=='stub' && err==nil\nDetectGoTypecheck = orig\n_, err = DetectGoTypecheck(nil); assert err != nil // the real one refuses a nil workspace"
+    },
+    {
+      "id": "TS-17-20",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-4.7"
+      ],
+      "title": "The real DetectGoTypecheck takes its three numbers from AgentKit's References result: a clean package reports zero errors, an ill-typed one at least one, under a 10 s probe timeout.",
+      "given": [
+        "the real tools.All and Workspace.References",
+        "workspace A: go.mod plus two small packages with no imports and no type errors",
+        "workspace B: go.mod plus one package whose file declares var x int = 'text'",
+        "the non-test source of internal/agentrun"
+      ],
+      "when": "DetectGoTypecheck is called on A and on B, and the source is scanned",
+      "then": [
+        "A's detail matches ^[1-9][0-9]* packages checked, 0 errors$",
+        "B's detail matches ^[1-9][0-9]* packages checked, [1-9][0-9]* errors$",
+        "the source builds the tools with tools.All, looks for the name find_references among them and calls .References(",
+        "the probe's timeout variable equals 10*time.Second by default"
+      ],
+      "pseudocode": "assert matches(DetectGoTypecheck(wsA), '^[1-9][0-9]* packages checked, 0 errors$')\nassert matches(DetectGoTypecheck(wsB), '^[1-9][0-9]* packages checked, [1-9][0-9]* errors$')\nsrc = concat(nonTestFiles('internal/agentrun'))\nassert contains(src,'tools.All(') && contains(src,'\"find_references\"') && contains(src,'.References(')\nassert goTypecheckTimeout == 10*time.Second"
+    },
+    {
+      "id": "TS-17-21",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.5"
+      ],
+      "title": "DetectGoTypecheck returns an error, not a detail, for no workspace and for an elapsed probe timeout.",
+      "given": [
+        "the real agentrun.DetectGoTypecheck",
+        "a workspace holding one Go package",
+        "the probe's timeout variable shortened to one nanosecond for the second case and restored afterwards"
+      ],
+      "when": "it is called with a nil workspace, and with the real workspace under the shortened timeout",
+      "then": [
+        "the nil case returns an empty detail and a non-nil error naming the missing workspace, and does not panic",
+        "the timeout case returns an empty detail and a non-nil error that satisfies errors.Is(err, context.DeadlineExceeded) or whose message names the timeout",
+        "neither case returns a detail that could be mistaken for a measurement"
+      ],
+      "pseudocode": "d, err = DetectGoTypecheck(nil); assert d=='' && err != nil && contains(err.Error(),'workspace')\norig = goTypecheckTimeout; goTypecheckTimeout = time.Nanosecond; defer restore\nd, err = DetectGoTypecheck(wsWithOnePackage)\nassert d=='' && err != nil\nassert errors.Is(err, context.DeadlineExceeded) || contains(lower(err.Error()),'timeout')"
+    },
+    {
+      "id": "TS-17-22",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.8"
+      ],
+      "title": "agent-fox runs no type-checker of its own: the non-test source of internal/agentrun imports none of go/types, go/parser or golang.org/x/tools, and go.mod requires no type-checking module.",
+      "given": [
+        "every non-test .go file in internal/agentrun",
+        "go.mod at the repository root"
+      ],
+      "when": "the files' import declarations and go.mod's require lines are read",
+      "then": [
+        "no import path is go/types, go/parser, go/packages or begins with golang.org/x/tools",
+        "go.mod has no require line for golang.org/x/tools"
+      ],
+      "pseudocode": "for f in nonTestGoFiles('internal/agentrun'):\n  file = parser.ParseFile(fset, f, nil, parser.ImportsOnly)\n  for imp in file.Imports: p = unquote(imp.Path.Value); assert p not in ['go/types','go/parser','go/packages'] && !hasPrefix(p,'golang.org/x/tools')\nassert !contains(readFile('go.mod'), 'golang.org/x/tools')"
+    },
+    {
+      "id": "TS-17-23",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-1.4",
+        "17-REQ-3.4",
+        "17-REQ-5.3"
+      ],
+      "title": "For any phase of fix and any index setting, the real brain declares every ReadOnlyFileTools name, keeps its base grant otherwise, and sends the base system prompt plus only the clause and find_references in the tools list.",
+      "given": [
+        "codefix's real agentBrain on a Runner with provider/faux, the real tools.All, an empty repository map (the --repo-map-tokens 0 case)",
+        "the base grants recorded in the test: analyse = six read tools + execute + submit_analysis; implement = six read tools + write_file + edit_file + execute + submit_implementation; code_search added when the index is set",
+        "the base analysis and implement system prompts recorded from the base commit"
+      ],
+      "when": "for each of analyse and implement, with Config.Index nil and with an index, the brain's phase runs and the first request is read",
+      "then": [
+        "every element of agentrun.ReadOnlyFileTools is declared, find_references included",
+        "the declared set minus find_references equals the recorded base grant, so no write or shell tool was gained",
+        "analyse declares no write_file or edit_file",
+        "the system prompt with the find_references clause removed and 'find_references, ' deleted from the tools sentence equals the base prompt plus the base tools sentence",
+        "the user message does not contain find_references"
+      ],
+      "pseudocode": "for idx in [nil, &indextest.Index{}]:\n  p = faux.New(text('a'),text('b'),text('c'),text('d')); r = newRunner(p, ws, idx)\n  b = &agentBrain{runner:r, codeSearch: idx != nil}\n  _,_,_ = b.Analyze(ctx, analysisInput{Input:in, Root:ws.Root}); n = len(p.Requests())\n  _,_,_ = b.Implement(ctx, implementInput{Input:in, Root:ws.Root})\n  for (req, phase) in [(reqs[0],'analyse'),(reqs[n],'implement')]:\n    names = declared(req)\n    for x in agentrun.ReadOnlyFileTools: assert names[x], x\n    assert without(names,'find_references') == baseGrant[phase] + (idx ? ['code_search'] : [])\n    sys = removeClause(systemText(req)).replace('find_references, ','')\n    assert sys == baseSystem[phase] + baseNote(baseGrant[phase])\n    assert !contains(userText(req),'find_references')"
+    },
+    {
+      "id": "TS-17-24",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-3.4",
+        "17-REQ-5.3"
+      ],
+      "title": "For any phase of impl and any index setting, the real brain declares every ReadOnlyFileTools name, keeps its base grant otherwise, and changes only the survey prompt's clause and the tools list.",
+      "given": [
+        "codeimpl's real agentBrain on a Runner with provider/faux and the real tools.All, with an empty repository map",
+        "base grants recorded in the test: survey = six read tools + execute + submit_survey; repair, implement and resolve = six read tools + write_file + edit_file + execute + their submit tool; code_search added when the index is set",
+        "the base survey, repair, implement and resolve system prompts"
+      ],
+      "when": "for each of survey, repair, implement and resolve, with and without an index, the phase runs and the first request is read",
+      "then": [
+        "every element of agentrun.ReadOnlyFileTools is declared, find_references included",
+        "the declared set minus find_references equals the recorded base grant for the phase",
+        "only survey's system prompt differs from base beyond the tools list, and only by the clause",
+        "repair, implement and resolve system prompts equal base plus the base tools sentence once 'find_references, ' is deleted",
+        "no user message contains find_references"
+      ],
+      "pseudocode": "for idx in [nil, index]:\n  b = &agentBrain{runner:r, codeSearch: idx != nil}\n  for (name, run) in [('survey', b.Survey), ('repair', b.Repair), ('implement', b.Implement), ('resolve', b.Resolve)]:\n    req = firstRequestOf(run(...))\n    for x in ReadOnlyFileTools: assert declared(req)[x]\n    assert without(declared(req),'find_references') == baseGrant[name] + (idx ? ['code_search'] : [])\n    sys = replace(systemText(req),'find_references, ','')\n    sys = name=='survey' ? removeClause(sys) : sys\n    assert sys == baseSystem[name] + baseNote(baseGrant[name])\n    assert !contains(userText(req),'find_references')"
+    },
+    {
+      "id": "TS-17-25",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-3.4",
+        "17-REQ-5.3"
+      ],
+      "title": "For any phase of spec and any index setting, the real author declares every ReadOnlyFileTools name, gains no write or shell tool, and changes only find_references in the tools list.",
+      "given": [
+        "specgen's real agentAuthor on a Runner with provider/faux and the real tools.All, with an empty repository map",
+        "base grants recorded in the test: prd, each generate:{artifact} and architecture = six read tools + their submit tool, no execute; code_search added when the index is set"
+      ],
+      "when": "for each of the prd phase, a generate phase and the architecture phase, with and without an index, the phase runs and the first request is read",
+      "then": [
+        "every element of agentrun.ReadOnlyFileTools is declared, find_references included",
+        "the declared set minus find_references equals the recorded base grant",
+        "none of MutatingTools is declared in any spec phase",
+        "the system prompt with 'find_references, ' deleted from the tools sentence equals the base template prompt plus the base tools sentence, with no clause anywhere",
+        "no user message contains find_references"
+      ],
+      "pseudocode": "for idx in [nil, index]:\n  a = &agentAuthor{runner:r, ws:ws, codeSearch: idx != nil}\n  for (name, run) in [('prd', a.WritePRD), ('generate', a.GenerateArtifact), ('architecture', a.WriteArchitecture)]:\n    req = firstRequestOf(run(...))\n    for x in ReadOnlyFileTools: assert declared(req)[x]\n    assert without(declared(req),'find_references') == baseGrant[name] + (idx ? ['code_search'] : [])\n    for m in MutatingTools: assert !declared(req)[m]\n    assert replace(systemText(req),'find_references, ','') == baseSystem[name] + baseNote(baseGrant[name])\n    assert !contains(userText(req),'find_references')"
+    },
+    {
+      "id": "TS-17-26",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-3.4",
+        "17-REQ-5.3"
+      ],
+      "title": "For any index setting, the real triage phase declares every ReadOnlyFileTools name, gains no write or shell tool, and changes only the prompt's clause and the tools list.",
+      "given": [
+        "issuetriage.Run on a Runner with provider/faux, the real triager and tools.All, with an empty repository map",
+        "the base grant recorded in the test: six read tools + file_issue, no execute; code_search added when the index is set",
+        "the base triage system prompt"
+      ],
+      "when": "for Config.Index nil and set, the triage phase runs and the first request is read",
+      "then": [
+        "every element of agentrun.ReadOnlyFileTools is declared, find_references included",
+        "the declared set minus find_references equals the recorded base grant, with no MutatingTools name",
+        "the system prompt with the clause removed and 'find_references, ' deleted from the tools sentence equals the base prompt plus the base tools sentence",
+        "the user message equals the reference task prompt for the same input and contains no find_references"
+      ],
+      "pseudocode": "for idx in [nil, index]:\n  p = faux.New(toolCall('c1', ToolFileIssue, validIssue())); o = newOptions(t, ws, indexedRunner(t, ws, p, idx)); o.Index = idx\n  Run(ctx, o); req = p.Requests()[0]\n  for x in ReadOnlyFileTools: assert declared(req)[x]\n  assert without(declared(req),'find_references') == ['file_issue'] + sixRead + (idx ? ['code_search'] : [])\n  for m in MutatingTools: assert !declared(req)[m]\n  sys = replace(removeClause(systemText(req)),'find_references, ','')\n  assert sys == baseTriageSystem + baseNote(grant)\n  assert userText(req) == referenceTaskPrompt(in, root)"
+    },
+    {
+      "id": "TS-17-27",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-1.4",
+        "17-REQ-5.3"
+      ],
+      "title": "The independent review phase built in internal/conform declares every ReadOnlyFileTools name, with and without an index, and keeps its read-only grant.",
+      "given": [
+        "conform.RunReview on a Runner with provider/faux, the real tools.All and a temporary git repository",
+        "base grant recorded in the test: six read tools + execute + submit_review, code_search only when ReviewInput.CodeSearch is set"
+      ],
+      "when": "RunReview runs with CodeSearch false and with an index and CodeSearch true, and the first request is read",
+      "then": [
+        "every element of agentrun.ReadOnlyFileTools is declared, find_references included",
+        "the declared set minus find_references equals the recorded base grant",
+        "write_file, edit_file, run_command and powershell are not declared",
+        "conform.ReviewSystemPrompt is not changed: the wire prompt minus 'find_references, ' equals it plus the base tools sentence"
+      ],
+      "pseudocode": "for (idx, grant) in [(nil,false),(&indextest.Index{},true)]:\n  runner = NewRunner(Config{..., Workspace: ws, Index: idx})\n  RunReview(ctx, runner, ReviewInput{Root:root, Base:'HEAD', Spec:'spec', Scope:scope, CodeSearch: grant})\n  req = indextest.Offered(p)[0]\n  for x in agentrun.ReadOnlyFileTools: assert has(req, x)\n  assert without(req,'find_references') == ['execute','submit_review'] + sixRead + (grant ? ['code_search'] : [])\n  for m in ['write_file','edit_file','run_command','powershell']: assert !has(req, m)\n  assert replace(systemText(firstRequest(p)),'find_references, ','') == ReviewSystemPrompt + baseNote(...)"
+    },
+    {
+      "id": "TS-17-28",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1",
+        "17-REQ-4.5"
+      ],
+      "title": "fix's RunPreflight puts go_typecheck between symbol_backend and code_search_index with ok true, and omits it without touching any other check when detection fails.",
+      "given": [
+        "codefix.RunPreflight with the package's preflightOptions on a clean repository",
+        "agentrun.DetectGoTypecheck replaced by a stub and restored with t.Cleanup"
+      ],
+      "when": "RunPreflight runs with the stub returning '12 packages checked, 0 errors', again returning '3 packages checked, 41 errors, partial', again with DetectSymbolBackend failing, and again with DetectGoTypecheck returning an error",
+      "then": [
+        "the last three check names are symbol_backend, go_typecheck, code_search_index in that order and the checks before them are unchanged",
+        "go_typecheck has ok true and the stub's detail verbatim, including the 41-error and partial case",
+        "with symbol_backend omitted the last two names are go_typecheck, code_search_index",
+        "with detection failing RunPreflight returns a nil error, has no go_typecheck entry, and its other entries (check, ok, detail) equal those of the successful run, as do the stage and the estimate"
+      ],
+      "pseudocode": "inject = func(detail string, err error){ agentrun.DetectGoTypecheck = func(*tools.Workspace)(string,error){return detail, err} }\ninject('12 packages checked, 0 errors', nil); ok = RunPreflight(ctx, preflightOptions(t, ws, g))\nnames = checkNames(ok.Preflight); assert names[len-3:] == ['symbol_backend','go_typecheck','code_search_index']\nc = findCheck(ok.Preflight,'go_typecheck'); assert c.OK && c.Detail == '12 packages checked, 0 errors'\ninject('3 packages checked, 41 errors, partial', nil); assert findCheck(..).OK\ninject('', errors.New('find_references is not offered')); res, err = RunPreflight(...)\nassert err == nil; assert !has(res.Preflight,'go_typecheck'); assert strip(res.Preflight) == strip(ok.Preflight); assert res.Stage == ok.Stage && res.Estimate == ok.Estimate"
+    },
+    {
+      "id": "TS-17-29",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1",
+        "17-REQ-4.5"
+      ],
+      "title": "impl's RunPreflight puts go_typecheck between symbol_backend and code_search_index with ok true, and omits it without touching any other check when detection fails.",
+      "given": [
+        "codeimpl.RunPreflight with the package's preflight options on a clean spec repository",
+        "agentrun.DetectGoTypecheck replaced by a stub and restored with t.Cleanup"
+      ],
+      "when": "RunPreflight runs with the stub returning '12 packages checked, 0 errors', again returning '3 packages checked, 41 errors, partial', again with DetectSymbolBackend failing, and again with DetectGoTypecheck returning an error",
+      "then": [
+        "the last three check names are symbol_backend, go_typecheck, code_search_index in that order and the checks before them are unchanged",
+        "go_typecheck has ok true and the stub's detail verbatim",
+        "with symbol_backend omitted the last two names are go_typecheck, code_search_index",
+        "with detection failing RunPreflight returns a nil error, has no go_typecheck entry, and its other entries equal those of the successful run, as do the stage and the estimate"
+      ],
+      "pseudocode": "// same shape as TS-17-28 against codeimpl.RunPreflight and its findCheck helper\ninject('12 packages checked, 0 errors', nil); ok = RunPreflight(ctx, o)\nassert tail(names(ok.Preflight),3) == ['symbol_backend','go_typecheck','code_search_index']\nassert findCheck(ok.Preflight,'go_typecheck') == {OK:true, Detail:'12 packages checked, 0 errors'}\ninject('', errors.New('probe timed out')); res, err = RunPreflight(ctx, o)\nassert err == nil && !has(res.Preflight,'go_typecheck') && strip(res.Preflight) == strip(ok.Preflight)"
+    },
+    {
+      "id": "TS-17-30",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1",
+        "17-REQ-4.5"
+      ],
+      "title": "spec's RunPreflight puts go_typecheck between symbol_backend and code_search_index with ok true, and omits it without touching any other check when detection fails.",
+      "given": [
+        "specgen.RunPreflight with the package's preflight options",
+        "agentrun.DetectGoTypecheck replaced by a stub and restored with t.Cleanup"
+      ],
+      "when": "RunPreflight runs with the stub returning '12 packages checked, 0 errors', again returning '3 packages checked, 41 errors, partial', again with DetectSymbolBackend failing, and again with DetectGoTypecheck returning an error",
+      "then": [
+        "the last three check names are symbol_backend, go_typecheck, code_search_index in that order and the checks before them are unchanged",
+        "go_typecheck has ok true and the stub's detail verbatim",
+        "with symbol_backend omitted the last two names are go_typecheck, code_search_index",
+        "with detection failing RunPreflight returns a nil error, has no go_typecheck entry, and its other entries equal those of the successful run, as do the stage and the estimate"
+      ],
+      "pseudocode": "// same shape as TS-17-28 against specgen.RunPreflight\ninject('12 packages checked, 0 errors', nil); ok = RunPreflight(ctx, o)\nassert tail(names(ok.Preflight),3) == ['symbol_backend','go_typecheck','code_search_index']\ninject('', errors.New('no workspace configured')); res, err = RunPreflight(ctx, o)\nassert err == nil && !has(res.Preflight,'go_typecheck') && strip(res.Preflight) == strip(ok.Preflight)\nassert res.Estimate == ok.Estimate"
+    },
+    {
+      "id": "TS-17-31",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1",
+        "17-REQ-4.5"
+      ],
+      "title": "triage's RunPreflight puts go_typecheck between symbol_backend and code_search_index with ok true, and omits it without touching any other check when detection fails.",
+      "given": [
+        "issuetriage.RunPreflight with the package's preflight options, with and without DryRun",
+        "agentrun.DetectGoTypecheck replaced by a stub and restored with t.Cleanup"
+      ],
+      "when": "RunPreflight runs with the stub returning '12 packages checked, 0 errors', again returning '3 packages checked, 41 errors, partial', again with DetectSymbolBackend failing, and again with DetectGoTypecheck returning an error",
+      "then": [
+        "the last three check names are symbol_backend, go_typecheck, code_search_index in that order and target_repository (and forge_credential when not a dry run) come first, unchanged",
+        "go_typecheck has ok true and the stub's detail verbatim",
+        "with symbol_backend omitted the last two names are go_typecheck, code_search_index",
+        "with detection failing RunPreflight returns a nil error, has no go_typecheck entry, and its other entries equal those of the successful run, as do the stage and the estimate"
+      ],
+      "pseudocode": "// same shape as TS-17-28 against issuetriage.RunPreflight(o)\ninject('12 packages checked, 0 errors', nil); ok, err = RunPreflight(o); assert err == nil\nassert tail(names(ok.Preflight),3) == ['symbol_backend','go_typecheck','code_search_index']\ninject('', errors.New('timeout')); res, err = RunPreflight(o)\nassert err == nil && !has(res.Preflight,'go_typecheck') && strip(res.Preflight) == strip(ok.Preflight)\nassert res.Estimate.Phases == ok.Estimate.Phases && res.Stage == 'preflight'"
+    },
+    {
+      "id": "TS-17-32",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-4.2",
+        "17-REQ-4.5"
+      ],
+      "title": "For any workspace, the go_typecheck check leaves stage and estimate unchanged, makes no model call or forge write, and writes nothing to the tree.",
+      "given": [
+        "issuetriage.RunPreflight with a faux provider whose Calls() is observable and a forge client that records every request",
+        "the same generator of workspaces as TS-17-18 (zero to five Go packages, valid, ill-typed or broken, hostile text, optional non-Go files)",
+        "one run with the real DetectGoTypecheck and one with a stub that returns an error"
+      ],
+      "when": "for any generated workspace, RunPreflight is run with the real detection and then with the failing stub",
+      "then": [
+        "both runs return a nil error and the same stage and an equal estimate",
+        "the entries of the two runs are equal except for the go_typecheck entry, which only the real run holds",
+        "the faux provider received no request and the forge client recorded no request",
+        "the workspace tree is byte-for-byte the same before and after both runs"
+      ],
+      "pseudocode": "for ws in genWorkspaces(seed, n=15):\n  before = snapshot(ws.Root)\n  real, e1 = RunPreflight(optionsFor(ws))\n  agentrun.DetectGoTypecheck = failing; failed, e2 = RunPreflight(optionsFor(ws)); restore()\n  assert e1 == nil && e2 == nil\n  assert real.Stage == failed.Stage && reflect.DeepEqual(real.Estimate, failed.Estimate)\n  assert strip(real.Preflight,'go_typecheck') == failed.Preflight\n  assert provider.Calls() == 0 && len(forge.Requests()) == 0\n  assert snapshot(ws.Root) == before"
+    },
+    {
+      "id": "TS-17-33",
+      "kind": "property",
+      "verifies": [
+        "17-REQ-3.1",
+        "17-REQ-3.2"
+      ],
+      "title": "For each of the three system prompts that say callers, the find_references clause appears once at step 2, and removing it gives the base prompt byte for byte.",
+      "given": [
+        "the string constants analysisSystemPrompt (codefix/phases.go), surveySystemPrompt (codeimpl/prompts.go) and systemPrompt (issuetriage/triage.go), evaluated from the source with go/parser",
+        "the base texts recorded byte for byte from the base commit under testdata/prompts/base/ (fix_analysis.txt, impl_survey.txt, triage_system.txt)",
+        "the clause pattern: an optional single space, then ( `find_references` up to the closing parenthesis, which may span a line wrap"
+      ],
+      "when": "for each of the three prompts, step 2 is extracted (from the line starting '2. ' to the line starting '3. ') and the clause is removed with the pattern",
+      "then": [
+        "step 2 contains exactly one clause and it names `find_references` and says who uses a declaration",
+        "the whole prompt contains the text find_references exactly once",
+        "the prompt with the clause removed equals the recorded base text byte for byte",
+        "the clause sits in the same sentence as 'callers'"
+      ],
+      "pseudocode": "re = regexp.MustCompile('(?s) ?\\\\(`find_references`[^)]*\\\\)')\nfor (file, name, basePath) in [('codefix/phases.go','analysisSystemPrompt','fix_analysis.txt'), ('codeimpl/prompts.go','surveySystemPrompt','impl_survey.txt'), ('issuetriage/triage.go','systemPrompt','triage_system.txt')]:\n  p = constString(file, name); base = readFile('testdata/prompts/base/'+basePath)\n  step2 = between(p, '\\n2. ', '\\n3. ')\n  assert len(re.FindAllString(step2,-1)) == 1; assert contains(step2,'callers'); assert contains(step2,'who uses a declaration')\n  assert count(p,'find_references') == 1\n  assert re.ReplaceAllString(p, '') == base"
+    },
+    {
+      "id": "TS-17-34",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.3"
+      ],
+      "title": "Every other system prompt, every spec template and the repository map's golden files are byte-identical to the base commit.",
+      "given": [
+        "a table of SHA-256 digests recorded from the base commit in the test",
+        "the specgen/templates/*.md files (prd_system, generation_system and the user templates), the constants codefix implementSystemPrompt, codeimpl implementSystemPrompt, repairSystemPrompt and resolveSystemPrompt, conform ReviewSystemPrompt, and internal/repomap/testdata/golden_300.txt, golden_1000.txt and golden_6000.txt",
+        "the existing user-prompt reference tests (TS-14-19, TS-14-23 and the fix and impl map-block tests) left unchanged"
+      ],
+      "when": "each file or constant is read (constants evaluated from source with go/parser) and hashed, and the non-test source of specgen/templates, internal/conform and internal/repomap is searched for find_references",
+      "then": [
+        "every digest equals the recorded base digest",
+        "no template, no conform prompt and no repomap source file contains the text find_references",
+        "the repomap opening sentence still names file_outline and find_symbol and not find_references"
+      ],
+      "pseudocode": "for (id, bytes) in sources(): assert sha256hex(bytes) == baseDigest[id], id\nfor f in glob('specgen/templates/*.md') + ['internal/conform/prompt.go','internal/repomap/repomap.go']: assert !contains(readFile(f),'find_references'), f\nassert contains(readFile('internal/repomap/repomap.go'),'file_outline') && contains(...,'find_symbol')"
+    },
+    {
+      "id": "TS-17-35",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.7"
+      ],
+      "title": "Each tool's live --schema output equals its schema golden byte for byte, and neither names a find_references or Symbols-bound flag, field or environment variable.",
+      "given": [
+        "the four checked-in cmd/<tool>/testdata/schema.golden.json files",
+        "schematest.Live, which builds each tool and runs --schema"
+      ],
+      "when": "the live output of spec, triage, fix and impl is compared with its golden and searched",
+      "then": [
+        "live output equals the golden for each of the four tools",
+        "no golden contains the text find_references, go_typecheck, typecheck or a flag whose name mentions references or symbol bounds",
+        "no flag or environment variable was added: each tool's flag set equals the set in its golden"
+      ],
+      "pseudocode": "for tool in ['spec','triage','fix','impl']:\n  live = schematest.Live(t, tool); golden = readFile(schematest.GoldenFile(root, tool))\n  assert bytes.Equal(live, golden)\n  for s in ['find_references','go_typecheck','typecheck','max-files','symbol-bound']: assert !contains(golden, s)\n  assert flagNames(live) == flagNames(golden)"
+    },
+    {
+      "id": "TS-17-36",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.8"
+      ],
+      "title": "go.mod keeps the module requirements and replace directives it had at the base commit and go.sum is unchanged.",
+      "given": [
+        "the set of required module paths and versions and the two replace directives recorded from the base commit in the test",
+        "the SHA-256 of go.sum at the base commit, recorded in the test"
+      ],
+      "when": "go.mod is parsed and go.sum is hashed",
+      "then": [
+        "the set of required (module, version) pairs equals the recorded set exactly, so no module was added or removed",
+        "the replace directives for github.com/agentfox/agentkit-go and its codesearch module still point at ../agentkit-go and ../agentkit-go/codesearch",
+        "go.sum's digest equals the recorded one"
+      ],
+      "pseudocode": "mf = modfile.Parse('go.mod', readFile('go.mod'), nil)\nassert setOf(mf.Require) == baseRequires\nassert replaceMap(mf) == {'github.com/agentfox/agentkit-go':'../agentkit-go','github.com/agentfox/agentkit-go/codesearch':'../agentkit-go/codesearch'}\nassert sha256hex(readFile('go.sum')) == baseGoSumDigest"
+    },
+    {
+      "id": "TS-17-37",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.1"
+      ],
+      "title": "docs/cli.md lists the seven read tools in each tool's section and in the fix and impl 'What the model may and may not do' sections, and says what find_references does there.",
+      "given": [
+        "docs/cli.md read with readDoc and docSection",
+        "the list sevenReadTools equal to agentrun.ReadOnlyFileTools"
+      ],
+      "when": "the triage, fix, spec and impl sections are searched, and the text after '### What the model may and may not do' is taken for fix and impl",
+      "then": [
+        "each of the four sections names every one of the seven tools in backticks",
+        "the fix and impl 'may and may not do' sections name all seven in backticks",
+        "each of those two sections has a sentence containing `find_references` and one of 'who uses', 'call sites' or 'reference sites'"
+      ],
+      "pseudocode": "for h in ['## `triage`','## `fix`','## `spec`','## `impl`']:\n  s = docSection(t, cli, h); for tool in sevenReadTools: assert contains(s, '`'+tool+'`')\nfor h in ['## `fix`','## `impl`']:\n  _, may, _ = cut(docSection(t, cli, h), '### What the model may and may not do')\n  for tool in sevenReadTools: assert contains(may,'`'+tool+'`')\n  sentence = sentenceContaining(may,'`find_references`'); assert anyOf(sentence, ['who uses','call sites','reference sites'])"
+    },
+    {
+      "id": "TS-17-38",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.2"
+      ],
+      "title": "The --preflight prose of docs/cli.md says 'three informational checks' and describes go_typecheck beside symbol_backend and code_search_index.",
+      "given": [
+        "the '--preflight' section of docs/cli.md"
+      ],
+      "when": "the section is searched",
+      "then": [
+        "it contains 'three informational checks' and not 'two informational checks'",
+        "it describes `go_typecheck`: the packages-checked and errors-collected counts, the ', partial' suffix, and that ok is always true because AgentKit stubs every import outside the workspace",
+        "the go_typecheck description lies between the symbol_backend and code_search_index descriptions",
+        "it no longer says the phases keep 'the six read tools'"
+      ],
+      "pseudocode": "s = docSection(t, readDoc(t,'cli.md'), '--preflight')\nassert contains(s,'three informational checks') && !contains(s,'two informational checks')\nfor w in ['`go_typecheck`','packages checked','errors',', partial','stub']: assert contains(s,w)\nassert index(s,'`symbol_backend`') < index(s,'`go_typecheck`') < index(s,'`code_search_index`')\nassert contains(sentenceContaining(s,'`go_typecheck`'), 'always `true`') || contains(paragraphOf(s,'`go_typecheck`'),'always `true`')"
+    },
+    {
+      "id": "TS-17-39",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.3"
+      ],
+      "title": "Each of the four preflight examples in docs/cli.md carries the go_typecheck entry between symbol_backend and code_search_index.",
+      "given": [
+        "docs/cli.md"
+      ],
+      "when": "the file is searched for the go_typecheck example entry and for the example lines around each symbol_backend entry",
+      "then": [
+        "the exact entry {\"check\": \"go_typecheck\", \"ok\": true, \"detail\": \"12 packages checked, 0 errors\"} occurs exactly 4 times",
+        "in each of the four examples the line after symbol_backend is the go_typecheck entry and the line after that is code_search_index"
+      ],
+      "pseudocode": "entry = '{\"check\": \"go_typecheck\", \"ok\": true, \"detail\": \"12 packages checked, 0 errors\"}'\nassert count(cli, entry) == 4\nlines = split(cli,'\\n')\nsb = [i for i,l in lines if contains(l,'\"check\": \"symbol_backend\"')]; assert len(sb) == 4\nfor i in sb: assert contains(lines[i+1], entry); assert contains(lines[i+2], '\"check\": \"code_search_index\"')"
+    },
+    {
+      "id": "TS-17-40",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.4"
+      ],
+      "title": "docs/model-usage.md says 'seven read tools' in every phase-table row and the definition sentence, lists find_references in the triage row, and calls code_search the eighth tool.",
+      "given": [
+        "docs/model-usage.md",
+        "TS-15-12 and TS-16-28 updated to the seven-tool wording"
+      ],
+      "when": "the phase-table rows, the definition sentence and the 'Reading the codebase' text are read",
+      "then": [
+        "every phase-table row that names the read tools says 'the seven read tools', and there are at least nine such rows",
+        "the `triage` row lists all seven tools by name, find_references included, followed by `code_search` (if indexed)",
+        "the definition sentence `The \"seven read tools\"` lists all seven in backticks",
+        "the text says 'An eighth tool, `code_search`' and contains no 'A seventh tool'"
+      ],
+      "pseudocode": "rows = [l for l in lines(md) if startsWith(l,'| `') && contains(l,'read tools')]\nassert len(rows) >= 9; for l in rows: assert contains(l,'the seven read tools') || startsWith(l,'| `triage` | `triage` |')\ntriage = rowStartingWith(md,'| `triage` | `triage` |'); for tool in sevenReadTools: assert contains(triage,'`'+tool+'`')\ndef = paragraphStartingWith(md,'The \"seven read tools\"'); for tool in sevenReadTools: assert contains(def,'`'+tool+'`')\nassert contains(md,'An eighth tool, `code_search`') && !contains(md,'A seventh tool')"
+    },
+    {
+      "id": "TS-17-41",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.5"
+      ],
+      "title": "'Reading the codebase' describes find_references: grouping, the three confidence labels, ranking and limits, the per-phase table, the bounds and partial, mostly-lexical AgentKit sites, and go_typecheck.",
+      "given": [
+        "the 'Reading the codebase' section of docs/model-usage.md"
+      ],
+      "when": "the section is searched",
+      "then": [
+        "it names `find_references`, says sites are grouped by file and each carries its enclosing declaration",
+        "it names the labels `resolved`, `lexical` and `text` and says `resolved` is Go through go/types with imports outside the workspace stubbed",
+        "it states the 30-result default and the cap of 100",
+        "it says each phase holds its own reference table",
+        "it says the check is bounded and reports partial",
+        "it says sites in this repository that call into AgentKit are mostly `lexical`",
+        "it says --preflight reports go_typecheck",
+        "it no longer opens with 'Six tools read the tree'"
+      ],
+      "pseudocode": "s = docSection(t, readDoc(t,'model-usage.md'), 'Reading the codebase')\nfor w in ['`find_references`','enclosing declaration','grouped by file','`resolved`','`lexical`','`text`','go/types','stub','30','100','own reference table','bounded','partial','go_typecheck']: assert contains(s,w), w\nassert contains(sentenceContaining(s,'AgentKit'),'mostly `lexical`') || containsAll(paragraphOf(s,'mostly'),['AgentKit','`lexical`'])\nassert !contains(s,'Six tools read the tree')"
+    },
+    {
+      "id": "TS-17-42",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.6"
+      ],
+      "title": "The Navigation baseline intro in docs/development.md says seven read tools plus code_search, and the sentence after the jq snippet counts eight navigation columns.",
+      "given": [
+        "the Navigation baseline section read with navigationBaseline"
+      ],
+      "when": "the intro paragraph (before '### Inputs') and the paragraph that begins 'The last column counts every tool' are read",
+      "then": [
+        "the intro says 'seven read' and mentions code_search, and does not say 'six'",
+        "the last-column sentence says 'eight' and not 'seven before it'"
+      ],
+      "pseudocode": "sec = navigationBaseline(t)\nintro, _, _ = cut(sec,'### Inputs')\nassert contains(intro,'seven read') && contains(intro,'code_search') && !contains(intro,'six read')\npara = paragraphStartingWith(sec,'The last column counts every tool')\nassert contains(para,'eight') && !contains(para,'seven before it')"
+    },
+    {
+      "id": "TS-17-43",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.7"
+      ],
+      "title": "docs/cli.md, docs/model-usage.md and docs/development.md contain none of 'six read tools', 'six read-only file tools' or 'A seventh tool'.",
+      "given": [
+        "the three documents"
+      ],
+      "when": "each is searched, ignoring case for the first two phrases",
+      "then": [
+        "no occurrence of 'six read tools' in any of the three",
+        "no occurrence of 'six read-only file tools' in any of the three",
+        "no occurrence of 'A seventh tool' in any of the three"
+      ],
+      "pseudocode": "for doc in ['cli.md','model-usage.md','development.md']:\n  text = lower(readDoc(t, doc))\n  for phrase in ['six read tools','six read-only file tools','a seventh tool']: assert !contains(text, phrase), doc+': '+phrase"
+    },
+    {
+      "id": "TS-17-44",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.8"
+      ],
+      "title": "PRD 09's status line is no longer 'proposed', and its row in docs/prds/README.md is outside the Proposed section.",
+      "given": [
+        "docs/prds/09-add-a-find-references-tool.md",
+        "docs/prds/README.md"
+      ],
+      "when": "the PRD's Status line is read and the README is split at its level-2 headings",
+      "then": [
+        "the line beginning 'Status:' does not contain 'proposed' in any case",
+        "the README row linking 09-add-a-find-references-tool.md exists",
+        "the level-2 section that holds that row is not headed 'Proposed'"
+      ],
+      "pseudocode": "prd = readFile('docs/prds/09-add-a-find-references-tool.md'); status = lineStartingWith(prd,'Status:')\nassert !contains(lower(status),'proposed')\nreadme = readFile('docs/prds/README.md'); row = lineContaining(readme,'09-add-a-find-references-tool.md'); assert row != ''\nassert headingOfSectionContaining(readme, row) != '## Proposed'"
+    },
+    {
+      "id": "TS-17-45",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.1",
+        "17-REQ-7.4"
+      ],
+      "title": "Each of the four baseline tables has the find_references header, a before and an after row per phase with the header's cell count, and only dashes while the Measured at line names no commit.",
+      "given": [
+        "the Navigation baseline section",
+        "TS-15-16 and TS-16-29 updated to the new header",
+        "the phase lists of checkBaselineTables in docs_development_test.go"
+      ],
+      "when": "each tool's table (triage, fix, spec, impl) is parsed",
+      "then": [
+        "the header line equals '| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | find_references | code_search | all tools |'",
+        "every phase has a before row and an after row",
+        "every row has 12 cells, the header's count",
+        "every count cell is the dash —",
+        "the Measured at line begins '— (commit), — (model)'"
+      ],
+      "pseudocode": "hdr = '| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | find_references | code_search | all tools |'\nfor tool in ['triage','fix','spec','impl']:\n  table = tableOf(navigationBaseline(t), tool); assert lines(table)[0] == hdr\n  for row in dataRows(table): assert len(cells(row)) == 12; for c in cells(row)[3:]: assert c == '—'\n  for (input, phase) in phases(table): assert hasRun(input, phase, 'before') && hasRun(input, phase, 'after')\nassert startsWith(measuredAtLine(sec), '— (commit), — (model)')"
+    },
+    {
+      "id": "TS-17-46",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.2",
+        "17-REQ-7.3"
+      ],
+      "title": "The jq snippet extracts find_references between find_symbol and code_search, and the procedure text says what the before and after pair measures.",
+      "given": [
+        "the Navigation baseline section of docs/development.md"
+      ],
+      "when": "the jq snippet and the paragraph that explains the before and after rows are read",
+      "then": [
+        "the snippet contains (.tool_calls.find_references // 0) after (.tool_calls.find_symbol // 0) and before (.tool_calls.code_search // 0)",
+        "the text says before is the tools built from the commit before this change, where find_references does not exist and its cell is 0, and after is the commit that has it",
+        "the text names the fall in the search_files and read_file columns for fix's analyse and impl's survey, with the same outcome from the tool"
+      ],
+      "pseudocode": "sec = navigationBaseline(t)\na = index(sec,'(.tool_calls.find_symbol // 0)'); b = index(sec,'(.tool_calls.find_references // 0)'); c = index(sec,'(.tool_calls.code_search // 0)')\nassert 0 < a && a < b && b < c\npara = paragraphContaining(sec,'`find_references`', 'before')\nfor w in ['commit before','does not exist','0','after','search_files','read_file','analyse','survey']: assert contains(para,w), w\nassert contains(para,'fall') || contains(para,'drop')"
+    },
+    {
+      "id": "TS-17-47",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.5"
+      ],
+      "title": "docs/errata/17_navigation_baseline.md exists in the form of errata 15 and 16, names the test that checks the column, tells the first runner to fill both rows and remove it, and docs/README.md lists it.",
+      "given": [
+        "docs/errata/15_navigation_baseline.md and 16_navigation_baseline.md as the form",
+        "docs/README.md's errata table"
+      ],
+      "when": "the new erratum and the README are read, and the root-package test files are searched for the function the erratum names",
+      "then": [
+        "the erratum's first line begins '# Erratum:' and it mentions find_references, docs/development.md and that the counts are not recorded",
+        "it names a Test function that exists in a root-package docs_*_test.go file whose body asserts the find_references column header",
+        "it says the first person to run the procedure fills both rows and removes the erratum",
+        "docs/README.md has an errata-table row linking errata/17_navigation_baseline.md"
+      ],
+      "pseudocode": "e = readFile('docs/errata/17_navigation_baseline.md')\nassert startsWith(e,'# Erratum:'); for w in ['find_references','docs/development.md','first person to run the procedure']: assert contains(e,w)\nnames = regexp.FindAll('Test[A-Za-z0-9_]+', e); found = any(funcDefinedIn(n, glob('docs_*_test.go')) && bodyContains(n,'| find_symbol | find_references | code_search |') for n in names); assert found\nassert contains(readFile('docs/README.md'),'errata/17_navigation_baseline.md')"
+    },
+    {
+      "id": "TS-17-48",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.2"
+      ],
+      "title": "The root-package docs tests use a read-tool list equal to agentrun.ReadOnlyFileTools element for element and select phase-table rows by 'the seven read tools'.",
+      "given": [
+        "docs_symbols_test.go and docs_codesearch_test.go in the root package",
+        "agentrun.ReadOnlyFileTools"
+      ],
+      "when": "the test list sevenReadTools is compared with the grant and the two test files are read as text",
+      "then": [
+        "sevenReadTools equals agentrun.ReadOnlyFileTools element for element",
+        "neither file still contains the identifier sixReadTools or the string 'the six read tools'",
+        "docs_symbols_test.go and docs_codesearch_test.go select rows by 'the seven read tools'",
+        "docs_codesearch_test.go pins the header with the find_references column after find_symbol"
+      ],
+      "pseudocode": "assert slices.Equal(sevenReadTools, agentrun.ReadOnlyFileTools)\nfor f in ['docs_symbols_test.go','docs_codesearch_test.go']:\n  src = readFile(f); assert !contains(src,'sixReadTools') && !contains(src, 'the six '+'read tools'); assert contains(src,'the seven read tools')\nassert contains(readFile('docs_codesearch_test.go'),'| search_files | file_outline | find_symbol | find_references | code_search | all tools |')"
+    },
+    {
+      "id": "TS-17-49",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-8.1"
+      ],
+      "title": "fix --preflight through the real shell ends its checklist with symbol_backend, go_typecheck and code_search_index, ok true, exit 0, with no model call and nothing written to the tree.",
+      "given": [
+        "cmd/fix's real App on a clean git repository with a Go file (the runSmoke helper) and ANTHROPIC_API_KEY set",
+        "the real agentrun.DetectSymbolBackend and DetectGoTypecheck over the real tools.All",
+        "a faux provider installed through toolio.SetRunnerConfigHook so any model request is observable"
+      ],
+      "when": "fix --preflight --dir <repo> --land none --verify true is run",
+      "then": [
+        "the exit code is 0 and result.stage is preflight",
+        "the last three names in result.preflight are symbol_backend, go_typecheck, code_search_index in that order",
+        "go_typecheck has ok true and a detail matching ^[0-9]+ packages checked, [0-9]+ errors(, partial)?$",
+        "the faux provider received no request, the envelope has no usage, and git status --porcelain is empty and the branch list is unchanged"
+      ],
+      "real_components": [
+        "cmd/fix App",
+        "toolio.App.Main",
+        "codefix.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "agentrun.DetectGoTypecheck",
+        "tools.All",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-50",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-8.1"
+      ],
+      "title": "impl --preflight through the real shell ends its checklist with symbol_backend, go_typecheck and code_search_index, ok true, exit 0, with no model call and no new branch.",
+      "given": [
+        "cmd/impl's real App on the preflightSpecRepo repository with implEnv set",
+        "the real agentrun.DetectSymbolBackend and DetectGoTypecheck over the real tools.All"
+      ],
+      "when": "impl --preflight --dir <repo> --land none 09 is run",
+      "then": [
+        "the exit code is 0 and result.stage is preflight",
+        "the last three names in result.preflight are symbol_backend, go_typecheck, code_search_index in that order",
+        "go_typecheck has ok true and a detail matching ^[0-9]+ packages checked, [0-9]+ errors(, partial)?$",
+        "the envelope has no usage and the branch list is still just main"
+      ],
+      "real_components": [
+        "cmd/impl App",
+        "toolio.App.Main",
+        "codeimpl.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "agentrun.DetectGoTypecheck",
+        "tools.All",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-51",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-8.1"
+      ],
+      "title": "spec --preflight through the real shell on a workspace with no Go package reports go_typecheck as '0 packages checked, 0 errors' before code_search_index.",
+      "given": [
+        "cmd/spec's real App with a directory holding only go.mod ('module x')",
+        "the real agentrun.DetectSymbolBackend and DetectGoTypecheck over the real tools.All"
+      ],
+      "when": "spec --preflight --dir <dir> 'a library that does a thing' is run",
+      "then": [
+        "the exit code is 0 and result.stage is preflight",
+        "the last three names in result.preflight are symbol_backend, go_typecheck, code_search_index in that order",
+        "go_typecheck has ok true and the detail exactly '0 packages checked, 0 errors'",
+        "the envelope has no usage and no .specs directory was created"
+      ],
+      "real_components": [
+        "cmd/spec App",
+        "toolio.App.Main",
+        "specgen.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "agentrun.DetectGoTypecheck",
+        "tools.All",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-52",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-8.1"
+      ],
+      "title": "triage --preflight through the real shell emits exactly five checks, target_repository, forge_credential, symbol_backend, go_typecheck and code_search_index, with ok true and exit 0.",
+      "given": [
+        "cmd/triage's real App with an empty temporary --dir, --repo acme/widgets, ANTHROPIC_API_KEY and GITHUB_TOKEN set",
+        "the real agentrun.DetectSymbolBackend and DetectGoTypecheck",
+        "TestIssuePreflightThroughTheShell updated from four checks to five rather than loosened"
+      ],
+      "when": "triage --preflight --dir <dir> --repo acme/widgets 'a report' is run",
+      "then": [
+        "the exit code is 0 and result.stage is preflight",
+        "result.preflight has exactly 5 entries named target_repository, forge_credential, symbol_backend, go_typecheck, code_search_index in that order",
+        "go_typecheck has ok true and the detail exactly '0 packages checked, 0 errors'",
+        "the last entry, code_search_index, has ok true",
+        "the estimate has phases 1 and the envelope has no usage and no error"
+      ],
+      "real_components": [
+        "cmd/triage App",
+        "toolio.App.Main",
+        "issuetriage.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "agentrun.DetectGoTypecheck",
+        "tools.All",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-53",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-2",
+        "17-REQ-4.5"
+      ],
+      "title": "triage --preflight with a failing go_typecheck detection prints the envelope without that entry, with every other check and the estimate intact, and exits 0.",
+      "given": [
+        "cmd/triage's real App as in TS-17-52",
+        "agentrun.DetectGoTypecheck replaced by a function returning the error 'find_references is not offered' and restored with t.Cleanup",
+        "the real shell, RunPreflight and DetectSymbolBackend"
+      ],
+      "when": "triage --preflight --dir <dir> --repo acme/widgets 'a report' is run",
+      "then": [
+        "the exit code is 0 and result.stage is preflight",
+        "result.preflight has exactly 4 entries: target_repository, forge_credential, symbol_backend, code_search_index in that order",
+        "no entry is named go_typecheck",
+        "the estimate has phases 1 and the envelope carries no error"
+      ],
+      "real_components": [
+        "cmd/triage App",
+        "toolio.App.Main",
+        "issuetriage.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-54",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-2",
+        "17-REQ-4.5"
+      ],
+      "title": "fix --preflight with a failing go_typecheck detection omits only that entry, keeps the other checks, the stage and the estimate as in a successful run, and exits 0.",
+      "given": [
+        "cmd/fix's real App on two clean repositories (the runSmoke helper)",
+        "one run with the real detection and one with agentrun.DetectGoTypecheck replaced by a function returning an error and restored with t.Cleanup"
+      ],
+      "when": "fix --preflight is run in each repository",
+      "then": [
+        "both runs exit 0 with result.stage preflight",
+        "the failing run has no go_typecheck entry and the successful one has it",
+        "the other entries of the two runs have equal check, ok and detail, in the same order, ending symbol_backend then code_search_index in the failing run",
+        "the two estimates are equal"
+      ],
+      "real_components": [
+        "cmd/fix App",
+        "toolio.App.Main",
+        "codefix.RunPreflight",
+        "agentrun.DetectSymbolBackend",
+        "toolio.PreflightCheck"
+      ]
+    },
+    {
+      "id": "TS-17-55",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-3",
+        "17-REQ-3.1"
+      ],
+      "title": "fix's analyse phase lists a function's callers in one find_references call, and the envelope counts that call under usage.phases[0].tool_calls.find_references.",
+      "given": [
+        "cmd/fix's real App with --repo-map-tokens 0 on a committed repository whose main.go declares func Count and whose util.go has func Total calling Count",
+        "a scripted faux model installed with toolio.SetRunnerConfigHook: analyse calls find_references {name: Count} then submit_analysis, implement calls write_file then submit_implementation",
+        "the real tools.All, Runner and git"
+      ],
+      "when": "fix --repo-map-tokens 0 --land none --verify true --no-review <report naming Count> runs to the end",
+      "then": [
+        "the first request's system prompt names `find_references` in step 2 and its 'Your tools are exactly:' list includes find_references",
+        "the second request carries the find_references result, which lists the site attributed to its enclosing declaration Total and a confidence label (resolved, lexical or text)",
+        "the run exits 0 and the envelope's usage.phases[0].name is analyse with tool_calls.find_references equal to 1",
+        "usage.phases[1] (implement) records no find_references call"
+      ],
+      "real_components": [
+        "cmd/fix App",
+        "toolio.App.Main",
+        "agentrun.Runner",
+        "agentrun.SelectTools",
+        "tools.All",
+        "find_references tool",
+        "codefix.Run",
+        "toolCallCounter",
+        "git"
+      ]
+    }
+  ]
+}

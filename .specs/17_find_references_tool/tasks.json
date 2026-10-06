@@ -1,0 +1,373 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "17",
+  "spec_name": "find_references_tool",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test . ./internal/agentrun/... ./internal/conform/... ./codefix/... ./codeimpl/... ./specgen/... ./issuetriage/... ./cmd/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "15_symbol_navigation_tools",
+      "reason": "Modifies it. ReadOnlyFileTools grows from six to seven and its tests (TS-15-1 to TS-15-5, TS-15-16, the docs tests) pin six. DetectSymbolBackend is the pattern DetectGoTypecheck copies."
+    },
+    {
+      "spec": "16_indexed_code_search",
+      "reason": "Modifies it. code_search stays outside ReadOnlyFileTools; its docs tests select rows by 'the six read tools' and pin the baseline header. go_typecheck slots in before code_search_index, and the shared index it invalidates feeds find_references' candidate search."
+    },
+    {
+      "spec": "13_tool_call_counts_and_relevant_files",
+      "reason": "toolCallCounter already counts find_references by name, and the navigation baseline tables and procedure this spec extends are its."
+    },
+    {
+      "spec": "11_preflight_checks",
+      "reason": "go_typecheck follows its contract: advisory entries report their own ok, never refuse, and a refusal carries no checklist."
+    },
+    {
+      "spec": "14_repo_map",
+      "reason": "The --repo-map-tokens 0 prompts are the reference for the prompt-diff criteria, and the map's opening sentence and golden files are left untouched."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add find_references to ReadOnlyFileTools and prove it reaches the wire and keeps the read-only invariant",
+      "criteria": [
+        "17-REQ-1",
+        "17-REQ-5"
+      ],
+      "tests": [
+        "TS-17-1",
+        "TS-17-2",
+        "TS-17-3",
+        "TS-17-4",
+        "TS-17-5",
+        "TS-17-13",
+        "TS-17-14",
+        "TS-17-15"
+      ],
+      "steps": [
+        "Gate first: in the replace target (../agentkit-go, read with the shell: `grep -rn find_references ../agentkit-go/tools`) confirm tools.All offers a tool named find_references. If it does not, stop and report that AgentKit's PRD 09 section 1-5 work is not merged: this spec starts after it. While there, note the exact signature of (*tools.Workspace).References and the field names of ReferenceOptions, ReferenceResult (packages checked, errors collected, partial) for the preflight task.",
+        "Rewrite TS-15-1 in internal/agentrun/policy_test.go as TS-17-1: slices.Equal against the seven names read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references; length 7; last element find_references; parse policy.go with go/parser (ParseComments) and assert the doc comment of the ReadOnlyFileTools var contains find_references. Confirm it fails.",
+        "Edit internal/agentrun/policy.go: append \"find_references\" last to ReadOnlyFileTools and extend its doc comment to name the tool (read-only, joins file_outline and find_symbol, so not in MutatingTools). Do not touch MutatingTools, ShellTools, WithCodeSearch or any call site.",
+        "Write TS-17-2 in policy_test.go: MutatingTools and ShellTools lack find_references; ReadOnlyFileTools lacks code_search; WithCodeSearch(ReadOnlyFileTools, true) has length 8, ends with code_search, is a copy (mutating it leaves ReadOnlyFileTools equal to a prior clone); WithCodeSearch(..., false) equals ReadOnlyFileTools.",
+        "In internal/agentrun/phase_test.go add the helper missingTools(declared map[string]bool, want []string) []string (returns missing names in want's order) and requireDeclared(tb testing.TB, declared map[string]bool) that calls tb.Errorf once per missing name. Write TS-17-5 with a recordingTB (struct embedding testing.TB, overriding Helper/Errorf/Fatalf to record failure and output): full set gives [], minus find_references gives exactly [find_references], minus find_references and find_symbol gives [find_symbol find_references]; requireDeclared on the reduced set fails and its output contains find_references.",
+        "Rewrite TS-15-2 and TS-15-3 in place as TS-17-3 and TS-17-4: loop over ReadOnlyFileTools itself through requireDeclared (no literal six-name lists), assert find_references by name, no MutatingTools name in the read-only phase, and for the writing phase with Config.Index set to the package's fakeIndex and builtins = WithCodeSearch(ReadOnlyFileTools + WriteFileTools + execute, true) assert write_file, edit_file, execute and code_search too. Update the other wire tests that say 'six read tools' in phase_test.go (the fix analyse/implement wire test and the TS-16-6 code_search test) to loop over ReadOnlyFileTools the same way.",
+        "Rewrite TS-15-4 and TS-15-5 subtests of the AssertReadOnly test in place as TS-17-13 and TS-17-14: a []core.Tool built from ReadOnlyFileTools (seven, find_references among them) returns nil; the seven plus write_file satisfies errors.Is(err, ErrNotReadOnly), names write_file, and names none of the seven read tool names. AssertReadOnly itself is not edited.",
+        "Write TS-17-15: Runner with Config.ReadRoots holding one project.ReadRoot (Abs: t.TempDir()); registeredTools for a phase naming ReadOnlyFileTools plus execute (ReadOnly true, Programs ReadOnlyPrograms); the find_references description equals the one from a bare tools.All(tools.Options{Workspace: ws}) byte for byte and lacks 'You may also read, but not change', while read_file and execute carry that note.",
+        "Run make test. Update every other test that pins the six-name grant or counts read tools (grep for file_outline/find_symbol literal lists and 'six read tools' in test code under codefix, codeimpl, specgen, issuetriage, internal/conform, cmd) to compare against agentrun.ReadOnlyFileTools or the seven names; never loosen to a subset check. Leave the root-package docs tests (docs_symbols_test.go, docs_codesearch_test.go) alone: they pin docs prose and move with the docs task. Run make lint."
+      ],
+      "touches": [
+        "internal/agentrun/policy.go",
+        "internal/agentrun/policy_test.go",
+        "internal/agentrun/phase_test.go",
+        "codefix/preflight_test.go",
+        "issuetriage/pipeline_test.go"
+      ],
+      "done_when": [
+        "go test ./internal/agentrun/... -count=1 passes, and with find_references hidden from tools.All the wire tests fail with output naming find_references"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Pin per-phase registration at AgentKit's defaults, with no flag, schema or module change",
+      "criteria": [
+        "17-REQ-2"
+      ],
+      "tests": [
+        "TS-17-6",
+        "TS-17-7",
+        "TS-17-8",
+        "TS-17-9",
+        "TS-17-12",
+        "TS-17-35",
+        "TS-17-36"
+      ],
+      "steps": [
+        "Do not edit Runner.registeredTools, SelectTools or toolsNote: REQ-2 is satisfied by the existing code once task 1 lands, and these tests are what keep it so. If a test below fails, fix the cause in a test or in the grant, and only edit phase.go if the failure shows a real defect.",
+        "Extend TS-15-7/TS-15-8 in internal/agentrun/phase_test.go into TS-17-6: the registeredTools body (cut from 'func (r *Runner) registeredTools(' to the closing '\\n}\\n') contains exactly one 'tools.All(' call, equal to tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index}), never mentions Symbols; two registeredTools calls on one Runner both hold find_references and return slices with different backing arrays.",
+        "Write TS-17-7 (integration, faux provider, temp Go workspace with a.go and go.mod): script find_references LateArrival + submit for a read-only phase, write late.go (func LateArrival, func UseLate calling it) between phases, then the same two turns for a writing phase on the same Runner; the first tool result has no UseLate/late.go, the second names UseLate; both phases end on the terminator. Read tool results with the existing toolResultText-style helper over p.Requests().",
+        "Write TS-17-8: toolsNote on a synthetic set containing find_references lists it in sorted order ('find_references, read_file, submit'); for a read-only phase and a writing phase through the real tools.All, the first request's system text contains 'Your tools are exactly:' with find_files, find_references, find_symbol in that order, and the listed names equal the sorted declared names.",
+        "Write TS-17-9: take find_references from the real tools.All(tools.Options{Workspace: ws}); its PromptGuidelines are non-empty and none contains 'execute' or a MutatingTools name; SelectTools for a read-only no-shell phase and for a writing phase with execute both return a find_references whose PromptGuidelines equal the original entry for entry.",
+        "Write TS-17-12: SelectTools over a built set of the six tools without find_references, called with ReadOnlyFileTools..., returns exactly the six in built order; registeredTools for BuiltinTools = ReadOnlyFileTools plus 'no_such_tool' returns a nil error, no no_such_tool, and every ReadOnlyFileTools name.",
+        "Write TS-17-35 in a new root-package test file (package agentfox, e.g. schema_unchanged_test.go): for spec, triage, fix, impl compare schematest.Live(t, tool) with the bytes of schematest.GoldenFile(schematest.Root(t), tool); assert the golden contains none of find_references, go_typecheck, typecheck, max-files, symbol-bound; and that the flag names in live and golden are equal. No golden file is regenerated.",
+        "Write TS-17-36 in the root package (e.g. gomod_unchanged_test.go): parse go.mod with a small line parser like gomod_codesearch_test.go (or golang.org/x/mod only if already a dependency; it is not, so do not add it), record the require (module, version) pairs and the two replace directives (agentkit-go => ../agentkit-go, agentkit-go/codesearch => ../agentkit-go/codesearch) as they are in the tree now, and the SHA-256 of go.sum; assert equality. Record these from the base commit's files (`git show HEAD:go.mod`) before any change; if `go build` demands a go.mod or go.sum edit, stop and report it.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "internal/agentrun/phase_test.go",
+        "schema_unchanged_test.go",
+        "gomod_unchanged_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "git diff --exit-code go.mod go.sum cmd/fix/testdata cmd/impl/testdata cmd/spec/testdata cmd/triage/testdata is clean"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Name find_references in the three callers prompts and prove prompt and grant parity for every phase",
+      "criteria": [
+        "17-REQ-3"
+      ],
+      "tests": [
+        "TS-17-23",
+        "TS-17-24",
+        "TS-17-25",
+        "TS-17-26",
+        "TS-17-27",
+        "TS-17-33",
+        "TS-17-34"
+      ],
+      "steps": [
+        "Before editing any prompt, record the base: write the current text of codefix analysisSystemPrompt, codeimpl surveySystemPrompt and issuetriage systemPrompt byte for byte to testdata/prompts/base/fix_analysis.txt, impl_survey.txt and triage_system.txt (evaluate the string constants from source with go/parser; handle literal '+' concatenation). Also compute the SHA-256 of every specgen/templates/*.md, of codefix implementSystemPrompt, codeimpl implementSystemPrompt, repairSystemPrompt, resolveSystemPrompt, conform.ReviewSystemPrompt, and of internal/repomap/testdata/golden_300.txt, golden_1000.txt, golden_6000.txt, for the table in TS-17-34.",
+        "Write TS-17-33 and TS-17-34 in a new root-package test file (e.g. prompts_find_references_test.go). TS-17-33: for each of the three prompts, step 2 (from '\\n2. ' to '\\n3. ') holds exactly one match of (?s) ?\\(`find_references`[^)]*\\) and the words 'callers' and 'who uses a declaration'; find_references appears once in the whole prompt; the prompt with the match removed equals the recorded base file byte for byte. TS-17-34: every recorded digest matches; no specgen template, internal/conform/prompt.go or internal/repomap/repomap.go contains find_references; the map's opening sentence still names file_outline and find_symbol. Confirm TS-17-33 fails.",
+        "Edit the three prompts, one clause each at step 2 where they say callers, with a leading single space and parentheses, e.g. 'Read the file, then its callers and callees (`find_references` lists who uses a declaration)…'; for impl: 'Read the file it lives in, its callers (`find_references` lists who uses a declaration), and its tests.'; for triage follow the same shape at its step 2. Change nothing else, no user prompt, no template, no map text.",
+        "Write TS-17-23 in codefix (new file, e.g. codefix/findrefs_wire_test.go): real agentBrain on a faux Runner with the real tools.All and an empty repository map, for Analyze and Implement, with Config.Index nil and with an index (indextest); assert via the first request that every agentrun.ReadOnlyFileTools name is declared, the declared set minus find_references equals the recorded base grant (analyse = six read tools + execute + submit_analysis; implement = six read tools + write_file + edit_file + execute + submit_implementation; + code_search when indexed), analyse declares no write_file/edit_file, the system text with the clause removed and 'find_references, ' deleted from the tools sentence equals the base prompt (testdata/prompts/base/fix_analysis.txt for analyse, the implementSystemPrompt constant for implement) plus the base tools sentence built the way toolsNote builds it, and the user message never contains find_references.",
+        "Write TS-17-24 in codeimpl the same way for Survey, Repair, Implement and Resolve with and without an index (survey grant = six read + execute + submit_survey; repair, implement, resolve = six read + write_file + edit_file + execute + their submit tool): only survey's system prompt differs from base beyond the tools list, and only by the clause; no user message contains find_references.",
+        "Write TS-17-25 in specgen for WritePRD, GenerateArtifact and WriteArchitecture with and without an index (grant = six read + submit tool, no execute): every ReadOnlyFileTools name declared, no MutatingTools name, system text with 'find_references, ' deleted equals the base template prompt plus the base tools sentence (no clause anywhere), no user message contains find_references.",
+        "Write TS-17-26 in issuetriage: run issuetriage.Run on a faux Runner with the real tools.All, index nil and set; every ReadOnlyFileTools name declared; declared minus find_references equals file_issue + the six read tools (+ code_search when indexed) with no MutatingTools name; system text with clause removed and 'find_references, ' deleted equals testdata/prompts/base/triage_system.txt plus the base tools sentence; the user message equals the reference task prompt and has no find_references.",
+        "Write TS-17-27 in internal/conform: conform.RunReview on a faux Runner with the real tools.All in a temp git repo, with CodeSearch false and with an indextest index and CodeSearch true; every ReadOnlyFileTools name declared; declared minus find_references equals execute + submit_review + the six read tools (+ code_search when granted); write_file, edit_file, run_command, powershell not declared; the wire system prompt minus 'find_references, ' equals ReviewSystemPrompt plus the base tools sentence.",
+        "Run make test; fix existing tests that compare the three system prompts to literals (codefix prompts_*_test.go, codeimpl prompts_*_test.go, issuetriage triage_test.go) by moving them to base-plus-clause, never by dropping the check. Run make lint."
+      ],
+      "touches": [
+        "codefix/phases.go",
+        "codeimpl/prompts.go",
+        "issuetriage/triage.go",
+        "testdata/prompts/base/fix_analysis.txt",
+        "testdata/prompts/base/impl_survey.txt",
+        "testdata/prompts/base/triage_system.txt",
+        "prompts_find_references_test.go",
+        "codefix/findrefs_wire_test.go",
+        "codeimpl/findrefs_wire_test.go",
+        "specgen/findrefs_wire_test.go",
+        "issuetriage/findrefs_wire_test.go",
+        "internal/conform/findrefs_wire_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Add agentrun.DetectGoTypecheck, the probe that reads AgentKit's References summary",
+      "criteria": [
+        "17-REQ-4.3",
+        "17-REQ-4.4",
+        "17-REQ-4.6",
+        "17-REQ-4.7",
+        "17-REQ-4.8"
+      ],
+      "tests": [
+        "TS-17-16",
+        "TS-17-17",
+        "TS-17-18",
+        "TS-17-19",
+        "TS-17-20",
+        "TS-17-21",
+        "TS-17-22"
+      ],
+      "steps": [
+        "Read the replace target before coding (shell: `grep -rn 'func (ws \\*Workspace) References\\|type ReferenceResult\\|type ReferenceOptions' ../agentkit-go/tools`): record the real signature of Workspace.References, how a target outline.Decl is built for a probe, which ReferenceResult fields carry packages checked, errors collected and partial, and what a workspace with no Go package returns. If the result exposes no such summary, do not write a type-checker: make detectGoTypecheck return an error ('the seam exposes no summary'), stop, and report that the AgentKit spec must be amended (the check is then omitted, as design decision 8 says).",
+        "Write TS-17-16 (unit) in a new internal/agentrun/gotypecheck_test.go against the unexported formatter goTypecheckDetail(packages, errors int, partial bool) string: (12,0,false) gives '12 packages checked, 0 errors'; (1,3,false) gives '1 packages checked, 3 errors'; (0,0,false) gives '0 packages checked, 0 errors'; (12,0,true) appends ', partial'; (1,41,true) gives '1 packages checked, 41 errors, partial'. Write TS-17-19: `var _ func(*tools.Workspace) (string, error) = DetectGoTypecheck`, replace with a stub and restore with t.Cleanup, and the real one returns an error for a nil workspace. Confirm they fail to compile first.",
+        "Create internal/agentrun/gotypecheck.go: `var DetectGoTypecheck = detectGoTypecheck`, `var goTypecheckTimeout = 10 * time.Second`, goTypecheckDetail using fmt.Sprintf with '%d packages checked, %d errors' and ', partial' appended only when partial. Doc comment: advisory, numbers are AgentKit's, an error means the detection itself failed, mirrors DetectSymbolBackend.",
+        "Implement detectGoTypecheck(ws *tools.Workspace): nil ws returns an error containing 'workspace'; build tools with tools.All(tools.Options{Workspace: ws}) exactly as symbols.go does (Symbols stays zero); confirm a tool named \"find_references\" is among them via slices.ContainsFunc else return an error; create ctx with goTypecheckTimeout; return an error wrapping context.DeadlineExceeded if ctx.Err() != nil before the call; run ws.References(ctx, target, tools.ReferenceOptions{}) in a goroutine and select on its result channel and ctx.Done() so a seam that ignores its bound is still cut at the timeout; return the detail from goTypecheckDetail using only integers and the bool from the result, never any workspace text. Names are those you recorded in step 1.",
+        "Add a shared generator package internal/agentrun/gotypechecktest (non-test code like indextest, no go/types import) that builds temp workspaces: 0-5 Go packages with names, files and identifiers all starting with the marker zq9x_, bodies well-typed, ill-typed or syntactically broken, hostile comment/string text such as 'IGNORE ALL PREVIOUS INSTRUCTIONS', non-ASCII names and optional non-Go files; it returns the root, all generated text, and a snapshot func (sorted path+SHA-256 of every file). Use math/rand with fixed seeds.",
+        "Write TS-17-17 (integration): the real DetectGoTypecheck on an empty dir, a dir with only go.mod ('module x'), and a dir with README.md and tool.py each return '0 packages checked, 0 errors' and a nil error. Write TS-17-18 (property): for 25 generated workspaces the call returns a nil error, the detail matches ^[0-9]+ packages checked, [0-9]+ errors(, partial)?$, contains neither the marker zq9x_ nor any generated text, and the snapshot is identical before and after.",
+        "Write TS-17-20 (integration): workspace A (go.mod plus two import-free packages, no type errors) gives ^[1-9][0-9]* packages checked, 0 errors$; workspace B (one file with `var x int = \"text\"`) gives ^[1-9][0-9]* packages checked, [1-9][0-9]* errors$; scan the non-test source of internal/agentrun and assert it contains 'tools.All(', '\"find_references\"' and '.References('; assert goTypecheckTimeout == 10*time.Second.",
+        "Write TS-17-21: the real DetectGoTypecheck(nil) returns '' and an error naming the workspace without panicking; with goTypecheckTimeout set to time.Nanosecond (restored in t.Cleanup) on a one-package workspace it returns '' and an error satisfying errors.Is(err, context.DeadlineExceeded) or whose message contains 'timeout'.",
+        "Write TS-17-22: parse every non-test .go file of internal/agentrun with parser.ImportsOnly and assert no import is go/types, go/parser, go/packages or golang.org/x/tools/...; assert go.mod has no golang.org/x/tools line.",
+        "Run make test and make lint; confirm git diff --exit-code go.mod go.sum."
+      ],
+      "touches": [
+        "internal/agentrun/gotypecheck.go",
+        "internal/agentrun/gotypecheck_test.go",
+        "internal/agentrun/gotypechecktest/gen.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "done_when": [
+        "git diff --exit-code go.mod go.sum is clean"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Report go_typecheck from all four RunPreflight functions, between symbol_backend and code_search_index",
+      "criteria": [
+        "17-REQ-4.1",
+        "17-REQ-4.2",
+        "17-REQ-4.5",
+        "17-REQ-8.1"
+      ],
+      "tests": [
+        "TS-17-28",
+        "TS-17-29",
+        "TS-17-30",
+        "TS-17-31",
+        "TS-17-32",
+        "TS-17-52"
+      ],
+      "steps": [
+        "In codefix/pipeline.go (about L713), codeimpl/pipeline.go (about L524), specgen/pipeline.go (about L446) and issuetriage/pipeline.go (about L352), directly after the symbol_backend block and before the code_search_index add, insert the same pattern: `if detail, err := agentrun.DetectGoTypecheck(o.Workspace); err == nil { add(\"go_typecheck\", true, detail) }` using each file's own add helper. ok is always true; on error add nothing and change no other entry, stage or estimate.",
+        "Write TS-17-28 in codefix/preflight_test.go modelled on the existing symbol_backend injection test (about L426): replace agentrun.DetectGoTypecheck with a stub restored by t.Cleanup; with '12 packages checked, 0 errors' the last three check names are symbol_backend, go_typecheck, code_search_index, go_typecheck has ok true and the detail verbatim; again with '3 packages checked, 41 errors, partial' (ok still true); with DetectSymbolBackend failing the last two are go_typecheck, code_search_index; with DetectGoTypecheck returning an error RunPreflight returns a nil error, has no go_typecheck entry, and its other entries (check, ok, detail), stage and estimate equal the successful run's.",
+        "Write TS-17-29 the same way in codeimpl/preflight_test.go (about L434), TS-17-30 in specgen/preflight_test.go (about L324), TS-17-31 in issuetriage/preflight_test.go (about L318; target_repository and forge_credential come first, with and without DryRun).",
+        "Write TS-17-32 (property) in issuetriage using the generator from internal/agentrun/gotypechecktest: for 15 generated workspaces run RunPreflight once with the real DetectGoTypecheck and once with a failing stub; both return nil errors, equal stage and estimate, entries equal except the go_typecheck entry only the real run holds, the faux provider's Calls() is 0 and the recording forge client saw no request, and the tree snapshot is unchanged after both runs.",
+        "Update cmd/triage/preflight_test.go TestIssuePreflightThroughTheShell (this is TS-17-52; update it, do not loosen): exactly 5 entries named target_repository, forge_credential, symbol_backend, go_typecheck, code_search_index in order, go_typecheck ok true with detail exactly '0 packages checked, 0 errors' (the --dir is an empty temp dir), last entry code_search_index ok true, estimate phases 1, no usage, no error, exit 0.",
+        "Run make test; fix any other test that pins a preflight list's length or its second-to-last entry (cmd/fix, cmd/impl, cmd/spec preflight tests, codefix/codeimpl/specgen/issuetriage TS-16 index tests) to the new order. Run make lint."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "specgen/pipeline.go",
+        "issuetriage/pipeline.go",
+        "codefix/preflight_test.go",
+        "codeimpl/preflight_test.go",
+        "specgen/preflight_test.go",
+        "issuetriage/preflight_test.go",
+        "cmd/triage/preflight_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Update docs/cli.md and docs/model-usage.md to seven read tools, go_typecheck and find_references",
+      "criteria": [
+        "17-REQ-6.1",
+        "17-REQ-6.2",
+        "17-REQ-6.3",
+        "17-REQ-6.4",
+        "17-REQ-6.5"
+      ],
+      "tests": [
+        "TS-17-37",
+        "TS-17-38",
+        "TS-17-39",
+        "TS-17-40",
+        "TS-17-41"
+      ],
+      "steps": [
+        "In docs_symbols_test.go rename sixReadTools to sevenReadTools holding the seven names in agentrun.ReadOnlyFileTools order, change the phrase checks ('the six read tools', 'The \"six read tools\"') to the seven wording, and make the existing TS-15-12 and TS-15-14 checks use the new list. Do the same for the list and the row selector ('the seven read tools') in docs_codesearch_test.go, but leave its baseline header pin for the baseline task. Confirm the updated tests fail against today's docs.",
+        "Write TS-17-37 to TS-17-41 in a new root-package test file (e.g. docs_findrefs_test.go) with readDoc/docSection: TS-17-37 each of the triage, fix, spec, impl sections names all seven tools in backticks, and the fix and impl '### What the model may and may not do' texts name all seven and have a sentence with `find_references` and 'who uses', 'call sites' or 'reference sites'; TS-17-38 the --preflight section says 'three informational checks' (not 'two'), describes `go_typecheck` (packages checked, errors, ', partial', stub, always `true`) between `symbol_backend` and `code_search_index`; TS-17-39 the exact entry {\"check\": \"go_typecheck\", \"ok\": true, \"detail\": \"12 packages checked, 0 errors\"} occurs 4 times, each directly after a symbol_backend line and before a code_search_index line; TS-17-40 and TS-17-41 per the test spec for model-usage.md.",
+        "Edit docs/cli.md: replace every 'six read tools' (triage and spec sections, --preflight prose around L445, fix L1135-1141, impl L1865, and any line-wrapped 'six read' variant: grep -n six) with the seven-tool wording; name find_references in backticks in the fix and impl 'What the model may and may not do' sections and say it lists who uses a declaration (call and reference sites, each with its enclosing declaration); change 'two informational checks' to 'three' and describe go_typecheck: '<N> packages checked, <M> errors', ', partial' when a bound was hit, ok always true because AgentKit stubs every import outside the workspace; add the go_typecheck example entry to the four preflight JSON examples.",
+        "Edit docs/model-usage.md: every phase-table row and the definition sentence say 'the seven read tools' (rows L20-29, sentence L32, L36) and the triage row lists find_references; 'A seventh tool, `code_search`' becomes 'An eighth tool, `code_search`'; rewrite the opening of 'Reading the codebase' (no longer 'Six tools read the tree') and add find_references: who uses a declaration grouped by file with each site's enclosing declaration; labels `resolved` (Go through go/types over workspace sources with outside imports stubbed), `lexical`, `text`; ranking, 30-result default capped at 100; each phase holds its own reference table like the symbol table; the check is bounded and reports partial; sites in this repository that call into AgentKit are mostly `lexical`; --preflight reports go_typecheck.",
+        "Do not edit docs/development.md here and do not touch docs/architecture.md (it does not exist). Run make test and make lint."
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/model-usage.md",
+        "docs_symbols_test.go",
+        "docs_codesearch_test.go",
+        "docs_findrefs_test.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Add the find_references column to the navigation baseline, the erratum, and the PRD status updates",
+      "criteria": [
+        "17-REQ-6.6",
+        "17-REQ-6.7",
+        "17-REQ-6.8",
+        "17-REQ-7",
+        "17-REQ-8.2"
+      ],
+      "tests": [
+        "TS-17-42",
+        "TS-17-43",
+        "TS-17-44",
+        "TS-17-45",
+        "TS-17-46",
+        "TS-17-47",
+        "TS-17-48"
+      ],
+      "steps": [
+        "Update docs_codesearch_test.go TS-16-29 to pin the header `| search_files | file_outline | find_symbol | find_references | code_search | all tools |` and the jq extraction order; confirm TS-15-16 (which pins only `| file_outline | find_symbol |`) still holds. Write TS-17-42 to TS-17-48 in docs_findrefs_test.go: TS-17-42 intro says 'seven read' and mentions code_search, the 'The last column counts every tool' paragraph says 'eight' and not 'seven before it'; TS-17-43 none of 'six read tools', 'six read-only file tools', 'a seventh tool' (case-insensitive) in cli.md, model-usage.md, development.md; TS-17-44 PRD 09 Status line lacks 'proposed' and its docs/prds/README.md row is not in the '## Proposed' section; TS-17-45 each of the four tables has the exact 12-column header, a before and an after row per phase, 12 cells per row, every count cell '—', and the Measured at line begins '— (commit), — (model)'; TS-17-46 the jq snippet orders find_symbol, find_references, code_search extractions and the procedure paragraph says before is the commit before this change (find_references does not exist, cell 0), after is the commit that has it, and names the fall in search_files and read_file for fix's analyse and impl's survey; TS-17-47 per the test spec; TS-17-48 sevenReadTools equals agentrun.ReadOnlyFileTools (slices.Equal), neither docs test file contains sixReadTools or 'the six read tools', both contain 'the seven read tools', and docs_codesearch_test.go contains the new header. Name the TS-17-45 test function so the erratum can cite it.",
+        "Edit docs/development.md Navigation baseline: the intro says every phase has seven read tools plus code_search (L209 area); the jq snippet adds (.tool_calls.find_references // 0) between the find_symbol and code_search extractions; the sentence after the snippet counts eight navigation columns instead of 'seven before it'; each of the four tables (triage, fix, spec, impl) gets the header `| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | find_references | code_search | all tools |` with a new dash cell in every before and after row (12 cells per row).",
+        "Add procedure text to the baseline: before is the tools built from the commit before this spec, where find_references does not exist and its cell is 0; after is the commit that has it; the effect to read is the fall in the search_files and read_file columns for fix's analyse and impl's survey, with the same outcome from the tool. Keep every count a dash and the Measured at line `— (commit), — (model)`; invent no number.",
+        "Create docs/errata/17_navigation_baseline.md in the form of errata 15 and 16: first line '# Erratum: spec 17's documentation has the `find_references` column but no counts', the 17-REQ-7 statement, what is (column in docs/development.md and jq extraction exist, every count is still a dash, why no live model run), the Test function that checks the column (the TS-17-45 test name and its file), and that the first person to run the procedure fills both rows of every table, names the commit and model on the Measured at line, and removes the erratum. Add its row to the errata table in docs/README.md.",
+        "Move PRD 09's status in docs/prds/09-add-a-find-references-tool.md off 'proposed' (use the status word the already-implemented PRDs use, e.g. 15's) and move its row in docs/prds/README.md out of the Proposed section into the section the implemented PRDs sit in.",
+        "Run make test and make lint."
+      ],
+      "touches": [
+        "docs/development.md",
+        "docs/errata/17_navigation_baseline.md",
+        "docs/README.md",
+        "docs/prds/09-add-a-find-references-tool.md",
+        "docs/prds/README.md",
+        "docs_codesearch_test.go",
+        "docs_findrefs_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Verify every find_references path end to end through the real Runner, tools.All and tool shells",
+      "tests": [
+        "TS-17-10",
+        "TS-17-11",
+        "TS-17-49",
+        "TS-17-50",
+        "TS-17-51",
+        "TS-17-52",
+        "TS-17-53",
+        "TS-17-54",
+        "TS-17-55"
+      ],
+      "steps": [
+        "Write TS-17-10 and TS-17-11 in internal/agentrun (new smoke test file, real Runner, SelectTools, tools.All, toolCallCounter, toolErrorCounter, faux provider): TS-17-10 scripts find_references Target, edit_file b.go, find_references, write_file d.go, find_references, submit and asserts the sites are exactly {UseB,UseC}, then {UseC}, then {UseC,UseD}, with tool_calls find_references 3, edit_file 1, write_file 1; TS-17-11 scripts three refused find_references calls (path outside the workspace, 257-byte name, kind 'no-such-kind') then submit and asserts Run returns nil, ToolCalls find_references 3 and submit 1, each refusal got a tool result, and the phase stopped on its terminator.",
+        "Write TS-17-49 and TS-17-54 in cmd/fix (use the existing runSmoke helper and toolio.SetRunnerConfigHook with a faux provider): TS-17-49 runs fix --preflight --dir <repo> --land none --verify true and asserts exit 0, stage preflight, last three checks symbol_backend, go_typecheck, code_search_index, go_typecheck ok true with detail matching ^[0-9]+ packages checked, [0-9]+ errors(, partial)?$, no model request, no usage, empty git status and unchanged branches; TS-17-54 compares a real-detection run with a run whose agentrun.DetectGoTypecheck returns an error (restored in t.Cleanup): the failing run has no go_typecheck entry, other entries, order and estimate equal.",
+        "Write TS-17-50 in cmd/impl (preflightSpecRepo, implEnv; `impl --preflight --dir <repo> --land none 09`) and TS-17-51 in cmd/spec (a dir holding only go.mod; `spec --preflight --dir <dir> 'a library that does a thing'`): exit 0, stage preflight, last three checks in order, go_typecheck ok true (impl: pattern match; spec: exactly '0 packages checked, 0 errors'), no usage, impl's branch list still just main, spec created no .specs directory.",
+        "Confirm TS-17-52 (updated in task 5) still passes, and write TS-17-53 in cmd/triage: agentrun.DetectGoTypecheck replaced by a function returning errors.New('find_references is not offered') (restored in t.Cleanup); `triage --preflight --dir <dir> --repo acme/widgets 'a report'` exits 0 with exactly 4 entries target_repository, forge_credential, symbol_backend, code_search_index, no go_typecheck, estimate phases 1, no error.",
+        "Write TS-17-55 in cmd/fix: --repo-map-tokens 0 --land none --verify true --no-review on a committed repo whose main.go declares func Count and whose util.go has func Total calling Count; a scripted faux model (toolio.SetRunnerConfigHook) has analyse call find_references {name: Count} then submit_analysis and implement call write_file then submit_implementation; assert the first request's system prompt names `find_references` at step 2 and its 'Your tools are exactly:' list has find_references, the second request carries a result attributing the site to Total with a label resolved, lexical or text, exit 0, usage.phases[0].tool_calls.find_references == 1 and implement records none.",
+        "Trace each path through real code and confirm each step calls the next with no stub left: 17-PATH-1 (cmd/<tool> PreflightExec -> RunPreflight -> agentrun.DetectGoTypecheck -> tools.All and Workspace.References -> add(\"go_typecheck\") -> toolio envelope), 17-PATH-2 (error from DetectGoTypecheck leaves the entry out), 17-PATH-3 (Runner.registeredTools -> SelectTools -> toolsNote, the step-2 clause in codefix analysisSystemPrompt, toolCallCounter -> envelope usage), 17-PATH-4 and 17-PATH-5 (Runner counts the call; AgentKit's dirty marking).",
+        "For every criterion with a contract (17-REQ-1.4, 1.5, 2.4, 2.5, 2.6, 4.1, 4.5, 5.2, 8.1) confirm in production code, not only tests, that the producer's result is consumed: all four pipelines call agentrun.DetectGoTypecheck and add its detail; Runner.Run calls AssertReadOnly and SelectTools on the resolved set; tool errors from find_references flow to the model via the existing counters (`grep -rn DetectGoTypecheck --include=*.go` outside _test files shows four call sites).",
+        "Search every file in the tasks' touches for stub markers: grep -rn 'panic(\"not implemented\")\\|TODO\\|FIXME' internal/agentrun codefix codeimpl specgen issuetriage and remove any that this spec introduced; check there is no bare `return nil` standing in for a detection result in internal/agentrun/gotypecheck.go.",
+        "Run make check; confirm `git diff --exit-code go.mod go.sum cmd/*/testdata` is clean and that docs/cli.md, docs/model-usage.md and docs/development.md contain no 'six read tools'."
+      ],
+      "touches": [
+        "internal/agentrun/smoke_findrefs_test.go",
+        "cmd/fix/smoke_findrefs_test.go",
+        "cmd/impl/smoke_findrefs_test.go",
+        "cmd/spec/smoke_findrefs_test.go",
+        "cmd/triage/preflight_test.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        5,
+        7
+      ],
+      "done_when": [
+        "make check passes with the replace target carrying find_references",
+        "every execution path 17-PATH-1 to 17-PATH-5 is reached from production code"
+      ],
+      "state": "pending"
+    }
+  ]
+}

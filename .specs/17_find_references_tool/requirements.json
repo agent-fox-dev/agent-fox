@@ -1,0 +1,587 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "17",
+  "spec_name": "find_references_tool",
+  "schema_version": 2,
+  "introduction": "agent-fox wires AgentKit's find_references tool into every phase of triage, fix, spec and impl through the shared read-only grant. It also names the tool in the three system prompts that send the model to \"callers\", reports a go_typecheck check through --preflight, and updates the docs and the navigation baseline to match. The mechanism (the tool, the Go type-check, the bounds and the References seam) is AgentKit's, as ADR 07 divides the work.",
+  "glossary": {
+    "DetectGoTypecheck": "The package variable in internal/agentrun that produces the go_typecheck detail. It has the shape of DetectSymbolBackend and tests may replace it.",
+    "base commit": "The agent-fox commit immediately before this spec's change. Byte-identity and 'unchanged' criteria are measured against it.",
+    "confidence label": "One of resolved (Go, through go/types over workspace sources with imports outside the workspace stubbed), lexical (identifier-boundary match attributed to an enclosing declaration) or text (a word-boundary match in a file the outline cannot parse, or in a comment or string). Every find_references site carries one.",
+    "find_references": "AgentKit's read-only tool that lists the call and reference sites of a declaration across the workspace, grouped by file, each site attributed to its enclosing declaration. Arguments: name, path, kind, include_tests, max_results.",
+    "go_typecheck": "The advisory --preflight check this spec adds. Its detail is the count of Go packages AgentKit checked and of errors it collected under its bounds. ok is always true.",
+    "informational check": "A --preflight entry that reports its own ok and never refuses the run: symbol_backend, go_typecheck and code_search_index.",
+    "navigation baseline": "The tables in docs/development.md that record per-phase tool_calls on a fixed set of inputs, a before row and an after row per phase, so the effect of a navigation change is visible in review.",
+    "partial": "A find_references result flag meaning an AgentKit bound (file count or duration) was hit and the sites returned are those found so far.",
+    "read-only grant": "agentrun.ReadOnlyFileTools: the one list of built-in tool names every phase builds its BuiltinTools from. Writing phases append WriteFileTools and execute; WithCodeSearch appends code_search when the run has an index.",
+    "replace target": "The ../agentkit-go tree that go.mod's replace directives point at. It is read-only from this repository, and this spec starts after it carries find_references."
+  },
+  "requirements": [
+    {
+      "id": "17-REQ-1",
+      "title": "find_references joins the read-only grant",
+      "rationale": "One list serves every phase of all four tools, so one edit reaches all of them; exact assertions are the only guard against SelectTools silently dropping a name the replace target does not offer.",
+      "criteria": [
+        {
+          "id": "17-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun.ReadOnlyFileTools",
+          "action": "hold exactly the seven names read_file, list_files, find_files, search_files, file_outline, find_symbol and find_references, in that order with find_references last, and carry a doc comment that names find_references"
+        },
+        {
+          "id": "17-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "triage, fix, spec and impl",
+          "action": "for any phase of triage, of fix (analyse, implement, review), of spec (prd, each generate phase, architecture) and of impl (survey, repair, implement, review, resolve), build the phase's BuiltinTools from agentrun.ReadOnlyFileTools with every name in it, read-only phases passing the list unchanged, writing phases appending WriteFileTools and execute, and WithCodeSearch appending code_search after it, with no call site changed"
+        },
+        {
+          "id": "17-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "agentrun policy",
+          "action": "keep find_references out of MutatingTools and ShellTools, keep code_search out of ReadOnlyFileTools, and leave the slice passed to WithCodeSearch unmodified"
+        },
+        {
+          "id": "17-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "a read-only phase, a writing phase, or the real fix brain's analyse or implement phase is run through the real tools.All",
+          "system": "Runner",
+          "action": "declare every name in agentrun.ReadOnlyFileTools, find_references included, on the first model request, with each name asserted one by one against the list itself so the assertion changes when the list does",
+          "contract": "the declared tool names of the first request contain every element of ReadOnlyFileTools"
+        },
+        {
+          "id": "17-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "the replace target's tools.All does not offer a name that agentrun.ReadOnlyFileTools lists",
+          "system": "wire-membership test helper",
+          "action": "report every missing name instead of passing with fewer tools",
+          "contract": "the helper returns a non-empty list naming each missing tool (for example find_references), so go test of internal/agentrun exits non-zero with output that names it"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-2",
+      "title": "Registration is per phase, at AgentKit's defaults",
+      "rationale": "A fresh tools.All per phase and AgentKit's own dirty marking already give the freshness guarantees; agent-fox adds no mechanism, flag or bound of its own.",
+      "criteria": [
+        {
+          "id": "17-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "Runner.registeredTools",
+          "action": "make one tools.All call per phase with only Workspace and Index set and Options.Symbols left at its zero value, so each phase holds its own reference table and AgentKit's default bounds (50 000 files, 2 s) apply"
+        },
+        {
+          "id": "17-REQ-2.2",
+          "pattern": "ubiquitous",
+          "system": "toolsNote",
+          "action": "list find_references in the \"Your tools are exactly: …\" sentence of every phase whose registered set contains it, generated from the registered set"
+        },
+        {
+          "id": "17-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "SelectTools",
+          "action": "keep AgentKit's PromptGuidelines for find_references in every phase, read-only or writing, because the guideline names neither execute nor a tool outside the grant"
+        },
+        {
+          "id": "17-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "a writing phase changes a source file through edit_file or write_file and then calls find_references",
+          "system": "find_references tool",
+          "action": "answer from the changed file, so a site the edit removed is absent from the answer and a site it added is present",
+          "contract": "the second call's text differs from the first by exactly the removed or added site"
+        },
+        {
+          "id": "17-REQ-2.5",
+          "pattern": "unwanted",
+          "condition": "a find_references call fails in AgentKit: a path outside the workspace, a name over 256 bytes, an unknown kind, or a bound hit that returns partial: true",
+          "system": "Runner",
+          "action": "return the outcome to the model as a tool result, continue the phase, and count the call by name like any other read tool",
+          "contract": "Runner.Run returns no error because of the call; usage.phases[].tool_calls.find_references increases by one per call; the phase still ends on its terminating tool"
+        },
+        {
+          "id": "17-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "the built tool set lacks a name the phase lists, as when the replace target does not offer find_references",
+          "system": "SelectTools",
+          "action": "drop that name and return the phase's other tools in built order, without failing the run",
+          "contract": "the returned slice holds every listed tool the built set offered; registeredTools returns a nil error"
+        },
+        {
+          "id": "17-REQ-2.7",
+          "pattern": "ubiquitous",
+          "system": "triage, fix, spec and impl",
+          "action": "gain no flag, environment variable, envelope field or schema change for find_references or for AgentKit's bounds, so each tool's --schema output equals its schema golden byte for byte"
+        },
+        {
+          "id": "17-REQ-2.8",
+          "pattern": "ubiquitous",
+          "system": "repository",
+          "action": "leave go.mod and go.sum with the module requirements they had at the base commit, adding no module"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-3",
+      "title": "The prompts that say \"callers\" name the tool",
+      "rationale": "A model that is not told find_references exists has to discover it, and the three system prompts that send it looking for callers are where it is told.",
+      "criteria": [
+        {
+          "id": "17-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "fix analysisSystemPrompt, impl surveySystemPrompt and triage systemPrompt",
+          "action": "each contain, at step 2 where the prompt says callers, one clause that names `find_references` as the call that lists who uses a declaration, for example \"(`find_references` lists who uses a declaration)\""
+        },
+        {
+          "id": "17-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "fix analysisSystemPrompt, impl surveySystemPrompt and triage systemPrompt",
+          "action": "for any of the three prompts, equal the prompt at the base commit byte for byte once the one find_references clause is removed"
+        },
+        {
+          "id": "17-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "prompt builders",
+          "action": "leave byte-identical every other system prompt (the specgen templates, conform's review prompt, the other codefix and codeimpl prompts) and every user prompt, including the repository map block, the --context block and the golden files of internal/repomap"
+        },
+        {
+          "id": "17-REQ-3.4",
+          "pattern": "state_driven",
+          "condition": "--repo-map-tokens is 0",
+          "system": "Runner",
+          "action": "send each phase of the four tools a system prompt that differs from the base commit's only by the clause in the three prompts and by find_references in the generated \"Your tools are exactly: …\" list"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-4",
+      "title": "--preflight reports go_typecheck",
+      "rationale": "The Go check is incomplete by design, so an operator needs to see how many packages it covered and how many errors it collected before trusting `resolved` sites.",
+      "criteria": [
+        {
+          "id": "17-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "RunPreflight of fix, impl, spec or triage reaches its informational checks and DetectGoTypecheck returns a detail without error",
+          "system": "pipeline RunPreflight",
+          "action": "add a check named go_typecheck with ok true, whatever the error count, and that detail, placed after symbol_backend when that check is present and directly before code_search_index",
+          "contract": "result.preflight ends with symbol_backend (when detected), go_typecheck, code_search_index in that order, and the checks before them are unchanged"
+        },
+        {
+          "id": "17-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "go_typecheck check",
+          "action": "for any workspace, leave the stage, the exit code and the estimate of a preflight unchanged, make no model call and no remote change, and write nothing to the workspace tree"
+        },
+        {
+          "id": "17-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "DetectGoTypecheck",
+          "action": "for any workspace, return a detail that matches `<N> packages checked, <M> errors` with `, partial` appended exactly when AgentKit reports that a bound was hit, and that carries no text taken from the workspace"
+        },
+        {
+          "id": "17-REQ-4.4",
+          "pattern": "event_driven",
+          "condition": "the workspace holds no Go package",
+          "system": "DetectGoTypecheck",
+          "action": "return the detail `0 packages checked, 0 errors` and no error"
+        },
+        {
+          "id": "17-REQ-4.5",
+          "pattern": "unwanted",
+          "condition": "DetectGoTypecheck returns an error: no workspace, tools.All failing, find_references not offered, the seam failing or exposing no summary, or the 10 s probe timeout elapsing",
+          "system": "pipeline RunPreflight",
+          "action": "omit the go_typecheck entry and leave every other check, the stage, the exit code and the estimate untouched",
+          "contract": "RunPreflight returns a nil error; result.preflight has no go_typecheck entry and its other entries equal those of a run whose detection succeeded"
+        },
+        {
+          "id": "17-REQ-4.6",
+          "pattern": "ubiquitous",
+          "system": "agentrun.DetectGoTypecheck",
+          "action": "be a package variable of the shape func(*tools.Workspace) (string, error), like DetectSymbolBackend, so a test can replace it and restore it"
+        },
+        {
+          "id": "17-REQ-4.7",
+          "pattern": "ubiquitous",
+          "system": "the real DetectGoTypecheck",
+          "action": "build the tools the way registeredTools does, confirm find_references is among them, take the packages-checked count, the errors-collected count and the partial flag from AgentKit's Workspace.References result under AgentKit's default bounds, and bound the probe by its own 10 s timeout"
+        },
+        {
+          "id": "17-REQ-4.8",
+          "pattern": "ubiquitous",
+          "system": "agent-fox",
+          "action": "run no type-checker of its own: the non-test source of internal/agentrun imports none of go/types, go/parser and golang.org/x/tools, and go.mod requires no module for type-checking"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-5",
+      "title": "The read-only invariant holds",
+      "rationale": "find_references only reads, so the invariant and the shell guard stay as they are and no phase gains a write or shell capability.",
+      "criteria": [
+        {
+          "id": "17-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "AssertReadOnly",
+          "action": "for a tool set holding all seven read tools, return nil"
+        },
+        {
+          "id": "17-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "a tool set holds the seven read tools plus write_file",
+          "system": "AssertReadOnly",
+          "action": "refuse the set and name only write_file",
+          "contract": "the returned error satisfies errors.Is(err, ErrNotReadOnly) and its message names write_file and does not name find_references"
+        },
+        {
+          "id": "17-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "triage, fix, spec and impl",
+          "action": "for any phase, leave exactly the grant the phase had at the base commit once find_references is removed from its BuiltinTools, so no phase gains a write or shell tool and every read-only phase without a shell passes AssertReadOnly on its resolved set"
+        },
+        {
+          "id": "17-REQ-5.4",
+          "pattern": "state_driven",
+          "condition": "the Runner is configured with ReadRoots",
+          "system": "registeredTools",
+          "action": "leave the find_references description exactly as AgentKit offers it, appending no read-root note, because the tool reads inside the workspace root only"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-6",
+      "title": "Documentation",
+      "rationale": "The steering's freshness rule treats a doc that still says six read tools as a regression, so docs land in the same session as the code.",
+      "criteria": [
+        {
+          "id": "17-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "list the seven read tools, find_references included, in each of the triage, fix, spec and impl sections, name them in the \"What the model may and may not do\" sections of fix and impl, and say there what find_references does"
+        },
+        {
+          "id": "17-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "say \"three informational checks\" in the --preflight prose and describe go_typecheck there beside symbol_backend and code_search_index: the packages-checked and errors-collected counts, the `, partial` suffix, and that ok is always true because AgentKit stubs every import outside the workspace"
+        },
+        {
+          "id": "17-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "carry the entry {\"check\": \"go_typecheck\", \"ok\": true, \"detail\": \"12 packages checked, 0 errors\"} in each of the four preflight examples (fix, impl, spec, triage), between symbol_backend and code_search_index"
+        },
+        {
+          "id": "17-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "say \"seven read tools\" in every phase-table row and in the definition sentence, list find_references in the triage row, and say \"An eighth tool, `code_search`\" where it said \"A seventh tool\""
+        },
+        {
+          "id": "17-REQ-6.5",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "describe find_references in \"Reading the codebase\": who uses a declaration grouped by file with each site's enclosing declaration; the three confidence labels resolved, lexical and text; the ranking and the 30-result default capped at 100; that each phase holds its own reference table like the symbol table; that the check is bounded and reports partial; that sites in this repository calling into AgentKit are mostly lexical; and that --preflight reports go_typecheck"
+        },
+        {
+          "id": "17-REQ-6.6",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "say in the Navigation baseline intro that every phase has seven read tools plus code_search, and say in the sentence after the jq snippet that eight columns are navigation"
+        },
+        {
+          "id": "17-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md, docs/model-usage.md and docs/development.md",
+          "action": "contain no occurrence of \"six read tools\", \"six read-only file tools\" or \"A seventh tool\""
+        },
+        {
+          "id": "17-REQ-6.8",
+          "pattern": "ubiquitous",
+          "system": "docs/prds",
+          "action": "move PRD 09's status line in docs/prds/09-add-a-find-references-tool.md from proposed and move its row in docs/prds/README.md out of the Proposed section"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-7",
+      "title": "The navigation baseline",
+      "rationale": "The fall in search_files and read_file calls is the measure of this change, and the column has to exist before a live-model run can fill it.",
+      "criteria": [
+        {
+          "id": "17-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md baseline tables",
+          "action": "give each of the four tables (triage, fix, spec, impl) the header `| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | find_references | code_search | all tools |`, with every phase keeping its before and after rows and every row having the header's cell count"
+        },
+        {
+          "id": "17-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md jq snippet",
+          "action": "extract (.tool_calls.find_references // 0) between the find_symbol and code_search extractions"
+        },
+        {
+          "id": "17-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md procedure text",
+          "action": "say that before is the tools built from the base commit, where find_references does not exist and its cell is 0, that after is the commit that has it, and that the effect to read is the fall in the search_files and read_file columns for fix's analyse and impl's survey with the same outcome from the tool"
+        },
+        {
+          "id": "17-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md baseline tables",
+          "action": "keep every count cell a dash and the Measured at line `— (commit), — (model)`, so the dashes agree with the Measured at line"
+        },
+        {
+          "id": "17-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "docs/errata",
+          "action": "hold docs/errata/17_navigation_baseline.md in the form of errata 15 and 16, recording that the find_references column exists and the counts do not, naming the test that checks the column, and telling the first person to run the procedure to fill both rows and remove the section, with a row for it in the errata table of docs/README.md"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-8",
+      "title": "Pinned tests follow the new count",
+      "rationale": "Tests that pin six tools or four preflight checks would fail or, if loosened, stop guarding anything, so they move to the new numbers exactly.",
+      "criteria": [
+        {
+          "id": "17-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "any of the four tools runs --preflight through its real shell and both detections succeed",
+          "system": "shell",
+          "action": "emit result.preflight ending with symbol_backend, go_typecheck and code_search_index in that order, and for triage emit exactly target_repository, forge_credential, symbol_backend, go_typecheck and code_search_index",
+          "contract": "triage's result.preflight has five entries with code_search_index last and ok true; the exit code is 0"
+        },
+        {
+          "id": "17-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "root-package docs tests",
+          "action": "use a read-tool list equal to agentrun.ReadOnlyFileTools element for element and select phase-table rows by \"the seven read tools\""
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "17-PATH-1",
+      "title": "An operator runs --preflight and reads go_typecheck",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs fix --preflight (or impl, spec, triage) in a Go workspace"
+        },
+        {
+          "actor": "tool shell",
+          "action": "calls the tool's RunPreflight, which runs the refusing checks first and finds none failing"
+        },
+        {
+          "actor": "RunPreflight",
+          "action": "calls agentrun.DetectSymbolBackend, then agentrun.DetectGoTypecheck"
+        },
+        {
+          "actor": "DetectGoTypecheck",
+          "action": "builds the tools as registeredTools does, confirms find_references is offered, and takes the packages-checked count, errors-collected count and partial flag from Workspace.References under AgentKit's default bounds and a 10 s timeout"
+        },
+        {
+          "actor": "RunPreflight",
+          "action": "appends symbol_backend, go_typecheck (ok true, detail \"<N> packages checked, <M> errors\") and code_search_index in that order, with no model call and no write to the tree"
+        },
+        {
+          "actor": "tool shell",
+          "action": "prints the envelope with the five-or-more entry checklist and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-2",
+      "title": "A failing detection leaves go_typecheck out of --preflight",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs a tool's --preflight while the replace target does not offer find_references or the probe exceeds 10 s"
+        },
+        {
+          "actor": "DetectGoTypecheck",
+          "action": "returns an error naming the cause"
+        },
+        {
+          "actor": "RunPreflight",
+          "action": "omits the go_typecheck entry and keeps every other check, the stage and the estimate as they would be"
+        },
+        {
+          "actor": "tool shell",
+          "action": "prints the envelope without go_typecheck and exits 0"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-3",
+      "title": "fix's analyse phase lists a declaration's callers in one call",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs fix with a report that names a function"
+        },
+        {
+          "actor": "Runner",
+          "action": "calls tools.All once for the analyse phase, keeps the seven read tools with execute through SelectTools, and appends the \"Your tools are exactly: …\" list naming find_references to the system prompt"
+        },
+        {
+          "actor": "model",
+          "action": "reads the step 2 clause in the analysis prompt and calls find_references with the function's name"
+        },
+        {
+          "actor": "find_references tool",
+          "action": "returns sites grouped by file, each with a confidence label and its enclosing declaration"
+        },
+        {
+          "actor": "Runner",
+          "action": "counts the call by name and returns the text to the model, which then calls submit_analysis"
+        },
+        {
+          "actor": "tool shell",
+          "action": "emits an envelope whose usage.phases[0].tool_calls.find_references is 1"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-4",
+      "title": "A refused find_references call is a tool result, not a failed phase",
+      "steps": [
+        {
+          "actor": "model",
+          "action": "calls find_references with a path outside the workspace"
+        },
+        {
+          "actor": "find_references tool",
+          "action": "refuses the call and returns the refusal as a tool result"
+        },
+        {
+          "actor": "Runner",
+          "action": "counts the call under find_references and passes the result to the model without ending the phase"
+        },
+        {
+          "actor": "model",
+          "action": "calls the phase's terminating tool"
+        },
+        {
+          "actor": "Runner",
+          "action": "ends the phase with a result and no error"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-5",
+      "title": "An edit in a writing phase changes the next find_references answer",
+      "steps": [
+        {
+          "actor": "model",
+          "action": "in fix's implement phase calls find_references for a function and receives a site in file F"
+        },
+        {
+          "actor": "model",
+          "action": "removes that call from F with edit_file"
+        },
+        {
+          "actor": "find_references tool",
+          "action": "marks F dirty and re-reads it on the next call"
+        },
+        {
+          "actor": "model",
+          "action": "calls find_references again and receives an answer without the removed site"
+        },
+        {
+          "actor": "Runner",
+          "action": "records two find_references calls in the phase's tool_calls"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go/tools",
+      "version": "v0.0.0 (replace => ../agentkit-go)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "All",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func All(opts Options) ([]core.Tool, error)",
+          "notes": "Seen at call sites in internal/agentrun/phase.go and symbols.go; AgentKit's source was not read. Expected to return find_references once the AgentKit spec for PRD 09 §1-§5 is merged."
+        },
+        {
+          "name": "Options",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type Options struct { Workspace *Workspace; Index Index; Symbols <unverified> }",
+          "notes": "Workspace and Index seen at the registeredTools call site. The type of Symbols is unverified; agent-fox must leave it at its zero value (TS-15-8)."
+        },
+        {
+          "name": "Workspace",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type Workspace struct { Root string; ... }; func (ws *Workspace) Resolve(path string) (string, error)",
+          "notes": "Root and Resolve seen at call sites only."
+        },
+        {
+          "name": "find_references",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "find_references(name: string, path?: string, kind?: string, include_tests?: bool, max_results?: int)",
+          "notes": "NOT FOUND in this repository. Signature taken from PRD 09 §1; defaults 30 results, cap 100, name at most 256 bytes. Unverified."
+        },
+        {
+          "name": "(*Workspace).References",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func (ws *Workspace) References(ctx context.Context, target outline.Decl, opts ReferenceOptions) (ReferenceResult, error)",
+          "notes": "Signature taken from PRD 09 §5. Unverified."
+        },
+        {
+          "name": "ReferenceResult",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type ReferenceResult struct { <packages checked>; <errors collected>; <partial flag>; ... }",
+          "notes": "Unverified assumption: the result carries the packages-checked count, the errors-collected count and the partial flag. Field names must be read from the replace target; if the summary is absent DetectGoTypecheck returns an error and the check is omitted."
+        },
+        {
+          "name": "ReferenceOptions",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type ReferenceOptions struct { ... }",
+          "notes": "Fields are not specified by the PRD. agent-fox passes the zero value so AgentKit's defaults apply. Unverified."
+        },
+        {
+          "name": "SymbolOptions",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "type SymbolOptions struct { MaxFiles int; MaxDuration time.Duration }",
+          "notes": "Defaults 50 000 files and 2 s per PRD 09 §3. agent-fox does not set them. Unverified."
+        },
+        {
+          "name": "CtagsRunner",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func CtagsRunner(nil)(ctx context.Context, args []string) (…, error)",
+          "notes": "Seen at the call site in internal/agentrun/symbols.go; DetectSymbolBackend is the pattern DetectGoTypecheck copies."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agentfox/agentkit-go/core",
+      "version": "v0.0.0 (replace => ../agentkit-go)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Tool",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "type Tool struct { Name string; Description string; PromptGuidelines []string; ... }",
+          "notes": "Fields seen in internal/agentrun/policy.go; the package source was not read."
+        }
+      ]
+    },
+    {
+      "package": "github.com/agentfox/agentkit-go/outline",
+      "version": "v0.0.0 (replace => ../agentkit-go)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Decl",
+          "import_path": "github.com/agentfox/agentkit-go/outline",
+          "signature": "type Decl struct { Name, Kind, Container, Signature string; StartLine int; Exported bool; ... }",
+          "notes": "Fields seen at call sites in internal/repomap/repomap.go. It is the target type of Workspace.References; how DetectGoTypecheck builds a target is unverified."
+        }
+      ]
+    }
+  ]
+}
