@@ -8,6 +8,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -38,6 +39,10 @@ type Options struct {
 	// caller checks before the run starts.
 	Overwrite bool
 
+	// RepoMapTokens is the token budget of the repository map in the user
+	// prompt (14-REQ-6.2). Zero, the zero value, disables the map.
+	RepoMapTokens int
+
 	// Runner drives the model phase. Required.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab. It may be nil under
@@ -47,6 +52,10 @@ type Options struct {
 	Run *toolio.Run
 	// Progress reports steps to stderr.
 	Progress *toolio.Progress
+
+	// buildMap builds the repository map. It is unexported and injected by
+	// tests; nil means repomap.Build.
+	buildMap func(ctx context.Context, ws *tools.Workspace, budget int, inputPaths []string) (string, error)
 }
 
 // Result is what the tool reports as JSON.
@@ -192,9 +201,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, f
 	}
 
+	// Triage never changes the tree, so one map serves its one phase
+	// (14-REQ-8.1). It is built after the checks that can refuse the run, so
+	// a refused run walks nothing.
+	repoMap := buildRepoMap(ctx, o)
+
 	t := &triager{ws: o.Workspace}
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
-	res, runErr := o.Runner.Run(ctx, t.phase(o.Input, o.Workspace.Root))
+	res, runErr := o.Runner.Run(ctx, t.phase(o.Input, o.Workspace.Root, repoMap))
 	o.Run.AddPhase(toolio.PhaseFromResult(res, ""))
 	done(toolio.PhaseSummary(res))
 
@@ -250,6 +264,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+// buildRepoMap builds the repository map for the triage phase. It never fails
+// the run: navigation is an optimisation, so on an error the phase runs
+// without a map and a low warning records why (14-REQ-10.2). A zero
+// RepoMapTokens disables the map.
+func buildRepoMap(ctx context.Context, o Options) string {
+	build := o.buildMap
+	if build == nil {
+		build = repomap.Build
+	}
+	m, err := build(ctx, o.Workspace, o.RepoMapTokens, repomap.PathsIn(o.Input.Body))
+	if err != nil {
+		o.Run.Warn(toolio.WarnRepoMapBuildFailed, "low", "the repository map could not be built, so the triage phase runs without it: %v", err)
+		return ""
+	}
+	return m
 }
 
 // Preflight is every check Run performs before its model phase, in the order

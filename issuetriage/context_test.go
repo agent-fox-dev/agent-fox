@@ -13,7 +13,7 @@ func TestCallerContextReachesTheTriagePrompt(t *testing.T) {
 	const block = "## Additional context from the caller\n\nIt only happens on Windows.\n"
 	in := toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "save crashes", Context: block}
 
-	got := taskPrompt(in, "/repo")
+	got := taskPrompt(in, "/repo", "")
 	if !strings.Contains(got, "It only happens on Windows.") {
 		t.Fatalf("the triage prompt lacks the caller's context:\n%s", got)
 	}
@@ -25,7 +25,7 @@ func TestCallerContextReachesTheTriagePrompt(t *testing.T) {
 	}
 
 	in.Context = ""
-	if got := taskPrompt(in, "/repo"); strings.Contains(got, "Additional context") {
+	if got := taskPrompt(in, "/repo", ""); strings.Contains(got, "Additional context") {
 		t.Errorf("a prompt with no --context mentions one:\n%s", got)
 	}
 }

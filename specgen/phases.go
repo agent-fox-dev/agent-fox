@@ -66,6 +66,9 @@ type prdRequest struct {
 	// Split is set when the PRD is one scope of a decided split: the plan
 	// and the index of the scope to write. Nil for an undivided input.
 	Split *splitContext
+	// RepoMap is the repository map built once for the run, or "" when it
+	// is disabled or could not be built (14-REQ-8.2).
+	RepoMap string
 }
 
 type artifactRequest struct {
@@ -86,6 +89,8 @@ type artifactRequest struct {
 	// RelevantFiles carries the files the PRD phase found important, so
 	// the generation prompt can include them.
 	RelevantFiles []RelevantFile
+	// RepoMap is the run's repository map, or "".
+	RepoMap string
 }
 
 type architectureRequest struct {
@@ -95,6 +100,8 @@ type architectureRequest struct {
 	PRD           string
 	Partial       *afspec.PartialSpec
 	RelevantFiles []RelevantFile
+	// RepoMap is the run's repository map, or "".
+	RepoMap string
 }
 
 // agentAuthor runs the phases against the configured model.
@@ -109,7 +116,8 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		Name:   "prd",
 		System: prdSystemPrompt(),
 		User: prdUserPrompt(req.Root, req.SourceKind, req.SourceOrigin, req.Input, req.Context,
-			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split)),
+			req.Profile.LanguageBlock(), landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering), splitBlock(req.Split), req.RepoMap),
+		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink, a.ws)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
@@ -147,7 +155,8 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 			landscapeBlock(req.Landscape, req.SpecRoot), steeringBlock(req.Steering),
 			priorArtifactsBlock(*req.Partial, req.Step),
 			req.Profile.LanguageBlock(),
-			relevantFilesBlock(req.RelevantFiles)),
+			relevantFilesBlock(req.RelevantFiles), req.RepoMap),
+		RepoMap:            req.RepoMap,
 		Terminator:         name,
 		Custom:             []core.Tool{submitArtifactTool(req.Step, toolSchema, req.Partial, &sink, audit)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,
@@ -175,11 +184,13 @@ func (a *agentAuthor) WriteArchitecture(ctx context.Context, req architectureReq
 		"prd":                  strings.TrimSpace(req.PRD),
 		"relevant_files_block": relevantFilesBlock(req.RelevantFiles),
 		"prior_block":          priorArtifactsBlock(*req.Partial, afspec.StepTasks) + renderTasks(req.Partial),
+		"repo_map_block":       repoMapBlock(req.RepoMap),
 	})
 	res, err := a.runner.Run(ctx, agentrun.Phase{
 		Name:               "architecture",
 		System:             generationSystemPrompt(),
 		User:               user,
+		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitArchitecture,
 		Custom:             []core.Tool{submitArchitectureTool(&sink)},
 		BuiltinTools:       agentrun.ReadOnlyFileTools,

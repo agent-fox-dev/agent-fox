@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 )
 
 // templates are the prompts, kept as Markdown files rather than as Go string
@@ -50,7 +51,7 @@ func prdSystemPrompt() string { return template("prd_system.md") }
 // splitBlock is empty for an undivided input. For one scope of a split it
 // carries the decided plan, so the same phase writes a follow-on PRD without
 // a second template.
-func prdUserPrompt(root, sourceKind, sourceOrigin, input, contextBlock, projectBlock, landscapeBlock, steeringBlock, splitBlock string) string {
+func prdUserPrompt(root, sourceKind, sourceOrigin, input, contextBlock, projectBlock, landscapeBlock, steeringBlock, splitBlock, repoMap string) string {
 	return fill(template("prd_user.md"), map[string]string{
 		"root":            root,
 		"source_kind":     sourceKind,
@@ -61,7 +62,20 @@ func prdUserPrompt(root, sourceKind, sourceOrigin, input, contextBlock, projectB
 		"landscape_block": landscapeBlock,
 		"steering_block":  steeringBlock,
 		"split_block":     splitBlock,
+		"repo_map_block":  repoMapBlock(repoMap),
 	})
+}
+
+// repoMapBlock places the repository map after the steering block and before
+// whatever an earlier phase concluded (14-REQ-5.1). It is empty for an empty
+// map, so a run with --repo-map-tokens 0 sends the prompt it always did
+// (14-REQ-5.3).
+func repoMapBlock(repoMap string) string {
+	block := repomap.Block(repoMap)
+	if block == "" {
+		return ""
+	}
+	return "\n" + block
 }
 
 // callerContextBlock places the caller's --context block, already rendered by
@@ -82,7 +96,7 @@ func generationSystemPrompt() string { return template("generation_system.md") }
 
 // generationUserPrompt assembles one generation step's task.
 func generationUserPrompt(step afspec.GenerationStep, specID, specName, root, prd string,
-	landscapeBlock, steeringBlock, priorBlock, languageBlock string, rfBlock string) string {
+	landscapeBlock, steeringBlock, priorBlock, languageBlock string, rfBlock, repoMap string) string {
 
 	base := fill(template("generation_user_base.md"), map[string]string{
 		"artifact":             string(step),
@@ -95,6 +109,7 @@ func generationUserPrompt(step afspec.GenerationStep, specID, specName, root, pr
 		"relevant_files_block": rfBlock,
 		"prior_block":          priorBlock,
 		"language_block":       languageBlock,
+		"repo_map_block":       repoMapBlock(repoMap),
 	})
 	return base + "\n" + stepInstructions(step)
 }

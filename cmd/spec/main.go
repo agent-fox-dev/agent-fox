@@ -91,6 +91,7 @@ func (f *specFlags) specOptions(d toolio.Deps) specgen.Options {
 		Comment:        f.comment,
 		DryRun:         d.Common.DryRun,
 		TotalBudgetUSD: d.Common.TotalBudgetUSD,
+		RepoMapTokens:  d.Common.RepoMapTokens,
 		Runner:         d.Runner,
 		Forge:          d.Forge,
 		Run:            d.Run,
