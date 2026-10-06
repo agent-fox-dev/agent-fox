@@ -197,10 +197,12 @@ AgentKit's, from the separate `codesearch` module. The index is
 built once per run, before the first phase, and shared by every phase of the
 run; it is closed when the run ends, on success, failure and cancellation
 alike. It is
-conditional on the index: when the platform does not support it or the build
-fails, the run continues without `code_search`, falls back to `search_files`,
-and records a `low` `code_search_unavailable` warning (`--preflight` reports
-which as the `code_search_index` check). `triage` and `spec` never change the
+conditional on the index: when the index cannot be created (the platform does
+not support it), the run continues without `code_search`, falls back to
+`search_files`, and records a `low` `code_search_unavailable` warning
+(`--preflight` reports which as the `code_search_index` check). The index reads
+the tree only when `code_search` is first called, under that call's deadline; a
+build that fails there fails that call, and the phase still has `search_files`. `triage` and `spec` never change the
 tree, so their index is never stale. `fix` and `impl` invalidate it after
 every change the program itself makes to the tree, so the next phase's
 `code_search` results reflect the tree it is working on. `fix` invalidates it
