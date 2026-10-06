@@ -82,20 +82,22 @@ type specFlags struct {
 // and what App.execute resolved.
 func (f *specFlags) specOptions(d toolio.Deps) specgen.Options {
 	return specgen.Options{
-		Input:          d.Input,
-		Workspace:      d.Workspace,
-		SpecsDir:       f.specsDir,
-		Name:           f.name,
-		Architecture:   f.architecture,
-		Activate:       !f.noActivate,
-		Comment:        f.comment,
-		DryRun:         d.Common.DryRun,
-		TotalBudgetUSD: d.Common.TotalBudgetUSD,
-		RepoMapTokens:  d.Common.RepoMapTokens,
-		Runner:         d.Runner,
-		Forge:          d.Forge,
-		Run:            d.Run,
-		Progress:       d.Progress,
+		Index:            d.Index,
+		IndexUnavailable: d.IndexUnavailable,
+		Input:            d.Input,
+		Workspace:        d.Workspace,
+		SpecsDir:         f.specsDir,
+		Name:             f.name,
+		Architecture:     f.architecture,
+		Activate:         !f.noActivate,
+		Comment:          f.comment,
+		DryRun:           d.Common.DryRun,
+		TotalBudgetUSD:   d.Common.TotalBudgetUSD,
+		RepoMapTokens:    d.Common.RepoMapTokens,
+		Runner:           d.Runner,
+		Forge:            d.Forge,
+		Run:              d.Run,
+		Progress:         d.Progress,
 	}
 }
 

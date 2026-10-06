@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -56,9 +57,32 @@ type RunState struct {
 	// could not look at (a missing or unreadable package). Preflight reports
 	// them as they are.
 	upstreamVerified, upstreamUnchecked int
+	// index is the run's code-search index (Options.Index), nil when it has
+	// none. It is kept on the state so that the helpers that change the tree
+	// — discard, dropScratchFiles — invalidate it themselves, wherever they
+	// are called from.
+	index tools.Index
 }
 
 type runState = RunState
+
+// invalidate marks the whole code-search index stale after a Go-initiated
+// change to the tree, so the next phase's code_search results reflect it
+// (16-REQ-4). A false positive is a no-op; a false negative returns results
+// from a tree that no longer exists. A run without an index does nothing.
+func (st *runState) invalidate() {
+	if st.index != nil {
+		st.index.Invalidate("")
+	}
+}
+
+// runGate runs the project's checks and invalidates the index afterwards: the
+// checks are the project's own programs, and they can write into the tree
+// (generated code, snapshots, build output) the next phase will search.
+func (st *runState) runGate(ctx context.Context, o Options, label string) GateResult {
+	defer st.invalidate()
+	return runGate(ctx, o, st.root, st.gate, label)
+}
 
 // Run drives the whole pipeline.
 //
@@ -96,6 +120,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.applyDefaults()
 
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). It is the index the Runner's phases read, and so the one
+	// the pipeline invalidates after a tree change (16-REQ-4).
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner, o.RepairRunner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
+	indexed := o.Index != nil
+
 	result := newResult(o)
 	st, pfErr := preflight(ctx, o, result)
 	if pfErr != nil {
@@ -116,7 +150,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 		}
 		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir,
-			noTestFirst: o.NoTestFirst}
+			noTestFirst: o.NoTestFirst, codeSearch: indexed}
 	}
 	st.brain = b
 	st.maps = repomap.NewSource(o.Workspace, o.RepoMapTokens, o.buildMap, o.treeState, st.git, o.Run)
@@ -156,6 +190,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if err := st.git.CreateBranch(ctx, st.branch); err != nil {
 			return result, fail("branch", CategoryGit, err)
 		}
+		// The checkout moved the tree to the new branch: the first phase that
+		// follows — repair, or task 1 — must search it (16-REQ-4.2).
+		st.invalidate()
 		o.Progress.Step("branch", "branched %s from %s", st.branch, st.base)
 	}
 	start, err := st.git.MergeBase(ctx, st.base)
@@ -351,6 +388,12 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		return nil, failf("preflight", agentrun.CategoryInternal, "no runner configured")
 	}
 	o.applyDefaults()
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner, o.RepairRunner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 
 	result := newResult(o)
 	st, pfErr := preflight(ctx, o, result)
@@ -442,6 +485,7 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: the survey (unless
@@ -478,7 +522,7 @@ func Preflight(ctx context.Context, o Options, result *Result) (*RunState, *Fail
 // preflight is every check that can refuse the run, in the order that
 // costs least when it refuses.
 func preflight(ctx context.Context, o Options, result *Result) (*runState, *Failure) {
-	st := &runState{root: o.Workspace.Root}
+	st := &runState{root: o.Workspace.Root, index: o.Index}
 	st.git = o.Git
 	if st.git == nil {
 		st.git = gitx.New(st.root, nil)
@@ -598,6 +642,12 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 			}
 		}
 	}
+	// An existing branch was checked out, and a parked attempt may have been
+	// reset away: the survey must not see the tree the run started on
+	// (16-REQ-4.2).
+	if st.exists {
+		st.invalidate()
+	}
 	result.Branch = st.branch
 
 	spec, err := afspec.LoadSpec(dir)
@@ -663,7 +713,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	}
 
 	// ---------------------------------------------------------- baseline --
-	st.baseline = runGate(ctx, o, st.root, st.gate, "baseline")
+	st.baseline = st.runGate(ctx, o, "baseline")
 	result.Baseline = st.baseline
 	if r, bad := st.baseline.couldNotRun(); bad {
 		return nil, failf("preflight", "usage",
@@ -893,7 +943,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 
 		// The gate, held to green rather than compared: the comparison is
 		// what the repair exists to make unnecessary.
-		after := runGate(ctx, o, st.root, st.gate, "repair verification")
+		after := st.runGate(ctx, o, "repair verification")
 		report.Verification = &after
 		result.Verification = after
 		result.Verdict = compareGate(st.baseline, after)
@@ -963,6 +1013,9 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 	}
 
 	commit, err := st.git.CommitAll(ctx, repairCommitMessage(st.spec, *report.Submission))
+	// The commit runs the repository's hooks, which may rewrite files
+	// (16-REQ-4.6).
+	st.invalidate()
 	if err != nil {
 		return fail("commit", CategoryGit, err)
 	}
@@ -1011,6 +1064,9 @@ func repairAfterTask(ctx context.Context, o Options, st *runState, result *Resul
 	bg, cancel := background(ctx)
 	err := st.git.ResetSoft(bg, head)
 	cancel()
+	// The hold commit is gone and the tree holds the task's change plus the
+	// repair's: what the task's own commit will carry (16-REQ-4.7).
+	st.invalidate()
 	if err != nil {
 		return GateResult{}, fail("task", CategoryGit, err)
 	}
@@ -1122,7 +1178,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		}
 
 		// The gate, compared with the one before this task.
-		after := runGate(ctx, o, st.root, st.gate, "verification")
+		after := st.runGate(ctx, o, "verification")
 		verdict := compareGate(st.baseline, after)
 		report.Verification = &after
 		report.Verdict = verdict
@@ -1205,6 +1261,9 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			landedGate = *report.Verification
 		}
 		commit, err := st.git.CommitAll(ctx, commitMessage(st.spec, task, sub, repaired, landedGate))
+		// Commit hooks may rewrite files, so the tree after the commit is not
+		// the tree the index last saw (16-REQ-4.5).
+		st.invalidate()
 		if err != nil {
 			return report, fail("commit", CategoryGit, err)
 		}
@@ -1229,10 +1288,12 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 
 // discard throws an attempt away: the tracked files back to the last
 // commit, the untracked ones removed. The next attempt starts where the
-// last landed task left the tree.
+// last landed task left the tree. The index is invalidated whatever the
+// outcome: a reset that failed halfway still changed the tree (16-REQ-4.4).
 func discard(ctx context.Context, st *runState, head string) error {
 	bg, cancel := background(ctx)
 	defer cancel()
+	defer st.invalidate()
 	if err := st.git.ResetHard(bg, head); err != nil {
 		return err
 	}
@@ -1272,6 +1333,10 @@ func revertSpecDir(ctx context.Context, o Options, st *runState, head string) {
 // reported; an untracked .txt at the repository root is only reported, since
 // a task can legitimately add one (requirements.txt).
 func dropScratchFiles(ctx context.Context, o Options, st *runState) {
+	// Every phase's tree is first put right by revertSpecDir and then by this
+	// function, so the index is invalidated here, once the tree is as the
+	// gate will see it (16-REQ-4.3).
+	defer st.invalidate()
 	bg, cancel := background(ctx)
 	defer cancel()
 	files, err := st.git.UntrackedFiles(bg)
@@ -1423,6 +1488,9 @@ func recordPhase(run *toolio.Run, st *runState, res agentrun.Result) {
 // task that only added tests — an integration task over wiring the earlier
 // tasks built — is measured against the whole branch's implementation.
 func revertCheck(ctx context.Context, o Options, st *runState, head string) (conform.RevertResult, error) {
+	// The revert takes the implementation out and puts it back: the tree the
+	// index saw is not the tree the next phase starts from.
+	defer st.invalidate()
 	check := func(ctx context.Context) checks.Result {
 		cmd := st.gate[len(st.gate)-1]
 		done := o.Progress.Begin("revert check: %s with the implementation taken out", cmd)
@@ -1452,4 +1520,17 @@ func revertCheck(ctx context.Context, o Options, st *runState, head string) (con
 		return conform.RevertResult{}, err
 	}
 	return conform.Revert(ctx, st.git, st.root, st.start, without(all), check)
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

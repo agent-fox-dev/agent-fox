@@ -189,6 +189,9 @@ type agentBrain struct {
 	protected string
 	// noTestFirst relaxes submit_task: red-first evidence is not required.
 	noTestFirst bool
+	// codeSearch grants the code_search tool to every phase this brain runs.
+	// Run sets it once, from Options.Index (16-REQ-2.1).
+	codeSearch bool
 }
 
 func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentrun.Result, error) {
@@ -200,7 +203,7 @@ func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentr
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitSurvey,
 		Custom:             []core.Tool{submitSurveyTool(&out)},
-		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
+		BuiltinTools:       agentrun.WithCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
 		ReadOnly:           true,
 		Programs:           append([]string(nil), agentrun.ReadOnlyPrograms...),
 		Temperature:        0.2,
@@ -224,7 +227,7 @@ func (b *agentBrain) writingPhase() (programs, tools []string) {
 	programs = append(programs, b.extraPrograms...)
 	tools = append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
 	tools = append(tools, "execute")
-	return programs, tools
+	return programs, agentrun.WithCodeSearch(tools, b.codeSearch)
 }
 
 func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
@@ -304,6 +307,7 @@ func (b *agentBrain) Implement(ctx context.Context, in taskInput) (Submission, a
 
 // Review runs the independent conformance review.
 func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	in.CodeSearch = b.codeSearch
 	return conform.RunReview(ctx, b.runner, in)
 }
 

@@ -58,6 +58,11 @@ type Deps struct {
 	Progress *Progress
 	// Model is the resolved model and the spec that produced it.
 	Model *ModelChoice
+	// Index is the run's one code-search index, built before the Runner and
+	// closed by the shell when the run ends. Nil means no indexed search.
+	Index tools.Index
+	// IndexUnavailable is why Index is nil, or "" when it is not.
+	IndexUnavailable string
 
 	// runner is the configuration Runner was built from, kept so that a
 	// second runner on another model shares everything else.
@@ -655,7 +660,13 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		Spec: choice.Spec, ID: choice.Model.ID, Vendor: choice.Model.Provider,
 	}))
 
+	// The one index of the run is built before the Runner, so that every phase
+	// can offer code_search, and closed on every way out of the run.
+	index, indexReason, closeIndex := e.openIndex(ws)
+	defer closeIndex()
+
 	cfg := agentrun.Config{
+		Index:         index,
 		Model:         choice.Model,
 		Thinking:      choice.Thinking,
 		Providers:     agentrun.DefaultProviders(),
@@ -666,6 +677,9 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		ShowText:      e.common.ShowText,
 		SessionPrefix: a.Name,
 	}
+	if runnerConfigHook != nil {
+		runnerConfigHook(&cfg)
+	}
 	runner, err := agentrun.NewRunner(cfg)
 	if err != nil {
 		return ExitFailed, nil, &ErrorInfo{
@@ -674,15 +688,17 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 
 	deps := Deps{
-		Common:    e.common,
-		Input:     in,
-		Workspace: ws,
-		Runner:    runner,
-		Forge:     forge,
-		Run:       e.run,
-		Progress:  e.progress,
-		Model:     choice,
-		runner:    cfg,
+		Index:            index,
+		IndexUnavailable: indexReason,
+		Common:           e.common,
+		Input:            in,
+		Workspace:        ws,
+		Runner:           runner,
+		Forge:            forge,
+		Run:              e.run,
+		Progress:         e.progress,
+		Model:            choice,
+		runner:           cfg,
 	}
 	// The one branch --preflight adds: every check above has run exactly as
 	// for an ordinary run, and the Runner is built (building one makes no

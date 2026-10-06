@@ -194,6 +194,9 @@ type ReviewInput struct {
 	// Context is any further material, labelled by the caller: the issue a
 	// fix answers, for instance.
 	Context string
+	// CodeSearch grants the review phase code_search, for a run that has an
+	// index (16-REQ-2.1).
+	CodeSearch bool
 }
 
 // The phase's name and terminator.
@@ -214,7 +217,7 @@ func RunReview(ctx context.Context, runner *agentrun.Runner, in ReviewInput) (Re
 		User:         ReviewPrompt(in),
 		Terminator:   ToolSubmitReview,
 		Custom:       []core.Tool{SubmitReviewTool(in.Root, in.Scope, &out)},
-		BuiltinTools: append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
+		BuiltinTools: agentrun.WithCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), in.CodeSearch),
 		ReadOnly:     true,
 		Programs:     append([]string(nil), agentrun.ReadOnlyPrograms...),
 		Temperature:  0.1,

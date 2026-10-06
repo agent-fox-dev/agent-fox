@@ -162,6 +162,11 @@ type Config struct {
 	// this program's system prompt and tool schemas, and making the key
 	// unique per run would fragment exactly the cache it exists to help.
 	SessionPrefix string
+	// Index is the code-search index shared by every phase of this run.
+	// When non-nil, registeredTools passes it as tools.Options.Index, and
+	// code_search appears in tools.All's result. Nil means no indexed search.
+	// Closing it is the caller's job: the Runner only reads it.
+	Index tools.Index
 }
 
 // Phase is one model-facing step: a system prompt, a user prompt, the tools
@@ -472,7 +477,7 @@ func (r *Runner) registeredTools(p Phase) ([]core.Tool, error) {
 		return nil, newError(p.Name, CategoryInternal, nil,
 			"phase asks for built-in tools but no workspace is configured")
 	}
-	built, err := tools.All(tools.Options{Workspace: r.cfg.Workspace})
+	built, err := tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index})
 	if err != nil {
 		return nil, newError(p.Name, CategoryInternal, err, "building the file tools: %v", err)
 	}

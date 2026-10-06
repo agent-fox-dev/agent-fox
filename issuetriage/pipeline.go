@@ -43,6 +43,13 @@ type Options struct {
 	// prompt (14-REQ-6.2). Zero, the zero value, disables the map.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+	// IndexUnavailable is why Index is nil: the message of the error the index
+	// builder returned. RunPreflight reports it (16-REQ-7.2). Empty when the
+	// index was built or the reason is not known.
+	IndexUnavailable string
+
 	// Runner drives the model phase. Required.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab. It may be nil under
@@ -196,6 +203,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, failf("preflight", "internal", "no runner configured")
 	}
 
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). It is the index the Runner's phases read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", "internal", "%v", idxErr)
+	}
+	o.Index = idx
+	indexed := o.Index != nil
+
 	target, f := Preflight(o)
 	if f != nil {
 		return nil, f
@@ -208,7 +224,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	t := &triager{ws: o.Workspace}
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
-	res, runErr := o.Runner.Run(ctx, t.phase(o.Input, o.Workspace.Root, repoMap))
+	phase := t.phase(o.Input, o.Workspace.Root, repoMap)
+	phase.BuiltinTools = agentrun.WithCodeSearch(phase.BuiltinTools, indexed)
+	res, runErr := o.Runner.Run(ctx, phase)
 	o.Run.AddPhase(toolio.PhaseFromResult(res, ""))
 	done(toolio.PhaseSummary(res))
 
@@ -311,6 +329,12 @@ func RunPreflight(o Options) (*Result, error) {
 	if o.Runner == nil {
 		return nil, failf("preflight", "internal", "no runner configured")
 	}
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", "internal", "%v", idxErr)
+	}
+	o.Index = idx
 	target, f := Preflight(o)
 	if f != nil {
 		return nil, f
@@ -328,6 +352,7 @@ func RunPreflight(o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		list = append(list, toolio.PreflightCheck{Check: "symbol_backend", OK: true, Detail: backend})
 	}
+	list = append(list, toolio.PreflightCheck{Check: "code_search_index", OK: true, Detail: indexDetail(o.Index, o.IndexUnavailable)})
 
 	est := &toolio.Estimate{Phases: 1}
 	est.MaxTurnsPerPhase, est.MaxBudgetPerPhaseUSD = o.Runner.ResolvedBounds()
@@ -453,4 +478,17 @@ func joinLimited(ss []string, n int) string {
 		return strings.Join(ss, ", ")
 	}
 	return strings.Join(ss[:n], ", ") + fmt.Sprintf(" (and %d more)", len(ss)-n)
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -335,5 +336,52 @@ func TestTS15_10_PreflightOmitsSymbolBackendWhenDetectionFails(t *testing.T) {
 	}
 	if _, ok := findCheck(res.Preflight, "schemas_valid"); !ok {
 		t.Errorf("other checks missing: %+v", res.Preflight)
+	}
+}
+
+// TS-16-24 (unit): RunPreflight includes a code_search_index check with the
+// detail "built" when the run has an index.
+//
+// Verifies: 16-REQ-7.1
+func TestTS16_24_PreflightReportsCodeSearchIndexBuilt(t *testing.T) {
+
+	o := preflightOptions(t)
+	o.Index = &indextest.Index{}
+	res, err := RunPreflight(context.Background(), o)
+	if err != nil {
+		t.Fatalf("RunPreflight: %v", err)
+	}
+	c, ok := findCheck(res.Preflight, "code_search_index")
+	if !ok {
+		t.Fatalf("no code_search_index check in %+v", res.Preflight)
+	}
+	if !c.OK || c.Detail != "built" {
+		t.Errorf("code_search_index = %+v, want OK with detail built", c)
+	}
+}
+
+// TS-16-25 (unit): with no index the check is still OK and says why.
+//
+// Verifies: 16-REQ-7.2, 16-REQ-7.3
+func TestTS16_25_PreflightReportsCodeSearchIndexUnavailable(t *testing.T) {
+	for _, tc := range []struct{ reason, want string }{
+		{"", "unavailable: index not built"},
+		{"unsupported platform", "unavailable: unsupported platform"},
+	} {
+
+		o := preflightOptions(t)
+		o.Index = nil
+		o.IndexUnavailable = tc.reason
+		res, err := RunPreflight(context.Background(), o)
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		c, ok := findCheck(res.Preflight, "code_search_index")
+		if !ok {
+			t.Fatalf("no code_search_index check in %+v", res.Preflight)
+		}
+		if !c.OK || c.Detail != tc.want {
+			t.Errorf("code_search_index = %+v, want OK with detail %q", c, tc.want)
+		}
 	}
 }

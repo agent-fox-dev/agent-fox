@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -1432,5 +1434,305 @@ func TestTS05_15_CodefixAmbiguityMapsOntoNeedsHuman(t *testing.T) {
 	}
 	if env.NeedsHuman.Needed != "" {
 		t.Errorf("expected Needed to be empty, got %q", env.NeedsHuman.Needed)
+	}
+}
+
+// fakeIndex is a tools.Index test double. Tools returns a code_search tool, as
+// the real codesearch index does.
+type fakeIndex struct{ closed int }
+
+func (f *fakeIndex) Symbols(context.Context, tools.SymbolQuery) (tools.SymbolAnswer, bool, error) {
+	return tools.SymbolAnswer{}, false, nil
+}
+func (f *fakeIndex) Tools() []core.Tool {
+	return []core.Tool{{
+		Name: "code_search", Description: "ranked search",
+		Execute: func(context.Context, json.RawMessage) core.ToolResult { return core.OKResult(map[string]any{}) },
+	}}
+}
+func (f *fakeIndex) Invalidate(string) {}
+func (f *fakeIndex) Close() error      { f.closed++; return nil }
+
+// indexedRunner is a Runner whose Config carries idx — the Config the shell
+// builds from the same index it hands the tool's Options.
+func indexedRunner(t *testing.T, ws *tools.Workspace, p *faux.Provider, idx tools.Index) *agentrun.Runner {
+	t.Helper()
+	r, err := agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+		Workspace:     ws,
+		Bounds:        agentrun.Bounds{MaxTurns: 8, MaxBudgetUSD: 1, MaxAttempts: 1},
+		SessionPrefix: "fix",
+		Index:         idx,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// wireTools is the names of the tools the first request offered the model.
+func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
+	t.Helper()
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the model")
+	}
+	got := map[string]bool{}
+	for _, w := range reqs[0].Tools {
+		got[w.Name] = true
+	}
+	return got
+}
+
+// TS-16-3 (unit): codefix.Options.Index is forwarded to agentrun.Config.Index.
+// Run builds the real agentBrain, so both of fix's phases are granted
+// code_search, and the model is offered it because the index reached the
+// Runner's Config.
+//
+// Verifies: 16-REQ-1.4, 16-REQ-2.1
+func TestTS16_3_IndexReachesTheAnalysePhase(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	idx := &fakeIndex{}
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, idx)
+	o.Index = idx
+
+	// The unscripted model ends the analyse phase with no result: the run
+	// fails there, which is all this test needs of it.
+	_, _ = Run(context.Background(), o)
+
+	got := wireTools(t, p)
+	if !got["code_search"] {
+		t.Errorf("code_search was not offered to the analyse phase: %v", got)
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !got[n] {
+			t.Errorf("%s is missing from the analyse phase", n)
+		}
+	}
+}
+
+// 16-REQ-2.1: the implement phase is granted code_search too.
+func TestTS16_3_IndexReachesTheImplementPhase(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	idx := &fakeIndex{}
+	p := faux.New()
+	b := &agentBrain{runner: indexedRunner(t, ws, p, idx), codeSearch: true}
+
+	_, _, _ = b.Implement(context.Background(), implementInput{Root: ws.Root})
+
+	got := wireTools(t, p)
+	if !got["code_search"] || !got["write_file"] {
+		t.Errorf("implement phase tools = %v, want code_search beside the write tools", got)
+	}
+}
+
+// 16-REQ-2.2: with no index no phase names code_search.
+func TestTS16_3_NilIndexLeavesBothGrantsUnchanged(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, nil)
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); got["code_search"] {
+		t.Errorf("analyse offered code_search without an index: %v", got)
+	}
+
+	p2 := faux.New()
+	b := &agentBrain{runner: indexedRunner(t, ws, p2, nil)}
+	_, _, _ = b.Implement(context.Background(), implementInput{Root: ws.Root})
+	if got := wireTools(t, p2); got["code_search"] {
+		t.Errorf("implement offered code_search without an index: %v", got)
+	}
+}
+
+// The grant is a copy: appending code_search must not grow the shared
+// ReadOnlyFileTools slice.
+func TestTS16_3_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
+	before := len(agentrun.ReadOnlyFileTools)
+	got := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, true)
+	if len(agentrun.ReadOnlyFileTools) != before {
+		t.Fatal("ReadOnlyFileTools was modified")
+	}
+	if got[len(got)-1] != "code_search" || len(got) != before+1 {
+		t.Errorf("grant = %v", got)
+	}
+	if same := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
+		t.Errorf("grant without an index = %v", same)
+	}
+}
+
+// TS-16-15 (unit): codefix invalidates the whole index after git.CreateBranch
+// and before the implement phase starts (16-REQ-4.1).
+//
+// The git runner is wrapped to stamp the moment `checkout -b` runs and the
+// scripted brain stamps the moment the implement phase starts, so the order
+// is observed rather than assumed.
+//
+// Verifies: 16-REQ-4.1
+func TestTS16_15_CodefixInvalidatesTheIndexAfterCreateBranch(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	var branchSeq, implementSeq int64
+	runner := func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		out, code, err := gitx.ExecRunner(ctx, dir, argv, stdin...)
+		if len(argv) >= 3 && argv[1] == "checkout" && argv[2] == "-b" && code == 0 && err == nil {
+			branchSeq = indextest.Next()
+		}
+		return out, code, err
+	}
+	g := gitx.New(ws.Root, runner)
+	g.SetSleep(func(time.Duration) {})
+
+	idx := &indextest.Index{}
+	b := defaultBrain()
+	edit := b.edit
+	b.edit = func(root string) error {
+		implementSeq = indextest.Next()
+		return edit(root)
+	}
+	o := newOptions(ws, g, b)
+	o.Index = idx
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if branchSeq == 0 || implementSeq == 0 {
+		t.Fatalf("the branch (%d) or the implement phase (%d) was not observed", branchSeq, implementSeq)
+	}
+	var seen []indextest.Event
+	for _, e := range idx.Events() {
+		if e.Kind == "invalidate" {
+			seen = append(seen, e)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("Invalidate was never called")
+	}
+	// Earlier invalidations (after the baseline run) are fine; what matters is
+	// that one falls between the branch and the start of the implement phase.
+	found := false
+	for _, e := range seen {
+		if e.Rel != "" {
+			t.Errorf("Invalidate(%q): want the whole index, \"\"", e.Rel)
+		}
+		if e.Seq > branchSeq && e.Seq < implementSeq {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no Invalidate between git.CreateBranch (%d) and the implement phase (%d): %v", branchSeq, implementSeq, seen)
+	}
+}
+
+// A run without an index must not trip over the invalidation call.
+func TestTS16_15_NilIndexRunsWithoutInvalidating(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	if _, err := Run(context.Background(), newOptions(ws, g, defaultBrain())); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// The project's checks are its own programs and can write into the tree, and
+// the revert check takes the fix out and puts it back: the index is
+// invalidated after each, before whatever runs next (16-REQ-4, design
+// decision 9).
+func TestCodefixInvalidatesTheIndexAfterEveryCheckRun(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	var stamps []int64
+	runner := func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		out, code, err := gitx.ExecRunner(ctx, dir, argv, stdin...)
+		for _, a := range argv {
+			if a == "make" || strings.HasSuffix(a, "make test") {
+				stamps = append(stamps, indextest.Next())
+				break
+			}
+		}
+		return out, code, err
+	}
+	g := gitx.New(ws.Root, gitx.ExecRunner)
+	g.SetSleep(func(time.Duration) {})
+	idx := &indextest.Index{}
+	o := newOptions(ws, g, defaultBrain())
+	o.CheckRunner = runner
+	o.Index = idx
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// baseline, verification and at least one revert check
+	if len(stamps) < 3 {
+		t.Fatalf("the checks ran %d times, want at least 3 (baseline, verification, revert check)", len(stamps))
+	}
+	var inv []int64
+	for _, e := range idx.Events() {
+		if e.Kind == "invalidate" {
+			inv = append(inv, e.Seq)
+		}
+	}
+	for i, s := range stamps {
+		next := int64(1) << 62
+		if i+1 < len(stamps) {
+			next = stamps[i+1]
+		}
+		found := false
+		for _, q := range inv {
+			if q > s && q < next {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no Invalidate after check run %d (seq %d) before the next one (seq %d); invalidations: %v", i, s, next, inv)
+		}
+	}
+}
+
+// The pipeline grants and invalidates the index its Runner's phases read
+// (16-REQ-1.4): a Runner built on another index is refused before any phase
+// runs, and the Runner's index is the run's when the Options carry none.
+func TestTS16_3_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	o.Index = &fakeIndex{}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not the one its runner was built with") {
+		t.Fatalf("Run with two indexes: err = %v, want a refusal", err)
+	}
+	if n := len(p.Requests()); n != 0 {
+		t.Errorf("%d requests reached the model after the refusal", n)
+	}
+
+	p = faux.New()
+	o = newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); !got["code_search"] {
+		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}
+
+// 16-REQ-2.1: the independent review phase, which conform.RunReview builds, is
+// granted code_search by this tool's brain like every other phase, and is not
+// without an index (16-REQ-2.2).
+func TestTheReviewPhaseIsGrantedCodeSearch(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	for _, on := range []bool{true, false} {
+		var idx tools.Index
+		if on {
+			idx = &fakeIndex{}
+		}
+		p := faux.New()
+		b := &agentBrain{runner: indexedRunner(t, ws, p, idx), codeSearch: on}
+		_, _, _ = b.Review(context.Background(), conform.ReviewInput{
+			Root: ws.Root, Base: "HEAD", Spec: "spec", Scope: conform.ReviewScope{Requirements: []string{"01-REQ-1"}},
+		})
+		if got := wireTools(t, p); got["code_search"] != on {
+			t.Errorf("index %v: the review phase offered %v", on, got)
+		}
 	}
 }

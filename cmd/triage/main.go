@@ -64,16 +64,18 @@ type triageFlags struct {
 func (f *triageFlags) triageOptions(d toolio.Deps) issuetriage.Options {
 	target, _ := issuex.ParseRepo(f.repo)
 	return issuetriage.Options{
-		Input:     d.Input,
-		Workspace: d.Workspace,
-		Repo:      target,
-		Labels:    splitLabels(f.labels),
-		DryRun:    d.Common.DryRun,
-		Overwrite: f.overwrite,
-		Runner:    d.Runner,
-		Forge:     d.Forge,
-		Run:       d.Run,
-		Progress:  d.Progress,
+		Index:            d.Index,
+		IndexUnavailable: d.IndexUnavailable,
+		Input:            d.Input,
+		Workspace:        d.Workspace,
+		Repo:             target,
+		Labels:           splitLabels(f.labels),
+		DryRun:           d.Common.DryRun,
+		Overwrite:        f.overwrite,
+		Runner:           d.Runner,
+		Forge:            d.Forge,
+		Run:              d.Run,
+		Progress:         d.Progress,
 
 		RepoMapTokens: d.Common.RepoMapTokens,
 	}

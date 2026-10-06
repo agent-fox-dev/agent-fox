@@ -108,6 +108,9 @@ type architectureRequest struct {
 type agentAuthor struct {
 	runner *agentrun.Runner
 	ws     *tools.Workspace
+	// codeSearch grants the code_search tool to every phase this author runs.
+	// Run sets it once, from Options.Index (16-REQ-2.1).
+	codeSearch bool
 }
 
 func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentrun.Result, error) {
@@ -120,7 +123,7 @@ func (a *agentAuthor) WritePRD(ctx context.Context, req prdRequest) (PRD, agentr
 		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitPRD,
 		Custom:             []core.Tool{submitPRDTool(&sink, a.ws)},
-		BuiltinTools:       agentrun.ReadOnlyFileTools,
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          prdMaxTokens,
 		Temperature:        specTemperature,
@@ -159,7 +162,7 @@ func (a *agentAuthor) GenerateArtifact(ctx context.Context, req artifactRequest)
 		RepoMap:            req.RepoMap,
 		Terminator:         name,
 		Custom:             []core.Tool{submitArtifactTool(req.Step, toolSchema, req.Partial, &sink, audit)},
-		BuiltinTools:       agentrun.ReadOnlyFileTools,
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          generateMaxTokens,
 		Temperature:        specTemperature,
@@ -193,7 +196,7 @@ func (a *agentAuthor) WriteArchitecture(ctx context.Context, req architectureReq
 		RepoMap:            req.RepoMap,
 		Terminator:         ToolSubmitArchitecture,
 		Custom:             []core.Tool{submitArchitectureTool(&sink)},
-		BuiltinTools:       agentrun.ReadOnlyFileTools,
+		BuiltinTools:       agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, a.codeSearch),
 		ReadOnly:           true,
 		MaxTokens:          architectureMaxTokens,
 		Temperature:        specTemperature,

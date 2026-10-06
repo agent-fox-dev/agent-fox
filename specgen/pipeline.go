@@ -61,6 +61,13 @@ type Options struct {
 	// phase's user prompt (14-REQ-6.2). Zero, the zero value, disables it.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+	// IndexUnavailable is why Index is nil: the message of the error the index
+	// builder returned. RunPreflight reports it (16-REQ-7.2). Empty when the
+	// index was built or the reason is not known.
+	IndexUnavailable string
+
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab, used only by Comment.
@@ -398,6 +405,12 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if _, f := Preflight(ctx, o); f != nil {
 		return nil, f
 	}
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 
 	result := &Result{Stage: "preflight", DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
 
@@ -433,6 +446,7 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: one PRD phase and one per
@@ -481,12 +495,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if _, f := Preflight(ctx, o); f != nil {
 		return nil, f
 	}
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). It is the index the Runner's phases read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 	root := o.Workspace.Root
 	specsDir := resolveSpecsDir(o, root)
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
-		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace}
+		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace, codeSearch: o.Index != nil}
 	}
 	landscape, err := discoverLandscape(specsDir)
 	if err != nil {
@@ -1192,4 +1213,17 @@ func recordPhase(run *toolio.Run, res agentrun.Result, scope string) {
 		return
 	}
 	run.AddPhase(toolio.PhaseFromResult(res, scope))
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

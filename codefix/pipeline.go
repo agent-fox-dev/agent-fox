@@ -74,6 +74,13 @@ type Options struct {
 	// user prompt (14-REQ-6.2). Zero, the zero value, disables the map.
 	RepoMapTokens int
 
+	// Index is the code-search index for this run. Nil means no indexed search.
+	Index tools.Index
+	// IndexUnavailable is why Index is nil: the message of the error the index
+	// builder returned. RunPreflight reports it (16-REQ-7.2). Empty when the
+	// index was built or the reason is not known.
+	IndexUnavailable string
+
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
 	// Forge is the forge client, GitHub or GitLab. Required unless DryRun,
@@ -175,6 +182,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.applyDefaults()
 
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). It is the index the Runner's phases read, and so the one
+	// the pipeline invalidates after a tree change (16-REQ-4).
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
+	indexed := o.Index != nil
+
 	result := newResult(o)
 
 	target, base, pfErr := preflight(ctx, o, git, result)
@@ -203,7 +220,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if p := checks.Program(command); p != "" {
 			programs = append(programs, p)
 		}
-		b = &agentBrain{runner: o.Runner, extraPrograms: programs}
+		b = &agentBrain{runner: o.Runner, extraPrograms: programs, codeSearch: indexed}
 	}
 	o.brain = b
 
@@ -256,6 +273,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	result.Branch = branch
 	o.Progress.Step("branch", "branched %s from %s", branch, base)
+
+	// The checkout is a Go-initiated tree change: whatever the index learned
+	// while the analyse phase ran is stale before the implement phase starts
+	// (16-REQ-4.1).
+	invalidate(o)
 
 	// The analysis comment goes up now: the run is known to be able to
 	// start, a branch exists, and the comment can name it.
@@ -406,6 +428,9 @@ func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, 
 	rc, err := conform.Revert(ctx, git, root, "HEAD", changed, func(ctx context.Context) checks.Result {
 		return runChecks(ctx, o, root, command, "revert check")
 	})
+	// The revert took the fix out and put it back: the review phase that may
+	// follow searches the tree as it is now.
+	invalidate(o)
 	if err != nil {
 		return fail("verify", CategoryGit, err)
 	}
@@ -627,6 +652,12 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		git = gitx.New(root, nil)
 	}
 	o.applyDefaults()
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 
 	result := newResult(o)
 	target, base, pfErr := preflight(ctx, o, git, result)
@@ -681,6 +712,7 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 
 	maxTurns, maxBudget := o.Runner.ResolvedBounds()
@@ -824,11 +856,23 @@ func postComment(ctx context.Context, o Options, result *Result, body, kind stri
 	o.Progress.Detail("posted the %s comment", kind)
 }
 
-// runChecks runs the verification command and reports it.
+// invalidate marks the whole code-search index stale after a Go-initiated
+// change to the tree, so the next phase's code_search results reflect it
+// (16-REQ-4). A run without an index does nothing.
+func invalidate(o Options) {
+	if o.Index != nil {
+		o.Index.Invalidate("")
+	}
+}
+
+// runChecks runs the verification command and reports it. The command is the
+// project's own program and can write into the tree, so the index is
+// invalidated once it has run.
 func runChecks(ctx context.Context, o Options, root, command, label string) checks.Result {
 	if strings.TrimSpace(command) == "" {
 		return checks.Result{Skipped: true}
 	}
+	defer invalidate(o)
 	done := o.Progress.Begin("%s: %s", label, command)
 	res := checks.Run(ctx, o.CheckRunner, root, command, o.VerifyTimeout)
 	o.Progress.Check(res)
@@ -883,4 +927,17 @@ func branchPrefix(o Options, c Classification) string {
 		return o.BranchPrefix
 	}
 	return c.BranchPrefix()
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

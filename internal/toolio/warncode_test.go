@@ -1,6 +1,7 @@
 package toolio_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -24,6 +25,22 @@ func TestTS13_11_EffortClampedWarnCodeMapsToPreflight(t *testing.T) {
 	}
 	if stage != "preflight" {
 		t.Errorf("WarnEffortClamped stage = %q, want %q", stage, "preflight")
+	}
+}
+
+// TS-16-23 (unit): WarnCodeSearchUnavailable is declared, mapped to the
+// preflight stage, and listed in DeclaredWarnCodes.
+// Verifies: 16-REQ-5.1, 16-REQ-5.2, 16-REQ-5.3
+func TestTS16_23_SearchUnavailableWarnCode(t *testing.T) {
+	if toolio.WarnCodeSearchUnavailable != "code_search_unavailable" {
+		t.Errorf("WarnCodeSearchUnavailable = %q", toolio.WarnCodeSearchUnavailable)
+	}
+	stage, ok := toolio.WarnStage(toolio.WarnCodeSearchUnavailable)
+	if !ok || stage != "preflight" {
+		t.Errorf("WarnStage = (%q, %v), want (preflight, true)", stage, ok)
+	}
+	if !slices.Contains(toolio.DeclaredWarnCodes(), toolio.WarnCodeSearchUnavailable) {
+		t.Error("DeclaredWarnCodes() does not contain WarnCodeSearchUnavailable")
 	}
 }
 
@@ -74,6 +91,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"fix_not_proven":             "verify",
 		"relevant_files_unavailable": "prd",
 		"repo_map_build_failed":      "triage",
+		"code_search_unavailable":    "preflight",
 	}
 	for code, wantStage := range pairs {
 		got, ok := toolio.WarnStage(toolio.WarnCode(code))

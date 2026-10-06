@@ -25,3 +25,16 @@ func TestTS15_1_ReadOnlyFileToolsHasTheSixReadTools(t *testing.T) {
 		}
 	}
 }
+
+// TS-16-8 (unit): code_search is in neither ReadOnlyFileTools nor
+// MutatingTools.
+//
+// Verifies: 16-REQ-2.5, 16-REQ-6.1
+func TestTS16_8_CodeSearchInNeitherToolList(t *testing.T) {
+	if slices.Contains(ReadOnlyFileTools, "code_search") {
+		t.Error("code_search must not be in ReadOnlyFileTools")
+	}
+	if slices.Contains(MutatingTools, "code_search") {
+		t.Error("code_search must not be in MutatingTools")
+	}
+}

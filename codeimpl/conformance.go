@@ -189,6 +189,9 @@ func assess(ctx context.Context, o Options, st *runState, result *Result) (asses
 	}
 
 	if !o.NoReview {
+		// The structural scan and the clean-environment gate ran on this tree
+		// first; the reviewer must search what is there now.
+		st.invalidate()
 		stat, _ := st.git.DiffStat(ctx, st.start)
 		done := o.Progress.Begin("independent conformance review")
 		review, stats, err := st.brain.Review(ctx, conform.ReviewInput{
@@ -222,7 +225,7 @@ func hermeticGate(ctx context.Context, o Options, st *runState) (*GateResult, *c
 	r := build(home)
 	clean := o
 	clean.CheckRunner = r
-	g := runGate(ctx, clean, st.root, st.gate, "clean-environment verification")
+	g := st.runGate(ctx, clean, "clean-environment verification")
 	env := checks.Fingerprint(ctx, r, st.root, true)
 	return &g, &env
 }
@@ -345,6 +348,9 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	if a.hermetic != nil && !a.hermetic.OK() {
 		hermetic = a.hermetic
 	}
+	// The review's own checks may have touched the tree: the resolver starts
+	// from what is there now.
+	st.invalidate()
 	done := o.Progress.Begin("resolving %d blocking finding(s) and %d structural finding(s)", len(blockers), len(a.findings))
 	sub, stats, err := st.brain.Resolve(ctx, resolveInput{
 		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate, Baseline: st.baseline,
@@ -388,7 +394,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 		return &sub, false, nil
 	}
 	report.ChangedFiles = changed
-	after := runGate(ctx, o, st.root, st.gate, "resolve verification")
+	after := st.runGate(ctx, o, "resolve verification")
 	verdict := compareGate(st.baseline, after)
 	report.Verification, report.Verdict = &after, verdict
 	if !landable(verdict, len(st.gate) == 0) {

@@ -253,6 +253,9 @@ type agentBrain struct {
 	// not offered to the analysis phase, because that phase is read-only and
 	// the programs in question — go, make, npm — compile and write.
 	extraPrograms []string
+	// codeSearch grants the code_search tool to every phase this brain runs.
+	// Run sets it once, from Options.Index (16-REQ-2.1).
+	codeSearch bool
 }
 
 func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, agentrun.Result, error) {
@@ -267,7 +270,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitAnalysis,
 		Custom:             []core.Tool{rej.track(submitAnalysisTool(&out))},
-		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
+		BuiltinTools:       agentrun.WithCodeSearch(append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"), b.codeSearch),
 		ReadOnly:           true,
 		Programs:           programs,
 		Temperature:        0.2,
@@ -286,6 +289,7 @@ func (b *agentBrain) Analyze(ctx context.Context, in analysisInput) (Analysis, a
 // Review runs the independent conformance review of the fix against the
 // requirements and tests the report cites.
 func (b *agentBrain) Review(ctx context.Context, in conform.ReviewInput) (conform.Review, agentrun.Result, error) {
+	in.CodeSearch = b.codeSearch
 	return conform.RunReview(ctx, b.runner, in)
 }
 
@@ -296,7 +300,7 @@ func (b *agentBrain) Implement(ctx context.Context, in implementInput) (Implemen
 	programs = append(programs, b.extraPrograms...)
 
 	tools := append(append([]string(nil), agentrun.ReadOnlyFileTools...), agentrun.WriteFileTools...)
-	tools = append(tools, "execute")
+	tools = agentrun.WithCodeSearch(append(tools, "execute"), b.codeSearch)
 
 	res, err := b.runner.Run(ctx, agentrun.Phase{
 		Name:               "implement",
