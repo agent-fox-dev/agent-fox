@@ -221,6 +221,12 @@ var newIndex = func(ws *tools.Workspace) (tools.Index, error) {
 	return codesearch.New(ws, codesearch.Options{})
 }
 
+// configureRunner, when set, adjusts the configuration of the Runner every
+// phase of the run uses, after the index has been put on it. It is nil in
+// production. A smoke test sets it to give the real entry point a scripted
+// model (provider/faux) in place of a vendor's.
+var configureRunner func(*agentrun.Config)
+
 // openIndex builds the run's one code-search index and returns d with a Runner
 // whose Config carries it, the index, and the function that closes it
 // (16-REQ-3). When the index cannot be built it returns d unchanged, a nil
@@ -229,6 +235,11 @@ func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, string, func()) {
 	unavailable := func(reason string) (toolio.Deps, tools.Index, string, func()) {
 		d.Run.Warn(toolio.WarnCodeSearchUnavailable, "low",
 			"code_search is unavailable and the run falls back to search_files: %s", reason)
+		if configureRunner != nil {
+			if configured, err := withRunner(d, nil); err == nil {
+				d = configured
+			}
+		}
 		return d, nil, reason, func() {}
 	}
 	idx, err := newIndex(d.Workspace)
@@ -240,15 +251,28 @@ func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, string, func()) {
 	}
 	// The Runner the shell built has no index: build another from the same
 	// configuration, so that every phase it runs offers code_search.
-	cfg := d.RunnerConfig()
-	cfg.Index = idx
-	runner, err := agentrun.NewRunner(cfg)
+	d, err = withRunner(d, idx)
 	if err != nil {
 		_ = idx.Close()
 		return unavailable(err.Error())
 	}
-	d.Runner = runner
 	return d, idx, "", func() { _ = idx.Close() }
+}
+
+// withRunner returns d with a Runner built from the run's configuration, plus
+// idx (nil for none) and whatever configureRunner changes.
+func withRunner(d toolio.Deps, idx tools.Index) (toolio.Deps, error) {
+	cfg := d.RunnerConfig()
+	cfg.Index = idx
+	if configureRunner != nil {
+		configureRunner(&cfg)
+	}
+	runner, err := agentrun.NewRunner(cfg)
+	if err != nil {
+		return d, err
+	}
+	d.Runner = runner
+	return d, nil
 }
 
 // indexReasonKey keys, in the context the pipeline runs under, why the run has

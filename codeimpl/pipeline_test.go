@@ -2143,3 +2143,90 @@ func TestTS16_21_InvalidatesAfterTheRepairAfterTaskBeforeTheTaskCommit(t *testin
 			commit2, idx.snaps)
 	}
 }
+
+// TS-16-30 (integration): a run of the example spec's tasks (the first two
+// are the pair the spec asks about, the third closes the plan) through the real brain — the real
+// phases, the real Runner and tool set — offers code_search to both tasks,
+// invalidates the index with the first task's commit in place before the
+// second task's phase starts, and leaves closing the index to its caller.
+//
+// Verifies: 16-REQ-4.5, 16-REQ-2.1
+func TestTS16_30_EveryTaskSeesThePreviousCommitThroughTheIndex(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	probe := &indextest.Probe{Root: ws.Root}
+
+	task := func(n, subject string, tests []string, doneWhen bool) []faux.Turn {
+		var verdicts []map[string]any
+		for _, id := range tests {
+			verdicts = append(verdicts, map[string]any{"id": id, "verdict": "pass",
+				"evidence":     "task" + n + ".go: " + id + " passes when run with make test",
+				"red_evidence": "go test failed before the change: " + id + " got the zero value"})
+		}
+		args := map[string]any{
+			"summary": "implemented task " + n, "commit_subject": subject,
+			"test_verdicts": verdicts,
+			"changes":       []map[string]any{{"path": "task" + n + ".go", "change": "added"}},
+		}
+		if doneWhen {
+			args["done_when_verdicts"] = []map[string]any{{"id": "DW-1", "verdict": "pass",
+				"evidence": "ran the command in done_when and it exited zero"}}
+		}
+		return []faux.Turn{
+			indextest.ToolTurn("s"+n, "code_search", map[string]any{"query": "task"}),
+			indextest.ToolTurn("w"+n, "write_file", map[string]any{"path": "task" + n + ".go", "content": "package x\n"}),
+			indextest.ToolTurn("t"+n, "submit_task", args),
+		}
+	}
+	turns := append(task("1", "feat: land task one", []string{"TS-09-1", "TS-09-2", "TS-09-3"}, false),
+		task("2", "feat: land task two", []string{"TS-09-4", "TS-09-5"}, false)...)
+	turns = append(turns, task("3", "feat: land task three", []string{"TS-09-6"}, true)...)
+	p := faux.New(turns...)
+
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, probe)
+	o.Index = probe
+	o.NoSurvey, o.NoReview = true, true
+
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.TasksDone != 3 {
+		t.Fatalf("TasksDone = %d, want 3 (stage %q)", got.TasksDone, got.Stage)
+	}
+
+	for i, names := range indextest.Offered(p) {
+		if !indextest.Has(names, "code_search") {
+			t.Errorf("request %d was not offered code_search: %v", i, names)
+		}
+	}
+	s := probe.Searches()
+	if len(s) != 3 {
+		t.Fatalf("code_search reached the index %d times, want 3 (once per task)", len(s))
+	}
+	for i, subject := range []string{"task one", "task two"} {
+		commit := gitOut(t, ws.Root, "log", "--format=%H", "--grep", subject)
+		if !anyIndexSnap(probe.Between(s[i], s[i+1]), func(sn indextest.Snap) bool {
+			return sn.Rel == "" && sn.Head == commit && sn.Status == ""
+		}) {
+			t.Errorf("no Invalidate(\"\") with HEAD at %s's commit %s before the next task's phase: %+v",
+				subject, commit, probe.Between(s[i], s[i+1]))
+		}
+	}
+	if probe.InvalidateCalls() < 2 {
+		t.Errorf("Invalidate was called %d times, want at least 2", probe.InvalidateCalls())
+	}
+	if n := probe.CloseCalls(); n != 0 {
+		t.Errorf("the pipeline closed the index %d times: closing is the entry point's job", n)
+	}
+}
+
+func anyIndexSnap(snaps []indextest.Snap, ok func(indextest.Snap) bool) bool {
+	for _, s := range snaps {
+		if ok(s) {
+			return true
+		}
+	}
+	return false
+}
