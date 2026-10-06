@@ -20,6 +20,7 @@ import (
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/indextest"
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -1778,5 +1779,367 @@ func TestTS16_5_TheSharedReadOnlyListIsNotMutated(t *testing.T) {
 	}
 	if same := withCodeSearch(agentrun.ReadOnlyFileTools, false); len(same) != before {
 		t.Errorf("grant without an index = %v", same)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Spec 16, task 6: the code-search index is invalidated after every
+// Go-initiated tree change in impl, before the next phase starts.
+//
+// The test double stamps each Invalidate with the process-wide sequence number
+// of the indextest package and with a snapshot of the tree at that moment (HEAD,
+// the branch and `git status`), and a traced brain and check runner stamp the
+// phases and the gate runs the same way. "After the commit" is then a fact about
+// the snapshot — HEAD is the commit — and "before the next phase" a fact about
+// the sequence numbers.
+// ---------------------------------------------------------------------------
+
+// treeSnap is the tree at the moment of an Invalidate.
+type treeSnap struct {
+	Seq    int64
+	Rel    string
+	Head   string
+	Branch string
+	Status string
+}
+
+// snapIndex is an indextest.Index that snapshots the tree on every Invalidate.
+type snapIndex struct {
+	*indextest.Index
+	root  string
+	snaps []treeSnap
+}
+
+func (s *snapIndex) Invalidate(rel string) {
+	s.Index.Invalidate(rel)
+	ev := s.Index.Events()
+	snap := treeSnap{Seq: ev[len(ev)-1].Seq, Rel: rel}
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = s.root
+		out, _ := cmd.Output()
+		return strings.TrimSpace(string(out))
+	}
+	snap.Head = git("rev-parse", "HEAD")
+	snap.Branch = git("rev-parse", "--abbrev-ref", "HEAD")
+	snap.Status = git("status", "--porcelain", "-uall")
+	s.snaps = append(s.snaps, snap)
+}
+
+// mark is one phase start or gate run, in the same order as the Invalidate calls.
+type mark struct {
+	Kind          string // survey, implement, repair, check
+	Task, Attempt int
+	Seq           int64
+}
+
+type trace struct{ marks []mark }
+
+func (tr *trace) add(kind string, task, attempt int) {
+	tr.marks = append(tr.marks, mark{Kind: kind, Task: task, Attempt: attempt, Seq: indextest.Next()})
+}
+
+// find returns the first mark of the kind for the task and attempt (zero
+// values match any).
+func (tr *trace) find(t *testing.T, kind string, task, attempt int) mark {
+	t.Helper()
+	for _, m := range tr.marks {
+		if m.Kind == kind && (task == 0 || m.Task == task) && (attempt == 0 || m.Attempt == attempt) {
+			return m
+		}
+	}
+	t.Fatalf("no %s mark for task %d attempt %d in %v", kind, task, attempt, tr.marks)
+	return mark{}
+}
+
+// firstAfter is the first mark of the kind that follows seq.
+func (tr *trace) firstAfter(t *testing.T, kind string, seq int64) mark {
+	t.Helper()
+	for _, m := range tr.marks {
+		if m.Kind == kind && m.Seq > seq {
+			return m
+		}
+	}
+	t.Fatalf("no %s mark after %d in %v", kind, seq, tr.marks)
+	return mark{}
+}
+
+// lastBefore is the last mark of the kind that precedes seq.
+func (tr *trace) lastBefore(t *testing.T, kind string, seq int64) mark {
+	t.Helper()
+	var got *mark
+	for i, m := range tr.marks {
+		if m.Kind == kind && m.Seq < seq {
+			got = &tr.marks[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no %s mark before %d in %v", kind, seq, tr.marks)
+	}
+	return *got
+}
+
+// tracedBrain stamps the phases the scripted brain runs.
+type tracedBrain struct {
+	*scriptedBrain
+	tr *trace
+}
+
+func (b *tracedBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentrun.Result, error) {
+	b.tr.add("survey", 0, 0)
+	return b.scriptedBrain.Survey(ctx, in)
+}
+
+func (b *tracedBrain) Repair(ctx context.Context, in repairInput) (RepairSubmission, agentrun.Result, error) {
+	task := 0
+	if in.Task != nil {
+		task = in.Task.Id
+	}
+	b.tr.add("repair", task, in.Attempt)
+	return b.scriptedBrain.Repair(ctx, in)
+}
+
+func (b *tracedBrain) Implement(ctx context.Context, in taskInput) (Submission, agentrun.Result, error) {
+	b.tr.add("implement", in.Task.Id, in.Attempt)
+	return b.scriptedBrain.Implement(ctx, in)
+}
+
+// indexedRun runs the pipeline with a snapshotting index, a traced brain and a
+// traced check runner.
+func indexedRun(t *testing.T, ws *tools.Workspace, g *gitx.Git, b *scriptedBrain,
+	configure func(*Options)) (*Result, error, *snapIndex, *trace) {
+	t.Helper()
+	idx := &snapIndex{Index: &indextest.Index{}, root: ws.Root}
+	tr := &trace{}
+	o := newOptions(ws, g, b)
+	o.brain = &tracedBrain{scriptedBrain: b, tr: tr}
+	o.Index = idx
+	o.CheckRunner = func(ctx context.Context, dir string, argv []string, stdin ...string) (string, int, error) {
+		tr.add("check", 0, 0)
+		return gitx.ExecRunner(ctx, dir, argv, stdin...)
+	}
+	if configure != nil {
+		configure(&o)
+	}
+	got, err := Run(context.Background(), o)
+	return got, err, idx, tr
+}
+
+// between is the snapshots taken after lo and before hi.
+func (s *snapIndex) between(lo, hi int64) []treeSnap {
+	var out []treeSnap
+	for _, sn := range s.snaps {
+		if sn.Seq > lo && sn.Seq < hi {
+			out = append(out, sn)
+		}
+	}
+	return out
+}
+
+// anySnap reports whether one of the snapshots satisfies ok.
+func anySnap(snaps []treeSnap, ok func(treeSnap) bool) bool {
+	for _, s := range snaps {
+		if ok(s) {
+			return true
+		}
+	}
+	return false
+}
+
+const implBranch = "impl/09-agent-mode-spec-cli"
+
+// TS-16-16 (unit): the index is invalidated after the branch is created, before
+// the first phase that follows it. In this pipeline the survey runs before the
+// branch is created, so a new branch is invalidated before the first
+// implementation phase, and an existing branch — checked out in pre-flight — is
+// invalidated before the survey.
+//
+// Verifies: 16-REQ-4.2
+func TestTS16_16_InvalidatesAfterBranchCreationBeforeThePhasesThatFollow(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	_, err, idx, tr := indexedRun(t, ws, g, &scriptedBrain{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	survey := tr.find(t, "survey", 0, 0)
+	first := tr.find(t, "implement", 1, 1)
+	onBranch := func(s treeSnap) bool { return s.Branch == implBranch && s.Rel == "" }
+	if !anySnap(idx.between(survey.Seq, first.Seq), onBranch) {
+		t.Errorf("no Invalidate(\"\") on %s between the survey and the first implementation phase: %+v",
+			implBranch, idx.snaps)
+	}
+}
+
+func TestTS16_16_InvalidatesAfterCheckingOutAnExistingBranchBeforeTheSurvey(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	gitOut(t, ws.Root, "branch", implBranch)
+	got, err, idx, tr := indexedRun(t, ws, g, &scriptedBrain{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !got.Resumed {
+		t.Fatal("the run did not continue on the existing branch")
+	}
+	survey := tr.find(t, "survey", 0, 0)
+	if !anySnap(idx.between(0, survey.Seq), func(s treeSnap) bool { return s.Branch == implBranch && s.Rel == "" }) {
+		t.Errorf("no Invalidate(\"\") on %s before the survey: %+v", implBranch, idx.snaps)
+	}
+}
+
+// TS-16-17 (unit): after revertSpecDir and dropScratchFiles, before the gate.
+//
+// Verifies: 16-REQ-4.3
+func TestTS16_17_InvalidatesAfterRevertAndDropBeforeTheGate(t *testing.T) {
+	ws, g, specDir := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		write(t, specDir, "prd.md", "the model rewrote the PRD")
+		write(t, root, "notes.bak", "scratch")
+		return goodWork(root, task, attempt)
+	}
+	_, err, idx, tr := indexedRun(t, ws, g, b, func(o *Options) { o.Task = 1 })
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	impl := tr.find(t, "implement", 1, 1)
+	gate := tr.firstAfter(t, "check", impl.Seq)
+	ok := anySnap(idx.between(impl.Seq, gate.Seq), func(s treeSnap) bool {
+		return s.Rel == "" && !strings.Contains(s.Status, "prd.md") && !strings.Contains(s.Status, "notes.bak") &&
+			strings.Contains(s.Status, "task1.go")
+	})
+	if !ok {
+		t.Errorf("no Invalidate(\"\") between the phase and the gate with the PRD reverted and the scratch file dropped: %+v",
+			idx.between(impl.Seq, gate.Seq))
+	}
+}
+
+// TS-16-18 (unit): after discard, before the next attempt.
+//
+// Verifies: 16-REQ-4.4
+func TestTS16_18_InvalidatesAfterDiscardBeforeTheNextAttempt(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		if task.Id == 2 && attempt == 1 {
+			write(t, root, "FAIL", "")
+			write(t, root, "half.go", "package x\n")
+			return passingReport(task, "break the build"), nil
+		}
+		return goodWork(root, task, attempt)
+	}
+	got, err, idx, tr := indexedRun(t, ws, g, b, func(o *Options) { o.TaskAttempts = 2 })
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Tasks[1].Attempts != 2 {
+		t.Fatalf("task 2 took %d attempts, want 2", got.Tasks[1].Attempts)
+	}
+	second := tr.find(t, "implement", 2, 2)
+	gate := tr.lastBefore(t, "check", second.Seq)
+	ok := anySnap(idx.between(gate.Seq, second.Seq), func(s treeSnap) bool {
+		return s.Rel == "" && !strings.Contains(s.Status, "FAIL") && !strings.Contains(s.Status, "half.go")
+	})
+	if !ok {
+		t.Errorf("no Invalidate(\"\") between the failed gate and attempt 2 with the attempt discarded: %+v",
+			idx.between(gate.Seq, second.Seq))
+	}
+}
+
+// TS-16-19 (unit): after the commit of a landed task, before the next task.
+//
+// Verifies: 16-REQ-4.5
+func TestTS16_19_InvalidatesAfterACommitBeforeTheNextTask(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	_, err, idx, tr := indexedRun(t, ws, g, &scriptedBrain{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	commit1 := gitOut(t, ws.Root, "rev-parse", "HEAD~2")
+	first := tr.find(t, "implement", 1, 1)
+	second := tr.find(t, "implement", 2, 1)
+	ok := anySnap(idx.between(first.Seq, second.Seq), func(s treeSnap) bool {
+		return s.Rel == "" && s.Head == commit1 && s.Status == ""
+	})
+	if !ok {
+		t.Errorf("no Invalidate(\"\") with HEAD at task 1's commit %s before task 2's phase: %+v",
+			commit1, idx.between(first.Seq, second.Seq))
+	}
+}
+
+// TS-16-20 (unit): after the baseline repair's commit, before the first task.
+//
+// Verifies: 16-REQ-4.6
+func TestTS16_20_InvalidatesAfterTheRepairCommitBeforeTheFirstTask(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	write(t, ws.Root, "FAIL", "the suite is red")
+	if _, err := g.CommitAll(context.Background(), "chore: break the build\n"); err != nil {
+		t.Fatal(err)
+	}
+	b := &scriptedBrain{}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		return RepairSubmission{
+			Cause: "A FAIL marker was committed.", Summary: "Removed the marker.",
+			CommitSubject: "remove the FAIL marker the test target trips on.",
+			Changes:       []FileChange{{Path: "FAIL", Change: "deleted"}},
+		}, nil
+	}
+	_, err, idx, tr := indexedRun(t, ws, g, b, func(o *Options) { o.Repair = true })
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	repairCommit := gitOut(t, ws.Root, "rev-parse", "HEAD~3")
+	repair := tr.find(t, "repair", 0, 1)
+	first := tr.find(t, "implement", 1, 1)
+	ok := anySnap(idx.between(repair.Seq, first.Seq), func(s treeSnap) bool {
+		return s.Rel == "" && s.Head == repairCommit && s.Status == ""
+	})
+	if !ok {
+		t.Errorf("no Invalidate(\"\") with HEAD at the repair commit %s before task 1: %+v",
+			repairCommit, idx.between(repair.Seq, first.Seq))
+	}
+}
+
+// TS-16-21 (unit): after the repair that follows the integration task, before
+// the task's own commit. The repair's hold commit is undone first, so the
+// snapshot shows HEAD back at the previous task's commit with the repair's work
+// still in the index, and no commit for task 3 yet.
+//
+// Verifies: 16-REQ-4.7
+func TestTS16_21_InvalidatesAfterTheRepairAfterTaskBeforeTheTaskCommit(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	b := &scriptedBrain{}
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		if task.Kind == afspec.TaskKindIntegration {
+			write(t, root, "FAIL", "the smoke tests found a wiring gap")
+		}
+		return goodWork(root, task, attempt)
+	}
+	b.repair = func(root string, attempt int) (RepairSubmission, error) {
+		if err := os.Remove(filepath.Join(root, "FAIL")); err != nil {
+			return RepairSubmission{}, err
+		}
+		write(t, root, "wiring.go", "package x // the gap\n")
+		return RepairSubmission{
+			Cause: "Task 1's parser never registered its command.", Summary: "Registered it.",
+			CommitSubject: "register the parser command",
+			Changes:       []FileChange{{Path: "wiring.go", Change: "added"}},
+		}, nil
+	}
+	_, err, idx, tr := indexedRun(t, ws, g, b, func(o *Options) { o.Repair = true })
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	commit2 := gitOut(t, ws.Root, "rev-parse", "HEAD~1")
+	repair := tr.find(t, "repair", 3, 1)
+	ok := anySnap(idx.snaps, func(s treeSnap) bool {
+		return s.Seq > repair.Seq && s.Rel == "" && s.Head == commit2 &&
+			strings.Contains(s.Status, "wiring.go") && !strings.Contains(s.Status, "FAIL")
+	})
+	if !ok {
+		t.Errorf("no Invalidate(\"\") after the repair with HEAD at task 2's commit %s and the repair's work uncommitted: %+v",
+			commit2, idx.snaps)
 	}
 }
