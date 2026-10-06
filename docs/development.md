@@ -164,7 +164,11 @@ Tests need no API key, no GitHub token and no network:
 - GitHub and GitLab run against `httptest` servers;
 - git runs against real temporary repositories, because the wrapper's whole job
   is to get git's own behaviour right and a fake git would only confirm the
-  wrapper's assumptions about it.
+  wrapper's assumptions about it. A repository whose origin names a forge (how
+  the tools detect it) pushes to a local bare repository; the packages that
+  drive `fix` and `impl` call `envtest.NoGitNetwork` from `TestMain`, so git
+  refuses any non-local URL before it connects and never asks for a
+  credential, on a terminal or in CI.
 
 The pipelines are tested through their real `Run`, with only the model half
 replaced. That split — judgment in the model, everything else in Go — is the

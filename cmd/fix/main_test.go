@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-fox-dev/agentfox/internal/envtest"
 	"github.com/agent-fox-dev/agentfox/internal/schematest"
 	"github.com/agent-fox-dev/agentfox/internal/statetest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -207,6 +208,10 @@ func TestMain(m *testing.M) {
 		"ANTHROPIC_VERTEX_PROJECT_ID", "ANTHROPIC_VERTEX_BASE_URL"} {
 		_ = os.Unsetenv(v)
 	}
+
+	// The tests drive fix and impl against repositories whose origin names a
+	// forge; git must never reach it or ask for a credential.
+	envtest.NoGitNetwork()
 
 	dir, err := os.MkdirTemp("", "cmd-test-bins-*")
 	if err != nil {

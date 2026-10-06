@@ -106,6 +106,12 @@ func TestHermeticRunnerNeverAsksForACredential(t *testing.T) {
 	t.Setenv("GIT_ASKPASS", askpass)
 	t.Setenv("SSH_ASKPASS", askpass)
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	// The test needs git to reach the server; a test binary that runs this
+	// suite may have barred every transport but file (envtest.NoGitNetwork).
+	t.Setenv("GIT_ALLOW_PROTOCOL", "")
+	if err := os.Unsetenv("GIT_ALLOW_PROTOCOL"); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("NO_PROXY", "127.0.0.1,localhost")
 	t.Setenv("no_proxy", "127.0.0.1,localhost")
 

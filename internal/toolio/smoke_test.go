@@ -1671,26 +1671,22 @@ func smokeGitDates(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_DATE", "2024-01-02T03:04:05Z")
 }
 
-// smokeNoGitNetwork keeps git away from the real network. The widget repo's
-// origin is a github.com URL that exists only to name a forge, and the fix
-// pipeline runs `git ls-remote origin` to pick a branch name. On a machine
-// with no credential helper and no route to github.com that call waits on a
-// credential prompt or a connection that never completes, so the run hangs.
-// Pointing git's HTTPS proxy at a closed local port makes the call fail at
-// once, which the pipeline reads as "the branch is not on the remote".
-func smokeNoGitNetwork(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_TERMINAL_PROMPT", "0")
-	t.Setenv("GIT_ASKPASS", "true")
-	t.Setenv("GIT_CONFIG_COUNT", "1")
-	t.Setenv("GIT_CONFIG_KEY_0", "http.proxy")
-	t.Setenv("GIT_CONFIG_VALUE_0", "http://127.0.0.1:1")
+// The smoke repositories name a forge in their origin so that the tools detect
+// it, and fix names its branch with `git ls-remote origin`, which reads that
+// URL. TestMain's envtest.NoGitNetwork has git refuse it before it connects,
+// so no smoke test reaches github.com or waits on a credential prompt.
+func TestSmokeReposNeverReachTheForge(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, "https://github.com/acme/widgets.git", "")
+	out, err := exec.Command("git", "-C", dir, "ls-remote", "--heads", "origin", "main").CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "not allowed") {
+		t.Errorf("git ls-remote origin = %v, %q; want the https transport refused before it connects", err, out)
+	}
 }
 
 // smokeWidgetRepo makes a committed Go repository with one fixable bug.
 func smokeWidgetRepo(t *testing.T, remote string) string {
 	t.Helper()
-	smokeNoGitNetwork(t)
 	dir := t.TempDir()
 	initGitRepo(t, dir, remote, "")
 	for name, content := range map[string]string{
