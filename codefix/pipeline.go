@@ -183,8 +183,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	o.applyDefaults()
 
 	// Whether the run has an index is decided once, here, for every phase
-	// (16-REQ-2.1). The index itself reaches the model through the Runner's
-	// Config.Index, which the caller builds from the same Options.Index.
+	// (16-REQ-2.1). It is the index the Runner's phases read, and so the one
+	// the pipeline invalidates after a tree change (16-REQ-4).
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 	indexed := o.Index != nil
 
 	result := newResult(o)
@@ -647,6 +652,12 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 		git = gitx.New(root, nil)
 	}
 	o.applyDefaults()
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 
 	result := newResult(o)
 	target, base, pfErr := preflight(ctx, o, git, result)

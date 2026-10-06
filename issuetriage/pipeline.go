@@ -204,8 +204,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// Whether the run has an index is decided once, here, for every phase
-	// (16-REQ-2.1). The index itself reaches the model through the Runner's
-	// Config.Index, which the caller builds from the same Options.Index.
+	// (16-REQ-2.1). It is the index the Runner's phases read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", "internal", "%v", idxErr)
+	}
+	o.Index = idx
 	indexed := o.Index != nil
 
 	target, f := Preflight(o)
@@ -325,6 +329,12 @@ func RunPreflight(o Options) (*Result, error) {
 	if o.Runner == nil {
 		return nil, failf("preflight", "internal", "no runner configured")
 	}
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", "internal", "%v", idxErr)
+	}
+	o.Index = idx
 	target, f := Preflight(o)
 	if f != nil {
 		return nil, f

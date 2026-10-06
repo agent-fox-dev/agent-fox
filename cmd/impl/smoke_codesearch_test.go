@@ -23,9 +23,9 @@ import (
 // implBranch is the branch impl names for the example spec.
 const implBranch = "impl/09-agent-mode-spec-cli"
 
-// implSmokeTurns scripts the model for the example spec: a survey, then three
-// tasks. Each phase opens with a code_search call, so the call's place in the
-// probe's sequence says where the phase began.
+// implSmokeTurns scripts the model for the two-task spec implSmokeRepo writes:
+// a survey, then two tasks. Each phase opens with a code_search call, so the
+// call's place in the probe's sequence says where the phase began.
 func implSmokeTurns() []faux.Turn {
 	search := func(id string) faux.Turn {
 		return indextest.ToolTurn(id, "code_search", map[string]any{"query": "spec"})
@@ -60,14 +60,15 @@ func implSmokeTurns() []faux.Turn {
 		search("sv"),
 		indextest.ToolTurn("sv2", "submit_survey", map[string]any{"summary": "nothing exists yet"}),
 	}
-	turns = append(turns, task("1", "feat: land task one", []string{"TS-09-1", "TS-09-2", "TS-09-3"}, false)...)
-	turns = append(turns, task("2", "feat: land task two", []string{"TS-09-4", "TS-09-5"}, false)...)
-	turns = append(turns, task("3", "feat: land task three", []string{"TS-09-6"}, true)...)
+	turns = append(turns, task("1", "feat: land task one", []string{"TS-09-1", "TS-09-2", "TS-09-3", "TS-09-4", "TS-09-5"}, false)...)
+	turns = append(turns, task("2", "feat: land task two", []string{"TS-09-6"}, true)...)
 	return turns
 }
 
-// implSmokeRepo is the example spec's repository without the touches the
-// scripted work would not honour, committed.
+// implSmokeRepo is the example spec's repository as the two-task spec TS-16-34
+// describes, committed: the example's first two tasks are folded into task 1
+// and its integration task becomes task 2, and the touches the scripted work
+// would not honour are dropped.
 func implSmokeRepo(t *testing.T) string {
 	t.Helper()
 	dir, specDir := preflightSpecRepo(t)
@@ -80,9 +81,16 @@ func implSmokeRepo(t *testing.T) string {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, task := range doc["tasks"].([]any) {
+	tasks := doc["tasks"].([]any)
+	for _, task := range tasks {
 		delete(task.(map[string]any), "touches")
 	}
+	first, second, last := tasks[0].(map[string]any), tasks[1].(map[string]any), tasks[2].(map[string]any)
+	first["criteria"] = append(first["criteria"].([]any), second["criteria"].([]any)...)
+	first["tests"] = append(first["tests"].([]any), second["tests"].([]any)...)
+	last["id"] = 2
+	last["depends_on"] = []any{1}
+	doc["tasks"] = []any{first, last}
 	if raw, err = json.MarshalIndent(doc, "", "  "); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +98,7 @@ func implSmokeRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	gitIn(t, dir, "add", "-A")
-	gitIn(t, dir, "commit", "-q", "-m", "chore: spec without touches")
+	gitIn(t, dir, "commit", "-q", "-m", "chore: the spec as two tasks")
 	return dir
 }
 
@@ -147,7 +155,7 @@ func TestTS16_34_ImplInvalidatesTheIndexAcrossTreeChanges_Smoke(t *testing.T) {
 
 			code, env, log := runImplSmoke(t, dir)
 			res, _ := env["result"].(map[string]any)
-			if code != toolio.ExitOK || res["stage"] != "landed" || res["tasks_done"] != float64(3) {
+			if code != toolio.ExitOK || res["stage"] != "landed" || res["tasks_done"] != float64(2) {
 				t.Fatalf("exit %d, stage %v, tasks_done %v\n%s", code, res["stage"], res["tasks_done"], log)
 			}
 
@@ -160,8 +168,8 @@ func TestTS16_34_ImplInvalidatesTheIndexAcrossTreeChanges_Smoke(t *testing.T) {
 
 			// searches: the survey, then each task's phase.
 			s := probe.Searches()
-			if len(s) != 4 {
-				t.Fatalf("code_search reached the index %d times, want 4 (survey and three tasks)", len(s))
+			if len(s) != 3 {
+				t.Fatalf("code_search reached the index %d times, want 3 (survey and two tasks)", len(s))
 			}
 
 			onBranch := func(snaps []indextest.Snap) bool {
@@ -183,23 +191,21 @@ func TestTS16_34_ImplInvalidatesTheIndexAcrossTreeChanges_Smoke(t *testing.T) {
 				t.Errorf("no Invalidate(\"\") on %s between the survey and task 1: %+v", implBranch, probe.Snaps())
 			}
 
-			// After each landed task's commit, before the next phase: HEAD is
-			// that task's commit and the tree is clean.
-			for i, subject := range []string{"task one", "task two"} {
-				commit := gitIn(t, dir, "log", "--format=%H", "--grep", subject)
-				if commit == "" || strings.Contains(commit, "\n") {
-					t.Fatalf("commits for %q = %q, want exactly one", subject, commit)
+			// After task 1's commit, before task 2's phase: HEAD is task 1's
+			// commit and the tree is clean.
+			commit := gitIn(t, dir, "log", "--format=%H", "--grep", "task one")
+			if commit == "" || strings.Contains(commit, "\n") {
+				t.Fatalf("commits for task one = %q, want exactly one", commit)
+			}
+			ok := false
+			for _, sn := range probe.Between(s[1], s[2]) {
+				if sn.Rel == "" && sn.Head == commit && sn.Status == "" {
+					ok = true
 				}
-				ok := false
-				for _, sn := range probe.Between(s[i+1], s[i+2]) {
-					if sn.Rel == "" && sn.Head == commit && sn.Status == "" {
-						ok = true
-					}
-				}
-				if !ok {
-					t.Errorf("no Invalidate(\"\") with HEAD at %s's commit %s before the next task's phase: %+v",
-						subject, commit, probe.Between(s[i+1], s[i+2]))
-				}
+			}
+			if !ok {
+				t.Errorf("no Invalidate(\"\") with HEAD at task 1's commit %s before task 2's phase: %+v",
+					commit, probe.Between(s[1], s[2]))
 			}
 
 			if n := probe.CloseCalls(); n != 1 {

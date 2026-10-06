@@ -152,6 +152,8 @@ func TS13(t *testing.T, h Harness, errUnsupported error) {
 				}
 				if d.Runner == nil {
 					t.Error("no Runner: the run must continue without code_search")
+				} else if d.Runner.Index() != nil {
+					t.Errorf("the Runner's Config.Index = %v, want nil", d.Runner.Index())
 				}
 				return toolio.ExitOK, nil, nil
 			}, false)
@@ -184,18 +186,28 @@ func TS13(t *testing.T, h Harness, errUnsupported error) {
 }
 
 // TS14 is TS-16-14: the index is built once, for the run's workspace, before
-// the Runner, and the one instance reaches the pipeline.
+// the Runner, and the one instance reaches the pipeline, the Runner's own
+// Config, and a second runner derived from it.
 func TS14(t *testing.T, h Harness) {
 	argv := h.Setup(t)
 	f := &Factory{}
 	h.factory(t, f)
-	var seen []tools.Index
+	var seen, runners []tools.Index
 	var root string
 	h.run(t, context.Background(), argv, func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 		seen = append(seen, d.Index)
 		if d.Runner == nil {
-			t.Error("no Runner")
+			t.Fatal("no Runner")
 		}
+		runners = append(runners, d.Runner.Index())
+		// A second runner on another model — impl's repair runner is built
+		// from RunnerConfig — shares everything but the model, the index too.
+		runners = append(runners, d.RunnerConfig().Index)
+		second, _, err := d.RunnerFor(d.Model.Spec)
+		if err != nil {
+			t.Fatalf("RunnerFor(%q): %v", d.Model.Spec, err)
+		}
+		runners = append(runners, second.Index())
 		root = d.Workspace.Root
 		return toolio.ExitOK, nil, nil
 	}, false)
@@ -204,6 +216,14 @@ func TS14(t *testing.T, h Harness) {
 	}
 	if len(seen) != 1 || seen[0] != tools.Index(f.Index) {
 		t.Errorf("the pipeline got %v, want the one built index %v", seen, f.Index)
+	}
+	for i, idx := range runners {
+		if idx != tools.Index(f.Index) {
+			t.Errorf("runner %d's Config.Index = %v, want the one built index %v", i, idx, f.Index)
+		}
+	}
+	if len(runners) != 3 {
+		t.Errorf("checked %d runner configurations, want the run's and two derived ones", len(runners))
 	}
 	if ws := f.Workspaces(); len(ws) != 1 || ws[0] == nil || ws[0].Root != root {
 		t.Errorf("the index was built for %v, not the run's workspace %q", ws, root)

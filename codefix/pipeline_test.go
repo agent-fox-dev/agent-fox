@@ -1688,3 +1688,51 @@ func TestCodefixInvalidatesTheIndexAfterEveryCheckRun(t *testing.T) {
 		}
 	}
 }
+
+// The pipeline grants and invalidates the index its Runner's phases read
+// (16-REQ-1.4): a Runner built on another index is refused before any phase
+// runs, and the Runner's index is the run's when the Options carry none.
+func TestTS16_3_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	p := faux.New()
+	o := newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	o.Index = &fakeIndex{}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not the one its runner was built with") {
+		t.Fatalf("Run with two indexes: err = %v, want a refusal", err)
+	}
+	if n := len(p.Requests()); n != 0 {
+		t.Errorf("%d requests reached the model after the refusal", n)
+	}
+
+	p = faux.New()
+	o = newOptions(ws, g, nil)
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); !got["code_search"] {
+		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}
+
+// 16-REQ-2.1: the independent review phase, which conform.RunReview builds, is
+// granted code_search by this tool's brain like every other phase, and is not
+// without an index (16-REQ-2.2).
+func TestTheReviewPhaseIsGrantedCodeSearch(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	for _, on := range []bool{true, false} {
+		var idx tools.Index
+		if on {
+			idx = &fakeIndex{}
+		}
+		p := faux.New()
+		b := &agentBrain{runner: indexedRunner(t, ws, p, idx), codeSearch: on}
+		_, _, _ = b.Review(context.Background(), conform.ReviewInput{
+			Root: ws.Root, Base: "HEAD", Spec: "spec", Scope: conform.ReviewScope{Requirements: []string{"01-REQ-1"}},
+		})
+		if got := wireTools(t, p); got["code_search"] != on {
+			t.Errorf("index %v: the review phase offered %v", on, got)
+		}
+	}
+}
