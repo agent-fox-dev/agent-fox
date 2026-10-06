@@ -426,6 +426,13 @@ then the tool's own checks:
   plan to resume.
 - `triage`: the target repository and the forge credential.
 
+Every tool ends its list with the `symbol_backend` check: whether
+universal-ctags was found, and so which symbol backend `file_outline` and
+`find_symbol` use in every phase of the run. Its `detail` is `ctags` when
+universal-ctags is installed and usable and `heuristics` when it is not. It is
+informational — `ok` is always `true`, because the heuristic fallback always
+works — and it is left out of the list when the detection itself fails.
+
 **A refusal is the ordinary run's refusal.** A run that would stop before its
 first model call stops identically under `--preflight`: the same `stage`,
 `category`, `message` and exit code, with no `preflight` or `estimate` field —
@@ -498,7 +505,8 @@ fix ./bug-report.md --preflight
       {"check": "land_target", "ok": true, "detail": "acme/widgets"},
       {"check": "remote_configured", "ok": true, "detail": "origin"},
       {"check": "verify_command", "ok": true, "detail": "make test"},
-      {"check": "verify_baseline", "ok": true, "detail": "passed"}
+      {"check": "verify_baseline", "ok": true, "detail": "passed"},
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
     ],
     "estimate": {
       "phases": 2,
@@ -531,7 +539,8 @@ impl 09 --preflight
       {"check": "spec_status", "ok": true, "detail": "active"},
       {"check": "test_commands", "ok": true, "detail": "make lint · make test"},
       {"check": "dependencies", "ok": true, "detail": "no upstream specs"},
-      {"check": "verify_baseline", "ok": true, "detail": "passed"}
+      {"check": "verify_baseline", "ok": true, "detail": "passed"},
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
     ],
     "estimate": {
       "phases": 5,
@@ -561,7 +570,8 @@ spec ./prd.md --preflight
     "stage": "preflight",
     "preflight": [
       {"check": "schemas_valid", "ok": true},
-      {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"}
+      {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"},
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
     ],
     "estimate": {
       "phases": 4,
@@ -591,7 +601,8 @@ triage ./crash.log --preflight
     "stage": "preflight",
     "preflight": [
       {"check": "target_repository", "ok": true, "detail": "acme/widgets"},
-      {"check": "forge_credential", "ok": true}
+      {"check": "forge_credential", "ok": true},
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
     ],
     "estimate": {
       "phases": 1,
@@ -885,6 +896,9 @@ before the next phase:
 
 Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
+Its one phase reads the tree with the six read tools (`read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`)
+and has no tool that writes.
 
 ```sh
 triage "panic: assignment to entry in nil map in loop.go, after an abort"
@@ -1097,6 +1111,12 @@ The phases that run commands give the model one `execute` tool. A guard sits
 between it and the shell, on top of AgentKit's own restricted policy, and every
 phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 
+**Read tools.** Every phase of `fix` can call the six read tools: `read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`.
+`file_outline` returns a file's declarations and `find_symbol` finds where a
+name is declared; both use universal-ctags when it is installed and heuristics
+when it is not (`--preflight` reports which, as `symbol_backend`).
+
 **Allowlists, per phase.** A command whose program is not on the phase's list is
 refused. The lists are generated from the same source the guard enforces, so the
 `execute` tool description the model sees names them.
@@ -1177,7 +1197,9 @@ Anything genuinely untrusted belongs in a container.
 ## `spec`
 
 Turns a product idea into a complete, validated version 2 specification
-package under `.specs/NN_name/`.
+package under `.specs/NN_name/`. Every phase reads the tree with the six read
+tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`
+and `find_symbol`) and has no tool that writes.
 
 ```sh
 spec "a cache in front of the widget catalog, with a TTL"
@@ -1714,7 +1736,9 @@ and the `repair` report are in the report file.
 
 ### What the model may and may not do
 
-The survey and review phases are read-only, with `execute` under the reporting
+Every phase of `impl` can call the six read tools — `read_file`, `list_files`,
+`find_files`, `search_files`, `file_outline` and `find_symbol` — whatever else
+it is granted. The survey and review phases are read-only, with `execute` under the reporting
 allowlist. The implementation, repair and resolve phases have the file tools and a shell under the
 same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
 allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one

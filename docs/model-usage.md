@@ -16,18 +16,18 @@ one's *conclusion* rather than from how it got there.
 
 | Tool | Phase | Tools it may call | `max_tokens` | Terminating tool |
 |---|---|---|---|---|
-| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files` | provider default | `file_issue` |
-| `fix` | `analyse` | the four read tools, plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
-| `fix` | `implement` | the read tools, `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
-| `spec` | `prd` | the four read tools | 32 768 | `submit_prd` |
-| `spec` | `generate:{artifact}` | the four read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
-| `spec` | `architecture` (opt-in) | the four read tools | 32 768 | `submit_architecture` |
-| `impl` | `survey` | the four read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
+| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` | provider default | `file_issue` |
+| `fix` | `analyse` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
+| `fix` | `implement` | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
+| `spec` | `prd` | the six read tools | 32 768 | `submit_prd` |
+| `spec` | `generate:{artifact}` | the six read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
+| `spec` | `architecture` (opt-in) | the six read tools | 32 768 | `submit_architecture` |
+| `impl` | `survey` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
-| `impl` | `implement` (once per task) | the read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
+| `impl` | `implement` (once per task) | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
 
-The "four read tools" are `read_file`, `list_files`, `find_files` and
-`search_files`. The build allowlist is the read-only one plus the toolchains
+The "six read tools" are `read_file`, `list_files`, `find_files`,
+`search_files`, `file_outline` and `find_symbol`. The build allowlist is the read-only one plus the toolchains
 (`go`, `make`, `npm`, `python`, `cargo`, …), the verification command's own
 program, and whatever `--allow` adds. The exact lists, the heredoc and `cd`
 handling and the refusal format are in the
@@ -170,6 +170,19 @@ unset/auto/none, the tri-state expressible on every wire it speaks.
 
 Every phase reads the source. The turns it spends reading come out of the same
 budget, and `--verbose` reports each tool call on stderr.
+
+Six tools read the tree. `read_file`, `list_files`, `find_files` and
+`search_files` read and search by path and by text. `file_outline` returns one
+file's declarations (kind, name and line) without reading its body, and
+`find_symbol` locates a name across the workspace in one call, where a
+`search_files` and a `read_file` would otherwise be needed. Both are
+AgentKit's. Universal-ctags is the accelerator: where it is installed they use
+it, and where it is not they fall back to heuristics, the same pattern as
+`search_files` with `rg`. Each result names the backend that produced it, and
+`--preflight` reports which one a run will use (the `symbol_backend` check).
+Each phase holds its own symbol table: `find_symbol` builds it on its first
+call and it is bounded by AgentKit's defaults, so `fix` and `impl` do not carry
+a table across the checkouts, resets, gate runs and commits between phases.
 
 Nothing that writes is reachable in a read-only phase: the mutating tools are
 excluded from the resolved set, an invariant checks that set before the first
