@@ -72,6 +72,7 @@ type GuardOptions struct {
 // A refusal is a blocked tool result, not a crash: the model reads it and
 // adapts, which is why each reason says what to do instead.
 func Guard(o GuardOptions) core.BeforeToolCall {
+	o.Programs = uniquePrograms(o.Programs)
 	base := guard.Restricted(guard.Options{
 		AllowedPrograms:     o.Programs,
 		AllowShellOperators: o.AllowOperators,
@@ -118,18 +119,38 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 			if reason, blocked := o.refusal(vectors, cmd); blocked {
 				return block(in.ToolName, reason)
 			}
+			first := 1
 			if d := base(ctx, in); d.Block {
-				d.Reason = o.restate(d.Reason)
-				log(in.ToolName, d.Reason)
-				return d
+				// The shipped policy misreads an assignment from a command
+				// substitution — `d=$(go list ...)` — and names an argument
+				// as the program. This guard's own parse has already judged
+				// every program on the line, so a complaint about a word that
+				// is no command's program is the misreading, not a finding.
+				misread := o.misreadProgram(d.Reason, vectors)
+				switch {
+				case misread && o.AllowOperators && in.ToolName == "execute":
+					first = 0 // every segment, the first included, is judged below
+				case misread:
+					d.Reason = "this phase runs one plain command per call: command substitution ($(...) " +
+						"or backticks), pipes, && and ; are refused. Run the inner command on its own."
+					log(in.ToolName, d.Reason)
+					return d
+				default:
+					d.Reason = o.restate(d.Reason)
+					log(in.ToolName, d.Reason)
+					return d
+				}
 			}
 			// The shipped policy inspects only the first program once
 			// operators are allowed, so every later segment is offered to it
 			// separately.
 			if in.ToolName == "execute" && o.AllowOperators {
 				cmd, _ := in.Arguments["command"].(string)
-				if segs := ShellSegments(cmd); len(segs) > 1 {
-					for _, seg := range segs[1:] {
+				if segs := ShellSegments(cmd); len(segs) > first {
+					for _, seg := range segs[first:] {
+						if len(commandWords(strings.Fields(seg))) == 0 {
+							continue // an assignment alone runs no program
+						}
 						if d := base(ctx, withCommand(in, seg)); d.Block {
 							d.Reason = o.restate(d.Reason)
 							log(in.ToolName, d.Reason)
@@ -166,10 +187,150 @@ func (o GuardOptions) refusal(vectors [][]string, cmd string) (string, bool) {
 	if reason, blocked := o.suiteRun(vectors); blocked {
 		reasons = append(reasons, reason)
 	}
+	if reason, blocked := o.rmOutside(vectors); blocked {
+		reasons = append(reasons, reason)
+	}
 	if len(reasons) == 0 {
 		return "", false
 	}
+	// A backtick opens a command substitution even inside double quotes; an
+	// unclosed one swallows the rest of the line, whose last word is then
+	// "the program". Say what happened instead of naming that word.
+	switch n := backticks(cmd); {
+	case n%2 == 1:
+		return backtickReason, true
+	case n > 0:
+		reasons = append([]string{backtickReason}, reasons...)
+	}
 	return strings.Join(reasons, " Also: "), true
+}
+
+const backtickReason = "a backtick (`) outside single quotes starts a command substitution, even inside " +
+	"double quotes; put the pattern in single quotes or escape it as \\`."
+
+// backticks counts the backticks on the line that start or end a command
+// substitution: unescaped and outside single quotes.
+func backticks(cmd string) int {
+	n, inSingle := 0, false
+	for i := 0; i < len(cmd); i++ {
+		switch c := cmd[i]; {
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
+			}
+		case c == '\\':
+			i++
+		case c == '\'':
+			inSingle = true
+		case c == '`':
+			n++
+		}
+	}
+	return n
+}
+
+// misreadProgram reports whether a refusal from the shipped policy names, as
+// the program not on the allowlist, a word that is no command's program in
+// this guard's own parse of the line.
+func (o GuardOptions) misreadProgram(reason string, vectors [][]string) bool {
+	const marker = `program "`
+	i := strings.Index(reason, marker)
+	if i < 0 || !strings.Contains(reason, "is not on the allowlist") {
+		return false
+	}
+	name := reason[i+len(marker):]
+	if j := strings.IndexByte(name, '"'); j >= 0 {
+		name = name[:j]
+	}
+	for _, argv := range vectors {
+		if baseName(argv[0]) == baseName(name) {
+			return false
+		}
+	}
+	return true
+}
+
+// rmOutside refuses an rm that reaches outside the workspace, the workspace
+// itself, the git directory or a protected directory, or that names its
+// targets by a glob or an expansion the guard cannot see through. Inside the
+// workspace rm is allowed: python3 can delete a file anyway, and a refusal
+// that protects nothing only costs a turn.
+func (o GuardOptions) rmOutside(vectors [][]string) (string, bool) {
+	resolve := o.ResolvePath
+	if resolve == nil {
+		resolve = filepath.Abs
+	}
+	root, rootErr := resolve(".")
+	var bad []string
+	for _, argv := range vectors {
+		if baseName(argv[0]) != "rm" {
+			continue
+		}
+		operands := false
+		for _, a := range argv[1:] {
+			if !operands && a == "--" {
+				operands = true
+				continue
+			}
+			if !operands && strings.HasPrefix(a, "-") {
+				continue
+			}
+			if strings.ContainsAny(a, "*?[$~`") || rootErr != nil {
+				bad = append(bad, a)
+				continue
+			}
+			abs, err := resolve(a)
+			if err != nil {
+				bad = append(bad, a)
+				continue
+			}
+			rel, err := filepath.Rel(root, abs)
+			if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+				rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+				bad = append(bad, a)
+				continue
+			}
+			if _, hit := o.protectedDir(a); hit || o.containsProtected(abs, resolve) {
+				bad = append(bad, a)
+			}
+		}
+	}
+	if len(bad) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("rm may remove only files and directories inside the repository, named one by one: "+
+		"not %s. The repository itself, .git, the spec package, a path outside, a glob and an expansion "+
+		"are refused.", strings.Join(bad, ", ")), true
+}
+
+// containsProtected reports whether abs is an ancestor of a protected
+// directory, which removing it would remove too.
+func (o GuardOptions) containsProtected(abs string, resolve func(string) (string, error)) bool {
+	for _, dir := range o.ProtectedPaths {
+		d, err := resolve(dir)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(abs, d); err == nil && rel != "." && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// uniquePrograms is the list with each program once, in first-seen order: a
+// phase's allowlist is assembled from several lists that overlap.
+func uniquePrograms(list []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range list {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // suiteRun refuses the whole test suite in a phase that names it. The

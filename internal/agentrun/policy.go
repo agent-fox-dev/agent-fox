@@ -73,7 +73,7 @@ var ReadOnlyPrograms = []string{
 var BuildPrograms = []string{
 	"go", "gofmt", "goimports", "make", "npm", "npx", "node", "yarn", "pnpm",
 	"python", "python3", "pytest", "uv", "pip", "cargo", "rustfmt",
-	"mkdir", "cp", "mv", "sed", "awk", "diff", "sort", "uniq", "touch",
+	"mkdir", "cp", "mv", "rm", "sed", "awk", "diff", "sort", "uniq", "touch",
 }
 
 // ErrNotReadOnly is returned when a mutating tool reaches a read-only phase's
@@ -147,7 +147,7 @@ func SelectTools(all []core.Tool, readOnly bool, programs []string, names ...str
 
 // describeForPhase is a tool's description with the phase's rules in it.
 func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
-	list := strings.Join(programs, ", ")
+	list := strings.Join(uniquePrograms(programs), ", ")
 	switch t.Name {
 	case "execute":
 		if readOnly {
@@ -158,8 +158,8 @@ func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
 				"tail of a long listing is preserved."
 		}
 		return t.Description + " The shell already starts at the repository root: do not `cd` to it. " +
-			"The only programs allowed are: " + list + "; anything else (find, rm, env, perl, curl) is " +
-			"refused. Heredocs are not for writing files: use write_file for a multi-line file. Do not " +
+			"The only programs allowed are: " + list + "; anything else (find, env, perl, curl) is " +
+			"refused, and rm only removes paths inside the repository, named one by one. Heredocs are not for writing files: use write_file for a multi-line file. Do not " +
 			"leave scratch files or .bak copies in the repository."
 	case "run_command":
 		return t.Description + " It starts at the repository root. The only programs allowed are: " + list + "."
