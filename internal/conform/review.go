@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/agentfox/agentkit-go/schema"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/gitx"
 )
 
 // The review is the independent half of "the spec's contract holds": a phase
@@ -258,7 +260,9 @@ func reviewSchema() *schema.Schema {
 				"another shape, another rule.", RequirementStatuses...)),
 		schema.Prop("evidence", schema.String(
 			"The file:line where the code does it (or does otherwise), and what is there. Required "+
-				"for every status except missing, and checked: the file and line must exist.")),
+				"for every status except missing, and checked: the file and line must exist. Cite "+
+				"path/from/root.go:NN, e.g. internal/agentrun/phase.go:480; a symbol name or a file "+
+				"without a line is refused.")),
 	)
 	test := schema.Object(
 		schema.Prop("id", schema.String("The test id, exactly as listed (TS-...)")),
@@ -272,7 +276,8 @@ func reviewSchema() *schema.Schema {
 				"assertion in a branch that never runs, a value compared with itself). no_assertions: "+
 				"nothing in it can fail. missing: no test implements the id.", TestAssessments...)),
 		schema.Prop("evidence", schema.String(
-			"What the test asserts, quoted, against what the contract names; file:line is checked")),
+			"What the test asserts, quoted, against what the contract names; file:line is checked "+
+				"(path/from/root_test.go:NN, unless the test field already cites it)")),
 	)
 	decision := schema.Object(
 		schema.Prop("id", schema.String("D-n, exactly as listed")),
@@ -302,15 +307,32 @@ func reviewSchema() *schema.Schema {
 // scope, answers one twice, invents one, or cites a file:line that does not
 // exist — the review is checked for completeness and for evidence that can
 // be looked up, which is all a program can check of it.
+//
+// A refusal names every row that is wrong, not the first: each resubmission
+// re-emits the review, and a review of a large spec is thousands of tokens.
+// The rows a refused submission got right are kept, so the next one need
+// carry only the rows it was told to correct: a row it sends replaces the
+// kept row with its id, a row it leaves out keeps it, and an omitted summary
+// or docs list keeps the last one sent. What is accepted is the whole review,
+// checked as a whole.
 func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Tool {
 	decisionIDs := make([]string, len(scope.Decisions))
 	for i, d := range scope.Decisions {
 		decisionIDs[i] = d.ID
 	}
+	cite := newCiter(root)
+	var (
+		mu    sync.Mutex
+		draft Review
+	)
 	return core.Tool{
 		Name: ToolSubmitReview,
 		Description: "Submit the conformance review and end this phase. Call it once, after you have " +
-			"read the change against every requirement, test and decision in scope.",
+			"read the change against every requirement, test and decision in scope. Evidence cites " +
+			"file:line with the path from the repository root, e.g. `internal/agentrun/phase.go:480`; a " +
+			"basename alone (`phase.go:480`) is accepted only when one tracked file has that name, and a " +
+			"symbol name or a file without a line is refused. A refusal lists every row to correct; the " +
+			"other rows are kept, so resubmit only the rows it names.",
 		InputSchema: reviewSchema(),
 		ConstrainedSampling: &core.ConstrainedSampling{
 			Type: core.ConstrainJSONSchema, Strict: core.StrictPrefer,
@@ -318,14 +340,22 @@ func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Too
 		PromptGuidelines: []string{
 			"Report the review by calling " + ToolSubmitReview + "; do not write it as prose.",
 			"Every id in scope gets exactly one row; the submission is refused until it does.",
+			"After a refusal, resubmit only the rows it names; the rows it did not name are kept.",
 		},
 		Execute: func(_ context.Context, in json.RawMessage) core.ToolResult {
 			var r Review
 			if err := json.Unmarshal(in, &r); err != nil {
 				return core.ErrResult("invalid_arguments", err.Error())
 			}
+			mu.Lock()
+			defer mu.Unlock()
+			r = mergeReview(draft, r)
+
+			var problems []string
+			code := "incomplete_review"
 			if strings.TrimSpace(r.Summary) == "" {
-				return core.ErrResult("missing_summary", "summary is empty")
+				problems = append(problems, "summary is empty")
+				code = "missing_summary"
 			}
 			var reqRows, testRows, decRows []row
 			for _, x := range r.Requirements {
@@ -337,6 +367,7 @@ func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Too
 			for _, x := range r.Decisions {
 				decRows = append(decRows, row{x.ID, x.Status, x.Evidence, false})
 			}
+			good := map[string]map[string]bool{}
 			for _, c := range []struct {
 				field string
 				ids   []string
@@ -347,16 +378,36 @@ func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Too
 				{"tests", scope.Tests, testRows, TestAssessments},
 				{"decisions", decisionIDs, decRows, DecisionStatuses},
 			} {
-				if err := checkRows(root, c.field, c.ids, c.rows, c.enum); err != nil {
-					return core.ErrResult("incomplete_review", err.Error())
-				}
+				p, ok := checkRows(cite, c.field, c.ids, c.rows, c.enum)
+				problems = append(problems, p...)
+				good[c.field] = ok
 			}
+			var docs []DocFinding
 			for i, d := range r.Docs {
-				if !Cites(root, d.Doc) || !Cites(root, d.Code) {
-					return core.ErrResult("unresolved_citation", fmt.Sprintf(
-						"docs[%d] cites %q and %q; both must be file:line references that exist in the "+
-							"repository", i, d.Doc, d.Code))
+				if okDoc, why := cite.cites(d.Doc); !okDoc {
+					problems = append(problems, fmt.Sprintf("docs[%d]: the doc %q %s", i, d.Doc, why))
+					continue
 				}
+				if okCode, why := cite.cites(d.Code); !okCode {
+					problems = append(problems, fmt.Sprintf("docs[%d]: the code %q %s", i, d.Code, why))
+					continue
+				}
+				docs = append(docs, d)
+			}
+			if len(problems) > 0 {
+				if code != "missing_summary" && len(problems) == len(r.Docs)-len(docs) {
+					code = "unresolved_citation"
+				}
+				// Keep what was right, so the next submission carries only
+				// what was not.
+				draft = Review{Summary: r.Summary, Docs: docs,
+					Requirements: keepRows(r.Requirements, good["requirements"], func(x RequirementRow) string { return x.ID }),
+					Tests:        keepRows(r.Tests, good["tests"], func(x TestRow) string { return x.ID }),
+					Decisions:    keepRows(r.Decisions, good["decisions"], func(x DecisionRow) string { return x.ID }),
+				}
+				return core.ErrResult(code, fmt.Sprintf("%d problem(s); correct each and resubmit only "+
+					"these rows — the rows not named here are kept:\n- %s", len(problems),
+					strings.Join(problems, "\n- ")))
 			}
 			r.Requirements = normalize(r.Requirements, scope.Requirements, func(x RequirementRow) string { return x.ID },
 				func(x *RequirementRow, id string) { x.ID = id })
@@ -372,45 +423,106 @@ func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Too
 	}
 }
 
+// mergeReview lays a submission over the rows kept from a refused one: a row
+// the submission sends replaces the kept row with its id, and a summary or a
+// docs list it leaves out keeps the kept one. Rows the submission sends are
+// kept as sent, duplicates included, so they are checked as sent.
+func mergeReview(kept, sub Review) Review {
+	if strings.TrimSpace(sub.Summary) == "" {
+		sub.Summary = kept.Summary
+	}
+	if sub.Docs == nil {
+		sub.Docs = kept.Docs
+	}
+	sub.Requirements = mergeRows(kept.Requirements, sub.Requirements, func(x RequirementRow) string { return x.ID })
+	sub.Tests = mergeRows(kept.Tests, sub.Tests, func(x TestRow) string { return x.ID })
+	sub.Decisions = mergeRows(kept.Decisions, sub.Decisions, func(x DecisionRow) string { return x.ID })
+	return sub
+}
+
+func mergeRows[T any](kept, sent []T, idOf func(T) string) []T {
+	resent := map[string]bool{}
+	for _, r := range sent {
+		resent[strings.ToUpper(strings.TrimSpace(idOf(r)))] = true
+	}
+	var out []T
+	for _, r := range kept {
+		if !resent[strings.ToUpper(strings.TrimSpace(idOf(r)))] {
+			out = append(out, r)
+		}
+	}
+	return append(out, sent...)
+}
+
+// keepRows is the rows whose id checkRows found good.
+func keepRows[T any](rows []T, good map[string]bool, idOf func(T) string) []T {
+	var out []T
+	for _, r := range rows {
+		if good[strings.ToUpper(strings.TrimSpace(idOf(r)))] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 type row struct {
 	id, verdict, evidence string
 	needsCitation         bool
 }
 
-func checkRows(root, field string, ids []string, rows []row, enum []string) error {
+// checkRows lists every problem with a field's rows, one line each, and the
+// ids whose single row passed.
+func checkRows(cite *citer, field string, ids []string, rows []row, enum []string) ([]string, map[string]bool) {
 	known := map[string]bool{}
 	for _, id := range ids {
 		known[strings.ToUpper(id)] = true
 	}
-	seen := map[string]bool{}
+	count := map[string]int{}
+	for _, r := range rows {
+		count[strings.ToUpper(strings.TrimSpace(r.id))]++
+	}
+	var problems []string
+	good := map[string]bool{}
+	reported := map[string]bool{}
 	for _, r := range rows {
 		id := strings.ToUpper(strings.TrimSpace(r.id))
 		switch {
 		case !known[id]:
-			return fmt.Errorf("%s names %q, which is not in scope (%s)", field, r.id, strings.Join(ids, ", "))
-		case seen[id]:
-			return fmt.Errorf("%s answers %s twice; give exactly one row", field, r.id)
+			problems = append(problems, fmt.Sprintf("%s names %q, which is not in scope (%s); drop the row",
+				field, r.id, strings.Join(ids, ", ")))
+		case count[id] > 1:
+			if !reported[id] {
+				problems = append(problems, fmt.Sprintf("%s: %s is answered %d times; give exactly one row",
+					field, r.id, count[id]))
+				reported[id] = true
+			}
 		case !slices.Contains(enum, r.verdict):
-			return fmt.Errorf("%s: %s is %q; it must be one of %s", field, r.id, r.verdict, strings.Join(enum, ", "))
+			problems = append(problems, fmt.Sprintf("%s: %s is %q; it must be one of %s", field, r.id, r.verdict,
+				strings.Join(enum, ", ")))
 		case len([]rune(strings.TrimSpace(r.evidence))) < minEvidenceRunes:
-			return fmt.Errorf("%s: the evidence for %s says only %q; say what is there", field, r.id,
-				strings.TrimSpace(r.evidence))
-		case r.needsCitation && !Cites(root, r.evidence):
-			return fmt.Errorf("%s: the evidence for %s cites no file:line that exists in the repository; "+
-				"name the line you read", field, r.id)
+			problems = append(problems, fmt.Sprintf("%s: the evidence for %s says only %q; say what is there",
+				field, r.id, strings.TrimSpace(r.evidence)))
+		default:
+			if r.needsCitation {
+				if ok, why := cite.cites(r.evidence); !ok {
+					problems = append(problems, fmt.Sprintf("%s: the evidence for %s %s", field, r.id, why))
+					continue
+				}
+			}
+			good[id] = true
 		}
-		seen[id] = true
 	}
 	var missing []string
 	for _, id := range ids {
-		if !seen[strings.ToUpper(id)] {
+		if count[strings.ToUpper(id)] == 0 {
 			missing = append(missing, id)
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("%s is missing %s; every id in scope needs a row", field, strings.Join(missing, ", "))
+		problems = append(problems, fmt.Sprintf("%s is missing %s; every id in scope needs a row", field,
+			strings.Join(missing, ", ")))
 	}
-	return nil
+	return problems, good
 }
 
 // normalize puts rows in scope order with scope's spelling of each id.
@@ -435,6 +547,60 @@ func normalize[T any](rows []T, ids []string, idOf func(T) string, setID func(*T
 // citationRe is a file:line reference: a path with an extension (or a
 // Makefile), a colon, a line number.
 var citationRe = regexp.MustCompile(`([A-Za-z0-9_./-]*(?:\.[A-Za-z0-9]+|Makefile)):(\d+)`)
+
+// citer checks citations against a repository, resolving a bare basename
+// (`phase.go:480`) to the one tracked file that has it. The tracked files are
+// listed once, the first time a basename needs resolving.
+type citer struct {
+	root   string
+	once   sync.Once
+	byBase map[string][]string
+}
+
+func newCiter(root string) *citer { return &citer{root: root} }
+
+// cites reports whether text names a file:line that exists, and when it does
+// not, why, in words a reviewer can act on.
+func (c *citer) cites(text string) (bool, string) {
+	if Cites(c.root, text) {
+		return true, ""
+	}
+	var ambiguous []string
+	for _, m := range citationRe.FindAllStringSubmatch(text, -1) {
+		if strings.Contains(m[1], "/") {
+			continue
+		}
+		n, _ := strconv.Atoi(m[2])
+		paths := c.withBase(m[1])
+		if len(paths) == 1 && fileHasLine(filepath.Join(c.root, filepath.FromSlash(paths[0])), n) {
+			return true, ""
+		}
+		if len(paths) > 1 {
+			ambiguous = append(ambiguous, fmt.Sprintf("%s is %s", m[1], strings.Join(paths, " or ")))
+		}
+	}
+	if len(ambiguous) > 0 {
+		return false, "names a basename more than one tracked file has (" + strings.Join(ambiguous, "; ") +
+			"); give the path from the repository root"
+	}
+	return false, "cites no file:line that exists in the repository; name the line you read as " +
+		"path/from/root.go:NN"
+}
+
+func (c *citer) withBase(base string) []string {
+	c.once.Do(func() {
+		c.byBase = map[string][]string{}
+		files, err := gitx.New(c.root, gitx.ExecRunner).TrackedFiles(context.Background())
+		if err != nil {
+			return
+		}
+		for _, f := range files {
+			b := path.Base(f)
+			c.byBase[b] = append(c.byBase[b], f)
+		}
+	})
+	return c.byBase[base]
+}
 
 // Cites reports whether text names at least one file:line inside root that
 // exists.

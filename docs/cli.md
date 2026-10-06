@@ -1678,7 +1678,12 @@ where it left the base branch:
   `missing` or `different`; `asserts_contract`, `weaker`, `tautological`,
   `no_assertions` or `missing`; `followed` or `not_followed`; and every
   documentation statement the code contradicts. `submit_review` refuses a
-  review that skips an id or cites a `file:line` that does not exist.
+  review that skips an id or cites a `file:line` that does not exist. A
+  citation is the path from the repository root; a bare basename
+  (`phase.go:480`) counts only when one tracked file has that name. A refusal
+  lists every row to correct at once, and the rows it does not name are kept:
+  the next submission carries only the corrected rows (and may leave out the
+  summary and the docs list), and the merged review is checked as a whole.
 
 A requirement `missing` or `different`, a test `tautological`,
 `no_assertions` or `missing`, a decision `not_followed`, a contradicted
@@ -1728,8 +1733,8 @@ comment fits too. A comment that cannot be posted is the warning
 A task that changed documentation must also give `doc_sources`: for every
 fact it wrote, the code or test `file:line` it was copied from and the text on
 that line. `submit_task` checks each against the file and refuses one that is
-not there, or that cites documentation. Every writing phase is told today's
-date.
+not there, or that cites documentation, naming every such source in one
+refusal. Every writing phase is told today's date.
 
 | Flag | Default | Effect |
 |---|---|---|
