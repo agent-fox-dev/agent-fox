@@ -23,6 +23,27 @@ model in it, and a run is one forge call (two where the second is implied by
 the first, such as reading a repository's default branch before opening a pull
 request against it).
 
+### The tracking workflow (amended by PRD 12)
+
+[PRD 12](12-track-the-work-in-forge-issues.md) gives every spec package a
+tracking issue that `spec` creates and `impl`, `fix` and `review` write to,
+in fixed program-written shapes. That workflow does not run through `issue`:
+each pipeline writes through a shared package (`internal/tracking`) with its
+own `issuex.Client`, and `issue` gains no tracking operation. What `issue` is
+to that workflow is two things:
+
+- **The reader.** `issue --op read` on any issue reports, beside the thread,
+  the program-written lines PRD 12's grammar defines (§6, `links`): whether
+  the issue is a spec's tracker and for which package, which pull request it
+  names, and which tracker it leads back to. A skill holding only a URL
+  learns what kind of issue it has in one read.
+- **The escape hatch.** Everything the workflow does not do by itself — a
+  note a tool would not write, closing a tracker when a spec is retired,
+  renaming one, labelling one, listing what is open — is an ordinary `issue`
+  operation. `issue` writes a person's text as a person's: it sets no `kind`
+  on a comment or an issue it creates, so a hand-written note is never
+  dressed as a tool's.
+
 ### Not the tool that was renamed
 
 Until [commit `d8d8db5`](../../cmd/triage/main.go) the triage tool was called
@@ -317,6 +338,15 @@ to the four).
   as `toolio.RenderThread` renders it for a model, the same text the four
   tools would be given for this URL, so a skill that wants prose does not
   render its own.
+- `links` (amended by PRD 12): on `read`, the program-written lines found in
+  the body and the comments, matched by the fixed grammar of PRD 12 §8 and
+  never inferred: `tracking` (the `- **Tracking:** <url>` line of a gap
+  issue), `pull_request` (the `- Pull request: <url>` line of a `fix`
+  summary comment, or of a tracker's region), and `spec` (`{id, dir}` from
+  the `af:tracking` marker, present only on a tracking issue). Every field
+  is `external` — the forge returned it — and absent when the line is not
+  there. `links` is kept in the summary view: it is the one thing a skill
+  reads an issue for before deciding which tool to run.
 - `issues`: the list, for `list`, with `incomplete` (bool).
 - `pull_request`: an `issuex.PullRequest`, for `create-pr` and `pr`;
   `title` and `body` `external`, branch names, SHA, state and URL fact.
@@ -377,7 +407,11 @@ printed, as it does for the four tools. For a `read` that is at least
   value: `close_issue`, `add_labels`, `remove_label`, `create_label`,
   `review_comment`, `merge_pr`, `close_pr`. `target` is the ref or the
   repository as the four tools render it. A failed write carries the warning
-  code of the warning recorded for it.
+  code of the warning recorded for it. `kind` is never set on an `issue`
+  write (amended by PRD 12): the pipelines use it to name which of their own
+  program-written comments and issue writes an entry is (`prd`, `analysis`,
+  `tracking`, `impl_start`, `checklist`, …, an open set), and a body the
+  caller supplied is none of those.
 - `timings`: one `{kind: forge, name: <op>}` entry per forge call, including
   the implied read (`name: repo`).
 - `next`: empty. `issue` is a primitive; which tool runs next is the skill's
@@ -468,6 +502,12 @@ the four tools are untouched and nothing is copied:
 - **Trust labels.** `CheckTrust` over `issueops.Result` reports nothing
   unlabelled; `UntrustedFields` on a `read` result lists the issue body and
   every comment body and no `fact` field.
+- **`links`.** A `read` on a body carrying the `af:tracking` marker and a
+  region with a pull-request line reports `spec` and `pull_request`; a
+  `read` on a gap issue with a `Tracking:` line reports `tracking`; a `read`
+  on an ordinary issue reports no `links`; a line that is almost the grammar
+  (a different label, a URL in prose) reports nothing. The matchers are
+  `internal/tracking`'s, not a copy.
 - **Docs.** The doc tests that walk `docs/cli.md`'s shared-flags table and
   per-tool sections cover the `issue` section and the five-tool header.
 - **The four tools are unchanged.** Their golden files do not change in this
@@ -551,8 +591,9 @@ Per [ADR 06](../adr/06-version-the-envelope-interface.md):
 - `docs/cli.md`: the header block ("Five tools, one interface"); a shared-flags
   note saying which flags `issue` does not take and why; an `## issue` section
   with the operation table, the target table, the own-flags table, the result
-  sections and their summary view, the error table and worked examples for
-  a read, a write and a dry run; the new categories in the category table;
+  sections (`links` among them) and their summary view, the error table and
+  worked examples for a read, a write and a dry run; the new categories in
+  the category table;
   the new warning codes and the corrected `triage` attributions in the
   warning-codes table; the new `side_effects[].action` values and the
   open-set wording; the `run_start` note; the interface-versions entry.
@@ -579,7 +620,15 @@ Per [ADR 06](../adr/06-version-the-envelope-interface.md):
 - **`next` after `create`.** `triage` suggests `fix` on the issue it filed.
   `issue --op create` could do the same, but the body is whatever the caller
   wrote, and not every issue is a bug. Left empty here; a spec may add it if
-  the skills that use the tool want it.
+  the skills that use the tool want it. PRD 12 does not change this: the
+  tracking issues `spec` creates are `spec`'s artifacts, and `spec`'s
+  `next[]` already names `impl` on the package.
+- **`next` after `read`.** With `links` (§6), `read` knows when an issue is a
+  tracker (`impl <dir>`), a gap (`fix <url>`) or a `fix`'s issue with a pull
+  request (`review <pr-url>`). §8 keeps `next` empty because `issue` is a
+  primitive; the three entries above are derived from fixed lines, not from
+  judgment, so a spec may add them without breaking that rule. Left to the
+  spec.
 - **Comments on a merge request.** `issuex.ListComments` reads issue notes
   only, so on GitLab the comments of a merge request are reachable only as
   the `commented` entries of `reviews`. That is an `issuex` gap, not this
