@@ -70,6 +70,11 @@ type RunState struct {
 	// alone: see untracked.go.
 	untrackedBefore map[string]bool
 	leftWarned      map[string]bool
+	// lastTask is the last task this run implements, whose landing gate runs
+	// in the clean environment first, and clean the clean-environment gate
+	// the conformance stage may reuse: see cleangate.go.
+	lastTask int
+	clean    *cleanRun
 }
 
 type runState = RunState
@@ -223,6 +228,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Stage = "implementing"
 
 	// ------------------------------------------------------------ tasks --
+	if len(st.todo) > 0 {
+		st.lastTask = st.todo[len(st.todo)-1]
+	}
 	for _, id := range st.todo {
 		task, _ := st.spec.Tasks.GetTask(id)
 		if dep, state, blocked := notReadyByID(st.spec, id); blocked {
@@ -1220,7 +1228,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		}
 
 		// The gate, compared with the one before this task.
-		after := st.runGate(ctx, o, "verification")
+		after := st.landingGate(ctx, o, "verification", task.Id == st.lastTask)
 		verdict := compareGate(st.baseline, after)
 		report.Verification = &after
 		report.Verdict = verdict
@@ -1314,6 +1322,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 				"the tree is dirty after committing task %d — a hook changed files the commit does "+
 					"not carry:\n%s", task.Id, strings.Join(dirty, "\n"))
 		}
+		st.landedClean(commit, report.Repair == nil)
 		report.Commit = commit
 		report.Outcome = OutcomeDone
 		result.TasksDone++

@@ -1670,7 +1670,13 @@ where it left the base branch:
   where they are). The result is
   `final_verification`, and `environment` is its fingerprint: `git_version`,
   `init_default_branch` (`unset` in a clean environment) and `go_version`.
-  Checks that pass here and fail there lean on the author's machine.
+  Checks that pass here and fail there lean on the author's machine. So the
+  suite is not run twice in a row on one tree, the gate that lands the run's
+  last task — and the resolve phase's change — runs in this environment
+  first, when the gate before it was green: a pass there is both the landing
+  verdict and `final_verification`. When the clean run fails, the normal gate
+  decides the landing as for any other task, and the failing clean run is the
+  finding.
 - **An independent review** (`--no-review` skips it). A read-only phase on a
   fresh context sees the spec, the diff and the repository — no task's
   report — and answers for every requirement and test of the done tasks and
