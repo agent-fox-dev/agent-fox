@@ -157,12 +157,26 @@ func (g *Git) ChangedFiles(ctx context.Context, since string) ([]string, error) 
 
 // DiffSince is the change since a commit, untracked files included, as git's
 // name-status lines (`M\tpath`, `D\tpath`, `R100\told\tnew`) and the unified
-// patch. Untracked files are marked intent-to-add first so they appear in
-// both; the marking changes no content, and the commit that follows stages
-// everything anyway.
+// patch. Untracked files are marked intent-to-add so they appear in both, and
+// unmarked again before it returns: a marked file is no longer untracked, so
+// it would be taken by a commit that leaves untracked files alone, and
+// `git reset --hard` would delete it — and the checkout may hold files the
+// caller did not create.
 func (g *Git) DiffSince(ctx context.Context, since string) (nameStatus, patch string, err error) {
-	if _, err = g.must(ctx, "add", "-N", "."); err != nil {
+	untracked, err := g.UntrackedFiles(ctx)
+	if err != nil {
 		return "", "", err
+	}
+	if len(untracked) > 0 {
+		if _, err = g.must(ctx, append([]string{"--literal-pathspecs", "add", "-N", "--"}, untracked...)...); err != nil {
+			return "", "", err
+		}
+		defer func() {
+			_, rerr := g.must(ctx, append([]string{"--literal-pathspecs", "reset", "-q", "--"}, untracked...)...)
+			if err == nil {
+				err = rerr
+			}
+		}()
 	}
 	if nameStatus, err = g.must(ctx, "diff", "--name-status", "--no-color", since); err != nil {
 		return "", "", err
@@ -183,7 +197,7 @@ func (g *Git) DiffStat(ctx context.Context, since string) (string, error) {
 // multi-paragraph body survives intact and nothing in it is interpreted as a
 // flag.
 func (g *Git) CommitAll(ctx context.Context, message string) (string, error) {
-	return g.commitAll(ctx, message, false)
+	return g.commitAll(ctx, message, false, nil)
 }
 
 // CommitAllNoVerify is CommitAll with the repository's hooks skipped.
@@ -193,11 +207,33 @@ func (g *Git) CommitAll(ctx context.Context, message string) (string, error) {
 // construction — the work is unverified, which is the point — and a park
 // that cannot commit leaves the model's files loose on the wrong branch.
 func (g *Git) CommitAllNoVerify(ctx context.Context, message string) (string, error) {
-	return g.commitAll(ctx, message, true)
+	return g.commitAll(ctx, message, true, nil)
 }
 
-func (g *Git) commitAll(ctx context.Context, message string, noVerify bool) (string, error) {
-	if _, err := g.must(ctx, "add", "-A"); err != nil {
+// CommitAllExcept is CommitAll that leaves the untracked paths in leave out
+// of the commit, and in the tree. A pipeline that shares the checkout with a
+// person passes the files it did not create: `git add -A` would otherwise
+// commit whatever anyone put there while it worked.
+func (g *Git) CommitAllExcept(ctx context.Context, message string, noVerify bool, leave []string) (string, error) {
+	return g.commitAll(ctx, message, noVerify, leave)
+}
+
+// StageAllExcept stages every change in the tree — new, modified and
+// deleted files — but the untracked paths in leave.
+func (g *Git) StageAllExcept(ctx context.Context, leave []string) error {
+	add := []string{"add", "-A"}
+	if len(leave) > 0 {
+		add = append(add, "--", ".")
+		for _, p := range leave {
+			add = append(add, ":(exclude,literal)"+p)
+		}
+	}
+	_, err := g.must(ctx, add...)
+	return err
+}
+
+func (g *Git) commitAll(ctx context.Context, message string, noVerify bool, leave []string) (string, error) {
+	if err := g.StageAllExcept(ctx, leave); err != nil {
 		return "", err
 	}
 	argv := []string{"git", "commit", "-F", "-"}
@@ -323,6 +359,34 @@ func nonEmptyLines(s string) []string {
 // CommitAll stages everything.
 func (g *Git) Clean(ctx context.Context) error {
 	_, err := g.must(ctx, "clean", "-fdq")
+	return err
+}
+
+// CleanExcept removes the untracked files that are not in keep, honouring
+// .gitignore. It is Clean for a checkout the pipeline shares: an attempt is
+// thrown away without taking with it a file someone else put there.
+func (g *Git) CleanExcept(ctx context.Context, keep []string) error {
+	if len(keep) == 0 {
+		return g.Clean(ctx)
+	}
+	files, err := g.UntrackedFiles(ctx)
+	if err != nil {
+		return err
+	}
+	kept := map[string]bool{}
+	for _, p := range keep {
+		kept[p] = true
+	}
+	argv := []string{"clean", "-fdq", "--"}
+	for _, f := range files {
+		if !kept[f] {
+			argv = append(argv, f)
+		}
+	}
+	if len(argv) == 3 {
+		return nil
+	}
+	_, err = g.must(ctx, argv...)
 	return err
 }
 
