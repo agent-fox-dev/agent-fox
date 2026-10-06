@@ -56,3 +56,10 @@ Proposed for how `impl` and `fix` grade their own work, and built: see
 | Document | What it asks for |
 |---|---|
 | [10-make-shipped-prs-match-their-specs.md](10-make-shipped-prs-match-their-specs.md) | An independent conformance review before the pull request; unmet requirements at its top, tracked; tests held to their observable contract; verification in a clean environment; survey decisions as checks; structural checks; docs copied from code; scope; `fix` closing an issue only on a proven fix |
+
+Proposed for what happens after `impl` and `fix` have opened their pull
+requests.
+
+| Document | What it asks for |
+|---|---|
+| [11-review-a-landed-change-before-it-merges.md](11-review-a-landed-change-before-it-merges.md) | `review`: a fifth tool that takes the pull request `impl` opened or the issue `fix` worked on, establishes the merge facts in Go (the forge's state, the checks on the merge tree in a clean environment, the structural and scope checks) and runs an independent conformance review in its own process, then decides `merge` or `correct`: it merges, or files one issue per gap in the shape `fix` consumes, and says why on the pull request |
