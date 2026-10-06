@@ -178,6 +178,11 @@ type attemptFailure struct {
 	Verdicts []Verdict
 	// DiffStat is what the attempt had changed before it was discarded.
 	DiffStat string
+	// Kept is set when the attempt was not discarded: its checks passed, and
+	// only its tests were too weak, so the next attempt continues on its work
+	// to strengthen them. Reverted is what the revert check took out.
+	Kept     bool
+	Reverted []string
 }
 
 // agentBrain runs the phases against the configured model.
