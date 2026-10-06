@@ -159,14 +159,14 @@ func describeForPhase(t core.Tool, readOnly bool, programs []string) string {
 		}
 		return t.Description + " The shell already starts at the repository root: do not `cd` to it. " +
 			"The only programs allowed are: " + list + "; anything else (find, env, perl, curl) is " +
-			"refused, and rm only removes paths inside the repository, named one by one. Heredocs are not for writing files: use write_file for a multi-line file. Do not " +
-			"leave scratch files or .bak copies in the repository."
+			"refused, and rm only removes paths inside the repository, named one by one. Heredocs are " +
+			"not for writing files: use write_file for a multi-line file. Do not leave scratch files or " +
+			".bak copies in the repository itself."
 	case "run_command":
 		return t.Description + " It starts at the repository root. The only programs allowed are: " + list + "."
 	case "write_file":
 		return t.Description + " The path must be inside the repository: a path outside it (/tmp " +
-			"included) is refused, and there is no scratch directory. Use this, not a heredoc, for " +
-			"multi-line files."
+			"included) is refused. Use this, not a heredoc, for multi-line files."
 	case "edit_file":
 		return t.Description + ` The edits argument is a JSON array of {"old_string", "new_string"} ` +
 			"objects, never a string. The path must be inside the repository."
@@ -206,6 +206,26 @@ func noteReadRoots(ts []core.Tool, roots []project.ReadRoot, programs []string) 
 	out := make([]core.Tool, len(ts))
 	for i, t := range ts {
 		if t.Name == "execute" || t.Name == "read_file" {
+			t.Description += note
+		}
+		out[i] = t
+	}
+	return out
+}
+
+// noteScratch tells the writing tools where the phase's scratch directory is
+// and what it is for. rel is empty when the phase has none.
+func noteScratch(ts []core.Tool, rel string) []core.Tool {
+	if rel == "" {
+		return ts
+	}
+	note := fmt.Sprintf(" Scratch space: `%s/`, for a throwaway script, a copy made before an edit or a "+
+		"test harness. It is not committed and not checked, and it is deleted when this phase ends, so "+
+		"nothing the work needs may live there.", rel)
+	out := make([]core.Tool, len(ts))
+	for i, t := range ts {
+		switch t.Name {
+		case "execute", "write_file", "edit_file":
 			t.Description += note
 		}
 		out[i] = t

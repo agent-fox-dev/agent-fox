@@ -211,6 +211,9 @@ type Phase struct {
 	// ProtectedPaths are directories the file tools may not write under
 	// even though the phase writes elsewhere. See GuardOptions.
 	ProtectedPaths []string
+	// scratch is the phase's scratch directory, relative to the workspace,
+	// set by Run for a writing phase. See scratch.go.
+	scratch string
 	// Suite is the command that runs the project's whole test suite, when
 	// the program runs it itself after the phase: the shell refuses it. See
 	// GuardOptions.Suite.
@@ -335,6 +338,18 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	// Observer.Detail is shown only under --verbose (14-REQ-7.2).
 	if p.RepoMap != "" {
 		r.detail("repo map: %d tokens", afspec.EstimateTokens(p.RepoMap))
+	}
+
+	// A writing phase has a scratch directory for its lifetime; see
+	// scratch.go. It is removed on every way out of this function.
+	if !p.ReadOnly && r.cfg.Workspace != nil && writes(p.BuiltinTools) {
+		rel, cleanup, err := newScratch(r.cfg.Workspace.Root)
+		if err != nil {
+			r.detail("no scratch directory: %v", err)
+		} else {
+			defer cleanup()
+			p.scratch = rel
+		}
 	}
 
 	agent, blocked, err := r.newAgent(p)
@@ -502,8 +517,8 @@ func (r *Runner) registeredTools(p Phase) ([]core.Tool, error) {
 	if err != nil {
 		return nil, newError(p.Name, CategoryInternal, err, "building the file tools: %v", err)
 	}
-	return append(out, noteReadRoots(SelectTools(built, p.ReadOnly, p.Programs, p.BuiltinTools...),
-		r.cfg.ReadRoots, p.Programs)...), nil
+	return append(out, noteScratch(noteReadRoots(SelectTools(built, p.ReadOnly, p.Programs, p.BuiltinTools...),
+		r.cfg.ReadRoots, p.Programs), p.scratch)...), nil
 }
 
 // installCompaction summarizes the transcript in place once it passes a

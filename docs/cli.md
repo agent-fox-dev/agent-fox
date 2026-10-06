@@ -1232,6 +1232,15 @@ any path under a protected directory (the spec package, in `impl`). The file
 tools resolve every path against the workspace, so a path outside it, `/tmp`
 included, is refused.
 
+**Scratch space.** A writing phase has a scratch directory instead:
+`.agent-fox/scratch/<random>/`, for a throwaway script, a copy made before an
+edit or a test harness, named in the `execute`, `write_file` and `edit_file`
+descriptions. A `.gitignore` of its own hides it from git, so no commit,
+untracked-file listing, scope check or structural scan sees it, and the
+repository's own ignore files are not touched. It lasts one phase: created
+before it and removed when it returns, cancelled or failed included, so it
+never exists while the project's checks run. Read-only phases have none.
+
 **The refusal.** A refusal is a blocked tool result, so the model adapts rather
 than dying. It is one message that names every problem on the line, git and
 allowlist together, and says what would have been accepted:
