@@ -19,6 +19,8 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuetriage"
 	"github.com/agent-fox-dev/agentfox/issuex"
+	"github.com/agentfox/agentkit-go/codesearch"
+	"github.com/agentfox/agentkit-go/tools"
 )
 
 const usage = `triage — triage a problem report and file an issue on GitHub or GitLab
@@ -141,23 +143,73 @@ func newApp() toolio.App {
 			return nil
 		},
 
-		Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			result, err := issuetriage.Run(ctx, f.triageOptions(d))
+		Exec: indexed(func(ctx context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
+			o := f.triageOptions(d)
+			o.Index = idx
+			result, err := issuetriage.Run(ctx, o)
 			if err != nil {
 				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
-		},
+		}),
 
 		// --preflight: every check the ordinary run makes before its model
 		// phase, against the identical options, then stop.
-		PreflightExec: func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-			result, err := issuetriage.RunPreflight(f.triageOptions(d))
+		PreflightExec: indexed(func(_ context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
+			o := f.triageOptions(d)
+			o.Index = idx
+			result, err := issuetriage.RunPreflight(o)
 			if err != nil {
 				return failureResponse(result, err)
 			}
 			return toolio.ExitOK, result, nil
-		},
+		}),
+	}
+}
+
+// newIndex builds the run's code-search index. It is a variable so that a
+// test can stand in for codesearch.New.
+var newIndex = func(ws *tools.Workspace) (tools.Index, error) {
+	return codesearch.New(ws, codesearch.Options{})
+}
+
+// openIndex builds the run's one code-search index and returns d with a Runner
+// whose Config carries it, the index, and the function that closes it
+// (16-REQ-3). When the index cannot be built it returns d unchanged, a nil
+// index and a no-op: navigation never fails a run.
+func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, func()) {
+	unavailable := func(reason string) (toolio.Deps, tools.Index, func()) {
+		d.Run.Warn(toolio.WarnCodeSearchUnavailable, "low",
+			"code_search is unavailable and the run falls back to search_files: %s", reason)
+		return d, nil, func() {}
+	}
+	idx, err := newIndex(d.Workspace)
+	if err != nil {
+		return unavailable(err.Error())
+	}
+	if idx == nil {
+		return unavailable("the index builder returned no index")
+	}
+	// The Runner the shell built has no index: build another from the same
+	// configuration, so that every phase it runs offers code_search.
+	cfg := d.RunnerConfig()
+	cfg.Index = idx
+	runner, err := agentrun.NewRunner(cfg)
+	if err != nil {
+		_ = idx.Close()
+		return unavailable(err.Error())
+	}
+	d.Runner = runner
+	return d, idx, func() { _ = idx.Close() }
+}
+
+// indexed wraps a tool's pipeline: it builds the index before the pipeline
+// starts and closes it on every way out, a panic included.
+func indexed(inner func(context.Context, toolio.Deps, tools.Index) (int, any, *toolio.ErrorInfo)) func(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo) {
+	return func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
+		d, idx, closeIndex := openIndex(d)
+		defer closeIndex()
+		return inner(ctx, d, idx)
 	}
 }
 

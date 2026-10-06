@@ -170,8 +170,8 @@ func TestTS11_12_ResolveRepairRunnerIsShared(t *testing.T) {
 	called := false
 	app.PreflightExec = func(_ context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
 		called = true
-		rA, mA, errA := resolveRepairRunner(d, "ADVANCED", "")
-		rB, mB, errB := resolveRepairRunner(d, "ADVANCED", "")
+		rA, mA, errA := resolveRepairRunner(d, nil, "ADVANCED", "")
+		rB, mB, errB := resolveRepairRunner(d, nil, "ADVANCED", "")
 		if errA != nil || errB != nil {
 			t.Errorf("errors: %v, %v", errA, errB)
 			return toolio.ExitOK, &codeimpl.Result{}, nil
@@ -186,7 +186,7 @@ func TestTS11_12_ResolveRepairRunnerIsShared(t *testing.T) {
 			t.Errorf("runner model %q, choice %q", rA.Model().ID, mA.Model.ID)
 		}
 		// No --repair-model: nothing to resolve.
-		if r, m, err := resolveRepairRunner(d, "", ""); r != nil || m != nil || err != nil {
+		if r, m, err := resolveRepairRunner(d, nil, "", ""); r != nil || m != nil || err != nil {
 			t.Errorf("empty spec resolved to %v %v %v", r, m, err)
 		}
 		return toolio.ExitOK, &codeimpl.Result{}, nil
