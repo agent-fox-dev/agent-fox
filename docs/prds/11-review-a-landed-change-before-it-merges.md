@@ -145,8 +145,9 @@ hands `Deps.Input.Issue` with `IsPullRequest` set from the URL's path or the
 forge's answer. `review` takes exactly that input.
 
 **What `impl` and `fix` leave behind is program-written where it matters.**
-`impl` files its deviation issues as `Spec <id>: <key> is not met` with a
-fixed body; `fix`'s summary comment carries `- Pull request: <url>` as one
+`impl` files one deviation issue per run, titled `Spec <id>: <key> is not
+met` for one item and `Spec <id>: <n> requirements and tests are not met` for
+several, with a fixed body that lists each item's `### <n>. <key>` heading; `fix`'s summary comment carries `- Pull request: <url>` as one
 line Go rendered; both pull-request bodies end in a fixed footer. `review`
 reads those lines as facts to *find* things (the issue for a key, the pull
 request for an issue) and reads nothing else from the prose.
@@ -385,7 +386,9 @@ Before filing anything, `review` lists the repository's open issues
 item by key against two program-written title shapes:
 
 - `impl`'s: `Spec <id>: <key> is not met`, where `<key>` is a requirement id,
-  a test id, or the word `scope`;
+  a test id, or the word `scope`; and `Spec <id>: <n> requirements and tests
+  are not met`, whose body's `### <n>. <key>` headings name the keys it
+  tracks;
 - its own (§7): `Spec <id>: <key> — <short what>` and `Review of
   <owner>/<repo>#<N>: <key>`.
 
