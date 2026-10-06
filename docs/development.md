@@ -296,57 +296,83 @@ that added it had no live model to run it with
 `find_symbol` columns were added when the symbol tools reached every phase
 (spec 15); they too await a live-model run, and no count is invented for them.
 The first run replaces the dashes and names the commit and the model it
-measured. The before counts come from the tools built from the commit just
-before the symbol tools, the after counts from the commit that has them, and
-the two runs are recorded together so the effect on `list_files`,
-`find_files` and `search_files` is visible per tool. A phase that runs only
-sometimes (`fix`'s `review`, `impl`'s `repair` and `resolve`, `spec`'s
-`architecture`) gets a row when it ran.
+measured. Each phase has two rows: `before` holds the counts from the tools
+built from the commit just before the symbol tools, `after` the counts from
+the commit that has them, so the effect on `list_files`, `find_files` and
+`search_files` is read off the pair, per tool. In a `before` row the
+`file_outline` and `find_symbol` cells are `0`: the tools did not exist, and
+the `jq` snippet reports a tool that was never called as `0`. A measured
+table has a number in every cell of both rows; until then every cell is a
+dash. A phase that runs only sometimes (`fix`'s `review`, `impl`'s `repair`
+and `resolve`, `spec`'s `architecture`) gets its pair of rows when it ran.
 
 Measured at: — (commit), — (model).
 
 #### triage
 
-| Input | Phase | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
-|---|---|---|---|---|---|---|---|---|
-| stack trace | triage | — | — | — | — | — | — | — |
-| prose report | triage | — | — | — | — | — | — | — |
+| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
+|---|---|---|---|---|---|---|---|---|---|
+| stack trace | triage | before | — | — | — | — | — | — | — |
+| stack trace | triage | after | — | — | — | — | — | — | — |
+| prose report | triage | before | — | — | — | — | — | — | — |
+| prose report | triage | after | — | — | — | — | — | — | — |
 
 #### fix
 
-| Input | Phase | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
-|---|---|---|---|---|---|---|---|---|
-| failing test | analyse | — | — | — | — | — | — | — |
-| failing test | implement | — | — | — | — | — | — | — |
-| prose report | analyse | — | — | — | — | — | — | — |
-| prose report | implement | — | — | — | — | — | — | — |
+| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
+|---|---|---|---|---|---|---|---|---|---|
+| failing test | analyse | before | — | — | — | — | — | — | — |
+| failing test | analyse | after | — | — | — | — | — | — | — |
+| failing test | implement | before | — | — | — | — | — | — | — |
+| failing test | implement | after | — | — | — | — | — | — | — |
+| prose report | analyse | before | — | — | — | — | — | — | — |
+| prose report | analyse | after | — | — | — | — | — | — | — |
+| prose report | implement | before | — | — | — | — | — | — | — |
+| prose report | implement | after | — | — | — | — | — | — | — |
 
 #### spec
 
-| Input | Phase | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
-|---|---|---|---|---|---|---|---|---|
-| summary tool bytes | prd | — | — | — | — | — | — | — |
-| summary tool bytes | generate:requirements | — | — | — | — | — | — | — |
-| summary tool bytes | generate:test_spec | — | — | — | — | — | — | — |
-| summary tool bytes | generate:tasks | — | — | — | — | — | — | — |
-| several traces | prd | — | — | — | — | — | — | — |
-| several traces | generate:requirements | — | — | — | — | — | — | — |
-| several traces | generate:test_spec | — | — | — | — | — | — | — |
-| several traces | generate:tasks | — | — | — | — | — | — | — |
-| max tool calls | prd | — | — | — | — | — | — | — |
-| max tool calls | generate:requirements | — | — | — | — | — | — | — |
-| max tool calls | generate:test_spec | — | — | — | — | — | — | — |
-| max tool calls | generate:tasks | — | — | — | — | — | — | — |
+| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
+|---|---|---|---|---|---|---|---|---|---|
+| summary tool bytes | prd | before | — | — | — | — | — | — | — |
+| summary tool bytes | prd | after | — | — | — | — | — | — | — |
+| summary tool bytes | generate:requirements | before | — | — | — | — | — | — | — |
+| summary tool bytes | generate:requirements | after | — | — | — | — | — | — | — |
+| summary tool bytes | generate:test_spec | before | — | — | — | — | — | — | — |
+| summary tool bytes | generate:test_spec | after | — | — | — | — | — | — | — |
+| summary tool bytes | generate:tasks | before | — | — | — | — | — | — | — |
+| summary tool bytes | generate:tasks | after | — | — | — | — | — | — | — |
+| several traces | prd | before | — | — | — | — | — | — | — |
+| several traces | prd | after | — | — | — | — | — | — | — |
+| several traces | generate:requirements | before | — | — | — | — | — | — | — |
+| several traces | generate:requirements | after | — | — | — | — | — | — | — |
+| several traces | generate:test_spec | before | — | — | — | — | — | — | — |
+| several traces | generate:test_spec | after | — | — | — | — | — | — | — |
+| several traces | generate:tasks | before | — | — | — | — | — | — | — |
+| several traces | generate:tasks | after | — | — | — | — | — | — | — |
+| max tool calls | prd | before | — | — | — | — | — | — | — |
+| max tool calls | prd | after | — | — | — | — | — | — | — |
+| max tool calls | generate:requirements | before | — | — | — | — | — | — | — |
+| max tool calls | generate:requirements | after | — | — | — | — | — | — | — |
+| max tool calls | generate:test_spec | before | — | — | — | — | — | — | — |
+| max tool calls | generate:test_spec | after | — | — | — | — | — | — | — |
+| max tool calls | generate:tasks | before | — | — | — | — | — | — | — |
+| max tool calls | generate:tasks | after | — | — | — | — | — | — | — |
 
 #### impl
 
-| Input | Phase | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
-|---|---|---|---|---|---|---|---|---|
-| repo web URL | survey | — | — | — | — | — | — | — |
-| repo web URL | implement (task 1) | — | — | — | — | — | — | — |
-| repo web URL | implement (task 2) | — | — | — | — | — | — | — |
-| repo web URL | implement (task 3) | — | — | — | — | — | — | — |
-| repo web URL | review | — | — | — | — | — | — | — |
+| Input | Phase | Run | read_file | list_files | find_files | search_files | file_outline | find_symbol | all tools |
+|---|---|---|---|---|---|---|---|---|---|
+| repo web URL | survey | before | — | — | — | — | — | — | — |
+| repo web URL | survey | after | — | — | — | — | — | — | — |
+| repo web URL | implement (task 1) | before | — | — | — | — | — | — | — |
+| repo web URL | implement (task 1) | after | — | — | — | — | — | — | — |
+| repo web URL | implement (task 2) | before | — | — | — | — | — | — | — |
+| repo web URL | implement (task 2) | after | — | — | — | — | — | — | — |
+| repo web URL | implement (task 3) | before | — | — | — | — | — | — | — |
+| repo web URL | implement (task 3) | after | — | — | — | — | — | — | — |
+| repo web URL | review | before | — | — | — | — | — | — | — |
+| repo web URL | review | after | — | — | — | — | — | — | — |
 
 The tables are regenerated by hand whenever a navigation change ships, from a
 run of the tools before the change and one after it, so the effect of each

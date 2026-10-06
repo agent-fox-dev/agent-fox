@@ -1,6 +1,7 @@
 package agentfox
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -114,10 +115,19 @@ func TestTS15_15_CLIPreflightProseMentionsCtags(t *testing.T) {
 }
 
 // TS-15-16 (unit): docs/development.md navigation baseline tables include
-// file_outline and find_symbol columns
+// file_outline and find_symbol columns, and show before-and-after counts per
+// tool: every phase has a before row and an after row, every count cell is
+// a dash or a number, and the dashes are consistent with the "Measured at"
+// line — all dashes while nothing was measured, none once a commit is named.
 // Verifies: 15-REQ-8.1, 15-REQ-8.2
 func TestTS15_16_NavigationBaselineHasSymbolColumns(t *testing.T) {
 	section := navigationBaseline(t)
+	_, measured, ok := strings.Cut(section, "\nMeasured at: ")
+	if !ok {
+		t.Fatal("the baseline has no \"Measured at:\" line")
+	}
+	measured, _, _ = strings.Cut(measured, "\n")
+	unmeasured := strings.HasPrefix(measured, "— (commit)")
 	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
 		_, table, ok := strings.Cut(section, "\n#### "+tool+"\n")
 		if !ok {
@@ -130,17 +140,58 @@ func TestTS15_16_NavigationBaselineHasSymbolColumns(t *testing.T) {
 		if !strings.Contains(table, "| file_outline | find_symbol |") {
 			t.Errorf("the %s table has no file_outline and find_symbol columns", tool)
 		}
-		// Every row has the same number of cells as the header.
+		if !strings.Contains(table, "| Input | Phase | Run |") {
+			t.Errorf("the %s table has no Run column for the before and after rows", tool)
+		}
 		var want int
+		runs := map[string]map[string]bool{} // input+phase -> run -> seen
 		for _, line := range strings.Split(table, "\n") {
 			if !strings.HasPrefix(line, "|") {
 				continue
 			}
-			cells := strings.Count(line, "|")
+			cells := strings.Split(strings.Trim(line, "|"), "|")
+			for i := range cells {
+				cells[i] = strings.TrimSpace(cells[i])
+			}
 			if want == 0 {
-				want = cells
-			} else if cells != want {
-				t.Errorf("the %s table row has %d cells, want %d: %s", tool, cells, want, line)
+				want = len(cells)
+				continue // the header
+			}
+			if len(cells) != want {
+				t.Errorf("the %s table row has %d cells, want %d: %s", tool, len(cells), want, line)
+				continue
+			}
+			if strings.HasPrefix(cells[0], "---") {
+				continue // the separator
+			}
+			key, run := cells[0]+"/"+cells[1], cells[2]
+			if run != "before" && run != "after" {
+				t.Errorf("the %s table row %q has run %q, want before or after", tool, key, run)
+			}
+			if runs[key] == nil {
+				runs[key] = map[string]bool{}
+			}
+			runs[key][run] = true
+			for _, c := range cells[3:] {
+				if c == "—" {
+					if !unmeasured {
+						t.Errorf("the %s table is measured at %q but %s/%s still has a dash", tool, measured, key, run)
+					}
+					continue
+				}
+				if _, err := strconv.Atoi(c); err != nil {
+					t.Errorf("the %s table cell %q in %s/%s is neither a dash nor a count", tool, c, key, run)
+				} else if unmeasured {
+					t.Errorf("the %s table has a count in %s/%s while nothing was measured", tool, key, run)
+				}
+			}
+		}
+		if len(runs) == 0 {
+			t.Errorf("the %s table has no rows", tool)
+		}
+		for key, seen := range runs {
+			if !seen["before"] || !seen["after"] {
+				t.Errorf("the %s table row %s lacks a before or an after row", tool, key)
 			}
 		}
 	}

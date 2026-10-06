@@ -333,7 +333,7 @@ func TestTS15_10_PreflightOmitsSymbolBackendWhenDetectionFails(t *testing.T) {
 	if _, ok := findCheck(res.Preflight, "symbol_backend"); ok {
 		t.Errorf("symbol_backend present after a failed detection: %+v", res.Preflight)
 	}
-	if len(res.Preflight) == 0 {
+	if _, ok := findCheck(res.Preflight, "schemas_valid"); !ok {
 		t.Errorf("other checks missing: %+v", res.Preflight)
 	}
 }

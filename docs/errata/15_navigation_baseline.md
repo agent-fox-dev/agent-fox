@@ -15,16 +15,21 @@ tool".
 `search_files` (15-REQ-8.2), and the `jq` snippet in the procedure extracts
 both (`.tool_calls.file_outline`, `.tool_calls.find_symbol`,
 `docs/development.md:283`). The `triage` table header is at
-`docs/development.md:310`. Every count is
+`docs/development.md:313`. Every count is
 still a dash, as it was before this spec: spec 13's tables were never filled
 ([erratum](13_navigation_baseline.md)), so there is no "before" figure to
 compare with, and a run needs a live model and its credential, which this
 change did not have. A number made up to fill the table would be the figure
 later navigation changes are compared to, and worse than none.
 
-`TestTS15_16_NavigationBaselineHasSymbolColumns` (`docs_symbols_test.go:119`)
-checks the columns, that every row has as many cells as its header, and that
-the procedure extracts both counts. The first person to run the procedure with a
-model, once on the commit before the symbol tools and once on the commit that
-has them, fills the tables, names the commit and the model on the `Measured
-at` line, and removes this erratum.
+Each phase has a `before` and an `after` row (`docs/development.md:315`), so
+the pair the criterion asks for has its place in the table.
+`TestTS15_16_NavigationBaselineHasSymbolColumns` (`docs_symbols_test.go:123`)
+checks the columns, that every phase has both rows, that every count cell is
+a dash or a number, that the dashes agree with the `Measured at` line (all
+dashes while it names no commit, none once it does), and that the procedure
+extracts both counts. What it cannot check is the counts themselves. The first
+person to run the procedure with a model, once on the commit before the symbol
+tools and once on the commit that has them, fills both rows of every table,
+names the commit and the model on the `Measured at` line, and removes this
+erratum.

@@ -86,7 +86,8 @@
         "codefix/preflight_test.go",
         "codeimpl/preflight_test.go",
         "specgen/preflight_test.go",
-        "issuetriage/preflight_test.go"
+        "issuetriage/preflight_test.go",
+        "cmd/triage/preflight_test.go"
       ],
       "depends_on": [
         1
@@ -110,7 +111,8 @@
         "Run make test and make lint; fix any failures."
       ],
       "touches": [
-        "internal/repomap/repomap.go"
+        "internal/repomap/repomap.go",
+        "internal/repomap/repomap_test.go"
       ],
       "depends_on": [
         1
@@ -148,7 +150,8 @@
       "touches": [
         "docs/model-usage.md",
         "docs/cli.md",
-        "docs/development.md"
+        "docs/development.md",
+        "docs_symbols_test.go"
       ],
       "depends_on": [
         1,

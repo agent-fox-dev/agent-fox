@@ -19,12 +19,15 @@ one's *conclusion* rather than from how it got there.
 | `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` | provider default | `file_issue` |
 | `fix` | `analyse` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
 | `fix` | `implement` | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
+| `fix` | `review` (when the report cites spec ids) | the six read tools, plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
 | `spec` | `prd` | the six read tools | 32 768 | `submit_prd` |
 | `spec` | `generate:{artifact}` | the six read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
 | `spec` | `architecture` (opt-in) | the six read tools | 32 768 | `submit_architecture` |
 | `impl` | `survey` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
 | `impl` | `implement` (once per task) | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
+| `impl` | `review` (after the last task) | the six read tools, plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
+| `impl` | `resolve` (when the review found something) | the same as `implement`; no repository map | provider default | `submit_resolve` |
 
 The "six read tools" are `read_file`, `list_files`, `find_files`,
 `search_files`, `file_outline` and `find_symbol`. The build allowlist is the read-only one plus the toolchains
