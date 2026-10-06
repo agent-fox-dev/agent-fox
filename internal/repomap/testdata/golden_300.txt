@@ -1,0 +1,27 @@
+```
+./
+  LICENSE
+  main.go
+cmd/app/
+  main.go
+internal/api/
+  handlers.go
+  handlers_test.go
+  server.go
+internal/core/
+  engine.go  type Engine L3 · type EngineOptions L5 · func CloseTable L7 · func ProbeBatch L9 · func WriteFrame L11 · func ProbeFrame L13 · func FlushIndex L15 · func SealJournal L17 · func FlushJournal L19 · func (*Engine) SealBlock L21 · func (*Engine) StoreIndex L23
+  engine_test.go
+internal/core/store/
+  store.go
+  store_test.go
+internal/core/store/disk/
+  disk.go
+  disk_test.go
+internal/core/store/disk/layout/
+  layout.go
+  layout_test.go
+  pages.go
+pkg/util/
+  maths.go    type Maths L3 · type MathsOptions L5 · func StoreJournal L7 · func WriteBlock L9 · func MergeIndex L11 · func WriteCursor L13 · func WriteFrame L15 · func CloseCursor L17 · func CloseJournal L19 · func (*Maths) SealBatch L21 · func (*Maths) OpenPage L23
+  strings.go  type Strings L3 · type StringsOptions L5 · func LoadIndex L7 · func CloseBlock L9 · func StoreJournal L11 · func FlushRecord L13 · func ProbeRecord L15 · func OpenFrame L17 · func ReadFrame L19 · func (*Strings) SplitFrame L21 · func (*Strings) WriteBatch L23
+```

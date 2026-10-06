@@ -2,9 +2,11 @@ package repomap
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -454,5 +456,351 @@ func TestTS14_EmptyWorkspace(t *testing.T) {
 	got, err := Build(context.Background(), ws, 6000, nil)
 	if err != nil || got != "" {
 		t.Errorf("Build(empty) = %q, %v; want \"\", nil", got, err)
+	}
+}
+
+// update rewrites the golden files from the current output:
+//
+//	go test ./internal/repomap -run TS14_35 -update
+var update = flag.Bool("update", false, "rewrite the golden files in testdata/")
+
+// fixtureWS copies testdata/fixture into a fresh temp directory and returns a
+// workspace over it. Copying keeps the walk independent of the ignore files of
+// the repository the fixture is committed in.
+func fixtureWS(t *testing.T) *tools.Workspace {
+	t.Helper()
+	hermetic(t)
+	src := filepath.Join("testdata", "fixture")
+	dst := t.TempDir()
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), b, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := tools.NewWorkspace(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+// TS-14-35: the map of the fixture workspace at several budgets is
+// byte-identical to its golden file.
+func TestTS14_35_Golden(t *testing.T) {
+	ws := fixtureWS(t)
+	for _, tc := range []struct {
+		budget int
+		golden string
+	}{
+		{6000, "golden_6000.txt"},
+		{1000, "golden_1000.txt"},
+		{300, "golden_300.txt"},
+	} {
+		t.Run(tc.golden, func(t *testing.T) {
+			got, err := Build(context.Background(), ws, tc.budget, nil)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			again, _ := Build(context.Background(), ws, tc.budget, nil)
+			if got != again {
+				t.Errorf("two builds differ at budget %d", tc.budget)
+			}
+			path := filepath.Join("testdata", tc.golden)
+			if *update {
+				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read golden: %v (run with -update to create it)", err)
+			}
+			if string(want) != got {
+				t.Errorf("budget %d differs from %s:\n--- want\n%s--- got\n%s", tc.budget, path, want, got)
+			}
+		})
+	}
+}
+
+// levelsTree is a four-level tree (app/svc/core/deep) of exported and
+// unexported declarations, with one test file per directory. The deepest
+// directory's exported declarations are named DeepExported so a test can tell
+// them from the shallower ones. files is the number of source files per
+// directory and perFile the number of declarations of each kind in each.
+func levelsTree(files, perFile int) map[string]string {
+	out := map[string]string{}
+	for _, dir := range []string{"app", "app/svc", "app/svc/core", "app/svc/core/deep"} {
+		prefix := "Exported"
+		if strings.HasSuffix(dir, "deep") {
+			prefix = "DeepExported"
+		}
+		stem := path.Base(dir)
+		for f := 0; f < files; f++ {
+			stmts := map[int]string{}
+			for i := 0; i < perFile; i++ {
+				stmts[3+2*i] = fmt.Sprintf("func %s%d_%d() {}", prefix, f, i)
+				stmts[4+2*i] = fmt.Sprintf("func helper%d_%d() {}", f, i)
+			}
+			out[fmt.Sprintf("%s/%s_handler_%02d.go", dir, stem, f)] = goAt(stmts)
+		}
+		stmts := map[int]string{}
+		for i := 0; i < perFile; i++ {
+			stmts[3+2*i] = fmt.Sprintf("func TestSomething%d(t int) {}", i)
+		}
+		out[fmt.Sprintf("%s/%s_test.go", dir, stem)] = goAt(stmts)
+	}
+	return out
+}
+
+// TS-14-11: the default budget of 6000 tokens holds a small workspace's full
+// map, unexported declarations included.
+func TestTS14_11_DefaultBudgetKeepsFullMap(t *testing.T) {
+	ws := newWS(t, map[string]string{
+		"a.go":     goAt(map[int]string{3: "func ExportedFunc() {}", 5: "func unexportedHelper() {}"}),
+		"sub/b.go": goAt(map[int]string{3: "type Thing struct{}", 5: "func thingHelper() {}"}),
+	})
+	got, err := Build(context.Background(), ws, 6000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := afspec.EstimateTokens(got); n > 6000 {
+		t.Errorf("map is %d tokens, over the 6000 default", n)
+	}
+	for _, want := range []string{"func unexportedHelper L5", "func ExportedFunc L3", "func thingHelper L5"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("full map lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// TS-14-12: reduction runs in the order unexported, test-file declarations,
+// deepest directories' declarations, collapse.
+func TestTS14_12_ReductionOrder(t *testing.T) {
+	ws := newWS(t, levelsTree(9, 5))
+	build := func(budget int) string {
+		t.Helper()
+		got, err := Build(context.Background(), ws, budget, nil)
+		if err != nil {
+			t.Fatalf("budget %d: %v", budget, err)
+		}
+		if n := afspec.EstimateTokens(got); n > budget {
+			t.Errorf("budget %d: map is %d tokens", budget, n)
+		}
+		return got
+	}
+	full := build(100000)
+	if n := afspec.EstimateTokens(full); n <= 2000 {
+		t.Fatalf("fixture too small: full map is %d tokens, want more than 2000", n)
+	}
+
+	// Step 1: unexported declarations go first; exported and test ones stay.
+	r2000 := build(2000)
+	if strings.Contains(r2000, "func helper") {
+		t.Errorf("budget 2000 still shows unexported declarations:\n%s", r2000)
+	}
+	for _, want := range []string{"func Exported0_0", "func DeepExported0_0", "func TestSomething0"} {
+		if !strings.Contains(r2000, want) {
+			t.Errorf("budget 2000 lacks %q:\n%s", want, r2000)
+		}
+	}
+
+	// Step 2: test-file declarations go next.
+	r1000 := build(1000)
+	if strings.Contains(r1000, "func TestSomething") || strings.Contains(r1000, "func helper") {
+		t.Errorf("budget 1000 still shows test or unexported declarations:\n%s", r1000)
+	}
+	if !strings.Contains(r1000, "func Exported0_0") {
+		t.Errorf("budget 1000 lost shallow exported declarations:\n%s", r1000)
+	}
+
+	// Step 3: the deepest directory's declarations go before shallower ones.
+	r500 := build(500)
+	if strings.Contains(r500, "func DeepExported") {
+		t.Errorf("budget 500 still shows the deepest directory's declarations:\n%s", r500)
+	}
+	if !strings.Contains(r500, "func Exported0_0") {
+		t.Errorf("budget 500 lost the shallowest declarations too:\n%s", r500)
+	}
+	if strings.Contains(r500, " files)") {
+		t.Errorf("budget 500 collapsed a directory before declarations were exhausted:\n%s", r500)
+	}
+
+	// Step 4: the deepest directory collapses to a file count.
+	r200 := build(200)
+	if !regexp.MustCompile(`deep/ \(\d+ files\)`).MatchString(r200) {
+		t.Errorf("budget 200 did not collapse the deepest directory:\n%s", r200)
+	}
+	if !strings.Contains(r200, "\napp/\n") {
+		t.Errorf("budget 200 collapsed the shallowest directory:\n%s", r200)
+	}
+}
+
+// TS-14-13: a directory named in inputPaths is reduced after its peer at the
+// same depth.
+func TestTS14_13_InputDirectoryReducedLast(t *testing.T) {
+	body := func(first string) string {
+		stmts := map[int]string{3: "func " + first + "() {}"}
+		for i := 0; i < 6; i++ {
+			stmts[5+2*i] = fmt.Sprintf("func Extra%s%d() {}", first, i)
+		}
+		return goAt(stmts)
+	}
+	ws := newWS(t, map[string]string{
+		"internal/important/file.go": body("ImportantFunc"),
+		"internal/other/file.go":     body("OtherFunc"),
+	})
+	full, err := Build(context.Background(), ws, 100000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tight := afspec.EstimateTokens(full) - 1
+
+	got, err := Build(context.Background(), ws, tight, []string{"internal/important/file.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "func ImportantFunc") {
+		t.Errorf("input directory's declarations were dropped:\n%s", got)
+	}
+	if strings.Contains(got, "func OtherFunc") {
+		t.Errorf("peer directory's declarations survived:\n%s", got)
+	}
+
+	// Without the input, the tie breaks by path, so the roles reverse: the
+	// input is what protected internal/important/.
+	plain, err := Build(context.Background(), ws, tight, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain, "func ImportantFunc") || !strings.Contains(plain, "func OtherFunc") {
+		t.Errorf("without inputs the path order should drop internal/important first:\n%s", plain)
+	}
+}
+
+// TS-14-14: a budget that holds the full map returns every declaration and
+// collapses nothing.
+func TestTS14_14_FullMapNoCollapse(t *testing.T) {
+	files := map[string]string{}
+	var wants []string
+	for f := 0; f < 5; f++ {
+		stmts := map[int]string{}
+		for i := 0; i < 5; i++ {
+			stmts[3+2*i] = fmt.Sprintf("func ExportedFunc%d_%d() {}", f, i)
+			stmts[4+2*i] = fmt.Sprintf("func unexportedHelper%d_%d() {}", f, i)
+			wants = append(wants,
+				fmt.Sprintf("func ExportedFunc%d_%d L%d", f, i, 3+2*i),
+				fmt.Sprintf("func unexportedHelper%d_%d L%d", f, i, 4+2*i))
+		}
+		files[fmt.Sprintf("pkg/sub/file%d.go", f)] = goAt(stmts)
+	}
+	ws := newWS(t, files)
+	got, err := Build(context.Background(), ws, 6000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "files)") {
+		t.Errorf("full map has a collapsed directory:\n%s", got)
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("full map lacks %q", want)
+		}
+	}
+}
+
+// TS-14-15: directories end in '/' on their own line and their files are
+// indented two spaces.
+func TestTS14_15_DirectoryAndIndent(t *testing.T) {
+	ws := newWS(t, map[string]string{
+		"internal/agentrun/phase.go": goAt(map[int]string{3: "type Phase struct{}"}),
+	})
+	got, err := Build(context.Background(), ws, 6000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^internal/agentrun/$`).MatchString(got) {
+		t.Errorf("no directory line 'internal/agentrun/':\n%s", got)
+	}
+	if !regexp.MustCompile(`(?m)^  phase\.go`).MatchString(got) {
+		t.Errorf("no file line indented two spaces:\n%s", got)
+	}
+}
+
+// TS-14-16: a file's declarations share its line, separated by ' · ', each as
+// kind, name and L-prefixed line, in line order within a visibility class.
+func TestTS14_16_DeclarationsOnFileLine(t *testing.T) {
+	ws := newWS(t, map[string]string{
+		"internal/agentrun/phase.go": goAt(map[int]string{
+			148: "type Phase struct{}",
+			190: "type Result struct{}",
+			215: "type Runner struct{}",
+			240: "func Run() {}",
+		}),
+	})
+	got, err := Build(context.Background(), ws, 6000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := lineFor(got, "phase.go")
+	if line == "" {
+		t.Fatalf("no phase.go line:\n%s", got)
+	}
+	for _, want := range []string{"type Phase L148", "func Run L240", " · "} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line %q lacks %q", line, want)
+		}
+	}
+	if !strings.Contains(line, "type Phase L148 · type Result L190 · type Runner L215 · func Run L240") {
+		t.Errorf("declarations not in order on the file's line: %q", line)
+	}
+}
+
+// TS-14-17: a collapsed directory reads 'dir/ (N files)' with the count of the
+// files that were in it.
+func TestTS14_17_CollapsedDirectoryCount(t *testing.T) {
+	files := map[string]string{
+		"svc/main.go": goAt(map[int]string{3: "func Main() {}"}),
+	}
+	for i := 0; i < 7; i++ {
+		files[fmt.Sprintf("svc/deepdir/handler_%02d.go", i)] = goAt(map[int]string{3: fmt.Sprintf("func Handle%d() {}", i)})
+	}
+	ws := newWS(t, files)
+	full, err := Build(context.Background(), ws, 100000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The loosest budget that collapses the directory is the tight one.
+	var tight string
+	for budget := afspec.EstimateTokens(full); budget > 0; budget-- {
+		got, err := Build(context.Background(), ws, budget, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, "(") {
+			tight = got
+			break
+		}
+	}
+	if !strings.Contains(tight, "deepdir/ (7 files)") {
+		t.Errorf("no 'deepdir/ (7 files)' at any budget:\n%s", tight)
+	}
+	if !strings.Contains(tight, "  main.go") {
+		t.Errorf("the shallower directory was folded in too:\n%s", tight)
 	}
 }

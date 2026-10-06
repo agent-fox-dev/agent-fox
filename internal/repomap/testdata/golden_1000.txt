@@ -1,0 +1,27 @@
+```
+./
+  LICENSE
+  main.go
+cmd/app/
+  main.go
+internal/api/
+  handlers.go       type Handlers L3 · type HandlersOptions L5 · func ScanRecord L7 · func CloseRecord L9 · func OpenBatch L11 · func CloseIndex L13 · func StoreIndex L15 · func OpenSegment L17 · func ClosePage L19 · func (*Handlers) SealFrame L21 · func (*Handlers) StoreTable L23
+  handlers_test.go  func TestSealTable L5 · func TestSealBatch L7 · func TestOpenBatch L9 · func TestWritePage L11
+  server.go         type Server L3 · type ServerOptions L5 · func StorePage L7 · func CloseFrame L9 · func ProbeRecord L11 · func MergeBlock L13 · func StoreSegment L15 · func ScanCursor L17 · func CloseSegment L19 · func (*Server) ProbeSegment L21 · func (*Server) ReadPage L23
+internal/core/
+  engine.go       type Engine L3 · type EngineOptions L5 · func CloseTable L7 · func ProbeBatch L9 · func WriteFrame L11 · func ProbeFrame L13 · func FlushIndex L15 · func SealJournal L17 · func FlushJournal L19 · func (*Engine) SealBlock L21 · func (*Engine) StoreIndex L23
+  engine_test.go  func TestReadPage L5 · func TestSealIndex L7 · func TestCloseTable L9 · func TestLoadPage L11
+internal/core/store/
+  store.go       type Store L3 · type StoreOptions L5 · func CloseFrame L7 · func WriteBlock L9 · func StoreTable L11 · func ScanTable L13 · func CloseIndex L15 · func SplitTable L17 · func SealRecord L19 · func (*Store) ReadIndex L21 · func (*Store) ProbeJournal L23
+  store_test.go  func TestOpenSegment L5 · func TestProbeBlock L7 · func TestCloseBatch L9 · func TestSplitIndex L11
+internal/core/store/disk/
+  disk.go       type Disk L3 · type DiskOptions L5 · func StoreJournal L7 · func SealSegment L9 · func MergeBlock L11 · func ScanFrame L13 · func ScanJournal L15 · func StoreBlock L17 · func SplitIndex L19 · func (*Disk) FlushJournal L21 · func (*Disk) StoreCursor L23
+  disk_test.go  func TestLoadTable L5 · func TestLoadJournal L7 · func TestFlushRecord L9 · func TestFlushBatch L11
+internal/core/store/disk/layout/
+  layout.go       type Layout L3 · type LayoutOptions L5 · func WritePage L7 · func SealBatch L9 · func ScanFrame L11 · func CloseBlock L13 · func ClosePage L15 · func WriteFrame L17 · func OpenPage L19 · func (*Layout) SplitBatch L21 · func (*Layout) FlushBatch L23
+  layout_test.go  func TestProbeSegment L5 · func TestWriteFrame L7 · func TestScanJournal L9 · func TestReadBatch L11
+  pages.go        type Pages L3 · type PagesOptions L5 · func FlushRecord L7 · func OpenBatch L9 · func SplitSegment L11 · func MergeCursor L13 · func LoadJournal L15 · func StoreCursor L17 · func StoreBatch L19 · func (*Pages) MergeRecord L21 · func (*Pages) ScanTable L23
+pkg/util/
+  maths.go    type Maths L3 · type MathsOptions L5 · func StoreJournal L7 · func WriteBlock L9 · func MergeIndex L11 · func WriteCursor L13 · func WriteFrame L15 · func CloseCursor L17 · func CloseJournal L19 · func (*Maths) SealBatch L21 · func (*Maths) OpenPage L23
+  strings.go  type Strings L3 · type StringsOptions L5 · func LoadIndex L7 · func CloseBlock L9 · func StoreJournal L11 · func FlushRecord L13 · func ProbeRecord L15 · func OpenFrame L17 · func ReadFrame L19 · func (*Strings) SplitFrame L21 · func (*Strings) WriteBatch L23
+```
