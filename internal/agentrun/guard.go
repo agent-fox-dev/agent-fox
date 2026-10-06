@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -34,6 +35,10 @@ type GuardOptions struct {
 	// workspace would write to, symlinks included. Nil means filepath.Abs,
 	// which is right for a test and wrong for a workspace under a symlink.
 	ResolvePath func(string) (string, error)
+	// Suite is the command that runs the project's whole test suite, in a
+	// phase the program verifies itself after it ends: the shell refuses it,
+	// and the equivalents named at suiteRun. Empty means the phase may run it.
+	Suite []string
 	// OnBlock is called with the tool's name and the reason for each
 	// refusal.
 	OnBlock func(name, reason string)
@@ -153,10 +158,70 @@ func (o GuardOptions) refusal(vectors [][]string, cmd string) (string, bool) {
 	if reason, blocked := o.operandEscapes(vectors); blocked {
 		reasons = append(reasons, reason)
 	}
+	if reason, blocked := o.suiteRun(vectors); blocked {
+		reasons = append(reasons, reason)
+	}
 	if len(reasons) == 0 {
 		return "", false
 	}
 	return strings.Join(reasons, " Also: "), true
+}
+
+// suiteRun refuses the whole test suite in a phase that names it. The
+// program runs the suite after the phase and judges the work by that run
+// alone, so a run inside the phase repeats it — minutes each, on a context
+// that is paid for while it waits. A prompt that said so was not enough.
+//
+// Refused, in any segment of the line: the suite command itself (the same
+// program with all of its arguments, so `make test lint` contains `make
+// test`); `make check` when the suite is a make target, the conventional
+// wrapper around lint and tests; and `go test` over a whole module (`./...`).
+// The linter and targeted runs stay allowed.
+func (o GuardOptions) suiteRun(vectors [][]string) (string, bool) {
+	if len(o.Suite) == 0 {
+		return "", false
+	}
+	var hit []string
+	for _, argv := range vectors {
+		if len(argv) == 0 {
+			continue
+		}
+		name := baseName(argv[0])
+		match := false
+		for _, suite := range o.Suite {
+			want := strings.Fields(suite)
+			if len(want) == 0 || baseName(want[0]) != name {
+				continue
+			}
+			if containsAll(argv[1:], want[1:]) || (name == "make" && slices.Contains(argv[1:], "check")) {
+				match = true
+			}
+		}
+		if name == "go" && len(argv) > 1 && argv[1] == "test" &&
+			(slices.Contains(argv[2:], "./...") || slices.Contains(argv[2:], "...")) {
+			match = true
+		}
+		if match {
+			hit = append(hit, "`"+strings.Join(argv, " ")+"`")
+		}
+	}
+	if len(hit) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("%s runs the whole test suite. The program runs `%s` after you submit and "+
+		"judges the work by that run alone, so running it here only repeats it. Run the tests you wrote "+
+		"and their package instead (`go test ./pkg -run Name`, or the equivalent; a targeted Go run "+
+		"needs no -count=1). The linter is allowed.", strings.Join(hit, ", "), strings.Join(o.Suite, "`, `")), true
+}
+
+// containsAll reports whether every word of want appears in have.
+func containsAll(have, want []string) bool {
+	for _, w := range want {
+		if !slices.Contains(have, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // readOperandPrograms are the programs whose operands are paths they read. In a

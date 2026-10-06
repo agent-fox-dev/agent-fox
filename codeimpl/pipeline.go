@@ -39,11 +39,14 @@ type RunState struct {
 	spec       *afspec.Spec
 	profile    project.Profile
 	gate       []string
-	baseline   GateResult
-	branch     string
-	exists     bool
-	todo       []int
-	brain      brain
+	// suite is the gate's whole-suite command, which the implement and
+	// resolve phases may not run themselves.
+	suite    string
+	baseline GateResult
+	branch   string
+	exists   bool
+	todo     []int
+	brain    brain
 	// maps hands each phase its repository map, rebuilt when the tree changed.
 	maps   *repomap.Source
 	survey *Survey
@@ -710,6 +713,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	// The checks the run is judged by, refused before they are paid for.
 	st.profile = project.DetectProfile(st.root)
 	st.gate = gateCommands(spec.Tasks.TestCommands, o.VerifyCommand, o.NoVerify)
+	st.suite = suiteCommand(spec.Tasks.TestCommands, o.VerifyCommand, o.NoVerify)
 	if o.VerifyCommand == "" && !o.NoVerify {
 		if err := st.profile.AuditTestCommands(spec.Tasks.TestCommands); err != nil {
 			return nil, fail("preflight", "usage", err)
@@ -1141,7 +1145,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			task.Title, attempt, o.TaskAttempts)
 		st.noteUntracked(ctx)
 		sub, stats, err := st.brain.Implement(ctx, taskInput{
-			Spec: st.spec, Task: task, Root: st.root, Branch: st.branch, Gate: st.gate,
+			Spec: st.spec, Task: task, Root: st.root, Branch: st.branch, Gate: st.gate, Suite: st.suite,
 			Baseline: st.baseline, Survey: st.survey, Prior: st.prior,
 			Attempt: attempt, Attempts: o.TaskAttempts, Previous: previous,
 			Instructions: projectInstructions(st.root), Steering: steering(st.specsDir),

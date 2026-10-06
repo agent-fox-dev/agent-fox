@@ -1827,11 +1827,17 @@ conformance review and the resolve phase, so each phase searches the tree as it
 now is. The survey and review phases are read-only, with `execute` under the reporting
 allowlist. The implementation, repair and resolve phases have the file tools and a shell under the
 same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
-allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one
-addition: `write_file` and `edit_file` refuse any path under the spec
+allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with two
+additions. `write_file` and `edit_file` refuse any path under the spec
 package, so "do not modify the spec" is a refusal rather than a request. A
 change that reaches the package through the shell anyway is reverted before
-the gate runs, with a warning. The task's state, the commit, the push and the
+the gate runs, with a warning. And the implementation and resolve phases'
+shells refuse the whole test suite — the gate's `all_tests` command (or
+`--verify-command`), `make check` when that command is a make target, and
+`go test` over `./...` — because the program runs it after the phase and
+judges the work by that run alone; the refusal names the targeted form
+(`go test ./pkg -run Name`). The linter and targeted runs stay allowed, and
+the repair phase, whose work is making the suite pass, may run it. The task's state, the commit, the push and the
 pull request are the program's.
 
 ## Environment

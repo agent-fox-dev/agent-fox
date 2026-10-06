@@ -205,6 +205,10 @@ type Phase struct {
 	// ProtectedPaths are directories the file tools may not write under
 	// even though the phase writes elsewhere. See GuardOptions.
 	ProtectedPaths []string
+	// Suite is the command that runs the project's whole test suite, when
+	// the program runs it itself after the phase: the shell refuses it. See
+	// GuardOptions.Suite.
+	Suite []string
 	// MaxTokens caps one response. Zero leaves the provider's default.
 	MaxTokens int
 	// Temperature is low for every phase in these tools, because each one
@@ -421,6 +425,7 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			AllowOperators: !p.ReadOnly,
 			ReadOnlyFiles:  p.ReadOnly,
 			ProtectedPaths: p.ProtectedPaths,
+			Suite:          p.Suite,
 			ResolvePath:    r.cfg.Workspace.Resolve,
 			OnBlock: func(name, reason string) {
 				counter.inc(name)

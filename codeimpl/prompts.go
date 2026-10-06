@@ -92,12 +92,12 @@ Method:
 4. Introduce nothing unrelated. A "while I was here" cleanup makes the change
    harder to review and harder to revert. Do not touch other tasks' work.
 5. Check your work with targeted runs: the tests you wrote, then the package
-   you changed (` + "`go test ./pkg -run Name`" + `, or the equivalent). The program runs
-   the task's full check command itself after you submit, and a task is judged
-   by that run alone, so running the whole suite or the linter here only
-   repeats it — at a minute or more per run. Run the full command yourself
-   only when a failure cannot be reproduced any smaller, and fix what it
-   reports: there is no benefit in leaving it failing.
+   you changed (` + "`go test ./pkg -run Name`" + `, or the equivalent; a targeted Go run
+   needs no -count=1). The program runs the task's full check command itself
+   after you submit, and a task is judged by that run alone: running the whole
+   suite here only repeats it, at a minute or more each, so the shell refuses
+   it. The linter is allowed. Run the targeted tests again after your last
+   edit.
 6. Update the documentation the change makes wrong, from the code: every
    quoted string, field name, enum value, exit code, endpoint path and sample
    payload you write is copied from the code or a test, not from the PRD, and
@@ -516,7 +516,7 @@ func taskPrompt(in taskInput) string {
 		b.WriteString(strings.TrimSpace(in.Context) + "\n\n")
 	}
 	b.WriteString("Write the tests, stub any new API they need to compile, see them fail, implement " +
-		"the steps, run the checks, then call " + ToolSubmitTask + ".")
+		"the steps, run the targeted tests, then call " + ToolSubmitTask + ".")
 	return b.String()
 }
 
@@ -732,6 +732,7 @@ func resolvePrompt(in resolveInput) string {
 		b.WriteString(strings.TrimSpace(in.Steering))
 		b.WriteString("\n--- END STEERING ---\n\n")
 	}
-	b.WriteString("Fix what can be fixed, declare what cannot, run the checks, then call " + ToolSubmitResolve + ".")
+	b.WriteString("Fix what can be fixed, declare what cannot, run the targeted tests, then call " +
+		ToolSubmitResolve + ".")
 	return b.String()
 }

@@ -539,7 +539,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	done := o.Progress.Begin("resolving %d blocking finding(s) and %d structural finding(s)", len(blockers), len(a.findings))
 	st.noteUntracked(ctx)
 	sub, stats, err := st.brain.Resolve(ctx, resolveInput{
-		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate, Baseline: st.baseline,
+		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate, Suite: st.suite, Baseline: st.baseline,
 		Survey: st.survey, Blockers: blockers, Findings: a.findings, Hermetic: hermetic,
 		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir), Profile: st.profile,
 		Now: o.now(),
