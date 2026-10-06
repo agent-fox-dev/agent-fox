@@ -56,9 +56,25 @@ func TestTS_13_15_SchemaMaxItems30(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The relevant_files array schema must have maxItems set to 30.
-	if !strings.Contains(string(raw), `"maxItems":30`) {
-		t.Fatalf("schema does not enforce maxItems:30 on relevant_files; got %s", string(raw))
+	// The limit must sit on the relevant_files array itself, not merely appear
+	// somewhere in the schema.
+	var doc struct {
+		Properties map[string]struct {
+			MaxItems *int `json:"maxItems"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	rf, ok := doc.Properties["relevant_files"]
+	if !ok {
+		t.Fatalf("schema has no relevant_files property; got %s", string(raw))
+	}
+	if rf.MaxItems == nil {
+		t.Fatalf("relevant_files has no maxItems, want 30; got %s", string(raw))
+	}
+	if *rf.MaxItems != 30 {
+		t.Fatalf("relevant_files maxItems = %d, want 30", *rf.MaxItems)
 	}
 }
 
