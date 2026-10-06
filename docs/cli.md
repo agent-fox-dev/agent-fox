@@ -1672,6 +1672,14 @@ as a `fix:` commit only on checks that still pass, and the change is then
 measured again. Tasks declare deviations the same way, in `submit_task`'s
 `deviations`, rather than in their notes.
 
+Declarations are merged by key, so two tasks declaring the same requirement
+are one item, with the later reason. When the resolve phase's change landed,
+a declaration the review after it finds met — every id it names that the
+review answers is `implemented`, `asserts_contract` or `followed`, a row for
+`16-REQ-3` answering for `16-REQ-3.1` too — is retracted: it is not unmet,
+not counted, and not filed. Without a landed change a declaration stands,
+whatever the review says, because the review never sees it.
+
 What remains is reported in two lists. `unmet` is what the change knowingly
 does not meet — declared deviations, a requirement `partial`, a test
 `weaker`, structural findings — each with `tracking`: the erratum in the

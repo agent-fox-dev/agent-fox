@@ -239,6 +239,7 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	}
 
 	var declared []conform.Deviation
+	resolved := false
 	if blockers := a.blockers(); !o.NoReview && (len(blockers) > 0 || len(a.findings) > 0) {
 		if stop := overBudget(o, st); stop == nil {
 			sub, landed, err := runResolve(ctx, o, st, result, a, blockers)
@@ -252,6 +253,7 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 				if a, err = assess(ctx, o, st, result); err != nil {
 					return fail(conform.PhaseReview, CategoryGit, err)
 				}
+				resolved = true
 			}
 		}
 	}
@@ -265,13 +267,21 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 
 	// What the work declared — in a task or in the resolve phase — is unmet
 	// and reported as such; a blocker it declared is no longer a blocker.
+	//
+	// A declaration made before the resolve phase's change landed describes
+	// the code as it was. The review after that change is the independent
+	// account of the code the pull request opens with, so a declaration it
+	// finds met is retracted rather than reported, and never filed as an
+	// issue. Without a landed change the declaration stands: the review never
+	// sees it, and may not know what the work found it could not do.
 	var unmet []conform.Unmet
 	isDeclared := map[string]bool{}
-	for _, d := range taskDeviations(result) {
-		unmet = append(unmet, declaredUnmet(d, a.changed, st))
-		isDeclared[strings.ToUpper(d.Key)] = true
-	}
-	for _, d := range declared {
+	for _, d := range mergeDeclarations(append(taskDeviations(result), declared...)) {
+		if resolved && a.review != nil && declarationMet(d, *a.review) {
+			o.Progress.Step(conform.PhaseReview, "the declared deviation %s is retracted: the review after "+
+				"the resolve phase's change finds it met", d.Key)
+			continue
+		}
 		unmet = append(unmet, declaredUnmet(d, a.changed, st))
 		isDeclared[strings.ToUpper(d.Key)] = true
 	}
@@ -312,6 +322,80 @@ func taskDeviations(result *Result) []conform.Deviation {
 		}
 	}
 	return out
+}
+
+// mergeDeclarations keeps one declaration per key, in the order the keys
+// were first declared. A later declaration's reason replaces an earlier one's:
+// it was written against more of the change. Its test and erratum do too, but
+// an earlier one's carry over when it names none, so a merge never leaves an
+// item less tracked than it was.
+func mergeDeclarations(ds []conform.Deviation) []conform.Deviation {
+	var out []conform.Deviation
+	at := map[string]int{}
+	for _, d := range ds {
+		k := strings.ToUpper(strings.TrimSpace(d.Key))
+		i, seen := at[k]
+		if !seen {
+			at[k] = len(out)
+			out = append(out, d)
+			continue
+		}
+		prev := out[i]
+		if strings.TrimSpace(d.Test) == "" {
+			d.Test = prev.Test
+		}
+		if strings.TrimSpace(d.Errata) == "" {
+			d.Errata = prev.Errata
+		}
+		out[i] = d
+	}
+	return out
+}
+
+// declarationMet reports whether the review finds a declaration met: every
+// id it names — its key, and its test — that the review answers for is
+// answered implemented, asserts_contract or followed, and the review answers
+// for at least one of them. A row answers for its own id and for that id's
+// sub-criteria (16-REQ-3 for 16-REQ-3.1); an id the review does not answer
+// for, such as a range, is neither met nor unmet.
+func declarationMet(d conform.Deviation, r conform.Review) bool {
+	answered := false
+	for _, id := range []string{d.Key, d.Test} {
+		met, ok := reviewAnswer(strings.ToUpper(strings.TrimSpace(id)), r)
+		if !ok {
+			continue
+		}
+		if !met {
+			return false
+		}
+		answered = true
+	}
+	return answered
+}
+
+// reviewAnswer is the review's answer for one id: whether it is met, and
+// whether the review answers for it at all. The most specific row wins.
+func reviewAnswer(id string, r conform.Review) (met, ok bool) {
+	if id == "" {
+		return false, false
+	}
+	best := -1
+	consider := func(rowID string, rowMet bool) {
+		rowID = strings.ToUpper(strings.TrimSpace(rowID))
+		if (id == rowID || strings.HasPrefix(id, rowID+".")) && len(rowID) > best {
+			best, met, ok = len(rowID), rowMet, true
+		}
+	}
+	for _, row := range r.Requirements {
+		consider(row.ID, row.Status == conform.StatusImplemented)
+	}
+	for _, row := range r.Tests {
+		consider(row.ID, row.Assessment == conform.AssessAssertsContract)
+	}
+	for _, row := range r.Decisions {
+		consider(row.ID, row.Status == conform.DecisionFollowed)
+	}
+	return met, ok
 }
 
 // declaredUnmet turns a declaration into an unmet item, tracked by its
