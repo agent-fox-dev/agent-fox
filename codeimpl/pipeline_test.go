@@ -170,6 +170,13 @@ func intString(n int) string {
 // `test` target fails exactly when a FAIL file exists in the tree.
 func newSpecRepo(t *testing.T) (*tools.Workspace, *gitx.Git, string) {
 	t.Helper()
+	return newSpecRepoWith(t, nil)
+}
+
+// newSpecRepoWith is newSpecRepo with the example's task list passed through
+// edit before it is written, for a test that needs a different plan.
+func newSpecRepoWith(t *testing.T, edit func(tasks []any) []any) (*tools.Workspace, *gitx.Git, string) {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
@@ -210,6 +217,9 @@ func newSpecRepo(t *testing.T) (*tools.Workspace, *gitx.Git, string) {
 			// and the scope check has a test of its own.
 			for _, task := range doc["tasks"].([]any) {
 				delete(task.(map[string]any), "touches")
+			}
+			if edit != nil {
+				doc["tasks"] = edit(doc["tasks"].([]any))
 			}
 			if b, err = json.MarshalIndent(doc, "", "  "); err != nil {
 				t.Fatal(err)

@@ -82,8 +82,8 @@ func firstUserText(reqs []core.Request) string {
 // Real components: repomap.Build (called with an already-cancelled context so
 // that its own walk fails: a corrupt source file cannot make Build fail,
 // because a per-file outline failure only leaves the file without
-// declarations, 14-REQ-1.6), analysisPrompt, agentBrain, agentrun.Phase and
-// Runner, toolio.WarnCode.
+// declarations, 14-REQ-1.6; see docs/errata/14_repo_map.md), analysisPrompt,
+// agentBrain, agentrun.Phase and Runner, toolio.WarnCode.
 func TestTS14_39_MapBuildFailureDegradesGracefully(t *testing.T) {
 	ws, g := newRepo(t, 0)
 	args := map[string]any{
