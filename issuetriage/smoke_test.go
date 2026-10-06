@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/tools"
 
@@ -112,5 +113,46 @@ func TestTS14_36_TriageBuildsAMapAndInjectsItIntoTheTriagePrompt(t *testing.T) {
 	// Phase.RepoMap reached the runner, which logs its size under --verbose.
 	if !strings.Contains(log.String(), "repo map:") {
 		t.Errorf("Phase.RepoMap was not set; the runner logged:\n%s", log.String())
+	}
+}
+
+// TS-17-22 (smoke): triage's phase, which has the file tools and no shell,
+// reaches the model with its tool guidelines and the "no shell" sentence, and
+// with nothing that steers between the file tools and a shell.
+//
+// Verifies: 17-PATH-2, 17-REQ-4.1
+//
+// Real components: the triage phase, agentrun.Phase and Runner, the built-in
+// tools. Only the model is scripted.
+func TestTS17_22_TriagePromptHasGuidelinesAndNoShellSteering(t *testing.T) {
+	ws := smokeRepo(t)
+	p := faux.New(toolCall("c1", ToolFileIssue, validIssue()))
+	o := newOptions(t, ws, runnerFor(t, ws, p, nil))
+	o.Input.Body = "the session expires too early"
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("the triage phase never reached the model")
+	}
+	var b strings.Builder
+	for _, blk := range reqs[0].System {
+		if tb, ok := blk.(core.TextBlock); ok {
+			b.WriteString(tb.Text)
+		}
+	}
+	sys := b.String()
+	for _, want := range []string{"There is no shell", "Tool guidelines:",
+		"Report findings by calling " + ToolFileIssue + "; do not write the issue body as prose."} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("the triage system prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(sys, "Read files with") || strings.Contains(sys, tools.SearchOverExecuteGuideline) {
+		t.Error("the triage prompt steers between the file tools and a shell it does not have")
+	}
+	if i := strings.Index(sys, "Tool guidelines:"); i >= 0 && strings.Contains(sys[i:], "execute") {
+		t.Errorf("a guideline mentioning execute reached a phase with no shell:\n%s", sys[i:])
 	}
 }

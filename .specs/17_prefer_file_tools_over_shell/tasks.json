@@ -1,0 +1,204 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "17",
+  "spec_name": "prefer_file_tools_over_shell",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/agentrun/... ./codefix/... ./issuetriage/... . -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "15",
+      "reason": "Modifies toolsNote, whose naming of the symbol tools (15-REQ-1.5, TestTS15_6_ToolsNoteListsTheSymbolTools) must be preserved."
+    },
+    {
+      "spec": "14",
+      "reason": "Its repomap Intro text also names the file tools; this spec deliberately leaves it and its golden files unchanged."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Render de-duplicated tool guidelines deterministically in toolsNote",
+      "criteria": [
+        "17-REQ-1",
+        "17-REQ-6"
+      ],
+      "tests": [
+        "TS-17-2",
+        "TS-17-3",
+        "TS-17-4",
+        "TS-17-5",
+        "TS-17-17"
+      ],
+      "steps": [
+        "Write TS-17-2, TS-17-3, TS-17-4 and TS-17-5 as unit tests in internal/agentrun/phase_test.go and TS-17-17 as a property test (testing/quick or a seeded math/rand generator over tool names and guideline lists with empty, whitespace and duplicate entries, comparing toolsNote(s), toolsNote(s) and toolsNote(permutation of s)); confirm they fail",
+        "In internal/agentrun/phase.go toolsNote, copy the registered slice and sort it by Name with slices.SortFunc so the guideline order matches the sorted tool-name list and never depends on input order",
+        "After the existing \"Your tools are exactly: …\" sentence and shell/no-shell sentence, walk the sorted tools and each tool's PromptGuidelines in declared order; strings.TrimSpace each entry, skip it when empty, and skip it when its trimmed text is already in a seen set (map used only for membership, never iterated)",
+        "When at least one guideline survives, append a newline-separated section: the heading line \"Tool guidelines:\" then one \"- <trimmed text>\" line per guideline; emit no heading when none survive (including the empty set)",
+        "Use only strings.Builder and slices; no time, randomness or map iteration in toolsNote",
+        "Run TestToolsNoteListsTheToolsAndSaysWhenThereIsNoShell and TestTS15_6_ToolsNoteListsTheSymbolTools and confirm they still pass"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/phase_test.go"
+      ],
+      "state": "done"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add the search-over-execute guideline and the file-tool preference line for shell phases",
+      "criteria": [
+        "17-REQ-2",
+        "17-REQ-3",
+        "17-REQ-4"
+      ],
+      "tests": [
+        "TS-17-1",
+        "TS-17-6",
+        "TS-17-7",
+        "TS-17-8",
+        "TS-17-9",
+        "TS-17-10",
+        "TS-17-11",
+        "TS-17-12",
+        "TS-17-13"
+      ],
+      "steps": [
+        "Write TS-17-1, TS-17-6 to TS-17-12 as unit tests in internal/agentrun/phase_test.go and TS-17-13 (SelectTools feeding toolsNote, no shell) beside the SelectTools tests in internal/agentrun/policy_test.go; confirm they fail",
+        "Check whether github.com/agentfox/agentkit-go/tools exports SearchOverExecuteGuideline (search the module cache or try compiling a reference); if it does, define searchOverExecuteGuideline = tools.SearchOverExecuteGuideline in internal/agentrun, otherwise define a local const with the text \"Prefer search_files over execute+grep: it respects .gitignore and returns structured matches.\"",
+        "In toolsNote, compute hasShell (any registered name in ShellTools; take the first such name in sorted order as the shell name) and the set of registered names",
+        "When search_files and a shell are both registered, feed searchOverExecuteGuideline through the same trim/de-duplicate path as the declared guidelines (after the search_files tool's own guidelines) so it is emitted exactly once whether or not search_files already declares it",
+        "When a shell and at least one of read_file, search_files, find_files, list_files are registered, build one preference sentence from the clauses \"Read files with `read_file`\", \"search with `search_files`\", \"find files with `find_files`\", \"list directories with `list_files`\" in that fixed order, keeping only registered tools, joined with \", \" and a final \" and \" (capitalise the first clause)",
+        "End the preference sentence with \"; use `<shell>` only for git and for building, formatting and testing.\" when write_file or edit_file is registered, otherwise \"; use `<shell>` only for git.\"",
+        "Emit the preference line after the tool-list sentence and before the \"Tool guidelines:\" heading; omit it when no shell or none of the four file tools is registered",
+        "Leave the existing \"There is no shell: …\" sentence unchanged for no-shell sets and keep SelectTools' existing execute-guideline filter so TestSelectToolsDropsExecuteGuidelinesWithoutAShell still passes"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/phase_test.go",
+        "internal/agentrun/policy_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Make the execute description discourage reading files through the shell",
+      "criteria": [
+        "17-REQ-5"
+      ],
+      "tests": [
+        "TS-17-14",
+        "TS-17-15",
+        "TS-17-16"
+      ],
+      "steps": [
+        "Write TS-17-14, TS-17-15 and TS-17-16 in internal/agentrun/policy_test.go; confirm TS-17-14 fails",
+        "In internal/agentrun/policy.go SelectTools, determine from the requested names whether read_file and/or search_files are selected",
+        "When execute is selected and at least one of them is, append to the describeForPhase output (both the read-only and writing variants) a sentence like \"Do not use cat, head, tail, grep or rg to read or search repository files; use `read_file` and `search_files` instead, which respect .gitignore and return structured results.\", naming only the selected built-in tools",
+        "Keep describeForPhase itself unchanged so the \"The only programs allowed are: <programs>\" text stays generated from the guard's programs slice, and leave the description untouched when neither read_file nor search_files is selected",
+        "Confirm TestSelectToolsTellsThePhaseItsRules still passes"
+      ],
+      "touches": [
+        "internal/agentrun/policy.go",
+        "internal/agentrun/policy_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "done"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Confirm the runner delivers the new note to the provider and the change stays in agentrun",
+      "criteria": [
+        "17-REQ-7"
+      ],
+      "tests": [
+        "TS-17-18",
+        "TS-17-19"
+      ],
+      "steps": [
+        "Write TS-17-18 in internal/agentrun/phase_test.go: build a Runner with the existing fauxConfig helper and a temp workspace, run a Phase with System \"system\", Tools read_file, search_files, execute and a Custom submit tool with PromptGuidelines [\"Report by calling submit.\"], answer with a submit tool call, and inspect the first faux request's system prompt",
+        "Assert the prompt starts with \"system\" and contains \"Tool guidelines:\", \"- Report by calling submit.\", the search-over-execute text exactly once, \"Read files with `read_file`\" and \"use `execute` only for git\"",
+        "Confirm newAgent in internal/agentrun/phase.go still sets SystemPrompt to p.System plus toolsNote(registered) where registered includes the Custom submit tools; fix the wiring if submit tools are added after the note is built",
+        "Write TS-17-19 as a test in internal/agentrun (e.g. scope_test.go) that walks the non-test .go files of codefix, codeimpl, specgen, issuetriage and internal/conform (via a relative path from the package directory) and asserts none contains \"Tool guidelines:\", \"Read files with\" or the search-over-execute text, and that ReadOnlyPrograms still contains cat, head, tail, wc, rg and grep",
+        "Run go test ./internal/repomap/... and confirm the golden tests still pass without changes"
+      ],
+      "touches": [
+        "internal/agentrun/phase.go",
+        "internal/agentrun/phase_test.go",
+        "internal/agentrun/scope_test.go"
+      ],
+      "depends_on": [
+        2,
+        3
+      ],
+      "state": "done"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Document the tool guidelines and file-tool preference in the CLI and model-usage docs",
+      "criteria": [
+        "17-REQ-8"
+      ],
+      "tests": [
+        "TS-17-20"
+      ],
+      "steps": [
+        "Write TS-17-20 as a root-level test docs_tool_guidelines_test.go (package matching the other docs_*_test.go files) that extracts the \"What the model may and may not do\" section of docs/cli.md and reads docs/model-usage.md, asserting each contains \"Tool guidelines\", \"search_files\" and \"git\"; confirm it fails",
+        "In docs/cli.md \"What the model may and may not do\", explain that the system prompt ends with a tools note listing the tools, a \"Tool guidelines:\" section with every registered tool's guidelines (including submit_* tools), and, in phases with a shell, a line telling the model to read with read_file, search with search_files, find with find_files and list with list_files, using execute only for git (and for building, formatting and testing in writing phases); mention the execute description's added sentence",
+        "Add the same description to docs/model-usage.md next to the phase/tool table, noting that phases without a shell keep the no-shell sentence",
+        "Run make check and confirm it exits 0"
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/model-usage.md",
+        "docs_tool_guidelines_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "done"
+    },
+    {
+      "id": 6,
+      "kind": "integration",
+      "title": "Verify the shell and no-shell phase paths end to end through the real runner",
+      "tests": [
+        "TS-17-21",
+        "TS-17-22"
+      ],
+      "steps": [
+        "Write TS-17-21 in codefix/smoke_test.go: in a temp git repo with a seeded failure and a faux provider scripted to answer analyse with submit_analysis, run codefix.Run through the real agentrun.Runner and assert the analyse request's system prompt contains \"Tool guidelines:\", \"Report the diagnosis by calling submit_analysis; do not write it as prose.\", the search-over-execute text once, the preference line with \"use `execute` only for git\" and not \"building, formatting and testing\", and that the declared execute tool's description discourages cat and grep",
+        "Write TS-17-22 in issuetriage/smoke_test.go: run issuetriage.Run with a faux provider answering a valid file_issue call and assert the system prompt contains \"There is no shell\" and \"Tool guidelines:\", the triage submit tool's guideline if declared, and no \"Read files with\", no search-over-execute text and no guideline line mentioning execute",
+        "Trace 17-PATH-1 from cmd/fix through codefix.Run, the analyse phase, agentrun.Runner, SelectTools, newAgent and toolsNote to the provider request; confirm each step calls the next in production code",
+        "Trace 17-PATH-2 from cmd/triage through issuetriage.Run, agentrun.Runner, SelectTools and toolsNote; confirm each step calls the next",
+        "For every contract criterion (17-REQ-1.x, 2.x, 3.x, 4.x, 5.x, 6.1, 7.1, 8.1), confirm toolsNote's output and SelectTools' execute description are consumed by newAgent/the agent config in production code, not only by tests",
+        "Search internal/agentrun/phase.go, internal/agentrun/policy.go, docs/cli.md and docs/model-usage.md for panic(\"not implemented\"), TODO, TBD and bare placeholder returns, and remove any that remain",
+        "Run make check and confirm it exits 0"
+      ],
+      "touches": [
+        "codefix/smoke_test.go",
+        "issuetriage/smoke_test.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "done_when": [
+        "make check exits 0"
+      ],
+      "state": "done"
+    }
+  ]
+}

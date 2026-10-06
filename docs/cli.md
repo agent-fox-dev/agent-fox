@@ -1138,6 +1138,23 @@ phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 name is declared; both use universal-ctags when it is installed and heuristics
 when it is not (`--preflight` reports which, as `symbol_backend`).
 
+The system prompt tells the model what its tools are for. It closes with the
+registered tools by name and, under `Tool guidelines:`, every guideline those
+tools carry, AgentKit's and the phase's own (`submit_analysis`'s "Report the
+diagnosis by calling submit_analysis; do not write it as prose."), in tool
+order with blanks and repeats removed. AgentKit renders those guidelines only
+under its own system prompt, and every phase here supplies one, so without this
+they never reached the model. A phase with a shell and `search_files` also gets
+AgentKit's "Prefer search_files over execute+grep" line, once. A phase with a
+shell and the file tools is told which to use for what — read files with
+`read_file`, search with `search_files`, find files with `find_files`, list
+directories with `list_files` — and to use `execute` only for git, and in a
+phase that writes, only for git and for building, formatting and testing. The
+`execute` description says not to read or search files with `cat`, `head`,
+`tail`, `grep` or `rg`; the allowlist it states is unchanged, so those
+programs still run when the model has a reason. A phase without a shell is told
+it has none, and gets no guideline that mentions `execute`.
+
 **Indexed search.** `code_search` joins the six read tools in the `analyse` and
 `implement` phases when the code-search index is built (`--preflight` reports
 it as `code_search_index`). `fix` invalidates the index after it creates the

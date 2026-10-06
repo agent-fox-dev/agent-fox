@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -877,5 +878,315 @@ func TestTS16_9_AssertReadOnlyAcceptsCodeSearch(t *testing.T) {
 	}
 	if err := AssertReadOnly(core.ToolPolicy{ExcludeTools: MutatingTools}.Resolve(ro)); err != nil {
 		t.Errorf("AssertReadOnly refused the resolved read-only set: %v", err)
+	}
+}
+
+// guidelinesSection is the part of a tools note from "Tool guidelines:" on, or
+// "" when there is none.
+func guidelinesSection(note string) string {
+	if i := strings.Index(note, "Tool guidelines:"); i >= 0 {
+		return note[i:]
+	}
+	return ""
+}
+
+// TS-17-1 (unit): the guidelines of every registered tool are rendered once,
+// after the tool list, and the search-over-execute line appears once.
+//
+// Verifies: 17-REQ-1.1, 17-REQ-2.1
+func TestTS17_1_ToolsNoteRendersEveryGuideline(t *testing.T) {
+	note := toolsNote([]core.Tool{
+		{Name: "read_file", PromptGuidelines: []string{"Read in ranges."}},
+		{Name: "search_files", PromptGuidelines: []string{"Use a glob."}},
+		{Name: "execute"},
+		{Name: "submit_x", PromptGuidelines: []string{"Report by calling submit_x."}},
+	})
+	if strings.Count(note, "Tool guidelines:") != 1 ||
+		strings.Index(note, "Tool guidelines:") < strings.Index(note, "Your tools are exactly:") {
+		t.Fatalf("note = %q", note)
+	}
+	for _, g := range []string{"Read in ranges.", "Use a glob.", "Report by calling submit_x."} {
+		if !strings.Contains(note, "- "+g) {
+			t.Errorf("the note lacks the guideline %q:\n%s", g, note)
+		}
+	}
+	if n := strings.Count(note, tools.SearchOverExecuteGuideline); n != 1 {
+		t.Errorf("the search-over-execute guideline appears %d times", n)
+	}
+}
+
+// TS-17-2 (unit): tools are visited in sorted order, each tool's guidelines in
+// their declared order.
+//
+// Verifies: 17-REQ-1.2
+func TestTS17_2_GuidelinesFollowTheSortedToolOrder(t *testing.T) {
+	note := toolsNote([]core.Tool{
+		{Name: "zeta", PromptGuidelines: []string{"z1", "z2"}},
+		{Name: "alpha", PromptGuidelines: []string{"a2", "a1"}},
+		{Name: "mid", PromptGuidelines: []string{"m1"}},
+	})
+	sec := guidelinesSection(note)
+	last := -1
+	for _, g := range []string{"- a2", "- a1", "- m1", "- z1", "- z2"} {
+		i := strings.Index(sec, g)
+		if i <= last {
+			t.Fatalf("%q is out of order in:\n%s", g, sec)
+		}
+		last = i
+	}
+}
+
+// TS-17-3 (unit): an empty or whitespace-only guideline is skipped.
+//
+// Verifies: 17-REQ-1.3
+func TestTS17_3_BlankGuidelinesAreSkipped(t *testing.T) {
+	sec := guidelinesSection(toolsNote([]core.Tool{
+		{Name: "t", PromptGuidelines: []string{"", "   ", "\t\n", "Real one."}},
+	}))
+	var bullets []string
+	for _, line := range strings.Split(sec, "\n") {
+		if strings.HasPrefix(line, "-") {
+			if strings.TrimSpace(strings.TrimPrefix(line, "-")) == "" {
+				t.Errorf("an empty bullet: %q", line)
+			}
+			bullets = append(bullets, line)
+		}
+	}
+	if len(bullets) != 1 || bullets[0] != "- Real one." {
+		t.Errorf("bullets = %q", bullets)
+	}
+}
+
+// TS-17-4 (unit): a guideline whose trimmed text was already emitted is
+// skipped.
+//
+// Verifies: 17-REQ-1.4
+func TestTS17_4_DuplicateGuidelinesAppearOnce(t *testing.T) {
+	sec := guidelinesSection(toolsNote([]core.Tool{
+		{Name: "a", PromptGuidelines: []string{"Same text.", "Same text."}},
+		{Name: "b", PromptGuidelines: []string{"  Same text.  ", "Other."}},
+	}))
+	if strings.Count(sec, "Same text.") != 1 || strings.Count(sec, "Other.") != 1 {
+		t.Errorf("section = %q", sec)
+	}
+}
+
+// TS-17-5 (unit): with no guideline there is no section, and the rest of the
+// note is as before.
+//
+// Verifies: 17-REQ-1.5
+func TestTS17_5_NoGuidelinesNoSection(t *testing.T) {
+	plain := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "find_files"}, {Name: "submit_prd"}})
+	blank := toolsNote([]core.Tool{{Name: "read_file", PromptGuidelines: []string{" ", ""}}})
+	empty := toolsNote(nil)
+	for _, n := range []string{plain, blank, empty} {
+		if strings.Contains(n, "Tool guidelines:") {
+			t.Errorf("a note with no guidelines has a section: %q", n)
+		}
+	}
+	if !strings.Contains(plain, "find_files, read_file, submit_prd") || !strings.Contains(plain, "There is no shell") {
+		t.Errorf("note = %q", plain)
+	}
+}
+
+// TS-17-6 (unit): with search_files and a shell, the search-over-execute line
+// appears exactly once, whether search_files declares it or not.
+//
+// Verifies: 17-REQ-2.1
+func TestTS17_6_SearchOverExecuteOnceWithAShell(t *testing.T) {
+	for name, set := range map[string][]core.Tool{
+		"undeclared": {{Name: "search_files"}, {Name: "execute"}},
+		"declared":   {{Name: "search_files", PromptGuidelines: []string{tools.SearchOverExecuteGuideline}}, {Name: "execute"}},
+		"run_command": {{Name: "search_files", PromptGuidelines: []string{tools.SearchOverExecuteGuideline}},
+			{Name: "run_command"}},
+	} {
+		if n := strings.Count(toolsNote(set), tools.SearchOverExecuteGuideline); n != 1 {
+			t.Errorf("%s: the line appears %d times", name, n)
+		}
+	}
+}
+
+// TS-17-7 (unit): without search_files or without a shell, the line does not
+// appear.
+//
+// Verifies: 17-REQ-2.2
+func TestTS17_7_NoSearchOverExecuteWithoutBoth(t *testing.T) {
+	all := []core.Tool{{Name: "search_files", PromptGuidelines: []string{tools.SearchOverExecuteGuideline, "Use a glob."}}}
+	noShell := SelectTools(all, true, nil, "search_files")
+	noSearch := []core.Tool{{Name: "read_file"}, {Name: "execute"}}
+	for name, set := range map[string][]core.Tool{"no shell": noShell, "no search_files": noSearch} {
+		if n := strings.Count(toolsNote(set), tools.SearchOverExecuteGuideline); n != 0 {
+			t.Errorf("%s: the line appears %d times", name, n)
+		}
+	}
+}
+
+// TS-17-8 (unit): a read-only shell phase is told which file tool to use for
+// what, naming only the ones it has, and that the shell is for git.
+//
+// Verifies: 17-REQ-3.1, 17-REQ-3.3
+func TestTS17_8_PreferenceLineInAReadOnlyShellPhase(t *testing.T) {
+	r := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
+		{Name: "list_files"}, {Name: "execute"}})
+	want := "Read files with `read_file`, search with `search_files`, find files with `find_files` and list " +
+		"directories with `list_files`"
+	if strings.Count(r, want) != 1 || !strings.Contains(r, "use `execute` only for git") ||
+		strings.Contains(r, "building, formatting and testing") {
+		t.Errorf("note = %q", r)
+	}
+	s := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "list_files"}, {Name: "execute"}})
+	if !strings.Contains(s, "`read_file`") || !strings.Contains(s, "`list_files`") ||
+		strings.Contains(s, "search with") || strings.Contains(s, "find files with") {
+		t.Errorf("note = %q", s)
+	}
+}
+
+// TS-17-9 (unit): a writing shell phase may also build, format and test, and
+// the shell is named by its registered name.
+//
+// Verifies: 17-REQ-3.2
+func TestTS17_9_PreferenceLineInAWritingShellPhase(t *testing.T) {
+	w1 := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "write_file"}, {Name: "execute"}})
+	if !strings.Contains(w1, "use `execute` only for git and for building, formatting and testing") {
+		t.Errorf("note = %q", w1)
+	}
+	w2 := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "edit_file"}, {Name: "run_command"}})
+	if !strings.Contains(w2, "use `run_command` only for git and for building, formatting and testing") {
+		t.Errorf("note = %q", w2)
+	}
+}
+
+// TS-17-10 (unit): the preference line comes after the tool list and before
+// the guidelines.
+//
+// Verifies: 17-REQ-3.4
+func TestTS17_10_PreferenceLineOrder(t *testing.T) {
+	n := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files", PromptGuidelines: []string{"Use a glob."}},
+		{Name: "execute"}})
+	a, b, c := strings.Index(n, "Your tools are exactly:"), strings.Index(n, "Read files with"),
+		strings.Index(n, "Tool guidelines:")
+	if a < 0 || b < 0 || c < 0 || !(a < b && b < c) {
+		t.Errorf("order %d, %d, %d in %q", a, b, c, n)
+	}
+}
+
+// TS-17-11 (unit): a shell phase with none of the four file tools gets no
+// preference line.
+//
+// Verifies: 17-REQ-3.5
+func TestTS17_11_NoPreferenceLineWithoutFileTools(t *testing.T) {
+	n := toolsNote([]core.Tool{{Name: "execute"}, {Name: "write_file"}, {Name: "submit_x"}})
+	for _, s := range []string{"Read files with", "search with", "list directories with", "find files with"} {
+		if strings.Contains(n, s) {
+			t.Errorf("the note contains %q: %q", s, n)
+		}
+	}
+	if !strings.Contains(n, "execute, submit_x, write_file") {
+		t.Errorf("note = %q", n)
+	}
+}
+
+// TS-17-12 (unit): a phase without a shell keeps its "no shell" sentence and
+// gets neither the preference line nor the search-over-execute line.
+//
+// Verifies: 17-REQ-4.1
+func TestTS17_12_NoShellPhaseIsUnchangedInSubstance(t *testing.T) {
+	n := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
+		{Name: "list_files"}, {Name: "submit_issue", PromptGuidelines: []string{"File it with submit_issue."}}})
+	if !strings.Contains(n, "There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`.") {
+		t.Errorf("note = %q", n)
+	}
+	if strings.Contains(n, "Read files with") || strings.Contains(n, tools.SearchOverExecuteGuideline) {
+		t.Errorf("a no-shell note steers between the file tools and a shell: %q", n)
+	}
+}
+
+// TS-17-13 (integration): SelectTools drops execute-mentioning guidelines in a
+// phase without a shell, and the rendered section then has none.
+//
+// Verifies: 17-REQ-4.2
+func TestTS17_13_NoExecuteGuidelineReachesANoShellNote(t *testing.T) {
+	all := []core.Tool{
+		{Name: "search_files", PromptGuidelines: []string{"Prefer this over execute+grep.", "Use a glob."}},
+		{Name: "read_file", PromptGuidelines: []string{"Do not use execute to cat files."}},
+	}
+	sec := guidelinesSection(toolsNote(SelectTools(all, true, nil, "read_file", "search_files")))
+	if !strings.Contains(sec, "- Use a glob.") || strings.Contains(sec, "execute") {
+		t.Errorf("section = %q", sec)
+	}
+}
+
+// TS-17-17 (property): the note is a pure function of the tool set: the same
+// set, in any order, gives the same bytes.
+//
+// Verifies: 17-REQ-6.1
+func TestTS17_17_ToolsNoteIsDeterministic(t *testing.T) {
+	names := []string{"read_file", "search_files", "find_files", "list_files", "execute", "run_command",
+		"write_file", "edit_file", "submit_a", "submit_b"}
+	pool := []string{"", "  ", "Same.", "Same.", "Read in ranges.", "Use a glob.", tools.SearchOverExecuteGuideline}
+	rng := rand.New(rand.NewSource(17))
+	for i := 0; i < 200; i++ {
+		var set []core.Tool
+		for _, n := range names {
+			if rng.Intn(2) == 0 {
+				continue
+			}
+			var gs []string
+			for j := rng.Intn(4); j > 0; j-- {
+				gs = append(gs, pool[rng.Intn(len(pool))])
+			}
+			set = append(set, core.Tool{Name: n, PromptGuidelines: gs})
+		}
+		perm := append([]core.Tool(nil), set...)
+		rng.Shuffle(len(perm), func(a, b int) { perm[a], perm[b] = perm[b], perm[a] })
+		a, b, c := toolsNote(set), toolsNote(set), toolsNote(perm)
+		if a != b || a != c {
+			t.Fatalf("set %d gives different notes:\n%q\n%q\n%q", i, a, b, c)
+		}
+	}
+}
+
+// TS-17-18 (integration): the system prompt that reaches the provider carries
+// the rendered guidelines, the search-over-execute line once and the
+// preference line, after the phase's own system text.
+//
+// Verifies: 17-REQ-7.1
+func TestTS17_18_TheRunnerSendsTheGuidelines(t *testing.T) {
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "done"}))
+	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	var calls int
+	submit := submitTool(&got, &calls)
+	submit.PromptGuidelines = []string{"Report by calling submit."}
+	if _, err := r.Run(context.Background(), Phase{Name: "phase", System: "system", User: "user",
+		Terminator: "submit", Custom: []core.Tool{submit}, ReadOnly: true, Programs: ReadOnlyPrograms,
+		BuiltinTools: []string{"read_file", "search_files", "execute"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the provider")
+	}
+	var b strings.Builder
+	for _, blk := range reqs[0].System {
+		if tb, ok := blk.(core.TextBlock); ok {
+			b.WriteString(tb.Text)
+		}
+	}
+	sys := b.String()
+	if !strings.HasPrefix(sys, "system") {
+		t.Errorf("the system prompt does not start with the phase's text: %q", sys[:min(len(sys), 80)])
+	}
+	for _, want := range []string{"Tool guidelines:", "- Report by calling submit.", "Read files with `read_file`",
+		"use `execute` only for git"} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("the system prompt lacks %q", want)
+		}
+	}
+	if n := strings.Count(sys, tools.SearchOverExecuteGuideline); n != 1 {
+		t.Errorf("the search-over-execute line appears %d times", n)
 	}
 }
