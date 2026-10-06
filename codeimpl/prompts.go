@@ -597,6 +597,18 @@ func surveyBlock(s Survey) string {
 func previousAttemptBlock(f attemptFailure, subject string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## The previous attempt at %s\n\n", subject)
+	if f.Kept {
+		fmt.Fprintf(&b, "Its work is still in the tree: the checks passed with it, so the code is not what "+
+			"is wrong. With `%s` put back as they were before it, the checks still passed, so the tests the "+
+			"task owns do not depend on that code. Strengthen those tests until they fail without it — drive "+
+			"the component the code wires in and assert its observable outcome — and do not rewrite the "+
+			"implementation or redo the documentation; change them only where a test shows them wrong.\n\n",
+			strings.Join(f.Reverted, "`, `"))
+		if strings.TrimSpace(f.DiffStat) != "" {
+			fmt.Fprintf(&b, "It changed:\n\n```\n%s\n```\n\n", strings.TrimSpace(f.DiffStat))
+		}
+		return b.String()
+	}
 	b.WriteString("It was discarded: the branch is back at the commit it started from and nothing of it " +
 		"remains in the tree. ")
 	fmt.Fprintf(&b, "It did not land because %s\n\n", strings.TrimSpace(f.Reason))

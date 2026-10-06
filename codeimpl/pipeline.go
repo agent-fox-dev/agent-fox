@@ -1151,7 +1151,11 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 
 		done := o.Progress.Begin("task %d/%d: %s (attempt %d of %d)", task.Id, result.TasksTotal,
 			task.Title, attempt, o.TaskAttempts)
-		st.noteUntracked(ctx)
+		// An attempt that continues on kept work keeps the snapshot taken
+		// before that work: its new files are the task's, not someone else's.
+		if previous == nil || !previous.Kept {
+			st.noteUntracked(ctx)
+		}
 		sub, stats, err := st.brain.Implement(ctx, taskInput{
 			Spec: st.spec, Task: task, Root: st.root, Branch: st.branch, Gate: st.gate, Suite: st.suite,
 			Baseline: st.baseline, Survey: st.survey, Prior: st.prior,
@@ -1274,10 +1278,13 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			}
 			report.RevertCheck = &rc
 			if rc.Ran && !rc.Proves {
+				// The checks passed with the work, so the code is not what is
+				// wrong: the next attempt continues on it and strengthens the
+				// tests, rather than starting again from nothing.
 				failure = &attemptFailure{Reason: "test-first was waived, and with the implementation taken " +
 					"out the checks still pass (" + strings.Join(rc.Reverted, ", ") + " put back as they " +
 					"were): the tests the task owns do not depend on the work. Make them fail when the " +
-					"wired component is removed or the behaviour inverted"}
+					"wired component is removed or the behaviour inverted", Kept: true, Reverted: rc.Reverted}
 			}
 		}
 		if failure != nil {
@@ -1286,6 +1293,11 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			}
 			if attempt < o.TaskAttempts {
 				previous = failure
+				if failure.Kept {
+					o.Progress.Step("task", "task %d attempt %d did not land: %s; keeping the work for "+
+						"stronger tests", task.Id, attempt, failure.Reason)
+					continue
+				}
 				o.Progress.Step("task", "task %d attempt %d did not land: %s; discarding it", task.Id, attempt, failure.Reason)
 				if err := discard(ctx, st, head); err != nil {
 					return report, fail("task", CategoryGit, err)

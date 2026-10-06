@@ -1616,7 +1616,8 @@ report does not list among its `changes` is committed — the checks ran with
 it — and named in an `unlisted_file_committed` warning.
 
 Anything else is a failed attempt. The first one is discarded — the branch is
-reset to the last commit and the attempt's own new files removed — and the task is tried once
+reset to the last commit and the attempt's own new files removed (except when
+only its tests were too weak; see the revert check below) — and the task is tried once
 more with the failure in its prompt (`--task-attempts`, default 2). The last
 failure parks the work as a `wip:` commit with the task recorded as
 `in_progress`, returns the checkout to the base branch, and exits 4. A run
@@ -1658,7 +1659,12 @@ by the flag, or by a task's `test_first_deviation` — the run measures what
 the red run would have shown: after the gate passes, the task's tests run
 once more with its implementation taken out (its non-test files put back as
 they were; for a task that changed only tests, the whole branch's), and the
-task lands only if they then fail. The result is `tasks[].revert_check`.
+task lands only if they then fail. The result is `tasks[].revert_check`. When
+they still pass, the code is not what is wrong — the checks passed with it —
+so the attempt is not discarded: the next attempt continues on its work, told
+which files were taken out and to strengthen the tests rather than rewrite the
+implementation, and its additions land with the first attempt's. Any other
+failed attempt is discarded and retried from scratch.
 
 ### The conformance stage
 
