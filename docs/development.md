@@ -28,6 +28,7 @@ issuex/                   # The forge client: issues and pull/merge requests on 
 internal/
   toolio/                 # Input classification, the JSON envelope, the shared CLI shell
   agentrun/               # Model resolution, the phase runner, the read-only invariant, the shell guard
+  repomap/                # The token-budgeted repository map injected into every phase's user prompt
   project/                # Language detection and the test-command audit
   gitx/                   # git, the process runner, and the clean-environment runner
   checks/                 # Detecting and running a project's own quality command
@@ -80,6 +81,16 @@ go mod download
   authorization boundary; `models.go` is the tier table over
   `catalog.ResolveModel`; `credentials.go` is the preflight. See
   [ADR 02](adr/02-build-the-spec-pipeline-on-agentkit.md).
+
+- **internal/repomap** — builds a token-budgeted repository map from the
+  tracked file tree and top-level declarations, injected into every phase's
+  user prompt under a `## Repository map` heading. `repomap.go` walks with
+  AgentKit's `tools.Walk`, outlines each file, renders the fenced block and
+  reduces it to the `--repo-map-tokens` budget; `treechange.go` holds the
+  detector `fix` and `impl` use to rebuild the map only when `HEAD` or the
+  dirty files changed. Its golden files are under `internal/repomap/testdata/`;
+  regenerate them with `go test ./internal/repomap -run TS14_35 -update`. See
+  [architecture](architecture.md).
 
 - **issuex** (`issuex/`) — the forge client. One `Client` interface over
   GitHub and GitLab, twenty operations: reading, filing, rewriting, closing and

@@ -5,6 +5,7 @@
 | [Tool Reference](cli.md) | `spec`, `triage`, `fix` and `impl`: the shared interface, every flag, the JSON envelope and the exit codes |
 | [Configuration](configuration.md) | Credentials, model selection, what the model is allowed to read, bounds |
 | [Model Usage](model-usage.md) | What each phase sends, and what happens when the answer is wrong |
+| [Architecture](architecture.md) | How the pieces fit together, including the repository map every phase's prompt carries |
 | [Development](development.md) | Setup, repository layout, the schema workflow, testing |
 | [Go Library API](../afspec/README.md) | The `afspec` spec-format library |
 
