@@ -428,7 +428,7 @@ func TestTS15_7_RegisteredToolsIsFreshPerPhase(t *testing.T) {
 }
 
 // TS-15-8 (unit): registeredTools leaves tools.Options.Symbols at its zero
-// value.
+// value; it sets only Workspace and Index (16-REQ-1.2).
 //
 // Verifies: 15-REQ-3.1
 func TestTS15_8_RegisteredToolsSetsOnlyTheWorkspace(t *testing.T) {
@@ -445,8 +445,8 @@ func TestTS15_8_RegisteredToolsSetsOnlyTheWorkspace(t *testing.T) {
 	if j := strings.Index(body, "\n}\n"); j >= 0 {
 		body = body[:j]
 	}
-	if !strings.Contains(body, "tools.All(tools.Options{Workspace: r.cfg.Workspace})") {
-		t.Errorf("tools.All should be called with only Workspace set:\n%s", body)
+	if !strings.Contains(body, "tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index})") {
+		t.Errorf("tools.All should be called with only Workspace and Index set:\n%s", body)
 	}
 	if strings.Contains(body, "Symbols") {
 		t.Error("registeredTools must not set Symbols")
@@ -744,5 +744,138 @@ func TestTS15_17_AnalyseThenImplementRegisterSixReadToolsWithAFreshTable(t *test
 	if !strings.Contains(result(reqs[len(reqs)-1]), "late.go") {
 		t.Errorf("implement's find_symbol did not find the declaration added between the phases:\n%s",
 			result(reqs[len(reqs)-1]))
+	}
+}
+
+// fakeIndex is a tools.Index test double. Tools returns a code_search tool,
+// as the real codesearch index does.
+type fakeIndex struct {
+	invalidated []string
+	closed      int
+}
+
+func (f *fakeIndex) Symbols(context.Context, tools.SymbolQuery) (tools.SymbolAnswer, bool, error) {
+	return tools.SymbolAnswer{}, false, nil
+}
+
+func (f *fakeIndex) Tools() []core.Tool {
+	return []core.Tool{{Name: "code_search", Description: "ranked search"}}
+}
+
+func (f *fakeIndex) Invalidate(rel string) { f.invalidated = append(f.invalidated, rel) }
+
+func (f *fakeIndex) Close() error { f.closed++; return nil }
+
+func hasTool(ts []core.Tool, name string) bool {
+	for _, x := range ts {
+		if x.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func withCodeSearch() []string {
+	return append(append([]string(nil), ReadOnlyFileTools...), "code_search")
+}
+
+// TS-16-1 (unit): Config.Index is passed through to tools.Options.Index in
+// registeredTools, so code_search is in the resolved set.
+//
+// Verifies: 16-REQ-1.1, 16-REQ-1.2
+func TestTS16_1_ConfigIndexReachesToolsAll(t *testing.T) {
+	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	cfg.Index = &fakeIndex{}
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.registeredTools(Phase{Name: "a", BuiltinTools: withCodeSearch(), ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTool(got, "code_search") {
+		t.Error("code_search missing from the resolved tool set")
+	}
+	src, err := os.ReadFile("phase.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "Index: r.cfg.Index") {
+		t.Error("registeredTools must pass r.cfg.Index as tools.Options.Index")
+	}
+}
+
+// TS-16-6 (unit): code_search joins the six read tools when Index is set.
+//
+// Verifies: 16-REQ-2.1, 16-REQ-2.3
+func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
+	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	cfg.Index = &fakeIndex{}
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.registeredTools(Phase{Name: "a", BuiltinTools: withCodeSearch(), ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTool(got, "code_search") {
+		t.Error("code_search missing")
+	}
+	for _, n := range ReadOnlyFileTools {
+		if !hasTool(got, n) {
+			t.Errorf("%s missing from the resolved set", n)
+		}
+	}
+}
+
+// TS-16-7 (unit): code_search is absent when Index is nil, though the phase
+// names it.
+//
+// Verifies: 16-REQ-2.2, 16-REQ-2.4
+func TestTS16_7_CodeSearchAbsentWithoutIndex(t *testing.T) {
+	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	cfg.Index = nil
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.registeredTools(Phase{Name: "a", BuiltinTools: withCodeSearch(), ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasTool(got, "code_search") {
+		t.Error("code_search present without an index")
+	}
+	for _, n := range ReadOnlyFileTools {
+		if !hasTool(got, n) {
+			t.Errorf("%s missing from the resolved set", n)
+		}
+	}
+}
+
+// TS-16-9 (unit): AssertReadOnly passes when the resolved set holds
+// code_search.
+//
+// Verifies: 16-REQ-6.2
+func TestTS16_9_AssertReadOnlyAcceptsCodeSearch(t *testing.T) {
+	set := []core.Tool{{Name: "code_search"}, {Name: "read_file"}, {Name: "list_files"}, {Name: "find_files"}, {Name: "search_files"}}
+	if err := AssertReadOnly(set); err != nil {
+		t.Errorf("AssertReadOnly refused code_search: %v", err)
+	}
+	// And through the real runner, with a real read-only phase.
+	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	cfg.Index = &fakeIndex{}
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ro, err := r.registeredTools(Phase{Name: "a", BuiltinTools: withCodeSearch(), ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertReadOnly(core.ToolPolicy{ExcludeTools: MutatingTools}.Resolve(ro)); err != nil {
+		t.Errorf("AssertReadOnly refused the resolved read-only set: %v", err)
 	}
 }
