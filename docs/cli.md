@@ -1641,8 +1641,14 @@ where it left the base branch:
   `-b`, a date after today in an ADR or erratum, and an erratum that cites no
   code line or no test.
 - **Scope.** When every task lists `touches`, the change may touch only those
-  paths (documentation and the spec package exempt). Anything else is a
-  "while here" change that belongs in a pull request of its own.
+  paths and the paths the survey's resolutions name (a word with a slash that
+  is a directory, ends in one, or has a file extension; the tasks are told the
+  same list). Documentation, the spec package and a test file that names one
+  of the spec's test ids (`TS-16-14`, `TS16_14`, `TS_16_14` or `TS1614`) are
+  exempt. Anything else is a "while here" change that belongs in a pull
+  request of its own: it is listed under `out_of_scope` and reported as an
+  `unmet` item, so the pull request does not say the work is complete, but it
+  does not block — the run is not a draft and does not exit 4 over it.
 - **A clean environment.** The gate runs again with an empty `HOME`, no
   global or system git configuration, no injected git identity and nothing
   to answer a credential prompt (no askpass program, `GIT_TERMINAL_PROMPT=0`),
@@ -1664,10 +1670,10 @@ where it left the base branch:
 
 A requirement `missing` or `different`, a test `tautological`,
 `no_assertions` or `missing`, a decision `not_followed`, a contradicted
-document, a file out of scope and a clean-environment failure are
-**blocking**. When anything was found, one writing phase (`resolve`) fixes
-it or declares it a known deviation with the reason and an erratum in the
-change; scope and documentation findings can only be fixed. Its change lands
+document and a clean-environment failure are **blocking**. When anything
+was found, one writing phase (`resolve`) fixes it or declares it a known
+deviation with the reason and an erratum in the change; documentation
+findings can only be fixed. Its change lands
 as a `fix:` commit only on checks that still pass, and the change is then
 measured again. Tasks declare deviations the same way, in `submit_task`'s
 `deviations`, rather than in their notes.
@@ -1682,7 +1688,7 @@ whatever the review says, because the review never sees it.
 
 What remains is reported in two lists. `unmet` is what the change knowingly
 does not meet — declared deviations, a requirement `partial`, a test
-`weaker`, structural findings — each with `tracking`: the erratum in the
+`weaker`, structural findings, files out of scope — each with `tracking`: the erratum in the
 change, or, with `--land pr`, the issue the run files
 (`deviation_not_tracked` when neither). The run files one issue for every
 declared deviation no erratum records, not one issue each, so the work it

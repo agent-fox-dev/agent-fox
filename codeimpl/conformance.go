@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
@@ -53,11 +57,6 @@ func (a assessment) blockers() []conform.Blocker {
 	if a.review != nil {
 		out = append(out, a.review.Blockers()...)
 	}
-	for _, p := range a.outside {
-		out = append(out, conform.Blocker{Key: "scope:" + p, Declarable: false,
-			What: p + " is outside the files the spec's tasks list; a change the spec did not ask for " +
-				"belongs in a pull request of its own"})
-	}
 	if a.hermetic != nil && a.hermetic.Ran() && !a.hermetic.OK() {
 		var cmds []string
 		for _, c := range a.hermetic.failing() {
@@ -82,21 +81,115 @@ func (o Options) now() time.Time {
 // change. Documentation is exempt — the project's own rules ask for it to
 // change with the code — and so is the spec package, which the program
 // writes.
+//
+// A spec author cannot list every file the work will need, so the scope also
+// admits the paths the survey's resolutions name — the tasks are told to
+// follow those decisions, and a scope that forbade them would make the tasks
+// choose between the two — and a test file that names one of the spec's test
+// ids, which is the spec's own test wherever it had to live.
 func specScope(st *runState) conform.Scope {
 	var allow []string
+	add := func(p string) {
+		if !slices.Contains(allow, p) {
+			allow = append(allow, p)
+		}
+	}
 	for _, t := range st.spec.Tasks.Tasks {
 		if len(t.Touches) == 0 {
 			return conform.Scope{}
 		}
 		for _, p := range t.Touches {
-			if !slices.Contains(allow, p) {
-				allow = append(allow, p)
+			add(p)
+		}
+	}
+	for _, p := range surveyPaths(st.survey, st.root) {
+		add(p)
+	}
+	ids := specTestIDs(st.spec)
+	return conform.Scope{Allow: allow, Exempt: func(p string) bool {
+		if project.IsDocsFile(p) || underSpec(st, p) {
+			return true
+		}
+		if !project.IsTestPath(p) || len(ids) == 0 {
+			return false
+		}
+		content, err := os.ReadFile(filepath.Join(st.root, filepath.FromSlash(p)))
+		return err == nil && namesSpecTest(string(content), ids)
+	}}
+}
+
+// specTestIDs are the ids of the spec's test cases.
+func specTestIDs(spec *afspec.Spec) []string {
+	if spec == nil || spec.TestSpec == nil {
+		return nil
+	}
+	var ids []string
+	for _, t := range spec.TestSpec.Tests {
+		ids = append(ids, t.Id)
+	}
+	return ids
+}
+
+var testIDRe = regexp.MustCompile(`^TS-(\d+)-(\d+)$`)
+
+// namesSpecTest reports whether content names one of ids, in any spelling the
+// repository's tests use for TS-16-14: TS-16-14, TS16_14, TS_16_14 or TS1614.
+// The id must end where its number does, so TS-16-1 is not named by TS-16-14.
+func namesSpecTest(content string, ids []string) bool {
+	for _, id := range ids {
+		m := testIDRe.FindStringSubmatch(strings.TrimSpace(id))
+		if m == nil {
+			continue
+		}
+		for _, form := range []string{"TS-" + m[1] + "-" + m[2], "TS" + m[1] + "_" + m[2],
+			"TS_" + m[1] + "_" + m[2], "TS" + m[1] + m[2]} {
+			for rest := content; ; {
+				i := strings.Index(rest, form)
+				if i < 0 {
+					break
+				}
+				rest = rest[i+len(form):]
+				if rest == "" || rest[0] < '0' || rest[0] > '9' {
+					return true
+				}
 			}
 		}
 	}
-	return conform.Scope{Allow: allow, Exempt: func(p string) bool {
-		return project.IsDocsFile(p) || underSpec(st, p)
-	}}
+	return false
+}
+
+// surveyPaths are the repository paths the survey's resolutions name: a word
+// with a slash in it that is a directory in the repository, ends in one, or
+// names a file by its extension. A directory is returned with its trailing
+// slash, which the scope reads as everything under it.
+func surveyPaths(s *Survey, root string) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, d := range s.Drift {
+		words := strings.FieldsFunc(d.Resolution, func(r rune) bool {
+			return unicode.IsSpace(r) || strings.ContainsRune("`\"'()[]{}<>,;:*", r)
+		})
+		for _, w := range words {
+			w = strings.TrimRight(w, ".!?")
+			w = strings.TrimPrefix(w, "./")
+			if !strings.Contains(w, "/") || strings.HasPrefix(w, "/") || strings.Contains(w, "..") {
+				continue
+			}
+			if !strings.HasSuffix(w, "/") {
+				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(w))); err == nil && info.IsDir() {
+					w += "/"
+				} else if path.Ext(w) == "" {
+					continue
+				}
+			}
+			if !slices.Contains(out, w) {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
 }
 
 func underSpec(st *runState, p string) bool {
@@ -303,6 +396,14 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	for _, f := range a.findings {
 		unmet = append(unmet, conform.Unmet{Source: conform.SourceStructural,
 			What: fmt.Sprintf("%s at `%s`: %s", f.Check, f.Ref(), f.Message)})
+	}
+	// A file outside the spec's scope is reported, not blocking: the scope is
+	// what the spec's author could foresee, and a change that passes its
+	// checks is not held back as a draft over a file the author did not list.
+	for _, p := range a.outside {
+		unmet = append(unmet, conform.Unmet{Source: conform.SourceStructural,
+			What: fmt.Sprintf("`%s` is outside the files the spec's tasks list; a change the spec did not "+
+				"ask for belongs in a pull request of its own", p)})
 	}
 	result.Unmet, result.Blocking = unmet, blocking
 	if len(unmet) > 0 {
