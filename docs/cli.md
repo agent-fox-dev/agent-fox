@@ -195,7 +195,8 @@ branch or commit, which a dry run still makes, does not.
 ```
 
 A `comment` entry carries a `role` saying which comment it is — `analysis`,
-`summary`, `failure` or `clarification` for `fix`, `prd` for `spec` — so a run
+`summary`, `failure` or `clarification` for `fix`, `prd` for `spec`, `detail`
+for `impl`'s pull request account that did not fit its description — so a run
 that posts two can be read without relying on order.
 
 `spec` reports `{"kind": "spec_package", "path", "id", "valid"}` for each
@@ -312,7 +313,7 @@ quite what it appears to be; `low` is informational.
 | `commit_not_parked` | high | park | fix, impl |
 | `checkout_not_restored` | low | park | fix, impl |
 | `pull_request_not_opened` | high | land | fix, impl |
-| `comment_not_posted` | low | report | fix, spec |
+| `comment_not_posted` | low | report | fix, impl, spec |
 | `spec_edit_reverted` | high | task | impl |
 | `state_not_saved` | high | park | impl |
 | `gate_edited` | high | task | impl |
@@ -1687,6 +1688,16 @@ checklist with one `AC-<n>` per item. That is the section `fix` reads, so a
 while the list is non-empty. `blocking` is what was neither fixed nor
 declared: the pull request is opened as a draft headed "Not ready", and the
 run exits 4 with category `nonconformant`.
+
+The pull request body must fit the forge's limit (65,536 characters on
+GitHub, 1,048,576 on GitLab). The review's table cells show at most 300
+characters each, ending in `…` when cut; the JSON report holds the full text.
+A body still over the limit keeps what a reviewer reads first — the blocking
+findings, the unmet requirements, the summary, the tasks table and the
+verification — and says that the per-task reports and the conformance review
+follow as comments on the pull request, split at section boundaries so each
+comment fits too. A comment that cannot be posted is the warning
+`comment_not_posted`; the pull request stays open.
 
 A task that changed documentation must also give `doc_sources`: for every
 fact it wrote, the code or test `file:line` it was copied from and the text on

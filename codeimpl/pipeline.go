@@ -339,10 +339,11 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		o.Run.RecordSideEffect("open_pr", st.target.String(), false, toolio.WarnPullRequestNotOpened)
 		return result, failf("land", CategoryForge, "no forge client configured")
 	}
+	body, comments := fitPullRequest(result, issuex.MaxBodyLength(o.Forge))
 	stopTiming := o.Run.Time("forge", "open_pr")
 	pr, err := o.Forge.CreatePullRequest(ctx, st.target, issuex.CreatePullRequestRequest{
 		Title: pullRequestTitle(st.spec),
-		Body:  pullRequestBody(result),
+		Body:  body,
 		Head:  st.branch,
 		Base:  st.base,
 		Draft: o.Draft,
@@ -361,7 +362,29 @@ func LandPRChanges(ctx context.Context, o Options, st *RunState, result *Result)
 		o.Progress.Step("land", "opened %s", pr.URL)
 	}
 	result.Stage = "landed"
+	postDetailComments(ctx, o, st, pr.Number, comments)
 	return result, nil
+}
+
+// postDetailComments posts the part of the pull request body that did not fit
+// the forge's limit, in order. A comment that cannot be posted is a warning:
+// the pull request is open, and the JSON report holds the full account.
+func postDetailComments(ctx context.Context, o Options, st *RunState, number int, comments []string) {
+	ref := issuex.IssueRef{Repo: st.target, Number: number, IsPullRequest: true}
+	target := fmt.Sprintf("%s#%d", st.target, number)
+	for i, c := range comments {
+		stopTiming := o.Run.Time("forge", "comment:detail")
+		err := o.Forge.PostReviewComment(ctx, ref, c)
+		stopTiming()
+		if err != nil {
+			o.Run.Warn(toolio.WarnCommentNotPosted, "low", "the pull request's full account did not fit its "+
+				"description, and comment %d of %d carrying it could not be posted (the JSON report holds it): %v",
+				i+1, len(comments), err)
+			o.Run.RecordSideEffectOf("comment", "detail", target, "", false, toolio.WarnCommentNotPosted)
+			return
+		}
+		o.Run.RecordSideEffectOf("comment", "detail", target, "", true, "")
+	}
 }
 
 // RunPreflight is impl --preflight: every check Run performs before its first

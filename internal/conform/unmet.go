@@ -148,8 +148,18 @@ func dash(s string) string {
 	return s
 }
 
-// cell keeps a table cell on one line and its pipes out of the table.
+// MaxCellLength is the most characters a table cell shows. The full text
+// is in the JSON report; a pull request body has a size limit, and a review
+// of a large spec with every evidence sentence whole exceeds it.
+const MaxCellLength = 300
+
+// cell keeps a table cell on one line, its pipes out of the table, and its
+// length within MaxCellLength. The cut is made before the pipes are escaped,
+// so it never leaves a dangling backslash.
 func cell(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > MaxCellLength {
+		s = strings.TrimSpace(string(r[:MaxCellLength-1])) + "…"
+	}
 	return strings.ReplaceAll(s, "|", "\\|")
 }
