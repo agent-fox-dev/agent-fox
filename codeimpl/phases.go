@@ -65,6 +65,8 @@ type surveyInput struct {
 	Repair bool
 	// Context is the rendered additional context block from --context flags.
 	Context string
+	// RepoMap is the rendered repository map, or "" when there is none.
+	RepoMap string
 }
 
 // repairInput is what one repair phase is given.
@@ -94,6 +96,8 @@ type repairInput struct {
 	Profile      project.Profile
 	// Now is today, for any date the phase writes.
 	Now time.Time
+	// RepoMap is the rendered repository map, or "" when there is none.
+	RepoMap string
 }
 
 // taskInput is what one implementation phase is given.
@@ -125,6 +129,8 @@ type taskInput struct {
 	// Scope is the set of paths the spec's tasks list; empty when the spec
 	// does not restrict them.
 	Scope []string
+	// RepoMap is the rendered repository map, or "" when there is none.
+	RepoMap string
 }
 
 // resolveInput is what the phase that answers the conformance stage is
@@ -191,6 +197,7 @@ func (b *agentBrain) Survey(ctx context.Context, in surveyInput) (Survey, agentr
 		Name:               PhaseSurvey,
 		System:             surveySystemPrompt,
 		User:               surveyPrompt(in),
+		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitSurvey,
 		Custom:             []core.Tool{submitSurveyTool(&out)},
 		BuiltinTools:       append(append([]string(nil), agentrun.ReadOnlyFileTools...), "execute"),
@@ -231,6 +238,7 @@ func (b *agentBrain) Repair(ctx context.Context, in repairInput) (RepairSubmissi
 		Name:               PhaseRepair,
 		System:             repairSystemPrompt,
 		User:               repairPrompt(in),
+		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitRepair,
 		Custom:             []core.Tool{submitRepairTool(&out)},
 		BuiltinTools:       tools,
@@ -268,6 +276,7 @@ func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentru
 		Task:               strconv.Itoa(in.Task.Id),
 		System:             implementSystemPrompt,
 		User:               taskPrompt(in),
+		RepoMap:            in.RepoMap,
 		Terminator:         ToolSubmitTask,
 		Custom:             []core.Tool{submitTaskTool(out, in.Task, !b.noTestFirst, docsChanged(in.Root, b.protected), in.Root)},
 		BuiltinTools:       tools,

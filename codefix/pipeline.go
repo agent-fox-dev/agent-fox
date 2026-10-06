@@ -14,6 +14,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/project"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -69,6 +70,9 @@ type Options struct {
 	NoReview bool
 	// Now is the clock the run reads today's date from. Nil means time.Now.
 	Now func() time.Time
+	// RepoMapTokens is the token budget of the repository map in each phase's
+	// user prompt (14-REQ-6.2). Zero, the zero value, disables the map.
+	RepoMapTokens int
 
 	// Runner drives the model phases. Required.
 	Runner *agentrun.Runner
@@ -88,6 +92,11 @@ type Options struct {
 	// brain is the model half. It is unexported and injected by tests, which
 	// is what lets the whole pipeline run against a scripted provider.
 	brain brain
+	// buildMap builds the repository map and treeState reports whether the
+	// tree moved between phases. Both are unexported and injected by tests;
+	// nil means repomap.Build and the run's git wrapper.
+	buildMap  repomap.BuildFunc
+	treeState repomap.TreeState
 }
 
 // Failure carries the stage and category of a failed run.
@@ -198,11 +207,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	o.brain = b
 
+	// The map is built before the analysis and rebuilt before the
+	// implementation only when HEAD or the dirty files moved in between
+	// (14-REQ-9.1, 14-REQ-9.3). The report's own text names the paths that
+	// are reduced last (14-REQ-3).
+	maps := newMapSource(o, git)
+	reportPaths := repomap.PathsIn(o.Input.Body)
+
 	// ---------------------------------------------------------- analyse --
 	done := o.Progress.Begin("analysing %s", o.Input.Origin)
 	analysis, stats, err := b.Analyze(ctx, analysisInput{
 		Input: o.Input, Baseline: baseline, VerifyCommand: command, Root: root,
 		Criteria: criteria, Instructions: projectInstructions(root),
+		RepoMap: maps.get(ctx, "analyse", reportPaths),
 	})
 	recordPhase(o.Run, stats)
 	done(toolio.PhaseSummary(stats))
@@ -247,10 +264,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// -------------------------------------------------------- implement --
 	done = o.Progress.Begin("implementing")
+	implPaths := append([]string(nil), reportPaths...)
+	for _, f := range analysis.Files {
+		implPaths = append(implPaths, f.Path)
+	}
 	impl, stats, err := b.Implement(ctx, implementInput{
 		Input: o.Input, Analysis: analysis, Baseline: baseline, VerifyCommand: command,
 		Branch: branch, Root: root, Instructions: projectInstructions(root),
 		Criteria: criteria, Now: o.now(),
+		RepoMap: maps.get(ctx, "implement", implPaths),
 	})
 	recordPhase(o.Run, stats)
 	done(toolio.PhaseSummary(stats))
@@ -365,6 +387,36 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				"finding(s); the issue stays open and the pull request is a draft", len(result.Blocking))
 	}
 	return result, nil
+}
+
+// mapSource hands each phase its repository map and turns a build failure
+// into a warning.
+type mapSource struct {
+	o       Options
+	refresh *repomap.Refresher
+}
+
+// newMapSource builds the source for one run: Build with the run's budget, and
+// the run's git wrapper as the tree-state reader unless a test injected one.
+func newMapSource(o Options, git *gitx.Git) *mapSource {
+	var state repomap.TreeState = git
+	if o.treeState != nil {
+		state = o.treeState
+	}
+	return &mapSource{o: o, refresh: repomap.NewRefresher(o.Workspace, o.RepoMapTokens, o.buildMap, state)}
+}
+
+// get returns the map for the named phase, "" when there is none. It never
+// fails the run: navigation is an optimisation, so on an error the phase runs
+// without a map and a low warning records why (14-REQ-10.1).
+func (s *mapSource) get(ctx context.Context, phase string, inputPaths []string) string {
+	m, err := s.refresh.Get(ctx, inputPaths)
+	if err != nil {
+		s.o.Run.Warn(toolio.WarnRepoMapBuildFailed, "low",
+			"the repository map could not be built, so the %s phase runs without it: %v", phase, err)
+		return ""
+	}
+	return m
 }
 
 func (o Options) now() time.Time {

@@ -120,6 +120,8 @@ func (f *fixFlags) fixOptions(d toolio.Deps) codefix.Options {
 		CheckRunner:    gitx.ReducedEnvRunner,
 		Run:            d.Run,
 		Progress:       d.Progress,
+
+		RepoMapTokens: d.Common.RepoMapTokens,
 	}
 }
 

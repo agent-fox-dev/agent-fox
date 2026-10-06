@@ -30,6 +30,7 @@ import (
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
+	"github.com/agent-fox-dev/agentfox/internal/repomap"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -118,6 +119,9 @@ type Options struct {
 	HermeticRunner func(home string) gitx.Runner
 	// Now is the clock the run reads today's date from. Nil means time.Now.
 	Now func() time.Time
+	// RepoMapTokens is the token budget of the repository map in each phase's
+	// user prompt (14-REQ-6.2). Zero, the zero value, disables the map.
+	RepoMapTokens int
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
@@ -137,6 +141,11 @@ type Options struct {
 	// brain is the model half. It is unexported and injected by tests, which
 	// is what lets the whole pipeline run against a scripted one.
 	brain brain
+	// buildMap builds the repository map and treeState reports whether the
+	// tree moved between phases. Both are unexported and injected by tests;
+	// nil means repomap.Build and the run's git wrapper.
+	buildMap  repomap.BuildFunc
+	treeState repomap.TreeState
 }
 
 // DefaultTaskAttempts is how many times one task is attempted. The second

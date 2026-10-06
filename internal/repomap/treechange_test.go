@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/agentfox/agentkit-go/tools"
 )
 
 // fakeGit is a TreeState whose answers a test can change between calls.
@@ -88,5 +90,45 @@ func TestTS14_32_CheckFailureRebuilds(t *testing.T) {
 	d3 := NewTreeChangeDetector(&fakeGit{head: "abc"})
 	if changed, err := d3.Changed(ctx); err != nil || !changed {
 		t.Errorf("never recorded: changed=%v err=%v, want true, nil", changed, err)
+	}
+}
+
+// The Refresher builds once, reuses the map while the tree is unchanged,
+// rebuilds on a change, and forgets a failed build so the next phase retries
+// (14-REQ-9.1, 14-REQ-9.2, 14-REQ-10.1).
+func TestRefresherBuildsOnlyOnTreeChange(t *testing.T) {
+	ctx := context.Background()
+	g := &fakeGit{head: "a"}
+	calls := 0
+	var failNext bool
+	build := func(context.Context, *tools.Workspace, int, []string) (string, error) {
+		calls++
+		if failNext {
+			return "", errors.New("walk failed")
+		}
+		return "map", nil
+	}
+	r := NewRefresher(nil, 100, build, g)
+
+	for i := 0; i < 3; i++ {
+		if m, err := r.Get(ctx, nil); err != nil || m != "map" {
+			t.Fatalf("Get = %q, %v", m, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("an unchanged tree built %d times, want 1", calls)
+	}
+	g.head = "b"
+	if _, err := r.Get(ctx, nil); err != nil || calls != 2 {
+		t.Errorf("a changed tree: calls=%d err=%v, want 2", calls, err)
+	}
+
+	g.head, failNext = "c", true
+	if m, err := r.Get(ctx, nil); err == nil || m != "" {
+		t.Errorf("a failed build returned %q, %v", m, err)
+	}
+	failNext = false
+	if m, err := r.Get(ctx, nil); err != nil || m != "map" || calls != 4 {
+		t.Errorf("the next phase did not retry: %q, %v, calls=%d", m, err, calls)
 	}
 }

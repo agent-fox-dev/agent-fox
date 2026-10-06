@@ -174,6 +174,8 @@ func (f *implFlags) implOptions(d toolio.Deps, repairRunner *agentrun.Runner) co
 		CheckRunner:    gitx.ReducedEnvRunner,
 		Run:            d.Run,
 		Progress:       d.Progress,
+
+		RepoMapTokens: d.Common.RepoMapTokens,
 	}
 }
 
