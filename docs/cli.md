@@ -365,7 +365,7 @@ a typo. An existing directory is never flagged.
 | `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
 | `--budget` | per tool | per-phase spend ceiling, in dollars |
 | `--phase-timeout` | — | wall-clock ceiling on one phase |
-| `--repo-map-tokens` | `6000` | token budget of the repository map (the tracked file tree plus top-level declarations) in every phase's user prompt; `0` disables the map. A map that cannot be built never fails the run: the phase runs without it and a low `repo_map_build_failed` warning is recorded |
+| `--repo-map-tokens` | `6000` | token budget of the repository map (the tracked file tree plus top-level declarations) in the user prompt of the phases that explore the repository (`triage`'s phase, `fix`'s analyse and implement, `spec`'s prd, generation and architecture, `impl`'s survey, repair and task; not `impl`'s conformance resolve phase or the conformance review); `0` disables the map. A map that cannot be built never fails the run: the phase runs without it and a low `repo_map_build_failed` warning is recorded |
 | `--context` | — | additional context for the model, repeatable; each value becomes one paragraph of a labelled `## Additional context from the caller` block appended to the phase's prompt (not to the input itself), typically an answer to a prior run's `needs_human` question |
 | `--trust-project` | off | admit `AGENTS.md`, `CLAUDE.md` and `.specs/steering.md` into the system prompt |
 | `--verbose` | off | trace tool calls and timings on stderr |

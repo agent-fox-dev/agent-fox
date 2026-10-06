@@ -44,7 +44,7 @@ type RunState struct {
 	todo       []int
 	brain      brain
 	// maps hands each phase its repository map, rebuilt when the tree changed.
-	maps   *mapSource
+	maps   *repomap.Source
 	survey *Survey
 	// start is the commit the branch's whole change is measured from: where
 	// it left the base branch.
@@ -119,7 +119,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			noTestFirst: o.NoTestFirst}
 	}
 	st.brain = b
-	st.maps = newMapSource(o, st.git)
+	st.maps = repomap.NewSource(o.Workspace, o.RepoMapTokens, o.buildMap, o.treeState, st.git, o.Run)
 	repair := o.Repair && len(st.baseline.failing()) > 0
 
 	// ----------------------------------------------------------- survey --
@@ -132,7 +132,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			Spec: st.spec, Root: st.root, Profile: st.profile, Gate: st.gate,
 			Baseline: st.baseline, Pending: pendingTasks(st.spec, st.todo), Repair: repair,
 			Context: o.Input.Context,
-			RepoMap: st.maps.get(ctx, PhaseSurvey, specPaths(st, nil)),
+			RepoMap: st.maps.Get(ctx, PhaseSurvey, specPaths(st, nil)),
 		})
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))
@@ -251,38 +251,6 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				"is on %s and is not presented as done", len(keys), strings.Join(keys, ", "), st.branch)
 	}
 	return result, nil
-}
-
-// mapSource hands each phase its repository map and turns a build failure
-// into a warning.
-type mapSource struct {
-	o       Options
-	refresh *repomap.Refresher
-}
-
-// newMapSource builds the source for one run: Build with the run's budget, and
-// the run's git wrapper as the tree-state reader unless a test injected one.
-func newMapSource(o Options, git *gitx.Git) *mapSource {
-	var state repomap.TreeState = git
-	if o.treeState != nil {
-		state = o.treeState
-	}
-	return &mapSource{o: o, refresh: repomap.NewRefresher(o.Workspace, o.RepoMapTokens, o.buildMap, state)}
-}
-
-// get returns the map for the named phase, "" when there is none. The first
-// call builds it; a later one rebuilds only if HEAD or the dirty files moved
-// since the last build (14-REQ-9.2, 14-REQ-9.3). It never fails the run:
-// navigation is an optimisation, so on an error the phase runs without a map
-// and a low warning records why (14-REQ-10.1).
-func (s *mapSource) get(ctx context.Context, phase string, inputPaths []string) string {
-	m, err := s.refresh.Get(ctx, inputPaths)
-	if err != nil {
-		s.o.Run.Warn(toolio.WarnRepoMapBuildFailed, "low",
-			"the repository map could not be built, so the %s phase runs without it: %v", phase, err)
-		return ""
-	}
-	return m
 }
 
 // specPaths are the paths of the run's own input that the map reduces last
@@ -858,7 +826,7 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		}
 		in := base
 		in.Attempt, in.Attempts, in.Previous = attempt, o.RepairAttempts, previous
-		in.RepoMap = st.maps.get(ctx, PhaseRepair, specPaths(st, base.Task))
+		in.RepoMap = st.maps.Get(ctx, PhaseRepair, specPaths(st, base.Task))
 
 		done := o.Progress.Begin("repairing the checks (attempt %d of %d)", attempt, o.RepairAttempts)
 		sub, stats, err := st.brain.Repair(ctx, in)
@@ -1087,7 +1055,7 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 			// A discarded attempt, a reset and every earlier commit change
 			// the tree, so the map is checked before each attempt and a
 			// declaration task N-1 added is in task N's map (14-REQ-9.2).
-			RepoMap: st.maps.get(ctx, PhaseImplement, specPaths(st, &task)),
+			RepoMap: st.maps.Get(ctx, PhaseImplement, specPaths(st, &task)),
 		})
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))

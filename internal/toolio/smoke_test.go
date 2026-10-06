@@ -1671,9 +1671,26 @@ func smokeGitDates(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_DATE", "2024-01-02T03:04:05Z")
 }
 
+// smokeNoGitNetwork keeps git away from the real network. The widget repo's
+// origin is a github.com URL that exists only to name a forge, and the fix
+// pipeline runs `git ls-remote origin` to pick a branch name. On a machine
+// with no credential helper and no route to github.com that call waits on a
+// credential prompt or a connection that never completes, so the run hangs.
+// Pointing git's HTTPS proxy at a closed local port makes the call fail at
+// once, which the pipeline reads as "the branch is not on the remote".
+func smokeNoGitNetwork(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_TERMINAL_PROMPT", "0")
+	t.Setenv("GIT_ASKPASS", "true")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "http.proxy")
+	t.Setenv("GIT_CONFIG_VALUE_0", "http://127.0.0.1:1")
+}
+
 // smokeWidgetRepo makes a committed Go repository with one fixable bug.
 func smokeWidgetRepo(t *testing.T, remote string) string {
 	t.Helper()
+	smokeNoGitNetwork(t)
 	dir := t.TempDir()
 	initGitRepo(t, dir, remote, "")
 	for name, content := range map[string]string{

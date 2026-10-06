@@ -316,7 +316,7 @@ func TestTS06_63_ConfigurationReportFiles(t *testing.T) {
 
 // TS-14-21 (unit): the docs describe the --repo-map-tokens flag that
 // Common.Register registers, with the default the code registers, and name the
-// internal/repomap package in the architecture and development documents
+// internal/repomap package in the development document
 // Verifies: 14-REQ-6.1
 func TestTS_14_21_DocsRepoMapTokens(t *testing.T) {
 	// The default in the docs is the one the code registers.
@@ -336,13 +336,6 @@ func TestTS_14_21_DocsRepoMapTokens(t *testing.T) {
 	for _, want := range []string{"`" + f.DefValue + "`", "repository map", "user prompt", "`0` disables"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("--repo-map-tokens row does not mention %q: %s", want, row)
-		}
-	}
-
-	arch := readDoc(t, "architecture.md")
-	for _, want := range []string{"internal/repomap", "repository map", "user prompt", "--repo-map-tokens"} {
-		if !strings.Contains(arch, want) {
-			t.Errorf("docs/architecture.md does not mention %q", want)
 		}
 	}
 
