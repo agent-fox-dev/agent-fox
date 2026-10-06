@@ -889,8 +889,7 @@ func resolveSchema() *schema.Schema {
 
 // submitResolveTool ends the resolve phase. A declaration must answer a
 // finding that can be declared, with a reason; a finding that can only be
-// fixed — a file outside the spec's scope, a document that contradicts the
-// code — cannot be talked out of.
+// fixed — a document that contradicts the code — cannot be talked out of.
 func submitResolveTool(dest *sink[ResolveSubmission], blockers []conform.Blocker) core.Tool {
 	declarable := map[string]bool{}
 	var keys []string

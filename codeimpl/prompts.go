@@ -433,9 +433,11 @@ func taskPrompt(in taskInput) string {
 		b.WriteString(conform.DateLine(in.Now))
 	}
 	if len(in.Scope) > 0 {
-		fmt.Fprintf(&b, "The spec restricts the files a change may touch to what its tasks list: %s "+
-			"(documentation is exempt). A file outside that list fails the run's scope check: a "+
-			"\"while I was here\" fix belongs in a separate change.\n\n", "`"+strings.Join(in.Scope, "`, `")+"`")
+		fmt.Fprintf(&b, "The spec restricts the files a change may touch to what its tasks list and the "+
+			"survey's decisions name: %s. Documentation is exempt, and so is a test file that names one of "+
+			"the spec's test ids. A file outside that list is reported in the pull request as a change the "+
+			"spec did not ask for: a \"while I was here\" fix belongs in a separate change.\n\n",
+			"`"+strings.Join(in.Scope, "`, `")+"`")
 	}
 	if task.Kind == afspec.TaskKindIntegration {
 		b.WriteString("This is the spec's integration task: it exists to catch the wiring gaps that " +
@@ -643,20 +645,18 @@ const resolveSystemPrompt = `You are a senior engineer answering an independent 
 Every task of the specification has landed and the project's checks pass.
 After that, the program checked the change: an independent reviewer read it
 against the spec, and the program ran structural checks over the files it
-touches, compared them with the files the spec's tasks list, and ran the
-checks again in a clean environment. What it found is below.
+touches and ran the checks again in a clean environment. What it found is
+below.
 
 For each finding, do one of two things:
 
 1. Fix it. A requirement missing or implemented differently is implemented
    as the spec says. A test that does not assert its contract is rewritten to
    drive the real component and assert the observable outcome. A document
-   that contradicts the code is corrected to what the code does. A file
-   outside the spec's scope has its change reverted (git checkout is not
-   available to you: restore the file's content by hand). A test that fails
-   in a clean environment is fixed — usually a fixture that relies on the
-   machine's git configuration (git init without -b, a commit without a
-   configured identity).
+   that contradicts the code is corrected to what the code does. A test
+   that fails in a clean environment is fixed — usually a fixture that
+   relies on the machine's git configuration (git init without -b, a commit
+   without a configured identity).
 2. Declare it, when it cannot be fixed in this change: a limitation of a
    library the code depends on, a requirement that contradicts another. The
    declaration names the finding's key, says what the code does instead and

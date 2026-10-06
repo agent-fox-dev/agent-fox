@@ -104,8 +104,7 @@ type Review struct {
 // Blocker is one finding that keeps a change from being presented as done:
 // a requirement missing or implemented differently, a test that proves
 // nothing, a decision not carried out, a document that says what the code
-// does not do, a file outside the spec's scope, or checks that fail in a
-// clean environment.
+// does not do, or checks that fail in a clean environment.
 type Blocker struct {
 	// Key identifies the finding across reviews: the requirement or test id,
 	// D-n, doc:path:line, scope:path, or "hermetic".
@@ -114,7 +113,7 @@ type Blocker struct {
 	Test        string `json:"test,omitempty" trust:"fact" description:"The test id concerned, when there is one."`
 	What        string `json:"what" trust:"model" description:"What is wrong."`
 	// Declarable is false for what can only be fixed, never declared: a
-	// file outside the spec's scope belongs in another change.
+	// document that contradicts the code is corrected, not explained.
 	Declarable bool `json:"declarable" description:"False when the finding can only be fixed, not declared as a known deviation."`
 }
 

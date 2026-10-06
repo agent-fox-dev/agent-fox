@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -336,47 +337,108 @@ func TestUntrackedDeviationsThatCannotBeFiledWarnOnce(t *testing.T) {
 	}
 }
 
-// A spec whose tasks list their files restricts the change to them. A file
-// outside is fix-only: it cannot be declared, and the run does not land it as
-// done until it is gone.
-func TestAFileOutsideTheSpecsScopeMustBeReverted(t *testing.T) {
+// A spec whose tasks list their files restricts the change to them, and
+// admits what a spec author cannot list in advance (issue #192): a test file
+// that implements one of the spec's test ids, and a path the survey's
+// resolution names. A file still outside is reported in the pull request as
+// unmet, and does not block: it neither sends the run to the resolve phase nor
+// makes it a draft that exits 4.
+func TestAFileOutsideTheSpecsScopeIsReportedNotBlocking(t *testing.T) {
 	ws, g, specDir := newSpecRepo(t)
 	setTouches(t, specDir, map[int][]string{1: {"task1.go"}, 2: {"task2.go"}, 3: {"task3.go"}})
-	b := &scriptedBrain{}
+	b := &scriptedBrain{survey: Survey{Summary: "The shell builds the index.", Drift: []Drift{{
+		Kind: DriftSpecGap, SpecRef: "09-REQ-2.1", Finding: "the build lives in the shared shell",
+		Resolution: "Build it once in `shell/app.go`, not in each main."}}}}
 	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
-		if task.Id == 2 {
+		switch task.Id {
+		case 1:
+			write(t, root, "cli_smoke_test.go", "package x\n\n// TestTS09_1Smoke implements TS-09-1.\n")
+			write(t, root, "helper_test.go", "package x // a helper no spec test names\n")
+		case 2:
 			write(t, root, "stray.go", "package x // while I was here\n")
+		case 3:
+			if err := os.MkdirAll(filepath.Join(root, "shell"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			write(t, root, "shell/app.go", "package shell // the shared build\n")
 		}
 		return goodWork(root, task, attempt)
 	}
-	b.resolve = func(root string, in resolveInput) (ResolveSubmission, error) {
-		if len(in.Blockers) != 1 || in.Blockers[0].Key != "scope:stray.go" || in.Blockers[0].Declarable {
-			t.Errorf("resolve blockers = %+v", in.Blockers)
-		}
-		if err := os.Remove(filepath.Join(root, "stray.go")); err != nil {
-			t.Fatal(err)
-		}
-		return ResolveSubmission{Summary: "Reverted the stray file.", CommitSubject: "drop a change outside the spec",
-			Changes: []FileChange{{Path: "stray.go", Change: "removed"}}}, nil
-	}
 	got, err := Run(context.Background(), newOptions(ws, g, b))
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Run: %v (out-of-scope files must not make the run nonconformant)", err)
 	}
-	if len(got.OutOfScope) != 0 || len(got.Blocking) != 0 {
+	if len(b.resolveIns) != 0 {
+		t.Errorf("the resolve phase ran for scope findings: %+v", b.resolveIns[0].Blockers)
+	}
+	if strings.Join(got.OutOfScope, ",") != "helper_test.go,stray.go" || len(got.Blocking) != 0 {
 		t.Errorf("OutOfScope = %v, Blocking = %+v", got.OutOfScope, got.Blocking)
 	}
-	if out := gitOut(t, ws.Root, "diff", "--name-only", "main", "HEAD"); strings.Contains(out, "stray.go") {
-		t.Errorf("the branch still carries stray.go:\n%s", out)
+	var reported []string
+	for _, u := range got.Unmet {
+		if u.Source == conform.SourceStructural && strings.Contains(u.What, "outside the files the spec's tasks list") {
+			reported = append(reported, u.What)
+		}
+	}
+	if len(reported) != 2 || !strings.Contains(reported[0], "`helper_test.go`") || !strings.Contains(reported[1], "`stray.go`") {
+		t.Errorf("unmet scope items = %q", reported)
+	}
+	if body := pullRequestBody(got); !strings.Contains(body, "**The work is not complete:**") {
+		t.Errorf("the body presents an out-of-scope change as complete:\n%s", body)
+	}
+	if in := b.inputs[0]; !slices.Contains(in.Scope, "shell/app.go") {
+		t.Errorf("the tasks' scope omits the path the survey decided on: %v", in.Scope)
 	}
 
-	// The resolve tool refuses to declare a fix-only finding.
+	// The resolve tool still refuses to declare a fix-only finding.
 	var sink sinkResolve
 	res := submitResolveTool(&sink.s, []conform.Blocker{{Key: "scope:stray.go"}}).Execute(context.Background(),
 		mustJSON(t, ResolveSubmission{Summary: "x", Deviations: []conform.Deviation{{Key: "scope:stray.go",
 			Reason: "it is a harmless cleanup of a typo"}}}))
 	if res.OK {
-		t.Error("a scope finding was declared away")
+		t.Error("a fix-only finding was declared away")
+	}
+}
+
+// A test file is in scope when it names one of the spec's test ids, in any of
+// the spellings the repository's tests use, and only that id: TS-16-1 is not
+// named by TS-16-14.
+func TestNamesSpecTest(t *testing.T) {
+	ids := []string{"TS-16-1", "TS-16-14"}
+	for content, want := range map[string]bool{
+		"// TS-16-14 (unit)":         true,
+		"func TestTS16_14(t *T)":     true,
+		"func TestTS_16_14(t *T)":    true,
+		"func TestTS1614(t *T)":      true,
+		"func TestTS16_1Smoke(t *T)": true,
+		"// TS-16-15 and TS-16-140":  false,
+		"func TestTS16_15(t *T)":     false,
+		"func TestTS_17_14(t *T)":    false,
+		"a helper with no test id":   false,
+	} {
+		if got := namesSpecTest(content, ids); got != want {
+			t.Errorf("namesSpecTest(%q) = %v, want %v", content, got, want)
+		}
+	}
+}
+
+// The survey's resolutions name the paths a decision moved work to.
+func TestSurveyPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal/toolio"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "internal/toolio/app.go", "package toolio\n")
+	s := &Survey{Drift: []Drift{
+		{Resolution: "Build the index in `internal/toolio/app.go` (the shared shell), per https://example.com/x."},
+		{Resolution: "Keep the helpers in internal/agentrun/indextest/ and the flag in cmd/impl/main.go."},
+		{Resolution: "Follow the spec; the package internal/toolio owns it."},
+		{Resolution: ""},
+	}}
+	got := surveyPaths(s, root)
+	want := []string{"internal/toolio/app.go", "internal/agentrun/indextest/", "cmd/impl/main.go", "internal/toolio/"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("surveyPaths = %q, want %q", got, want)
 	}
 }
 
