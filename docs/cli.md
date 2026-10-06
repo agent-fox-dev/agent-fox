@@ -427,12 +427,21 @@ then the tool's own checks:
   plan to resume.
 - `triage`: the target repository and the forge credential.
 
-Every tool ends its list with the `symbol_backend` check: whether
+Every tool ends its list with two informational checks. The first is the
+`symbol_backend` check: whether
 universal-ctags was found, and so which symbol backend `file_outline` and
 `find_symbol` use in every phase of the run. Its `detail` is `ctags` when
 universal-ctags is installed and usable and `heuristics` when it is not. It is
 informational — `ok` is always `true`, because the heuristic fallback always
 works — and it is left out of the list when the detection itself fails.
+
+The second is `code_search_index`: whether the run built the code-search index
+that gives every phase the `code_search` tool. Its `detail` is `built` when the
+index was created and `unavailable: <reason>` when it was not, the reason being
+what the index builder reported. It is informational too — `ok` is always
+`true`, because without an index the phases keep the six read tools and search
+with `search_files` — and an unavailable index also records a `low`
+`code_search_unavailable` warning.
 
 **A refusal is the ordinary run's refusal.** A run that would stop before its
 first model call stops identically under `--preflight`: the same `stage`,
@@ -507,7 +516,8 @@ fix ./bug-report.md --preflight
       {"check": "remote_configured", "ok": true, "detail": "origin"},
       {"check": "verify_command", "ok": true, "detail": "make test"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
       "phases": 2,
@@ -541,7 +551,8 @@ impl 09 --preflight
       {"check": "test_commands", "ok": true, "detail": "make lint · make test"},
       {"check": "dependencies", "ok": true, "detail": "no upstream specs"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
       "phases": 5,
@@ -572,7 +583,8 @@ spec ./prd.md --preflight
     "preflight": [
       {"check": "schemas_valid", "ok": true},
       {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
       "phases": 4,
@@ -603,7 +615,8 @@ triage ./crash.log --preflight
     "preflight": [
       {"check": "target_repository", "ok": true, "detail": "acme/widgets"},
       {"check": "forge_credential", "ok": true},
-      {"check": "symbol_backend", "ok": true, "detail": "ctags"}
+      {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
       "phases": 1,
@@ -899,7 +912,9 @@ Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
 Its one phase reads the tree with the six read tools (`read_file`,
 `list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`)
-and has no tool that writes.
+and has no tool that writes. When the run's code-search index is built, it can
+also call `code_search`, a ranked, indexed search; without the index it has the
+six read tools alone (`--preflight` reports which, as `code_search_index`).
 
 ```sh
 triage "panic: assignment to entry in nil map in loop.go, after an abort"
@@ -1118,6 +1133,14 @@ phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 name is declared; both use universal-ctags when it is installed and heuristics
 when it is not (`--preflight` reports which, as `symbol_backend`).
 
+**Indexed search.** `code_search` joins the six read tools in the `analyse` and
+`implement` phases when the code-search index is built (`--preflight` reports
+it as `code_search_index`). `fix` invalidates the index after it creates the
+work branch, so `implement` searches the tree it will change. The independent
+review phase does not get `code_search`
+([erratum](errata/16_navigation_baseline.md)). Without the index the run is
+unchanged and `search_files` does the searching.
+
 **Allowlists, per phase.** A command whose program is not on the phase's list is
 refused. The lists are generated from the same source the guard enforces, so the
 `execute` tool description the model sees names them.
@@ -1200,7 +1223,10 @@ Anything genuinely untrusted belongs in a container.
 Turns a product idea into a complete, validated version 2 specification
 package under `.specs/NN_name/`. Every phase reads the tree with the six read
 tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`
-and `find_symbol`) and has no tool that writes.
+and `find_symbol`) and has no tool that writes. When the run's code-search
+index is built, every phase can also call `code_search`; without the index the
+six read tools are all it has (`--preflight` reports which, as
+`code_search_index`).
 
 ```sh
 spec "a cache in front of the widget catalog, with a TTL"
@@ -1739,7 +1765,13 @@ and the `repair` report are in the report file.
 
 Every phase of `impl` can call the six read tools — `read_file`, `list_files`,
 `find_files`, `search_files`, `file_outline` and `find_symbol` — whatever else
-it is granted. The survey and review phases are read-only, with `execute` under the reporting
+it is granted. When the code-search index is built (`--preflight` reports it as
+`code_search_index`), the survey, implementation, repair and resolve phases
+can also call `code_search`, and `impl` invalidates the index after every
+change it makes to the tree itself — the work branch, a revert, a discarded
+attempt, a gate run, a commit — so each phase searches the tree as it now is.
+The review phase does not get `code_search`
+([erratum](errata/16_navigation_baseline.md)). The survey and review phases are read-only, with `execute` under the reporting
 allowlist. The implementation, repair and resolve phases have the file tools and a shell under the
 same guard as `fix`'s (see [the rules above](#what-the-model-may-and-may-not-do):
 allowlists, read-only `git`, `gh` refused, heredocs, a leading `cd`), with one

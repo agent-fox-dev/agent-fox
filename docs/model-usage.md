@@ -16,21 +16,26 @@ one's *conclusion* rather than from how it got there.
 
 | Tool | Phase | Tools it may call | `max_tokens` | Terminating tool |
 |---|---|---|---|---|
-| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` | provider default | `file_issue` |
-| `fix` | `analyse` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
-| `fix` | `implement` | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
+| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `code_search` (if indexed) | provider default | `file_issue` |
+| `fix` | `analyse` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
+| `fix` | `implement` | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
 | `fix` | `review` (when the report cites spec ids) | the six read tools, plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
-| `spec` | `prd` | the six read tools | 32 768 | `submit_prd` |
-| `spec` | `generate:{artifact}` | the six read tools | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
-| `spec` | `architecture` (opt-in) | the six read tools | 32 768 | `submit_architecture` |
-| `impl` | `survey` | the six read tools, plus `execute` under a read-only allowlist | provider default | `submit_survey` |
+| `spec` | `prd` | the six read tools, `code_search` (if indexed) | 32 768 | `submit_prd` |
+| `spec` | `generate:{artifact}` | the six read tools, `code_search` (if indexed) | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
+| `spec` | `architecture` (opt-in) | the six read tools, `code_search` (if indexed) | 32 768 | `submit_architecture` |
+| `impl` | `survey` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
-| `impl` | `implement` (once per task) | the six read tools, `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
+| `impl` | `implement` (once per task) | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
 | `impl` | `review` (after the last task) | the six read tools, plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
 | `impl` | `resolve` (when the review found something) | the same as `implement`; no repository map | provider default | `submit_resolve` |
 
 The "six read tools" are `read_file`, `list_files`, `find_files`,
-`search_files`, `file_outline` and `find_symbol`. The build allowlist is the read-only one plus the toolchains
+`search_files`, `file_outline` and `find_symbol`. `code_search` is conditional
+on the index: a phase gets it only when the run built a code-search index (see
+[Reading the codebase](#reading-the-codebase)), and without one the phase has
+the six read tools alone. The `review` phases of `fix` and `impl` are built by
+the shared conformance review and do not get it
+([erratum](errata/16_navigation_baseline.md)). The build allowlist is the read-only one plus the toolchains
 (`go`, `make`, `npm`, `python`, `cargo`, …), the verification command's own
 program, and whatever `--allow` adds. The exact lists, the heredoc and `cd`
 handling and the refusal format are in the
@@ -186,6 +191,23 @@ it, and where it is not they fall back to heuristics, the same pattern as
 Each phase holds its own symbol table: `find_symbol` builds it on its first
 call and it is bounded by AgentKit's defaults, so `fix` and `impl` do not carry
 a table across the checkouts, resets, gate runs and commits between phases.
+
+A seventh tool, `code_search`, searches an index instead of walking the tree on
+every call, and ranks its results by relevance, so a phase that searches
+repeatedly makes fewer `search_files` calls and reads fewer bytes. It is
+AgentKit's, from the separate `codesearch` module. The index is
+built once per run, before the first phase, and shared by every phase of the
+run; it is closed when the run ends, on success, failure and cancellation
+alike. It is
+conditional on the index: when the platform does not support it or the build
+fails, the run continues without `code_search`, falls back to `search_files`,
+and records a `low` `code_search_unavailable` warning (`--preflight` reports
+which as the `code_search_index` check). `triage` and `spec` never change the
+tree, so their index is never stale. `fix` and `impl` invalidate it after
+every change the program itself makes to the tree — the work branch, a revert,
+a reset, a gate run, a commit — so the next phase's `code_search` results
+reflect the tree it is working on. The program only marks the index for
+revalidation; it never builds a second one.
 
 Nothing that writes is reachable in a read-only phase: the mutating tools are
 excluded from the resolved set, an invariant checks that set before the first
