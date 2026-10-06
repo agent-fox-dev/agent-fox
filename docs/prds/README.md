@@ -62,4 +62,11 @@ requests.
 
 | Document | What it asks for |
 |---|---|
-| [11-review-a-landed-change-before-it-merges.md](11-review-a-landed-change-before-it-merges.md) | `review`: a fifth tool that takes the pull request `impl` opened or the issue `fix` worked on, establishes the merge facts in Go (the forge's state, the checks on the merge tree in a clean environment, the structural and scope checks) and runs an independent conformance review in its own process, then decides `merge` or `correct`: it merges, or files one issue per gap in the shape `fix` consumes, and says why on the pull request |
+| [11-review-a-landed-change-before-it-merges.md](11-review-a-landed-change-before-it-merges.md) | `review`: a fifth tool that takes the pull request `impl` opened or the issue `fix` worked on, establishes the merge facts in Go (the forge's state, the checks on the merge tree in a clean environment, the structural and scope checks) and runs an independent conformance review in its own process, then decides `merge` or `correct`: it merges, or files one issue per gap in the shape `fix` consumes, and says why on the pull request. Amended by 12 |
+
+Proposed for how the tools record their work where the project already is.
+It amends 08 and 11 in place.
+
+| Document | What it asks for |
+|---|---|
+| [12-track-the-work-in-forge-issues.md](12-track-the-work-in-forge-issues.md) | One tracking issue per spec package, on GitHub or GitLab through `issuex`: `spec` creates it where the spec is created and records where it came from, writing its URL as `tracking` in the PRD frontmatter; `impl` posts start and end comments and ticks a task checklist in a program-owned region of the body as each task lands; `review` posts its verdict and the merge; `fix` posts its correction on the tracker a gap issue leads back to, and `--track off` lets any run leave no trail. Every write is rendered by Go from facts, through one shared `internal/tracking` package, and no model phase sees the issue |

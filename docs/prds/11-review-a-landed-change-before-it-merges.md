@@ -4,7 +4,10 @@ Status: **proposed**. A fifth tool, `review`, on the shared shell. Follows
 [PRD 10](10-make-shipped-prs-match-their-specs.md) and
 [ADR 09](../adr/09-grade-the-work-independently.md), which put an
 independent conformance review *inside* `impl` and `fix`; this PRD puts one
-*after* them, in a program that can also act on the answer.
+*after* them, in a program that can also act on the answer. Amended by
+[PRD 12](12-track-the-work-in-forge-issues.md), which gives every spec a
+tracking issue `review` reads and writes to; the amendments are marked
+**(PRD 12)**.
 
 ## Intent
 
@@ -72,6 +75,10 @@ everything else, so the decision cannot be a sentence the model wrote.
   evidence in the body, acceptance criteria `fix` extracts, and the branch to
   work from.
 - An issue `impl` already filed for a gap is found, not duplicated.
+- **(PRD 12)** The spec's tracking issue records the verdict and the merge,
+  every gap `review` files leads back to it, and a tracker the pull request
+  did not close is closed by `review` on the rule it already applies to a
+  `fix` issue.
 - After a merge, the next `impl` or `fix` can start from `main` with the
   change in it, and the issue a proven `fix` closes is closed by the forge.
 - `review` speaks the shared interface: one positional input, one JSON
@@ -198,6 +205,14 @@ stops with exit 3 (`needs_human`), `needed`: give the pull request URL as the
 input. A pull request named by hand in the issue body is not used: that text
 is a stranger's.
 
+**(PRD 12)** A second shape: an issue whose body carries the `af:tracking`
+marker is a spec's tracking issue, and the `- **Pull request:** <url>` line
+of its program-owned region is the pull request under review. The origin is
+then `impl` (§3.2), and the verdict goes on the tracker as §8 says. A tracker
+whose region has no pull-request line is the same `needs_human` stop. Both
+lines are matched by `internal/tracking`'s grammar (PRD 12 §8), never by
+reading prose.
+
 ### 3. Establishing the facts
 
 Every step below is Go's. The order is the order of cost: forge reads first,
@@ -234,6 +249,13 @@ The **origin** is decided from facts, in this order, and recorded as
 The spec is read from the **head commit**, not from `--dir`'s checkout: the
 tasks' states `impl` committed are on the branch. A package on the head that
 does not validate is `category: "invalid_spec"`, exit 1.
+
+**(PRD 12)** The same read gives the spec's tracking issue: `tracking` in
+`prd.md`'s frontmatter on the head commit, for an `impl` origin. For a `fix`
+origin it is the `- **Tracking:** <url>` line of the input issue's body, when
+the issue is a gap `impl` or `review` filed. Neither found means the run
+tracks nothing and says so in `result.tracking.reason`; `--track on` makes
+that a preflight refusal, as PRD 12's flag table defines.
 
 Survey decisions (`D-n`) are not in scope: the survey lives in `impl`'s report
 file, not on the branch, and the pull-request body's rendering of it is prose.
@@ -387,6 +409,7 @@ requirement not met.
 - **Requirement:** 15-REQ-8.1        (or **Test:** TS-15-16, or **Scope**)
 - **Status:** partial                (the review's status, labelled as the model's)
 - **Branch:** impl/15-symbol-navigation-tools-every-phase
+- **Tracking:** https://github.com/acme/widgets/issues/88     (PRD 12: the spec's tracker, when found)
 
 ## What the specification says
 <the requirement or criterion text, or the test's contract, verbatim from the spec>
@@ -426,6 +449,21 @@ Labels: `--label a,b` as `triage`'s; default none. Every filed issue is an
   the input was an issue, the same verdict in one paragraph is posted on the
   issue too. Both are `comment` side effects with kinds `verdict` and
   `verdict_issue`; a failure to post is a `comment_not_posted` warning.
+  **(PRD 12)** When a tracking issue was found (§3.2), one paragraph goes
+  there as well, `kind: verdict_tracking`: the verdict, the pull request, the
+  counts of blocking and unmet items and the issues filed or found, with the
+  `review` footer. The tracker's body is not rewritten on a verdict.
+- **(PRD 12) The tracker, after a merge.** The tracker's program-owned
+  region gains `- **Merged:** <sha> (<method>)` (an `update_issue` side
+  effect, `kind: merged`, under PRD 12's region rule). When the pull
+  request's body said `Closes <tracker>` the forge closes it and `review`
+  does nothing more. When it said `Refs <tracker>` — the `impl` run was
+  `nonconformant`, and the corrections since made the verdict `merge` —
+  `review` closes the tracker with a comment, `kind: closed`, by the rule
+  below for a `Refs` issue: nothing blocking remains and every unmet item is
+  tracked. `result.closes_issue` records the tracker as it records a `fix`
+  issue. The tracker's number comes from the frontmatter URL or the
+  `Tracking:` line, never from prose.
 - **Merge** (`--merge`, verdict `merge`). `MergePullRequest` with `--method`
   (default: the repository's policy, as `issuex` resolves it), a commit title
   `<pr title> (#<N>)`, and `SHA` pinned to the head reviewed. A forge
@@ -478,6 +516,7 @@ Shared flags are the shell's, unchanged: `--dir`, `--model`, `--vendor`,
 | `--max-func-lines` | `100` | as `impl` |
 | `--ci-timeout` | `0` | how long to wait for pending CI checks, polling every 30 s; `0` means do not wait |
 | `--pull` | off | fast-forward the base branch from `origin` before, and after a merge |
+| `--track auto\|on\|off` | `$AF_TRACK`, else `auto` | **(PRD 12)** the writes to the spec's tracking issue (§3.2, §8), with the meaning PRD 12's flag table gives it; `review` has no `--land`, so `auto` depends on the credential and the target alone |
 
 `--merge` with `--dry-run` is accepted: it answers whether the run *would*
 merge. `--no-issues` with `--merge` is accepted and means a change with an
@@ -509,7 +548,9 @@ Derived from the result, never from the model:
 `review` (the `conform.Review`), `blocking`, `unmet` (with `tracking`),
 `verdict`, `reasons`, `issues` (filed or found: `key`, `number`, `url`,
 `filed`), `comments`, `merged`, `closes_issue`, `would_write`,
-`cost_usd`, `preflight` and `estimate`.
+`cost_usd`, `preflight` and `estimate`, and **(PRD 12)** `tracking`
+(`{url, number, repo, state, reason, comments}`, as PRD 12 §9 defines it;
+`url` and `state` kept in the summary view).
 
 Trust: `pull_request.title`, `ci[].summary`, `forge_reviews[].body` and the
 issue's text are `external`; the review's rows, `remedy` included, are
@@ -656,6 +697,7 @@ the fetch, the local merge and the checkout restore.
 | `internal/toolio` | `review` in the tool lists and `toolFlags`; `merge_pr` and `close_issue` side-effect actions; three warning codes; `schema_version` 3.2.0 |
 | `issuex` | nothing required. Recommended later: `Mergeable` on `PullRequest`, and a ready-for-review call (design decision 7) |
 | `codefix` | export the acceptance-criteria extraction the issue path reuses; nothing behavioural |
+| `internal/tracking` (PRD 12) | the grammar that finds the tracker and its pull-request line, the `Verdict` and `Closed` renderers, the `Merged` region write; built by PRD 12's spec, used here |
 | `Makefile`, `install.sh`, `containers/tools` | the fifth tool |
 | `docs/cli.md` | a `review` section with its flags, result, summary view and `--preflight` example; the shared-flags and exit-code prose that says "four tools" |
 | `docs/configuration.md` | `AF_REVIEW_MERGE` |
@@ -692,6 +734,13 @@ does on the tree as it is today:
    the re-run merges at `6cc0751` with the repository's default method,
    `next[]` names `impl 16` (spec 16 depends on 15), and `fix` can take the
    TS-15-16 issue from `main`.
+6. **(PRD 12)** Had spec 15 a tracking issue: the filed TS-15-16 issue
+   carries `- **Tracking:** <url>`, the verdict paragraph is posted on the
+   tracker at step 5, and after the merge the tracker's region reads
+   `- **Merged:** 6cc0751 (squash)`. Pull request #174 opened as a draft, so
+   its body says `Refs` and `review` closes the tracker with the `closed`
+   comment: nothing blocking, every unmet item tracked by #172, #173 and
+   the TS-15-16 issue.
 
 Had `impl` not opened it as a draft — or once `issuex` can mark it ready —
 step 5 merges on the first run.
