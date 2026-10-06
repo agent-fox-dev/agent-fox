@@ -1,0 +1,372 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "17",
+  "spec_name": "issue_tool",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./issueops/... ./cmd/issue/... ./internal/toolio/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "01_issuex_core",
+      "reason": "issuex.Client interface, types (Issue, IssueThread, PullRequest, etc.), sentinel errors and NewWithOptions that the issue tool dispatches to"
+    },
+    {
+      "spec": "02_issuex_github",
+      "reason": "GitHub adapter registered via issuex.RegisterAdapter; smoke tests exercise the GitHub HTTP paths"
+    },
+    {
+      "spec": "03_issuex_gitlab",
+      "reason": "GitLab adapter registered via issuex.RegisterAdapter; forge-neutral target parsing must accept GitLab URL shapes"
+    },
+    {
+      "spec": "05_envelope_decidable",
+      "reason": "Envelope structure, exit codes, error.category, retryable, fix_hint, SideEffect and Artifact shapes the issue tool produces"
+    },
+    {
+      "spec": "09_tool_self_schema",
+      "reason": "DeclareEnum, BuildFlagsDocument, BuildResultDocument and golden-file testing pattern used for --op and --schema"
+    },
+    {
+      "spec": "10_untrusted_text_labels",
+      "reason": "Trust tags on Result fields, CheckTrust validation and UntrustedFields walk that issue Result must pass"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Split Common.Register, add issue to tool tables, fix stale comments, update RetryableFor and warn codes",
+      "criteria": [
+        "17-REQ-9.1",
+        "17-REQ-9.2",
+        "17-REQ-9.3",
+        "17-REQ-9.4",
+        "17-REQ-9.6",
+        "17-REQ-8.3"
+      ],
+      "tests": [
+        "TS-17-30",
+        "TS-17-34",
+        "TS-17-35",
+        "TS-17-36",
+        "TS-17-37",
+        "TS-17-39"
+      ],
+      "steps": [
+        "Write TS-17-30 (RetryableFor returns true for rate_limited) and confirm it fails",
+        "In internal/toolio/envelope.go, add \"rate_limited\" to RetryableFor so it returns true alongside api and aborted; confirm TS-17-30 passes",
+        "Write TS-17-34 (no-model-phase App skips model resolution, calls Exec with nil Workspace/Runner/Model/Index) and TS-17-35 (Register split: shell-only subset excludes model-run flags, both-subsets produces the existing full set); confirm both fail",
+        "In internal/toolio/cli.go, extract RegisterShell (shared non-model flags: --dir, --dry-run, --detail, --report-file, --output, --emit-events, --verbose, --quiet, --version, --schema) and RegisterModel (model-run flags: --model, --vendor, --effort, --max-turns, --budget, --phase-timeout, --total-budget, --context, --trust-project, --show-text, --input-kind, --preflight, --repo-map-tokens); make Register call both so the four existing tools see no change; confirm TS-17-35 passes",
+        "In internal/toolio/app.go, add a NoModelPhase bool field to App; when set, execute skips input classification, model resolution and runner construction, calling Exec with Deps whose Workspace, Runner, Model and Index are nil and whose Forge the tool builds itself; confirm TS-17-34 passes",
+        "Write TS-17-36 (toolOrder contains issue, toolFlags maps issue, unsupportedFlagMessage names accepting tools for model-run flags) and confirm it fails",
+        "In internal/toolio/toolflags.go, add \"issue\" to toolOrder and add an \"issue\" entry to toolFlags listing the issue tool's own flags (op, repo, title, body, body-file, label, assignee, state, sort, direction, limit, color, description, head, base, draft, method, commit-title, commit-message, sha); confirm TS-17-36 passes",
+        "Write TS-17-37 (stale comment corrections) and confirm it fails; fix the SinglePhase field comment on App from 'issue' to 'triage', fix SinglePhaseBounds method comment in cli.go from 'issue' to 'triage'; in docs/cli.md fix the warning-codes table entries attributing tool_errors and rejected_path_calls to 'issue' to 'triage'; confirm TS-17-37 passes",
+        "Write TS-17-39 (Envelope.Tool description names five tools) and confirm it fails; update the Envelope.Tool field's description tag in envelope.go to list spec, triage, fix, impl and issue; confirm TS-17-39 passes",
+        "In internal/toolio/warncode.go, add WarnCommentsTruncated (comments_truncated, stage call) and WarnListIncomplete (list_incomplete, stage call) constants and their warnStages entries; add them to DeclaredWarnCodes; confirm existing warncode tests still pass",
+        "Run make test and make lint; fix any existing golden-file or doc-validation test that breaks from the stale-comment corrections or tool-table additions"
+      ],
+      "touches": [
+        "internal/toolio/app.go",
+        "internal/toolio/cli.go",
+        "internal/toolio/toolflags.go",
+        "internal/toolio/envelope.go",
+        "internal/toolio/warncode.go",
+        "internal/toolio/events.go",
+        "internal/toolio/selfdescribe.go",
+        "docs/cli.md"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Define issueops.Result type with trust tags, SummaryView, Summary and target parsing",
+      "criteria": [
+        "17-REQ-6.1",
+        "17-REQ-6.2",
+        "17-REQ-6.5",
+        "17-REQ-3"
+      ],
+      "tests": [
+        "TS-17-18",
+        "TS-17-19",
+        "TS-17-22",
+        "TS-17-5",
+        "TS-17-6",
+        "TS-17-7",
+        "TS-17-8"
+      ],
+      "steps": [
+        "Create the issueops/ package at the repository root with a doc.go describing its role",
+        "Write TS-17-18 (Result type passes CheckTrust: every string field has a trust tag) and confirm it fails",
+        "Define issueops.Result with a fixed head (Op trust:fact, Forge trust:fact, ApiURL trust:fact, Authenticated bool, Target trust:fact, DryRun bool) and one optional section pointer per operation; give titles and bodies trust:external, structural fields (state, URL, timestamps, login, labels) trust:fact; give CheckRun.Summary, Review.Body and MergeResult.Message trust:external; confirm TS-17-18 passes",
+        "Write TS-17-19 (UntrustedFields lists external-tagged non-empty fields by RFC 6901 pointer) and confirm it fails; verify the Result struct's JSON tags produce the expected pointer paths; confirm TS-17-19 passes",
+        "Write TS-17-22 (SummaryView for list drops issue bodies, for read drops rendered, other operations return full) and confirm it fails; implement SummaryView() on Result that clones and strips accordingly; confirm TS-17-22 passes",
+        "Implement Summary() on Result returning a sentence like 'issue: created acme/widgets#43' naming the operation and target",
+        "Write TS-17-5 (every target shape: URL, owner/repo#N, bare integer with --repo, owner/repo, absent positional) and confirm it fails",
+        "Define issueops.ParseTarget that accepts the positional string, a --repo flag value and a --dir fallback, producing a resolved Target struct with kind (url, ref, repo, number, default), IssueRef, Repo and host; use issuex.ParseIssueURL, issuex.ParseRepo and issuex.DetectRepo; confirm TS-17-5 passes",
+        "Write TS-17-6 (target kind mismatch exits 2 naming the fitting operation), TS-17-7 (--repo with URL or owner/repo#N exits 2) and TS-17-8 (repository operation with no positional and no origin exits 2 naming --repo); confirm they fail",
+        "Implement validation in ParseTarget or a ValidateTarget function: refuse mismatched kinds, conflicting --repo, and missing repository for repo-scoped ops with appropriate toolio.Usagef messages; confirm TS-17-6, TS-17-7, TS-17-8 pass",
+        "Run make test and make lint to ensure no regressions"
+      ],
+      "touches": [
+        "issueops/doc.go",
+        "issueops/result.go",
+        "issueops/summary.go",
+        "issueops/target.go",
+        "issueops/result_test.go",
+        "issueops/target_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement operation dispatch, --op enum, auth operation and flag set validation",
+      "criteria": [
+        "17-REQ-2",
+        "17-REQ-5"
+      ],
+      "tests": [
+        "TS-17-1",
+        "TS-17-2",
+        "TS-17-3",
+        "TS-17-4",
+        "TS-17-13",
+        "TS-17-14",
+        "TS-17-15",
+        "TS-17-16",
+        "TS-17-17"
+      ],
+      "steps": [
+        "Write TS-17-1 (DeclareEnum for --op lists exactly 21 values) and confirm it fails",
+        "Define the 21 operation names as constants in issueops/ops.go; implement the Flags function for the issue App that registers --op as a DeclareEnum and all own flags (--repo, --title, --body, --body-file, --label, --assignee, --state, --sort, --direction, --limit, --color, --description, --head, --base, --draft, --method, --commit-title, --commit-message, --sha); confirm TS-17-1 passes",
+        "Write TS-17-2 (run without --op exits 2 listing all operations) and TS-17-4 (auth reports forge info without forge API call); confirm both fail",
+        "Implement PreCheck that rejects a missing --op and validates each own flag against its operation via a per-operation accepted-flags table; implement the auth operation that reports forge type, API URL, authentication status and resolved repository without any forge call; confirm TS-17-2 and TS-17-4 pass",
+        "Write TS-17-3 (each --op dispatches to the corresponding Client method) and confirm it fails",
+        "Implement the Dispatch function in issueops/dispatch.go that switches on the operation name and calls the matching issuex.Client method with the parsed target and flags, returning a populated Result; use a recording-client stub pattern in tests; confirm TS-17-3 passes",
+        "Write TS-17-13 (shared shell flags accepted) and TS-17-14 (model-run flags rejected naming accepting tools); confirm both fail; wire the App to call RegisterShell (not Register) so model-run flags are not registered; confirm TS-17-13 and TS-17-14 pass",
+        "Write TS-17-15 (own flag not taken by the operation exits 2 before forge call) and TS-17-16 (missing required flags exit 2 before forge call); confirm both fail; verify PreCheck per-operation flag table covers all cases; confirm TS-17-15 and TS-17-16 pass",
+        "Write TS-17-17 (--body and --body-file mutual exclusion, empty --body-file exits 2); confirm it fails; implement --body-file reading from file or stdin when path is - and the mutual-exclusion check in PreCheck; confirm TS-17-17 passes",
+        "Run make test and make lint to ensure no regressions"
+      ],
+      "touches": [
+        "issueops/ops.go",
+        "issueops/flags.go",
+        "issueops/dispatch.go",
+        "issueops/precheck.go",
+        "issueops/ops_test.go",
+        "issueops/dispatch_test.go",
+        "issueops/flags_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement forge and credential resolution with error category mapping and exit codes",
+      "criteria": [
+        "17-REQ-4",
+        "17-REQ-8.1",
+        "17-REQ-8.2"
+      ],
+      "tests": [
+        "TS-17-9",
+        "TS-17-10",
+        "TS-17-11",
+        "TS-17-12",
+        "TS-17-28",
+        "TS-17-29"
+      ],
+      "steps": [
+        "Write TS-17-9 (forge client built via NewWithOptions; failure is not masked by NoOp fallback) and confirm it fails",
+        "In the issue tool Exec, build the forge client by calling issuex.NewWithOptions with the target Repo host, the origin remote of --dir and the environment; never fall back to NewNoOp; report ok:false when the client cannot be built; confirm TS-17-9 passes",
+        "Write TS-17-10 (unauthenticated write refused with auth category and fix_hint listing three token vars) and confirm it fails",
+        "Implement the pre-write credential check: when a write operation is requested and Authenticated() returns false, return exit 1 with category auth, retryable false, fix_hint.env listing GITHUB_TOKEN, GH_TOKEN, GITLAB_TOKEN; confirm TS-17-10 passes",
+        "Write TS-17-11 (read runs unauthenticated, no model credential read) and TS-17-12 (ErrAmbiguousForge and ErrUnsupportedForge map to usage exit 2 with fix_hint naming API URL vars); confirm both fail",
+        "Implement the unauthenticated-read path, the ErrAmbiguousForge/ErrUnsupportedForge mapping to category usage exit 2 with fix_hint.env [GITHUB_API_URL, GITLAB_API_URL], and ensure ANTHROPIC_API_KEY is never read; confirm TS-17-11 and TS-17-12 pass",
+        "Write TS-17-28 (--schema lists exactly exit codes 0, 1, 2) and confirm it fails; set the App ExitCodes map to {0: done, 1: failed, 2: usage error}; confirm TS-17-28 passes",
+        "Write TS-17-29 (issuex sentinel errors mapped to correct category and retryable) and confirm it fails; implement mapForgeError using IsNotFound to not_found, IsConflict to conflict, IsRateLimited to rate_limited retryable, IsNoToken to auth, other HTTPError to forge; confirm TS-17-29 passes",
+        "In internal/toolio/fix_hint.go, extend FixHintFor so the issue tool auth and usage categories produce the correct hints (token vars for auth, API URL vars for ambiguous/unsupported forge)",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "issueops/forge.go",
+        "issueops/errors.go",
+        "issueops/forge_test.go",
+        "issueops/errors_test.go",
+        "internal/toolio/fix_hint.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Implement dry-run, rendered output, artifacts, side effects and timings",
+      "criteria": [
+        "17-REQ-7",
+        "17-REQ-6.3",
+        "17-REQ-6.4"
+      ],
+      "tests": [
+        "TS-17-20",
+        "TS-17-21",
+        "TS-17-23",
+        "TS-17-24",
+        "TS-17-25",
+        "TS-17-26",
+        "TS-17-27"
+      ],
+      "steps": [
+        "Write TS-17-20 (read result includes rendered field from RenderThread, tagged external) and TS-17-21 (summary names operation and target); confirm both fail",
+        "In the read operation path, call toolio.RenderThread with the IssueRef and IssueThread and store the result in result.Read.Rendered (trust:external); confirm TS-17-20 passes; wire Summary() to produce the sentence; confirm TS-17-21 passes",
+        "Write TS-17-23 (write under --dry-run stops before forge request, reports would_write, no side effects) and TS-17-24 (read under --dry-run executes normally); confirm both fail",
+        "In the dispatch path, check DryRun: for a write operation, resolve the target and client, check auth, build the request struct, then stop and set result.WouldWrite and result.DryRun=true with no side effect; for a read operation, run normally and set result.DryRun=true; confirm TS-17-23 and TS-17-24 pass",
+        "Write TS-17-25 (create yields issue artifact, create-pr yields pull_request, comment yields comment, merge yields commit, read yields only report/events) and confirm it fails",
+        "Implement Artifacts() on Result returning the operation-specific artifact for create (ArtifactIssue), create-pr (ArtifactPullRequest), comment (ArtifactComment), merge (ArtifactCommit); other ops return nil so the shell adds only report_file/events_file; confirm TS-17-25 passes",
+        "Write TS-17-26 (each write records one side_effects entry with the correct action, kind never set for issue writes) and confirm it fails; record SideEffect entries in the dispatch path using the action map; confirm TS-17-26 passes",
+        "Write TS-17-27 (forge calls record timings kind:forge name:op and next is always empty); confirm it fails; wrap each forge call with a timing measurement recording Kind forge Name opName; implement Next() returning nil; confirm TS-17-27 passes",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "issueops/dispatch.go",
+        "issueops/artifacts.go",
+        "issueops/result.go",
+        "issueops/dispatch_test.go",
+        "issueops/artifacts_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Implement warnings for truncation and incompleteness and the run_start event for issue",
+      "criteria": [
+        "17-REQ-8.4",
+        "17-REQ-8.5",
+        "17-REQ-8.6",
+        "17-REQ-9.5"
+      ],
+      "tests": [
+        "TS-17-31",
+        "TS-17-32",
+        "TS-17-33",
+        "TS-17-38"
+      ],
+      "steps": [
+        "Write TS-17-31 (ReadIssue with Truncated=true records comments_truncated warning at stage call severity low) and confirm it fails",
+        "In the read/comments dispatch path, after the forge call, check IssueThread.Truncated and CommentList.Truncated; when true, call run.Warn(WarnCommentsTruncated, low, ...); confirm TS-17-31 passes",
+        "Write TS-17-32 (ListIssues with Incomplete=true records list_incomplete warning) and confirm it fails; after ListIssues, check IssueList.Incomplete and call run.Warn(WarnListIncomplete, low, ...); confirm TS-17-32 passes",
+        "Write TS-17-33 (ReadIssue with CommentsErr set records comments_unreadable warning) and confirm it fails; after ReadIssue, check IssueThread.CommentsErr and call run.Warn(WarnCommentsUnreadable, low, ...); confirm TS-17-33 passes",
+        "Write TS-17-38 (run_start event for issue omits model, sets input_kind to target form: ref, repo, url, number, default) and confirm it fails",
+        "In the issue tool Exec, after the target is parsed, emit the run_start event with input_kind set to the target form and an empty EventModelInfo with no model spec, id or vendor; confirm TS-17-38 passes",
+        "Run make test and make lint"
+      ],
+      "touches": [
+        "issueops/dispatch.go",
+        "issueops/warnings_test.go",
+        "issueops/events_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Create cmd/issue entry point, update build system, container and documentation",
+      "criteria": [
+        "17-REQ-1"
+      ],
+      "tests": [
+        "TS-17-40",
+        "TS-17-41"
+      ],
+      "steps": [
+        "Write TS-17-41 (cmd/issue/main.go constructs App with Name issue; envelope tool field, report/events file names and progress prefix match) and confirm it fails",
+        "Create cmd/issue/main.go that constructs a toolio.App with Name issue, Version agentfox.Version, NoModelPhase true, Flags calling RegisterShell plus issueops own flags, ExitCodes {0:done, 1:failed, 2:usage error}, ResultSample issueops.Result{}, Description and InputDescription; Exec delegates to issueops.Run; main() calls os.Exit(app.Main(...))",
+        "Confirm TS-17-41 passes; write TS-17-40 (Makefile TOOLS, install.sh TOOLS default and Containerfile all include issue) and confirm it fails",
+        "In Makefile: add issue to the TOOLS variable and add a go install line for ./cmd/issue in the build target",
+        "In install.sh: add issue to the TOOLS default string",
+        "In containers/tools/Containerfile: add a build step for ./cmd/issue and a COPY step for the issue binary to /usr/bin/issue; add issue to the chmod line; confirm TS-17-40 passes",
+        "Create cmd/issue/testdata/schema.golden.json by running the issue tool with --schema and capturing output; add issue to schemaTools in cmd/fix/schemagolden_test.go so the golden-file test covers issue",
+        "Update docs/cli.md: add an issue section documenting the tool, its --op flag, operations, target shapes, own flags, exit codes and dry-run semantics; update the header and shared-flags table to show issue",
+        "Update docs/development.md and docs/architecture.md if they reference the tool list; update README.md if it lists the tools",
+        "Run make test and make lint; verify all golden-file and doc-validation tests pass"
+      ],
+      "touches": [
+        "cmd/issue/main.go",
+        "cmd/issue/testdata/schema.golden.json",
+        "Makefile",
+        "install.sh",
+        "containers/tools/Containerfile",
+        "docs/cli.md",
+        "docs/development.md",
+        "docs/architecture.md",
+        "README.md",
+        "cmd/fix/schemagolden_test.go"
+      ],
+      "depends_on": [
+        5,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Trace every execution path end to end and verify no stubs remain",
+      "tests": [
+        "TS-17-42",
+        "TS-17-43",
+        "TS-17-44",
+        "TS-17-45",
+        "TS-17-46",
+        "TS-17-47"
+      ],
+      "steps": [
+        "Write TS-17-42: stand up a stub HTTP server returning GitHub-shaped issue JSON for acme/widgets#42; run issue --op read against it end to end via the real App.Main; assert exit 0, result.target, result.read.rendered, untrusted_fields, timings; confirm it passes",
+        "Write TS-17-43: stub HTTP server accepts POST /repos/acme/widgets/issues returning {number:43}; run issue --op create --title Bug --body Steps --label bug acme/widgets; assert exit 0, artifacts contain kind issue, side_effects has create_issue, summary names #43",
+        "Write TS-17-44: stub server that would accept a close request; run issue --op close --body Resolved --dry-run; assert exit 0, dry_run true, would_write present, side_effects empty, no close request reached the server",
+        "Write TS-17-45: unset all token env vars; run issue --op comment --body test acme/widgets#10 with GITHUB_API_URL pointing to stub; assert exit 1, auth category, fix_hint.env listing three token variables, no HTTP request reached the server",
+        "Write TS-17-46: run issue --op read --model ADVANCED acme/widgets#1; assert exit 2, usage category, error message or stderr names accepting tools",
+        "Write TS-17-47: create a temporary git repo whose origin points to stub/acme/widgets; run issue --op list --state open --limit 50 --dir checkout with no positional; assert exit 0, result.list has entries, result.target is acme/widgets, timings has forge entry, next is empty",
+        "Trace 17-PATH-1 (read by URL) through real code: confirm ParseTarget to NewWithOptions to ReadIssue to RenderThread to Result to envelope, each step calling the next with no stub in the production path",
+        "Trace 17-PATH-2 (create issue) through real code: confirm PreCheck validates --title then NewWithOptions then Authenticated check then CreateIssue then Artifacts then SideEffect then envelope",
+        "Trace 17-PATH-3, 17-PATH-4, 17-PATH-5 and 17-PATH-6 through real code: confirm dry-run stops before forge call, auth refusal stops before forge call, model-flag rejection stops at flag parse, list-from-origin resolves via DetectRepo",
+        "For every criterion with a contract (17-REQ-2.3, 3.3, 3.4, 3.5, 4.2, 4.3, 4.6, 5.2, 5.4, 5.5), confirm the producer result is consumed by a caller in production code (App.Main to execute to Exec to dispatch), not only by tests",
+        "Search issueops/, cmd/issue/ and the modified toolio files for stub markers: panic not implemented, TODO, NotImplementedError and bare return nil on non-trivial paths; remove or implement any that remain",
+        "Run make test and make lint; confirm all 47 tests pass and no golden-file or doc-validation test is broken"
+      ],
+      "touches": [
+        "cmd/issue/smoke_test.go"
+      ],
+      "depends_on": [
+        7
+      ],
+      "done_when": [
+        "All six smoke tests pass against real HTTP stubs exercising the GitHub adapter through App.Main",
+        "Every execution path (17-PATH-1 through 17-PATH-6) is live in production code with no stub between entry and forge call",
+        "grep -rn panic not implemented issueops/ cmd/issue/ returns no matches",
+        "make test and make lint pass with zero failures"
+      ],
+      "state": "pending"
+    }
+  ]
+}

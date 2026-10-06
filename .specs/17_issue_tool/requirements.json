@@ -1,0 +1,704 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "17",
+  "spec_name": "issue_tool",
+  "schema_version": 2,
+  "introduction": "The issue tool is a fifth command-line program (cmd/issue) exposing every operation of issuex.Client as a shell command, sharing the envelope, exit codes, report/events files and shared flags with the four existing tools (triage, fix, spec, impl) but requiring no model phase and making one forge call per invocation. Its domain logic lives in a new issueops/ package, and internal/toolio gains a no-model-phase execution path without duplicating the envelope, exit-code or emit logic.",
+  "glossary": {
+    "envelope": "The single JSON object every tool writes to stdout, defined by toolio.Envelope, carrying ok, status, exit_code, error, result, warnings, artifacts, side_effects, timings and next.",
+    "no-model-phase App": "A toolio.App that declares it has no model phase; its execute path skips input classification, model resolution and runner construction.",
+    "operation": "One of the 21 issuex.Client methods (Close excluded) selectable via --op, each making at most one forge API call.",
+    "target": "The single positional argument naming what the operation acts on: a URL, owner/repo#N, owner/repo, a bare integer, or absent for repository-scoped operations.",
+    "trust tag": "A Go struct tag (trust:\"fact\", trust:\"external\", trust:\"model\") classifying the provenance of a string field, walked by toolio.CheckTrust and toolio.UntrustedFields."
+  },
+  "requirements": [
+    {
+      "id": "17-REQ-1",
+      "title": "Program and package structure",
+      "rationale": "A fifth tool must be buildable, installable and containerised on the same terms as the four existing ones, with its domain logic in its own package following the established pattern.",
+      "criteria": [
+        {
+          "id": "17-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "build system",
+          "action": "include issue in the Makefile TOOLS variable, the build and build-all targets, install.sh's TOOLS default, and the tools container Containerfile's build and COPY steps, so that make build, make build-all, install.sh and the container image each produce or install the issue binary alongside spec, triage, fix and impl"
+        },
+        {
+          "id": "17-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "cmd/issue/main.go",
+          "action": "construct a toolio.App with Name \"issue\", delegate domain logic to the issueops/ package at the repository root, and call os.Exit(app.Main(...))"
+        },
+        {
+          "id": "17-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "set the envelope's tool field to \"issue\", name report files issue-<started_at>-<session_id>.json, name events files issue-<started_at>-<session_id>.jsonl, and prefix stderr progress lines with \"issue:\""
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-2",
+      "title": "Operation selection via --op",
+      "rationale": "ADR 03 fixes every addition as a flag; --op with a DeclareEnum gives --schema a flat description and an MCP adapter a single input schema.",
+      "criteria": [
+        {
+          "id": "17-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "declare --op as an enum via DeclareEnum listing exactly 21 values: auth, repo, create, read, update, close, list, comment, comments, label, unlabel, create-label, create-pr, pr, files, pr-state, checks, reviews, review-comment, merge, close-pr"
+        },
+        {
+          "id": "17-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "--op <name> is provided",
+          "system": "issue tool",
+          "action": "dispatch to the corresponding issuex.Client method for that operation name"
+        },
+        {
+          "id": "17-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "a run is invoked without --op and without --version or --schema",
+          "system": "issue tool",
+          "action": "exit with code 2 and list all 21 operations in the error message",
+          "contract": "exit code 2, error.category is \"usage\""
+        },
+        {
+          "id": "17-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "--op auth is selected",
+          "system": "issue tool",
+          "action": "report the forge type, API URL, authentication status and resolved repository without making any forge API call"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-3",
+      "title": "Target parsing",
+      "rationale": "The positional is what the operation acts on, not text to read; its shape is decided in Go before any request, and a mismatch is refused early.",
+      "criteria": [
+        {
+          "id": "17-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "accept a single positional whose shape is one of: a GitHub/GitLab issue or PR URL (parsed by issuex.ParseIssueURL), owner/repo#N or group/subgroup/project#N (a ref whose kind the operation decides), owner/repo or group/subgroup/project (parsed by issuex.ParseRepo, a repository), a bare positive integer N (a ref in the repository --repo names or the origin remote of --dir), or absent (the repository --repo names or the origin remote, accepted only by repository-scoped operations)"
+        },
+        {
+          "id": "17-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "report the resolved target as result.target in the envelope and never set the input field"
+        },
+        {
+          "id": "17-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "the target's kind (issue vs PR vs repository) does not fit the selected operation",
+          "system": "issue tool",
+          "action": "exit with code 2 and name the operation that would fit the given target kind",
+          "contract": "exit code 2, error.category is \"usage\""
+        },
+        {
+          "id": "17-REQ-3.4",
+          "pattern": "unwanted",
+          "condition": "--repo is given together with a URL or an owner/repo#N target that already names a repository",
+          "system": "issue tool",
+          "action": "exit with code 2 reporting that --repo conflicts with the target's own repository",
+          "contract": "exit code 2, error.category is \"usage\""
+        },
+        {
+          "id": "17-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "a repository-scoped operation has no positional and no resolvable origin remote from --dir",
+          "system": "issue tool",
+          "action": "exit with code 2 naming --repo as the remedy",
+          "contract": "exit code 2, error.category is \"usage\", error.fix_hint.flag is \"--repo\""
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-4",
+      "title": "Forge and credential resolution",
+      "rationale": "The tool is a forge caller, not a model caller; it uses the same detectForge path as the four tools but must never fall back to a NoOpClient and must never read a vendor key.",
+      "criteria": [
+        {
+          "id": "17-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "build the forge client by calling issuex.NewWithOptions with the target's repository host, the origin remote of --dir, and the environment, following the same detectForge resolution path the four existing tools use for GITHUB_API_URL, GITHUB_TOKEN, GH_TOKEN, GITLAB_API_URL and GITLAB_TOKEN"
+        },
+        {
+          "id": "17-REQ-4.2",
+          "pattern": "unwanted",
+          "condition": "issuex.NewWithOptions returns an error or nil",
+          "system": "issue tool",
+          "action": "report a failure with ok false and make no forge call; never fall back to issuex.NewNoOp()",
+          "contract": "ok is false, no forge API call is made"
+        },
+        {
+          "id": "17-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "a write operation is requested and the client's Authenticated() returns false",
+          "system": "issue tool",
+          "action": "refuse the request before any forge call, with error.category \"auth\", error.retryable false, and fix_hint.env listing GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN",
+          "contract": "exit code 1, error.category is \"auth\", error.retryable is false, fix_hint.env contains three token variable names"
+        },
+        {
+          "id": "17-REQ-4.4",
+          "pattern": "state_driven",
+          "condition": "no token is set in the environment",
+          "system": "issue tool",
+          "action": "run a read operation unauthenticated without reporting an auth error"
+        },
+        {
+          "id": "17-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "never resolve a model, never read ANTHROPIC_API_KEY or any vendor credential, and treat the absence of any vendor key as a non-error"
+        },
+        {
+          "id": "17-REQ-4.6",
+          "pattern": "unwanted",
+          "condition": "issuex.NewWithOptions returns ErrAmbiguousForge or ErrUnsupportedForge",
+          "system": "issue tool",
+          "action": "report error.category \"usage\" with exit code 2 and fix_hint.env naming GITHUB_API_URL and GITLAB_API_URL",
+          "contract": "exit code 2, error.category is \"usage\", fix_hint.env contains GITHUB_API_URL and GITLAB_API_URL"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-5",
+      "title": "Flag set",
+      "rationale": "The tool shares the shell's output and lifecycle flags but has no model phase, so model-run flags are refused early with a message naming the tools that do accept them.",
+      "criteria": [
+        {
+          "id": "17-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "register and accept the shared shell flags: --dir, --dry-run, --detail, --report-file, --output, --emit-events, --verbose, --quiet, --version, --schema"
+        },
+        {
+          "id": "17-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "any model-run flag (--model, --vendor, --effort, --max-turns, --budget, --phase-timeout, --total-budget, --context, --trust-project, --show-text, --input-kind, --preflight, --repo-map-tokens) is passed to issue",
+          "system": "issue tool",
+          "action": "exit with code 2 with an error message naming the tools that accept the flag, using the unsupportedFlagMessage table",
+          "contract": "exit code 2, error message names the accepting tools"
+        },
+        {
+          "id": "17-REQ-5.3",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "check every own flag (--op, --repo, --title, --body, --body-file, --label, --assignee, --state, --sort, --direction, --limit, --color, --description, --head, --base, --draft, --method, --commit-title, --commit-message, --sha) against the selected operation in PreCheck before any forge call; a flag the operation does not take shall produce a usage error (exit 2)"
+        },
+        {
+          "id": "17-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "comment or review-comment is selected without --body or --body-file, create without --title, create-pr without --title or --head, update with no field to change, or label with no --label values",
+          "system": "issue tool",
+          "action": "exit with code 2 before any forge call",
+          "contract": "exit code 2, error.category is \"usage\", no forge API call is made"
+        },
+        {
+          "id": "17-REQ-5.5",
+          "pattern": "unwanted",
+          "condition": "--body-file produces an empty body after reading, or both --body and --body-file are provided",
+          "system": "issue tool",
+          "action": "exit with code 2 before any forge call",
+          "contract": "exit code 2, error.category is \"usage\""
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-6",
+      "title": "Result type and output",
+      "rationale": "The result must carry trust tags on every string field so untrusted_fields and CheckTrust work, and the summary view must trim only what a chaining caller does not need.",
+      "criteria": [
+        {
+          "id": "17-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "issueops package",
+          "action": "define a Result type with a fixed head (op trust:\"fact\", forge trust:\"fact\", api_url trust:\"fact\", authenticated bool, target trust:\"fact\", dry_run bool) and one section per operation present only for the operation that fills it, where titles and bodies carry trust:\"external\" and structural fields (state, URL, timestamps, login, labels) carry trust:\"fact\"; CheckRun.Summary, Review.Body and MergeResult.Message carry trust:\"external\""
+        },
+        {
+          "id": "17-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "populate untrusted_fields in the envelope with every non-empty external-tagged field by RFC 6901 JSON pointer rooted at /result, using toolio.UntrustedFields"
+        },
+        {
+          "id": "17-REQ-6.3",
+          "pattern": "event_driven",
+          "condition": "--op read is selected",
+          "system": "issue tool",
+          "action": "include a rendered field (tagged trust:\"external\") in the result containing the thread text as toolio.RenderThread produces it"
+        },
+        {
+          "id": "17-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "set the envelope's summary to a sentence naming the operation and target, e.g. \"issue: created acme/widgets#43\""
+        },
+        {
+          "id": "17-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "--detail summary (the default) is selected",
+          "system": "issue tool",
+          "action": "return a summary view for list that drops issue bodies and for read that drops the rendered thread text; all other operations shall return the full result as the summary view"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-7",
+      "title": "Dry-run, artifacts, side effects and timings",
+      "rationale": "The tool is a primitive with one forge call; its dry-run, artifacts, side effects, timings and empty next follow from the envelope contract.",
+      "criteria": [
+        {
+          "id": "17-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "--dry-run is set on a write operation",
+          "system": "issue tool",
+          "action": "resolve the target, build the client, check authentication, and stop before making the forge request; report result.would_write (the request struct) with dry_run true and record no side effect"
+        },
+        {
+          "id": "17-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "--dry-run is set on a read operation",
+          "system": "issue tool",
+          "action": "execute the read exactly as without --dry-run"
+        },
+        {
+          "id": "17-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "a create, create-pr, comment or merge operation succeeds",
+          "system": "issue tool",
+          "action": "emit the corresponding artifact: create yields {kind: issue, url, number}, create-pr yields {kind: pull_request, url, number}, comment yields {kind: comment, url}, merge yields {kind: commit, sha, branch}; other operations yield only report_file and events_file artifacts"
+        },
+        {
+          "id": "17-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "record one side_effects[] entry per forge write using actions create_issue, update_issue, comment, open_pr, close_issue, add_labels, remove_label, create_label, review_comment, merge_pr, close_pr as appropriate, with kind never set on an issue write"
+        },
+        {
+          "id": "17-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "record one timings[] entry {kind: \"forge\", name: <op>} per forge call including implied reads, and always set the next array in the envelope to empty"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-8",
+      "title": "Error categories, exit codes and warnings",
+      "rationale": "A skill that can branch on not_found, conflict and rate_limited without parsing a message, and that is told rate_limited is retryable, is the point of a decidable envelope.",
+      "criteria": [
+        {
+          "id": "17-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "issue tool",
+          "action": "use exit codes 0 (success), 1 (failure) and 2 (usage error), and list exactly those three in the --schema exit_codes map"
+        },
+        {
+          "id": "17-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "a forge call returns an error",
+          "system": "issue tool",
+          "action": "map the error to error.category as follows: issuex.IsNotFound → \"not_found\" (not retryable), issuex.IsConflict → \"conflict\" (not retryable), issuex.IsRateLimited → \"rate_limited\" (retryable), issuex.IsNoToken → \"auth\" (not retryable), any other HTTPError or transport error → \"forge\" (not retryable); report the stage as \"call\""
+        },
+        {
+          "id": "17-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "toolio.RetryableFor",
+          "action": "return true for \"rate_limited\" in addition to the existing \"api\" and \"aborted\" categories"
+        },
+        {
+          "id": "17-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "ListComments or ReadIssue hit the 500-comment cap (CommentList.Truncated or IssueThread.Truncated is true)",
+          "system": "issue tool",
+          "action": "record warning code comments_truncated at stage call with severity low"
+        },
+        {
+          "id": "17-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "ListIssues returns IssueList.Incomplete as true",
+          "system": "issue tool",
+          "action": "record warning code list_incomplete at stage call with severity low"
+        },
+        {
+          "id": "17-REQ-8.6",
+          "pattern": "event_driven",
+          "condition": "ReadIssue returns a thread with CommentsErr set",
+          "system": "issue tool",
+          "action": "record the existing comments_unreadable warning"
+        }
+      ]
+    },
+    {
+      "id": "17-REQ-9",
+      "title": "Shell changes to internal/toolio",
+      "rationale": "The envelope, exit codes, report file, events, --output and --schema are what make this a fifth tool rather than a fifth way to call a forge; they stay one implementation, with a split so the model-run flags are optional.",
+      "criteria": [
+        {
+          "id": "17-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "toolio.App",
+          "action": "support declaring a no-model-phase execution path; for such an App, execute shall run PreCheck, resolve --dir to a directory, and call Exec with Deps whose Workspace, Runner, Model and Index are nil and whose Forge the tool builds itself, without classifying an input, resolving a model, or building a runner"
+        },
+        {
+          "id": "17-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "toolio.Common",
+          "action": "split Register so that model-run flags (--model, --vendor, --effort, --max-turns, --budget, --phase-timeout, --total-budget, --context, --trust-project, --show-text, --input-kind, --preflight, --repo-map-tokens) are registered by a separate method; the four existing tools shall call both methods and see no change in their flag sets, exit codes, envelopes or --schema golden files"
+        },
+        {
+          "id": "17-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "toolflags.go",
+          "action": "add \"issue\" to toolOrder and toolFlags, and attribute the model-run flags to the four tools (triage, fix, spec, impl) in the unsupported-flag table so that passing a model-run flag to issue names them"
+        },
+        {
+          "id": "17-REQ-9.4",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio and docs/cli.md",
+          "action": "correct the SinglePhase field comment on App and the SinglePhaseBounds method comment on Common from \"issue\" to \"triage\"; correct the docs/cli.md warning-codes table entries attributing tool_errors and rejected_path_calls to \"issue\" to \"triage\""
+        },
+        {
+          "id": "17-REQ-9.5",
+          "pattern": "event_driven",
+          "condition": "the tool is issue",
+          "system": "events sink",
+          "action": "emit a run_start event that omits the model field and sets input_kind to the target's form: one of url, ref, repo, number or default"
+        },
+        {
+          "id": "17-REQ-9.6",
+          "pattern": "ubiquitous",
+          "system": "internal/toolio",
+          "action": "update the Envelope.Tool field description and run_start event documentation to name five tools: spec, triage, fix, impl and issue"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "17-PATH-1",
+      "title": "Read an issue by URL and display its contents",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op read https://github.com/acme/widgets/issues/42"
+        },
+        {
+          "actor": "issue tool",
+          "action": "parses the URL via issuex.ParseIssueURL to obtain an IssueRef with host, repo and number"
+        },
+        {
+          "actor": "issue tool",
+          "action": "builds a forge client via issuex.NewWithOptions using the URL's host"
+        },
+        {
+          "actor": "issue tool",
+          "action": "calls ReadIssue on the client with the parsed IssueRef"
+        },
+        {
+          "actor": "forge API",
+          "action": "returns the IssueThread with issue metadata and comments"
+        },
+        {
+          "actor": "issue tool",
+          "action": "renders the thread via toolio.RenderThread, tags external fields, computes untrusted_fields, and emits the envelope with result.read, result.rendered and exit code 0"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-2",
+      "title": "Create an issue on the forge",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op create --title 'Bug: login broken' --body 'Steps to reproduce...' --label bug acme/widgets"
+        },
+        {
+          "actor": "issue tool",
+          "action": "parses acme/widgets via issuex.ParseRepo as a repository target, validates --title is present, checks --body and --label against the create operation in PreCheck"
+        },
+        {
+          "actor": "issue tool",
+          "action": "builds an authenticated forge client, verifies Authenticated() is true"
+        },
+        {
+          "actor": "issue tool",
+          "action": "calls CreateIssue with the title, body, and labels"
+        },
+        {
+          "actor": "forge API",
+          "action": "creates the issue and returns the Issue with number and URL"
+        },
+        {
+          "actor": "issue tool",
+          "action": "records a create_issue side effect, emits an issue artifact {kind: issue, url, number}, and writes the envelope with exit code 0 and summary 'issue: created acme/widgets#43'"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-3",
+      "title": "Dry-run a write stops before the forge request",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op close --body 'Resolved' --dry-run https://github.com/acme/widgets/issues/42"
+        },
+        {
+          "actor": "issue tool",
+          "action": "parses the URL, builds the authenticated client, resolves the target"
+        },
+        {
+          "actor": "issue tool",
+          "action": "stops before calling CloseIssue, sets result.would_write to the request struct and result.dry_run to true"
+        },
+        {
+          "actor": "issue tool",
+          "action": "emits the envelope with exit code 0, no side_effects, and dry_run true in the result"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-4",
+      "title": "Write operation refused for missing credentials",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op comment --body 'test' acme/widgets#10 in an environment with no GITHUB_TOKEN or GH_TOKEN"
+        },
+        {
+          "actor": "issue tool",
+          "action": "parses the target, builds a client whose Authenticated() returns false"
+        },
+        {
+          "actor": "issue tool",
+          "action": "detects unauthenticated write, refuses before any forge call"
+        },
+        {
+          "actor": "issue tool",
+          "action": "emits the envelope with exit code 1, error.category 'auth', error.retryable false, and fix_hint.env listing GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-5",
+      "title": "Model-run flag rejected with accepting-tools message",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op read --model ADVANCED https://github.com/acme/widgets/issues/1"
+        },
+        {
+          "actor": "issue tool",
+          "action": "flag parse fails because --model is not registered; unsupportedFlagMessage looks up --model in the toolFlags table"
+        },
+        {
+          "actor": "issue tool",
+          "action": "emits the envelope with exit code 2, error.category 'usage', and an error message naming the tools that accept --model"
+        }
+      ]
+    },
+    {
+      "id": "17-PATH-6",
+      "title": "List issues in the repository detected from origin",
+      "steps": [
+        {
+          "actor": "caller",
+          "action": "runs issue --op list --state open --limit 50 in a git checkout whose origin is github.com/acme/widgets"
+        },
+        {
+          "actor": "issue tool",
+          "action": "detects no positional, resolves the origin remote via issuex.DetectRepo, builds a forge client"
+        },
+        {
+          "actor": "issue tool",
+          "action": "calls ListIssues with state=open and limit=50"
+        },
+        {
+          "actor": "forge API",
+          "action": "returns an IssueList with up to 50 open issues"
+        },
+        {
+          "actor": "issue tool",
+          "action": "emits the envelope with result.list, exit code 0, and records a forge timing entry"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "issuex",
+      "version": "local (repository root)",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Client",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "interface { Authenticated() bool; Close() error; GetRepository(ctx context.Context, repo Repo) (Repository, error); CreateIssue(ctx context.Context, repo Repo, req CreateIssueRequest) (Issue, error); ReadIssue(ctx context.Context, ref IssueRef) (IssueThread, error); UpdateIssue(ctx context.Context, ref IssueRef, req UpdateIssueRequest) (Issue, error); CloseIssue(ctx context.Context, ref IssueRef, comment string) error; ListIssues(ctx context.Context, repo Repo, filter IssueFilter) (IssueList, error); AddComment(ctx context.Context, ref IssueRef, body string) (string, error); ListComments(ctx context.Context, ref IssueRef) (CommentList, error); AddLabels(ctx context.Context, ref IssueRef, labels []string) error; RemoveLabel(ctx context.Context, ref IssueRef, label string) error; CreateLabel(ctx context.Context, repo Repo, label Label) error; CreatePullRequest(ctx context.Context, repo Repo, req CreatePullRequestRequest) (PullRequest, error); ReadPullRequest(ctx context.Context, ref IssueRef) (PullRequest, error); ReadChangedFiles(ctx context.Context, ref IssueRef) ([]ChangedFile, error); GetPRState(ctx context.Context, ref IssueRef) (PRState, error); GetCIChecks(ctx context.Context, ref IssueRef) ([]CheckRun, error); GetPRReviews(ctx context.Context, ref IssueRef) ([]Review, error); PostReviewComment(ctx context.Context, ref IssueRef, body string) error; MergePullRequest(ctx context.Context, ref IssueRef, opts MergeOptions) (MergeResult, error); ClosePullRequest(ctx context.Context, ref IssueRef) error }",
+          "notes": "issuex/client.go L7-L38. 21 methods plus Authenticated and Close."
+        },
+        {
+          "name": "NewWithOptions",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(Options) (Client, error)",
+          "notes": "issuex/factory.go L19"
+        },
+        {
+          "name": "ParseRepo",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(string) (Repo, bool)",
+          "notes": "issuex/parse.go L14"
+        },
+        {
+          "name": "ParseIssueURL",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(string) (IssueRef, bool)",
+          "notes": "issuex/parse.go L151"
+        },
+        {
+          "name": "DetectRepo",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(string) (Repo, bool)",
+          "notes": "issuex/parse.go L138"
+        },
+        {
+          "name": "ErrNoToken",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "ErrNotFound",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "ErrConflict",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "ErrRateLimited",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "ErrAmbiguousForge",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "ErrUnsupportedForge",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "var error"
+        },
+        {
+          "name": "IsNotFound",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(error) bool"
+        },
+        {
+          "name": "IsConflict",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(error) bool"
+        },
+        {
+          "name": "IsRateLimited",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(error) bool"
+        },
+        {
+          "name": "IsNoToken",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func(error) bool"
+        },
+        {
+          "name": "Options",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "struct { BaseURL string; Token string; HTTPClient *http.Client; UserAgent string; NoOp bool; Repo Repo; RemoteURL string }",
+          "notes": "issuex/options.go L8"
+        },
+        {
+          "name": "ForgeTypeGitHub",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "const ForgeType = \"github\""
+        },
+        {
+          "name": "ForgeTypeGitLab",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "const ForgeType = \"gitlab\""
+        }
+      ]
+    },
+    {
+      "package": "internal/toolio",
+      "version": "local (internal)",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "App",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "struct { Name string; Version string; Usage string; Flags func(*flag.FlagSet); DefaultBounds agentrun.Bounds; SinglePhase bool; PreCheck func(*Common) error; CheckInput func(Input) error; Description string; InputDescription string; ExitCodes map[int]string; ResultSample any; Exec func(context.Context, Deps) (int, any, *ErrorInfo); PreflightExec func(context.Context, Deps) (int, any, *ErrorInfo) }",
+          "notes": "internal/toolio/app.go L107-L160"
+        },
+        {
+          "name": "DeclareEnum",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(*flag.FlagSet, string, []string)",
+          "notes": "internal/toolio/flagschema.go L18"
+        },
+        {
+          "name": "Usagef",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(string, ...any) error",
+          "notes": "internal/toolio/app.go L37"
+        },
+        {
+          "name": "RenderThread",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(issuex.IssueRef, issuex.IssueThread) string",
+          "notes": "internal/toolio/input.go L264"
+        },
+        {
+          "name": "UntrustedFields",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(any) []string",
+          "notes": "internal/toolio/untrusted.go L22"
+        },
+        {
+          "name": "CheckTrust",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(reflect.Type) []string",
+          "notes": "internal/toolio/trust.go L16"
+        },
+        {
+          "name": "RetryableFor",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "func(string) bool",
+          "notes": "internal/toolio/envelope.go; currently checks \"api\" and \"aborted\""
+        },
+        {
+          "name": "WarnCode",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "type string",
+          "notes": "internal/toolio/warncode.go L5"
+        },
+        {
+          "name": "SideEffect",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "struct { Action string; Target string; Kind string; URL string; OK bool; Warning WarnCode }",
+          "notes": "internal/toolio/envelope.go"
+        },
+        {
+          "name": "Artifact",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "struct { Kind ArtifactKind; Name string; Base string; SHA string; Branch string; URL string; Number int; Role string; Path string; ID string; Valid bool; DryRun bool }",
+          "notes": "internal/toolio/envelope.go; has custom MarshalJSON"
+        }
+      ]
+    }
+  ]
+}

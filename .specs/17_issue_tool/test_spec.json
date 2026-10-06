@@ -1,0 +1,940 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "17",
+  "spec_name": "issue_tool",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-17-1",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.1"
+      ],
+      "title": "DeclareEnum for --op lists exactly 21 operation names in the expected order",
+      "given": [
+        "the issue tool's flag set is constructed"
+      ],
+      "when": "the --op flag's declared enum values are inspected",
+      "then": [
+        "the enum contains exactly 21 values",
+        "the values are auth, repo, create, read, update, close, list, comment, comments, label, unlabel, create-label, create-pr, pr, files, pr-state, checks, reviews, review-comment, merge, close-pr"
+      ],
+      "pseudocode": "fs := flag.NewFlagSet(\"issue\", flag.ContinueOnError)\napp.Flags(fs)\nvals := lookupEnum(fs, \"op\")\nassert len(vals) == 21\nassert vals == expectedOps"
+    },
+    {
+      "id": "TS-17-2",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.3"
+      ],
+      "title": "A run without --op and without --version or --schema exits 2 listing all operations",
+      "given": [
+        "the issue tool App is constructed"
+      ],
+      "when": "Main is called with a positional argument but no --op flag",
+      "then": [
+        "the exit code is 2",
+        "the envelope error.category is \"usage\"",
+        "the error message lists all 21 operation names"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"acme/widgets#1\"}, nil, &stdout, &stderr)\nassert code == 2\nenv := decodeEnvelope(stdout)\nassert env.Error.Category == \"usage\"\nfor _, op := range allOps { assert strings.Contains(env.Error.Message, op) }"
+    },
+    {
+      "id": "TS-17-3",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.2"
+      ],
+      "title": "Each --op value dispatches to the corresponding issuex.Client method on a stub client",
+      "given": [
+        "a stub issuex.Client that records which method was called",
+        "the issue tool App is constructed with the stub injected"
+      ],
+      "when": "the tool is run with each of the 21 --op values and an appropriate target",
+      "then": [
+        "each run calls exactly the corresponding Client method once",
+        "no other Client method is called on that run"
+      ],
+      "pseudocode": "for _, op := range allOps {\n  stub := newRecordingClient()\n  code := runApp(op, stub, target(op))\n  assert stub.calledMethod == expectedMethodFor(op)\n  assert stub.callCount == 1\n}"
+    },
+    {
+      "id": "TS-17-4",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-2.4"
+      ],
+      "title": "The auth operation reports forge type, API URL, authentication status and resolved repository without making any forge API call",
+      "given": [
+        "a stub issuex.Client configured for GitHub at https://api.github.com with Authenticated() returning true",
+        "the resolved repository is acme/widgets"
+      ],
+      "when": "issue --op auth is run",
+      "then": [
+        "the exit code is 0",
+        "result.auth.forge_type is \"github\"",
+        "result.auth.api_url is \"https://api.github.com\"",
+        "result.auth.authenticated is true",
+        "result.auth.repo is \"acme/widgets\"",
+        "no method on the stub client other than Authenticated() and Close() is called"
+      ],
+      "pseudocode": "stub := newRecordingClient(forgeType: \"github\", apiURL: \"https://api.github.com\", authenticated: true, repo: \"acme/widgets\")\ncode := runApp(\"--op\", \"auth\", stub)\nassert code == 0\nassert result.Auth.ForgeType == \"github\"\nassert result.Auth.Authenticated == true\nassert stub.apiCallCount == 0"
+    },
+    {
+      "id": "TS-17-5",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.1",
+        "17-REQ-3.2"
+      ],
+      "title": "Every target shape is parsed to the correct kind and reported as result.target with no input field in the envelope",
+      "given": [
+        "a stub forge client"
+      ],
+      "when": "issue --op read is run in turn with: a GitHub issue URL, owner/repo#N, a bare positive integer with --repo, and issue --op list with owner/repo and with no positional in a git checkout",
+      "then": [
+        "a GitHub URL is parsed as an IssueRef with host, repo and number from the URL path",
+        "owner/repo#N is parsed as a ref whose kind the operation decides",
+        "a bare integer N uses the repository from --repo or the origin remote",
+        "owner/repo is parsed as a repository via issuex.ParseRepo",
+        "an absent positional resolves the origin remote for a repository-scoped operation",
+        "the envelope carries result.target in every case",
+        "the envelope's input field is absent in every case"
+      ],
+      "pseudocode": "for _, tc := range []struct{args []string; wantTarget string}{\n  {args: [\"--op\",\"read\",\"https://github.com/acme/widgets/issues/42\"], wantTarget: \"acme/widgets#42\"},\n  {args: [\"--op\",\"read\",\"acme/widgets#42\"], wantTarget: \"acme/widgets#42\"},\n  {args: [\"--op\",\"read\",\"--repo\",\"acme/widgets\",\"42\"], wantTarget: \"acme/widgets#42\"},\n  {args: [\"--op\",\"list\",\"acme/widgets\"], wantTarget: \"acme/widgets\"},\n} {\n  env := runAndDecode(tc.args)\n  assert env.Result.Target == tc.wantTarget\n  assert env.Input == nil\n}"
+    },
+    {
+      "id": "TS-17-6",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.3"
+      ],
+      "title": "A target whose kind does not fit the operation exits 2 naming the operation that would fit",
+      "given": [
+        "a stub forge client"
+      ],
+      "when": "issue --op create is given an issue URL (which names a ref, not a repository), or issue --op read is given owner/repo (a repository, not a ref)",
+      "then": [
+        "the exit code is 2",
+        "error.category is \"usage\"",
+        "the error message names the operation that would fit the given target kind"
+      ],
+      "pseudocode": "code := runApp(\"--op\", \"create\", \"--title\", \"t\", \"https://github.com/a/b/issues/1\")\nassert code == 2\nenv := decodeEnvelope(stdout)\nassert env.Error.Category == \"usage\"\nassert strings.Contains(env.Error.Message, \"read\") || strings.Contains(env.Error.Message, \"update\")"
+    },
+    {
+      "id": "TS-17-7",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.4"
+      ],
+      "title": "--repo combined with a URL or an owner/repo#N target exits 2",
+      "given": [
+        "a stub forge client"
+      ],
+      "when": "issue --op read --repo other/repo https://github.com/acme/widgets/issues/1 is run, and issue --op read --repo other/repo acme/widgets#1 is run",
+      "then": [
+        "both exit with code 2",
+        "both have error.category \"usage\"",
+        "the error message says --repo conflicts with the target's repository"
+      ],
+      "pseudocode": "for _, target := range []string{\"https://github.com/acme/widgets/issues/1\", \"acme/widgets#1\"} {\n  code := runApp(\"--op\", \"read\", \"--repo\", \"other/repo\", target)\n  assert code == 2\n  env := decodeEnvelope(stdout)\n  assert env.Error.Category == \"usage\"\n  assert strings.Contains(env.Error.Message, \"--repo\")\n}"
+    },
+    {
+      "id": "TS-17-8",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-3.5"
+      ],
+      "title": "A repository-scoped operation with no positional and no resolvable origin exits 2 naming --repo",
+      "given": [
+        "a temporary directory with no .git directory (no origin remote)",
+        "a stub forge client builder"
+      ],
+      "when": "issue --op list --dir <tmpdir> is run with no positional argument",
+      "then": [
+        "the exit code is 2",
+        "error.category is \"usage\"",
+        "error.fix_hint.flag is \"--repo\""
+      ],
+      "pseudocode": "code := runApp(\"--op\", \"list\", \"--dir\", tmpdir)\nassert code == 2\nenv := decodeEnvelope(stdout)\nassert env.Error.Category == \"usage\"\nassert env.Error.FixHint.Flag == \"--repo\""
+    },
+    {
+      "id": "TS-17-9",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.1",
+        "17-REQ-4.2"
+      ],
+      "title": "The forge client is built via issuex.NewWithOptions and failure is not masked by a NoOp fallback",
+      "given": [
+        "an environment where issuex.NewWithOptions will return an error (e.g. ErrAmbiguousForge)"
+      ],
+      "when": "issue --op read acme/widgets#1 is run",
+      "then": [
+        "the envelope ok is false",
+        "no forge API call is made",
+        "the client used is not issuex.NewNoOp()"
+      ],
+      "pseudocode": "os.Setenv(\"GITHUB_API_URL\", \"\"); os.Setenv(\"GITLAB_API_URL\", \"\")\ncode := runApp(\"--op\", \"read\", \"acme/widgets#1\")\nassert code != 0\nenv := decodeEnvelope(stdout)\nassert env.OK == false\n// NoOp would succeed with zero values; the error proves no NoOp was used"
+    },
+    {
+      "id": "TS-17-10",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.3"
+      ],
+      "title": "A write operation on an unauthenticated client is refused before any forge call with category auth and fix_hint listing token variables",
+      "given": [
+        "a stub issuex.Client whose Authenticated() returns false",
+        "no forge API call tracker records any call"
+      ],
+      "when": "issue --op comment --body 'test' acme/widgets#10 is run",
+      "then": [
+        "the exit code is 1",
+        "error.category is \"auth\"",
+        "error.retryable is false",
+        "fix_hint.env contains GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN",
+        "no method other than Authenticated() and Close() is called on the stub"
+      ],
+      "pseudocode": "stub := newRecordingClient(authenticated: false)\ncode := runApp(\"--op\", \"comment\", \"--body\", \"test\", \"acme/widgets#10\", stub)\nassert code == 1\nenv := decodeEnvelope(stdout)\nassert env.Error.Category == \"auth\"\nassert env.Error.Retryable == false\nassert slices.Contains(env.Error.FixHint.Env, \"GITHUB_TOKEN\")\nassert slices.Contains(env.Error.FixHint.Env, \"GH_TOKEN\")\nassert slices.Contains(env.Error.FixHint.Env, \"GITLAB_TOKEN\")\nassert stub.apiCallCount == 0"
+    },
+    {
+      "id": "TS-17-11",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.4",
+        "17-REQ-4.5"
+      ],
+      "title": "A read operation runs unauthenticated without error and no model or vendor credential is ever read",
+      "given": [
+        "a stub issuex.Client whose Authenticated() returns false",
+        "ANTHROPIC_API_KEY is unset in the environment"
+      ],
+      "when": "issue --op read acme/widgets#1 is run",
+      "then": [
+        "the exit code is 0",
+        "no auth error is reported",
+        "ANTHROPIC_API_KEY is never read (the tool does not call os.Getenv for it)",
+        "no model resolution occurs (env.Model is nil)"
+      ],
+      "pseudocode": "os.Unsetenv(\"ANTHROPIC_API_KEY\")\nstub := newRecordingClient(authenticated: false)\ncode := runApp(\"--op\", \"read\", \"acme/widgets#1\", stub)\nassert code == 0\nenv := decodeEnvelope(stdout)\nassert env.Error == nil\nassert env.Model == nil"
+    },
+    {
+      "id": "TS-17-12",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-4.6"
+      ],
+      "title": "ErrAmbiguousForge and ErrUnsupportedForge are reported as usage exit 2 with fix_hint naming API URL variables",
+      "given": [
+        "an environment configured to make issuex.NewWithOptions return ErrAmbiguousForge, then ErrUnsupportedForge"
+      ],
+      "when": "issue --op read acme/widgets#1 is run for each error",
+      "then": [
+        "both runs exit with code 2",
+        "both have error.category \"usage\"",
+        "fix_hint.env contains GITHUB_API_URL and GITLAB_API_URL in both cases"
+      ],
+      "pseudocode": "for _, sentinelErr := range []error{issuex.ErrAmbiguousForge, issuex.ErrUnsupportedForge} {\n  code := runAppWithForgeError(sentinelErr, \"--op\", \"read\", \"acme/widgets#1\")\n  assert code == 2\n  env := decodeEnvelope(stdout)\n  assert env.Error.Category == \"usage\"\n  assert slices.Contains(env.Error.FixHint.Env, \"GITHUB_API_URL\")\n  assert slices.Contains(env.Error.FixHint.Env, \"GITLAB_API_URL\")\n}"
+    },
+    {
+      "id": "TS-17-13",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.1"
+      ],
+      "title": "The shared shell flags are registered and accepted by the issue tool",
+      "given": [
+        "the issue tool App is constructed"
+      ],
+      "when": "Main is called with --dir, --dry-run, --detail full, --output /tmp/out.json, --emit-events, --verbose, --quiet, --version, --schema each tested individually",
+      "then": [
+        "--dir, --dry-run, --detail, --output, --emit-events, --verbose, --quiet are accepted without a flag-parse error",
+        "--version prints the build identity and exits 0",
+        "--schema prints the self-description document and exits 0",
+        "--report-file is accepted"
+      ],
+      "pseudocode": "for _, flag := range []string{\"--dir=.\", \"--dry-run\", \"--detail=full\", \"--output=/tmp/out.json\", \"--emit-events\", \"--verbose\", \"--quiet\", \"--report-file=/tmp/r.json\"} {\n  code := app.Main(ctx, []string{flag, \"--op\", \"read\", \"acme/widgets#1\"}, nil, &stdout, &stderr)\n  assert code != 2 || !strings.Contains(stderr.String(), \"flag provided but not defined\")\n}\nassert app.Main(ctx, []string{\"--version\"}, nil, &stdout, &stderr) == 0\nassert app.Main(ctx, []string{\"--schema\"}, nil, &stdout, &stderr) == 0"
+    },
+    {
+      "id": "TS-17-14",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.2"
+      ],
+      "title": "Every model-run flag passed to issue exits 2 with an error message naming the tools that accept it",
+      "given": [
+        "the issue tool App is constructed"
+      ],
+      "when": "Main is called with each of --model, --vendor, --effort, --max-turns, --budget, --phase-timeout, --total-budget, --context, --trust-project, --show-text, --input-kind, --preflight, --repo-map-tokens",
+      "then": [
+        "each run exits with code 2",
+        "each error message names at least one of triage, fix, spec, impl as accepting the flag"
+      ],
+      "pseudocode": "modelFlags := []string{\"--model=X\", \"--vendor=X\", \"--effort=low\", \"--max-turns=5\", \"--budget=1\", \"--phase-timeout=1s\", \"--total-budget=1\", \"--context=x\", \"--trust-project\", \"--show-text\", \"--input-kind=text\", \"--preflight\", \"--repo-map-tokens=100\"}\nfor _, mf := range modelFlags {\n  code := app.Main(ctx, []string{mf, \"--op\", \"read\", \"acme/widgets#1\"}, nil, &stdout, &stderr)\n  assert code == 2\n  output := stdout.String() + stderr.String()\n  assert strings.ContainsAny(output, \"triage\") || strings.ContainsAny(output, \"fix\") || strings.ContainsAny(output, \"spec\") || strings.ContainsAny(output, \"impl\")\n}"
+    },
+    {
+      "id": "TS-17-15",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.3"
+      ],
+      "title": "An own flag that the selected operation does not take produces a usage error before any forge call",
+      "given": [
+        "a stub forge client that records whether any API method was called"
+      ],
+      "when": "issue --op read --title 'x' acme/widgets#1 is run (--title is for create, not read), and issue --op close --head main acme/widgets#1 is run (--head is for create-pr)",
+      "then": [
+        "both exit with code 2",
+        "error.category is \"usage\" in both cases",
+        "no forge API method was called on the stub"
+      ],
+      "pseudocode": "for _, tc := range []struct{op, flag, val string}{\n  {\"read\", \"--title\", \"x\"},\n  {\"close\", \"--head\", \"main\"},\n} {\n  stub := newRecordingClient()\n  code := runApp(\"--op\", tc.op, tc.flag, tc.val, \"acme/widgets#1\", stub)\n  assert code == 2\n  env := decodeEnvelope(stdout)\n  assert env.Error.Category == \"usage\"\n  assert stub.apiCallCount == 0\n}"
+    },
+    {
+      "id": "TS-17-16",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.4"
+      ],
+      "title": "Missing required flags for an operation exit 2 before any forge call",
+      "given": [
+        "a stub forge client"
+      ],
+      "when": "the following are run: comment without --body or --body-file, create without --title, create-pr without --title, create-pr without --head, update with no field to change, label with no --label",
+      "then": [
+        "all exit with code 2",
+        "all have error.category \"usage\"",
+        "no forge API call is made in any case"
+      ],
+      "pseudocode": "cases := [][]string{\n  {\"--op\",\"comment\",\"acme/widgets#1\"},\n  {\"--op\",\"create\",\"acme/widgets\"},\n  {\"--op\",\"create-pr\",\"--head\",\"feat\",\"acme/widgets\"},\n  {\"--op\",\"create-pr\",\"--title\",\"t\",\"acme/widgets\"},\n  {\"--op\",\"update\",\"acme/widgets#1\"},\n  {\"--op\",\"label\",\"acme/widgets#1\"},\n}\nfor _, args := range cases {\n  stub := newRecordingClient()\n  code := runApp(append(args, stub)...)\n  assert code == 2\n  env := decodeEnvelope(stdout)\n  assert env.Error.Category == \"usage\"\n  assert stub.apiCallCount == 0\n}"
+    },
+    {
+      "id": "TS-17-17",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-5.5"
+      ],
+      "title": "--body and --body-file are mutually exclusive and an empty --body-file produces exit 2",
+      "given": [
+        "a stub forge client",
+        "a temporary empty file for --body-file"
+      ],
+      "when": "issue --op comment --body 'x' --body-file f acme/widgets#1 is run, then issue --op comment --body-file <empty-file> acme/widgets#1 is run",
+      "then": [
+        "both exit with code 2",
+        "both have error.category \"usage\""
+      ],
+      "pseudocode": "// mutual exclusion\ncode := runApp(\"--op\", \"comment\", \"--body\", \"x\", \"--body-file\", emptyFile, \"acme/widgets#1\")\nassert code == 2\nenv := decodeEnvelope(stdout)\nassert env.Error.Category == \"usage\"\n// empty body-file\ncode2 := runApp(\"--op\", \"comment\", \"--body-file\", emptyFile, \"acme/widgets#1\")\nassert code2 == 2\nenv2 := decodeEnvelope(stdout)\nassert env2.Error.Category == \"usage\""
+    },
+    {
+      "id": "TS-17-18",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.1"
+      ],
+      "title": "The issueops.Result type passes CheckTrust: every string field has a trust tag",
+      "given": [
+        "the issueops.Result type"
+      ],
+      "when": "toolio.CheckTrust is called on reflect.TypeOf(issueops.Result{})",
+      "then": [
+        "the result is nil (no untagged string fields)",
+        "the head fields op, forge, api_url, target carry trust:\"fact\"",
+        "title and body fields in issue sections carry trust:\"external\"",
+        "CheckRun.Summary, Review.Body and MergeResult.Message carry trust:\"external\""
+      ],
+      "pseudocode": "missing := toolio.CheckTrust(reflect.TypeOf(issueops.Result{}))\nassert missing == nil\n// spot-check tags via reflection\nt := reflect.TypeOf(issueops.Result{})\nassert fieldTag(t, \"Op\") == \"fact\"\nassert fieldTag(t, \"Forge\") == \"fact\""
+    },
+    {
+      "id": "TS-17-19",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.2"
+      ],
+      "title": "UntrustedFields lists every non-empty external-tagged field by RFC 6901 JSON pointer",
+      "given": [
+        "an issueops.Result populated with a read operation result whose title and body are non-empty"
+      ],
+      "when": "toolio.UntrustedFields is called on the result",
+      "then": [
+        "the returned list contains pointers like /result/read/issue/title and /result/read/issue/body",
+        "the list does not contain pointers for fact-tagged fields like /result/op or /result/forge",
+        "empty external fields are not listed"
+      ],
+      "pseudocode": "r := issueops.Result{Read: &issueops.ReadResult{Issue: issuex.Issue{Title: \"Bug\", Body: \"desc\"}}}\nfields := toolio.UntrustedFields(r)\nassert slices.Contains(fields, \"/result/read/issue/title\")\nassert slices.Contains(fields, \"/result/read/issue/body\")\nassert !slices.Contains(fields, \"/result/op\")"
+    },
+    {
+      "id": "TS-17-20",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.3"
+      ],
+      "title": "A read result includes a rendered field containing the thread text from toolio.RenderThread, tagged trust:external",
+      "given": [
+        "a stub forge client returning an IssueThread with an issue and two comments",
+        "the expected text from toolio.RenderThread for that thread"
+      ],
+      "when": "issue --op read acme/widgets#1 is run",
+      "then": [
+        "result.read.rendered matches the output of toolio.RenderThread for the same ref and thread",
+        "the rendered field's struct tag is trust:\"external\""
+      ],
+      "pseudocode": "thread := issuex.IssueThread{Issue: issuex.Issue{Title: \"Bug\", Body: \"desc\"}, Comments: []issuex.Comment{{Body: \"c1\"}, {Body: \"c2\"}}}\nstub := newStubWithReadIssue(thread)\ncode := runApp(\"--op\", \"read\", \"acme/widgets#1\", stub)\nassert code == 0\nexpected := toolio.RenderThread(ref, thread)\nassert result.Read.Rendered == expected\nassert reflectTag(\"Rendered\") == \"external\""
+    },
+    {
+      "id": "TS-17-21",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.4"
+      ],
+      "title": "The envelope summary names the operation and target",
+      "given": [
+        "a stub forge client that returns a created issue at acme/widgets#43"
+      ],
+      "when": "issue --op create --title 'Bug' acme/widgets is run",
+      "then": [
+        "the envelope summary contains \"issue:\"",
+        "the summary contains \"created\"",
+        "the summary contains \"acme/widgets#43\""
+      ],
+      "pseudocode": "stub := newStubReturning(issue: issuex.Issue{Number: 43})\ncode := runApp(\"--op\", \"create\", \"--title\", \"Bug\", \"acme/widgets\", stub)\nassert code == 0\nenv := decodeEnvelope(stdout)\nassert strings.Contains(env.Summary, \"issue:\")\nassert strings.Contains(env.Summary, \"created\")\nassert strings.Contains(env.Summary, \"acme/widgets#43\")"
+    },
+    {
+      "id": "TS-17-22",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-6.5"
+      ],
+      "title": "Summary view (--detail summary) drops issue bodies for list and drops rendered for read; other operations return the full result",
+      "given": [
+        "a stub forge client returning a list of issues with bodies and a read result with rendered text"
+      ],
+      "when": "issue --op list is run with --detail summary, and issue --op read is run with --detail summary, and issue --op create is run with --detail summary",
+      "then": [
+        "the list summary view has issues without body fields",
+        "the read summary view has no rendered field",
+        "the create summary view is identical to the full result"
+      ],
+      "pseudocode": "// list\nlistResult := issueops.Result{List: &issueops.ListResult{Issues: []issuex.Issue{{Title: \"t\", Body: \"b\"}}}}\nsv := listResult.SummaryView()\nassert sv.List.Issues[0].Body == \"\"\n// read\nreadResult := issueops.Result{Read: &issueops.ReadResult{Rendered: \"text\"}}\nsv2 := readResult.SummaryView()\nassert sv2.Read.Rendered == \"\""
+    },
+    {
+      "id": "TS-17-23",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.1"
+      ],
+      "title": "A write operation under --dry-run resolves the target and client but stops before the forge request, reporting would_write and dry_run true with no side effects",
+      "given": [
+        "a stub forge client that records any API call",
+        "the close operation with a body"
+      ],
+      "when": "issue --op close --body 'Resolved' --dry-run acme/widgets#42 is run",
+      "then": [
+        "the exit code is 0",
+        "result.dry_run is true",
+        "result.would_write is present and non-nil",
+        "side_effects is empty",
+        "no forge API method was called on the stub"
+      ],
+      "pseudocode": "stub := newRecordingClient(authenticated: true)\ncode := runApp(\"--op\", \"close\", \"--body\", \"Resolved\", \"--dry-run\", \"acme/widgets#42\", stub)\nassert code == 0\nenv := decodeEnvelope(stdout)\nassert env.Result.DryRun == true\nassert env.Result.WouldWrite != nil\nassert len(env.SideEffects) == 0\nassert stub.apiCallCount == 0"
+    },
+    {
+      "id": "TS-17-24",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.2"
+      ],
+      "title": "A read operation under --dry-run executes exactly as without --dry-run",
+      "given": [
+        "a stub forge client returning an IssueThread for read"
+      ],
+      "when": "issue --op read --dry-run acme/widgets#1 is run",
+      "then": [
+        "the exit code is 0",
+        "ReadIssue is called on the stub",
+        "the result contains the issue data from the stub",
+        "dry_run in the result head is true"
+      ],
+      "pseudocode": "stub := newStubWithReadIssue(thread)\ncode := runApp(\"--op\", \"read\", \"--dry-run\", \"acme/widgets#1\", stub)\nassert code == 0\nassert stub.readIssueCalled == true\nassert result.Read != nil\nassert result.DryRun == true"
+    },
+    {
+      "id": "TS-17-25",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.3"
+      ],
+      "title": "create, create-pr, comment and merge each emit the correct artifact kind; other operations emit only report_file and events_file",
+      "given": [
+        "a stub forge client returning appropriate results for each operation"
+      ],
+      "when": "each of create, create-pr, comment, merge, and read is run",
+      "then": [
+        "create yields an artifact {kind: \"issue\", url, number}",
+        "create-pr yields an artifact {kind: \"pull_request\", url, number}",
+        "comment yields an artifact {kind: \"comment\", url}",
+        "merge yields an artifact {kind: \"commit\", sha, branch}",
+        "read yields only report_file and events_file artifacts"
+      ],
+      "pseudocode": "// create\nassert findArtifact(createEnv, \"issue\") != nil\nassert findArtifact(createEnv, \"issue\").Number == 43\n// create-pr\nassert findArtifact(prEnv, \"pull_request\") != nil\n// comment\nassert findArtifact(commentEnv, \"comment\") != nil\n// merge\nassert findArtifact(mergeEnv, \"commit\").SHA != \"\"\n// read: no issue/pr/comment/commit artifact\nassert findArtifact(readEnv, \"issue\") == nil"
+    },
+    {
+      "id": "TS-17-26",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.4"
+      ],
+      "title": "Each forge write records a side_effects entry with the correct action value and kind is never set for an issue write",
+      "given": [
+        "a stub forge client for each write operation"
+      ],
+      "when": "each write operation (create, update, close, comment, label, unlabel, create-label, create-pr, review-comment, merge, close-pr) is run",
+      "then": [
+        "the envelope's side_effects array has exactly one entry",
+        "the action matches: create_issue, update_issue, close_issue, comment, add_labels, remove_label, create_label, open_pr, review_comment, merge_pr, close_pr",
+        "kind is empty for issue-scoped writes (create, update, close, comment, label, unlabel)"
+      ],
+      "pseudocode": "expected := map[string]string{\"create\":\"create_issue\", \"update\":\"update_issue\", \"close\":\"close_issue\", \"comment\":\"comment\", \"label\":\"add_labels\", \"unlabel\":\"remove_label\", \"create-label\":\"create_label\", \"create-pr\":\"open_pr\", \"review-comment\":\"review_comment\", \"merge\":\"merge_pr\", \"close-pr\":\"close_pr\"}\nfor op, action := range expected {\n  env := runOp(op)\n  assert len(env.SideEffects) == 1\n  assert env.SideEffects[0].Action == action\n  if isIssueOp(op) { assert env.SideEffects[0].Kind == \"\" }\n}"
+    },
+    {
+      "id": "TS-17-27",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-7.5"
+      ],
+      "title": "Each forge call records a timings entry {kind: forge, name: <op>} and next is always empty",
+      "given": [
+        "a stub forge client for a read and a create operation"
+      ],
+      "when": "issue --op read and issue --op create are each run",
+      "then": [
+        "the envelope timings array contains at least one entry with kind \"forge\"",
+        "the timing entry's name matches the operation",
+        "the envelope next array is empty in both cases"
+      ],
+      "pseudocode": "for _, op := range []string{\"read\", \"create\"} {\n  env := runOp(op)\n  assert len(env.Timings) >= 1\n  found := false\n  for _, t := range env.Timings { if t.Kind == \"forge\" && t.Name == op { found = true } }\n  assert found\n  assert len(env.Next) == 0\n}"
+    },
+    {
+      "id": "TS-17-28",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.1"
+      ],
+      "title": "The --schema document lists exactly exit codes 0, 1, 2",
+      "given": [
+        "the issue tool App is constructed"
+      ],
+      "when": "Main is called with --schema",
+      "then": [
+        "the self-description document's exit_codes map has keys 0, 1 and 2",
+        "no other exit code is listed"
+      ],
+      "pseudocode": "code := app.Main(ctx, []string{\"--schema\"}, nil, &stdout, &stderr)\nassert code == 0\ndoc := decodeSchema(stdout)\nassert len(doc.ExitCodes) == 3\nassert doc.ExitCodes[0] != \"\"\nassert doc.ExitCodes[1] != \"\"\nassert doc.ExitCodes[2] != \"\"\nassert doc.ExitCodes[3] == \"\" // not present"
+    },
+    {
+      "id": "TS-17-29",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.2"
+      ],
+      "title": "issuex sentinel errors are mapped to the correct error.category and retryable flag",
+      "given": [
+        "a stub forge client that returns each of ErrNotFound, ErrConflict, ErrRateLimited, ErrNoToken, and a generic HTTPError with status 500 for a read operation"
+      ],
+      "when": "issue --op read acme/widgets#1 is run with each error",
+      "then": [
+        "ErrNotFound → category \"not_found\", retryable false",
+        "ErrConflict → category \"conflict\", retryable false",
+        "ErrRateLimited → category \"rate_limited\", retryable true",
+        "ErrNoToken → category \"auth\", retryable false",
+        "generic HTTPError → category \"forge\", retryable false"
+      ],
+      "pseudocode": "cases := []struct{err error; cat string; retry bool}{\n  {issuex.ErrNotFound, \"not_found\", false},\n  {issuex.ErrConflict, \"conflict\", false},\n  {issuex.ErrRateLimited, \"rate_limited\", true},\n  {issuex.ErrNoToken, \"auth\", false},\n  {&issuex.HTTPError{Status: 500}, \"forge\", false},\n}\nfor _, tc := range cases {\n  env := runWithError(tc.err)\n  assert env.Error.Category == tc.cat\n  assert env.Error.Retryable == tc.retry\n  assert env.Error.Stage == \"call\"\n}"
+    },
+    {
+      "id": "TS-17-30",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.3"
+      ],
+      "title": "RetryableFor returns true for rate_limited alongside existing api and aborted",
+      "given": [],
+      "when": "toolio.RetryableFor is called with \"rate_limited\", \"api\", \"aborted\", \"forge\", \"auth\" and \"not_found\"",
+      "then": [
+        "rate_limited returns true",
+        "api returns true",
+        "aborted returns true",
+        "forge returns false",
+        "auth returns false",
+        "not_found returns false"
+      ],
+      "pseudocode": "assert toolio.RetryableFor(\"rate_limited\") == true\nassert toolio.RetryableFor(\"api\") == true\nassert toolio.RetryableFor(\"aborted\") == true\nassert toolio.RetryableFor(\"forge\") == false\nassert toolio.RetryableFor(\"auth\") == false\nassert toolio.RetryableFor(\"not_found\") == false"
+    },
+    {
+      "id": "TS-17-31",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.4"
+      ],
+      "title": "When ListComments or ReadIssue hit the 500-comment cap, the comments_truncated warning is recorded",
+      "given": [
+        "a stub forge client whose ReadIssue returns an IssueThread with Truncated true"
+      ],
+      "when": "issue --op read acme/widgets#1 is run",
+      "then": [
+        "the envelope warnings contain an entry with code \"comments_truncated\"",
+        "the warning severity is \"low\"",
+        "the warning stage is \"call\""
+      ],
+      "pseudocode": "thread := issuex.IssueThread{Truncated: true, Issue: issuex.Issue{Title: \"t\"}}\nstub := newStubWithReadIssue(thread)\nenv := runAndDecode(\"--op\", \"read\", \"acme/widgets#1\", stub)\nw := findWarning(env.Warnings, \"comments_truncated\")\nassert w != nil\nassert w.Severity == \"low\"\nassert w.Stage == \"call\""
+    },
+    {
+      "id": "TS-17-32",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.5"
+      ],
+      "title": "When ListIssues returns IssueList.Incomplete as true, the list_incomplete warning is recorded",
+      "given": [
+        "a stub forge client whose ListIssues returns IssueList{Incomplete: true}"
+      ],
+      "when": "issue --op list acme/widgets is run",
+      "then": [
+        "the envelope warnings contain an entry with code \"list_incomplete\"",
+        "the warning severity is \"low\"",
+        "the warning stage is \"call\""
+      ],
+      "pseudocode": "stub := newStubReturning(listIssues: issuex.IssueList{Incomplete: true})\nenv := runAndDecode(\"--op\", \"list\", \"acme/widgets\", stub)\nw := findWarning(env.Warnings, \"list_incomplete\")\nassert w != nil\nassert w.Severity == \"low\"\nassert w.Stage == \"call\""
+    },
+    {
+      "id": "TS-17-33",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-8.6"
+      ],
+      "title": "When ReadIssue returns a thread with CommentsErr set, the comments_unreadable warning is recorded",
+      "given": [
+        "a stub forge client whose ReadIssue returns an IssueThread with CommentsErr set to a non-nil error"
+      ],
+      "when": "issue --op read acme/widgets#1 is run",
+      "then": [
+        "the envelope warnings contain an entry with code \"comments_unreadable\""
+      ],
+      "pseudocode": "thread := issuex.IssueThread{CommentsErr: fmt.Errorf(\"timeout\"), Issue: issuex.Issue{Title: \"t\"}}\nstub := newStubWithReadIssue(thread)\nenv := runAndDecode(\"--op\", \"read\", \"acme/widgets#1\", stub)\nw := findWarning(env.Warnings, \"comments_unreadable\")\nassert w != nil"
+    },
+    {
+      "id": "TS-17-34",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.1"
+      ],
+      "title": "A no-model-phase App's execute path skips model resolution and calls Exec with nil Workspace, Runner, Model and Index",
+      "given": [
+        "a toolio.App configured as no-model-phase with an Exec that records the Deps it receives"
+      ],
+      "when": "Main is called with a positional argument",
+      "then": [
+        "Exec is called",
+        "Deps.Workspace is nil",
+        "Deps.Runner is nil",
+        "Deps.Model is nil (envelope Model is nil)",
+        "Deps.Index is nil",
+        "PreCheck was called before Exec",
+        "no model or vendor credential error is reported"
+      ],
+      "pseudocode": "var gotDeps toolio.Deps\napp := toolio.App{Name: \"test\", NoModelPhase: true, Exec: func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {\n  gotDeps = d; return 0, nil, nil\n}}\ncode := app.Main(ctx, []string{\"arg\"}, nil, &stdout, &stderr)\nassert code == 0\nassert gotDeps.Workspace == nil\nassert gotDeps.Runner == nil"
+    },
+    {
+      "id": "TS-17-35",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.2"
+      ],
+      "title": "Register is split so model-run flags are separate; the four existing tools register both and see no change",
+      "given": [
+        "flag sets constructed for each of the five tools"
+      ],
+      "when": "the shell subset and the model-run subset are registered on a flag set, then both together",
+      "then": [
+        "the shell subset includes --dir, --dry-run, --detail, --output, --emit-events, --verbose, --quiet, --version, --schema, --report-file",
+        "the model-run subset includes --model, --vendor, --effort, --max-turns, --budget, --phase-timeout, --total-budget, --context, --trust-project, --show-text, --input-kind, --preflight, --repo-map-tokens",
+        "registering both produces a flag set identical to the current Common.Register"
+      ],
+      "pseudocode": "fsShell := flag.NewFlagSet(\"shell\", flag.ContinueOnError)\nvar c1 toolio.Common\nc1.RegisterShell(fsShell)\nassert fsShell.Lookup(\"dir\") != nil\nassert fsShell.Lookup(\"model\") == nil\nfsFull := flag.NewFlagSet(\"full\", flag.ContinueOnError)\nvar c2 toolio.Common\nc2.Register(fsFull)  // both subsets\nassert fsFull.Lookup(\"dir\") != nil\nassert fsFull.Lookup(\"model\") != nil"
+    },
+    {
+      "id": "TS-17-36",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.3"
+      ],
+      "title": "toolOrder contains issue and toolFlags maps issue; model-run flags are attributed to the four tools in unsupportedFlagMessage",
+      "given": [],
+      "when": "toolOrder, toolFlags and unsupportedFlagMessage are inspected",
+      "then": [
+        "toolOrder contains \"issue\"",
+        "toolFlags[\"issue\"] lists the issue tool's own flags (op, repo, title, body, etc.)",
+        "unsupportedFlagMessage(\"issue\", flagError(\"model\")) names triage, fix, spec or impl"
+      ],
+      "pseudocode": "assert slices.Contains(toolio.ToolOrder(), \"issue\")\nassert len(toolio.ToolFlags(\"issue\")) > 0\nmsg, ok := toolio.UnsupportedFlagMessage(\"issue\", fmt.Errorf(\"flag provided but not defined: -model\"))\nassert ok\nassert strings.Contains(msg, \"triage\") || strings.Contains(msg, \"fix\")"
+    },
+    {
+      "id": "TS-17-37",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.4"
+      ],
+      "title": "Stale comments referencing 'issue' are corrected to 'triage' in App, Common and docs/cli.md",
+      "given": [],
+      "when": "the source of app.go's SinglePhase field comment, cli.go's SinglePhaseBounds method comment and docs/cli.md are read",
+      "then": [
+        "the SinglePhase field comment does not say 'issue' where it means 'triage'",
+        "the SinglePhaseBounds method comment does not say 'issue' where it means 'triage'",
+        "the docs/cli.md warning-codes table attributes tool_errors and rejected_path_calls to triage, not issue",
+        "the --total-budget row says 'folds like triage', not 'folds like issue'"
+      ],
+      "pseudocode": "src := readFile(\"internal/toolio/app.go\")\nassert !regexp.MatchString(`SinglePhase.*\\(issue,`, src)  // should say triage\ncli := readFile(\"docs/cli.md\")\nassert !strings.Contains(warningTableRow(cli, \"tool_errors\"), \"issue\")\nassert strings.Contains(warningTableRow(cli, \"tool_errors\"), \"triage\")"
+    },
+    {
+      "id": "TS-17-38",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.5"
+      ],
+      "title": "The run_start event for issue omits the model field and sets input_kind to the target's form",
+      "given": [
+        "the issue tool App configured with an events sink capturing events"
+      ],
+      "when": "issue --op read --emit-events acme/widgets#1 is run, and issue --op list --emit-events acme/widgets is run",
+      "then": [
+        "the run_start event for the read run has input_kind \"ref\"",
+        "the run_start event for the list run has input_kind \"repo\"",
+        "neither run_start event carries a model field with a non-empty spec, id or vendor"
+      ],
+      "pseudocode": "events := captureEvents(\"--op\", \"read\", \"--emit-events\", \"acme/widgets#1\")\nrs := findEvent(events, \"run_start\")\nassert rs.InputKind == \"ref\"\nassert rs.Model.Spec == \"\" && rs.Model.ID == \"\" && rs.Model.Vendor == \"\"\nevents2 := captureEvents(\"--op\", \"list\", \"--emit-events\", \"acme/widgets\")\nrs2 := findEvent(events2, \"run_start\")\nassert rs2.InputKind == \"repo\""
+    },
+    {
+      "id": "TS-17-39",
+      "kind": "unit",
+      "verifies": [
+        "17-REQ-9.6"
+      ],
+      "title": "Envelope.Tool description and run_start event documentation name five tools including issue",
+      "given": [],
+      "when": "the Envelope.Tool field's description tag and any run_start documentation are inspected",
+      "then": [
+        "the description mentions spec, triage, fix, impl and issue",
+        "all five tool names are present"
+      ],
+      "pseudocode": "t := reflect.TypeOf(toolio.Envelope{})\nf, _ := t.FieldByName(\"Tool\")\ndesc := f.Tag.Get(\"description\")\nassert strings.Contains(desc, \"issue\")\nassert strings.Contains(desc, \"spec\")\nassert strings.Contains(desc, \"triage\")\nassert strings.Contains(desc, \"fix\")\nassert strings.Contains(desc, \"impl\")"
+    },
+    {
+      "id": "TS-17-40",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.1"
+      ],
+      "title": "The Makefile TOOLS variable, install.sh TOOLS default, and tools Containerfile all include issue alongside the four existing tools",
+      "given": [
+        "the repository files Makefile, install.sh and containers/tools/Containerfile"
+      ],
+      "when": "each file is read and its tool list or build/copy steps are inspected",
+      "then": [
+        "the Makefile TOOLS variable includes 'issue'",
+        "the Makefile build target builds cmd/issue",
+        "install.sh's TOOLS default includes 'issue'",
+        "the Containerfile has a build step for cmd/issue and a COPY step for the issue binary"
+      ],
+      "pseudocode": "makefile := readFile(\"Makefile\")\nassert regexp.MatchString(`TOOLS\\s*:=.*\\bissue\\b`, makefile)\nassert strings.Contains(makefile, \"./cmd/issue\")\ninstall := readFile(\"install.sh\")\nassert regexp.MatchString(`TOOLS=.*issue`, install)\ncontainer := readFile(\"containers/tools/Containerfile\")\nassert strings.Contains(container, \"./cmd/issue\")\nassert strings.Contains(container, \"issue /usr/bin/issue\") || regexp.MatchString(`COPY.*issue`, container)"
+    },
+    {
+      "id": "TS-17-41",
+      "kind": "integration",
+      "verifies": [
+        "17-REQ-1.2",
+        "17-REQ-1.3"
+      ],
+      "title": "cmd/issue/main.go constructs an App with Name issue; the envelope tool field, report/events file names and progress prefix match",
+      "given": [
+        "cmd/issue/main.go exists",
+        "the issue tool App is constructed and run against a stub forge client"
+      ],
+      "when": "the tool is run with --op auth (no forge call needed)",
+      "then": [
+        "the App's Name is \"issue\"",
+        "the envelope's tool field is \"issue\"",
+        "the report file name matches issue-<started_at>-<session_id>.json",
+        "the events file name matches issue-<started_at>-<session_id>.jsonl",
+        "stderr progress lines begin with \"issue:\""
+      ],
+      "pseudocode": "app := issueApp()  // from cmd/issue\nassert app.Name == \"issue\"\ncode := app.Main(ctx, []string{\"--op\", \"auth\"}, nil, &stdout, &stderr)\nenv := decodeEnvelope(stdout)\nassert env.Tool == \"issue\"\nassert regexp.MatchString(`issue-\\d{4}-.*\\.json$`, env.ReportFile)\nassert strings.HasPrefix(stderr.String(), \"issue:\")"
+    },
+    {
+      "id": "TS-17-42",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-1",
+        "17-REQ-6.3",
+        "17-REQ-3.2"
+      ],
+      "title": "Reading an issue by URL returns the thread with rendered text and result.target set",
+      "given": [
+        "a stub HTTP server returning a GitHub-shaped issue JSON with title, body and two comments for owner acme, repo widgets, issue 42",
+        "GITHUB_API_URL pointing to the stub server",
+        "GITHUB_TOKEN set to a valid token"
+      ],
+      "when": "issue --op read https://<stub>/acme/widgets/issues/42 is run end to end",
+      "then": [
+        "the exit code is 0",
+        "the envelope ok is true",
+        "result.target contains acme/widgets#42",
+        "result.read.issue.title matches the stub's title",
+        "result.read.rendered is non-empty and contains the issue body and comment bodies",
+        "untrusted_fields lists the rendered and title fields",
+        "the envelope input field is absent",
+        "timings contains a forge entry"
+      ],
+      "real_components": [
+        "issueops dispatcher",
+        "issuex GitHub adapter",
+        "toolio App shell",
+        "toolio envelope"
+      ]
+    },
+    {
+      "id": "TS-17-43",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-2",
+        "17-REQ-7.3",
+        "17-REQ-7.4"
+      ],
+      "title": "Creating an issue on the forge produces an issue artifact and a create_issue side effect",
+      "given": [
+        "a stub HTTP server accepting POST /repos/acme/widgets/issues and returning {number: 43, html_url: '...'}",
+        "GITHUB_API_URL pointing to the stub server",
+        "GITHUB_TOKEN set"
+      ],
+      "when": "issue --op create --title 'Bug: login broken' --body 'Steps...' --label bug acme/widgets is run end to end",
+      "then": [
+        "the exit code is 0",
+        "the envelope summary contains 'created' and 'acme/widgets#43'",
+        "artifacts includes {kind: issue, url, number: 43}",
+        "side_effects has one entry with action create_issue and ok true",
+        "timings contains a forge entry named create"
+      ],
+      "real_components": [
+        "issueops dispatcher",
+        "issuex GitHub adapter",
+        "toolio App shell",
+        "toolio envelope"
+      ]
+    },
+    {
+      "id": "TS-17-44",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-3",
+        "17-REQ-7.1"
+      ],
+      "title": "A dry-run write resolves the target and stops before the forge request with would_write and no side effects",
+      "given": [
+        "a stub HTTP server that would accept the close request",
+        "GITHUB_API_URL and GITHUB_TOKEN set"
+      ],
+      "when": "issue --op close --body 'Resolved' --dry-run https://<stub>/acme/widgets/issues/42 is run end to end",
+      "then": [
+        "the exit code is 0",
+        "result.dry_run is true",
+        "result.would_write is present",
+        "side_effects is empty",
+        "the stub server received no close request"
+      ],
+      "real_components": [
+        "issueops dispatcher",
+        "issuex GitHub adapter",
+        "toolio App shell",
+        "toolio envelope"
+      ]
+    },
+    {
+      "id": "TS-17-45",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-4",
+        "17-REQ-4.3"
+      ],
+      "title": "A write operation without a forge token is refused before any request with auth category and fix_hint listing token variables",
+      "given": [
+        "GITHUB_TOKEN and GH_TOKEN and GITLAB_TOKEN are all unset",
+        "GITHUB_API_URL set to a stub server"
+      ],
+      "when": "issue --op comment --body 'test' acme/widgets#10 is run end to end",
+      "then": [
+        "the exit code is 1",
+        "the envelope ok is false",
+        "error.category is \"auth\"",
+        "error.retryable is false",
+        "fix_hint.env contains GITHUB_TOKEN, GH_TOKEN and GITLAB_TOKEN",
+        "the stub server received no HTTP request"
+      ],
+      "real_components": [
+        "issueops dispatcher",
+        "issuex client factory",
+        "toolio App shell",
+        "toolio envelope"
+      ]
+    },
+    {
+      "id": "TS-17-46",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-5",
+        "17-REQ-5.2"
+      ],
+      "title": "A model-run flag passed to issue is rejected with a message naming the accepting tools",
+      "given": [
+        "the issue binary or App is available"
+      ],
+      "when": "issue --op read --model ADVANCED acme/widgets#1 is run end to end",
+      "then": [
+        "the exit code is 2",
+        "the envelope error.category is \"usage\"",
+        "the error message or stderr names at least one of triage, fix, spec, impl as accepting --model"
+      ],
+      "real_components": [
+        "toolio App shell",
+        "toolio unsupportedFlagMessage",
+        "toolio envelope"
+      ]
+    },
+    {
+      "id": "TS-17-47",
+      "kind": "smoke",
+      "verifies": [
+        "17-PATH-6",
+        "17-REQ-7.5"
+      ],
+      "title": "Listing issues from a git checkout's origin remote returns the list with a forge timing entry",
+      "given": [
+        "a git repository whose origin remote points to <stub>/acme/widgets",
+        "a stub HTTP server returning a list of two open issues for acme/widgets",
+        "GITHUB_API_URL and GITHUB_TOKEN set"
+      ],
+      "when": "issue --op list --state open --limit 50 --dir <checkout> is run end to end (no positional)",
+      "then": [
+        "the exit code is 0",
+        "result.list.issues has two entries",
+        "result.target is acme/widgets",
+        "timings has at least one entry with kind forge",
+        "next is empty"
+      ],
+      "real_components": [
+        "issueops dispatcher",
+        "issuex GitHub adapter",
+        "issuex.DetectRepo",
+        "toolio App shell",
+        "toolio envelope"
+      ]
+    }
+  ]
+}
