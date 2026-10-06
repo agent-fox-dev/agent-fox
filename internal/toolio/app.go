@@ -17,6 +17,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
 
@@ -665,7 +666,14 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	index, indexReason, closeIndex := e.openIndex(ws)
 	defer closeIndex()
 
+	// The local directories the repository's go.mod replaces modules with are
+	// readable, not writable: the code the work calls, outside the root.
+	readRoots := project.ReadRoots(ws.Root)
+	for _, r := range readRoots {
+		e.progress.Detail("read-only root: %s (replace of %s)", r.Path, r.Module)
+	}
 	cfg := agentrun.Config{
+		ReadRoots:     readRoots,
 		Index:         index,
 		Model:         choice.Model,
 		Thinking:      choice.Thinking,

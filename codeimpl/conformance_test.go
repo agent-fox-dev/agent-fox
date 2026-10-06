@@ -599,6 +599,28 @@ func TestEveryUnverifiedDocSourceIsNamedAtOnce(t *testing.T) {
 	}
 }
 
+// Issue #198: a doc source may cite the local directory the repository's
+// go.mod replaces a module with: the code the change calls.
+func TestADocSourceMayCiteAReplacedModule(t *testing.T) {
+	_, _, specDir := newSpecRepo(t)
+	root := filepath.Dir(filepath.Dir(specDir))
+	dep := filepath.Join(filepath.Dir(root), "dep-"+filepath.Base(root))
+	if err := os.MkdirAll(dep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dep, "index.go", "package dep\n\nfunc Invalidate(rel string) {}\n")
+	write(t, root, "go.mod", "module x\n\nreplace example.com/dep => ../"+filepath.Base(dep)+"\n")
+	task := afspec.Task{Id: 1, Tests: []string{"TS-09-1"}}
+	docs := func(context.Context) []string { return []string{"docs/cli.md"} }
+	sub := passingReport(task, "document the invalidation")
+	sub.DocSources = []conform.DocSource{{Claim: "invalidation is by path",
+		Source: "../" + filepath.Base(dep) + "/index.go:3", Quote: "Invalidate(rel string)"}}
+	var out sink[Submission]
+	if res := submitTaskTool(&out, task, false, docs, root).Execute(context.Background(), mustJSON(t, sub)); !res.OK {
+		t.Errorf("a doc source in the replaced module was refused: %s", res.Detail)
+	}
+}
+
 func setTouches(t *testing.T, specDir string, touches map[int][]string) {
 	t.Helper()
 	path := filepath.Join(specDir, "tasks.json")

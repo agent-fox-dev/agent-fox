@@ -24,6 +24,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // Bounds are the ceilings on one phase. They are not the model's to choose,
@@ -150,6 +151,11 @@ type Config struct {
 	// WorkDir is where skills and context files are discovered. Empty means
 	// the workspace root.
 	WorkDir string
+	// ReadRoots are directories outside the workspace the phases may read but
+	// not change — the local targets of the repository's go.mod replaces. The
+	// shell's read programs reach them, and the tools say so; the file tools
+	// stay confined to the workspace.
+	ReadRoots []project.ReadRoot
 	// Bounds are the per-phase ceilings.
 	Bounds Bounds
 	// Observer receives progress. May be nil.
@@ -369,6 +375,15 @@ func (r *Runner) run(ctx context.Context, p Phase) (Result, error) {
 	return out, r.wrap(p, res, runErr)
 }
 
+// readRootDirs is the read roots' directories, for the guard.
+func readRootDirs(roots []project.ReadRoot) []string {
+	out := make([]string, len(roots))
+	for i, r := range roots {
+		out[i] = r.Abs
+	}
+	return out
+}
+
 // newAgent configures the agent for one phase. The returned counter is where
 // the authorization guard records its refusals.
 func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
@@ -426,6 +441,7 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			ReadOnlyFiles:  p.ReadOnly,
 			ProtectedPaths: p.ProtectedPaths,
 			Suite:          p.Suite,
+			ReadRoots:      readRootDirs(r.cfg.ReadRoots),
 			ResolvePath:    r.cfg.Workspace.Resolve,
 			OnBlock: func(name, reason string) {
 				counter.inc(name)
@@ -486,7 +502,8 @@ func (r *Runner) registeredTools(p Phase) ([]core.Tool, error) {
 	if err != nil {
 		return nil, newError(p.Name, CategoryInternal, err, "building the file tools: %v", err)
 	}
-	return append(out, SelectTools(built, p.ReadOnly, p.Programs, p.BuiltinTools...)...), nil
+	return append(out, noteReadRoots(SelectTools(built, p.ReadOnly, p.Programs, p.BuiltinTools...),
+		r.cfg.ReadRoots, p.Programs)...), nil
 }
 
 // installCompaction summarizes the transcript in place once it passes a

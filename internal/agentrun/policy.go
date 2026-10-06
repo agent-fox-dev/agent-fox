@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/agentfox/agentkit-go/core"
+
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // MutatingTools is the read-only mandate as a list of names rather than a
@@ -181,4 +183,32 @@ func hasShell(ts []core.Tool) bool {
 		}
 	}
 	return false
+}
+
+// noteReadRoots tells the shell and read_file where the read roots are and how
+// to reach them: the file tools are confined to the repository, the shell's
+// read programs are not, and `go doc` reads a dependency's API when the phase
+// may run go.
+func noteReadRoots(ts []core.Tool, roots []project.ReadRoot, programs []string) []core.Tool {
+	if len(roots) == 0 {
+		return ts
+	}
+	var named []string
+	for _, r := range roots {
+		named = append(named, fmt.Sprintf("%s (replace of %s)", r.Path, r.Module))
+	}
+	how := "the shell (ls, cat, grep -rn)"
+	if slices.Contains(programs, "go") {
+		how += " or `go doc <package> <Symbol>`"
+	}
+	note := fmt.Sprintf(" You may also read, but not change: %s. The file tools cannot reach it; read it with %s.",
+		strings.Join(named, ", "), how)
+	out := make([]core.Tool, len(ts))
+	for i, t := range ts {
+		if t.Name == "execute" || t.Name == "read_file" {
+			t.Description += note
+		}
+		out[i] = t
+	}
+	return out
 }

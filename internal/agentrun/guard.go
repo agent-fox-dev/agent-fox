@@ -10,6 +10,8 @@ import (
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/guard"
+
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // GuardOptions configures the authorization boundary a phase with a shell
@@ -39,6 +41,9 @@ type GuardOptions struct {
 	// phase the program verifies itself after it ends: the shell refuses it,
 	// and the equivalents named at suiteRun. Empty means the phase may run it.
 	Suite []string
+	// ReadRoots are absolute directories outside the workspace a read-only
+	// phase's shell may still read under.
+	ReadRoots []string
 	// OnBlock is called with the tool's name and the reason for each
 	// refusal.
 	OnBlock func(name, reason string)
@@ -281,6 +286,9 @@ func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
 				bad = append(bad, a)
 				continue
 			}
+			if rootErr == nil && o.underReadRoot(root, a) {
+				continue
+			}
 			abs, err := resolve(a)
 			if err != nil || rootErr != nil {
 				bad = append(bad, a)
@@ -298,6 +306,21 @@ func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
 	return fmt.Sprintf("path outside the workspace: %s. The shell is confined to the repository like "+
 		"the file tools: use paths inside it (relative paths start at the repository root).",
 		strings.Join(bad, ", ")), true
+}
+
+// underReadRoot reports whether operand a, relative to the workspace root or
+// absolute, lies under one of the read roots once symlinks are resolved. The
+// workspace's own resolver refuses every path outside the root, so it is not
+// the one asked.
+func (o GuardOptions) underReadRoot(root, a string) bool {
+	if len(o.ReadRoots) == 0 {
+		return false
+	}
+	p := a
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(root, p)
+	}
+	return project.UnderReadRoot(o.ReadRoots, filepath.Clean(p))
 }
 
 // pathLooksOutside reports an operand worth resolving: absolute, home- or
