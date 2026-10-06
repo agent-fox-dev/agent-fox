@@ -278,7 +278,12 @@ func assess(ctx context.Context, o Options, st *runState, result *Result) (asses
 	a.outside = specScope(st).Outside(changed)
 
 	if len(st.gate) > 0 {
-		a.hermetic, a.env = hermeticGate(ctx, o, st)
+		var reused bool
+		if a.hermetic, a.env, reused = st.reusableClean(ctx); reused {
+			o.Progress.Detail("clean-environment verification: the last landing gate ran there on this tree")
+		} else {
+			a.hermetic, a.env = hermeticGate(ctx, o, st)
+		}
 	}
 
 	if !o.NoReview {
@@ -580,7 +585,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 		return &sub, false, nil
 	}
 	report.ChangedFiles = changed
-	after := st.runGate(ctx, o, "resolve verification")
+	after := st.landingGate(ctx, o, "resolve verification", true)
 	verdict := compareGate(st.baseline, after)
 	report.Verification, report.Verdict = &after, verdict
 	if !landable(verdict, len(st.gate) == 0) {
@@ -590,6 +595,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	if err != nil {
 		return nil, false, fail("commit", CategoryGit, err)
 	}
+	st.landedClean(commit, true)
 	report.Commit, report.Outcome = commit, OutcomeDone
 	st.baseline = after
 	result.Verification, result.Verdict = after, verdict
