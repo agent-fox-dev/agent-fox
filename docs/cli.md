@@ -1674,8 +1674,15 @@ measured again. Tasks declare deviations the same way, in `submit_task`'s
 What remains is reported in two lists. `unmet` is what the change knowingly
 does not meet — declared deviations, a requirement `partial`, a test
 `weaker`, structural findings — each with `tracking`: the erratum in the
-change, or, with `--land pr`, an issue the run files for it
-(`deviation_not_tracked` when neither). The pull request opens with an
+change, or, with `--land pr`, the issue the run files
+(`deviation_not_tracked` when neither). The run files one issue for every
+declared deviation no erratum records, not one issue each, so the work it
+leaves over is picked up as one unit. With one item the issue is titled
+`Spec <id>: <key> is not met`; with several, `Spec <id>: <n> requirements and
+tests are not met`. The body lists each item with its requirement, its test
+and what the work said about it, and ends in an `Acceptance Criteria`
+checklist with one `AC-<n>` per item. That is the section `fix` reads, so a
+`fix` run on the issue is held to every item. The pull request opens with an
 "Unmet requirements" table, and its summary says the work is not complete
 while the list is non-empty. `blocking` is what was neither fixed nor
 declared: the pull request is opened as a draft headed "Not ready", and the

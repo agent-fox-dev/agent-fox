@@ -411,42 +411,106 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	return &sub, true, nil
 }
 
-// trackDeviations files an issue for every declared item no erratum in the
+// trackDeviations files one issue for the declared items no erratum in the
 // change tracks, when the run opens a pull request and may write to the
-// forge. What cannot be filed stays untracked, and the pull request says so.
+// forge. It is one issue however many items there are: they are the work the
+// change left over, and whoever picks it up — a person, or `fix` — resolves
+// them together, on one branch, against one list of acceptance criteria. Every
+// item it lists is tracked by that issue. What cannot be filed stays
+// untracked, and the pull request says so.
 func trackDeviations(ctx context.Context, o Options, st *runState, result *Result) {
+	var untracked []int
+	for i, u := range result.Unmet {
+		if u.Source == conform.SourceDeclared && u.Tracking == "" {
+			untracked = append(untracked, i)
+		}
+	}
+	if len(untracked) == 0 {
+		return
+	}
 	if o.Land != LandPR || o.DryRun || o.Forge == nil || !o.Forge.Authenticated() || !st.target.Valid() {
-		for _, u := range result.Unmet {
-			if u.Source == conform.SourceDeclared && u.Tracking == "" {
-				o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation %s is tracked by "+
-					"no erratum in the change, and this run files no issue", firstNonEmpty(u.Requirement, u.Test))
-			}
+		for _, i := range untracked {
+			o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation %s is tracked by "+
+				"no erratum in the change, and this run files no issue", unmetID(result.Unmet[i]))
 		}
 		return
 	}
-	for i, u := range result.Unmet {
-		if u.Source != conform.SourceDeclared || u.Tracking != "" {
-			continue
-		}
-		id := firstNonEmpty(u.Requirement, u.Test)
-		stop := o.Run.Time("forge", "create_issue")
-		issue, err := o.Forge.CreateIssue(ctx, st.target, issuex.CreateIssueRequest{
-			Title: fmt.Sprintf("Spec %s: %s is not met", st.spec.SpecID, id),
-			Body: fmt.Sprintf("`impl` implemented specification `%s` on `%s` and declared this requirement "+
-				"unmet.\n\n- **Requirement:** %s\n- **Test:** %s\n\n%s\n", st.relSpecDir, st.branch,
-				orDash(u.Requirement), orDash(u.Test), u.What),
-		})
-		stop()
-		if err != nil {
-			o.Run.RecordSideEffect("create_issue", st.target.String(), false, toolio.WarnDeviationNotTracked)
-			o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation %s could not be filed "+
-				"as an issue: %v", id, err)
-			continue
-		}
-		url := firstNonEmpty(issue.HTMLURL, issue.URL)
-		o.Run.RecordSideEffectOf("create_issue", "deviation", st.target.String(), url, true, "")
+	items := make([]conform.Unmet, 0, len(untracked))
+	for _, i := range untracked {
+		items = append(items, result.Unmet[i])
+	}
+	stop := o.Run.Time("forge", "create_issue")
+	issue, err := o.Forge.CreateIssue(ctx, st.target, issuex.CreateIssueRequest{
+		Title: deviationIssueTitle(st.spec.SpecID, items),
+		Body:  deviationIssueBody(st.relSpecDir, st.branch, items),
+	})
+	stop()
+	if err != nil {
+		o.Run.RecordSideEffect("create_issue", st.target.String(), false, toolio.WarnDeviationNotTracked)
+		o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation(s) %s could not be filed "+
+			"as an issue: %v", unmetIDs(items), err)
+		return
+	}
+	url := firstNonEmpty(issue.HTMLURL, issue.URL)
+	o.Run.RecordSideEffectOf("create_issue", "deviation", st.target.String(), url, true, "")
+	for _, i := range untracked {
 		result.Unmet[i].Tracking = url
 	}
+}
+
+// deviationIssueTitle names the issue trackDeviations files. One item keeps
+// the title an issue per item had, `Spec <id>: <key> is not met`, so a reader
+// that finds an item's issue by its title still finds it; several are
+// counted, and the body lists their keys.
+func deviationIssueTitle(specID string, items []conform.Unmet) string {
+	if len(items) == 1 {
+		return fmt.Sprintf("Spec %s: %s is not met", specID, unmetID(items[0]))
+	}
+	return fmt.Sprintf("Spec %s: %d requirements and tests are not met", specID, len(items))
+}
+
+// deviationIssueBody renders the one issue: what was implemented and where,
+// each item with its requirement, its test and what the work said about it,
+// and an Acceptance Criteria checklist with one criterion per item — the
+// section `fix` extracts and answers criterion by criterion, so a `fix` run on
+// the issue is held to every item at once.
+//
+// What each item says is the model's account, so it is quoted: a heading in it
+// cannot open a section of its own and pass for the criteria.
+func deviationIssueBody(specDir, branch string, items []conform.Unmet) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "`impl` implemented specification `%s` on `%s` and declared %d requirement(s) or "+
+		"test(s) unmet. They are filed together, as one piece of work: each is met on the branch, or "+
+		"an erratum in the change records why it is not.\n\n", specDir, branch, len(items))
+	b.WriteString("## Unmet items\n\n")
+	for n, u := range items {
+		fmt.Fprintf(&b, "### %d. %s\n\n- **Requirement:** %s\n- **Test:** %s\n\n", n+1, unmetID(u),
+			orDash(u.Requirement), orDash(u.Test))
+		if what := strings.TrimSpace(u.What); what != "" {
+			b.WriteString("> " + strings.ReplaceAll(what, "\n", "\n> ") + "\n\n")
+		}
+	}
+	b.WriteString("## Acceptance Criteria\n\n")
+	for n, u := range items {
+		fmt.Fprintf(&b, "- [ ] AC-%d: %s is met on `%s`, or an erratum in the change records why it is not\n",
+			n+1, unmetID(u), branch)
+	}
+	return b.String()
+}
+
+// unmetID is the key an unmet item is known by: its requirement, else its
+// test.
+func unmetID(u conform.Unmet) string {
+	return firstNonEmpty(u.Requirement, u.Test)
+}
+
+// unmetIDs lists the keys of items, for a message.
+func unmetIDs(items []conform.Unmet) string {
+	ids := make([]string, 0, len(items))
+	for _, u := range items {
+		ids = append(ids, unmetID(u))
+	}
+	return strings.Join(ids, ", ")
 }
 
 func firstNonEmpty(ss ...string) string {

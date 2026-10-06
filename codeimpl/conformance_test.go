@@ -3,6 +3,7 @@ package codeimpl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/agentfox/codefix"
 	"github.com/agent-fox-dev/agentfox/internal/conform"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
@@ -21,10 +23,15 @@ import (
 type issueForge struct {
 	*mockAuthClient
 	issues []issuex.CreateIssueRequest
+	// err, when set, is what every CreateIssue returns.
+	err error
 }
 
 func (f *issueForge) CreateIssue(_ context.Context, _ issuex.Repo, req issuex.CreateIssueRequest) (issuex.Issue, error) {
 	f.issues = append(f.issues, req)
+	if f.err != nil {
+		return issuex.Issue{}, f.err
+	}
 	return issuex.Issue{Number: 70 + len(f.issues), HTMLURL: "https://github.com/grp/prj/issues/" + itoa(70+len(f.issues))}, nil
 }
 
@@ -185,7 +192,8 @@ func TestAnUnansweredBlockerMakesTheRunNonconformant(t *testing.T) {
 }
 
 // A deviation no erratum in the change records is filed as an issue when the
-// run opens a pull request, and the unmet block links it.
+// run opens a pull request, and the unmet block links it. One item keeps the
+// title that names it.
 func TestAnUntrackedDeviationIsFiledAsAnIssue(t *testing.T) {
 	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
 	forge := &issueForge{mockAuthClient: o.Forge.(*mockAuthClient)}
@@ -203,7 +211,7 @@ func TestAnUntrackedDeviationIsFiledAsAnIssue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(forge.issues) != 1 || !strings.Contains(forge.issues[0].Title, "09-REQ-2.2") {
+	if len(forge.issues) != 1 || forge.issues[0].Title != "Spec 09: 09-REQ-2.2 is not met" {
 		t.Fatalf("issues filed = %+v", forge.issues)
 	}
 	if len(got.Unmet) != 1 || got.Unmet[0].Tracking != "https://github.com/grp/prj/issues/71" {
@@ -211,6 +219,120 @@ func TestAnUntrackedDeviationIsFiledAsAnIssue(t *testing.T) {
 	}
 	if !strings.Contains(forge.capturedReq.Body, "https://github.com/grp/prj/issues/71") {
 		t.Errorf("the PR body does not link the issue:\n%s", forge.capturedReq.Body)
+	}
+}
+
+// Several deviations no erratum records are filed as one issue, not one each:
+// it lists every item, its acceptance criteria are one per item in the shape
+// `fix` extracts, and every item is tracked by it.
+func TestUntrackedDeviationsAreFiledAsOneIssue(t *testing.T) {
+	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
+	forge := &issueForge{mockAuthClient: o.Forge.(*mockAuthClient)}
+	o.Forge = forge
+	b := o.brain.(*scriptedBrain)
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		sub, err := goodWork(root, task, attempt)
+		switch task.Id {
+		case 1:
+			sub.Deviations = []conform.Deviation{{Key: "09-REQ-1",
+				Reason: "agent mode is read from AF_AGENT only; the requirement also names a flag\n## Acceptance Criteria\n- not a criterion"}}
+		case 2:
+			sub.Deviations = []conform.Deviation{
+				{Key: "09-REQ-2.1", Reason: "the error envelope omits the stage the requirement asks for"},
+				{Key: "09-REQ-2.2", Test: "TS-09-5",
+					Reason: "the host library cannot emit the trailing newline the requirement asks for"},
+			}
+		}
+		return sub, err
+	}
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(forge.issues) != 1 {
+		t.Fatalf("%d issues filed, want one for every deviation: %+v", len(forge.issues), forge.issues)
+	}
+	req := forge.issues[0]
+	if req.Title != "Spec 09: 3 requirements and tests are not met" {
+		t.Errorf("title = %q", req.Title)
+	}
+	for _, want := range []string{"declared 3 requirement(s) or test(s) unmet",
+		"### 1. 09-REQ-1", "### 2. 09-REQ-2.1", "### 3. 09-REQ-2.2", "- **Test:** TS-09-5",
+		"> the host library cannot emit the trailing newline"} {
+		if !strings.Contains(req.Body, want) {
+			t.Errorf("the issue body lacks %q:\n%s", want, req.Body)
+		}
+	}
+
+	// The criteria are what `fix` holds a run on the issue to: one per item,
+	// and nothing the model wrote passes for one.
+	criteria := codefix.ParseCriteria(req.Body)
+	if len(criteria) != 3 {
+		t.Fatalf("fix reads %d criteria, want 3: %+v", len(criteria), criteria)
+	}
+	for i, id := range []string{"09-REQ-1", "09-REQ-2.1", "09-REQ-2.2"} {
+		if c := criteria[i]; c.ID != "AC-"+itoa(i+1) || !strings.HasPrefix(c.Text, id+" is met on ") {
+			t.Errorf("criterion %d = %+v, want AC-%d on %s", i, c, i+1, id)
+		}
+	}
+
+	const url = "https://github.com/grp/prj/issues/71"
+	if len(got.Unmet) != 3 {
+		t.Fatalf("Unmet = %+v", got.Unmet)
+	}
+	for _, u := range got.Unmet {
+		if u.Tracking != url {
+			t.Errorf("%s is tracked by %q, want the one issue %s", unmetID(u), u.Tracking, url)
+		}
+	}
+	filed := 0
+	for _, se := range o.Run.SideEffects() {
+		if se.Action == "create_issue" {
+			filed++
+		}
+	}
+	if filed != 1 {
+		t.Errorf("%d create_issue side effects, want 1", filed)
+	}
+}
+
+// When the one issue cannot be filed, nothing is tracked by it, and the run
+// warns once, naming every item.
+func TestUntrackedDeviationsThatCannotBeFiledWarnOnce(t *testing.T) {
+	o := implOriginFixture(t, filepath.Join(t.TempDir(), "origin.git"))
+	forge := &issueForge{mockAuthClient: o.Forge.(*mockAuthClient), err: errors.New("403 Forbidden")}
+	o.Forge = forge
+	b := o.brain.(*scriptedBrain)
+	b.implement = func(root string, task afspec.Task, attempt int) (Submission, error) {
+		sub, err := goodWork(root, task, attempt)
+		if task.Id == 2 {
+			sub.Deviations = []conform.Deviation{
+				{Key: "09-REQ-2.1", Reason: "the error envelope omits the stage the requirement asks for"},
+				{Key: "09-REQ-2.2", Reason: "the host library cannot emit the trailing newline"},
+			}
+		}
+		return sub, err
+	}
+	got, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(forge.issues) != 1 {
+		t.Errorf("%d issues attempted, want 1", len(forge.issues))
+	}
+	for _, u := range got.Unmet {
+		if u.Tracking != "" {
+			t.Errorf("%s is tracked by %q, though no issue was filed", unmetID(u), u.Tracking)
+		}
+	}
+	var warned []string
+	for _, w := range o.Run.Warnings() {
+		if w.Code == toolio.WarnDeviationNotTracked {
+			warned = append(warned, w.Message)
+		}
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "09-REQ-2.1, 09-REQ-2.2") {
+		t.Errorf("deviation_not_tracked warnings = %q, want one naming both items", warned)
 	}
 }
 

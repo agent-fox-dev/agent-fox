@@ -14,8 +14,9 @@ are `done`, but only on the branch `impl` worked on. The envelope and the
 report file say what one run did, on the machine that ran it. The forge has
 whatever the tools happened to write: `spec --comment` posts the PRD on the
 issue the input came from, when the input was an issue and the flag was
-given; `impl` opens a pull request and files an issue titled `Spec <id>:
-<key> is not met` for each declared deviation; `fix` comments on the issue
+given; `impl` opens a pull request and files one issue for its declared
+deviations (`Spec <id>: <key> is not met` for one, `Spec <id>: <n>
+requirements and tests are not met` for several); `fix` comments on the issue
 it worked on. None of those says "spec 15 exists, came from PRD 06, is being
 implemented on `impl/15-symbol-navigation-tools-every-phase`, three of five
 tasks have landed, the pull request is #174 and it is a draft". A person who
@@ -104,7 +105,7 @@ comments, and no model phase ever sees the tracking issue.
 | Tool | Writes to the forge | When |
 |---|---|---|
 | `spec` | one comment (`kind: prd`) with the finished PRD on the input issue | `--comment`, input is an issue |
-| `impl` | a pull request; one issue per declared deviation with no erratum, `Spec <id>: <key> is not met` | `--land pr` |
+| `impl` | a pull request; one issue for every declared deviation with no erratum, `Spec <id>: <key> is not met` for one and `Spec <id>: <n> requirements and tests are not met` for several | `--land pr` |
 | `fix` | a pull request whose body says `Closes #N` or `Refs #N`; comments `analysis`, `summary` or `failure`, `clarification` on the input issue | the input is an issue |
 | `triage` | an issue, or a rewrite of the input issue (`--overwrite`) | always |
 | `review` (PRD 11) | a verdict comment on the pull request and one on the issue; one issue per gap; a merge; a close | by verdict |
@@ -414,11 +415,11 @@ after, as `kind: impl_end`:
   prose; the pull request has the tables.
 - When the body could not be updated (§4.3), the comment adds the task table
   the pull request carries.
-- Every deviation issue `impl` files (`codeimpl/conformance.go`,
-  `trackDeviations`) gains one program-written line after the requirement
-  and test lines: `- **Tracking:** <url>`. The title is unchanged, so PRD 11
-  §6's matching is unchanged. The line is what `fix` and `review` follow back
-  (§5, §8).
+- The deviation issue `impl` files (`codeimpl/conformance.go`,
+  `trackDeviations`; one per run, listing every item) gains one
+  program-written line after its opening paragraph: `- **Tracking:** <url>`.
+  The title is unchanged, so PRD 11 §6's matching is unchanged. The line is
+  what `fix` and `review` follow back (§5, §8).
 
 #### 4.5 The pull request
 
@@ -428,7 +429,7 @@ The pull-request body's footer block gains one line, as `fix`'s has: `Closes
 https://github.com/acme/widgets/issues/88`) is what both forges accept for an
 issue in any repository on the host. The forge closes the tracker when the
 pull request merges; a merge `review` performs needs nothing more (§6). The
-spec's unmet items keep their own issues, which link back, so a closed
+spec's unmet items keep their own issue, which links back, so a closed
 tracker with open gaps is honest: the unit of work landed, and what is owed
 is tracked where `fix` can take it.
 
