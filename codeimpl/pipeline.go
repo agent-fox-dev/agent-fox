@@ -466,6 +466,7 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: the survey (unless
@@ -1497,4 +1498,17 @@ func revertCheck(ctx context.Context, o Options, st *runState, head string) (con
 		return conform.RevertResult{}, err
 	}
 	return conform.Revert(ctx, st.git, st.root, st.start, without(all), check)
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

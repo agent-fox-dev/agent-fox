@@ -70,8 +70,14 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 	if res["stage"] != "preflight" {
 		t.Errorf("stage = %v", res["stage"])
 	}
-	if list, ok := res["preflight"].([]any); !ok || len(list) != 3 {
-		t.Errorf("result.preflight = %v, want target_repository, forge_credential and symbol_backend", res["preflight"])
+	list, ok := res["preflight"].([]any)
+	if !ok || len(list) != 4 {
+		t.Fatalf("result.preflight = %v, want target_repository, forge_credential, symbol_backend and code_search_index", res["preflight"])
+	}
+	// The index is the real one here, so whether it builds depends on the
+	// platform; the check is informational and OK either way (16-REQ-7.3).
+	if last, _ := list[3].(map[string]any); last["check"] != "code_search_index" || last["ok"] != true {
+		t.Errorf("last check = %v, want an ok code_search_index", list[3])
 	}
 	if est, ok := res["estimate"].(map[string]any); !ok || est["phases"] != float64(1) {
 		t.Errorf("estimate = %v", res["estimate"])

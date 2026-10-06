@@ -63,6 +63,10 @@ type Options struct {
 
 	// Index is the code-search index for this run. Nil means no indexed search.
 	Index tools.Index
+	// IndexUnavailable is why Index is nil: the message of the error the index
+	// builder returned. RunPreflight reports it (16-REQ-7.2). Empty when the
+	// index was built or the reason is not known.
+	IndexUnavailable string
 
 	// Runner drives the model phases. Required unless author is injected.
 	Runner *agentrun.Runner
@@ -436,6 +440,7 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 
 	// The phases the plan on disk already decides: one PRD phase and one per
@@ -1198,4 +1203,17 @@ func recordPhase(run *toolio.Run, res agentrun.Result, scope string) {
 		return
 	}
 	run.AddPhase(toolio.PhaseFromResult(res, scope))
+}
+
+// indexDetail is the detail of the informational code_search_index preflight
+// check (16-REQ-7): "built" when the run has an index, otherwise why it has
+// none. The fallback is search_files, so the check never refuses the run.
+func indexDetail(idx tools.Index, reason string) string {
+	if idx != nil {
+		return "built"
+	}
+	if reason == "" {
+		reason = "index not built"
+	}
+	return "unavailable: " + reason
 }

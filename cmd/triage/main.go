@@ -146,6 +146,7 @@ func newApp() toolio.App {
 		Exec: indexed(func(ctx context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
 			o := f.triageOptions(d)
 			o.Index = idx
+			o.IndexUnavailable = indexReason(ctx)
 			result, err := issuetriage.Run(ctx, o)
 			if err != nil {
 				return failureResponse(result, err)
@@ -155,9 +156,10 @@ func newApp() toolio.App {
 
 		// --preflight: every check the ordinary run makes before its model
 		// phase, against the identical options, then stop.
-		PreflightExec: indexed(func(_ context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
+		PreflightExec: indexed(func(ctx context.Context, d toolio.Deps, idx tools.Index) (int, any, *toolio.ErrorInfo) {
 			o := f.triageOptions(d)
 			o.Index = idx
+			o.IndexUnavailable = indexReason(ctx)
 			result, err := issuetriage.RunPreflight(o)
 			if err != nil {
 				return failureResponse(result, err)
@@ -176,12 +178,12 @@ var newIndex = func(ws *tools.Workspace) (tools.Index, error) {
 // openIndex builds the run's one code-search index and returns d with a Runner
 // whose Config carries it, the index, and the function that closes it
 // (16-REQ-3). When the index cannot be built it returns d unchanged, a nil
-// index and a no-op: navigation never fails a run.
-func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, func()) {
-	unavailable := func(reason string) (toolio.Deps, tools.Index, func()) {
+// index, why it could not be built and a no-op: navigation never fails a run.
+func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, string, func()) {
+	unavailable := func(reason string) (toolio.Deps, tools.Index, string, func()) {
 		d.Run.Warn(toolio.WarnCodeSearchUnavailable, "low",
 			"code_search is unavailable and the run falls back to search_files: %s", reason)
-		return d, nil, func() {}
+		return d, nil, reason, func() {}
 	}
 	idx, err := newIndex(d.Workspace)
 	if err != nil {
@@ -200,16 +202,26 @@ func openIndex(d toolio.Deps) (toolio.Deps, tools.Index, func()) {
 		return unavailable(err.Error())
 	}
 	d.Runner = runner
-	return d, idx, func() { _ = idx.Close() }
+	return d, idx, "", func() { _ = idx.Close() }
+}
+
+// indexReasonKey keys, in the context the pipeline runs under, why the run has
+// no code-search index. --preflight reports it (16-REQ-7.2).
+type indexReasonKey struct{}
+
+// indexReason is why the run has no index, or "" when it has one.
+func indexReason(ctx context.Context) string {
+	reason, _ := ctx.Value(indexReasonKey{}).(string)
+	return reason
 }
 
 // indexed wraps a tool's pipeline: it builds the index before the pipeline
 // starts and closes it on every way out, a panic included.
 func indexed(inner func(context.Context, toolio.Deps, tools.Index) (int, any, *toolio.ErrorInfo)) func(context.Context, toolio.Deps) (int, any, *toolio.ErrorInfo) {
 	return func(ctx context.Context, d toolio.Deps) (int, any, *toolio.ErrorInfo) {
-		d, idx, closeIndex := openIndex(d)
+		d, idx, reason, closeIndex := openIndex(d)
 		defer closeIndex()
-		return inner(ctx, d, idx)
+		return inner(context.WithValue(ctx, indexReasonKey{}, reason), d, idx)
 	}
 }
 

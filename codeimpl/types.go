@@ -125,6 +125,10 @@ type Options struct {
 
 	// Index is the code-search index for this run. Nil means no indexed search.
 	Index tools.Index
+	// IndexUnavailable is why Index is nil: the message of the error the index
+	// builder returned. RunPreflight reports it (16-REQ-7.2). Empty when the
+	// index was built or the reason is not known.
+	IndexUnavailable string
 
 	// Runner drives the model phases. Required unless brain is injected.
 	Runner *agentrun.Runner
