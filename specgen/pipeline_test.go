@@ -968,3 +968,30 @@ func TestTS16_22_SpecgenNeverInvalidatesTheIndex(t *testing.T) {
 		t.Errorf("Invalidate was called %d times; spec never changes the tree: %v", n, idx.Events())
 	}
 }
+
+// The pipeline grants and invalidates the index its Runner's phases read
+// (16-REQ-1.5): a Runner built on another index is refused before any phase
+// runs, and the Runner's index is the run's when the Options carry none.
+func TestTS16_4_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
+	ws := newWorkspace(t)
+	p := faux.New()
+	o := newOptions(ws, nil)
+	o.author = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	o.Index = &fakeIndex{}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not the one its runner was built with") {
+		t.Fatalf("Run with two indexes: err = %v, want a refusal", err)
+	}
+	if n := len(p.Requests()); n != 0 {
+		t.Errorf("%d requests reached the model after the refusal", n)
+	}
+
+	p = faux.New()
+	o = newOptions(ws, nil)
+	o.author = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); !got["code_search"] {
+		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}

@@ -441,7 +441,9 @@ index was created and `unavailable: <reason>` when it was not, the reason being
 what the index builder reported. It is informational too — `ok` is always
 `true`, because without an index the phases keep the six read tools and search
 with `search_files` — and an unavailable index also records a `low`
-`code_search_unavailable` warning.
+`code_search_unavailable` warning. Creating the index does not read the tree:
+AgentKit indexes it on the first `code_search` call, so `--preflight` reports
+`built` without indexing anything.
 
 **A refusal is the ordinary run's refusal.** A run that would stop before its
 first model call stops identically under `--preflight`: the same `stage`,

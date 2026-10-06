@@ -2154,15 +2154,21 @@ func TestTS16_21_InvalidatesAfterTheRepairAfterTaskBeforeTheTaskCommit(t *testin
 	}
 }
 
-// TS-16-30 (integration): a run of the example spec's tasks (the first two
-// are the pair the spec asks about, the third closes the plan) through the real brain — the real
-// phases, the real Runner and tool set — offers code_search to both tasks,
-// invalidates the index with the first task's commit in place before the
-// second task's phase starts, and leaves closing the index to its caller.
+// TS-16-30 (integration): a run of a two-task spec — the example's first two
+// tasks folded into task 1, its integration task as task 2 (twoTasks) —
+// through the real brain, the real phases, the real Runner and tool set,
+// offers code_search to both tasks, invalidates the index with task 1's
+// commit in place before task 2's phase starts, and leaves closing the index
+// to its caller.
+//
+// "code_search was in both tasks' BuiltinTools" is read off what reached the
+// wire: the tools a request offers are the phase's BuiltinTools that tools.All
+// built, so code_search is offered only when the phase named it and the
+// Runner's Config.Index provided it. Each task's requests are checked apart.
 //
 // Verifies: 16-REQ-4.5, 16-REQ-2.1
 func TestTS16_30_EveryTaskSeesThePreviousCommitThroughTheIndex(t *testing.T) {
-	ws, g, _ := newSpecRepo(t)
+	ws, g, _ := newSpecRepoWith(t, twoTasks)
 	probe := &indextest.Probe{Root: ws.Root}
 
 	task := func(n, subject string, tests []string, doneWhen bool) []faux.Turn {
@@ -2187,9 +2193,9 @@ func TestTS16_30_EveryTaskSeesThePreviousCommitThroughTheIndex(t *testing.T) {
 			indextest.ToolTurn("t"+n, "submit_task", args),
 		}
 	}
-	turns := append(task("1", "feat: land task one", []string{"TS-09-1", "TS-09-2", "TS-09-3"}, false),
-		task("2", "feat: land task two", []string{"TS-09-4", "TS-09-5"}, false)...)
-	turns = append(turns, task("3", "feat: land task three", []string{"TS-09-6"}, true)...)
+	const turnsPerTask = 3
+	turns := append(task("1", "feat: land task one", []string{"TS-09-1", "TS-09-2", "TS-09-3", "TS-09-4", "TS-09-5"}, false),
+		task("2", "feat: land task two", []string{"TS-09-6"}, true)...)
 	p := faux.New(turns...)
 
 	o := newOptions(ws, g, &scriptedBrain{})
@@ -2202,27 +2208,31 @@ func TestTS16_30_EveryTaskSeesThePreviousCommitThroughTheIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got.TasksDone != 3 {
-		t.Fatalf("TasksDone = %d, want 3 (stage %q)", got.TasksDone, got.Stage)
+	if got.TasksDone != 2 {
+		t.Fatalf("TasksDone = %d, want 2 (stage %q)", got.TasksDone, got.Stage)
 	}
 
-	for i, names := range indextest.Offered(p) {
+	// One phase per task, one request per scripted turn: the first three
+	// requests are task 1's, the next three task 2's.
+	offered := indextest.Offered(p)
+	if len(offered) != 2*turnsPerTask {
+		t.Fatalf("%d requests reached the model, want %d (two tasks of %d turns)", len(offered), 2*turnsPerTask, turnsPerTask)
+	}
+	for i, names := range offered {
 		if !indextest.Has(names, "code_search") {
-			t.Errorf("request %d was not offered code_search: %v", i, names)
+			t.Errorf("task %d's request %d was not offered code_search: %v", i/turnsPerTask+1, i%turnsPerTask+1, names)
 		}
 	}
 	s := probe.Searches()
-	if len(s) != 3 {
-		t.Fatalf("code_search reached the index %d times, want 3 (once per task)", len(s))
+	if len(s) != 2 {
+		t.Fatalf("code_search reached the index %d times, want 2 (once per task)", len(s))
 	}
-	for i, subject := range []string{"task one", "task two"} {
-		commit := gitOut(t, ws.Root, "log", "--format=%H", "--grep", subject)
-		if !anyIndexSnap(probe.Between(s[i], s[i+1]), func(sn indextest.Snap) bool {
-			return sn.Rel == "" && sn.Head == commit && sn.Status == ""
-		}) {
-			t.Errorf("no Invalidate(\"\") with HEAD at %s's commit %s before the next task's phase: %+v",
-				subject, commit, probe.Between(s[i], s[i+1]))
-		}
+	commit := gitOut(t, ws.Root, "log", "--format=%H", "--grep", "task one")
+	if !anyIndexSnap(probe.Between(s[0], s[1]), func(sn indextest.Snap) bool {
+		return sn.Rel == "" && sn.Head == commit && sn.Status == ""
+	}) {
+		t.Errorf("no Invalidate(\"\") with HEAD at task 1's commit %s before task 2's phase: %+v",
+			commit, probe.Between(s[0], s[1]))
 	}
 	if probe.InvalidateCalls() < 2 {
 		t.Errorf("Invalidate was called %d times, want at least 2", probe.InvalidateCalls())
@@ -2313,5 +2323,53 @@ func TestInvalidatesBeforeTheReviewAndResolvePhases(t *testing.T) {
 	}
 	if len(idx.between(review.Seq, resolve.Seq)) == 0 {
 		t.Errorf("no Invalidate between the review (%d) and the resolve phase (%d)", review.Seq, resolve.Seq)
+	}
+}
+
+// The pipeline grants and invalidates the index its Runner's phases read
+// (16-REQ-1.6): a Runner built on another index is refused before any phase
+// runs, and the Runner's index is the run's when the Options carry none.
+func TestTS16_5_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	p := faux.New()
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	o.Index = &fakeIndex{}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not the one its runner was built with") {
+		t.Fatalf("Run with two indexes: err = %v, want a refusal", err)
+	}
+	if n := len(p.Requests()); n != 0 {
+		t.Errorf("%d requests reached the model after the refusal", n)
+	}
+
+	p = faux.New()
+	o = newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, &fakeIndex{})
+	_, _ = Run(context.Background(), o)
+	if got := wireTools(t, p); !got["code_search"] {
+		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}
+
+// 16-REQ-2.1: the independent review phase, which conform.RunReview builds, is
+// granted code_search by this tool's brain like every other phase, and is not
+// without an index (16-REQ-2.2).
+func TestTheReviewPhaseIsGrantedCodeSearch(t *testing.T) {
+	ws, _, _ := newSpecRepo(t)
+	for _, on := range []bool{true, false} {
+		var idx tools.Index
+		if on {
+			idx = &fakeIndex{}
+		}
+		p := faux.New()
+		b := &agentBrain{runner: indexedRunner(t, ws, p, idx), codeSearch: on}
+		_, _, _ = b.Review(context.Background(), conform.ReviewInput{
+			Root: ws.Root, Base: "HEAD", Spec: "spec", Scope: conform.ReviewScope{Requirements: []string{"01-REQ-1"}},
+		})
+		if got := wireTools(t, p); got["code_search"] != on {
+			t.Errorf("index %v: the review phase offered %v", on, got)
+		}
 	}
 }

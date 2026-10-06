@@ -405,6 +405,12 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if _, f := Preflight(ctx, o); f != nil {
 		return nil, f
 	}
+	// The preflight reports the index the Runner's phases would read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 
 	result := &Result{Stage: "preflight", DryRun: o.DryRun, inputRef: toolio.ResumePlaceholder(o.Input)}
 
@@ -489,14 +495,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if _, f := Preflight(ctx, o); f != nil {
 		return nil, f
 	}
+	// Whether the run has an index is decided once, here, for every phase
+	// (16-REQ-2.1). It is the index the Runner's phases read.
+	idx, idxErr := agentrun.RunIndex(o.Index, o.Runner)
+	if idxErr != nil {
+		return nil, failf("preflight", agentrun.CategoryInternal, "%v", idxErr)
+	}
+	o.Index = idx
 	root := o.Workspace.Root
 	specsDir := resolveSpecsDir(o, root)
 
 	env := &runEnv{o: o, root: root, specsDir: specsDir, author: o.author}
 	if env.author == nil {
-		// Whether the run has an index is decided once, here, for every
-		// phase (16-REQ-2.1); the index itself reaches the model through the
-		// Runner's Config.Index, built from the same Options.Index.
 		env.author = &agentAuthor{runner: o.Runner, ws: o.Workspace, codeSearch: o.Index != nil}
 	}
 	landscape, err := discoverLandscape(specsDir)
