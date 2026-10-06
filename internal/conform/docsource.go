@@ -33,13 +33,28 @@ const docSourceSlack = 3
 // code or a test, not documentation; the line exists; and the quote is on it
 // or within a few lines of it.
 func VerifyDocSource(root string, s DocSource) error {
+	return VerifyDocSourceIn(root, nil, s)
+}
+
+// VerifyDocSourceIn is VerifyDocSource that also accepts a file under one of
+// readRoots — the local directory a go.mod replace names, whose code the
+// change calls — checked the same way.
+func VerifyDocSourceIn(root string, readRoots []string, s DocSource) error {
 	m := citationRe.FindStringSubmatch(s.Source)
 	if m == nil {
 		return fmt.Errorf("source %q is not a file:line", s.Source)
 	}
 	rel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(m[1], "./")))
+	full := filepath.Join(root, filepath.FromSlash(rel))
 	if filepath.IsAbs(rel) || strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("source %q is outside the repository", s.Source)
+		p := filepath.FromSlash(rel)
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		if !project.UnderReadRoot(readRoots, filepath.Clean(p)) {
+			return fmt.Errorf("source %q is outside the repository", s.Source)
+		}
+		full = filepath.Clean(p)
 	}
 	if project.IsDocsFile(rel) {
 		return fmt.Errorf("source %q is documentation; a fact in the docs is copied from the code or "+
@@ -50,7 +65,7 @@ func VerifyDocSource(root string, s DocSource) error {
 		return fmt.Errorf("the quote for %q is empty; copy the text from the line", s.Claim)
 	}
 	n, _ := strconv.Atoi(m[2])
-	f, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
+	f, err := os.Open(full)
 	if err != nil {
 		return fmt.Errorf("source %q does not exist", s.Source)
 	}

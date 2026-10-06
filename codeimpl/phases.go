@@ -664,6 +664,11 @@ func submitRepairTool(dest *sink[RepairSubmission]) core.Tool {
 func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst bool,
 	docs func(context.Context) []string, root string) core.Tool {
 	doneWhenIDs := doneWhenIDs(task)
+	// A doc source may cite the module a go.mod replace points at.
+	var readRoots []string
+	for _, r := range project.ReadRoots(root) {
+		readRoots = append(readRoots, r.Abs)
+	}
 	return core.Tool{
 		Name: ToolSubmitTask,
 		Description: "Submit a report of the task's work and end this phase. Call it once, " +
@@ -734,7 +739,7 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst b
 					// a resubmission re-emits the whole report.
 					var bad []string
 					for i, src := range s.DocSources {
-						if err := conform.VerifyDocSource(root, src); err != nil {
+						if err := conform.VerifyDocSourceIn(root, readRoots, src); err != nil {
 							bad = append(bad, fmt.Sprintf("doc_sources[%d]: %v", i, err))
 						}
 					}

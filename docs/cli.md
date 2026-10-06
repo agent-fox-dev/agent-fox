@@ -1201,6 +1201,16 @@ pattern operand of `grep` and `rg` is not a path and is skipped. An implementing
 phase is not held to this, because a build legitimately reads outside the
 repository.
 
+**Read-only roots.** A `replace` in the repository's `go.mod` that points at a
+local directory outside it (`replace example.com/lib => ../lib`) makes that
+directory readable: the shell's read programs may read under it in a
+read-only phase too, the `execute` and `read_file` descriptions name it ("You
+may also read, but not change: `../lib` (replace of `example.com/lib`)") with
+the shell, and `go doc` where the phase may run `go`, as the way to read it,
+and a `doc_sources` entry may cite a file under it. The file tools stay
+confined to the repository, and nothing may write there. `--verbose` lists the
+roots at the start of the run.
+
 **Files.** `write_file` and `edit_file` are refused in a read-only phase and for
 any path under a protected directory (the spec package, in `impl`). The file
 tools resolve every path against the workspace, so a path outside it, `/tmp`
@@ -1738,9 +1748,9 @@ comment fits too. A comment that cannot be posted is the warning
 
 A task that changed documentation must also give `doc_sources`: for every
 fact it wrote, the code or test `file:line` it was copied from and the text on
-that line. `submit_task` checks each against the file and refuses one that is
-not there, or that cites documentation, naming every such source in one
-refusal. Every writing phase is told today's date.
+that line, in the repository or under a read-only root. `submit_task` checks
+each against the file and refuses one that is not there, or that cites
+documentation, naming every such source in one refusal. Every writing phase is told today's date.
 
 | Flag | Default | Effect |
 |---|---|---|
