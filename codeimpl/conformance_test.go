@@ -575,6 +575,30 @@ func TestDocumentationIsCopiedFromTheCode(t *testing.T) {
 	}
 }
 
+// Issue #195: every doc source that does not check out is named in one
+// refusal, not one per resubmission.
+func TestEveryUnverifiedDocSourceIsNamedAtOnce(t *testing.T) {
+	_, _, specDir := newSpecRepo(t)
+	root := filepath.Dir(filepath.Dir(specDir))
+	write(t, root, "exit.go", "package x\n\nconst exitDiverged = 2\n")
+	task := afspec.Task{Id: 1, Tests: []string{"TS-09-1"}}
+	docs := func(context.Context) []string { return []string{"docs/cli.md"} }
+	sub := passingReport(task, "document the exit code")
+	sub.DocSources = []conform.DocSource{
+		{Claim: "exits 2", Source: "exit.go:3", Quote: "exitDiverged = 2"},
+		{Claim: "exits 3", Source: "exit.go:3", Quote: "exitDiverged = 3"},
+		{Claim: "the code is named", Source: "exit.go:exitDiverged", Quote: "exitDiverged"},
+	}
+	var out sink[Submission]
+	res := submitTaskTool(&out, task, false, docs, root).Execute(context.Background(), mustJSON(t, sub))
+	if res.OK {
+		t.Fatal("two bad doc sources were accepted")
+	}
+	if !strings.Contains(res.Detail, "exitDiverged = 3") || !strings.Contains(res.Detail, "exit.go:exitDiverged") {
+		t.Errorf("the refusal does not name both bad sources:\n%s", res.Detail)
+	}
+}
+
 func setTouches(t *testing.T, specDir string, touches map[int][]string) {
 	t.Helper()
 	path := filepath.Join(specDir, "tasks.json")

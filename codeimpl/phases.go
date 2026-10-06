@@ -712,12 +712,18 @@ func submitTaskTool(dest *sink[Submission], task afspec.Task, requireTestFirst b
 							"you changed documentation (%s): give doc_sources, the code or test line each "+
 								"fact you wrote comes from", strings.Join(changed, ", ")))
 					}
-					for _, src := range s.DocSources {
+					// Every source that does not check out is named at once:
+					// a resubmission re-emits the whole report.
+					var bad []string
+					for i, src := range s.DocSources {
 						if err := conform.VerifyDocSource(root, src); err != nil {
-							return core.ErrResult("unverified_doc_source", err.Error()+
-								". Copy documentation from the code, not from the PRD: if the code does "+
-								"something else, document what it does and declare the deviation.")
+							bad = append(bad, fmt.Sprintf("doc_sources[%d]: %v", i, err))
 						}
+					}
+					if len(bad) > 0 {
+						return core.ErrResult("unverified_doc_source", strings.Join(bad, "\n")+
+							"\nCopy documentation from the code, not from the PRD: if the code does "+
+							"something else, document what it does and declare the deviation.")
 					}
 				}
 			}
