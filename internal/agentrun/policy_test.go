@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -8,24 +9,43 @@ import (
 	"github.com/agentfox/agentkit-go/core"
 )
 
-// TS-15-1 (unit): ReadOnlyFileTools contains exactly the six expected names.
+// TS-15-1 / TS-18-1 (unit): ReadOnlyFileTools contains exactly the seven
+// expected names in the correct order.
 //
-// Verifies: 15-REQ-1.1, 15-REQ-1.4
-func TestTS15_1_ReadOnlyFileToolsHasTheSixReadTools(t *testing.T) {
-	want := []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
-	got := slices.Clone(ReadOnlyFileTools)
-	slices.Sort(got)
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Errorf("ReadOnlyFileTools = %v, want the six %v", ReadOnlyFileTools, want)
+// Verifies: 15-REQ-1.1, 15-REQ-1.4, 18-REQ-1.1
+func TestTS15_1_ReadOnlyFileToolsHasTheSevenReadTools(t *testing.T) {
+	want := []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references"}
+	if !slices.Equal(ReadOnlyFileTools, want) {
+		t.Errorf("ReadOnlyFileTools = %v, want %v", ReadOnlyFileTools, want)
 	}
-	if len(ReadOnlyFileTools) != 6 {
-		t.Errorf("len = %d, want 6", len(ReadOnlyFileTools))
+	if len(ReadOnlyFileTools) != 7 {
+		t.Errorf("len = %d, want 7", len(ReadOnlyFileTools))
 	}
-	for _, n := range []string{"file_outline", "find_symbol"} {
+	for _, n := range []string{"file_outline", "find_symbol", "find_references"} {
 		if slices.Contains(MutatingTools, n) {
 			t.Errorf("%s must not be a mutating tool", n)
 		}
+	}
+}
+
+// TS-18-2 (unit): find_references is in neither MutatingTools nor ShellTools,
+// so AssertReadOnly passes for a set containing all seven read tools.
+//
+// Verifies: 18-REQ-1.2, 18-REQ-1.4
+func TestTS18_2_FindReferencesNotInMutatingOrShellTools(t *testing.T) {
+	if slices.Contains(MutatingTools, "find_references") {
+		t.Error("find_references must not be in MutatingTools")
+	}
+	if slices.Contains(ShellTools, "find_references") {
+		t.Error("find_references must not be in ShellTools")
+	}
+	resolved := []core.Tool{
+		{Name: "read_file"}, {Name: "list_files"}, {Name: "find_files"},
+		{Name: "search_files"}, {Name: "file_outline"}, {Name: "find_symbol"},
+		{Name: "find_references"},
+	}
+	if err := AssertReadOnly(resolved); err != nil {
+		t.Errorf("AssertReadOnly refused the seven read tools: %v", err)
 	}
 }
 
@@ -99,6 +119,67 @@ func TestTS17_16_TheAllowlistIsStillStated(t *testing.T) {
 		if d := describedExecute(ro, progs, "execute", "read_file", "search_files"); !strings.Contains(d,
 			"The only programs allowed are: "+strings.Join(progs, ", ")) {
 			t.Errorf("readOnly=%v: %s", ro, d)
+		}
+	}
+}
+
+// TS-18-15 (unit): WithCodeSearch with on=true returns a new slice of
+// len(ReadOnlyFileTools)+1 ending with code_search, without mutating the
+// original.
+//
+// Verifies: 18-REQ-9.1
+func TestTS18_15_WithCodeSearchOnTrueReturnsNewSlice(t *testing.T) {
+	before := len(ReadOnlyFileTools)
+	got := WithCodeSearch(ReadOnlyFileTools, true)
+	if len(ReadOnlyFileTools) != before {
+		t.Errorf("ReadOnlyFileTools was mutated: len %d, want %d", len(ReadOnlyFileTools), before)
+	}
+	if len(got) != before+1 {
+		t.Errorf("len(result) = %d, want %d", len(got), before+1)
+	}
+	if got[len(got)-1] != "code_search" {
+		t.Errorf("last element = %q, want code_search", got[len(got)-1])
+	}
+	got[0] = "mutated"
+	if ReadOnlyFileTools[0] == "mutated" {
+		t.Error("mutating the result affected ReadOnlyFileTools")
+	}
+}
+
+// TS-18-16 (unit): WithCodeSearch with on=false returns the input grant
+// unchanged.
+//
+// Verifies: 18-REQ-9.2
+func TestTS18_16_WithCodeSearchOnFalseReturnsUnchanged(t *testing.T) {
+	same := WithCodeSearch(ReadOnlyFileTools, false)
+	if len(same) != len(ReadOnlyFileTools) {
+		t.Errorf("len = %d, want %d", len(same), len(ReadOnlyFileTools))
+	}
+	if slices.Contains(same, "code_search") {
+		t.Error("result contains code_search when on=false")
+	}
+}
+
+// TS-18-21 (property): WithCodeSearch never mutates its input slice for any
+// grant length.
+//
+// Verifies: 18-REQ-9.1
+func TestTS18_21_WithCodeSearchNeverMutatesInput(t *testing.T) {
+	for n := 0; n <= 20; n++ {
+		grant := make([]string, n)
+		for i := range grant {
+			grant[i] = fmt.Sprintf("tool_%d", i)
+		}
+		orig := slices.Clone(grant)
+		result := WithCodeSearch(grant, true)
+		if !slices.Equal(grant, orig) {
+			t.Errorf("n=%d: grant was mutated", n)
+		}
+		if len(result) != n+1 {
+			t.Errorf("n=%d: len(result) = %d, want %d", n, len(result), n+1)
+		}
+		if result[len(result)-1] != "code_search" {
+			t.Errorf("n=%d: last element = %q, want code_search", n, result[len(result)-1])
 		}
 	}
 }

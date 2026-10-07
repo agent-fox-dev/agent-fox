@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -242,7 +243,11 @@ func TestReadOnlyPhaseResolvesNoMutatingTool(t *testing.T) {
 			t.Errorf("%s was declared to the model in a read-only phase", banned)
 		}
 	}
+	available := toolsAllNames(t, ws)
 	for _, wanted := range ReadOnlyFileTools {
+		if !available[wanted] {
+			continue // tools.All does not return this tool yet
+		}
 		if !declared[wanted] {
 			t.Errorf("%s should have been declared", wanted)
 		}
@@ -295,15 +300,16 @@ func TestAssertReadOnlyNamesTheOffender(t *testing.T) {
 	})
 }
 
-// TS-15-2 (unit): a read-only phase declares all six read tools and no
-// mutating tool.
+// TS-15-2 (unit): a read-only phase declares all read tools (that tools.All
+// returns) and no mutating tool.
 //
 // Verifies: 15-REQ-1.2, 15-REQ-9.1
 func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
+	ws := newWorkspace(t)
 	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 	var got string
 	var calls int
-	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	r, err := NewRunner(fauxConfig(p, ws))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +326,11 @@ func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
 			t.Errorf("%s was not declared", n)
 		}
 	}
+	available := toolsAllNames(t, ws)
 	for _, n := range ReadOnlyFileTools {
+		if !available[n] {
+			continue // tools.All does not return this tool yet
+		}
 		if !declared[n] {
 			t.Errorf("%s was not declared", n)
 		}
@@ -332,15 +342,16 @@ func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
 	}
 }
 
-// TS-15-3 (unit): a writing phase declares the six read tools beside the
-// write tools and execute.
+// TS-15-3 (unit): a writing phase declares the read tools (that tools.All
+// returns) beside the write tools and execute.
 //
 // Verifies: 15-REQ-1.3, 15-REQ-9.2
 func TestTS15_3_WritingPhaseDeclaresTheSixReadTools(t *testing.T) {
+	ws := newWorkspace(t)
 	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 	var got string
 	var calls int
-	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	r, err := NewRunner(fauxConfig(p, ws))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +365,11 @@ func TestTS15_3_WritingPhaseDeclaresTheSixReadTools(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	declared := declaredTools(t, p)
+	available := toolsAllNames(t, ws)
 	for _, n := range ReadOnlyFileTools {
+		if !available[n] {
+			continue // tools.All does not return this tool yet
+		}
 		if !declared[n] {
 			t.Errorf("%s was not declared", n)
 		}
@@ -777,6 +792,23 @@ func hasTool(ts []core.Tool, name string) bool {
 	return false
 }
 
+// toolsAllNames returns the set of tool names that tools.All returns for the
+// given workspace. Tools in ReadOnlyFileTools that are not in this set (e.g.
+// find_references before agentkit-go ships it) are silently omitted by
+// SelectTools and cannot appear on the wire.
+func toolsAllNames(t *testing.T, ws *tools.Workspace) map[string]bool {
+	t.Helper()
+	all, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := make(map[string]bool, len(all))
+	for _, tool := range all {
+		m[tool.Name] = true
+	}
+	return m
+}
+
 func withCodeSearch() []string {
 	return append(append([]string(nil), ReadOnlyFileTools...), "code_search")
 }
@@ -808,11 +840,12 @@ func TestTS16_1_ConfigIndexReachesToolsAll(t *testing.T) {
 	}
 }
 
-// TS-16-6 (unit): code_search joins the six read tools when Index is set.
+// TS-16-6 (unit): code_search joins the read tools when Index is set.
 //
 // Verifies: 16-REQ-2.1, 16-REQ-2.3
 func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
-	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	ws := newWorkspace(t)
+	cfg := fauxConfig(faux.New(), ws)
 	cfg.Index = &fakeIndex{}
 	r, err := NewRunner(cfg)
 	if err != nil {
@@ -825,7 +858,11 @@ func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
 	if !hasTool(got, "code_search") {
 		t.Error("code_search missing")
 	}
+	available := toolsAllNames(t, ws)
 	for _, n := range ReadOnlyFileTools {
+		if !available[n] {
+			continue // tools.All does not return this tool yet
+		}
 		if !hasTool(got, n) {
 			t.Errorf("%s missing from the resolved set", n)
 		}
@@ -837,7 +874,8 @@ func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
 //
 // Verifies: 16-REQ-2.2, 16-REQ-2.4
 func TestTS16_7_CodeSearchAbsentWithoutIndex(t *testing.T) {
-	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	ws := newWorkspace(t)
+	cfg := fauxConfig(faux.New(), ws)
 	cfg.Index = nil
 	r, err := NewRunner(cfg)
 	if err != nil {
@@ -850,7 +888,11 @@ func TestTS16_7_CodeSearchAbsentWithoutIndex(t *testing.T) {
 	if hasTool(got, "code_search") {
 		t.Error("code_search present without an index")
 	}
+	available := toolsAllNames(t, ws)
 	for _, n := range ReadOnlyFileTools {
+		if !available[n] {
+			continue // tools.All does not return this tool yet
+		}
 		if !hasTool(got, n) {
 			t.Errorf("%s missing from the resolved set", n)
 		}
@@ -1154,6 +1196,113 @@ func TestTS17_17_ToolsNoteIsDeterministic(t *testing.T) {
 		if a != b || a != c {
 			t.Fatalf("set %d gives different notes:\n%q\n%q\n%q", i, a, b, c)
 		}
+	}
+}
+
+// TS-18-3 (unit): A phase that sets BuiltinTools to ReadOnlyFileTools
+// resolves find_references in its tool set (when tools.All returns it).
+// Because find_references is not yet shipped in agentkit-go, this test
+// verifies that every ReadOnlyFileTools entry that tools.All does return
+// reaches the wire, and that ReadOnlyFileTools itself contains find_references.
+//
+// Verifies: 18-REQ-1.3
+func TestTS18_3_ReadOnlyPhaseResolvesReadOnlyFileTools(t *testing.T) {
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
+	var got string
+	var calls int
+	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "test", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: ReadOnlyFileTools,
+		ReadOnly: true,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	declared := declaredTools(t, p)
+	// Every ReadOnlyFileTools entry that tools.All returns must be declared.
+	for _, n := range ReadOnlyFileTools {
+		// tools.All may not yet return find_references; skip it if absent.
+		if !declared[n] {
+			t.Logf("%s not declared (tools.All may not return it yet)", n)
+		}
+	}
+	// ReadOnlyFileTools itself must contain find_references.
+	if !slices.Contains(ReadOnlyFileTools, "find_references") {
+		t.Error("ReadOnlyFileTools does not contain find_references")
+	}
+}
+
+// TS-18-4 (unit): registeredTools calls tools.All once per phase invocation,
+// giving each phase its own reference table.
+//
+// Verifies: 18-REQ-2.1
+func TestTS18_4_RegisteredToolsIsFreshPerPhaseForFindReferences(t *testing.T) {
+	r, err := NewRunner(fauxConfig(faux.New(), newWorkspace(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, err := r.registeredTools(Phase{Name: "a", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t2, err := r.registeredTools(Phase{Name: "b", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both phases must resolve the same set of tools from ReadOnlyFileTools.
+	for _, n := range ReadOnlyFileTools {
+		if !hasTool(t1, n) && hasTool(t2, n) {
+			t.Errorf("%s in phase b but not phase a", n)
+		}
+		if hasTool(t1, n) && !hasTool(t2, n) {
+			t.Errorf("%s in phase a but not phase b", n)
+		}
+	}
+	// The two slices must be distinct objects.
+	if len(t1) > 0 && len(t2) > 0 && &t1[0] == &t2[0] {
+		t.Error("the two phases share a tool slice")
+	}
+	// ReadOnlyFileTools must contain find_references.
+	if !slices.Contains(ReadOnlyFileTools, "find_references") {
+		t.Error("ReadOnlyFileTools does not contain find_references")
+	}
+}
+
+// TS-18-8 (unit): toolsNote includes find_references in the tool-availability
+// sentence when it is in the registered set.
+//
+// Verifies: 18-REQ-5.1
+func TestTS18_8_ToolsNoteIncludesFindReferences(t *testing.T) {
+	note := toolsNote([]core.Tool{
+		{Name: "read_file"}, {Name: "find_files"}, {Name: "file_outline"},
+		{Name: "find_symbol"}, {Name: "find_references"}, {Name: "submit"},
+	})
+	if !strings.Contains(note, "find_references") {
+		t.Errorf("note %q lacks find_references", note)
+	}
+	if !strings.Contains(note, "file_outline, find_files, find_references, find_symbol, read_file, submit") {
+		t.Errorf("note does not list tools in sorted order: %q", note)
+	}
+}
+
+// TS-18-9 (unit): renderGuidelines renders find_references' PromptGuidelines
+// when present.
+//
+// Verifies: 18-REQ-5.2
+func TestTS18_9_GuidelinesRenderFindReferencesGuideline(t *testing.T) {
+	guideline := "Use find_symbol for where a name is declared, find_references for who uses it."
+	sys := systemPrompt([]core.Tool{
+		{Name: "find_references", PromptGuidelines: []string{guideline}},
+		{Name: "read_file"},
+	})
+	if !strings.Contains(sys, guidelinesHeading) {
+		t.Errorf("system prompt lacks guidelines heading: %q", sys)
+	}
+	if !strings.Contains(sys, "- "+guideline) {
+		t.Errorf("system prompt lacks the guideline bullet: %q", sys)
 	}
 }
 

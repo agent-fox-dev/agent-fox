@@ -908,7 +908,15 @@ func TestTS16_4_IndexReachesThePRDPhase(t *testing.T) {
 	if !got["code_search"] {
 		t.Errorf("code_search was not offered to the PRD phase: %v", got)
 	}
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
 	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue // tools.All does not return this tool yet
+		}
 		if !got[n] {
 			t.Errorf("%s is missing from the PRD phase", n)
 		}

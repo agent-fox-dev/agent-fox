@@ -512,7 +512,17 @@ func TestTS15_17_FixPhasesDeclareTheSixReadTools(t *testing.T) {
 		return m
 	}
 	analyse, implement := declared(reqs[0]), declared(reqs[nAnalyse])
+	// tools.All may not yet return every tool in ReadOnlyFileTools (e.g.
+	// find_references before agentkit-go ships it); check only those it does.
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
 	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue
+		}
 		if !analyse[n] {
 			t.Errorf("analyse did not declare %s", n)
 		}

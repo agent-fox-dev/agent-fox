@@ -62,7 +62,7 @@
         "internal/agentrun/policy_test.go",
         "internal/agentrun/phase_test.go"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,
