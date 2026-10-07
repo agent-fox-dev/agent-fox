@@ -66,8 +66,10 @@ Exit codes:
   2  usage error — nothing was fetched, nothing was written
   3  stopped on purpose: the problem reads two ways, and the question was
      posted to the issue. No branch, no code.
-  4  code was written and the checks do not pass. The work is committed on
-     the branch as a wip: commit and the checkout is back on the base branch.
+  4  code was written and did not land: the checks do not pass, or the run
+     stopped after the implementation began (cancelled, a provider error, a
+     failed commit). The work is committed on the branch as a wip: commit and
+     the checkout is back on the base branch; the category says why.
      Also: the change landed and the review of the requirements the report
      cites found them unmet (category nonconformant).
 
@@ -143,7 +145,7 @@ func newApp() toolio.App {
 			toolio.ExitFailed:     "failed; the stage is named in the JSON",
 			toolio.ExitUsage:      "usage error; nothing was fetched and nothing was written",
 			toolio.ExitNeedsHuman: "stopped on purpose because the problem reads two ways; the question was posted to the issue, with no branch and no code",
-			toolio.ExitUnverified: "code was written and the checks do not pass; the work is committed as a wip: commit and the checkout is back on the base branch",
+			toolio.ExitUnverified: "code was written and did not land (the checks do not pass, or the run stopped after the implementation began); the work is committed as a wip: commit and the checkout is back on the base branch, and the category says why",
 		},
 		ResultSample: codefix.Result{},
 		Flags: func(fs *flag.FlagSet) {
@@ -191,7 +193,7 @@ func newApp() toolio.App {
 			result, err := codefix.Run(ctx, f.fixOptions(d))
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
-				return toolio.ExitCodeFor(info.Category), result, info
+				return exitCode(err, info), result, info
 			}
 			return toolio.ExitOK, result, nil
 		},
@@ -391,4 +393,14 @@ func applyEnvDefaults(fs *flag.FlagSet, targets map[string]*string) {
 			*dst = v
 		}
 	}
+}
+
+// exitCode is the exit code of a failed run. A run that parked its work exits
+// 4 whatever stopped it — the work is a wip: commit on the branch either way.
+func exitCode(err error, info *toolio.ErrorInfo) int {
+	code := toolio.ExitCodeFor(info.Category)
+	if code == toolio.ExitFailed && codefix.IsParked(err) {
+		return toolio.ExitUnverified
+	}
+	return code
 }

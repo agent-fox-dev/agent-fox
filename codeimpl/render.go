@@ -121,6 +121,15 @@ func holdCommitMessage(spec *afspec.Spec, task afspec.Task) string {
 		wipPrefix, task.Id, filepath.Base(spec.Dir), specRef(spec, task))
 }
 
+// revertHoldMessage is the commit that holds a task's work while its revert
+// check has the implementation taken out. It is undone after the check; a
+// process killed during it leaves the work here, parked as a wip: commit the
+// next run recognizes.
+func revertHoldMessage(spec *afspec.Spec, task afspec.Task) string {
+	return fmt.Sprintf("%s task %d of %s held while its revert check runs\n\n%s\n",
+		wipPrefix, task.Id, filepath.Base(spec.Dir), specRef(spec, task))
+}
+
 // wipCommitMessage is what a task that did not land is parked as.
 //
 // The work is committed rather than left loose, because the phase edited

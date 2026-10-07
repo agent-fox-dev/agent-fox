@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/agentfox/agentkit-go/tools"
 )
@@ -50,6 +51,14 @@ func run(ctx context.Context, dir string, argv, env []string, stdin ...string) (
 		return "", -1, errors.New("empty command")
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// A timeout or a cancellation ends the whole command, not only its direct
+	// child: `make` killed alone leaves `go test` or `pytest` holding the
+	// output pipe, and the run waits for them however long they take. The
+	// command gets a process group of its own, the group is killed, and the
+	// pipe is abandoned soon after if something still holds it.
+	setProcessGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = dir
 	if env != nil {
 		cmd.Env = env

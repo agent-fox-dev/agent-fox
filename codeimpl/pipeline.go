@@ -251,6 +251,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if stop := overBudget(o, st); stop != nil {
 			return stopped(ctx, o, st, result, stop)
 		}
+		if ctx.Err() != nil {
+			return stopped(ctx, o, st, result, cancelled("task"))
+		}
 		if err := transition(st.spec, id, afspec.TaskStateInProgress); err != nil {
 			return result, fail("task", agentrun.CategoryInternal, err)
 		}
@@ -263,7 +266,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// ------------------------------------------------------ conformance --
+	if ctx.Err() != nil {
+		return stopped(ctx, o, st, result, cancelled(conform.PhaseReview))
+	}
 	if err := conformance(ctx, o, st, result); err != nil {
+		var f *Failure
+		if errors.As(err, &f) {
+			return stopped(ctx, o, st, result, f)
+		}
 		return result, err
 	}
 	nonconformant := len(result.Blocking) > 0
@@ -774,6 +784,10 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	// ---------------------------------------------------------- baseline --
 	st.baseline = st.runGate(ctx, o, "baseline")
 	result.Baseline = st.baseline
+	if st.baseline.aborted() {
+		return nil, failf("preflight", agentrun.CategoryAborted,
+			"the run was cancelled while the baseline checks ran; nothing was changed")
+	}
 	if r, bad := st.baseline.couldNotRun(); bad {
 		return nil, failf("preflight", "usage",
 			"`%s` could not run before any change (%s), so no task could ever be verified by it; "+
@@ -1008,6 +1022,10 @@ func repairLoop(ctx context.Context, o Options, st *runState, result *Result, re
 		result.Verification = after
 		result.Verdict = compareGate(st.baseline, after)
 
+		if after.aborted() {
+			return GateResult{}, &repairFailure{reason: "the run was cancelled while the checks ran",
+				outcome: OutcomeAborted, category: agentrun.CategoryAborted}
+		}
 		if r, bad := after.couldNotRun(); bad {
 			return GateResult{}, &repairFailure{
 				reason: fmt.Sprintf("`%s` could not run after the repair (%s), so the work was never measured",
@@ -1253,6 +1271,13 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 
 		// The gate, compared with the one before this task.
 		after := st.landingGate(ctx, o, "verification", task.Id == st.lastTask)
+		if after.aborted() {
+			// Cancelled checks say nothing about the work: nothing is
+			// compared, and the task is parked as aborted.
+			report.Verification = &after
+			return park(ctx, o, st, result, report, task, "the run was cancelled while the checks ran",
+				OutcomeAborted, agentrun.CategoryAborted, "verify")
+		}
 		verdict := compareGate(st.baseline, after)
 		report.Verification = &after
 		report.Verdict = verdict
@@ -1292,11 +1317,15 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 		}
 		if failure == nil && len(st.gate) > 0 && len(task.Tests) > 0 &&
 			(o.NoTestFirst || strings.TrimSpace(sub.TestFirstDeviation) != "") {
-			rc, err := revertCheck(ctx, o, st, head)
+			rc, err := revertCheck(ctx, o, st, task, head)
 			if err != nil {
 				return report, fail("task", CategoryGit, err)
 			}
 			report.RevertCheck = &rc
+			if rc.Check != nil && rc.Check.Aborted {
+				return park(ctx, o, st, result, report, task, "the run was cancelled during the revert check",
+					OutcomeAborted, agentrun.CategoryAborted, "verify")
+			}
 			// A compile failure is not proof, and not the tests' weakness
 			// either: no test of a new symbol can fail on behaviour once
 			// the symbol is gone. It is recorded and does not fail the
@@ -1541,6 +1570,13 @@ func background(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 }
 
+// cancelled is the failure of a run stopped by its context between phases:
+// what landed is committed, and the identical command continues from it.
+func cancelled(stage string) *Failure {
+	return failf(stage, agentrun.CategoryAborted, "the run was cancelled; the tasks landed so far are on the "+
+		"branch, re-run to continue")
+}
+
 // overBudget reports the run-level cap, checked before each phase.
 func overBudget(o Options, st *runState) *Failure {
 	if o.TotalBudgetUSD > 0 && st.cost >= o.TotalBudgetUSD {
@@ -1582,10 +1618,28 @@ func recordPhase(run *toolio.Run, st *runState, res agentrun.Result) {
 // The implementation is the task's own non-test change when it made one; a
 // task that only added tests — an integration task over wiring the earlier
 // tasks built — is measured against the whole branch's implementation.
-func revertCheck(ctx context.Context, o Options, st *runState, head string) (conform.RevertResult, error) {
+func revertCheck(ctx context.Context, o Options, st *runState, task afspec.Task, head string) (_ conform.RevertResult, err error) {
 	// The revert takes the implementation out and puts it back: the tree the
 	// index saw is not the tree the next phase starts from.
 	defer st.invalidate()
+	// While the implementation is out, the only other copy is in this
+	// process's memory: a process killed then would lose it. It is held in a
+	// commit for the duration, undone afterwards whatever happened, under a
+	// context a cancellation does not reach.
+	held, err := st.git.Head(ctx)
+	if err != nil {
+		return conform.RevertResult{}, err
+	}
+	if _, err := st.commit(ctx, o, revertHoldMessage(st.spec, task), true, nil); err != nil {
+		return conform.RevertResult{}, err
+	}
+	defer func() {
+		bg, cancel := background(ctx)
+		defer cancel()
+		if rerr := st.git.ResetSoft(bg, held); rerr != nil && err == nil {
+			err = fmt.Errorf("the revert check's hold commit could not be undone: %w", rerr)
+		}
+	}()
 	check := func(ctx context.Context) checks.Result {
 		cmd := st.gate[len(st.gate)-1]
 		done := o.Progress.Begin("revert check: %s with the implementation taken out", cmd)

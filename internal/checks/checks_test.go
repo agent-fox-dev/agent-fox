@@ -186,3 +186,22 @@ func TestTailKeepsTheEnd(t *testing.T) {
 		t.Error("the last line must survive: it is where the failure is")
 	}
 }
+
+// Issue #216: a check whose run was cancelled — Ctrl-C, not its own timeout —
+// is aborted: it is neither the command's failure nor a timeout, and a
+// comparison must not read it as a regression.
+func TestACancelledRunIsAbortedNotFailed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := func(ctx context.Context, _ string, _ []string, _ ...string) (string, int, error) {
+		cancel()
+		<-ctx.Done()
+		return "", -1, nil
+	}
+	res := Run(ctx, r, t.TempDir(), "make test", time.Minute)
+	if !res.Aborted || res.TimedOut || res.OK {
+		t.Errorf("result = %+v, want aborted", res)
+	}
+	if !res.Ran() {
+		t.Error("an aborted run is reported as not run")
+	}
+}

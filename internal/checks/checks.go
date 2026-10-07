@@ -35,6 +35,10 @@ type Result struct {
 	Output string `json:"output,omitempty" trust:"external" description:"The bounded tail of the combined output."`
 	// TimedOut reports that the run was killed by the timeout.
 	TimedOut bool `json:"timed_out,omitempty" description:"True when the run was killed by the timeout."`
+	// Aborted reports that the run was killed because the run that asked for
+	// it was cancelled (Ctrl-C, --phase-timeout): not the command's failure,
+	// and not its timeout.
+	Aborted bool `json:"aborted,omitempty" description:"True when the run was killed because the tool's own run was cancelled; the command's exit status says nothing."`
 	// DurationMS is how long it took.
 	DurationMS int64 `json:"duration_ms" description:"How long the run took in milliseconds."`
 }
@@ -127,8 +131,16 @@ func Run(ctx context.Context, r gitx.Runner, dir, command string, timeout time.D
 		Output:     Tail(out, outputTailLines),
 		DurationMS: time.Since(start).Milliseconds(),
 	}
-	if runCtx.Err() != nil && ctx.Err() == nil {
-		res.TimedOut = true
+	// A run killed by its context failed for a reason that is not the
+	// command's: its own timeout, or the cancellation of the run that asked
+	// for it (Ctrl-C, --phase-timeout). The second is not a finding about the
+	// code at all, and a caller compares nothing on it.
+	if runCtx.Err() != nil {
+		if ctx.Err() != nil {
+			res.Aborted = true
+		} else {
+			res.TimedOut = true
+		}
 		res.OK = false
 		if res.ExitCode == 0 {
 			res.ExitCode = -1
