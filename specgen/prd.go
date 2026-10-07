@@ -5,23 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/agentfox/agentkit-go/core"
 	"github.com/agentfox/agentkit-go/schema"
 	"github.com/agentfox/agentkit-go/tools"
+
+	"github.com/agent-fox-dev/agentfox/afspec"
 )
 
 // ToolSubmitPRD is the terminating tool of the PRD phase.
 const ToolSubmitPRD = "submit_prd"
 
-// specNameRE is the format's spec-name rule. It is checked in the tool
+// validName is the format's spec-name rule, afspec's own: exactly what may
+// follow the number in a spec directory name. It is checked in the tool
 // handler as well as by afspec afterwards, because a name the model can
 // correct on the next turn is better than a spec that fails to validate after
 // three more phases have been paid for.
-var specNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+func validName(s string) bool { return afspec.IsSpecName(s) }
 
 // RelevantFile is one file the PRD phase identified as important for later
 // generation phases.
@@ -74,7 +76,7 @@ type SplitScope struct {
 func prdSchema() *schema.Schema {
 	return schema.Object(
 		schema.Prop("spec_name", schema.String(
-			"snake_case name for this spec, matching [a-z][a-z0-9_]*. Short and descriptive: "+
+			"snake_case name for this spec, matching [a-z][a-z0-9]*(_[a-z0-9]+)*. Short and descriptive: "+
 				"widget_counter, not the_new_widget_counting_feature.")),
 		schema.Prop("title", schema.String(
 			"Human-readable title for the PRD frontmatter. Non-empty.")),
@@ -154,10 +156,11 @@ func submitPRDTool(sink *prdSink, ws *tools.Workspace) core.Tool {
 			prd.SpecName = strings.TrimSpace(prd.SpecName)
 			prd.Title = strings.TrimSpace(prd.Title)
 
-			if !specNameRE.MatchString(prd.SpecName) {
+			if !validName(prd.SpecName) {
 				return core.ErrResult("invalid_spec_name", fmt.Sprintf(
-					"spec_name %q must match [a-z][a-z0-9_]*: lowercase, starting with a letter, "+
-						"words joined by underscores.", prd.SpecName))
+					"spec_name %q must match [a-z][a-z0-9]*(_[a-z0-9]+)*: lowercase words of letters and "+
+						"digits, starting with a letter, joined by single underscores (no doubled or trailing "+
+						"underscore).", prd.SpecName))
 			}
 			if prd.Title == "" {
 				return core.ErrResult("empty_title",
@@ -165,9 +168,9 @@ func submitPRDTool(sink *prdSink, ws *tools.Workspace) core.Tool {
 			}
 			if !HasIntent(prd.Body) {
 				return core.ErrResult("missing_intent",
-					"the body has no '## Intent' section. It is required: the spec's intent hash "+
-						"is computed from it, and a spec without one cannot be activated. Add it "+
-						"as the first section, one short paragraph stating what this spec is for.")
+					"the body has no '## Intent' section, spelled exactly so on a line of its own. It is "+
+						"required: the spec's intent hash is computed from it, and a spec without one cannot be "+
+						"activated. Add it as the first section, one short paragraph stating what this spec is for.")
 			}
 			if strings.Contains(prd.Body, "---\n") && strings.HasPrefix(strings.TrimSpace(prd.Body), "---") {
 				return core.ErrResult("frontmatter_in_body",
@@ -215,8 +218,8 @@ func checkSplit(specName string, split []SplitScope) error {
 	seen := map[string]bool{}
 	for i, s := range split {
 		name := strings.TrimSpace(s.Name)
-		if !specNameRE.MatchString(name) {
-			return fmt.Errorf("recommended_split[%d].name %q must match [a-z][a-z0-9_]*: it becomes "+
+		if !validName(name) {
+			return fmt.Errorf("recommended_split[%d].name %q must match [a-z][a-z0-9]*(_[a-z0-9]+)*: it becomes "+
 				"that spec's directory name.", i, s.Name)
 		}
 		if seen[name] {
@@ -253,13 +256,11 @@ func validateRelevantFiles(ws *tools.Workspace, files []RelevantFile) []string {
 	return bad
 }
 
-// intentRE matches the `## Intent` heading, in the spellings a model
-// plausibly emits.
-var intentRE = regexp.MustCompile(`(?mi)^##\s+Intent\s*$`)
-
-// HasIntent reports whether a PRD body carries the section afspec hashes.
-func HasIntent(body string) bool { return intentRE.MatchString(body) }
+// HasIntent reports whether a PRD body carries the section afspec hashes, by
+// afspec's own rule and on the body as it will be written: a looser check
+// would pass a PRD whose activation then fails (#223).
+func HasIntent(body string) bool { return afspec.HasIntent(normalizeBody(body)) }
 
 // ValidSpecName reports whether s is a usable spec name. It is exported so a
 // command can refuse a bad --name before anything is fetched.
-func ValidSpecName(s string) bool { return specNameRE.MatchString(s) }
+func ValidSpecName(s string) bool { return validName(s) }

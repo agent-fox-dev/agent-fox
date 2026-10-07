@@ -97,7 +97,7 @@
       "name": {
         "type": "string",
         "default": "",
-        "description": "override the spec name the model chooses; must match [a-z][a-z0-9_]*"
+        "description": "override the spec name the model chooses; must match [a-z][a-z0-9]*(_[a-z0-9]+)*"
       },
       "no-activate": {
         "type": "boolean",

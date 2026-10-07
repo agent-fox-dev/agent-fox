@@ -131,6 +131,7 @@ The cross-file rules, all errors:
 | `ValidTransition(current, target) bool` | Whether a status transition is allowed |
 | `MoveToArchive(specDir, root) error` | Transition to archived and move under `archive/` |
 | `ComputeIntentHash(body) (string, error)` | SHA-256 of the `## Intent` section |
+| `HasIntent(body) bool` | Whether `ComputeIntentHash` can hash the body: `## Intent`, spelled exactly so, on a line of its own |
 
 ### Discovery
 
@@ -139,7 +140,9 @@ The cross-file rules, all errors:
 | `DiscoverSpecs(root) ([]SpecMeta, error)` | Scan a root for spec directories |
 | `BuildDependencyGraph(metas, root) (*DependencyGraph, error)` | Build the graph from each `tasks.json` |
 | `IsSpecDirName(name) bool` / `ParseSpecDirName(name)` | The `{NN}_{snake_case_name}` pattern |
+| `IsSpecName(name) bool` | The name part of that pattern, `[a-z][a-z0-9]*(_[a-z0-9]+)*`: a name it accepts always makes a valid directory |
 | `LoadSpecLandscape(root, includeArchive, currentSpecID)` | Metadata for landscape views |
+| `UnknownFields(raw, target) []string` | The keys in a decoded JSON value that the target's type has no field for, as JSON pointers. `DecodeArtifact` refuses an artifact that has any; `LoadSpec` keeps them aside and `ValidateSchema` reports each as an `unknown_field` error, so the schemas' `additionalProperties: false` holds although the decode would drop the key |
 
 ### Rendering
 

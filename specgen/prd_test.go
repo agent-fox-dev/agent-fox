@@ -54,7 +54,7 @@ func TestSubmitPRDRejectsWhatWouldFailLater(t *testing.T) {
 		want   string
 	}{
 		{"a spec name the format cannot use",
-			func(a map[string]any) { a["spec_name"] = "Widget Counter" }, "[a-z][a-z0-9_]*"},
+			func(a map[string]any) { a["spec_name"] = "Widget Counter" }, "[a-z][a-z0-9]*(_[a-z0-9]+)*"},
 		{"an empty title, which fails the frontmatter schema",
 			func(a map[string]any) { a["title"] = "  " }, "title is empty"},
 		{"a body with no Intent section, which cannot be activated",
@@ -101,7 +101,7 @@ func TestSubmitPRDChecksTheSplit(t *testing.T) {
 			func(a map[string]any) { a["recommended_split"] = split("widget_counter") }, "at least two"},
 		{"a scope name the format cannot use",
 			func(a map[string]any) { a["recommended_split"] = split("widget_counter", "Widget Store") },
-			"[a-z][a-z0-9_]*"},
+			"[a-z][a-z0-9]*(_[a-z0-9]+)*"},
 		{"a name used twice",
 			func(a map[string]any) { a["recommended_split"] = split("widget_counter", "widget_counter") }, "twice"},
 		{"a first scope that is not the PRD being submitted",
@@ -144,14 +144,17 @@ func TestSubmitPRDChecksTheSplit(t *testing.T) {
 func TestHasIntent(t *testing.T) {
 	for _, body := range []string{
 		"## Intent\n\nx\n",
-		"# Title\n\n##  Intent  \n\nx\n",
-		"# Title\n\n## intent\n\nx\n",
+		"# Title\n\n## Intent  \n\nx\n",
 	} {
 		if !HasIntent(body) {
 			t.Errorf("HasIntent(%q) = false", body)
 		}
 	}
+	// One rule with afspec's intent hash (#223): a spelling it cannot hash
+	// is refused here, where the model can still fix it.
 	for _, body := range []string{
+		"# Title\n\n##  Intent  \n\nx\n",
+		"# Title\n\n## intent\n\nx\n",
 		"# Intent\n\nx\n",              // a level-1 heading is not the section
 		"## Intentional design\n\nx\n", // a heading that merely starts with it
 		"Intent: count widgets\n",
@@ -168,7 +171,7 @@ func TestValidSpecName(t *testing.T) {
 			t.Errorf("ValidSpecName(%q) = false", s)
 		}
 	}
-	for _, s := range []string{"", "Widget", "1st", "widget-counter", "widget counter", "_x"} {
+	for _, s := range []string{"", "Widget", "1st", "widget-counter", "widget counter", "_x", "widget__counter", "widget_"} {
 		if ValidSpecName(s) {
 			t.Errorf("ValidSpecName(%q) = true", s)
 		}

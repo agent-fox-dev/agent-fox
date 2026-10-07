@@ -52,6 +52,11 @@ type Spec struct {
 	// Optional architecture document
 	Architecture string
 
+	// unknown holds, per artifact file, the keys LoadSpec found on disk that
+	// the artifact's schema does not allow. The decode drops them, so they
+	// are recorded here for ValidateSchema to report.
+	unknown map[string][]string
+
 	// loaded holds an immutable snapshot of identity fields captured at load
 	// time (or at activation via Transition). Non-nil when the spec was loaded
 	// in an active state or transitioned to active, enabling Save to reject
@@ -99,21 +104,22 @@ func LoadSpec(dir string) (*Spec, error) {
 	// Go types only: structural rules live in the compiled schemas and run in
 	// Validate. That is what lets an empty scaffold load and be reported as
 	// incomplete rather than failing to decode.
+	unknown := map[string][]string{}
 	reqPath := filepath.Join(dir, "requirements.json")
 	var req RequirementsV2Json
-	if err := loadJSONArtifact(reqPath, &req); err != nil {
+	if err := loadJSONArtifact(reqPath, &req, unknown); err != nil {
 		return nil, err
 	}
 
 	tsPath := filepath.Join(dir, "test_spec.json")
 	var ts TestSpecV2Json
-	if err := loadJSONArtifact(tsPath, &ts); err != nil {
+	if err := loadJSONArtifact(tsPath, &ts, unknown); err != nil {
 		return nil, err
 	}
 
 	tasksPath := filepath.Join(dir, "tasks.json")
 	var tasks TasksV2Json
-	if err := loadJSONArtifact(tasksPath, &tasks); err != nil {
+	if err := loadJSONArtifact(tasksPath, &tasks, unknown); err != nil {
 		return nil, err
 	}
 
@@ -145,6 +151,7 @@ func LoadSpec(dir string) (*Spec, error) {
 		Tasks:         &tasks,
 		Architecture:  architecture,
 		Dir:           dir,
+		unknown:       unknown,
 	}
 
 	// Capture immutable snapshot for active specs so Save can detect mutations
@@ -162,7 +169,7 @@ func LoadSpec(dir string) (*Spec, error) {
 
 // loadJSONArtifact reads and unmarshals a JSON artifact file.
 // Returns a LoadError wrapping SpecError on failure.
-func loadJSONArtifact(path string, target interface{}) error {
+func loadJSONArtifact(path string, target interface{}, unknown map[string][]string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return &LoadError{
@@ -180,6 +187,15 @@ func loadJSONArtifact(path string, target interface{}) error {
 		}
 	}
 
+	// The decode above drops a key the schema does not allow; it is kept
+	// aside for ValidateSchema, so the package still loads and is reported
+	// invalid rather than unreadable.
+	var raw any
+	if json.Unmarshal(data, &raw) == nil {
+		if keys := UnknownFields(raw, target); len(keys) > 0 {
+			unknown[filepath.Base(path)] = keys
+		}
+	}
 	return nil
 }
 

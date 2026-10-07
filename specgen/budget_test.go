@@ -63,7 +63,9 @@ func TestTS06_57_SpecStopsBetweenScopesWhenOverTotalBudget(t *testing.T) {
 	for _, s := range got.Split {
 		states = append(states, s.Status)
 	}
-	if strings.Join(states, ",") != "done,pending,pending" {
+	// The run stopped on the second scope, so that scope is the one marked
+	// failed, as for every other stop (#223); the third was never reached.
+	if strings.Join(states, ",") != "done,failed,pending" {
 		t.Errorf("scope states = %v", states)
 	}
 

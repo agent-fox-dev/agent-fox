@@ -93,6 +93,9 @@ type scriptedAuthor struct {
 
 	// prdCost is the spend every PRD phase reports.
 	prdCost float64
+	// onGenerate, when set, is called at the start of every generation
+	// phase, to observe what the pipeline has done before it.
+	onGenerate func(req artifactRequest)
 
 	steps       []afspec.GenerationStep
 	prdRequests []prdRequest
@@ -119,6 +122,9 @@ func (a *scriptedAuthor) WritePRD(_ context.Context, req prdRequest) (PRD, agent
 
 func (a *scriptedAuthor) GenerateArtifact(_ context.Context, req artifactRequest) (map[string]any, agentrun.Result, error) {
 	a.steps = append(a.steps, req.Step)
+	if a.onGenerate != nil {
+		a.onGenerate(req)
+	}
 	res := agentrun.Result{Name: "generate:" + string(req.Step), Turns: 2}
 	if err := a.artifactErr[req.Step]; err != nil {
 		return nil, res, err

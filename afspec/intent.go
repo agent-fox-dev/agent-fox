@@ -41,3 +41,8 @@ func ComputeIntentHash(body string) (string, error) {
 	hash := sha256.Sum256([]byte(intentText))
 	return fmt.Sprintf("%x", hash), nil
 }
+
+// HasIntent reports whether body carries the intent section ComputeIntentHash
+// hashes, by the same rule: a checker that accepted another spelling would
+// pass a PRD that activation then refuses.
+func HasIntent(body string) bool { return intentSectionPattern.MatchString(body) }

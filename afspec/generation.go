@@ -3,6 +3,7 @@ package afspec
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // GenerationStep names the artifact a generation pipeline has just produced.
@@ -64,25 +65,35 @@ func DecodeArtifact(step GenerationStep, content map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot re-encode the %s artifact: %w", step, err)
 	}
+	// A key the schema does not allow would be dropped by the decode below
+	// and never reach disk; it is refused instead, by its path, so the model
+	// that sent it learns the artifact's real shape.
+	refuse := func(out any) error {
+		if keys := UnknownFields(content, out); len(keys) > 0 {
+			return fmt.Errorf("the %s artifact has key(s) the schema does not allow: %s; remove them",
+				step, strings.Join(keys, ", "))
+		}
+		return nil
+	}
 	switch step {
 	case StepRequirements:
 		var out RequirementsV2Json
 		if err := json.Unmarshal(data, &out); err != nil {
 			return nil, fmt.Errorf("cannot decode the requirements artifact: %w", err)
 		}
-		return &out, nil
+		return &out, refuse(&out)
 	case StepTestSpec:
 		var out TestSpecV2Json
 		if err := json.Unmarshal(data, &out); err != nil {
 			return nil, fmt.Errorf("cannot decode the test_spec artifact: %w", err)
 		}
-		return &out, nil
+		return &out, refuse(&out)
 	case StepTasks:
 		var out TasksV2Json
 		if err := json.Unmarshal(data, &out); err != nil {
 			return nil, fmt.Errorf("cannot decode the tasks artifact: %w", err)
 		}
-		return &out, nil
+		return &out, refuse(&out)
 	default:
 		return nil, fmt.Errorf("unknown generation step %q", step)
 	}

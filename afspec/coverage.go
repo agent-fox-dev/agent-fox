@@ -72,7 +72,9 @@ type TraceabilityMatrix struct {
 // artifacts. Nothing is read from disk and nothing is stored, so the matrix
 // cannot drift from the artifacts it describes (§8.5).
 //
-// Covered reports whether at least one test verifies the entity; Owned
+// Covered reports whether at least one test verifies the entity — for an
+// execution path, at least one smoke test, which is what C5 asks for, so the
+// matrix never calls covered a path the validator reports uncovered. Owned
 // reports whether at least one of those tests is listed by a task.
 func (s *Spec) ComputeTraceability() TraceabilityMatrix {
 	matrix := TraceabilityMatrix{Links: []TraceLink{}}
@@ -80,12 +82,17 @@ func (s *Spec) ComputeTraceability() TraceabilityMatrix {
 		return matrix
 	}
 
-	// entity ID → verifying test IDs, in test order.
+	// entity ID → verifying test IDs, in test order, and the smoke tests
+	// among them.
 	testsFor := map[string][]string{}
+	smokeFor := map[string]bool{}
 	if s.TestSpec != nil {
 		for _, t := range s.TestSpec.Tests {
 			for _, id := range t.Verifies {
 				testsFor[id] = append(testsFor[id], t.Id)
+				if t.Kind == TestKindSmoke {
+					smokeFor[id] = true
+				}
 			}
 		}
 	}
@@ -113,12 +120,16 @@ func (s *Spec) ComputeTraceability() TraceabilityMatrix {
 			}
 		}
 		sort.Ints(tasks)
+		covered := len(tests) > 0
+		if kind == "path" {
+			covered = smokeFor[id]
+		}
 		return TraceLink{
 			Kind:    kind,
 			ID:      id,
 			Tests:   tests,
 			Tasks:   tasks,
-			Covered: len(tests) > 0,
+			Covered: covered,
 			Owned:   len(tasks) > 0,
 		}
 	}
