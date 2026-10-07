@@ -922,9 +922,9 @@ func TestTS13_9_EffortClampedWarningRecorded(t *testing.T) {
 func TestTS13_10_NoReachableLevelFailsWithExplicitEffort(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "test-key")
 	t.Setenv("AF_MODEL_EFFORT", "")
-	// google/gemini-3.8-flash supports no thinking level (all null).
-	c := &toolio.Common{Effort: "high", Model: "google/gemini-3.8-flash"}
-	_, err := c.ResolveModelNamed("google/gemini-3.8-flash")
+	// google/gemini-3.5-flash-lite supports no thinking level (all null).
+	c := &toolio.Common{Effort: "high", Model: "google/gemini-3.5-flash-lite"}
+	_, err := c.ResolveModelNamed("google/gemini-3.5-flash-lite")
 	if err == nil {
 		t.Fatal("expected an error when no reachable level exists with explicit effort")
 	}
@@ -932,7 +932,7 @@ func TestTS13_10_NoReachableLevelFailsWithExplicitEffort(t *testing.T) {
 	if !errors.As(err, &ue) {
 		t.Errorf("expected a *UsageError, got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), "gemini-3.8-flash") {
+	if !strings.Contains(err.Error(), "gemini-3.5-flash-lite") {
 		t.Errorf("error should name the model: %q", err.Error())
 	}
 }

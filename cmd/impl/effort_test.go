@@ -305,10 +305,10 @@ func TestUnreachableRepairEffortIsAUsageError(t *testing.T) {
 	t.Setenv("AF_MODEL_EFFORT", "")
 	dir, _ := preflightSpecRepo(t)
 
-	// google/gemini-3.8-flash supports no thinking level at all.
+	// google/gemini-3.5-flash-lite supports no thinking level at all.
 	for _, mode := range [][]string{{"--preflight"}, {}} {
 		argv := append(append([]string{}, mode...), "--dir", dir, "--land", "none",
-			"--repair-model", "google/gemini-3.8-flash", "--repair-model-effort", "high", "09")
+			"--repair-model", "google/gemini-3.5-flash-lite", "--repair-model-effort", "high", "09")
 		var stdout, stderr bytes.Buffer
 		code := newApp().Main(context.Background(), argv, strings.NewReader(""), &stdout, &stderr)
 		if code != toolio.ExitUsage {
@@ -321,7 +321,7 @@ func TestUnreachableRepairEffortIsAUsageError(t *testing.T) {
 		if env.Error == nil || env.Error.Category != "usage" {
 			t.Errorf("%v: error = %+v, want category usage", mode, env.Error)
 		}
-		if env.Error != nil && !strings.Contains(env.Error.Message, "gemini-3.8-flash") {
+		if env.Error != nil && !strings.Contains(env.Error.Message, "gemini-3.5-flash-lite") {
 			t.Errorf("%v: the message should name the repair model: %q", mode, env.Error.Message)
 		}
 	}

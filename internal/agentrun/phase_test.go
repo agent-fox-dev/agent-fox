@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/prompt"
 	"github.com/agentfox/agentkit-go/provider/faux"
 	"github.com/agentfox/agentkit-go/schema"
 	"github.com/agentfox/agentkit-go/tools"
@@ -881,11 +882,21 @@ func TestTS16_9_AssertReadOnlyAcceptsCodeSearch(t *testing.T) {
 	}
 }
 
-// guidelinesSection is the part of a tools note from "Tool guidelines:" on, or
-// "" when there is none.
-func guidelinesSection(note string) string {
-	if i := strings.Index(note, "Tool guidelines:"); i >= 0 {
-		return note[i:]
+// guidelinesHeading opens the block prompt.Build renders the tools'
+// guidelines in after a custom system prompt.
+const guidelinesHeading = "\n\nGuidelines:\n"
+
+// systemPrompt is what reaches the model for a phase registering set: the
+// phase's text and the tools note, followed by AgentKit's guidelines block.
+func systemPrompt(set []core.Tool) string {
+	return prompt.Build(prompt.Input{Custom: "system" + toolsNote(set), Tools: set})
+}
+
+// guidelinesSection is the part of a system prompt from the guidelines
+// heading on, or "" when there is none.
+func guidelinesSection(sys string) string {
+	if i := strings.Index(sys, guidelinesHeading); i >= 0 {
+		return sys[i:]
 	}
 	return ""
 }
@@ -895,14 +906,14 @@ func guidelinesSection(note string) string {
 //
 // Verifies: 17-REQ-1.1, 17-REQ-2.1
 func TestTS17_1_ToolsNoteRendersEveryGuideline(t *testing.T) {
-	note := toolsNote([]core.Tool{
+	note := systemPrompt([]core.Tool{
 		{Name: "read_file", PromptGuidelines: []string{"Read in ranges."}},
 		{Name: "search_files", PromptGuidelines: []string{"Use a glob."}},
 		{Name: "execute"},
 		{Name: "submit_x", PromptGuidelines: []string{"Report by calling submit_x."}},
 	})
-	if strings.Count(note, "Tool guidelines:") != 1 ||
-		strings.Index(note, "Tool guidelines:") < strings.Index(note, "Your tools are exactly:") {
+	if strings.Count(note, guidelinesHeading) != 1 ||
+		strings.Index(note, guidelinesHeading) < strings.Index(note, "Your tools are exactly:") {
 		t.Fatalf("note = %q", note)
 	}
 	for _, g := range []string{"Read in ranges.", "Use a glob.", "Report by calling submit_x."} {
@@ -915,19 +926,19 @@ func TestTS17_1_ToolsNoteRendersEveryGuideline(t *testing.T) {
 	}
 }
 
-// TS-17-2 (unit): tools are visited in sorted order, each tool's guidelines in
-// their declared order.
+// TS-17-2 (unit): tools are visited in registration order, each tool's
+// guidelines in their declared order (prompt.Build keeps first-seen order).
 //
 // Verifies: 17-REQ-1.2
 func TestTS17_2_GuidelinesFollowTheSortedToolOrder(t *testing.T) {
-	note := toolsNote([]core.Tool{
+	note := systemPrompt([]core.Tool{
 		{Name: "zeta", PromptGuidelines: []string{"z1", "z2"}},
 		{Name: "alpha", PromptGuidelines: []string{"a2", "a1"}},
 		{Name: "mid", PromptGuidelines: []string{"m1"}},
 	})
 	sec := guidelinesSection(note)
 	last := -1
-	for _, g := range []string{"- a2", "- a1", "- m1", "- z1", "- z2"} {
+	for _, g := range []string{"- z1", "- z2", "- a2", "- a1", "- m1"} {
 		i := strings.Index(sec, g)
 		if i <= last {
 			t.Fatalf("%q is out of order in:\n%s", g, sec)
@@ -940,7 +951,7 @@ func TestTS17_2_GuidelinesFollowTheSortedToolOrder(t *testing.T) {
 //
 // Verifies: 17-REQ-1.3
 func TestTS17_3_BlankGuidelinesAreSkipped(t *testing.T) {
-	sec := guidelinesSection(toolsNote([]core.Tool{
+	sec := guidelinesSection(systemPrompt([]core.Tool{
 		{Name: "t", PromptGuidelines: []string{"", "   ", "\t\n", "Real one."}},
 	}))
 	var bullets []string
@@ -962,7 +973,7 @@ func TestTS17_3_BlankGuidelinesAreSkipped(t *testing.T) {
 //
 // Verifies: 17-REQ-1.4
 func TestTS17_4_DuplicateGuidelinesAppearOnce(t *testing.T) {
-	sec := guidelinesSection(toolsNote([]core.Tool{
+	sec := guidelinesSection(systemPrompt([]core.Tool{
 		{Name: "a", PromptGuidelines: []string{"Same text.", "Same text."}},
 		{Name: "b", PromptGuidelines: []string{"  Same text.  ", "Other."}},
 	}))
@@ -976,11 +987,11 @@ func TestTS17_4_DuplicateGuidelinesAppearOnce(t *testing.T) {
 //
 // Verifies: 17-REQ-1.5
 func TestTS17_5_NoGuidelinesNoSection(t *testing.T) {
-	plain := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "find_files"}, {Name: "submit_prd"}})
-	blank := toolsNote([]core.Tool{{Name: "read_file", PromptGuidelines: []string{" ", ""}}})
-	empty := toolsNote(nil)
+	plain := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "find_files"}, {Name: "submit_prd"}})
+	blank := systemPrompt([]core.Tool{{Name: "read_file", PromptGuidelines: []string{" ", ""}}})
+	empty := systemPrompt(nil)
 	for _, n := range []string{plain, blank, empty} {
-		if strings.Contains(n, "Tool guidelines:") {
+		if strings.Contains(n, guidelinesHeading) {
 			t.Errorf("a note with no guidelines has a section: %q", n)
 		}
 	}
@@ -1000,7 +1011,7 @@ func TestTS17_6_SearchOverExecuteOnceWithAShell(t *testing.T) {
 		"run_command": {{Name: "search_files", PromptGuidelines: []string{tools.SearchOverExecuteGuideline}},
 			{Name: "run_command"}},
 	} {
-		if n := strings.Count(toolsNote(set), tools.SearchOverExecuteGuideline); n != 1 {
+		if n := strings.Count(systemPrompt(set), tools.SearchOverExecuteGuideline); n != 1 {
 			t.Errorf("%s: the line appears %d times", name, n)
 		}
 	}
@@ -1015,7 +1026,7 @@ func TestTS17_7_NoSearchOverExecuteWithoutBoth(t *testing.T) {
 	noShell := SelectTools(all, true, nil, "search_files")
 	noSearch := []core.Tool{{Name: "read_file"}, {Name: "execute"}}
 	for name, set := range map[string][]core.Tool{"no shell": noShell, "no search_files": noSearch} {
-		if n := strings.Count(toolsNote(set), tools.SearchOverExecuteGuideline); n != 0 {
+		if n := strings.Count(systemPrompt(set), tools.SearchOverExecuteGuideline); n != 0 {
 			t.Errorf("%s: the line appears %d times", name, n)
 		}
 	}
@@ -1026,7 +1037,7 @@ func TestTS17_7_NoSearchOverExecuteWithoutBoth(t *testing.T) {
 //
 // Verifies: 17-REQ-3.1, 17-REQ-3.3
 func TestTS17_8_PreferenceLineInAReadOnlyShellPhase(t *testing.T) {
-	r := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
+	r := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
 		{Name: "list_files"}, {Name: "execute"}})
 	want := "Read files with `read_file`, search with `search_files`, find files with `find_files` and list " +
 		"directories with `list_files`"
@@ -1034,7 +1045,7 @@ func TestTS17_8_PreferenceLineInAReadOnlyShellPhase(t *testing.T) {
 		strings.Contains(r, "building, formatting and testing") {
 		t.Errorf("note = %q", r)
 	}
-	s := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "list_files"}, {Name: "execute"}})
+	s := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "list_files"}, {Name: "execute"}})
 	if !strings.Contains(s, "`read_file`") || !strings.Contains(s, "`list_files`") ||
 		strings.Contains(s, "search with") || strings.Contains(s, "find files with") {
 		t.Errorf("note = %q", s)
@@ -1046,11 +1057,11 @@ func TestTS17_8_PreferenceLineInAReadOnlyShellPhase(t *testing.T) {
 //
 // Verifies: 17-REQ-3.2
 func TestTS17_9_PreferenceLineInAWritingShellPhase(t *testing.T) {
-	w1 := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "write_file"}, {Name: "execute"}})
+	w1 := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "write_file"}, {Name: "execute"}})
 	if !strings.Contains(w1, "use `execute` only for git and for building, formatting and testing") {
 		t.Errorf("note = %q", w1)
 	}
-	w2 := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "edit_file"}, {Name: "run_command"}})
+	w2 := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "edit_file"}, {Name: "run_command"}})
 	if !strings.Contains(w2, "use `run_command` only for git and for building, formatting and testing") {
 		t.Errorf("note = %q", w2)
 	}
@@ -1061,10 +1072,10 @@ func TestTS17_9_PreferenceLineInAWritingShellPhase(t *testing.T) {
 //
 // Verifies: 17-REQ-3.4
 func TestTS17_10_PreferenceLineOrder(t *testing.T) {
-	n := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files", PromptGuidelines: []string{"Use a glob."}},
+	n := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "search_files", PromptGuidelines: []string{"Use a glob."}},
 		{Name: "execute"}})
 	a, b, c := strings.Index(n, "Your tools are exactly:"), strings.Index(n, "Read files with"),
-		strings.Index(n, "Tool guidelines:")
+		strings.Index(n, guidelinesHeading)
 	if a < 0 || b < 0 || c < 0 || !(a < b && b < c) {
 		t.Errorf("order %d, %d, %d in %q", a, b, c, n)
 	}
@@ -1075,7 +1086,7 @@ func TestTS17_10_PreferenceLineOrder(t *testing.T) {
 //
 // Verifies: 17-REQ-3.5
 func TestTS17_11_NoPreferenceLineWithoutFileTools(t *testing.T) {
-	n := toolsNote([]core.Tool{{Name: "execute"}, {Name: "write_file"}, {Name: "submit_x"}})
+	n := systemPrompt([]core.Tool{{Name: "execute"}, {Name: "write_file"}, {Name: "submit_x"}})
 	for _, s := range []string{"Read files with", "search with", "list directories with", "find files with"} {
 		if strings.Contains(n, s) {
 			t.Errorf("the note contains %q: %q", s, n)
@@ -1091,7 +1102,7 @@ func TestTS17_11_NoPreferenceLineWithoutFileTools(t *testing.T) {
 //
 // Verifies: 17-REQ-4.1
 func TestTS17_12_NoShellPhaseIsUnchangedInSubstance(t *testing.T) {
-	n := toolsNote([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
+	n := systemPrompt([]core.Tool{{Name: "read_file"}, {Name: "search_files"}, {Name: "find_files"},
 		{Name: "list_files"}, {Name: "submit_issue", PromptGuidelines: []string{"File it with submit_issue."}}})
 	if !strings.Contains(n, "There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`.") {
 		t.Errorf("note = %q", n)
@@ -1110,7 +1121,7 @@ func TestTS17_13_NoExecuteGuidelineReachesANoShellNote(t *testing.T) {
 		{Name: "search_files", PromptGuidelines: []string{"Prefer this over execute+grep.", "Use a glob."}},
 		{Name: "read_file", PromptGuidelines: []string{"Do not use execute to cat files."}},
 	}
-	sec := guidelinesSection(toolsNote(SelectTools(all, true, nil, "read_file", "search_files")))
+	sec := guidelinesSection(systemPrompt(SelectTools(all, true, nil, "read_file", "search_files")))
 	if !strings.Contains(sec, "- Use a glob.") || strings.Contains(sec, "execute") {
 		t.Errorf("section = %q", sec)
 	}
@@ -1180,7 +1191,7 @@ func TestTS17_18_TheRunnerSendsTheGuidelines(t *testing.T) {
 	if !strings.HasPrefix(sys, "system") {
 		t.Errorf("the system prompt does not start with the phase's text: %q", sys[:min(len(sys), 80)])
 	}
-	for _, want := range []string{"Tool guidelines:", "- Report by calling submit.", "Read files with `read_file`",
+	for _, want := range []string{guidelinesHeading, "- Report by calling submit.", "Read files with `read_file`",
 		"use `execute` only for git"} {
 		if !strings.Contains(sys, want) {
 			t.Errorf("the system prompt lacks %q", want)

@@ -178,7 +178,7 @@ func TestTS17_21_FixAnalysePromptCarriesTheToolGuidance(t *testing.T) {
 		t.Fatal("the analyse phase never reached the model")
 	}
 	sys := systemText(reqs[0])
-	for _, want := range []string{"Tool guidelines:",
+	for _, want := range []string{"\n\nGuidelines:\n",
 		"Report the diagnosis by calling submit_analysis; do not write it as prose.",
 		"Read files with `read_file`", "use `execute` only for git"} {
 		if !strings.Contains(sys, want) {

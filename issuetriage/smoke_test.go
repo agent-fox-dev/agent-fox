@@ -143,7 +143,7 @@ func TestTS17_22_TriagePromptHasGuidelinesAndNoShellSteering(t *testing.T) {
 		}
 	}
 	sys := b.String()
-	for _, want := range []string{"There is no shell", "Tool guidelines:",
+	for _, want := range []string{"There is no shell", "\n\nGuidelines:\n",
 		"Report findings by calling " + ToolFileIssue + "; do not write the issue body as prose."} {
 		if !strings.Contains(sys, want) {
 			t.Errorf("the triage system prompt lacks %q", want)
@@ -152,7 +152,7 @@ func TestTS17_22_TriagePromptHasGuidelinesAndNoShellSteering(t *testing.T) {
 	if strings.Contains(sys, "Read files with") || strings.Contains(sys, tools.SearchOverExecuteGuideline) {
 		t.Error("the triage prompt steers between the file tools and a shell it does not have")
 	}
-	if i := strings.Index(sys, "Tool guidelines:"); i >= 0 && strings.Contains(sys[i:], "execute") {
+	if i := strings.Index(sys, "\n\nGuidelines:\n"); i >= 0 && strings.Contains(sys[i:], "execute") {
 		t.Errorf("a guideline mentioning execute reached a phase with no shell:\n%s", sys[i:])
 	}
 }
