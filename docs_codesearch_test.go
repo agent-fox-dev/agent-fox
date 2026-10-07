@@ -26,7 +26,7 @@ func TestTS16_27_CLIListsCodeSearchForEachTool(t *testing.T) {
 		if !strings.Contains(section, "index is built") {
 			t.Errorf("%s does not say code_search is available when the index is built", heading)
 		}
-		for _, tool := range sixReadTools {
+		for _, tool := range sevenReadTools {
 			if !strings.Contains(section, "`"+tool+"`") {
 				t.Errorf("%s does not list `%s` alongside `code_search`", heading, tool)
 			}
@@ -64,7 +64,7 @@ func TestTS16_28_ModelUsageListsCodeSearchAndDescribesIndex(t *testing.T) {
 		if !strings.HasPrefix(line, "| `") || !strings.Contains(line, "`") {
 			continue
 		}
-		if strings.Contains(line, "the six read tools") ||
+		if strings.Contains(line, "the seven read tools") ||
 			strings.HasPrefix(line, "| `triage` | `triage` |") {
 			rows++
 			if !strings.Contains(line, "`code_search` (if indexed)") {

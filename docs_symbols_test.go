@@ -6,27 +6,26 @@ import (
 	"testing"
 )
 
-// The six read tools every phase registers (15-REQ-1).
-var sixReadTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
+// sevenReadTools is declared in docs_findrefs_test.go as agentrun.ReadOnlyFileTools.
 
-// TS-15-12 (unit): docs/model-usage.md lists all six read tools in the phase table
+// TS-15-12 (unit): docs/model-usage.md lists all seven read tools in the phase table
 // Verifies: 15-REQ-6.1
-func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
+func TestTS15_12_ModelUsagePhaseTableListsSevenReadTools(t *testing.T) {
 	content := readDoc(t, "model-usage.md")
 	if strings.Contains(content, "the four read tools") {
 		t.Error("docs/model-usage.md still says 'the four read tools'")
 	}
-	if !strings.Contains(content, "the six read tools") {
-		t.Error("docs/model-usage.md does not say 'the six read tools'")
+	if !strings.Contains(content, "the seven read tools") {
+		t.Error("docs/model-usage.md does not say 'the seven read tools'")
 	}
-	for _, name := range []string{"file_outline", "find_symbol"} {
+	for _, name := range []string{"file_outline", "find_symbol", "find_references"} {
 		if !strings.Contains(content, name) {
 			t.Errorf("docs/model-usage.md does not mention %s", name)
 		}
 	}
 	// The triage row lists the tools explicitly, and the definition sentence
-	// names all six.
-	for _, prefix := range []string{"| `triage` | `triage` |", "The \"six read tools\""} {
+	// names all seven.
+	for _, prefix := range []string{"| `triage` | `triage` |", "The \"seven read tools\""} {
 		idx := strings.Index(content, prefix)
 		if idx < 0 {
 			t.Errorf("docs/model-usage.md has no %q", prefix)
@@ -39,7 +38,7 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 		if nl := strings.Index(rest, "\n|"); nl >= 0 {
 			rest = rest[:nl]
 		}
-		for _, tool := range sixReadTools {
+		for _, tool := range sevenReadTools {
 			if !strings.Contains(rest, "`"+tool+"`") {
 				t.Errorf("%q does not list `%s`", prefix, tool)
 			}
@@ -49,7 +48,7 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 	// "the read tools" without the count.
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "| `") && strings.Contains(line, "the read tools") {
-			t.Errorf("phase-table row does not say 'the six read tools': %s", line)
+			t.Errorf("phase-table row does not say 'the seven read tools': %s", line)
 		}
 	}
 }
@@ -69,12 +68,12 @@ func TestTS15_13_ModelUsageReadingTheCodebaseDescribesSymbolTools(t *testing.T) 
 	}
 }
 
-// TS-15-14 (unit): docs/cli.md lists six read tools and includes
+// TS-15-14 (unit): docs/cli.md lists seven read tools and includes
 // symbol_backend in the preflight examples
 // Verifies: 15-REQ-7.1, 15-REQ-7.2
-func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
+func TestTS15_14_CLIListsSevenReadToolsAndSymbolBackend(t *testing.T) {
 	content := readDoc(t, "cli.md")
-	for _, name := range []string{"file_outline", "find_symbol"} {
+	for _, name := range []string{"file_outline", "find_symbol", "find_references"} {
 		if n := strings.Count(content, name); n < 4 {
 			t.Errorf("docs/cli.md mentions %s %d times, want at least 4", name, n)
 		}
@@ -83,7 +82,7 @@ func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
 	if n := strings.Count(content, `{"check": "symbol_backend", "ok": true, "detail": "ctags"}`); n != 4 {
 		t.Errorf("docs/cli.md has %d symbol_backend example entries, want 4 (fix, impl, spec, triage)", n)
 	}
-	// The sections that say what the model may do name all six read tools.
+	// The sections that say what the model may do name all seven read tools.
 	for _, heading := range []string{"## `fix`", "## `impl`"} {
 		section := docSection(t, content, heading)
 		_, may, ok := strings.Cut(section, "### What the model may and may not do")
@@ -91,7 +90,7 @@ func TestTS15_14_CLIListsSixReadToolsAndSymbolBackend(t *testing.T) {
 			t.Errorf("%s has no 'What the model may and may not do' section", heading)
 			continue
 		}
-		for _, tool := range sixReadTools {
+		for _, tool := range sevenReadTools {
 			if !strings.Contains(may, "`"+tool+"`") {
 				t.Errorf("%s 'What the model may and may not do' does not list `%s`", heading, tool)
 			}

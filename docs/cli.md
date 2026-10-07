@@ -438,7 +438,7 @@ then the tool's own checks:
   plan to resume.
 - `triage`: the target repository and the forge credential.
 
-Every tool ends its list with two informational checks. The first is the
+Every tool ends its list with three informational checks. The first is the
 `symbol_backend` check: whether
 universal-ctags was found, and so which symbol backend `file_outline` and
 `find_symbol` use in every phase of the run. Its `detail` is `ctags` when
@@ -446,11 +446,19 @@ universal-ctags is installed and usable and `heuristics` when it is not. It is
 informational — `ok` is always `true`, because the heuristic fallback always
 works — and it is left out of the list when the detection itself fails.
 
-The second is `code_search_index`: whether the run built the code-search index
+The second is `go_typecheck`: whether AgentKit's Go type-checker, which
+`find_references` uses to resolve call sites, can check the workspace's Go
+packages. Its `detail` is `<N> packages checked, <M> errors`, with `, partial`
+appended when an AgentKit bound (file count or duration) was hit before every
+package was checked. `ok` is always `true`, because AgentKit stubs every import
+outside the workspace, so collected errors are expected and are not a refusal.
+It is left out of the list when the detection itself fails.
+
+The third is `code_search_index`: whether the run built the code-search index
 that gives every phase the `code_search` tool. Its `detail` is `built` when the
 index was created and `unavailable: <reason>` when it was not, the reason being
 what the index builder reported. It is informational too — `ok` is always
-`true`, because without an index the phases keep the six read tools and search
+`true`, because without an index the phases keep the seven read tools and search
 with `search_files` — and an unavailable index also records a `low`
 `code_search_unavailable` warning. Creating the index does not read the tree:
 AgentKit indexes it on the first `code_search` call, so `--preflight` reports
@@ -530,6 +538,7 @@ fix ./bug-report.md --preflight
       {"check": "verify_command", "ok": true, "detail": "make test"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
       {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "go_typecheck", "ok": true, "detail": "12 packages checked, 0 errors"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -565,6 +574,7 @@ impl 09 --preflight
       {"check": "dependencies", "ok": true, "detail": "no upstream specs"},
       {"check": "verify_baseline", "ok": true, "detail": "passed"},
       {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "go_typecheck", "ok": true, "detail": "12 packages checked, 0 errors"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -597,6 +607,7 @@ spec ./prd.md --preflight
       {"check": "schemas_valid", "ok": true},
       {"check": "split_plan", "ok": true, "detail": "no unfinished split for this input"},
       {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "go_typecheck", "ok": true, "detail": "12 packages checked, 0 errors"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -629,6 +640,7 @@ triage ./crash.log --preflight
       {"check": "target_repository", "ok": true, "detail": "acme/widgets"},
       {"check": "forge_credential", "ok": true},
       {"check": "symbol_backend", "ok": true, "detail": "ctags"},
+      {"check": "go_typecheck", "ok": true, "detail": "12 packages checked, 0 errors"},
       {"check": "code_search_index", "ok": true, "detail": "built"}
     ],
     "estimate": {
@@ -923,11 +935,12 @@ before the next phase:
 
 Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
-Its one phase reads the tree with the six read tools (`read_file`,
-`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`)
+Its one phase reads the tree with the seven read tools (`read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`
+and `find_references`)
 and has no tool that writes. When the run's code-search index is built, it can
 also call `code_search`, a ranked, indexed search; without the index it has the
-six read tools alone (`--preflight` reports which, as `code_search_index`).
+seven read tools alone (`--preflight` reports which, as `code_search_index`).
 
 ```sh
 triage "panic: assignment to entry in nil map in loop.go, after an abort"
@@ -1192,11 +1205,15 @@ The phases that run commands give the model one `execute` tool. A guard sits
 between it and the shell, on top of AgentKit's own restricted policy, and every
 phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 
-**Read tools.** Every phase of `fix` can call the six read tools: `read_file`,
-`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`.
+**Read tools.** Every phase of `fix` can call the seven read tools: `read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`
+and `find_references`.
 `file_outline` returns a file's declarations and `find_symbol` finds where a
 name is declared; both use universal-ctags when it is installed and heuristics
 when it is not (`--preflight` reports which, as `symbol_backend`).
+`find_references` lists who uses a declaration — its call and reference sites
+across the workspace, grouped by file, each site attributed to its enclosing
+declaration.
 
 The system prompt tells the model what its tools are for. The phase's own text
 closes with the registered tools by name, and AgentKit follows it, under
@@ -1214,7 +1231,7 @@ phase that writes, only for git and for building, formatting and testing. The
 programs still run when the model has a reason. A phase without a shell is told
 it has none, and gets no guideline that mentions `execute`.
 
-**Indexed search.** `code_search` joins the six read tools in the `analyse` and
+**Indexed search.** `code_search` joins the seven read tools in the `analyse` and
 `implement` phases when the code-search index is built (`--preflight` reports
 it as `code_search_index`). `fix` invalidates the index after it creates the
 work branch, so `implement` searches the tree it will change, and again after
@@ -1364,11 +1381,11 @@ Anything genuinely untrusted belongs in a container.
 ## `spec`
 
 Turns a product idea into a complete, validated version 2 specification
-package under `.specs/NN_name/`. Every phase reads the tree with the six read
-tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`
-and `find_symbol`) and has no tool that writes. When the run's code-search
+package under `.specs/NN_name/`. Every phase reads the tree with the seven read
+tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`,
+`find_symbol` and `find_references`) and has no tool that writes. When the run's code-search
 index is built, every phase can also call `code_search`; without the index the
-six read tools are all it has (`--preflight` reports which, as
+seven read tools are all it has (`--preflight` reports which, as
 `code_search_index`).
 
 ```sh
@@ -2038,9 +2055,12 @@ and the `repair` report are in the report file.
 
 ### What the model may and may not do
 
-Every phase of `impl` can call the six read tools — `read_file`, `list_files`,
-`find_files`, `search_files`, `file_outline` and `find_symbol` — whatever else
-it is granted. When the code-search index is built (`--preflight` reports it as
+Every phase of `impl` can call the seven read tools — `read_file`, `list_files`,
+`find_files`, `search_files`, `file_outline`, `find_symbol` and
+`find_references` — whatever else
+it is granted. `find_references` lists who uses a declaration — its call and
+reference sites across the workspace, grouped by file, each site attributed to
+its enclosing declaration. When the code-search index is built (`--preflight` reports it as
 `code_search_index`), the survey, implementation, repair, review and resolve
 phases can also call `code_search`, and `impl` invalidates the index after the
 changes it makes to the tree itself — the work branch, a parked attempt's
