@@ -470,8 +470,10 @@ func unusedDecls(root, p string, fset *token.FileSet, file *ast.File, added Adde
 // errataRefRe is a path:line citation of a code file.
 var errataRefRe = regexp.MustCompile("`?([A-Za-z0-9_./-]+\\.[A-Za-z0-9]+):(\\d+)")
 
-// testRefRe is a reference to a test: a test function name or a test id.
-var testRefRe = regexp.MustCompile(`\bTest[A-Z0-9_]\w*|\bTS-[A-Za-z0-9_]+-\d+\b|\btest_\w+`)
+// testRefRe is a reference to a test: a test function name, a test id, or a
+// JavaScript test named by its it(), test() or describe() call.
+var testRefRe = regexp.MustCompile(`\bTest[A-Z0-9_]\w*|\bTS-[A-Za-z0-9_]+-\d+\b|\btest_\w+|` +
+	"\\b(?:it|test|describe)\\(\\s*['\"`]")
 
 // checkErrataCitation holds an erratum to what makes it one: a citation of
 // the code line that delivers the behaviour, and of the test that proves it.

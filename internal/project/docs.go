@@ -70,18 +70,28 @@ var sourceExts = map[string]bool{
 // IsSourceFile reports whether p is source code by its extension.
 func IsSourceFile(p string) bool { return sourceExts[strings.ToLower(path.Ext(p))] }
 
-// IsTestPath reports whether p is a test or test data, by the naming and
-// directory conventions of the common languages.
+// IsTestPath reports whether p is a test, test data or test support code, by
+// the naming and directory conventions of the common languages. Support code
+// — pytest's conftest.py, Jest and Vitest setup files, Go testutil packages,
+// Ruby spec helpers — counts: it exists only for the tests, and the revert
+// check must leave it in place with them.
 func IsTestPath(p string) bool {
 	base := path.Base(p)
+	stem := strings.TrimSuffix(base, path.Ext(base))
 	if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") ||
 		strings.HasPrefix(base, "test_") || strings.Contains(base, ".test.") ||
-		strings.Contains(base, ".spec.") || strings.HasSuffix(base, "_test.rs") || strings.HasSuffix(base, "Test.java") {
+		strings.Contains(base, ".spec.") || strings.HasSuffix(base, "_test.rs") || strings.HasSuffix(base, "Test.java") ||
+		strings.HasSuffix(base, "_spec.rb") || (strings.HasSuffix(base, "IT.java") && base != "IT.java") {
+		return true
+	}
+	switch {
+	case base == "conftest.py", stem == "setupTests",
+		strings.HasPrefix(base, "jest.setup."), strings.HasPrefix(base, "vitest.setup."):
 		return true
 	}
 	for _, seg := range strings.Split(path.Dir(p), "/") {
 		switch seg {
-		case "testdata", "test", "tests", "__tests__":
+		case "testdata", "test", "tests", "__tests__", "testutil", "testutils", "testhelpers", "spec":
 			return true
 		}
 	}

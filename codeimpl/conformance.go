@@ -150,11 +150,13 @@ func specTestIDs(spec *afspec.Spec) []string {
 var testIDRe = regexp.MustCompile(`^TS-(\d+)-(\d+)$`)
 
 // namesSpecTest reports whether content names one of ids, in any spelling the
-// repository's tests use for TS-16-14: TS-16-14, TS16_14, TS_16_14 or TS1614.
-// The id must end where its number does, so TS-16-1 is not named by TS-16-14.
+// repository's tests use for TS-16-14: TS-16-14, TS16_14, TS_16_14 or TS1614,
+// in any case — a Python or Rust test is test_ts16_14. The id must end where
+// its number does, so TS-16-1 is not named by TS-16-14.
 func namesSpecTest(content string, ids []string) bool {
+	content = strings.ToUpper(content)
 	for _, id := range ids {
-		m := testIDRe.FindStringSubmatch(strings.TrimSpace(id))
+		m := testIDRe.FindStringSubmatch(strings.ToUpper(strings.TrimSpace(id)))
 		if m == nil {
 			continue
 		}

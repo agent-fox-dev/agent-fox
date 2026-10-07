@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -34,7 +35,9 @@ type Profile struct {
 	Manifest string
 	// StubMarker is the language's spelling of "not implemented", which the
 	// integration task is meant to search for.
-	StubMarker string
+	StubMarker string // Also are the other ecosystems whose manifests are present beside the
+	// primary one (a package.json frontend in a Go repository).
+	Also []string
 }
 
 // TargetedRun is how the language's test runner runs one test or one file:
@@ -130,6 +133,15 @@ func DetectProfile(root string) Profile {
 		return Profile{}
 	}
 
+	// The first manifest decides the language; the others present are other
+	// ecosystems the repository also has (a frontend beside a backend), whose
+	// commands are not another project's.
+	for _, m := range manifestFamilies {
+		if m.family != p.Language && exists(m.file) && !slices.Contains(p.Also, m.family) {
+			p.Also = append(p.Also, m.family)
+		}
+	}
+
 	// A Makefile that defines the targets is the project's own answer and
 	// beats the ecosystem default.
 	if mk, ok := read("Makefile"); ok {
@@ -173,8 +185,8 @@ func (p Profile) AuditTasks(content map[string]any) error {
 		if strings.TrimSpace(cmd) == "" {
 			continue
 		}
-		family, known := runnerFamilies[firstWord(cmd)]
-		if !known || family == p.Language {
+		family, known := familyOf(cmd)
+		if !known || p.hasEcosystem(family) {
 			continue
 		}
 		problems = append(problems, fmt.Sprintf(
@@ -215,8 +227,8 @@ func (p Profile) AuditTestCommands(tc afspec.TestCommands) error {
 		if strings.TrimSpace(f.cmd) == "" {
 			continue
 		}
-		family, known := runnerFamilies[firstWord(f.cmd)]
-		if !known || family == p.Language {
+		family, known := familyOf(f.cmd)
+		if !known || p.hasEcosystem(family) {
 			continue
 		}
 		problems = append(problems, fmt.Sprintf(
@@ -252,10 +264,35 @@ A command from another ecosystem is refused before the artifact is written.
 `, p.Language, p.Manifest, p.AllTests, p.Linter, p.Language, p.StubMarker)
 }
 
-func firstWord(s string) string {
-	f := strings.Fields(s)
+// AuditTestCommandsFor audits one command as all_tests.
+func (p Profile) AuditTestCommandsFor(cmd string) error {
+	return p.AuditTestCommands(afspec.TestCommands{AllTests: cmd})
+}
+
+// familyOf is the ecosystem a command's program belongs to: looked up as
+// spelled first, so a program named by a path (`./gradlew`) finds its own
+// entry, then by its base name.
+func familyOf(cmd string) (string, bool) {
+	f := strings.Fields(cmd)
 	if len(f) == 0 {
-		return ""
+		return "", false
 	}
-	return filepath.Base(f[0])
+	if family, ok := runnerFamilies[f[0]]; ok {
+		return family, true
+	}
+	family, ok := runnerFamilies[filepath.Base(f[0])]
+	return family, ok
+}
+
+// hasEcosystem reports whether family is the project's language or one of
+// the other ecosystems present beside it.
+func (p Profile) hasEcosystem(family string) bool {
+	return family == p.Language || slices.Contains(p.Also, family)
+}
+
+// manifestFamilies are the manifests DetectProfile recognizes, in its order
+// of precedence, with the ecosystem each one means.
+var manifestFamilies = []struct{ file, family string }{
+	{"go.mod", "go"}, {"Cargo.toml", "rust"}, {"pyproject.toml", "python"},
+	{"package.json", "node"}, {"pom.xml", "jvm"}, {"Gemfile", "ruby"},
 }
