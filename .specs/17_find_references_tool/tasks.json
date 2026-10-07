@@ -110,7 +110,7 @@
       "done_when": [
         "git diff --exit-code go.mod go.sum cmd/fix/testdata cmd/impl/testdata cmd/spec/testdata cmd/triage/testdata is clean"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 3,

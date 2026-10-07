@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -1385,5 +1386,345 @@ func TestTS17_18_TheRunnerSendsTheGuidelines(t *testing.T) {
 	}
 	if n := strings.Count(sys, tools.SearchOverExecuteGuideline); n != 1 {
 		t.Errorf("the search-over-execute line appears %d times", n)
+	}
+}
+
+// TS-17-6 (unit): registeredTools makes one tools.All call per phase with
+// only Workspace and Index set, and two phases receive separate tool slices
+// that each include find_references.
+//
+// Verifies: 17-REQ-2.1
+func TestTS17_6_RegisteredToolsOneCallPerPhaseWithFindReferences(t *testing.T) {
+	// Part 1: source-level assertion on the body of registeredTools.
+	src, err := os.ReadFile("phase.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	i := strings.Index(text, "func (r *Runner) registeredTools(")
+	if i < 0 {
+		t.Fatal("registeredTools not found")
+	}
+	body := text[i:]
+	if j := strings.Index(body, "\n}\n"); j >= 0 {
+		body = body[:j]
+	}
+	if n := strings.Count(body, "tools.All("); n != 1 {
+		t.Errorf("registeredTools has %d tools.All calls, want 1", n)
+	}
+	if !strings.Contains(body, "tools.All(tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index})") {
+		t.Errorf("tools.All should be called with only Workspace and Index set:\n%s", body)
+	}
+	if strings.Contains(body, "Symbols") {
+		t.Error("registeredTools must not set Symbols")
+	}
+
+	// Part 2: two registeredTools calls on one Runner both hold
+	// find_references and return slices with different backing arrays.
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+	r, err := NewRunner(fauxConfig(faux.New(), ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, err := r.registeredTools(Phase{Name: "a", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t2, err := r.registeredTools(Phase{Name: "b", BuiltinTools: ReadOnlyFileTools, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTool(t1, "find_references") {
+		t.Error("phase a lacks find_references")
+	}
+	if !hasTool(t2, "find_references") {
+		t.Error("phase b lacks find_references")
+	}
+	if len(t1) == 0 || len(t2) == 0 || &t1[0] == &t2[0] {
+		t.Error("the two phases share a tool slice")
+	}
+}
+
+// TS-17-7 (integration): Each phase holds its own reference table: a call
+// site added between a read-only phase and a writing phase is absent from
+// the first phase's find_references answer and present in the second's.
+//
+// Verifies: 17-REQ-2.1
+func TestTS17_7_PerPhaseReferenceTableFreshness(t *testing.T) {
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+
+	// Write a.go with a function the first phase will look up.
+	aGo := filepath.Join(ws.Root, "a.go")
+	if err := os.WriteFile(aGo, []byte("package main\n\nfunc LateArrival() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := faux.New(
+		// Read-only phase: find_references LateArrival, then submit.
+		toolCallTurn("a1", "find_references", map[string]any{"name": "LateArrival", "path": "a.go"}),
+		toolCallTurn("a2", "submit", map[string]any{"value": "x"}),
+		// Writing phase: find_references LateArrival, then submit.
+		toolCallTurn("i1", "find_references", map[string]any{"name": "LateArrival", "path": "a.go"}),
+		toolCallTurn("i2", "submit", map[string]any{"value": "x"}),
+	)
+
+	var got string
+	var calls int
+	r, err := NewRunner(fauxConfig(p, ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run the read-only phase.
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "analyse", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: ReadOnlyFileTools,
+		ReadOnly: true,
+	}); err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	nAnalyse := len(p.Requests())
+
+	// Write late.go between the phases.
+	lateGo := filepath.Join(ws.Root, "late.go")
+	if err := os.WriteFile(lateGo, []byte("package main\n\nfunc UseLate() { LateArrival() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run the writing phase.
+	builtins := append(append([]string(nil), ReadOnlyFileTools...), WriteFileTools...)
+	builtins = append(builtins, "execute")
+	calls = 0
+	if _, err := r.Run(context.Background(), Phase{
+		Name: "implement", System: "s", User: "u", Terminator: "submit",
+		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: builtins,
+		ReadOnly: false, Programs: ReadOnlyPrograms,
+	}); err != nil {
+		t.Fatalf("implement: %v", err)
+	}
+
+	reqs := p.Requests()
+	if nAnalyse == 0 || len(reqs) <= nAnalyse {
+		t.Fatalf("expected requests from both phases, got %d then %d", nAnalyse, len(reqs))
+	}
+
+	// Extract tool results from the requests.
+	result := func(req core.Request) string {
+		raw, err := json.Marshal(req.Messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+
+	// The first phase's find_references result should not mention UseLate.
+	firstResult := result(reqs[nAnalyse-1])
+	if strings.Contains(firstResult, "UseLate") {
+		t.Error("analyse's find_references saw UseLate, which did not exist yet")
+	}
+
+	// The second phase's find_references result should mention UseLate.
+	secondResult := result(reqs[len(reqs)-1])
+	if !strings.Contains(secondResult, "UseLate") {
+		t.Errorf("implement's find_references did not find UseLate:\n%s", secondResult)
+	}
+}
+
+// TS-17-8 (integration): toolsNote lists find_references, generated from the
+// registered set, in the system prompt of both a read-only and a writing phase.
+//
+// Verifies: 17-REQ-2.2
+func TestTS17_8_ToolsNoteListsFindReferences(t *testing.T) {
+	// Part 1: synthetic set — does not need the replace target.
+	t.Run("synthetic", func(t *testing.T) {
+		note := toolsNote([]core.Tool{
+			{Name: "read_file"}, {Name: "find_references"}, {Name: "submit"},
+		})
+		if !strings.Contains(note, "find_references, read_file, submit") {
+			t.Errorf("synthetic note does not list find_references in sorted order: %q", note)
+		}
+	})
+
+	// Part 2: real tools.All for a read-only and a writing phase.
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+
+	for _, tc := range []struct {
+		name     string
+		readOnly bool
+		builtins []string
+		programs []string
+	}{
+		{"read-only", true, ReadOnlyFileTools, nil},
+		{"writing", false, append(append([]string(nil), ReadOnlyFileTools...), append(WriteFileTools, "execute")...), ReadOnlyPrograms},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
+			var got string
+			var calls int
+			r, err := NewRunner(fauxConfig(p, ws))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.Run(context.Background(), Phase{
+				Name: "test", System: "s", User: "u", Terminator: "submit",
+				Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: tc.builtins,
+				ReadOnly: tc.readOnly, Programs: tc.programs,
+			}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			reqs := p.Requests()
+			if len(reqs) == 0 {
+				t.Fatal("no request reached the wire")
+			}
+			var sb strings.Builder
+			for _, blk := range reqs[0].System {
+				if tb, ok := blk.(core.TextBlock); ok {
+					sb.WriteString(tb.Text)
+				}
+			}
+			sys := sb.String()
+			if !strings.Contains(sys, "Your tools are exactly:") {
+				t.Error("system prompt lacks 'Your tools are exactly:'")
+			}
+			// find_files, find_references, find_symbol must appear in that order.
+			fi := strings.Index(sys, "find_files")
+			fr := strings.Index(sys, "find_references")
+			fs := strings.Index(sys, "find_symbol")
+			if fi < 0 || fr < 0 || fs < 0 {
+				t.Errorf("system prompt missing one of find_files/find_references/find_symbol: %s", sys)
+			} else if !(fi < fr && fr < fs) {
+				t.Errorf("tools not in sorted order: find_files@%d, find_references@%d, find_symbol@%d", fi, fr, fs)
+			}
+			// Extract the tool list and verify it is sorted.
+			const marker = "Your tools are exactly: "
+			start := strings.Index(sys, marker)
+			if start < 0 {
+				t.Fatal("marker not found")
+			}
+			after := sys[start+len(marker):]
+			end := strings.Index(after, ". Calling any other tool")
+			if end < 0 {
+				t.Fatal("end marker not found")
+			}
+			list := strings.Split(after[:end], ", ")
+			sorted := slices.Clone(list)
+			sort.Strings(sorted)
+			if !slices.Equal(list, sorted) {
+				t.Errorf("tool list is not sorted: %v", list)
+			}
+		})
+	}
+}
+
+// TS-17-9 (integration): SelectTools keeps AgentKit's PromptGuidelines for
+// find_references unchanged in a phase without a shell and in a phase with one.
+//
+// Verifies: 17-REQ-2.3
+func TestTS17_9_SelectToolsKeepsFindReferencesGuidelines(t *testing.T) {
+	ws := newWorkspace(t)
+	built, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Fatalf("tools.All: %v", err)
+	}
+	var orig []string
+	for _, tl := range built {
+		if tl.Name == "find_references" {
+			orig = tl.PromptGuidelines
+			break
+		}
+	}
+	if len(orig) == 0 {
+		t.Skip("find_references not offered or has no PromptGuidelines")
+	}
+	// The guidelines must not mention execute or any mutating tool.
+	for _, g := range orig {
+		if strings.Contains(g, "execute") {
+			t.Errorf("find_references guideline mentions execute: %q", g)
+		}
+		for _, m := range MutatingTools {
+			if strings.Contains(g, m) {
+				t.Errorf("find_references guideline mentions %s: %q", m, g)
+			}
+		}
+	}
+
+	// Read-only phase without shell.
+	ro := SelectTools(built, true, nil, ReadOnlyFileTools...)
+	var roGuidelines []string
+	for _, tl := range ro {
+		if tl.Name == "find_references" {
+			roGuidelines = tl.PromptGuidelines
+			break
+		}
+	}
+	if !slices.Equal(roGuidelines, orig) {
+		t.Errorf("read-only phase guidelines differ:\ngot:  %v\nwant: %v", roGuidelines, orig)
+	}
+
+	// Writing phase with execute.
+	rw := SelectTools(built, false, ReadOnlyPrograms, append(slices.Clone(ReadOnlyFileTools), "write_file", "edit_file", "execute")...)
+	var rwGuidelines []string
+	for _, tl := range rw {
+		if tl.Name == "find_references" {
+			rwGuidelines = tl.PromptGuidelines
+			break
+		}
+	}
+	if !slices.Equal(rwGuidelines, orig) {
+		t.Errorf("writing phase guidelines differ:\ngot:  %v\nwant: %v", rwGuidelines, orig)
+	}
+}
+
+// TS-17-12 (unit): SelectTools drops a listed name the built set lacks and
+// returns the other tools in built order, and registeredTools returns a nil
+// error.
+//
+// Verifies: 17-REQ-2.6
+func TestTS17_12_SelectToolsDropsMissingName(t *testing.T) {
+	// Part 1: SelectTools over a built set of six tools without find_references.
+	built := []core.Tool{
+		{Name: "read_file"}, {Name: "list_files"}, {Name: "find_files"},
+		{Name: "search_files"}, {Name: "file_outline"}, {Name: "find_symbol"},
+	}
+	got := SelectTools(built, true, nil, ReadOnlyFileTools...)
+	gotNames := make([]string, len(got))
+	for i, tl := range got {
+		gotNames[i] = tl.Name
+	}
+	wantNames := make([]string, len(built))
+	for i, tl := range built {
+		wantNames[i] = tl.Name
+	}
+	if !slices.Equal(gotNames, wantNames) {
+		t.Errorf("SelectTools returned %v, want %v", gotNames, wantNames)
+	}
+
+	// Part 2: registeredTools for BuiltinTools = ReadOnlyFileTools plus 'no_such_tool'.
+	ws := newWorkspace(t)
+	r, err := NewRunner(fauxConfig(faux.New(), ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtins := append(slices.Clone(ReadOnlyFileTools), "no_such_tool")
+	ts, err := r.registeredTools(Phase{Name: "a", BuiltinTools: builtins, ReadOnly: true})
+	if err != nil {
+		t.Fatalf("registeredTools returned error: %v", err)
+	}
+	for _, tl := range ts {
+		if tl.Name == "no_such_tool" {
+			t.Error("no_such_tool was not dropped")
+		}
+	}
+	for _, n := range ReadOnlyFileTools {
+		if !hasTool(ts, n) {
+			// find_references may be missing if the replace target doesn't offer it.
+			if n == "find_references" {
+				continue // acceptable: the replace target may not offer it
+			}
+			t.Errorf("%s was not in the returned set", n)
+		}
 	}
 }
