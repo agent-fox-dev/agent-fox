@@ -183,10 +183,13 @@ file's declarations (kind, name and line) without reading its body, and
 `find_symbol` locates a name across the workspace in one call, where a
 `search_files` and a `read_file` would otherwise be needed. `find_references`
 answers "who calls or uses this declaration", with each site attributed to its
-enclosing declaration and labelled by confidence. All three are AgentKit's. Universal-ctags is the accelerator: where it is installed they use
-it, and where it is not they fall back to heuristics, the same pattern as
-`search_files` with `rg`. Each result names the backend that produced it, and
-`--preflight` reports which one a run will use (the `symbol_backend` check).
+enclosing declaration and labelled by confidence. `file_outline` and
+`find_symbol` are AgentKit's; universal-ctags is the accelerator: where it is
+installed they use it, and where it is not they fall back to heuristics, the
+same pattern as `search_files` with `rg`. `find_references` is AgentKit's too,
+available when AgentKit ships it. Each result names the backend that produced
+it, and `--preflight` reports which one a run will use (the `symbol_backend`
+check).
 Each phase holds its own symbol table: `find_symbol` builds it on its first
 call and it is bounded by AgentKit's defaults, so `fix` and `impl` do not carry
 a table across the checkouts, resets, gate runs and commits between phases.

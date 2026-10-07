@@ -1201,16 +1201,17 @@ func TestTS17_17_ToolsNoteIsDeterministic(t *testing.T) {
 
 // TS-18-3 (unit): A phase that sets BuiltinTools to ReadOnlyFileTools
 // resolves find_references in its tool set (when tools.All returns it).
-// Because find_references is not yet shipped in agentkit-go, this test
-// verifies that every ReadOnlyFileTools entry that tools.All does return
-// reaches the wire, and that ReadOnlyFileTools itself contains find_references.
+// Every ReadOnlyFileTools entry that tools.All returns must appear in the
+// model request's declared tools. Entries not yet shipped by agentkit-go
+// (e.g. find_references) are logged but not failed.
 //
 // Verifies: 18-REQ-1.3
 func TestTS18_3_ReadOnlyPhaseResolvesReadOnlyFileTools(t *testing.T) {
+	ws := newWorkspace(t)
 	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 	var got string
 	var calls int
-	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	r, err := NewRunner(fauxConfig(p, ws))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1222,11 +1223,14 @@ func TestTS18_3_ReadOnlyPhaseResolvesReadOnlyFileTools(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	declared := declaredTools(t, p)
-	// Every ReadOnlyFileTools entry that tools.All returns must be declared.
+	available := toolsAllNames(t, ws)
 	for _, n := range ReadOnlyFileTools {
-		// tools.All may not yet return find_references; skip it if absent.
+		if !available[n] {
+			t.Logf("%s not yet in tools.All; skipping wire assertion", n)
+			continue
+		}
 		if !declared[n] {
-			t.Logf("%s not declared (tools.All may not return it yet)", n)
+			t.Errorf("%s is in tools.All but was not declared to the model", n)
 		}
 	}
 	// ReadOnlyFileTools itself must contain find_references.
@@ -1240,7 +1244,8 @@ func TestTS18_3_ReadOnlyPhaseResolvesReadOnlyFileTools(t *testing.T) {
 //
 // Verifies: 18-REQ-2.1
 func TestTS18_4_RegisteredToolsIsFreshPerPhaseForFindReferences(t *testing.T) {
-	r, err := NewRunner(fauxConfig(faux.New(), newWorkspace(t)))
+	ws := newWorkspace(t)
+	r, err := NewRunner(fauxConfig(faux.New(), ws))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1252,13 +1257,18 @@ func TestTS18_4_RegisteredToolsIsFreshPerPhaseForFindReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both phases must resolve the same set of tools from ReadOnlyFileTools.
+	available := toolsAllNames(t, ws)
+	// Every ReadOnlyFileTools entry that tools.All returns must be in both phases.
 	for _, n := range ReadOnlyFileTools {
-		if !hasTool(t1, n) && hasTool(t2, n) {
-			t.Errorf("%s in phase b but not phase a", n)
+		if !available[n] {
+			t.Logf("%s not yet in tools.All; skipping wire assertion", n)
+			continue
 		}
-		if hasTool(t1, n) && !hasTool(t2, n) {
-			t.Errorf("%s in phase a but not phase b", n)
+		if !hasTool(t1, n) {
+			t.Errorf("%s is in tools.All but missing from phase a", n)
+		}
+		if !hasTool(t2, n) {
+			t.Errorf("%s is in tools.All but missing from phase b", n)
 		}
 	}
 	// The two slices must be distinct objects.
