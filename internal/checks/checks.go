@@ -152,6 +152,21 @@ func Program(command string) string {
 	return ""
 }
 
+// Programs are the allowlist entries a command needs: its program's name and,
+// when the command names it by a path (`./gradlew test`), that path too. A
+// shell allowlist matches a program named by a path only as that path, so
+// the name alone would refuse the very command the phase is judged by.
+func Programs(command string) []string {
+	p := Program(command)
+	if p == "" {
+		return nil
+	}
+	if word := strings.Fields(command)[0]; word != p {
+		return []string{p, word}
+	}
+	return []string{p}
+}
+
 // Tail returns the last n lines of s.
 func Tail(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")

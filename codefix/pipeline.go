@@ -217,9 +217,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	b := o.brain
 	if b == nil {
 		programs := append([]string(nil), o.AllowPrograms...)
-		if p := checks.Program(command); p != "" {
-			programs = append(programs, p)
-		}
+		programs = append(programs, checks.Programs(command)...)
 		b = &agentBrain{runner: o.Runner, extraPrograms: programs, codeSearch: indexed}
 	}
 	o.brain = b

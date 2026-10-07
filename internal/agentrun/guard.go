@@ -51,6 +51,11 @@ type GuardOptions struct {
 	// OnBlock is called with the tool's name and the reason for each
 	// refusal.
 	OnBlock func(name, reason string)
+
+	// cwd is where the command being judged runs, relative to the workspace
+	// root: the target of a leading `cd`, or "" for the root. It is set per
+	// call, never by a caller.
+	cwd string
 }
 
 // Guard is the authorization boundary for a phase that has a shell.
@@ -77,9 +82,15 @@ type GuardOptions struct {
 // adapts, which is why each reason says what to do instead.
 func Guard(o GuardOptions) core.BeforeToolCall {
 	o.Programs = uniquePrograms(o.Programs)
+	// A phase that writes may set a harmless variable in front of a program
+	// (GOFLAGS=…, CGO_ENABLED=0); the floor still refuses the ones that change
+	// which binary runs or what is loaded into it (PATH, LD_*, DYLD_*, …). A
+	// read-only phase may set none: GIT_EXTERNAL_DIFF and GIT_PAGER alone make
+	// an allowed git run a program of the model's choosing.
 	base := guard.Restricted(guard.Options{
 		AllowedPrograms:     o.Programs,
 		AllowShellOperators: o.AllowOperators,
+		AllowEnvPrefixes:    !o.ReadOnlyFiles,
 		TerminateOnBlock:    false,
 	})
 	log := o.OnBlock
@@ -109,12 +120,18 @@ func Guard(o GuardOptions) core.BeforeToolCall {
 			return base(ctx, in)
 
 		case "execute", "run_command", "powershell":
-			// A leading `cd <workspace>` changes nothing the guard protects,
-			// and it is the first thing most calls do, so it is not judged.
+			// A leading `cd <dir>` inside the workspace is the first thing
+			// most calls do. It is not judged as a program, but the shell
+			// still runs it, so the rest is judged where it runs: operands
+			// resolve from <dir>, and the whole suite is the suite only at
+			// the root. Only the judgement uses the stripped command; the
+			// command that executes is the one the model wrote.
+			o := o
 			if in.ToolName != "run_command" {
 				if cmd, _ := in.Arguments["command"].(string); cmd != "" {
-					if stripped, ok := o.stripLeadingCd(cmd); ok {
+					if stripped, dir, ok := o.stripLeadingCd(cmd); ok {
 						in = withCommand(in, stripped)
+						o.cwd = dir
 					}
 				}
 			}
@@ -233,13 +250,21 @@ func backticks(cmd string) int {
 	return n
 }
 
+// The shapes of the floor policy's refusals this guard reads. They are pinned
+// by TestTheFloorPolicysRefusalShapes, so a rewording upstream fails a test
+// instead of silently changing what the model is told.
+const (
+	floorPrefix     = "guard.Restricted: "
+	floorNotAllowed = "is not on the allowlist"
+)
+
 // misreadProgram reports whether a refusal from the shipped policy names, as
 // the program not on the allowlist, a word that is no command's program in
 // this guard's own parse of the line.
 func (o GuardOptions) misreadProgram(reason string, vectors [][]string) bool {
 	const marker = `program "`
 	i := strings.Index(reason, marker)
-	if i < 0 || !strings.Contains(reason, "is not on the allowlist") {
+	if i < 0 || !strings.Contains(reason, floorNotAllowed) {
 		return false
 	}
 	name := reason[i+len(marker):]
@@ -283,7 +308,7 @@ func (o GuardOptions) rmOutside(vectors [][]string) (string, bool) {
 				bad = append(bad, a)
 				continue
 			}
-			abs, err := resolve(a)
+			abs, err := resolve(o.operand(a))
 			if err != nil {
 				bad = append(bad, a)
 				continue
@@ -294,7 +319,7 @@ func (o GuardOptions) rmOutside(vectors [][]string) (string, bool) {
 				bad = append(bad, a)
 				continue
 			}
-			if _, hit := o.protectedDir(a); hit || o.containsProtected(abs, resolve) {
+			if _, hit := o.protectedDir(o.operand(a)); hit || o.containsProtected(abs, resolve) {
 				bad = append(bad, a)
 			}
 		}
@@ -352,7 +377,9 @@ func uniquePrograms(list []string) []string {
 // tests/test_x.py`, `npm test -- src/x.test.ts`) or a flag that selects tests
 // (`mvn test -Dtest=X`) names what it runs, and is not the suite.
 func (o GuardOptions) suiteRun(vectors [][]string) (string, bool) {
-	if len(o.Suite) == 0 {
+	// Run from a subdirectory (`cd pkg && pytest`), the suite's command runs
+	// that directory's tests: a targeted run.
+	if len(o.Suite) == 0 || o.cwd != "" {
 		return "", false
 	}
 	var hit []string
@@ -437,6 +464,9 @@ func containsAll(have, want []string) bool {
 var readOperandPrograms = map[string]bool{
 	"cat": true, "head": true, "tail": true, "wc": true, "ls": true, "file": true,
 	"du": true, "rg": true, "grep": true, "tree": true, "stat": true,
+	// test and [ only answer whether a path exists or is readable, but that
+	// is an oracle for what lies outside the workspace.
+	"test": true, "[": true,
 }
 
 // operandEscapes refuses a read-only phase's command that names a path outside
@@ -462,11 +492,17 @@ func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
 	var bad []string
 	for _, argv := range vectors {
 		name := baseName(argv[0])
-		if !readOperandPrograms[name] {
+		operands := argv[1:]
+		if name == "git" {
+			// git reads the repository its -C, --git-dir and --work-tree
+			// name; the subcommand's own operands are revisions and paths
+			// inside it.
+			operands = gitDirOperands(argv[1:])
+		} else if !readOperandPrograms[name] {
 			continue
 		}
 		skipPattern := name == "grep" || name == "rg"
-		for _, a := range argv[1:] {
+		for _, a := range operands {
 			if a == "--" {
 				continue
 			}
@@ -488,10 +524,10 @@ func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
 				bad = append(bad, a)
 				continue
 			}
-			if rootErr == nil && o.underReadRoot(root, a) {
+			if rootErr == nil && o.underReadRoot(root, o.operand(a)) {
 				continue
 			}
-			abs, err := resolve(a)
+			abs, err := resolve(o.operand(a))
 			if err != nil || rootErr != nil {
 				bad = append(bad, a)
 				continue
@@ -508,6 +544,30 @@ func (o GuardOptions) operandEscapes(vectors [][]string) (string, bool) {
 	return fmt.Sprintf("path outside the workspace: %s. The shell is confined to the repository like "+
 		"the file tools: use paths inside it (relative paths start at the repository root).",
 		strings.Join(bad, ", ")), true
+}
+
+// gitDirOperands are the directories git's global flags point it at.
+func gitDirOperands(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			break // the subcommand
+		}
+		switch {
+		case a == "-C" || a == "--git-dir" || a == "--work-tree":
+			if i+1 < len(args) {
+				out = append(out, args[i+1])
+				i++
+			}
+		case strings.HasPrefix(a, "--git-dir=") || strings.HasPrefix(a, "--work-tree="):
+			_, v, _ := strings.Cut(a, "=")
+			out = append(out, v)
+		case a == "-c":
+			i++
+		}
+	}
+	return out
 }
 
 // underReadRoot reports whether operand a, relative to the workspace root or
@@ -546,8 +606,8 @@ func (o GuardOptions) allowedList() []string {
 // guard's own refusals have: no `guard.Restricted:` prefix, and an allowlist
 // refusal that names what is allowed.
 func (o GuardOptions) restate(reason string) string {
-	reason = strings.TrimPrefix(reason, "guard.Restricted: ")
-	if strings.Contains(reason, "is not on the allowlist") && len(o.Programs) > 0 {
+	reason = strings.TrimPrefix(reason, floorPrefix)
+	if strings.Contains(reason, floorNotAllowed) && len(o.Programs) > 0 {
 		reason += ". Allowed: " + strings.Join(o.allowedList(), ", ") + "."
 	}
 	return reason
@@ -568,11 +628,24 @@ func (o GuardOptions) disallowedPrograms(vectors [][]string, cmd string) (string
 	for _, p := range o.Programs {
 		allowed[p] = true
 	}
+	for _, p := range o.Programs {
+		allowed[baseName(p)] = true // a listed path admits its bare name too
+	}
 	seen := map[string]bool{}
 	var bad []string
 	for _, argv := range vectors {
 		name := baseName(argv[0])
-		if allowed[name] || allowed[strings.TrimSuffix(name, ".exe")] || seen[name] {
+		// A program named by a path runs that file — a repository can plant
+		// `./ls` — so it matches only a listed path, as spelled.
+		if name != argv[0] {
+			name = argv[0]
+			if allowed[filepath.Clean(name)] || allowed[name] {
+				continue
+			}
+		} else if allowed[name] || allowed[strings.TrimSuffix(name, ".exe")] {
+			continue
+		}
+		if seen[name] {
 			continue
 		}
 		seen[name] = true
@@ -590,44 +663,61 @@ func (o GuardOptions) disallowedPrograms(vectors [][]string, cmd string) (string
 }
 
 // stripLeadingCd removes leading `cd <dir>` commands, joined to what follows by
-// `&&`, `;` or a newline, when <dir> is the workspace root or under it. It
-// reports whether it removed anything.
+// `&&`, `;` or a newline, when every <dir> stays inside the workspace. Each
+// <dir> is followed from the one before it, as the shell follows it. It
+// returns the rest of the command, where it runs (relative to the workspace
+// root, "" for the root itself), and whether it removed anything.
 //
 // cd is on no allowlist: it is a shell builtin that reads and writes nothing.
 // It is ignored only where its target is knowable — a plain word, with no
 // expansion, that resolves inside the workspace — so `cd /etc && ls` and
 // `cd $X && ls` are still refused. A cd that is not the first command stays
 // refused, as does one with no command after it.
-func (o GuardOptions) stripLeadingCd(cmd string) (string, bool) {
+func (o GuardOptions) stripLeadingCd(cmd string) (string, string, bool) {
 	resolve := o.ResolvePath
 	if resolve == nil {
 		resolve = filepath.Abs
 	}
 	root, err := resolve(".")
 	if err != nil {
-		return cmd, false
+		return cmd, "", false
 	}
-	rest := cmd
+	rest, cwd := cmd, ""
 	stripped := false
 	for {
 		dir, after, ok := leadingCd(rest)
 		if !ok {
 			break
 		}
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, dir)
+		}
 		abs, err := resolve(dir)
 		if err != nil {
 			break
 		}
-		if rel, err := filepath.Rel(root, abs); err != nil || rel == ".." ||
-			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			break
 		}
-		rest, stripped = after, true
+		if rel == "." {
+			rel = ""
+		}
+		rest, cwd, stripped = after, rel, true
 	}
 	if !stripped || strings.TrimSpace(rest) == "" {
-		return cmd, false
+		return cmd, "", false
 	}
-	return rest, true
+	return rest, cwd, true
+}
+
+// operand is a command's operand as the workspace resolves it: a relative
+// one is taken from where the command runs.
+func (o GuardOptions) operand(a string) string {
+	if o.cwd == "" || filepath.IsAbs(a) || strings.HasPrefix(a, "~") || strings.HasPrefix(a, "$") {
+		return a
+	}
+	return filepath.Join(o.cwd, a)
 }
 
 // leadingCd parses `cd <word>` followed by `&&`, `;` or a newline at the start
@@ -757,7 +847,9 @@ func gitReadOnly(args []string) (reason string, ok bool) {
 	for _, a := range args[:i] {
 		// `-c core.fsmonitor=…`, `--config-env` and `--exec-path` make git run
 		// a program of the model's choosing before any subcommand does.
-		if a == "-c" || strings.HasPrefix(a, "--config-env") || strings.HasPrefix(a, "--exec-path") {
+		// -c glued to its value (`-ccore.pager=…`) is refused the same way,
+		// whatever the installed git makes of it.
+		if strings.HasPrefix(a, "-c") || strings.HasPrefix(a, "--config-env") || strings.HasPrefix(a, "--exec-path") {
 			return "git " + a + " is not allowed; " + readOnlyGitHint, false
 		}
 	}
@@ -853,7 +945,8 @@ func commandWords(words []string) []string {
 				continue
 			}
 		}
-		w = strings.TrimRight(strings.Trim(w, `"'`), ")")
+		// Quotes join and do not change a word to the shell: `g"i"t` is git.
+		w = strings.TrimRight(strings.NewReplacer(`"`, "", `'`, "").Replace(w), ")")
 		if w != "" {
 			out = append(out, w)
 		}

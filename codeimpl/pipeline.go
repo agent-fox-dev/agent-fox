@@ -167,9 +167,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if b == nil {
 		programs := append([]string(nil), o.AllowPrograms...)
 		for _, cmd := range st.gate {
-			if p := checks.Program(cmd); p != "" {
-				programs = append(programs, p)
-			}
+			programs = append(programs, checks.Programs(cmd)...)
 		}
 		b = &agentBrain{runner: o.Runner, repairRunner: o.RepairRunner, extraPrograms: programs, protected: st.specDir,
 			noTestFirst: o.NoTestFirst, codeSearch: indexed}
