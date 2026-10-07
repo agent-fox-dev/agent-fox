@@ -205,3 +205,29 @@ func TestACancelledRunIsAbortedNotFailed(t *testing.T) {
 		t.Error("an aborted run is reported as not run")
 	}
 }
+
+// Issue #215: the verification command comes from the same table of
+// ecosystems the project profile uses, so the two detectors agree, and a
+// package.json whose test script is npm init's stub has no tests to run.
+func TestDetectAgreesWithTheProjectProfile(t *testing.T) {
+	for _, c := range []struct{ file, content, want string }{
+		{"pom.xml", "<project/>", "mvn -q test"},
+		{"Gemfile", "source 'https://rubygems.org'\n", "bundle exec rspec"},
+		{"package.json", `{"scripts":{"test":"echo \"Error: no test specified\" && exit 1"}}`, ""},
+		{"package.json", `{"name":"x","description":"a \"test\" helper"}`, ""},
+		{"package.json", `{"scripts":{"test":"vitest run"}}`, "npm test"},
+		{"package.json", `not json, "test"`, ""},
+	} {
+		dir := t.TempDir()
+		write(t, dir, c.file, c.content)
+		if got := Detect(dir); got != c.want {
+			t.Errorf("%s %s: Detect = %q, want %q", c.file, c.content, got, c.want)
+		}
+	}
+	// A Makefile alone is still the project's own answer.
+	dir := t.TempDir()
+	write(t, dir, "Makefile", "check:\n\t./ci.sh\n")
+	if got := Detect(dir); got != "make check" {
+		t.Errorf("Makefile only: Detect = %q", got)
+	}
+}

@@ -213,7 +213,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	result.Repo = target.String()
 	result.BaseBranch = base
 
-	command := resolveVerifyAndBaseline(ctx, o, root, result)
+	command, vErr := resolveVerifyAndBaseline(ctx, o, root, result)
+	if vErr != nil {
+		return result, vErr
+	}
 	baseline := result.Baseline
 
 	// The acceptance criteria are read out of the report before the model
@@ -369,7 +372,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	verdict := checks.Compare(baseline, after)
 	result.Verdict = string(verdict)
 
-	landable := verdict.Landable() || (verdict == checks.VerdictUnverified && command == "")
+	landable := verdict.Landable() || (verdict == checks.VerdictUnverified && o.NoVerify)
 	if !landable {
 		return parkUnverified(ctx, o, git, before, result, impl, analysis, verdict, base)
 	}
@@ -558,25 +561,30 @@ func newResult(o Options) *Result {
 
 // resolveVerifyAndBaseline settles the command that decides success — the
 // operator's, else the detected one, else none under --no-verify — and runs
-// it once as the baseline, recording the outcome in result.Baseline. It is
+// it once as the baseline, recording the outcome in result.Baseline. When no
+// command can be detected and none was given, it refuses the run: an
+// unverified change lands only when --no-verify asks for one, and finding
+// that out after the model has run would cost the run for nothing. It is
 // the one block Run and RunPreflight share after Preflight, so --no-verify
 // skips the baseline identically for both.
-func resolveVerifyAndBaseline(ctx context.Context, o Options, root string, result *Result) string {
+func resolveVerifyAndBaseline(ctx context.Context, o Options, root string, result *Result) (string, *Failure) {
 	command := o.VerifyCommand
 	if o.NoVerify {
 		command = ""
+		o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "--no-verify: no verification command runs, and the change "+
+			"will be reported as unverified")
 	} else if command == "" {
 		command = checks.Detect(root)
 		if command == "" {
-			o.Run.Warn(toolio.WarnNoVerifyCommand, "high", "no verification command could be detected for %s: the change will be "+
-				"reported as unverified", root)
-		} else {
-			o.Progress.Detail("verification command: %s", command)
+			return "", failf("preflight", "usage", "no verification command could be detected for %s (no Makefile "+
+				"check or test target, and no manifest with a test command); pass --verify <command> to name one, "+
+				"or --no-verify to land the change unverified", root)
 		}
+		o.Progress.Detail("verification command: %s", command)
 	}
 
 	result.Baseline = runChecks(ctx, o, root, command, "baseline")
-	return command
+	return command, nil
 }
 
 // Preflight runs every check that can refuse the run.
@@ -698,7 +706,10 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	result.Repo = target.String()
 	result.BaseBranch = base
 
-	command := resolveVerifyAndBaseline(ctx, o, root, result)
+	command, vErr := resolveVerifyAndBaseline(ctx, o, root, result)
+	if vErr != nil {
+		return result, vErr
+	}
 
 	var list []toolio.PreflightCheck
 	add := func(check string, ok bool, detail string) {
@@ -721,13 +732,11 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if o.Land.Pushes() && !o.DryRun {
 		add("remote_configured", true, "origin")
 	}
-	switch {
-	case command != "":
-		add("verify_command", true, command)
-	case o.NoVerify:
+	// No command and no --no-verify was refused above.
+	if o.NoVerify {
 		add("verify_command", false, "none: --no-verify was given")
-	default:
-		add("verify_command", false, "none detected")
+	} else {
+		add("verify_command", true, command)
 	}
 	if !o.NoVerify {
 		b := result.Baseline
