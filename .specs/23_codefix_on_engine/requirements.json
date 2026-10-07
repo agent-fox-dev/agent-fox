@@ -1,0 +1,738 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "23",
+  "spec_name": "codefix_on_engine",
+  "schema_version": 2,
+  "introduction": "The codefix-on-engine spec rewrites codefix's pipeline to call internal/engine for branching, the ledger, commit-own, parking, the gate cache and verification; adds the run_checks model-facing tool; wires the prompt-document loader for a stable-prefix brief and per-phase templates; enables transcript pruning; writes check logs to a per-run scratch directory; and implements the targeted revert check — so that fix is a thin, readable sequence over the shared engine and meets the token-halving acceptance criteria.",
+  "glossary": {
+    "engine": "The internal/engine package (from spec 20_engine_core) providing Run, Ledger, GateCache, Park, SetupBranch, Push, OpenPullRequest, CommonPreflight, Background, and Invalidate.",
+    "gate cache": "engine.GateCache — caches verification-command results keyed by tree hash so a landing gate that matches a prior run_checks call is a cache hit.",
+    "inline tests": "Tests co-located in the same file as the implementation (e.g. Rust #[cfg(test)] modules), identified by lang.Profile.InlineTests.",
+    "ledger": "engine.Ledger — tracks untracked files, classifies changes, and commits only the run's own work, replacing codefix/untracked.go.",
+    "profile": "A lang.Profile from internal/lang (spec 19_language_profiles) describing a language's test conventions, targeted command, lint command, and inline-test flag.",
+    "prompt loader": "internal/engine/prompt.Loader (from spec 21_prompt_documents) that renders Markdown templates with typed views.",
+    "run brief": "A BriefView rendered once per run containing the report, repo map, project instructions, steering, language block, baseline verdicts, gate commands and --context; placed as the first user message for cache-prefix stability.",
+    "scratch directory": "The per-run directory at .agent-fox/scratch/<session_id>/ for check logs and throwaway files, replacing the per-phase random directory.",
+    "targeted revert": "A revert check that runs only the tests the change added or edited (from the ledger's classification and the profile's Targeted command) rather than the full suite."
+  },
+  "requirements": [
+    {
+      "id": "23-REQ-1",
+      "title": "Pipeline rewrite on the engine",
+      "rationale": "Eliminating duplicated logic between codefix and codeimpl by delegating to the shared engine makes fix a thin, readable sequence and prevents the two pipelines from diverging.",
+      "criteria": [
+        {
+          "id": "23-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "call engine.NewRun, engine.CommonPreflight, engine.SetupBranch, engine.Ledger.Snapshot, engine.Ledger.Changes, engine.Ledger.Commit, engine.GateCache.Run, engine.Park, engine.Push, and engine.OpenPullRequest instead of the package-local implementations of the same operations"
+        },
+        {
+          "id": "23-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "codefix package",
+          "action": "not contain the functions untrackedNow, commitOwn, commitOwnHooks, ownChange, parkWork, returnCheckout, background, invalidate, runChecks, branchPrefix, or openPullRequest (body-truncation variant), and the file codefix/untracked.go shall not exist"
+        },
+        {
+          "id": "23-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "preserve the existing Run function signature, Options fields, Result fields (except additive ones), Failure type, exit codes, and LandMode semantics so that no caller must change"
+        },
+        {
+          "id": "23-REQ-1.4",
+          "pattern": "event_driven",
+          "condition": "the implement phase ends and the tree has changes",
+          "system": "codefix pipeline",
+          "action": "call engine.Ledger.Changes to classify the diff and engine.Ledger.Commit to commit only the run's own files, excluding pre-existing untracked files recorded by engine.Ledger.Snapshot"
+        },
+        {
+          "id": "23-REQ-1.5",
+          "pattern": "event_driven",
+          "condition": "the run creates a branch",
+          "system": "codefix pipeline",
+          "action": "call engine.SetupBranch with the classification-derived prefix, issue number, and title, and call engine.Invalidate after the checkout"
+        },
+        {
+          "id": "23-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "the run opens a pull request",
+          "system": "codefix pipeline",
+          "action": "call engine.OpenPullRequest, which truncates the body to the forge's limit, instead of sending an unbounded body"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-2",
+      "title": "The run_checks model-facing tool",
+      "rationale": "Giving the model a structured tool for running checks replaces ad-hoc shell invocations, feeds the gate cache, and prevents redundant full-suite runs.",
+      "criteria": [
+        {
+          "id": "23-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "run_checks tool",
+          "action": "accept a scope parameter (enum: \"lint\", \"targeted\", \"all\", default \"all\") and an optional tests parameter (array of strings), and be registered as a core.Tool in the implement phase alongside submit_implementation"
+        },
+        {
+          "id": "23-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "run_checks is called with scope \"lint\"",
+          "system": "run_checks tool",
+          "action": "run the profile's Lint command and return the exit code, ok boolean, the last twenty lines of output, and the full-log path in the scratch directory"
+        },
+        {
+          "id": "23-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "run_checks is called with scope \"targeted\"",
+          "system": "run_checks tool",
+          "action": "run the profile's Targeted command for the named tests (or the tests the ledger says the phase has written so far when tests is empty) and return the same result shape"
+        },
+        {
+          "id": "23-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "run_checks is called with scope \"all\"",
+          "system": "run_checks tool",
+          "action": "run the full verification command, store the result in the GateCache keyed by tree hash, and return the same result shape"
+        },
+        {
+          "id": "23-REQ-2.5",
+          "pattern": "complex_event",
+          "condition": "run_checks is called with scope \"all\" for the third time in one phase",
+          "guard": "two prior scope-all calls have already completed in the same phase",
+          "system": "run_checks tool",
+          "action": "answer from the cache with a note that the budget of two all-scope calls per phase is exhausted, without running the command again"
+        },
+        {
+          "id": "23-REQ-2.6",
+          "pattern": "state_driven",
+          "condition": "the implement phase is active",
+          "system": "shell guard",
+          "action": "refuse the suite's own command and the profile's untargeted Test command, naming run_checks as the alternative, while allowing targeted forms (with a file, test name, or package argument)"
+        },
+        {
+          "id": "23-REQ-2.7",
+          "pattern": "unwanted",
+          "condition": "run_checks is called with scope \"targeted\" on a profile with no Targeted command",
+          "system": "run_checks tool",
+          "action": "fall back to scope \"all\" and include a note in the result explaining the fallback",
+          "contract": "the result contains the note field explaining the fallback and the ok/exit_code from the full-suite run"
+        },
+        {
+          "id": "23-REQ-2.8",
+          "pattern": "unwanted",
+          "condition": "run_checks fails to compute the tree hash for the cache",
+          "system": "run_checks tool",
+          "action": "run the command without caching and return the result",
+          "contract": "the result is identical in shape to a cached run; no error is surfaced to the model"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-3",
+      "title": "Prompt rendering from documents",
+      "rationale": "Replacing Go string constants and fmt.Fprintf assembly with template rendering makes prompts auditable, versionable, and consistent with the prompt-document infrastructure from spec 21.",
+      "criteria": [
+        {
+          "id": "23-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "codefix package",
+          "action": "render all system prompts, phase messages, tool description overrides, guard refusals, and handler rejections through prompt.Loader.Render calls with the corresponding template names (fix/analyse.system.md, fix/analyse.md, fix/implement.system.md, fix/implement.md, tools/*.md, refusals/*.md, rejections/*.md)"
+        },
+        {
+          "id": "23-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "codefix package",
+          "action": "not contain the Go constants analysisSystemPrompt or implementSystemPrompt (from codefix/phases.go) or the builder functions reportBlock, baselineBlock, criteriaBlock, contextBlock, analysisPrompt, implementPrompt, instructionsBlock, or projectInstructions (from codefix/prompts.go); the file codefix/prompts.go shall not exist"
+        },
+        {
+          "id": "23-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "codefix package",
+          "action": "contain no model-facing string constant longer than one sentence (excluding template names and format-string keys)"
+        },
+        {
+          "id": "23-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "the run_checks tool description is rendered",
+          "system": "prompt loader",
+          "action": "render from tools/run_checks.md with the PhaseView carrying the suite commands, the targeted-test form, and the budget"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-4",
+      "title": "Stable-prefix brief",
+      "rationale": "Rendering the run brief once and placing it first enables provider-side prefix caching and reduces per-phase token cost.",
+      "criteria": [
+        {
+          "id": "23-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "build a BriefView once per run containing the language block, repository map, project instructions, steering, gate commands with baseline verdicts, --context value, and the report, and render it from brief/fix.md"
+        },
+        {
+          "id": "23-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "use identical system-prompt text and tool schemas for every phase of the same kind within one run"
+        },
+        {
+          "id": "23-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "place the brief as the first user message, followed by a cache breakpoint when AgentKit PRD 06 §3 is available, with phase-specific material (diagnosis, criteria, branch, date) in a second user message"
+        },
+        {
+          "id": "23-REQ-4.4",
+          "pattern": "optional",
+          "condition": "AgentKit's cache breakpoint (PRD 06 §3) is not yet available",
+          "system": "codefix pipeline",
+          "action": "still render the brief once and place it first in the user prompt, relying on the provider's prefix matching alone"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-5",
+      "title": "Transcript pruning",
+      "rationale": "Replacing stale tool results with stubs reduces context_tokens per phase, contributing to the token-halving goal.",
+      "criteria": [
+        {
+          "id": "23-REQ-5.1",
+          "pattern": "optional",
+          "condition": "AgentKit PRD 06 §4 pruning transform is available",
+          "system": "codefix implement phase",
+          "action": "install the pruning transform so that tool results older than eight turns are replaced by a one-line stub naming the call and its size, and a read_file of a path and range already held unchanged returns a reference to that prior turn"
+        },
+        {
+          "id": "23-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "codefix implement phase",
+          "action": "keep summarisation as the backstop at 60% of the context window regardless of whether the pruning transform is installed"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-6",
+      "title": "Per-run scratch directory with check logs",
+      "rationale": "A single scratch directory per run (keyed by session id) pairs logs with the report and avoids per-phase churn; writing full check output to files and inlining only the tail reduces prompt tokens.",
+      "criteria": [
+        {
+          "id": "23-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "a codefix run starts",
+          "system": "codefix pipeline",
+          "action": "create the scratch directory at .agent-fox/scratch/<session_id>/, write a .gitignore containing '*' in the scratch area, and use this single directory for all phases of the run"
+        },
+        {
+          "id": "23-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "the engine runs any external command (baseline, verification, revert check, or run_checks call)",
+          "system": "engine",
+          "action": "write the command's full output to .agent-fox/scratch/<session_id>/checks/<label>.txt"
+        },
+        {
+          "id": "23-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "include at most the last ten lines of check output inline in the prompt, plus a ref(path) reference to the full log file in the scratch directory"
+        },
+        {
+          "id": "23-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "the codefix run ends (on any path, including cancellation and error)",
+          "system": "codefix pipeline",
+          "action": "remove the scratch directory and, when .agent-fox/scratch and .agent-fox are then empty, remove them as well"
+        },
+        {
+          "id": "23-REQ-6.5",
+          "pattern": "unwanted",
+          "condition": "the scratch directory cannot be created",
+          "system": "codefix pipeline",
+          "action": "emit a warning and continue the run without check logs in the scratch directory",
+          "contract": "the run completes with the same exit code it would have had; a warning is recorded via Run.Warn"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-7",
+      "title": "Targeted revert check",
+      "rationale": "Running only the tests the change added or edited (rather than the full suite) makes the revert check fast on large suites and correct for inline-test languages.",
+      "criteria": [
+        {
+          "id": "23-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "the revert check runs and the profile has a Targeted command",
+          "system": "revert check",
+          "action": "run the profile's Targeted command for exactly the tests the change added or edited (from the ledger's classification), and set result.revert_check.mode to \"targeted\""
+        },
+        {
+          "id": "23-REQ-7.2",
+          "pattern": "complex_event",
+          "condition": "the revert check runs on a profile with InlineTests",
+          "guard": "the changed files contain inline tests identified by the profile's test convention",
+          "system": "revert check",
+          "action": "revert by declaration (line ranges from the file outline) rather than by file, leaving the inline tests in place, and set result.revert_check.declarations to the list of reverted declarations"
+        },
+        {
+          "id": "23-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "the revert check runs and the profile has no Targeted command",
+          "system": "revert check",
+          "action": "run the full suite (current behaviour) and set result.revert_check.mode to \"suite\""
+        },
+        {
+          "id": "23-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "revert check",
+          "action": "hold the implementation in a commit object (via git stash create when the tree is dirty, or a wip: commit with git reset --soft to undo when clean) before anything is put back, so a crash or kill -9 during the check loses no work"
+        },
+        {
+          "id": "23-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "the revert check is cancelled (Ctrl-C)",
+          "system": "revert check",
+          "action": "restore the implementation from the commit object, call engine.Park, and exit with code 4 and category aborted"
+        },
+        {
+          "id": "23-REQ-7.6",
+          "pattern": "event_driven",
+          "condition": "a compile error occurs with the implementation removed",
+          "system": "revert check",
+          "action": "classify the failure using the profile (build failure vs test failure); set proves to true and reason to 'failure was not classified' only when the profile cannot distinguish the two"
+        },
+        {
+          "id": "23-REQ-7.7",
+          "pattern": "unwanted",
+          "condition": "the outline of a changed file cannot be parsed for declaration-level revert",
+          "system": "revert check",
+          "action": "fall back to file-level revert for that file",
+          "contract": "the revert check completes with the file-level revert; no error is returned to the caller"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-8",
+      "title": "Cancellation handling",
+      "rationale": "Every cancellation path must leave no dirty tree, report aborted, and be resumable by re-running the same command.",
+      "criteria": [
+        {
+          "id": "23-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "Ctrl-C is received during the implement phase",
+          "system": "codefix pipeline",
+          "action": "cancel the phase, call engine.Park to commit the work as wip:, return the checkout to the base branch, and exit with code 4 and category aborted"
+        },
+        {
+          "id": "23-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "Ctrl-C is received during the landing gate",
+          "system": "codefix pipeline",
+          "action": "set the gate result's Aborted flag to true, call engine.Park, and exit with code 4 and category aborted"
+        },
+        {
+          "id": "23-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "for any cancelled run, leave no uncommitted changes on the work branch and produce a result that is resumable by re-running the same command"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-9",
+      "title": "Additive envelope fields and conform.Scan integration",
+      "rationale": "New result fields expose language detection, revert mode, cache hits, and pruning metrics without breaking existing callers; passing lang.Detection to conform.Scan enables polyglot structural checks.",
+      "criteria": [
+        {
+          "id": "23-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "codefix result",
+          "action": "include result.language with fields primary (string), detected ([]string), and verify.source (one of \"makefile\", \"profile\", \"flag\", \"none\"), populated from lang.Detection"
+        },
+        {
+          "id": "23-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "codefix result",
+          "action": "include result.revert_check.mode (\"targeted\" or \"suite\") and result.revert_check.declarations (when the revert was by declaration)"
+        },
+        {
+          "id": "23-REQ-9.3",
+          "pattern": "event_driven",
+          "condition": "a gate check is answered from the cache",
+          "system": "codefix result",
+          "action": "set timings[].cached to true on the corresponding timing entry"
+        },
+        {
+          "id": "23-REQ-9.4",
+          "pattern": "optional",
+          "condition": "the pruning transform is installed and removes tokens",
+          "system": "codefix result",
+          "action": "set usage.phases[].pruned_tokens to the number of tokens the pruning transform removed"
+        },
+        {
+          "id": "23-REQ-9.5",
+          "pattern": "ubiquitous",
+          "system": "codefix result",
+          "action": "include prompt_templates (map of document name to SHA-256) in the full report"
+        },
+        {
+          "id": "23-REQ-9.6",
+          "pattern": "ubiquitous",
+          "system": "codefix pipeline",
+          "action": "pass ScanInput.Lang set to the lang.Detection from the engine's Run when calling conform.Scan, so the structural checks use the profile's classifiers"
+        },
+        {
+          "id": "23-REQ-9.7",
+          "pattern": "ubiquitous",
+          "system": "codefix result",
+          "action": "not change any existing flag, exit code, event type, or required result field; the --schema golden files change only by the additive fields defined in this requirement"
+        }
+      ]
+    },
+    {
+      "id": "23-REQ-10",
+      "title": "Documentation updates",
+      "rationale": "The steering directives require that every user-facing or developer-facing surface change is reflected in the documentation in the same session.",
+      "criteria": [
+        {
+          "id": "23-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "document the aborted verdict in the verdict table, describe targeted revert mode in the revert check section, document run_checks under 'What the model may and may not do', and list the additive result fields"
+        },
+        {
+          "id": "23-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "document the run brief and stable prefix, the pruning transform, the scratch logs, run_checks, and rewrite the 'Prompt templates' section for the engine's documents, views and helpers"
+        },
+        {
+          "id": "23-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "docs/configuration.md",
+          "action": "document the prompts/ subdirectory under 'State directory' and the language profiles with what each detects"
+        },
+        {
+          "id": "23-REQ-10.4",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "document internal/lang and internal/engine in the package layout section and add per-language baseline rows"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "23-PATH-1",
+      "title": "Successful fix: engine pipeline from report to landed PR",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs af fix with a bug report and --land=pr"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.NewRun to build the Run value with lang.Detect, then engine.CommonPreflight for repository, clean tree, base branch, remote, and forge auth"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "resolves the verification command via lang.Detection.VerifyCommand and runs the baseline via engine.GateCache.Run"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "builds the BriefView once and renders the analysis system prompt and phase message from fix/analyse.system.md and fix/analyse.md via prompt.Loader"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "runs the analysis phase (read-only agent), receives the Analysis, and calls engine.SetupBranch to create the work branch"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.Ledger.Snapshot to record untracked files, then runs the implement phase with the run_checks tool registered"
+        },
+        {
+          "actor": "model",
+          "action": "calls run_checks with scope 'targeted' to verify its test, then scope 'all' to run the full gate; results are stored in the GateCache"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.Ledger.Changes and engine.Ledger.Commit to classify and commit the change"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.GateCache.Run for the landing gate (cache hit from the model's prior all-scope run_checks call)"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "runs the targeted revert check using the profile's Targeted command for the tests the change added, with the implementation held in a commit object"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls conform.Scan with ScanInput.Lang set, runs the review phase, then calls engine.Push and engine.OpenPullRequest"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "removes the per-run scratch directory and returns the result with stage 'landed'"
+        }
+      ]
+    },
+    {
+      "id": "23-PATH-2",
+      "title": "Cancelled run during implement phase: park and abort",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs af fix and presses Ctrl-C during the implement phase"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "cancels the implement phase, calls engine.Park to commit the work as wip: under a background context"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "returns the checkout to the base branch and exits with code 4, category aborted, and the result marked as resumable"
+        }
+      ]
+    },
+    {
+      "id": "23-PATH-3",
+      "title": "Unverified run: park and report",
+      "steps": [
+        {
+          "actor": "user",
+          "action": "runs af fix with a report"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "completes the implement phase, calls engine.Ledger.Commit, and runs the landing gate via engine.GateCache.Run"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "the gate verdict is VerdictRegressed; calls engine.Park to commit the work as wip:, returns the checkout to the base branch, and exits with category unverified"
+        }
+      ]
+    },
+    {
+      "id": "23-PATH-4",
+      "title": "Targeted revert with inline tests on an InlineTests profile",
+      "steps": [
+        {
+          "actor": "codefix pipeline",
+          "action": "reaches the revert check step with a profile that has InlineTests set and a Targeted command"
+        },
+        {
+          "actor": "revert check",
+          "action": "holds the implementation in a commit object via git stash create"
+        },
+        {
+          "actor": "revert check",
+          "action": "reverts by declaration (line ranges from the outline) rather than by file, leaving inline tests in place"
+        },
+        {
+          "actor": "revert check",
+          "action": "runs the profile's Targeted command for exactly the tests the change added or edited"
+        },
+        {
+          "actor": "revert check",
+          "action": "restores the implementation from the commit object and returns the RevertResult with mode 'targeted' and the declarations list"
+        }
+      ]
+    },
+    {
+      "id": "23-PATH-5",
+      "title": "run_checks budget exhaustion and cache hit",
+      "steps": [
+        {
+          "actor": "model",
+          "action": "calls run_checks with scope 'all' twice during the implement phase, both completing and storing results in the GateCache"
+        },
+        {
+          "actor": "model",
+          "action": "calls run_checks with scope 'all' a third time"
+        },
+        {
+          "actor": "run_checks tool",
+          "action": "answers from the cache with a note that the budget of two all-scope calls per phase is exhausted, without running the command"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "after the implement phase, calls engine.GateCache.Run for the landing gate, which is a cache hit from the second all-scope call"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "internal/engine",
+      "version": "defined by spec 20_engine_core (not yet built)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "NewRun",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func NewRun(root string, git *gitx.Git, opts RunOpts) (*Run, error)",
+          "notes": "Builds the shared Run value from the workspace, git handle, and lang.Detect."
+        },
+        {
+          "name": "CommonPreflight",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func CommonPreflight(ctx context.Context, run *Run, opts PreflightOpts) error",
+          "notes": "Repository, clean tree, base branch, remote, forge auth."
+        },
+        {
+          "name": "SetupBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func SetupBranch(ctx context.Context, run *Run, prefix string, number int, title string) error",
+          "notes": "Creates the work branch."
+        },
+        {
+          "name": "Park",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func Park(ctx context.Context, run *Run, message string, reported []FileChange) (string, error)",
+          "notes": "Commits work as wip: and returns checkout to base branch."
+        },
+        {
+          "name": "Push",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func Push(ctx context.Context, run *Run, attempts int) error"
+        },
+        {
+          "name": "OpenPullRequest",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func OpenPullRequest(ctx context.Context, run *Run, forge issuex.Client, target issuex.Repo, req issuex.CreatePullRequestRequest) (string, error)",
+          "notes": "Truncates body to forge limit."
+        },
+        {
+          "name": "Invalidate",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func Invalidate(run *Run)"
+        },
+        {
+          "name": "Background",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "func Background(ctx context.Context) (context.Context, context.CancelFunc)"
+        },
+        {
+          "name": "GateCache",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "type GateCache struct { ... }",
+          "notes": "Method Run(ctx, runner, root, command, timeout, label) checks.Result caches by tree hash."
+        },
+        {
+          "name": "Ledger",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine",
+          "signature": "type Ledger struct { ... }",
+          "notes": "Methods: Snapshot, Changes, Commit, OwnChange, SetOwned, SetProtected, FlagGateEdits."
+        }
+      ]
+    },
+    {
+      "package": "internal/engine/prompt",
+      "version": "defined by spec 21_prompt_documents (not yet built)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Loader",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine/prompt",
+          "signature": "type Loader struct { ... }",
+          "notes": "Methods: Render(name string, view any) (string, error), Hash(name string) string, Names() []string."
+        },
+        {
+          "name": "BriefView",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine/prompt",
+          "signature": "type BriefView struct { Root, Language, RepoMap, Instructions, Steering, Context string; VerifyCommands []string; BaselineResults []BaselineEntry; Report ReportData }"
+        },
+        {
+          "name": "PhaseView",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/engine/prompt",
+          "signature": "type PhaseView struct { BriefView; Branch, Date string; Diagnosis DiagnosisData; Criteria []CriterionData; ... }"
+        }
+      ]
+    },
+    {
+      "package": "internal/lang",
+      "version": "defined by spec 19_language_profiles (not yet built)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Detect",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func Detect(root string) Detection"
+        },
+        {
+          "name": "Detection",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "type Detection struct { Primary *Profile; All []*Profile }",
+          "notes": "Methods: VerifyCommand, TestFile, Programs, IsSourceFile."
+        },
+        {
+          "name": "Profile",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "type Profile struct { Name string; Targeted Command; InlineTests bool; Programs []string; ... }"
+        }
+      ]
+    },
+    {
+      "package": "internal/checks",
+      "version": "current",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Result",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "type Result struct { Command string; ExitCode int; OK bool; Output string; Skipped bool; Aborted bool; TimedOut bool; DurationMS int64 }"
+        },
+        {
+          "name": "Compare",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "func Compare(baseline, after Result) Verdict"
+        },
+        {
+          "name": "Run",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "func Run(ctx context.Context, r gitx.Runner, dir, command string, timeout time.Duration) Result"
+        }
+      ]
+    },
+    {
+      "package": "internal/conform",
+      "version": "current",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Revert",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/conform",
+          "signature": "func Revert(ctx context.Context, g *gitx.Git, root, base string, changed []string, check func(context.Context) checks.Result) (RevertResult, error)"
+        },
+        {
+          "name": "RevertResult",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/conform",
+          "signature": "type RevertResult struct { Ran bool; Reverted []string; Tests []string; Check *checks.Result; Proves bool; CompileFailed bool; Reason string }"
+        },
+        {
+          "name": "CompileFailure",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/conform",
+          "signature": "func CompileFailure(output string) bool"
+        }
+      ]
+    },
+    {
+      "package": "internal/agentrun",
+      "version": "current",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "GuardOptions",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/agentrun",
+          "signature": "type GuardOptions struct { Root string; ReadRoots []string; Suite []string; TargetedRun string; ... }",
+          "notes": "The Suite and TargetedRun fields drive the shell refusal for run_checks."
+        },
+        {
+          "name": "newScratch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/agentrun",
+          "signature": "func newScratch(root string) (string, func(), error)",
+          "notes": "Per-phase scratch creation; remains available for non-migrated tools."
+        }
+      ]
+    }
+  ]
+}

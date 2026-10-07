@@ -1,0 +1,460 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "21",
+  "spec_name": "prompt_documents",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/engine/prompt/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "19",
+      "reason": "BriefView.Language and partials/language.md render from lang.Detection; the denylist test from 19 is extended to cover template files."
+    },
+    {
+      "spec": "20",
+      "reason": "internal/engine is the parent package of internal/engine/prompt; BriefView references engine.Run fields; run-time prompt auditing integrates with toolio.Run."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Create the prompt Loader, view structs, function map and embedded template tree skeleton",
+      "criteria": [
+        "21-REQ-1.1",
+        "21-REQ-2",
+        "21-REQ-3",
+        "21-REQ-4",
+        "21-REQ-5"
+      ],
+      "tests": [
+        "TS-21-1",
+        "TS-21-5",
+        "TS-21-6",
+        "TS-21-7",
+        "TS-21-8",
+        "TS-21-9",
+        "TS-21-10",
+        "TS-21-11",
+        "TS-21-12",
+        "TS-21-13"
+      ],
+      "steps": [
+        "Create the package directory internal/engine/prompt/ and add a prompt.go file with the //go:embed prompts/**/*.md directive on an embed.FS variable.",
+        "Define the Header struct with fields Name, Kind, View, Stable (bool) and MaxBytes (int). Write parseHeader(raw []byte) (Header, []byte, error) that splits YAML front-matter from the template body and validates the five required fields and the kind enum.",
+        "Define BriefView, PhaseView (embedding BriefView) and AttemptView (embedding PhaseView) with all fields listed in REQ-4.1, REQ-4.2 and REQ-4.3, including sub-structs ReportData, SpecData, BaselineEntry, CriterionData, TaskData, DiagnosisData, VerdictEntry, LandedTaskData, SurveyData, APIData, ReadRootData and PreviousAttemptData.",
+        "Implement the function map: fence, code, join, count, lines, ref, ids, title, trimSpace, firstNonEmpty. Each is a plain Go function registered via template.FuncMap.",
+        "Implement NewLoader() *Loader: walk the embedded FS, parse each .md file's header, strip the front-matter, parse the body with text/template using Option(\"missingkey\", \"error\") and Funcs(funcMap). Panic on any missing or malformed header. Also implement NewLoaderFrom(fs embed.FS) for testing with custom FS.",
+        "Implement Render(name string, view any) (string, error) and RenderBytes(name string, view any) ([]byte, error) that execute the named template against the view.",
+        "Implement Hash(name string) string returning the SHA-256 hex digest of the raw embedded source. Panic on unknown name. Implement Names() []string returning sorted template names. Implement Header(name string) Header.",
+        "Create a minimal set of skeleton template files under internal/engine/prompts/ with valid YAML headers to make the Loader construct without panicking: at least one file per subdirectory (fix/, impl/, review/, brief/, partials/, tools/, refusals/, rejections/). Use placeholder content.",
+        "Write tests TS-21-1, TS-21-5, TS-21-6, TS-21-7, TS-21-8, TS-21-9, TS-21-10, TS-21-11, TS-21-12, TS-21-13 in internal/engine/prompt/loader_test.go and confirm all pass."
+      ],
+      "touches": [
+        "internal/engine/prompt/prompt.go",
+        "internal/engine/prompt/loader.go",
+        "internal/engine/prompt/views.go",
+        "internal/engine/prompt/funcmap.go",
+        "internal/engine/prompt/loader_test.go",
+        "internal/engine/prompts/"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Add template-injection safety tests, view struct tests and function map helper tests",
+      "criteria": [
+        "21-REQ-5.1",
+        "21-REQ-5.2",
+        "21-REQ-4.1",
+        "21-REQ-4.2",
+        "21-REQ-4.3",
+        "21-REQ-4.4"
+      ],
+      "tests": [
+        "TS-21-14",
+        "TS-21-15",
+        "TS-21-16",
+        "TS-21-17",
+        "TS-21-18",
+        "TS-21-19",
+        "TS-21-41",
+        "TS-21-42",
+        "TS-21-49",
+        "TS-21-50"
+      ],
+      "steps": [
+        "Write TS-21-14, TS-21-15, TS-21-16: construct BriefView, PhaseView and AttemptView with all fields populated and assert compilation and field access, including embedded field promotion.",
+        "Write TS-21-17: for every template in Names(), build a fully-populated fixture of the view type named in its header, render it, and assert no missingkey error.",
+        "Write TS-21-18: set a view's Report.Body to '{{.Secret}}{{template \"x\"}}', render through the report partial, and assert the literal string appears in the output.",
+        "Write TS-21-19: render a test template using {{fence \"REPORT\" .Body}} with body containing special characters and template syntax; assert BEGIN/END markers and verbatim content.",
+        "Write TS-21-41 (property test): generate a set of strings containing {{, }}, {{template}}, {{.Field}}, {{range}}, {{if}}, set each as a field on a view, render through a test template, and assert verbatim output.",
+        "Write TS-21-42 (property test): for every template name, call Hash twice and assert deterministic 64-char hex digest.",
+        "Write TS-21-49: construct a test FS with a template whose kind is 'invalid_kind', call NewLoaderFrom, and assert it panics with a message naming the template and the invalid kind.",
+        "Write TS-21-50: render test templates exercising each function map helper (fence, code, join, count, lines, trimSpace, firstNonEmpty) and assert correct output.",
+        "Ensure all tests pass with go test ./internal/engine/prompt/... -count=1."
+      ],
+      "touches": [
+        "internal/engine/prompt/loader_test.go",
+        "internal/engine/prompt/views_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Create all template files for fix, impl, review, brief, partials, tools, refusals and rejections",
+      "criteria": [
+        "21-REQ-1.2",
+        "21-REQ-1.3",
+        "21-REQ-1.4",
+        "21-REQ-2.1"
+      ],
+      "tests": [
+        "TS-21-2",
+        "TS-21-3",
+        "TS-21-4"
+      ],
+      "steps": [
+        "Read codefix/phases.go constants analysisSystemPrompt and implementSystemPrompt. Create fix/analyse.system.md and fix/implement.system.md with YAML headers (kind: system, view: PhaseView) and the prompt text converted to Markdown with template actions for dynamic fields.",
+        "Read codefix/prompts.go builder functions. Create fix/analyse.md and fix/implement.md composing partials via {{template \"partials/report.md\" .}}, {{template \"partials/baseline.md\" .}}, etc. Create brief/fix.md.",
+        "Read codeimpl/prompts.go constants and builders. Create impl/survey.system.md, impl/survey.md, impl/task.system.md, impl/task.md, impl/repair.system.md, impl/repair.md, impl/resolve.system.md, impl/resolve.md with YAML headers and template actions. Create brief/impl.md.",
+        "Read internal/conform/prompt.go. Create review/review.system.md and review/review.md with YAML headers and template actions.",
+        "Create all partials under prompts/partials/: report.md, baseline.md, gate.md, language.md, repomap.md, instructions.md, steering.md, criteria.md, definition_of_done.md, survey.md, landed_tasks.md, previous_attempt.md, scope.md, external_apis.md, date.md, context.md, read_roots.md, scratch.md. Each has a YAML header with kind: partial.",
+        "Read internal/agentrun/policy.go describeForPhase. Create tools/execute.md, tools/write_file.md, tools/edit_file.md with YAML headers (kind: tool) and the description text using template actions for Allowlist, ScratchPath, ReadRoots.",
+        "Read internal/agentrun/guard.go refusal messages. Create refusals/programs_not_allowed.md, refusals/suite.md, refusals/git_mutating.md, refusals/path_outside.md with YAML headers (kind: refusal).",
+        "Read codefix/phases.go and codeimpl/phases.go rejection messages. Create rejections/missing_verdicts.md and rejections/weak_evidence.md with YAML headers (kind: rejection).",
+        "Remove any skeleton placeholder files from task 1 that are now replaced by real templates. Run NewLoader() and confirm no panics.",
+        "Write tests TS-21-2, TS-21-3, TS-21-4 asserting all required template names exist in Names(). Confirm all pass."
+      ],
+      "touches": [
+        "internal/engine/prompts/fix/",
+        "internal/engine/prompts/impl/",
+        "internal/engine/prompts/review/",
+        "internal/engine/prompts/brief/",
+        "internal/engine/prompts/partials/",
+        "internal/engine/prompts/tools/",
+        "internal/engine/prompts/refusals/",
+        "internal/engine/prompts/rejections/",
+        "internal/engine/prompt/loader_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement golden-file tests with UPDATE_GOLDEN support, stability and max_bytes checks",
+      "criteria": [
+        "21-REQ-8"
+      ],
+      "tests": [
+        "TS-21-28",
+        "TS-21-29",
+        "TS-21-30",
+        "TS-21-31",
+        "TS-21-32"
+      ],
+      "steps": [
+        "Create fixture view builders in internal/engine/prompt/testdata_test.go that return fully-populated BriefView, PhaseView and AttemptView instances for each template, keyed by the view type named in each header.",
+        "Write TestGoldenPrompts in internal/engine/prompt/golden_test.go: iterate Names(), load the fixture view, render, compare to internal/engine/testdata/prompts/<name>.golden.md. On mismatch, fail with a diff.",
+        "Add UPDATE_GOLDEN=1 support: when the env var is set, write the rendered output as the new golden file instead of failing.",
+        "Run with UPDATE_GOLDEN=1 to generate all golden files under internal/engine/testdata/prompts/.",
+        "Add the stable-rendering check (TS-21-30): for every template with stable: true, render twice with the same view and assert byte-identity.",
+        "Add the max_bytes check (TS-21-31): for every template, assert len(rendered) <= header.MaxBytes.",
+        "Add the partial-reference check (TS-21-32): scan every template source for {{template \"...\"}} references and assert each referenced name exists in Names().",
+        "Confirm all golden tests pass without UPDATE_GOLDEN."
+      ],
+      "touches": [
+        "internal/engine/prompt/golden_test.go",
+        "internal/engine/prompt/testdata_test.go",
+        "internal/engine/testdata/prompts/"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Unify projectInstructions and migrate codefix prompts to the Loader",
+      "criteria": [
+        "21-REQ-6.1",
+        "21-REQ-6.2",
+        "21-REQ-6.3",
+        "21-REQ-6.7"
+      ],
+      "tests": [
+        "TS-21-20",
+        "TS-21-22",
+        "TS-21-26",
+        "TS-21-48"
+      ],
+      "steps": [
+        "Export ProjectInstructions(root string) string and MaxInstructionBytes in internal/engine/prompt/instructions.go. Move the logic from codefix/prompts.go:219 (identical to codeimpl/prompts.go:202). Write TS-21-26 and TS-21-48 and confirm they pass.",
+        "In codefix/phases.go, add a *prompt.Loader field to agentBrain. Construct it via NewLoader() in the pipeline setup.",
+        "Replace the analysisSystemPrompt constant reference in agentBrain.Analyze with loader.Render(\"fix/analyse.system.md\", view). Build the PhaseView from the analysisInput fields.",
+        "Replace the analysisPrompt(in) call with loader.Render(\"fix/analyse.md\", view).",
+        "Replace the implementSystemPrompt constant reference in agentBrain.Implement with loader.Render(\"fix/implement.system.md\", view). Build the PhaseView from the implementInput fields.",
+        "Replace the implementPrompt(in) call with loader.Render(\"fix/implement.md\", view).",
+        "Remove the constants analysisSystemPrompt, implementSystemPrompt and the builder functions analysisPrompt, implementPrompt, reportBlock, baselineBlock, criteriaBlock, contextBlock, instructionsBlock, projectInstructions from codefix/prompts.go and codefix/phases.go. Remove maxInstructionBytes from codefix.",
+        "Write TS-21-20: render fix/analyse.system.md and fix/analyse.md with fixture inputs and assert textual equivalence (modulo whitespace normalization) to the old output. Write TS-21-22: scan codefix/prompts.go for removed symbols.",
+        "Update codeimpl/prompts.go to import prompt.ProjectInstructions instead of its local copy. Remove the local projectInstructions and maxInstructionBytes from codeimpl/prompts.go.",
+        "Confirm make test passes."
+      ],
+      "touches": [
+        "internal/engine/prompt/instructions.go",
+        "internal/engine/prompt/instructions_test.go",
+        "codefix/phases.go",
+        "codefix/prompts.go",
+        "codeimpl/prompts.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Migrate codeimpl and conform prompts to the Loader",
+      "criteria": [
+        "21-REQ-6.1",
+        "21-REQ-6.2",
+        "21-REQ-6.3"
+      ],
+      "tests": [
+        "TS-21-21",
+        "TS-21-47"
+      ],
+      "steps": [
+        "In codeimpl/phases.go, add a *prompt.Loader field to agentBrain. Construct it via NewLoader() in the pipeline setup.",
+        "Replace surveySystemPrompt and surveyPrompt(in) in agentBrain.Survey with loader.Render calls. Build the PhaseView from surveyInput.",
+        "Replace implementSystemPrompt and taskPrompt(in) in agentBrain.implementPhase with loader.Render calls. Build the PhaseView from taskInput.",
+        "Replace repairSystemPrompt and repairPrompt(in) in agentBrain.repairPhase with loader.Render calls. Build the PhaseView/AttemptView from repairInput.",
+        "Replace resolveSystemPrompt and resolvePrompt(in) in agentBrain.resolvePhase with loader.Render calls. Build the PhaseView from resolveInput.",
+        "Remove the constants surveySystemPrompt, implementSystemPrompt, repairSystemPrompt, resolveSystemPrompt and all builder functions (surveyPrompt, taskPrompt, repairPrompt, resolvePrompt, gateBlock, repoMapBlock, surveyBlock, previousAttemptBlock, externalAPIsBlock, languageBlock, sectionTitle) from codeimpl/prompts.go.",
+        "In internal/conform/review.go, replace ReviewSystemPrompt and ReviewPrompt(in) with loader.Render calls. Remove ReviewSystemPrompt, ReviewPrompt and DateLine from internal/conform/prompt.go.",
+        "Write TS-21-21: render impl/survey.system.md, impl/task.md, impl/repair.md, impl/resolve.md with fixture inputs and assert textual equivalence to old output. Write TS-21-47: same for review/review.system.md and review/review.md.",
+        "Confirm make test passes."
+      ],
+      "touches": [
+        "codeimpl/phases.go",
+        "codeimpl/prompts.go",
+        "internal/conform/prompt.go",
+        "internal/conform/review.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Migrate tool descriptions, guard refusals and handler rejections to templates",
+      "criteria": [
+        "21-REQ-6.4",
+        "21-REQ-6.5",
+        "21-REQ-6.6"
+      ],
+      "tests": [
+        "TS-21-23",
+        "TS-21-24",
+        "TS-21-25"
+      ],
+      "steps": [
+        "In internal/agentrun/policy.go, add a *prompt.Loader parameter to SelectTools (or a package-level loader). Replace describeForPhase with loader.Render(\"tools/execute.md\", view), loader.Render(\"tools/write_file.md\", view), loader.Render(\"tools/edit_file.md\", view). Remove describeForPhase, noteScratch, noteReadRoots and shellReadNote.",
+        "Update all callers of SelectTools, noteScratch and noteReadRoots in codefix, codeimpl and internal/agentrun to pass the Loader and build the view with Allowlist, ScratchPath and ReadRoots.",
+        "In internal/agentrun/guard.go, replace the inline refusal messages in disallowedPrograms, suiteRun, operandEscapes and rmOutside with loader.Render calls to refusals/programs_not_allowed.md, refusals/suite.md, refusals/path_outside.md and refusals/git_mutating.md respectively. Add a *prompt.Loader field to GuardOptions or pass it through Guard().",
+        "In codefix/phases.go and codeimpl/phases.go, identify multi-sentence rejection messages in submitImplementationTool (checkVerdicts error) and submitTaskTool (checkTestFirst error). Replace them with loader.Render(\"rejections/missing_verdicts.md\", view) and loader.Render(\"rejections/weak_evidence.md\", view). Leave short mechanical rejections inline.",
+        "Write TS-21-23: call SelectTools with a Loader and PhaseView, assert tool descriptions come from templates and contain allowlist/scratch/read-roots.",
+        "Write TS-21-24: trigger a guard refusal for a disallowed program, assert the message comes from the template.",
+        "Write TS-21-25: render rejections/missing_verdicts.md and assert it is multi-sentence; verify short rejections remain inline.",
+        "Confirm make test passes."
+      ],
+      "touches": [
+        "internal/agentrun/policy.go",
+        "internal/agentrun/guard.go",
+        "codefix/phases.go",
+        "codeimpl/phases.go",
+        "internal/agentrun/policy_test.go",
+        "internal/agentrun/guard_test.go"
+      ],
+      "depends_on": [
+        3,
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Add the no-prose-in-Go enforcement test",
+      "criteria": [
+        "21-REQ-7.1"
+      ],
+      "tests": [
+        "TS-21-27"
+      ],
+      "steps": [
+        "Write TestNoPromptLiteralsInGo in internal/engine/prompt/noprose_test.go.",
+        "Walk every non-test .go file under internal/engine, codefix, codeimpl and internal/conform using filepath.WalkDir.",
+        "For each file, parse string literals using go/ast. For each literal longer than 120 bytes, check if it contains any of the model-facing keywords: 'You are a', 'Method:', 'Call this once', 'submit_', 'is refused', 'not allowed'.",
+        "Exclude import paths (strings containing '/'), test fixtures (files under testdata/), and template files (files under prompts/).",
+        "Fail the test with the file path and a prefix of the offending literal if any match is found.",
+        "Confirm the test passes on the migrated codebase. If any remaining literals are found, migrate them to templates or add justified exceptions."
+      ],
+      "touches": [
+        "internal/engine/prompt/noprose_test.go"
+      ],
+      "depends_on": [
+        6,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Implement run-time prompt auditing and WritePrompts",
+      "criteria": [
+        "21-REQ-9.1",
+        "21-REQ-9.2",
+        "21-REQ-9.3"
+      ],
+      "tests": [
+        "TS-21-33",
+        "TS-21-34",
+        "TS-21-35",
+        "TS-21-36"
+      ],
+      "steps": [
+        "Create internal/engine/prompt/audit.go with a WritePrompts function: WritePrompts(stateDir, tool, startedAt, sessionID, phase, task string, attempt int, system, user string, toolDescs []string) error.",
+        "Implement directory creation at <stateDir>/prompts/<tool>-<startedAt>-<sessionID>/ with mode 0755. Build filenames as <phase>[.task-<task>][.attempt-<attempt>].<role>.md where role is system, user or tools.",
+        "Write the system prompt, user message and joined tool descriptions to their respective files with mode 0644. For tools, join with newline separators.",
+        "On any error (directory creation or file write), return the error but do not panic. The caller will record a warning.",
+        "Write TS-21-33: call WritePrompts with known inputs, assert directory and files exist with correct content and permissions.",
+        "Write TS-21-34: call WritePrompts with task '3' and attempt 2, assert filenames include .task-3.attempt-2 suffixes.",
+        "Write TS-21-35: call WritePrompts with an unwritable path, assert it returns an error (the caller records the warning).",
+        "Write TS-21-36: call WritePrompts in a simulated dry-run scenario, assert files are written.",
+        "Confirm all tests pass."
+      ],
+      "touches": [
+        "internal/engine/prompt/audit.go",
+        "internal/engine/prompt/audit_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Add additive envelope fields: ArtifactPromptsDir, WarnPromptsNotWritten, prompt_templates and wire auditing",
+      "criteria": [
+        "21-REQ-10",
+        "21-REQ-9.4"
+      ],
+      "tests": [
+        "TS-21-37",
+        "TS-21-38",
+        "TS-21-39",
+        "TS-21-40"
+      ],
+      "steps": [
+        "In internal/toolio/envelope.go, add ArtifactPromptsDir ArtifactKind = \"prompts_dir\" to the artifact kind constants. Update Artifact.MarshalJSON and JSONSchema to handle the new kind with a Path field.",
+        "In internal/toolio/warncode.go, add WarnPromptsNotWritten WarnCode = \"prompts_not_written\" to the warn code constants. Add it to the warnStages map with an appropriate stage and to DeclaredWarnCodes.",
+        "Add a PromptTemplates map[string]string field to the Envelope or result type, emitted only in the full detail view. Wire it in Run.Envelope so that when detail is full, the prompt_templates map is included.",
+        "Wire the prompt auditing into the codefix and codeimpl pipelines: after building each phase's prompts and before calling runner.Run, call WritePrompts. On error, call run.Warn(WarnPromptsNotWritten, \"low\", ...). Add the ArtifactPromptsDir artifact to the result's artifacts.",
+        "Write TS-21-38: assert ArtifactPromptsDir == \"prompts_dir\".",
+        "Write TS-21-39: assert WarnPromptsNotWritten == \"prompts_not_written\" and it appears in DeclaredWarnCodes().",
+        "Write TS-21-40: assert SchemaVersion is unchanged; marshal a minimal envelope and assert no prompt_templates; marshal a full envelope and assert prompt_templates is present.",
+        "Write TS-21-37: build a full envelope with a Loader, assert prompt_templates contains entries matching loader.Hash for each name.",
+        "Update any --schema golden files (cmd/fix/testdata/schema.golden.json, cmd/impl/testdata/schema.golden.json) to include the new additive fields.",
+        "Confirm make test passes."
+      ],
+      "touches": [
+        "internal/toolio/envelope.go",
+        "internal/toolio/warncode.go",
+        "internal/toolio/envelope_test.go",
+        "internal/toolio/warncode_test.go",
+        "codefix/pipeline.go",
+        "codeimpl/pipeline.go",
+        "cmd/fix/testdata/schema.golden.json",
+        "cmd/impl/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        9,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Update documentation for prompt documents architecture and CLI changes",
+      "criteria": [
+        "21-REQ-10.3"
+      ],
+      "tests": [
+        "TS-21-40"
+      ],
+      "steps": [
+        "Update docs/architecture.md (or create it if missing) to describe the internal/engine/prompt package, the template tree layout, the Loader, the view structs and the run-time prompt auditing.",
+        "Update docs/development.md to document how to add or modify a prompt template: create the .md file with YAML header, run UPDATE_GOLDEN=1 to regenerate golden files, and run the no-prose test.",
+        "Update docs/cli.md to document the new additive envelope fields: prompt_templates in the full detail view, the prompts_dir artifact kind, and the prompts_not_written warning code.",
+        "Confirm make check passes."
+      ],
+      "touches": [
+        "docs/architecture.md",
+        "docs/development.md",
+        "docs/cli.md"
+      ],
+      "depends_on": [
+        10
+      ],
+      "state": "pending",
+      "optional": true
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end, remove stubs and confirm no model-facing prose remains",
+      "tests": [
+        "TS-21-43",
+        "TS-21-44",
+        "TS-21-45",
+        "TS-21-46"
+      ],
+      "steps": [
+        "Trace 21-PATH-1 (fix run): confirm codefix pipeline calls NewLoader(), builds BriefView and PhaseView, calls loader.Render for fix/analyse.system.md and fix/analyse.md, calls WritePrompts to write audit files, and the envelope builder includes prompt_templates and ArtifactPromptsDir. Verify each step calls the next in production code.",
+        "Trace 21-PATH-2 (impl run): confirm codeimpl pipeline calls NewLoader(), renders impl/survey.system.md, impl/task.system.md, impl/repair.system.md via the Loader, builds AttemptView for repair attempts, calls WritePrompts with task and attempt suffixes, and the envelope includes prompt_templates.",
+        "Trace 21-PATH-3 (golden test): confirm TestGoldenPrompts and TestNoPromptLiteralsInGo both pass when run via go test ./internal/engine/prompt/... -count=1.",
+        "Trace 21-PATH-4 (guard refusal and tool description): confirm Guard() calls loader.Render for refusals/programs_not_allowed.md when a disallowed program is detected, and SelectTools renders tool descriptions from tools/*.md templates.",
+        "For every criterion with a contract (21-REQ-3.3, 21-REQ-3.6, 21-REQ-9.2), confirm the producer's result is consumed by a caller in production code, not only by tests: Render's error is checked by phase builders; Hash's panic is caught by the envelope builder; WritePrompts' error triggers run.Warn.",
+        "Search all files listed in tasks 1-11 touches for stub markers: panic(\"not implemented\"), TODO, bare return nil on non-trivial paths. Remove any that remain.",
+        "Confirm that no entry point from specs 19 or 20 that this spec depends on is called only from tests — verify lang.Detect and engine.Run (or their equivalents) are called from production code in codefix or codeimpl.",
+        "Run make test and make lint and confirm both pass with zero failures."
+      ],
+      "depends_on": [
+        4,
+        8,
+        10,
+        11
+      ],
+      "state": "pending"
+    }
+  ]
+}

@@ -1,0 +1,815 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "22",
+  "spec_name": "polyglot_structural_checks",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-22-1",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.1",
+        "22-REQ-1.2"
+      ],
+      "title": "When ScanInput.Lang is set, Scan classifies Go files by profile and other source files via Detection.IsSourceFile",
+      "given": [
+        "a temp repo with one .go file and one .py file",
+        "a ScanInput with Lang set to a Detection that has go and python profiles"
+      ],
+      "when": "Scan is called with both files in Changed",
+      "then": [
+        "the .go file is processed by scanGoFile (produces go/ast-backed findings)",
+        "the .py file is processed by scanSourceFile (produces regex-backed findings)",
+        "no call to project.IsSourceFile is made for classification"
+      ],
+      "pseudocode": "det := lang.Detection{All: []lang.Profile{goProfile, pythonProfile}}\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"main.go\", \"app.py\"}, Added: added, Lang: det})\nassert all findings for main.go have Backend==\"go/ast\"\nassert all findings for app.py have Backend==\"regex\""
+    },
+    {
+      "id": "TS-22-2",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.3"
+      ],
+      "title": "scanAddedText uses Detection.IsSourceFile and Detection.TestFile for code and production flags when Lang is set",
+      "given": [
+        "a temp repo with a production .py file containing a discarded error under a logged comment",
+        "a ScanInput with Lang set to a Detection whose IsSourceFile returns true for .py and TestFile returns false"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "a discarded_error finding is produced for the .py file (proving it was classified as production source)"
+      ],
+      "pseudocode": "det := detection where IsSourceFile(\".py\")=true, TestFile(\"app.py\")=false\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"app.py\"}, Added: added, Lang: det})\nassert any(f.Check == CheckDiscardedError for f in out)"
+    },
+    {
+      "id": "TS-22-3",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.4"
+      ],
+      "title": "The import_suppressor check fires for Go test files identified by the Go profile's TestFile, not by hardcoded .go suffix",
+      "given": [
+        "a temp repo with a Go test file containing `var _ = pkg.Symbol`",
+        "a ScanInput with Lang set to a Detection whose go profile's TestFile returns true for the file"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "an import_suppressor finding is produced for the file"
+      ],
+      "pseudocode": "det := detection where go profile TestFile(\"util_test.go\")=true\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"util_test.go\"}, Added: added, Lang: det})\nassert any(f.Check == CheckImportSuppressor for f in out)"
+    },
+    {
+      "id": "TS-22-4",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.5"
+      ],
+      "title": "When ScanInput.Lang is zero, Scan falls back to hardcoded extension checks and project.IsTestPath/IsSourceFile",
+      "given": [
+        "a temp repo with a .go file that is too long and a .py file with an assertion-less test",
+        "a ScanInput with Lang left at zero value"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "findings are produced identically to the pre-change behaviour",
+        "the .go file gets a long_function finding",
+        "the .py file gets a no_assertions finding"
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{Root: root, Changed: files, Added: added, Today: now})\nassert any(f.Check == CheckLongFunction && f.Path == goFile for f in out)\nassert any(f.Check == CheckNoAssertions && f.Path == pyFile for f in out)"
+    },
+    {
+      "id": "TS-22-5",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.6"
+      ],
+      "title": "codefix/pipeline.go passes the lang.Detection it holds in ScanInput.Lang",
+      "given": [
+        "the source of codefix/pipeline.go"
+      ],
+      "when": "the conform.Scan call site is inspected",
+      "then": [
+        "ScanInput includes a Lang field set to the detection the pipeline holds"
+      ],
+      "pseudocode": "src := readFile(\"codefix/pipeline.go\")\nassert src contains \"Lang:\" in the conform.ScanInput literal near the conform.Scan call"
+    },
+    {
+      "id": "TS-22-6",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-1.7"
+      ],
+      "title": "codeimpl/conformance.go passes the lang.Detection it holds in ScanInput.Lang",
+      "given": [
+        "the source of codeimpl/conformance.go"
+      ],
+      "when": "the conform.Scan call site is inspected",
+      "then": [
+        "ScanInput includes a Lang field set to the detection the conformance code holds"
+      ],
+      "pseudocode": "src := readFile(\"codeimpl/conformance.go\")\nassert src contains \"Lang:\" in the conform.ScanInput literal near the conform.Scan call"
+    },
+    {
+      "id": "TS-22-7",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-2.1"
+      ],
+      "title": "scanSourceFile uses the profile's AssertPattern instead of hardcoded pyAssertRe/jsAssertRe/rustAssertRe",
+      "given": [
+        "a temp repo with a Python test file containing a test function that calls a custom assertion (e.g. `my_assert(x)`)",
+        "a python profile whose AssertPattern matches `my_assert`"
+      ],
+      "when": "scanSourceFile is called for the file with the profile's AssertPattern",
+      "then": [
+        "no no_assertions finding is produced because the custom pattern matches"
+      ],
+      "pseudocode": "profile := pythonProfile with AssertPattern = regexp.MustCompile(`my_assert`)\nout := scanSourceFile(root, \"test_app.py\", added, 100, profile)\nassert none(f.Check == CheckNoAssertions for f in out)"
+    },
+    {
+      "id": "TS-22-8",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-2.2"
+      ],
+      "title": "scanGoFile continues to use go/ast for assertion detection, taking precedence over any regex AssertPattern",
+      "given": [
+        "a temp repo with a Go test file containing a test function that passes *testing.T to a helper"
+      ],
+      "when": "scanGoFile is called for the file",
+      "then": [
+        "no no_assertions finding is produced because the go/ast backend detects the *testing.T pass-through",
+        "the finding (if any) has Backend == \"go/ast\""
+      ],
+      "pseudocode": "out := scanGoFile(root, \"x_test.go\", added, 100)\nassert none(f.Check == CheckNoAssertions for f in out)"
+    },
+    {
+      "id": "TS-22-9",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-2.3"
+      ],
+      "title": "A profile with nil AssertPattern produces no no_assertions finding for non-Go files",
+      "given": [
+        "a temp repo with a Java test file containing a test function with no assertion",
+        "a jvm profile whose AssertPattern is nil"
+      ],
+      "when": "scanSourceFile is called for the file with the nil AssertPattern",
+      "then": [
+        "no Finding with Check == CheckNoAssertions is in the returned slice"
+      ],
+      "pseudocode": "profile := jvmProfile with AssertPattern = nil\nout := scanSourceFile(root, \"AppTest.java\", added, 100, profile)\nassert none(f.Check == CheckNoAssertions for f in out)"
+    },
+    {
+      "id": "TS-22-10",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-3.1",
+        "22-REQ-3.2"
+      ],
+      "title": "sourceSpans dispatches by profile name via a table, not by file extension",
+      "given": [
+        "a Python file with a long function",
+        "a profile with Name == \"python\" that maps to pythonSpans in the span-finder table"
+      ],
+      "when": "sourceSpans is called with the python profile",
+      "then": [
+        "pythonSpans is used as the span finder",
+        "the returned spans contain the function with correct from/to lines"
+      ],
+      "pseudocode": "spans, _ := sourceSpans(\"app.py\", src, pythonProfile)\nassert len(spans) > 0\nassert spans[0].name == \"handle\""
+    },
+    {
+      "id": "TS-22-11",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-3.2"
+      ],
+      "title": "The span-finder table has entries for python, node, rust, and brace-based profiles",
+      "given": [
+        "the span-finder table in polyglot.go"
+      ],
+      "when": "the table is inspected",
+      "then": [
+        "entries exist for python→pythonSpans, node→jsSpans, rust→rustSpans, and at least jvm→braceSpans"
+      ],
+      "pseudocode": "assert spanFinders[\"python\"] == pythonSpans\nassert spanFinders[\"node\"] == jsSpans\nassert spanFinders[\"rust\"] == rustSpans\nassert spanFinders[\"jvm\"] != nil"
+    },
+    {
+      "id": "TS-22-12",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-3.3"
+      ],
+      "title": "A profile with no span finder in the table produces no long_function finding and no error",
+      "given": [
+        "a temp repo with a Ruby file containing a very long function",
+        "a ruby profile with no entry in the span-finder table"
+      ],
+      "when": "scanSourceFile is called for the file",
+      "then": [
+        "no Finding with Check == CheckLongFunction is in the returned slice",
+        "no error is returned"
+      ],
+      "pseudocode": "out := scanSourceFile(root, \"app.rb\", added, 10, rubyProfile)\nassert none(f.Check == CheckLongFunction for f in out)"
+    },
+    {
+      "id": "TS-22-13",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-4.1",
+        "22-REQ-4.2"
+      ],
+      "title": "Formatting checks group files by profile and run each profile's Format command, parsing output with the per-profile regex",
+      "given": [
+        "a temp repo with a .py file and a .rs file",
+        "a Detection with python and rust profiles, each having a Format command",
+        "a stub Runner that returns formatter output matching the per-profile regex"
+      ],
+      "when": "Scan is called with Runner set",
+      "then": [
+        "the python profile's Format command is resolved and run over the .py file",
+        "the rust profile's Format command is resolved and run over the .rs file",
+        "format findings are produced for both files with correct paths parsed from the output"
+      ],
+      "pseudocode": "det := detection with python and rust profiles\nrunner := stub that returns 'Would reformat: app.py' for ruff and 'Diff in lib.rs:1:' for rustfmt\nout := Scan(ctx, ScanInput{Root: root, Changed: files, Added: added, Runner: runner, Lang: det})\nassert any(f.Check == CheckFormat && f.Path == \"app.py\" for f in out)\nassert any(f.Check == CheckFormat && f.Path == \"lib.rs\" for f in out)"
+    },
+    {
+      "id": "TS-22-14",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-4.3"
+      ],
+      "title": "Go files run gofmt and go vet via the Go profile's Format and Lint commands through the unified path",
+      "given": [
+        "a temp repo with a .go file that is not gofmt-formatted",
+        "a Detection with a go profile whose Format resolves to gofmt -l and Lint resolves to go vet",
+        "a stub Runner that returns the file name for gofmt and a vet diagnostic"
+      ],
+      "when": "Scan is called with Runner set and Lang set",
+      "then": [
+        "a gofmt finding is produced via the unified formatter path",
+        "a vet finding is produced via the unified linter path",
+        "both findings have Profile == \"go\""
+      ],
+      "pseudocode": "det := detection with go profile\nrunner := stub returning gofmt and vet output\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"main.go\"}, Added: added, Runner: runner, Lang: det})\nassert any(f.Check in {CheckGofmt, CheckFormat} && f.Profile == \"go\" for f in out)\nassert any(f.Check == CheckVet && f.Profile == \"go\" for f in out)"
+    },
+    {
+      "id": "TS-22-15",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-4.4"
+      ],
+      "title": "A profile with no Format command or an uninstalled formatter produces no formatting finding",
+      "given": [
+        "a temp repo with a .py file",
+        "a Detection with a python profile whose Format command is zero (no formatter)",
+        "alternatively: a Runner that returns exit code 127 for the version probe"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "no Finding with Check == CheckFormat or CheckGofmt or CheckVet is in the returned slice for that profile's files"
+      ],
+      "pseudocode": "det := detection with python profile, Format = zero\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"app.py\"}, Added: added, Lang: det, Runner: failRunner})\nassert none(f.Check in {CheckFormat, CheckGofmt, CheckVet} for f in out)"
+    },
+    {
+      "id": "TS-22-16",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-4.5"
+      ],
+      "title": "Unparseable formatter output lines are silently skipped without producing a finding or error",
+      "given": [
+        "a temp repo with a .rs file",
+        "a stub Runner that returns formatter output with lines that do not match the profile's output regex"
+      ],
+      "when": "Scan is called with Runner set",
+      "then": [
+        "no error is returned",
+        "no finding is emitted for the unparseable lines"
+      ],
+      "pseudocode": "runner := stub returning \"some garbage output\\nnot a real diff line\\n\"\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"lib.rs\"}, Added: added, Runner: runner, Lang: det})\nassert none(f.Check == CheckFormat for f in out)"
+    },
+    {
+      "id": "TS-22-17",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-5.1"
+      ],
+      "title": "splitChange uses the provided test-file classifier instead of project.IsTestPath",
+      "given": [
+        "a list of changed files including a file that project.IsTestPath would not classify as a test but the custom classifier does"
+      ],
+      "when": "splitChange is called with the custom classifier",
+      "then": [
+        "the file is classified as a test by the custom classifier, not as implementation"
+      ],
+      "pseudocode": "classifier := func(p string) bool { return p == \"src/check.py\" }\nimpl, tests := splitChange([]string{\"src/check.py\", \"src/app.py\"}, classifier)\nassert \"src/check.py\" in tests\nassert \"src/app.py\" in impl"
+    },
+    {
+      "id": "TS-22-18",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-5.2"
+      ],
+      "title": "splitChange continues to use project.IsDocsFile for documentation classification",
+      "given": [
+        "a list of changed files including a .md documentation file and a source file"
+      ],
+      "when": "splitChange is called with any classifier",
+      "then": [
+        "the .md file is classified as docs (goes to impl when no other impl exists)",
+        "project.IsDocsFile is used for the docs check"
+      ],
+      "pseudocode": "impl, tests := splitChange([]string{\"docs/guide.md\"}, classifier)\nassert \"docs/guide.md\" in impl  // docs-only change: docs become impl"
+    },
+    {
+      "id": "TS-22-19",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-5.3"
+      ],
+      "title": "putBack calls keepRustTests when the file's profile has InlineTests == true, not by hardcoded .rs suffix",
+      "given": [
+        "a temp repo with a .rs file that has a #[cfg(test)] module",
+        "a rust profile with InlineTests == true",
+        "a git history where the base has different implementation but the change added inline tests"
+      ],
+      "when": "putBack is called for the snapshot",
+      "then": [
+        "keepRustTests is invoked for the .rs file",
+        "the restored file has the base implementation with the changed test module"
+      ],
+      "pseudocode": "profile := rustProfile with InlineTests = true\n// after putBack, the .rs file has base impl + changed #[cfg(test)] module\nassert file contains base impl\nassert file contains changed test module"
+    },
+    {
+      "id": "TS-22-20",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-5.4"
+      ],
+      "title": "When no test-file classifier is provided, splitChange falls back to project.IsTestPath with identical results",
+      "given": [
+        "a list of changed files including a Go test file and a source file"
+      ],
+      "when": "splitChange is called with a nil classifier",
+      "then": [
+        "the split result is identical to calling with project.IsTestPath",
+        "the Go test file is in the tests slice"
+      ],
+      "pseudocode": "impl, tests := splitChange([]string{\"main.go\", \"main_test.go\"}, nil)\nassert \"main_test.go\" in tests\nassert \"main.go\" in impl"
+    },
+    {
+      "id": "TS-22-21",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-6.1"
+      ],
+      "title": "checkErrataCitation uses Detection.TestFile instead of project.IsTestPath when Lang is set",
+      "given": [
+        "a temp repo with an erratum file citing a code file and a test file",
+        "a Detection whose TestFile classifies the cited test file as a test"
+      ],
+      "when": "checkErrataCitation is called with the detection",
+      "then": [
+        "the test reference is recognised via Detection.TestFile",
+        "no errata_citation finding is produced (both code and test citations are present)"
+      ],
+      "pseudocode": "det := detection where TestFile(\"tests/test_app.py\") = true\nf, ok := checkErrataCitation(root, \"docs/errata/fix.md\", det)\nassert ok == true  // no finding"
+    },
+    {
+      "id": "TS-22-22",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-6.2"
+      ],
+      "title": "testRefRe is built from the union of detected profiles' TestID patterns plus the TS- spec-test-id pattern",
+      "given": [
+        "a Detection with python and node profiles, each having a TestID pattern",
+        "python TestID matches test_ prefixed names, node TestID matches it()/test() calls"
+      ],
+      "when": "Scan builds testRefRe at the start of a scan",
+      "then": [
+        "testRefRe matches python test names (test_foo)",
+        "testRefRe matches JS test calls (it('does x'))",
+        "testRefRe matches spec test ids (TS-22-1)",
+        "testRefRe does not match arbitrary prose"
+      ],
+      "pseudocode": "det := detection with python and node profiles having TestID patterns\nre := buildTestRefRe(det)\nassert re.MatchString(\"test_handles\")\nassert re.MatchString(\"it('does x')\")\nassert re.MatchString(\"TS-22-1\")\nassert !re.MatchString(\"it is fine\")"
+    },
+    {
+      "id": "TS-22-23",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-6.3"
+      ],
+      "title": "duplicates uses Detection.IsSourceFile and Detection.TestFile when Lang is set",
+      "given": [
+        "a temp repo with a source file and a test file that share a duplicated block",
+        "a Detection whose IsSourceFile returns true for the source file and TestFile returns true for the test file"
+      ],
+      "when": "duplicates is called with the detection",
+      "then": [
+        "the source file is indexed as a subject (IsSourceFile true, TestFile false)",
+        "the test file is excluded from subjects (TestFile true)",
+        "duplicate findings are produced only for the source file"
+      ],
+      "pseudocode": "det := detection where IsSourceFile(\"app.py\")=true, TestFile(\"app.py\")=false, TestFile(\"test_app.py\")=true\nout := duplicates(root, changed, added, tracked, det)\nassert all(f.Path != \"test_app.py\" for f in out)"
+    },
+    {
+      "id": "TS-22-24",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-6.4"
+      ],
+      "title": "When ScanInput.Lang is zero, checkErrataCitation and duplicates fall back to project.IsTestPath and project.IsSourceFile",
+      "given": [
+        "a temp repo with files that project.IsTestPath and project.IsSourceFile classify correctly",
+        "a ScanInput with Lang at zero value"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "the output is identical to the pre-change behaviour for errata citation and duplicate checks"
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{Root: root, Changed: files, Added: added, Today: now})\n// compare with known-good output from the pre-change code path\nassert out matches expected findings"
+    },
+    {
+      "id": "TS-22-25",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.1"
+      ],
+      "title": "The Finding struct has Backend and Profile fields with correct JSON tags",
+      "given": [
+        "a Finding with Backend and Profile set"
+      ],
+      "when": "the Finding is marshalled to JSON",
+      "then": [
+        "the JSON contains \"backend\" and \"profile\" keys",
+        "when Backend and Profile are empty, the JSON omits them"
+      ],
+      "pseudocode": "f := Finding{Check: \"long_function\", Path: \"a.py\", Backend: \"regex\", Profile: \"python\"}\nb, _ := json.Marshal(f)\nassert strings.Contains(string(b), `\"backend\":\"regex\"`)\nassert strings.Contains(string(b), `\"profile\":\"python\"`)\nf2 := Finding{Check: \"later_task\", Path: \"a.py\"}\nb2, _ := json.Marshal(f2)\nassert !strings.Contains(string(b2), `\"backend\"`)\nassert !strings.Contains(string(b2), `\"profile\"`)"
+    },
+    {
+      "id": "TS-22-26",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.2"
+      ],
+      "title": "scanGoFile sets Backend to go/ast and Profile to go on every finding it produces",
+      "given": [
+        "a temp repo with a Go test file containing an assertion-less test function"
+      ],
+      "when": "scanGoFile is called",
+      "then": [
+        "every returned finding has Backend == \"go/ast\" and Profile == \"go\""
+      ],
+      "pseudocode": "out := scanGoFile(root, \"x_test.go\", added, 10)\nassert all(f.Backend == \"go/ast\" && f.Profile == \"go\" for f in out)"
+    },
+    {
+      "id": "TS-22-27",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.3"
+      ],
+      "title": "scanSourceFile sets Backend to regex and Profile to the matched profile's Name",
+      "given": [
+        "a temp repo with a Python test file containing an assertion-less test"
+      ],
+      "when": "scanSourceFile is called with the python profile",
+      "then": [
+        "every returned finding has Backend == \"regex\" and Profile == \"python\""
+      ],
+      "pseudocode": "out := scanSourceFile(root, \"test_app.py\", added, 100, pythonProfile)\nassert all(f.Backend == \"regex\" && f.Profile == \"python\" for f in out)"
+    },
+    {
+      "id": "TS-22-28",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.4"
+      ],
+      "title": "Formatting check findings carry Backend set to the formatter's tool name and Profile set to the profile's Name",
+      "given": [
+        "a temp repo with a .py file",
+        "a stub Runner that returns ruff format output indicating the file needs reformatting"
+      ],
+      "when": "Scan is called with the python profile and Runner set",
+      "then": [
+        "the format finding has Backend == \"ruff\" and Profile == \"python\""
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{Root: root, Changed: []string{\"app.py\"}, Added: added, Runner: runner, Lang: det})\nfmt_findings := filter(out, f.Check == CheckFormat)\nassert fmt_findings[0].Backend == \"ruff\"\nassert fmt_findings[0].Profile == \"python\""
+    },
+    {
+      "id": "TS-22-29",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.5"
+      ],
+      "title": "Lint check findings (e.g. go vet) carry Backend set to the linter's tool name and Profile set to the profile's Name",
+      "given": [
+        "a temp repo with a .go file that triggers a go vet diagnostic",
+        "a stub Runner that returns go vet output"
+      ],
+      "when": "Scan is called with the go profile and Runner set",
+      "then": [
+        "the vet finding has Backend == \"go vet\" and Profile == \"go\""
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{Root: root, Changed: []string{\"main.go\"}, Added: added, Runner: runner, Lang: det})\nvet_findings := filter(out, f.Check == CheckVet)\nassert vet_findings[0].Backend == \"go vet\"\nassert vet_findings[0].Profile == \"go\""
+    },
+    {
+      "id": "TS-22-30",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.6"
+      ],
+      "title": "Language-neutral checks leave Backend and Profile empty",
+      "given": [
+        "a temp repo with files that trigger discarded_error, later_task, git_init_branch, future_date, and errata_citation findings"
+      ],
+      "when": "Scan is called",
+      "then": [
+        "findings for discarded_error, later_task, git_init_branch, future_date, and errata_citation have empty Backend and Profile"
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{...})\nneutral_checks := {CheckDiscardedError, CheckLaterTask, CheckGitInitBranch, CheckFutureDate, CheckErrataCitation}\nfor f in out:\n  if f.Check in neutral_checks:\n    assert f.Backend == \"\"\n    assert f.Profile == \"\""
+    },
+    {
+      "id": "TS-22-31",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-7.7"
+      ],
+      "title": "Existing JSON consumers see output that differs only by the additive omitempty Backend and Profile fields",
+      "given": [
+        "a Finding with only the original fields set (Check, Path, Line, Message)"
+      ],
+      "when": "the Finding is marshalled to JSON",
+      "then": [
+        "the JSON output contains exactly the same keys as before (check, path, line, message)",
+        "no backend or profile key appears"
+      ],
+      "pseudocode": "f := Finding{Check: \"long_function\", Path: \"a.go\", Line: 10, Message: \"too long\"}\nb, _ := json.Marshal(f)\nassert !strings.Contains(string(b), \"backend\")\nassert !strings.Contains(string(b), \"profile\")\nassert strings.Contains(string(b), `\"check\"`)"
+    },
+    {
+      "id": "TS-22-32",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-8.1"
+      ],
+      "title": "The formatter output regex table covers go/gofmt, go/go vet, rust/rustfmt, python/ruff, python/black, and node/prettier",
+      "given": [
+        "the formatter output regex table"
+      ],
+      "when": "each entry's regex is tested against sample output from its formatter",
+      "then": [
+        "go/gofmt regex matches a bare filename line",
+        "go/go vet regex matches path:line:col: message",
+        "rust/rustfmt regex matches 'Diff in path:N:' and 'Diff in path at line N:'",
+        "python/ruff regex matches 'Would reformat: path'",
+        "python/black regex matches 'would reformat path'",
+        "node/prettier regex matches '[warn] path.ext'"
+      ],
+      "pseudocode": "assert gofmtRe.MatchString(\"main.go\")\nassert vetRe.MatchString(\"main.go:10:5: unused variable\")\nassert rustfmtRe.MatchString(\"Diff in src/lib.rs:1:\")\nassert ruffRe.MatchString(\"Would reformat: app.py\")\nassert blackRe.MatchString(\"would reformat app.py\")\nassert prettierRe.MatchString(\"[warn] index.ts\")"
+    },
+    {
+      "id": "TS-22-33",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-8.2"
+      ],
+      "title": "A profile not in the formatter output regex table produces no formatting finding",
+      "given": [
+        "a temp repo with a .rb file",
+        "a ruby profile that is not in the formatter output regex table"
+      ],
+      "when": "Scan is called with Runner set",
+      "then": [
+        "no Finding with Check == CheckFormat is emitted for the .rb file"
+      ],
+      "pseudocode": "det := detection with ruby profile (no formatter table entry)\nout := Scan(ctx, ScanInput{Root: root, Changed: []string{\"app.rb\"}, Added: added, Runner: runner, Lang: det})\nassert none(f.Check == CheckFormat && f.Path == \"app.rb\" for f in out)"
+    },
+    {
+      "id": "TS-22-34",
+      "kind": "integration",
+      "verifies": [
+        "22-REQ-8.3"
+      ],
+      "title": "The formatter output regex table is the single place where formatter output is parsed; no other code in internal/conform parses formatter output by a separate regex",
+      "given": [
+        "the source files of internal/conform"
+      ],
+      "when": "all non-test .go files are searched for regex patterns that parse formatter output",
+      "then": [
+        "every formatter output regex is defined in the table (or the file that holds it)",
+        "no other file in internal/conform defines a regex that parses formatter stdout"
+      ],
+      "pseudocode": "files := glob(\"internal/conform/*.go\", exclude _test.go)\nfor f in files:\n  if f != table_file:\n    assert no regexp.MustCompile matching formatter output patterns"
+    },
+    {
+      "id": "TS-22-35",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-9.1",
+        "22-REQ-9.2"
+      ],
+      "title": "TestNoLanguageLiterals walks internal/conform's non-test .go files and fails on denylist matches",
+      "given": [
+        "the TestNoLanguageLiterals test in internal/lang"
+      ],
+      "when": "the test is run",
+      "then": [
+        "it walks internal/conform's non-test .go files",
+        "it fails if any line contains a denylist string outside import paths"
+      ],
+      "pseudocode": "// Run TestNoLanguageLiterals and verify it covers internal/conform\n// The test itself walks the directory and checks each line\nassert test walks \"internal/conform\" directory\nassert test checks denylist strings"
+    },
+    {
+      "id": "TS-22-36",
+      "kind": "integration",
+      "verifies": [
+        "22-REQ-9.3"
+      ],
+      "title": "No line in internal/conform's non-test .go files matches the denylist after all changes are applied",
+      "given": [
+        "the fully implemented internal/conform package"
+      ],
+      "when": "every non-test .go file in internal/conform is scanned for denylist strings",
+      "then": [
+        "no line matches any denylist entry (.go\", \"go.mod\", gofmt, \"go test\", \"go vet\", _test.go\", panic(\"not, \"pytest\", \"cargo \", \"npm \", .py\", .ts\", .rs\") except in import paths"
+      ],
+      "pseudocode": "denylist := [\".go\\\"\", \"\\\"go.mod\\\"\", \"gofmt\", \"\\\"go test\\\"\", \"\\\"go vet\\\"\", \"_test.go\\\"\", ...]\nfor f in glob(\"internal/conform/*.go\", exclude _test.go):\n  for line in readLines(f):\n    if isImportPath(line): continue\n    for d in denylist:\n      assert d not in line"
+    },
+    {
+      "id": "TS-22-37",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-10.1"
+      ],
+      "title": "ScanInput accepts the same shape as before; callers that do not set Lang compile without change",
+      "given": [
+        "a ScanInput constructed with only the original fields (Root, Changed, Added, Tracked, Today, MaxFuncLines, Runner)"
+      ],
+      "when": "Scan is called with this ScanInput",
+      "then": [
+        "the call compiles and runs without error",
+        "findings are produced using the fallback behaviour"
+      ],
+      "pseudocode": "out := Scan(ctx, ScanInput{Root: root, Changed: files, Added: added, Today: now})\nassert out is a valid []Finding"
+    },
+    {
+      "id": "TS-22-38",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-10.2"
+      ],
+      "title": "Revert keeps a signature that existing callers compile against without change",
+      "given": [
+        "the existing callers of Revert in codefix/pipeline.go and codeimpl/pipeline.go"
+      ],
+      "when": "the callers are compiled",
+      "then": [
+        "they compile without modification",
+        "callers that do not pass a detection get the current project.IsTestPath behaviour"
+      ],
+      "pseudocode": "// Verify that Revert's signature is backward-compatible\n// Existing callers: conform.Revert(ctx, git, root, head, changed, checkFn)\nassert Revert signature accepts the same positional args as before"
+    },
+    {
+      "id": "TS-22-39",
+      "kind": "unit",
+      "verifies": [
+        "22-REQ-10.3"
+      ],
+      "title": "Finding keeps every existing field with the same JSON tags; Backend and Profile are additive with omitempty",
+      "given": [
+        "the Finding struct definition"
+      ],
+      "when": "the struct is inspected via reflection",
+      "then": [
+        "fields Check, Path, Line, Message exist with their original JSON tags",
+        "fields Backend and Profile exist with json:\"backend,omitempty\" and json:\"profile,omitempty\" tags"
+      ],
+      "pseudocode": "t := reflect.TypeOf(Finding{})\nassert t.FieldByName(\"Check\").Tag.Get(\"json\") == \"check\"\nassert t.FieldByName(\"Path\").Tag.Get(\"json\") == \"path\"\nassert t.FieldByName(\"Backend\").Tag.Get(\"json\") == \"backend,omitempty\"\nassert t.FieldByName(\"Profile\").Tag.Get(\"json\") == \"profile,omitempty\""
+    },
+    {
+      "id": "TS-22-40",
+      "kind": "property",
+      "verifies": [
+        "22-REQ-1.5"
+      ],
+      "title": "For any set of changed files, Scan with nil Lang produces identical findings to the pre-change hardcoded behaviour",
+      "given": [
+        "a temp repo with a mix of Go, Python, JS, and Rust files"
+      ],
+      "when": "for any subset of those files as Changed, Scan is called with Lang == zero and compared to the pre-change code path",
+      "then": [
+        "every finding produced is identical to the output before this change for the same input"
+      ],
+      "pseudocode": "for files in subsets(allFiles):\n  old := scanOldWay(ctx, ScanInput{Root: root, Changed: files, Added: added})\n  new := Scan(ctx, ScanInput{Root: root, Changed: files, Added: added})\n  assert old == new"
+    },
+    {
+      "id": "TS-22-41",
+      "kind": "smoke",
+      "verifies": [
+        "22-PATH-1",
+        "22-REQ-1.1",
+        "22-REQ-7.1"
+      ],
+      "title": "codeimpl runs a structural scan with detection and receives profile-annotated findings",
+      "given": [
+        "a temp repo with Go and Python source files, both with structural issues (long function, assertion-less test)",
+        "a ScanInput with Lang set to a Detection holding go and python profiles",
+        "a Runner stub that returns gofmt and ruff output"
+      ],
+      "when": "Scan is called as codeimpl/conformance.go would call it, with Lang set",
+      "then": [
+        "Go files produce findings with Backend==\"go/ast\" and Profile==\"go\"",
+        "Python files produce findings with Backend==\"regex\" and Profile==\"python\"",
+        "formatting findings carry the formatter's name as Backend and the profile's Name as Profile",
+        "language-neutral findings have empty Backend and Profile"
+      ],
+      "real_components": [
+        "Scan",
+        "scanGoFile",
+        "scanSourceFile",
+        "formatChecks",
+        "Finding"
+      ]
+    },
+    {
+      "id": "TS-22-42",
+      "kind": "smoke",
+      "verifies": [
+        "22-PATH-2",
+        "22-REQ-5.1",
+        "22-REQ-5.3"
+      ],
+      "title": "codefix runs a revert check with profile-aware file classification and inline test handling",
+      "given": [
+        "a git repo with a Rust file that has a bug in the implementation and a #[cfg(test)] module added by the fix",
+        "a Detection with a rust profile having InlineTests == true",
+        "a test-file classifier derived from the detection"
+      ],
+      "when": "Revert is called with the classifier, and the check function fails when the new test runs against the old code",
+      "then": [
+        "splitChange classifies files using the provided classifier",
+        "putBack keeps the inline test module from the changed file",
+        "the revert check proves the fix (Proves == true)"
+      ],
+      "real_components": [
+        "Revert",
+        "splitChange",
+        "putBack",
+        "keepRustTests"
+      ]
+    },
+    {
+      "id": "TS-22-43",
+      "kind": "smoke",
+      "verifies": [
+        "22-PATH-3",
+        "22-REQ-2.1",
+        "22-REQ-3.1"
+      ],
+      "title": "A Python file triggers formatting and assertion checks via its profile",
+      "given": [
+        "a temp repo with a Python test file that has no assertion and a production file not formatted by ruff",
+        "a Detection with a python profile having AssertPattern and Format command set",
+        "a Runner stub that returns ruff format output"
+      ],
+      "when": "Scan is called with Lang set",
+      "then": [
+        "a no_assertions finding is produced with Backend==\"regex\" and Profile==\"python\"",
+        "a format finding is produced with Backend==\"ruff\" and Profile==\"python\"",
+        "the python profile's AssertPattern was used (not the hardcoded pyAssertRe)"
+      ],
+      "real_components": [
+        "Scan",
+        "scanSourceFile",
+        "sourceSpans",
+        "formatChecks"
+      ]
+    },
+    {
+      "id": "TS-22-44",
+      "kind": "smoke",
+      "verifies": [
+        "22-PATH-4",
+        "22-REQ-9.1",
+        "22-REQ-9.3"
+      ],
+      "title": "Denylist test verifies no language literals remain in internal/conform",
+      "given": [
+        "the fully implemented internal/conform and internal/lang packages"
+      ],
+      "when": "TestNoLanguageLiterals is run",
+      "then": [
+        "the test walks internal/conform's non-test .go files",
+        "no denylist match is found",
+        "the test passes"
+      ],
+      "real_components": [
+        "TestNoLanguageLiterals",
+        "internal/conform source files"
+      ]
+    }
+  ]
+}

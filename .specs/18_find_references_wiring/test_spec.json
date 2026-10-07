@@ -1,0 +1,495 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "18",
+  "spec_name": "find_references_wiring",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-18-1",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.1"
+      ],
+      "title": "ReadOnlyFileTools contains exactly the seven expected names in the correct order",
+      "given": [
+        "the agentrun package is imported"
+      ],
+      "when": "ReadOnlyFileTools is inspected",
+      "then": [
+        "it contains exactly seven entries",
+        "the entries are, in order: read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references"
+      ],
+      "pseudocode": "want := []string{\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\", \"find_references\"}\nassert slices.Equal(agentrun.ReadOnlyFileTools, want)\nassert len(agentrun.ReadOnlyFileTools) == 7"
+    },
+    {
+      "id": "TS-18-2",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.2",
+        "18-REQ-1.4"
+      ],
+      "title": "find_references is in neither MutatingTools nor ShellTools, so AssertReadOnly passes",
+      "given": [
+        "the agentrun package is imported"
+      ],
+      "when": "MutatingTools and ShellTools are inspected and AssertReadOnly is called with a tool set that includes find_references",
+      "then": [
+        "find_references is not in MutatingTools",
+        "find_references is not in ShellTools",
+        "AssertReadOnly returns nil for a resolved set containing all seven read tools"
+      ],
+      "pseudocode": "assert !slices.Contains(agentrun.MutatingTools, \"find_references\")\nassert !slices.Contains(agentrun.ShellTools, \"find_references\")\nresolved := []core.Tool{{Name: \"read_file\"}, {Name: \"list_files\"}, {Name: \"find_files\"}, {Name: \"search_files\"}, {Name: \"file_outline\"}, {Name: \"find_symbol\"}, {Name: \"find_references\"}}\nassert agentrun.AssertReadOnly(resolved) == nil"
+    },
+    {
+      "id": "TS-18-3",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-1.3"
+      ],
+      "title": "A phase that sets BuiltinTools to ReadOnlyFileTools resolves find_references in its tool set",
+      "given": [
+        "a faux provider is configured",
+        "a workspace exists with at least one file"
+      ],
+      "when": "a read-only phase is run with BuiltinTools set to ReadOnlyFileTools",
+      "then": [
+        "the model request's declared tools include find_references",
+        "the model request's declared tools include every other entry of ReadOnlyFileTools"
+      ],
+      "pseudocode": "p := faux.New(textTurn(\"done\"))\nws := newWorkspace(t)\nr := newRunner(fauxConfig(p, ws))\nphase := agentrun.Phase{Name: \"test\", System: \"s\", User: \"u\", BuiltinTools: agentrun.ReadOnlyFileTools, ReadOnly: true, Custom: []core.Tool{submitTool(...)}, Terminator: \"submit\"}\nr.Run(ctx, phase)\nreq := p.Requests()[0]\ndeclared := map[string]bool{}\nfor _, tool := range req.Tools { declared[tool.Name] = true }\nfor _, n := range agentrun.ReadOnlyFileTools { assert declared[n], n + \" missing\" }"
+    },
+    {
+      "id": "TS-18-4",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-2.1"
+      ],
+      "title": "registeredTools calls tools.All once per phase invocation, giving each phase its own reference table",
+      "given": [
+        "a faux provider is configured",
+        "a workspace exists"
+      ],
+      "when": "two phases are run in sequence (e.g. analyse then implement in fix)",
+      "then": [
+        "both phases' model requests include find_references",
+        "the tool sets are built from separate tools.All calls (verified by having separate request objects)"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn(\"c1\", \"submit_analysis\", validAnalysis()), toolCallTurn(\"c2\", \"submit_implementation\", validImplementation()))\nb := &agentBrain{runner: newRunner(fauxConfig(p, ws))}\nb.Analyze(ctx, analysisInput{...})\nnAnalyse := len(p.Requests())\nb.Implement(ctx, implementInput{...})\nreqs := p.Requests()\ndeclaredA := toolNames(reqs[0])\ndeclaredI := toolNames(reqs[nAnalyse])\nassert declaredA[\"find_references\"]\nassert declaredI[\"find_references\"]"
+    },
+    {
+      "id": "TS-18-5",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-3.1",
+        "18-REQ-3.3"
+      ],
+      "title": "The analysisSystemPrompt contains find_references in the callers step and retains the callers instruction",
+      "given": [
+        "the codefix package is imported"
+      ],
+      "when": "analysisSystemPrompt is inspected",
+      "then": [
+        "it contains the string \"find_references\"",
+        "the step about tracing callers and callees is still present (the prompt mentions callers or callees)",
+        "no new numbered method step was added compared to the existing six"
+      ],
+      "pseudocode": "assert strings.Contains(analysisSystemPrompt, \"find_references\")\nassert strings.Contains(analysisSystemPrompt, \"caller\") || strings.Contains(analysisSystemPrompt, \"callee\")\nsteps := countMethodSteps(analysisSystemPrompt)\nassert steps == 6"
+    },
+    {
+      "id": "TS-18-6",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-3.2",
+        "18-REQ-3.4"
+      ],
+      "title": "The surveySystemPrompt contains find_references in the callers step and retains the callers instruction",
+      "given": [
+        "the codeimpl package is imported"
+      ],
+      "when": "surveySystemPrompt is inspected",
+      "then": [
+        "it contains the string \"find_references\"",
+        "the step about reading callers and tests is still present",
+        "no new numbered method step was added compared to the existing five"
+      ],
+      "pseudocode": "assert strings.Contains(surveySystemPrompt, \"find_references\")\nassert strings.Contains(surveySystemPrompt, \"caller\")\nsteps := countMethodSteps(surveySystemPrompt)\nassert steps == 5"
+    },
+    {
+      "id": "TS-18-7",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-4.1",
+        "18-REQ-4.2"
+      ],
+      "title": "repomap.Intro mentions find_references and all five other navigation tools",
+      "given": [
+        "the repomap package is imported"
+      ],
+      "when": "repomap.Intro is inspected",
+      "then": [
+        "it contains the string \"find_references\"",
+        "it describes find_references as the tool for finding who calls or uses a declaration",
+        "it continues to mention read_file, file_outline, find_symbol, find_files and search_files"
+      ],
+      "pseudocode": "assert strings.Contains(repomap.Intro, \"find_references\")\nassert strings.Contains(repomap.Intro, \"calls\") || strings.Contains(repomap.Intro, \"uses\")\nfor _, name := range []string{\"read_file\", \"file_outline\", \"find_symbol\", \"find_files\", \"search_files\"} {\n  assert strings.Contains(repomap.Intro, name)\n}"
+    },
+    {
+      "id": "TS-18-8",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-5.1"
+      ],
+      "title": "toolsNote includes find_references in the tool-availability sentence when it is in the registered set",
+      "given": [
+        "the agentrun package is imported"
+      ],
+      "when": "toolsNote is called with a tool set that includes find_references",
+      "then": [
+        "the returned string contains the word \"find_references\"",
+        "the tool-availability sentence lists all registered tools in sorted order"
+      ],
+      "pseudocode": "note := toolsNote([]core.Tool{{Name: \"read_file\"}, {Name: \"find_files\"}, {Name: \"file_outline\"}, {Name: \"find_symbol\"}, {Name: \"find_references\"}, {Name: \"submit\"}})\nassert strings.Contains(note, \"find_references\")\nassert strings.Contains(note, \"file_outline, find_files, find_references, find_symbol, read_file, submit\")"
+    },
+    {
+      "id": "TS-18-9",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-5.2"
+      ],
+      "title": "renderGuidelines renders find_references' PromptGuidelines when present",
+      "given": [
+        "a tool named find_references with a non-empty PromptGuidelines slice is in the registered set"
+      ],
+      "when": "toolsNote is called with the set containing find_references and its guidelines",
+      "then": [
+        "the returned string contains the guideline text as a bullet under Tool guidelines"
+      ],
+      "pseudocode": "guideline := \"Use find_symbol for where a name is declared, find_references for who uses it.\"\nnote := toolsNote([]core.Tool{{Name: \"find_references\", PromptGuidelines: []string{guideline}}, {Name: \"read_file\"}})\nassert strings.Contains(note, \"Tool guidelines:\")\nassert strings.Contains(note, \"- \" + guideline)"
+    },
+    {
+      "id": "TS-18-10",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-6.1",
+        "18-REQ-6.2"
+      ],
+      "title": "docs/model-usage.md says seven read tools and lists all seven including find_references",
+      "given": [
+        "docs/model-usage.md exists in the repository"
+      ],
+      "when": "the file is read",
+      "then": [
+        "no occurrence of \"six read tools\" remains",
+        "at least one occurrence of \"seven read tools\" is present",
+        "the paragraph that defines the phrase lists all seven: read_file, list_files, find_files, search_files, file_outline, find_symbol, find_references",
+        "the triage row lists all seven tools explicitly"
+      ],
+      "pseudocode": "content := readFile(\"docs/model-usage.md\")\nassert !strings.Contains(content, \"six read tools\")\nassert strings.Contains(content, \"seven read tools\")\nassert strings.Contains(content, \"find_references\")\nfor _, n := range []string{\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\", \"find_references\"} {\n  assert strings.Contains(content, n)\n}"
+    },
+    {
+      "id": "TS-18-11",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-7.1",
+        "18-REQ-7.2"
+      ],
+      "title": "docs/cli.md says seven read tools, lists all seven, and adds no new preflight check for find_references",
+      "given": [
+        "docs/cli.md exists in the repository"
+      ],
+      "when": "the file is read",
+      "then": [
+        "no occurrence of \"six read tools\" remains",
+        "at least one occurrence of \"seven read tools\" is present",
+        "find_references is listed wherever the read tools are enumerated",
+        "there is no preflight check entry named find_references; the symbol_backend check remains the sole symbol-related entry"
+      ],
+      "pseudocode": "content := readFile(\"docs/cli.md\")\nassert !strings.Contains(content, \"six read tools\")\nassert strings.Contains(content, \"seven read tools\")\nassert strings.Contains(content, \"find_references\")\nassert !strings.Contains(content, \"\\\"check\\\": \\\"find_references\\\"\")\nassert strings.Contains(content, \"symbol_backend\")"
+    },
+    {
+      "id": "TS-18-12",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-8.1",
+        "18-REQ-8.2"
+      ],
+      "title": "docs/development.md baseline tables have a find_references column with dashes in every cell",
+      "given": [
+        "docs/development.md exists in the repository"
+      ],
+      "when": "the navigation baseline section is parsed",
+      "then": [
+        "every baseline table header row includes a find_references column after find_symbol and before code_search",
+        "every data row in every baseline table has a dash in the find_references column"
+      ],
+      "pseudocode": "content := readFile(\"docs/development.md\")\nfor each table header in baseline section:\n  cols := splitTableRow(header)\n  idxFR := indexOf(cols, \"find_references\")\n  idxFS := indexOf(cols, \"find_symbol\")\n  idxCS := indexOf(cols, \"code_search\")\n  assert idxFR == idxFS + 1\n  assert idxCS == idxFR + 1\nfor each data row in baseline section:\n  cells := splitTableRow(row)\n  assert cells[idxFR] == \"—\""
+    },
+    {
+      "id": "TS-18-13",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-8.3"
+      ],
+      "title": "docs/development.md jq snippet extracts find_references between find_symbol and code_search",
+      "given": [
+        "docs/development.md exists in the repository"
+      ],
+      "when": "the jq code block in the navigation baseline section is read",
+      "then": [
+        "it contains (.tool_calls.find_references // 0)",
+        "the find_references extraction appears after find_symbol and before code_search"
+      ],
+      "pseudocode": "content := readFile(\"docs/development.md\")\njqBlock := extractJqCodeBlock(content)\nassert strings.Contains(jqBlock, \".tool_calls.find_references // 0\")\nidxFR := strings.Index(jqBlock, \"find_references\")\nidxFS := strings.Index(jqBlock, \"find_symbol\")\nidxCS := strings.Index(jqBlock, \"code_search\")\nassert idxFS < idxFR && idxFR < idxCS"
+    },
+    {
+      "id": "TS-18-14",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-8.4"
+      ],
+      "title": "docs/development.md introductory text says seven read-only file tools and names find_references",
+      "given": [
+        "docs/development.md exists in the repository"
+      ],
+      "when": "the navigation baseline section is read",
+      "then": [
+        "it says seven read-only file tools (not six)",
+        "it names find_references alongside the other tools"
+      ],
+      "pseudocode": "content := readFile(\"docs/development.md\")\nbaseline := extractBaselineSection(content)\nassert strings.Contains(baseline, \"seven\") || strings.Contains(baseline, \"7\")\nassert !strings.Contains(baseline, \"six read-only file tools\")\nassert strings.Contains(baseline, \"find_references\")"
+    },
+    {
+      "id": "TS-18-15",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-9.1"
+      ],
+      "title": "WithCodeSearch with on=true returns a new slice of len(ReadOnlyFileTools)+1 ending with code_search, without mutating the original",
+      "given": [
+        "ReadOnlyFileTools has seven entries"
+      ],
+      "when": "WithCodeSearch is called with on=true and ReadOnlyFileTools as the grant",
+      "then": [
+        "the result has length 8 (seven read tools plus code_search)",
+        "the last element is code_search",
+        "ReadOnlyFileTools still has exactly seven entries",
+        "modifying the result does not affect ReadOnlyFileTools"
+      ],
+      "pseudocode": "before := len(agentrun.ReadOnlyFileTools)\ngot := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, true)\nassert len(agentrun.ReadOnlyFileTools) == before\nassert len(got) == before + 1\nassert got[len(got)-1] == \"code_search\"\ngot[0] = \"mutated\"\nassert agentrun.ReadOnlyFileTools[0] != \"mutated\""
+    },
+    {
+      "id": "TS-18-16",
+      "kind": "unit",
+      "verifies": [
+        "18-REQ-9.2"
+      ],
+      "title": "WithCodeSearch with on=false returns the input grant unchanged",
+      "given": [
+        "ReadOnlyFileTools has seven entries"
+      ],
+      "when": "WithCodeSearch is called with on=false",
+      "then": [
+        "the result has the same length as ReadOnlyFileTools",
+        "the result does not contain code_search"
+      ],
+      "pseudocode": "same := agentrun.WithCodeSearch(agentrun.ReadOnlyFileTools, false)\nassert len(same) == len(agentrun.ReadOnlyFileTools)\nassert !slices.Contains(same, \"code_search\")"
+    },
+    {
+      "id": "TS-18-17",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-1.3",
+        "18-REQ-1.2"
+      ],
+      "title": "The fix analyse phase declares find_references and passes AssertReadOnly",
+      "given": [
+        "a faux provider scripted with a valid analysis submission",
+        "a workspace exists with at least one Go file"
+      ],
+      "when": "fix's Analyze method is called",
+      "then": [
+        "the model request's declared tools include find_references",
+        "the model request's declared tools include all seven ReadOnlyFileTools",
+        "write_file and edit_file are absent from the analyse phase's declared tools"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn(\"c1\", \"submit_analysis\", validAnalysis()))\nb := &agentBrain{runner: newRunner(fauxConfig(p, ws))}\nb.Analyze(ctx, analysisInput{...})\nreq := p.Requests()[0]\ndeclared := toolNames(req)\nfor _, n := range agentrun.ReadOnlyFileTools { assert declared[n] }\nassert !declared[\"write_file\"]\nassert !declared[\"edit_file\"]"
+    },
+    {
+      "id": "TS-18-18",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-1.3"
+      ],
+      "title": "The impl survey phase declares find_references alongside the seven read tools",
+      "given": [
+        "a faux provider scripted with a valid survey submission",
+        "a workspace with a valid spec directory"
+      ],
+      "when": "impl's Survey method is called",
+      "then": [
+        "the model request's declared tools include find_references",
+        "the model request's declared tools include all seven ReadOnlyFileTools"
+      ],
+      "pseudocode": "p := faux.New(toolCallTurn(\"c1\", \"submit_survey\", validSurvey()))\nb := &agentBrain{runner: newRunner(fauxConfig(p, ws))}\nb.Survey(ctx, surveyInput{...})\nreq := p.Requests()[0]\ndeclared := toolNames(req)\nfor _, n := range agentrun.ReadOnlyFileTools { assert declared[n] }"
+    },
+    {
+      "id": "TS-18-19",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-1.3"
+      ],
+      "title": "The triage phase declares find_references alongside the seven read tools",
+      "given": [
+        "a faux provider scripted with a valid file_issue call",
+        "a workspace exists"
+      ],
+      "when": "triage's Run is called",
+      "then": [
+        "the model request's declared tools include find_references",
+        "the model request's declared tools include every entry in ReadOnlyFileTools"
+      ],
+      "pseudocode": "p := faux.New(toolCall(\"c1\", ToolFileIssue, validIssue()))\no := newOptions(t, ws, newRunner(fauxConfig(p, ws)))\nRun(ctx, o)\ngot := wireTools(t, p)\nfor _, n := range agentrun.ReadOnlyFileTools { assert got[n] }"
+    },
+    {
+      "id": "TS-18-20",
+      "kind": "integration",
+      "verifies": [
+        "18-REQ-1.3"
+      ],
+      "title": "The spec prd phase declares find_references alongside the seven read tools",
+      "given": [
+        "a faux provider is configured",
+        "a workspace exists"
+      ],
+      "when": "spec's WritePRD is called",
+      "then": [
+        "the model request's declared tools include find_references",
+        "the model request's declared tools include every entry in ReadOnlyFileTools"
+      ],
+      "pseudocode": "p := faux.New()\na := &agentAuthor{runner: newRunner(fauxConfig(p, ws)), ws: ws}\na.WritePRD(ctx, prdRequest{...})\ngot := wireTools(t, p)\nfor _, n := range agentrun.ReadOnlyFileTools { assert got[n] }"
+    },
+    {
+      "id": "TS-18-21",
+      "kind": "property",
+      "verifies": [
+        "18-REQ-9.1"
+      ],
+      "title": "WithCodeSearch never mutates its input slice for any grant length",
+      "given": [
+        "a grant slice of arbitrary length between 0 and 20"
+      ],
+      "when": "for any grant slice of length 0..20, WithCodeSearch is called with on=true and the original slice is inspected",
+      "then": [
+        "the original slice's length and contents are unchanged after the call",
+        "the returned slice ends with code_search and has length original+1"
+      ],
+      "pseudocode": "for n := 0; n <= 20; n++ {\n  grant := make([]string, n)\n  for i := range grant { grant[i] = fmt.Sprintf(\"tool_%d\", i) }\n  orig := slices.Clone(grant)\n  result := agentrun.WithCodeSearch(grant, true)\n  assert slices.Equal(grant, orig)\n  assert len(result) == n+1\n  assert result[len(result)-1] == \"code_search\"\n}"
+    },
+    {
+      "id": "TS-18-22",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-1",
+        "18-REQ-1.1",
+        "18-REQ-1.3"
+      ],
+      "title": "A triage run registers find_references and the model sees it in the prompt",
+      "given": [
+        "a faux provider scripted with a valid file_issue tool call",
+        "a workspace with at least one tracked file",
+        "ReadOnlyFileTools has seven entries"
+      ],
+      "when": "triage's Run is invoked end-to-end",
+      "then": [
+        "the run completes without error",
+        "the model's request tools include find_references",
+        "the system prompt appended by toolsNote lists find_references"
+      ],
+      "real_components": [
+        "issuetriage pipeline",
+        "agentrun.Runner",
+        "agentrun.ReadOnlyFileTools",
+        "toolsNote"
+      ]
+    },
+    {
+      "id": "TS-18-23",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-2",
+        "18-REQ-1.2",
+        "18-REQ-3.1"
+      ],
+      "title": "Fix analyse phase names find_references in its prompt and registers the tool",
+      "given": [
+        "a faux provider scripted with a valid submit_analysis call",
+        "a workspace with a Go source file"
+      ],
+      "when": "fix's Analyze method is invoked end-to-end",
+      "then": [
+        "the run completes without error",
+        "the model's declared tools include find_references",
+        "the system prompt contains find_references in the callers step of analysisSystemPrompt",
+        "AssertReadOnly passes for the resolved tool set (no mutating tool leaked)"
+      ],
+      "real_components": [
+        "codefix pipeline",
+        "agentrun.Runner",
+        "agentrun.AssertReadOnly",
+        "analysisSystemPrompt"
+      ]
+    },
+    {
+      "id": "TS-18-24",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-3",
+        "18-REQ-1.2",
+        "18-REQ-3.2"
+      ],
+      "title": "Impl survey phase names find_references in its prompt and registers the tool",
+      "given": [
+        "a faux provider scripted with a valid submit_survey call",
+        "a workspace with a valid spec directory"
+      ],
+      "when": "impl's Survey method is invoked end-to-end",
+      "then": [
+        "the run completes without error",
+        "the model's declared tools include find_references",
+        "the system prompt contains find_references in the callers step of surveySystemPrompt",
+        "AssertReadOnly passes for the resolved tool set"
+      ],
+      "real_components": [
+        "codeimpl pipeline",
+        "agentrun.Runner",
+        "agentrun.AssertReadOnly",
+        "surveySystemPrompt"
+      ]
+    },
+    {
+      "id": "TS-18-25",
+      "kind": "smoke",
+      "verifies": [
+        "18-PATH-4",
+        "18-REQ-6.1",
+        "18-REQ-7.1",
+        "18-REQ-8.1"
+      ],
+      "title": "Documentation reflects seven read tools throughout",
+      "given": [
+        "the files docs/model-usage.md, docs/cli.md and docs/development.md exist in the repository"
+      ],
+      "when": "all three doc files are read and inspected",
+      "then": [
+        "docs/model-usage.md contains no occurrence of \"six read tools\" and at least one of \"seven read tools\"",
+        "docs/cli.md contains no occurrence of \"six read tools\" and at least one of \"seven read tools\"",
+        "docs/development.md baseline tables contain a find_references column"
+      ],
+      "real_components": [
+        "docs/model-usage.md",
+        "docs/cli.md",
+        "docs/development.md"
+      ]
+    }
+  ]
+}

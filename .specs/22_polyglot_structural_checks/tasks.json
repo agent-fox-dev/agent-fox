@@ -1,0 +1,341 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "22",
+  "spec_name": "polyglot_structural_checks",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/conform/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "19_language_profiles",
+      "reason": "This scope reads Profile.AssertPattern, Profile.Format, Profile.Lint, Profile.TestFile, Profile.InlineTests, Profile.TestID, and Detection.TestFile/Detection.IsSourceFile, all defined by spec 19. The TestNoLanguageLiterals denylist test defined by spec 19 is extended to cover internal/conform."
+    },
+    {
+      "spec": "20_engine_core",
+      "reason": "The engine's Ledger.Changes classifies paths using lang.Detection.TestFile and Profile.GateConfig. This scope makes internal/conform use the same classifiers so the two packages agree on what is a test and what is gate config."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add Backend and Profile fields to Finding, add Lang field to ScanInput, and verify backward compatibility",
+      "criteria": [
+        "22-REQ-7.1",
+        "22-REQ-7.7",
+        "22-REQ-10.1",
+        "22-REQ-10.3",
+        "22-REQ-1.1"
+      ],
+      "tests": [
+        "TS-22-25",
+        "TS-22-31",
+        "TS-22-37",
+        "TS-22-39"
+      ],
+      "steps": [
+        "Write TS-22-25, TS-22-31, TS-22-37, and TS-22-39 in internal/conform/structural_test.go (or a new polyglot_structural_test.go); confirm they fail.",
+        "Add Backend string `json:\"backend,omitempty\"` and Profile string `json:\"profile,omitempty\"` to the Finding struct in structural.go, keeping all existing fields and JSON tags unchanged.",
+        "Add Lang lang.Detection to the ScanInput struct in structural.go. Import internal/lang. When lang.Detection is its zero value, all existing code paths remain unchanged.",
+        "Verify TS-22-25: marshal a Finding with Backend/Profile set and confirm the JSON contains the keys; marshal one without and confirm they are omitted.",
+        "Verify TS-22-39: use reflect to confirm Check, Path, Line, Message have their original tags and Backend/Profile have the omitempty tags.",
+        "Verify TS-22-37: construct a ScanInput without setting Lang and call Scan; confirm it compiles and returns valid findings.",
+        "Verify TS-22-31: marshal a Finding with only original fields and confirm no backend/profile keys appear.",
+        "Run make test and make lint to confirm nothing is broken."
+      ],
+      "touches": [
+        "internal/conform/structural.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Wire file classification in Scan and scanAddedText to use Detection, update codefix and codeimpl callers",
+      "criteria": [
+        "22-REQ-1.2",
+        "22-REQ-1.3",
+        "22-REQ-1.4",
+        "22-REQ-1.5",
+        "22-REQ-1.6",
+        "22-REQ-1.7"
+      ],
+      "tests": [
+        "TS-22-1",
+        "TS-22-2",
+        "TS-22-3",
+        "TS-22-4",
+        "TS-22-5",
+        "TS-22-6",
+        "TS-22-40"
+      ],
+      "steps": [
+        "Write TS-22-1 through TS-22-6 and TS-22-40 in internal/conform test files; confirm they fail.",
+        "In Scan(), when in.Lang is set (non-zero), replace the strings.HasSuffix(p, \".go\") check with a profile-based check: iterate in.Lang.All to see if any profile has Name == the Go profile name and the file ends in the Go profile's extension. Replace project.IsSourceFile(p) with in.Lang.IsSourceFile(p).",
+        "When in.Lang is zero, keep the existing hardcoded strings.HasSuffix and project.IsSourceFile calls as the fallback path.",
+        "In scanAddedText(), accept the lang.Detection (or extract it from ScanInput). When set, replace project.IsSourceFile(p) with det.IsSourceFile(p), replace project.IsTestPath(p) with det.TestFile(p), and replace the strings.HasSuffix(p, \".go\") check for suppressorRe with a profile-based Go test file check. When zero, keep the existing calls.",
+        "In codefix/pipeline.go, find the conform.ScanInput literal near the conform.Scan call and add Lang: set to the lang.Detection the pipeline holds.",
+        "In codeimpl/conformance.go, find the conform.ScanInput literal near the conform.Scan call and add Lang: set to the lang.Detection the conformance code holds.",
+        "Verify TS-22-1: Scan with Lang set classifies .go via profile and .py via Detection.IsSourceFile.",
+        "Verify TS-22-2: scanAddedText uses Detection.IsSourceFile and Detection.TestFile for code/production flags.",
+        "Verify TS-22-3: import_suppressor fires for Go test files identified by the Go profile's TestFile.",
+        "Verify TS-22-4: Scan with zero Lang falls back to hardcoded behaviour.",
+        "Verify TS-22-5 and TS-22-6: source inspection confirms Lang is passed in codefix and codeimpl.",
+        "Verify TS-22-40: property test that nil Lang produces identical findings to the pre-change path."
+      ],
+      "touches": [
+        "internal/conform/structural.go",
+        "codefix/pipeline.go",
+        "codeimpl/conformance.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Dispatch assertion checks by profile AssertPattern and span detection by profile table, set Backend/Profile on scanGoFile and scanSourceFile findings",
+      "criteria": [
+        "22-REQ-2",
+        "22-REQ-3",
+        "22-REQ-7.2",
+        "22-REQ-7.3"
+      ],
+      "tests": [
+        "TS-22-7",
+        "TS-22-8",
+        "TS-22-9",
+        "TS-22-10",
+        "TS-22-11",
+        "TS-22-12",
+        "TS-22-26",
+        "TS-22-27"
+      ],
+      "steps": [
+        "Write TS-22-7 through TS-22-12, TS-22-26, and TS-22-27 in internal/conform test files; confirm they fail.",
+        "In polyglot.go, create a spanFinders table (map[string]func(string, bool) []fnSpan or similar) mapping profile names to span finder functions: python to pythonSpans, node to jsSpans, rust to rustSpans, jvm/dotnet/swift/php/dart to braceSpans with the appropriate regex. Use kwFuncRe for profiles that need it.",
+        "Refactor sourceSpans to accept a lang.Profile (or profile name) instead of just the file path. When a profile is provided, look up the span finder in the table and return the profile's AssertPattern. When no profile is provided (fallback), keep the existing extension-based switch.",
+        "Update scanSourceFile to accept a profile parameter. When provided, pass it to sourceSpans. Set Backend = \"regex\" and Profile = profile.Name on every Finding it produces.",
+        "Update scanGoFile to set Backend = \"go/ast\" and Profile = \"go\" on every Finding it produces. The go/ast-based asserts function continues to take precedence over any regex AssertPattern.",
+        "Update the Scan function to pass the matched profile to scanSourceFile when in.Lang is set. Match each file's extension against the detection's profiles to find the right one.",
+        "Verify TS-22-7: scanSourceFile with a custom AssertPattern uses it instead of hardcoded patterns.",
+        "Verify TS-22-8: scanGoFile uses go/ast and its findings have Backend==\"go/ast\".",
+        "Verify TS-22-9: nil AssertPattern produces no no_assertions finding.",
+        "Verify TS-22-10 and TS-22-11: sourceSpans dispatches by profile name via the table.",
+        "Verify TS-22-12: a profile with no span finder produces no long_function finding."
+      ],
+      "touches": [
+        "internal/conform/polyglot.go",
+        "internal/conform/structural.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Build the formatter output regex table and unify formatting/lint checks through the profile's Format and Lint commands",
+      "criteria": [
+        "22-REQ-4",
+        "22-REQ-8",
+        "22-REQ-7.4",
+        "22-REQ-7.5"
+      ],
+      "tests": [
+        "TS-22-13",
+        "TS-22-14",
+        "TS-22-15",
+        "TS-22-16",
+        "TS-22-28",
+        "TS-22-29",
+        "TS-22-32",
+        "TS-22-33",
+        "TS-22-34"
+      ],
+      "steps": [
+        "Write TS-22-13 through TS-22-16, TS-22-28, TS-22-29, TS-22-32, TS-22-33, and TS-22-34 in internal/conform test files; confirm they fail.",
+        "Create the formatter output regex table in polyglot.go (or a new formatline.go). Define a map or slice of structs keyed by profile name, each entry holding the formatter tool name, the compiled output regex, and the fix command string. Cover: go/gofmt (bare filename per line), go/go vet (path:line:col: message via vetLineRe), rust/rustfmt (Diff in path), python/ruff (Would reformat: path), python/black (would reformat path), node/prettier ([warn] path.ext).",
+        "Replace the formatters table and formatChecks function with a unified path: when in.Lang is set, group changed files by their matched profile. For each profile that has a Format command, resolve it via Command.Resolve(root), check installation via the version probe, run it over the profile's files, and parse output with the table's regex. Set Backend to the formatter's tool name and Profile to the profile's Name on each Finding.",
+        "Replace the gofmt() and vet() functions with the Go profile's Format and Lint commands running through the same unified path. The Go profile's Format resolves to gofmt -l and its Lint to go vet. Use vetLineRe from the formatter output regex table for go vet output parsing.",
+        "When in.Lang is zero, keep the existing gofmt(), vet(), and formatChecks() calls as the fallback path.",
+        "Ensure a profile not in the formatter output regex table produces no formatting finding.",
+        "Ensure unparseable formatter output lines are silently skipped.",
+        "Verify TS-22-32: each regex in the table matches its formatter's sample output.",
+        "Verify TS-22-34: search internal/conform non-test .go files and confirm no formatter output regex is defined outside the table file.",
+        "Verify TS-22-13 and TS-22-14: files grouped by profile, Format commands run, output parsed correctly.",
+        "Verify TS-22-15: no Format command or uninstalled formatter produces no finding.",
+        "Verify TS-22-16: garbage output is silently skipped."
+      ],
+      "touches": [
+        "internal/conform/polyglot.go",
+        "internal/conform/structural.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Make the revert check use the detection for file classification and Profile.InlineTests for inline test handling",
+      "criteria": [
+        "22-REQ-5",
+        "22-REQ-10.2"
+      ],
+      "tests": [
+        "TS-22-17",
+        "TS-22-18",
+        "TS-22-19",
+        "TS-22-20",
+        "TS-22-38"
+      ],
+      "steps": [
+        "Write TS-22-17 through TS-22-20 and TS-22-38 in internal/conform test files; confirm they fail.",
+        "Refactor splitChange to accept a testFile func(string) bool parameter. When non-nil, use it instead of project.IsTestPath to classify files as tests. When nil, fall back to project.IsTestPath. Keep project.IsDocsFile for documentation classification.",
+        "Refactor putBack to accept profile information (or a func that returns the profile for a file). Replace the hardcoded strings.HasSuffix(s.rel, \".rs\") check with a check on the file's matched profile's InlineTests field. Call keepRustTests only when InlineTests is true.",
+        "Update the Revert function's internals to thread the test-file classifier and profile lookup through splitChange and putBack. Keep Revert's public signature backward-compatible: existing callers that do not pass a detection get project.IsTestPath behaviour. This can be done by adding an optional parameter, a RevertOptions struct, or by having the callers in codefix and codeimpl wrap Detection.TestFile into the classifier function.",
+        "Verify TS-22-17: splitChange with a custom classifier classifies files correctly.",
+        "Verify TS-22-18: splitChange still uses project.IsDocsFile for docs.",
+        "Verify TS-22-19: putBack calls keepRustTests when InlineTests is true.",
+        "Verify TS-22-20: nil classifier falls back to project.IsTestPath.",
+        "Verify TS-22-38: Revert's signature is backward-compatible with existing callers."
+      ],
+      "touches": [
+        "internal/conform/revert.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Wire errata citation and duplicate checks to use the detection, build testRefRe from profiles, and leave language-neutral findings without Backend/Profile",
+      "criteria": [
+        "22-REQ-6",
+        "22-REQ-7.6"
+      ],
+      "tests": [
+        "TS-22-21",
+        "TS-22-22",
+        "TS-22-23",
+        "TS-22-24",
+        "TS-22-30"
+      ],
+      "steps": [
+        "Write TS-22-21 through TS-22-24 and TS-22-30 in internal/conform test files; confirm they fail.",
+        "Refactor checkErrataCitation to accept a lang.Detection (or a testFile func). When set, use Detection.TestFile instead of project.IsTestPath to determine whether a cited reference is a test file. When zero, fall back to project.IsTestPath.",
+        "Add a buildTestRefRe function that takes a lang.Detection and builds a regexp from the union of every detected profile's TestID pattern (when non-nil) plus the existing TS- spec-test-id pattern. Call it once at the start of Scan when in.Lang is set, and pass the result to checkErrataCitation. When in.Lang is zero, use the existing hardcoded testRefRe.",
+        "Refactor duplicates to accept a lang.Detection (or isSourceFile/testFile funcs). When set, use Detection.IsSourceFile and Detection.TestFile instead of project.IsSourceFile and project.IsTestPath. When zero, fall back to the existing calls.",
+        "Update Scan to pass the detection to checkErrataCitation and duplicates.",
+        "Ensure language-neutral checks (discarded_error, later_task, git_init_branch, future_date, errata_citation, duplicate) leave Backend and Profile empty on their findings.",
+        "Verify TS-22-21: checkErrataCitation uses Detection.TestFile when set.",
+        "Verify TS-22-22: testRefRe is built from profile TestID patterns.",
+        "Verify TS-22-23: duplicates uses Detection.IsSourceFile and Detection.TestFile.",
+        "Verify TS-22-24: zero Lang falls back to project.IsTestPath/IsSourceFile.",
+        "Verify TS-22-30: language-neutral findings have empty Backend and Profile."
+      ],
+      "touches": [
+        "internal/conform/structural.go",
+        "internal/conform/duplicate.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Extend TestNoLanguageLiterals to cover internal/conform and remove all denylist matches from non-test files",
+      "criteria": [
+        "22-REQ-9"
+      ],
+      "tests": [
+        "TS-22-35",
+        "TS-22-36"
+      ],
+      "steps": [
+        "Write TS-22-35 and TS-22-36 in internal/conform or internal/lang test files; confirm they fail.",
+        "In internal/lang's TestNoLanguageLiterals test (defined by spec 19), add internal/conform to the list of directories it walks. The test must walk internal/conform's non-test .go files and fail if any line contains a denylist string outside import paths.",
+        "Scan every non-test .go file in internal/conform for remaining denylist matches. For each match, refactor the code to use a profile-based lookup, a constant from internal/lang, or a variable that the profile table populates.",
+        "Move hardcoded extension maps (braceExts, jsExts, kwFuncExts) out of polyglot.go into the profile table or into internal/lang. Replace string literals like \".rs\" in scanAddedText's Rust discard check with a profile-based guard.",
+        "Move the vetLineRe regex definition into the formatter output regex table if not already done.",
+        "Remove or refactor any remaining hardcoded language literals in structural.go, polyglot.go, revert.go, and duplicate.go that the denylist catches.",
+        "Run TestNoLanguageLiterals and confirm it passes with internal/conform included.",
+        "Run make test and make lint to confirm nothing is broken."
+      ],
+      "touches": [
+        "internal/conform/structural.go",
+        "internal/conform/polyglot.go",
+        "internal/conform/revert.go",
+        "internal/conform/duplicate.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "integration",
+      "title": "Trace every execution path end to end, confirm no stubs remain, and verify all smoke tests pass",
+      "tests": [
+        "TS-22-41",
+        "TS-22-42",
+        "TS-22-43",
+        "TS-22-44"
+      ],
+      "steps": [
+        "Write TS-22-41 (smoke: codeimpl structural scan with detection and profile-annotated findings), TS-22-42 (smoke: codefix revert check with profile-aware classification), TS-22-43 (smoke: Python file triggers formatting and assertion checks via profile), and TS-22-44 (smoke: denylist test verifies no language literals in internal/conform); confirm they pass.",
+        "Trace 22-PATH-1 (codeimpl structural scan): confirm codeimpl/conformance.go passes Lang in ScanInput, Scan classifies files by profile, runs scanGoFile and scanSourceFile with profile dispatch, runs Format/Lint commands via the unified path, and returns findings with Backend and Profile set.",
+        "Trace 22-PATH-2 (codefix revert check): confirm codefix/pipeline.go calls Revert, splitChange uses the provided classifier, putBack checks Profile.InlineTests, and keepRustTests fires only for inline-test profiles.",
+        "Trace 22-PATH-3 (Python file via profile): confirm a Python file's profile is matched, pythonSpans is selected from the span-finder table, the profile's AssertPattern is used, and the Format command runs ruff through the unified path.",
+        "Trace 22-PATH-4 (denylist test): confirm TestNoLanguageLiterals walks internal/conform and finds no denylist matches.",
+        "For every criterion with a contract (22-REQ-1.5, 22-REQ-2.3, 22-REQ-3.3, 22-REQ-4.4, 22-REQ-4.5, 22-REQ-5.4, 22-REQ-6.4, 22-REQ-8.2), confirm the producer's result is consumed by a caller in production code (Scan, Revert, or the pipeline), not only by tests.",
+        "Search all files in internal/conform, codefix/pipeline.go, and codeimpl/conformance.go for stub markers: panic(\"not implemented\"), TODO, bare return nil on non-trivial paths. Remove any that remain.",
+        "Confirm that conform.Revert is called from codefix/pipeline.go and codeimpl/pipeline.go in production code, and that conform.Scan is called from both pipelines with Lang set.",
+        "Run make test and make lint to confirm the full suite passes."
+      ],
+      "touches": [
+        "internal/conform/structural.go",
+        "internal/conform/polyglot.go",
+        "internal/conform/revert.go",
+        "internal/conform/duplicate.go",
+        "codefix/pipeline.go",
+        "codeimpl/conformance.go"
+      ],
+      "depends_on": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "done_when": [
+        "make test passes with all TS-22-* tests green",
+        "make lint passes with no warnings",
+        "No stub markers (panic(\"not implemented\"), TODO) remain in touched files",
+        "Every execution path (22-PATH-1 through 22-PATH-4) is live in production code"
+      ],
+      "state": "pending"
+    }
+  ]
+}

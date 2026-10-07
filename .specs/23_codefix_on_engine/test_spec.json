@@ -1,0 +1,1184 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "23",
+  "spec_name": "codefix_on_engine",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-23-1",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.1"
+      ],
+      "title": "The rewritten Run function calls engine.NewRun, engine.CommonPreflight, engine.SetupBranch, engine.Ledger, engine.GateCache.Run, engine.Park, engine.Push, and engine.OpenPullRequest instead of local implementations",
+      "given": [
+        "a stubbed engine whose NewRun, CommonPreflight, SetupBranch, Ledger.Snapshot, Ledger.Changes, Ledger.Commit, GateCache.Run, Park, Push, and OpenPullRequest methods record their calls",
+        "a stubbed brain that returns a valid Analysis and Implementation",
+        "a valid Options with a forge client, a passing baseline, and LandPR"
+      ],
+      "when": "Run is called with a context and the Options",
+      "then": [
+        "engine.NewRun was called exactly once with the workspace root and git handle",
+        "engine.CommonPreflight was called exactly once",
+        "engine.SetupBranch was called with the classification-derived prefix, issue number, and title",
+        "engine.Ledger.Snapshot was called before the implement phase",
+        "engine.Ledger.Changes and engine.Ledger.Commit were called after the implement phase",
+        "engine.GateCache.Run was called for the baseline and the landing gate",
+        "engine.Push and engine.OpenPullRequest were called"
+      ],
+      "pseudocode": "eng := newRecordingEngine()\nopts := validOptions(eng)\nresult, err := codefix.Run(ctx, opts)\nassert err == nil\nassert eng.newRunCalls == 1\nassert eng.commonPreflightCalls == 1\nassert eng.setupBranchCalls == 1\nassert eng.ledger.snapshotCalls == 1\nassert eng.ledger.changesCalls == 1\nassert eng.ledger.commitCalls == 1\nassert eng.gateCacheCalls >= 2\nassert eng.pushCalls == 1\nassert eng.openPRCalls == 1"
+    },
+    {
+      "id": "TS-23-2",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.2"
+      ],
+      "title": "The codefix package does not contain the deleted functions or the untracked.go file",
+      "given": [
+        "the codefix package source directory"
+      ],
+      "when": "the package is scanned for the symbols untrackedNow, commitOwn, commitOwnHooks, ownChange, parkWork, returnCheckout, background, invalidate, runChecks, branchPrefix, openPullRequest (body-truncation variant), and the file codefix/untracked.go",
+      "then": [
+        "none of those function names are declared in the codefix package",
+        "the file codefix/untracked.go does not exist"
+      ],
+      "pseudocode": "fset := token.NewFileSet()\npkgs, _ := parser.ParseDir(fset, \"codefix\", nil, 0)\nfor _, pkg := range pkgs {\n  for _, f := range pkg.Files {\n    for _, d := range f.Decls {\n      if fn, ok := d.(*ast.FuncDecl); ok {\n        assert fn.Name.Name not in [\"untrackedNow\", \"commitOwn\", \"commitOwnHooks\", \"ownChange\", \"parkWork\", \"returnCheckout\", \"background\", \"invalidate\", \"runChecks\", \"branchPrefix\"]\n      }\n    }\n  }\n}\nassert !fileExists(\"codefix/untracked.go\")"
+    },
+    {
+      "id": "TS-23-3",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.3"
+      ],
+      "title": "The Run function signature, Options fields, Result fields, Failure type, exit codes, and LandMode semantics are preserved",
+      "given": [
+        "the codefix package"
+      ],
+      "when": "the exported API surface is inspected via reflection or AST parsing",
+      "then": [
+        "Run has signature func(context.Context, Options) (*Result, error)",
+        "Options has all fields present in the pre-rewrite version",
+        "Result has all pre-existing fields (additive fields may be added)",
+        "Failure has TotalBudgetUSD, Error, Unwrap, StageName, CategoryName methods",
+        "LandPR, LandBranch, LandNone constants exist and Pushes() returns the same values"
+      ],
+      "pseudocode": "// compile-time assertion: the function signature matches\nvar _ func(context.Context, codefix.Options) (*codefix.Result, error) = codefix.Run\nassert codefix.LandPR.Pushes() == true\nassert codefix.LandBranch.Pushes() == true\nassert codefix.LandNone.Pushes() == false\nvar f codefix.Failure\n_ = f.TotalBudgetUSD()\n_ = f.Error()\n_ = f.StageName()\n_ = f.CategoryName()"
+    },
+    {
+      "id": "TS-23-4",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.4"
+      ],
+      "title": "After the implement phase ends with tree changes, engine.Ledger.Changes classifies the diff and engine.Ledger.Commit commits only the run's own files",
+      "given": [
+        "a stubbed engine with a recording Ledger",
+        "a stubbed brain whose Implement returns a valid Implementation",
+        "the implement phase has written two files and one pre-existing untracked file exists"
+      ],
+      "when": "Run proceeds past the implement phase",
+      "then": [
+        "engine.Ledger.Changes was called with the diff",
+        "engine.Ledger.Commit was called and the pre-existing untracked file was excluded from the commit"
+      ],
+      "pseudocode": "eng := newRecordingEngine()\neng.ledger.snapshotUntracked = map[string]bool{\"vendor/old.txt\": true}\nopts := validOptions(eng)\nresult, _ := codefix.Run(ctx, opts)\nassert eng.ledger.changesCalled\nassert eng.ledger.commitCalled\nassert !slices.Contains(eng.ledger.committedFiles, \"vendor/old.txt\")"
+    },
+    {
+      "id": "TS-23-5",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.5"
+      ],
+      "title": "Branch creation calls engine.SetupBranch with the correct prefix, number, and title, and engine.Invalidate after checkout",
+      "given": [
+        "a stubbed engine with a recording SetupBranch and Invalidate",
+        "a stubbed brain returning an Analysis with classification 'bug' and title 'fix null pointer'"
+      ],
+      "when": "Run proceeds past the analysis phase to branch creation",
+      "then": [
+        "engine.SetupBranch was called with prefix derived from the classification, the issue number, and the title",
+        "engine.Invalidate was called after SetupBranch"
+      ],
+      "pseudocode": "eng := newRecordingEngine()\nopts := validOptions(eng)\nopts.Input.Issue = &issuex.IssueRef{Number: 42}\nresult, _ := codefix.Run(ctx, opts)\nassert eng.setupBranchArgs.prefix == \"fix\"\nassert eng.setupBranchArgs.number == 42\nassert eng.setupBranchArgs.title == \"fix null pointer\"\nassert eng.invalidateCalledAfterSetupBranch"
+    },
+    {
+      "id": "TS-23-6",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-1.6"
+      ],
+      "title": "PR creation calls engine.OpenPullRequest which truncates the body to the forge's limit",
+      "given": [
+        "a stubbed engine with a recording OpenPullRequest that captures the request",
+        "a forge client whose MaxBodyLength returns 65536",
+        "a Result whose pull request body exceeds 65536 bytes"
+      ],
+      "when": "Run reaches the PR creation step",
+      "then": [
+        "engine.OpenPullRequest was called exactly once",
+        "the body in the captured request is at most 65536 bytes"
+      ],
+      "pseudocode": "eng := newRecordingEngine()\nopts := validOptions(eng)\nresult, _ := codefix.Run(ctx, opts)\nassert eng.openPRCalls == 1\nassert len(eng.openPRRequest.Body) <= 65536"
+    },
+    {
+      "id": "TS-23-7",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.1"
+      ],
+      "title": "The run_checks tool accepts scope and tests parameters and is registered in the implement phase",
+      "given": [
+        "the implement phase's tool list"
+      ],
+      "when": "the tool list is inspected for a tool named 'run_checks'",
+      "then": [
+        "a tool named 'run_checks' exists in the list",
+        "its schema has a 'scope' property with enum values 'lint', 'targeted', 'all'",
+        "its schema has an optional 'tests' property of type array of strings",
+        "the tool is registered alongside submit_implementation"
+      ],
+      "pseudocode": "tools := implementPhaseTools(opts)\nrc := findTool(tools, \"run_checks\")\nassert rc != nil\nassert rc.InputSchema.Properties[\"scope\"].Enum == [\"lint\", \"targeted\", \"all\"]\nassert rc.InputSchema.Properties[\"tests\"].Type == \"array\"\nassert findTool(tools, \"submit_implementation\") != nil"
+    },
+    {
+      "id": "TS-23-8",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.2"
+      ],
+      "title": "run_checks with scope 'lint' runs the profile's Lint command and returns exit code, ok, last twenty lines, and log path",
+      "given": [
+        "a profile whose Lint command is 'golangci-lint run'",
+        "a stubbed command runner that returns exit code 0 and 30 lines of output",
+        "a scratch directory at .agent-fox/scratch/session123/"
+      ],
+      "when": "run_checks is called with scope 'lint'",
+      "then": [
+        "the profile's Lint command was executed",
+        "the result contains exit_code 0, ok true, the last 20 lines of output, and a path under checks/ in the scratch directory"
+      ],
+      "pseudocode": "tool := newRunChecksTool(profile, runner, scratch)\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"lint\"}))\nassert result.OK\nparsed := parseResult(result)\nassert parsed.ExitCode == 0\nassert parsed.Ok == true\nassert lineCount(parsed.Output) <= 20\nassert strings.HasPrefix(parsed.LogPath, \".agent-fox/scratch/session123/checks/\")"
+    },
+    {
+      "id": "TS-23-9",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.3"
+      ],
+      "title": "run_checks with scope 'targeted' runs the profile's Targeted command for the named tests",
+      "given": [
+        "a profile whose Targeted command is 'go test -run'",
+        "a stubbed command runner that returns exit code 1 and 25 lines of output"
+      ],
+      "when": "run_checks is called with scope 'targeted' and tests ['TestFoo', 'TestBar']",
+      "then": [
+        "the command executed includes 'TestFoo' and 'TestBar'",
+        "the result contains exit_code 1, ok false, the last 20 lines of output, and the log path"
+      ],
+      "pseudocode": "tool := newRunChecksTool(profile, runner, scratch)\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"targeted\", \"tests\": [\"TestFoo\", \"TestBar\"]}))\nparsed := parseResult(result)\nassert parsed.ExitCode == 1\nassert parsed.Ok == false\nassert runner.lastCommand contains \"TestFoo\" and \"TestBar\""
+    },
+    {
+      "id": "TS-23-10",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.4"
+      ],
+      "title": "run_checks with scope 'all' runs the full verification command and stores the result in the GateCache",
+      "given": [
+        "a stubbed GateCache that records Store calls",
+        "a verification command 'make test'",
+        "a stubbed command runner returning exit code 0"
+      ],
+      "when": "run_checks is called with scope 'all'",
+      "then": [
+        "the full verification command was executed",
+        "the GateCache received a Store call keyed by the current tree hash",
+        "the result contains exit_code 0 and ok true"
+      ],
+      "pseudocode": "cache := newRecordingGateCache()\ntool := newRunChecksTool(profile, runner, scratch, cache)\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"all\"}))\nassert runner.lastCommand == \"make test\"\nassert cache.storeCalls == 1\nparsed := parseResult(result)\nassert parsed.ExitCode == 0\nassert parsed.Ok == true"
+    },
+    {
+      "id": "TS-23-11",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.5"
+      ],
+      "title": "A third scope-all run_checks call answers from the cache with a budget-exhausted note",
+      "given": [
+        "a run_checks tool handler with two prior scope-all calls completed in the same phase",
+        "a stubbed command runner that records calls"
+      ],
+      "when": "run_checks is called with scope 'all' a third time",
+      "then": [
+        "the command runner was not called",
+        "the result is from the cache",
+        "the result contains a note that the budget of two all-scope calls per phase is exhausted"
+      ],
+      "pseudocode": "tool := newRunChecksTool(profile, runner, scratch, cache)\ntool.Execute(ctx, json.Marshal({\"scope\": \"all\"}))\ntool.Execute(ctx, json.Marshal({\"scope\": \"all\"}))\nassert runner.callCount == 2\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"all\"}))\nassert runner.callCount == 2  // not called again\nparsed := parseResult(result)\nassert strings.Contains(parsed.Note, \"budget\")"
+    },
+    {
+      "id": "TS-23-12",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.6"
+      ],
+      "title": "The shell guard refuses the suite's own command and untargeted Test command in the implement phase, naming run_checks",
+      "given": [
+        "a GuardOptions with Suite set to the profile's verification command (e.g. 'make test')",
+        "the implement phase is active"
+      ],
+      "when": "the shell tool is called with the suite's own command 'make test'",
+      "then": [
+        "the guard refuses the command",
+        "the refusal message names run_checks as the alternative"
+      ],
+      "pseudocode": "guard := agentrun.Guard(agentrun.GuardOptions{Suite: []string{\"make test\"}, TargetedRun: \"run_checks\"})\nctx := shellContext(\"make test\")\nresult := guard(ctx)\nassert result.Blocked\nassert strings.Contains(result.Reason, \"run_checks\")"
+    },
+    {
+      "id": "TS-23-13",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.6"
+      ],
+      "title": "The shell guard allows a targeted test command (with file, test name, or package argument)",
+      "given": [
+        "a GuardOptions with Suite set to 'go test ./...'",
+        "the implement phase is active"
+      ],
+      "when": "the shell tool is called with 'go test ./internal/checks/'",
+      "then": [
+        "the guard allows the command"
+      ],
+      "pseudocode": "guard := agentrun.Guard(agentrun.GuardOptions{Suite: []string{\"go test ./...\"}})\nctx := shellContext(\"go test ./internal/checks/\")\nresult := guard(ctx)\nassert !result.Blocked"
+    },
+    {
+      "id": "TS-23-14",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.7"
+      ],
+      "title": "run_checks with scope 'targeted' on a profile with no Targeted command falls back to scope 'all' with a note",
+      "given": [
+        "a profile with no Targeted command (Targeted is empty/nil)",
+        "a stubbed command runner returning exit code 0"
+      ],
+      "when": "run_checks is called with scope 'targeted'",
+      "then": [
+        "the full verification command was executed instead",
+        "the result contains a note field explaining the fallback",
+        "the result contains ok and exit_code from the full-suite run"
+      ],
+      "pseudocode": "profile := lang.Profile{Name: \"generic\", Targeted: lang.Command{}}\ntool := newRunChecksTool(profile, runner, scratch, cache)\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"targeted\"}))\nparsed := parseResult(result)\nassert strings.Contains(parsed.Note, \"fallback\")\nassert parsed.ExitCode == 0\nassert parsed.Ok == true\nassert runner.lastCommand == verifyCommand"
+    },
+    {
+      "id": "TS-23-15",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-2.8"
+      ],
+      "title": "run_checks falls through to an uncached run when the tree hash cannot be computed",
+      "given": [
+        "a stubbed git handle whose tree-hash method returns an error",
+        "a stubbed command runner returning exit code 0"
+      ],
+      "when": "run_checks is called with scope 'all'",
+      "then": [
+        "the command was executed",
+        "the result shape is identical to a cached run (exit_code, ok, output, log_path)",
+        "no error is surfaced to the model"
+      ],
+      "pseudocode": "git := newStubGit(treeHashError: errors.New(\"hash fail\"))\ntool := newRunChecksTool(profile, runner, scratch, cache, git)\nresult := tool.Execute(ctx, json.Marshal({\"scope\": \"all\"}))\nassert result.OK\nparsed := parseResult(result)\nassert parsed.ExitCode == 0\nassert parsed.Ok == true"
+    },
+    {
+      "id": "TS-23-16",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-3.1"
+      ],
+      "title": "All system prompts and phase messages are rendered through prompt.Loader.Render with the correct template names",
+      "given": [
+        "a recording prompt.Loader that captures Render calls",
+        "a valid Options wired to the recording loader"
+      ],
+      "when": "Run is called through the analysis and implement phases",
+      "then": [
+        "Render was called with 'fix/analyse.system.md'",
+        "Render was called with 'fix/analyse.md'",
+        "Render was called with 'fix/implement.system.md'",
+        "Render was called with 'fix/implement.md'"
+      ],
+      "pseudocode": "loader := newRecordingLoader()\nopts := validOptions(loader: loader)\ncodefix.Run(ctx, opts)\nassert slices.Contains(loader.renderCalls, \"fix/analyse.system.md\")\nassert slices.Contains(loader.renderCalls, \"fix/analyse.md\")\nassert slices.Contains(loader.renderCalls, \"fix/implement.system.md\")\nassert slices.Contains(loader.renderCalls, \"fix/implement.md\")"
+    },
+    {
+      "id": "TS-23-17",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-3.2"
+      ],
+      "title": "The codefix package does not contain the deleted prompt constants or builder functions, and codefix/prompts.go does not exist",
+      "given": [
+        "the codefix package source directory"
+      ],
+      "when": "the package is scanned for the symbols analysisSystemPrompt, implementSystemPrompt, reportBlock, baselineBlock, criteriaBlock, contextBlock, analysisPrompt, implementPrompt, instructionsBlock, projectInstructions, and the file codefix/prompts.go",
+      "then": [
+        "none of those symbols are declared in the codefix package",
+        "the file codefix/prompts.go does not exist"
+      ],
+      "pseudocode": "fset := token.NewFileSet()\npkgs, _ := parser.ParseDir(fset, \"codefix\", nil, 0)\ndeleted := []string{\"analysisSystemPrompt\", \"implementSystemPrompt\", \"reportBlock\", \"baselineBlock\", \"criteriaBlock\", \"contextBlock\", \"analysisPrompt\", \"implementPrompt\", \"instructionsBlock\", \"projectInstructions\"}\nfor _, pkg := range pkgs {\n  for _, f := range pkg.Files {\n    for _, d := range f.Decls {\n      name := declName(d)\n      assert name not in deleted\n    }\n  }\n}\nassert !fileExists(\"codefix/prompts.go\")"
+    },
+    {
+      "id": "TS-23-18",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-3.3"
+      ],
+      "title": "No model-facing string constant in codefix is longer than one sentence",
+      "given": [
+        "the codefix package source directory"
+      ],
+      "when": "all string constants are extracted and those that are model-facing (not template names or format-string keys) are measured",
+      "then": [
+        "no model-facing string constant contains more than one sentence (no period followed by a space and an uppercase letter, excluding template names)"
+      ],
+      "pseudocode": "fset := token.NewFileSet()\npkgs, _ := parser.ParseDir(fset, \"codefix\", nil, 0)\nfor _, pkg := range pkgs {\n  for _, f := range pkg.Files {\n    for _, d := range f.Decls {\n      if gen, ok := d.(*ast.GenDecl); ok && gen.Tok == token.CONST {\n        for _, spec := range gen.Specs {\n          vs := spec.(*ast.ValueSpec)\n          for _, v := range vs.Values {\n            if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {\n              s := lit.Value\n              if isModelFacing(s) {\n                assert !hasMultipleSentences(s)\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+    },
+    {
+      "id": "TS-23-19",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-3.4"
+      ],
+      "title": "The run_checks tool description is rendered from tools/run_checks.md with the PhaseView",
+      "given": [
+        "a recording prompt.Loader",
+        "a PhaseView carrying suite commands, targeted-test form, and budget"
+      ],
+      "when": "the run_checks tool is constructed for the implement phase",
+      "then": [
+        "Render was called with 'tools/run_checks.md'",
+        "the view passed to Render contains the suite commands, targeted-test form, and budget"
+      ],
+      "pseudocode": "loader := newRecordingLoader()\ntool := buildRunChecksTool(loader, phaseView)\nassert loader.lastRenderName == \"tools/run_checks.md\"\nassert loader.lastRenderView.SuiteCommands != nil\nassert loader.lastRenderView.Budget == 2"
+    },
+    {
+      "id": "TS-23-20",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-4.1"
+      ],
+      "title": "The BriefView is built once per run and contains all required fields",
+      "given": [
+        "a valid Options with a report, repo map, project instructions, steering, gate commands, baseline verdicts, --context value, and a lang.Detection"
+      ],
+      "when": "Run builds the BriefView",
+      "then": [
+        "the BriefView contains the language block from lang.Detection",
+        "the BriefView contains the repository map",
+        "the BriefView contains the project instructions",
+        "the BriefView contains the steering",
+        "the BriefView contains the gate commands with baseline verdicts",
+        "the BriefView contains the --context value",
+        "the BriefView contains the report"
+      ],
+      "pseudocode": "opts := validOptions()\nbrief := buildBriefView(opts)\nassert brief.Language != \"\"\nassert brief.RepoMap != \"\"\nassert brief.Instructions != \"\"\nassert brief.VerifyCommands != nil\nassert len(brief.BaselineResults) > 0\nassert brief.Report.Body != \"\""
+    },
+    {
+      "id": "TS-23-21",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-4.2"
+      ],
+      "title": "The system prompt and tool schemas are identical for every phase of the same kind within one run",
+      "given": [
+        "a recording brain that captures the system prompt and tool schemas for each phase call"
+      ],
+      "when": "Run executes the analysis phase (and if the run had multiple analysis attempts, each would use the same system prompt)",
+      "then": [
+        "the system prompt text is identical across all calls of the same phase kind",
+        "the tool schemas are identical across all calls of the same phase kind"
+      ],
+      "pseudocode": "brain := newRecordingBrain()\nopts := validOptions(brain: brain)\ncodefix.Run(ctx, opts)\nfor i := 1; i < len(brain.analyseCalls); i++ {\n  assert brain.analyseCalls[i].system == brain.analyseCalls[0].system\n  assert brain.analyseCalls[i].toolSchemas == brain.analyseCalls[0].toolSchemas\n}"
+    },
+    {
+      "id": "TS-23-22",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-4.3"
+      ],
+      "title": "The brief is placed as the first user message with phase-specific material in a second message",
+      "given": [
+        "a recording brain that captures the user messages passed to each phase"
+      ],
+      "when": "Run executes the analysis phase",
+      "then": [
+        "the first user message is the rendered brief",
+        "the second user message contains phase-specific material (diagnosis, criteria, branch, date)"
+      ],
+      "pseudocode": "brain := newRecordingBrain()\nopts := validOptions(brain: brain)\ncodefix.Run(ctx, opts)\nmessages := brain.analyseCalls[0].userMessages\nassert len(messages) >= 2\nassert strings.Contains(messages[0], briefContent)\nassert strings.Contains(messages[1], phaseSpecificContent)"
+    },
+    {
+      "id": "TS-23-23",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-4.4"
+      ],
+      "title": "When AgentKit's cache breakpoint is not available, the brief is still rendered once and placed first",
+      "given": [
+        "AgentKit's cache breakpoint feature is not available (the runner does not support it)",
+        "a recording brain"
+      ],
+      "when": "Run executes the analysis phase",
+      "then": [
+        "the brief is rendered once and placed as the first part of the user prompt",
+        "no cache breakpoint marker is present"
+      ],
+      "pseudocode": "brain := newRecordingBrain()\nopts := validOptions(brain: brain, noCacheBreakpoint: true)\ncodefix.Run(ctx, opts)\nassert brain.analyseCalls[0].userMessages[0] == briefContent\nassert !brain.analyseCalls[0].hasCacheBreakpoint"
+    },
+    {
+      "id": "TS-23-24",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-5.1"
+      ],
+      "title": "When the pruning transform is available, tool results older than eight turns are replaced by a one-line stub",
+      "given": [
+        "AgentKit's pruning transform is available",
+        "a transcript with 12 turns, the first four containing tool results"
+      ],
+      "when": "the implement phase processes the transcript through the pruning transform",
+      "then": [
+        "tool results from turns 1-4 (older than 8 turns from the current turn 12) are replaced by one-line stubs naming the call and its size"
+      ],
+      "pseudocode": "transcript := buildTranscript(12)\npruned := pruningTransform(transcript, currentTurn: 12, threshold: 8)\nfor i := 0; i < 4; i++ {\n  assert isPrunedStub(pruned[i])\n  assert strings.Contains(pruned[i].Content, pruned[i].ToolName)\n}"
+    },
+    {
+      "id": "TS-23-25",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-5.2"
+      ],
+      "title": "Summarisation stays as the backstop at 60% of the context window regardless of pruning",
+      "given": [
+        "the implement phase configuration"
+      ],
+      "when": "the phase's summarisation threshold is inspected",
+      "then": [
+        "the summarisation backstop is set to 60% of the context window"
+      ],
+      "pseudocode": "phase := buildImplementPhase(opts)\nassert phase.SummariseAt == 0.6"
+    },
+    {
+      "id": "TS-23-26",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-6.1"
+      ],
+      "title": "A codefix run creates the scratch directory at .agent-fox/scratch/<session_id>/ with a .gitignore",
+      "given": [
+        "a temporary workspace directory",
+        "an Options with session id 'abc123'"
+      ],
+      "when": "Run starts",
+      "then": [
+        "the directory .agent-fox/scratch/abc123/ exists",
+        "a .gitignore file exists in .agent-fox/scratch/ containing '*'",
+        "the same directory is used for all phases of the run"
+      ],
+      "pseudocode": "root := t.TempDir()\nopts := validOptions(root: root, sessionID: \"abc123\")\ncodefix.Run(ctx, opts)\nassert dirExists(filepath.Join(root, \".agent-fox/scratch/abc123\"))\nignore, _ := os.ReadFile(filepath.Join(root, \".agent-fox/scratch/.gitignore\"))\nassert string(ignore) == \"*\\n\""
+    },
+    {
+      "id": "TS-23-27",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-6.2"
+      ],
+      "title": "Every external command writes its full output to checks/<label>.txt in the scratch directory",
+      "given": [
+        "a scratch directory at .agent-fox/scratch/session123/",
+        "a stubbed command runner that returns 50 lines of output"
+      ],
+      "when": "the engine runs a command labelled 'baseline'",
+      "then": [
+        "the file .agent-fox/scratch/session123/checks/baseline.txt exists",
+        "the file contains all 50 lines of output"
+      ],
+      "pseudocode": "root := t.TempDir()\nscratch := setupScratch(root, \"session123\")\nrunner := newStubRunner(output: strings.Repeat(\"line\\n\", 50))\nengine.RunCommand(ctx, runner, root, \"make test\", \"baseline\", scratch)\npath := filepath.Join(root, \".agent-fox/scratch/session123/checks/baseline.txt\")\nassert fileExists(path)\ncontent, _ := os.ReadFile(path)\nassert strings.Count(string(content), \"\\n\") == 50"
+    },
+    {
+      "id": "TS-23-28",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-6.3"
+      ],
+      "title": "The prompt carries at most the last ten lines of check output inline plus a ref to the full log",
+      "given": [
+        "a check result with 50 lines of output",
+        "the full log written to .agent-fox/scratch/session123/checks/verify.txt"
+      ],
+      "when": "the check result is formatted for the prompt",
+      "then": [
+        "the inline output contains at most 10 lines",
+        "the inline output contains a ref(path) reference to the full log file"
+      ],
+      "pseudocode": "result := checks.Result{Output: strings.Repeat(\"line\\n\", 50)}\nformatted := formatCheckForPrompt(result, \"verify\", scratch)\nlines := strings.Split(strings.TrimSpace(formatted), \"\\n\")\nassert countOutputLines(lines) <= 10\nassert strings.Contains(formatted, \"ref(\")\nassert strings.Contains(formatted, \"checks/verify.txt\")"
+    },
+    {
+      "id": "TS-23-29",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-6.4"
+      ],
+      "title": "The scratch directory is removed when the run ends, including on cancellation and error paths",
+      "given": [
+        "a temporary workspace directory",
+        "an Options with session id 'abc123'"
+      ],
+      "when": "Run completes (on any path)",
+      "then": [
+        "the directory .agent-fox/scratch/abc123/ no longer exists",
+        "if .agent-fox/scratch and .agent-fox are empty, they are removed too"
+      ],
+      "pseudocode": "root := t.TempDir()\nopts := validOptions(root: root, sessionID: \"abc123\")\ncodefix.Run(ctx, opts)\nassert !dirExists(filepath.Join(root, \".agent-fox/scratch/abc123\"))\nassert !dirExists(filepath.Join(root, \".agent-fox/scratch\"))\nassert !dirExists(filepath.Join(root, \".agent-fox\"))"
+    },
+    {
+      "id": "TS-23-30",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-6.5"
+      ],
+      "title": "When the scratch directory cannot be created, the run continues with a warning and no check logs",
+      "given": [
+        "a workspace root where .agent-fox/scratch is a read-only file (not a directory)"
+      ],
+      "when": "Run starts and attempts to create the scratch directory",
+      "then": [
+        "the run completes with the same exit code it would have had",
+        "a warning is recorded via Run.Warn"
+      ],
+      "pseudocode": "root := t.TempDir()\nos.MkdirAll(filepath.Join(root, \".agent-fox\"), 0o755)\nos.WriteFile(filepath.Join(root, \".agent-fox/scratch\"), []byte(\"block\"), 0o444)\nopts := validOptions(root: root)\nresult, err := codefix.Run(ctx, opts)\nassert result != nil  // run completed\nassert opts.Run.HasWarning(\"scratch\")"
+    },
+    {
+      "id": "TS-23-31",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.1"
+      ],
+      "title": "The revert check runs the profile's Targeted command for the tests the change added or edited and sets mode to 'targeted'",
+      "given": [
+        "a profile with a Targeted command 'go test -run'",
+        "a ledger classification that names tests TestFoo and TestBar as added",
+        "a stubbed command runner"
+      ],
+      "when": "the revert check runs",
+      "then": [
+        "the profile's Targeted command was executed with TestFoo and TestBar",
+        "result.revert_check.mode is 'targeted'"
+      ],
+      "pseudocode": "profile := lang.Profile{Targeted: lang.Command{Base: \"go test -run\"}}\nledger := newStubLedger(addedTests: []string{\"TestFoo\", \"TestBar\"})\nrc, err := targetedRevert(ctx, profile, ledger, runner)\nassert err == nil\nassert rc.Mode == \"targeted\"\nassert runner.lastCommand contains \"TestFoo\" and \"TestBar\""
+    },
+    {
+      "id": "TS-23-32",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.2"
+      ],
+      "title": "The revert check on an InlineTests profile reverts by declaration rather than by file, leaving inline tests in place",
+      "given": [
+        "a profile with InlineTests set to true and a Targeted command",
+        "a changed file containing both implementation and inline test declarations",
+        "a file outline that identifies the test declarations by line range"
+      ],
+      "when": "the revert check runs",
+      "then": [
+        "the implementation declarations are reverted (put back to base) while the inline test declarations remain",
+        "result.revert_check.declarations lists the reverted declarations"
+      ],
+      "pseudocode": "profile := lang.Profile{InlineTests: true, Targeted: lang.Command{Base: \"cargo test\"}}\nchanged := []string{\"src/lib.rs\"}\noutline := []Declaration{{Name: \"parse\", Lines: [10, 30]}, {Name: \"tests\", Lines: [32, 60], IsTest: true}}\nrc, err := targetedRevert(ctx, profile, ledger, runner, outline)\nassert err == nil\nassert slices.Contains(rc.Declarations, \"parse\")\nassert !slices.Contains(rc.Declarations, \"tests\")"
+    },
+    {
+      "id": "TS-23-33",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.3"
+      ],
+      "title": "The revert check runs the full suite when the profile has no Targeted command and sets mode to 'suite'",
+      "given": [
+        "a profile with no Targeted command",
+        "a stubbed command runner"
+      ],
+      "when": "the revert check runs",
+      "then": [
+        "the full verification command was executed",
+        "result.revert_check.mode is 'suite'"
+      ],
+      "pseudocode": "profile := lang.Profile{Name: \"generic\", Targeted: lang.Command{}}\nrc, err := revertCheck(ctx, profile, ledger, runner, verifyCommand)\nassert err == nil\nassert rc.Mode == \"suite\"\nassert runner.lastCommand == verifyCommand"
+    },
+    {
+      "id": "TS-23-34",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.4"
+      ],
+      "title": "The implementation is held in a commit object before the revert check puts anything back",
+      "given": [
+        "a git repository with uncommitted changes from the implementation",
+        "a stubbed git handle that records stash-create and reset-soft calls"
+      ],
+      "when": "the revert check runs",
+      "then": [
+        "git stash create (or a wip: commit) was called before any file was reverted",
+        "the commit object SHA is non-empty"
+      ],
+      "pseudocode": "git := newRecordingGit(dirty: true)\nrc, err := heldRevert(ctx, git, root, command, changed)\nassert err == nil\nassert git.stashCreateCalled || git.commitCalled\nassert git.holdCommitSHA != \"\"\nassert git.stashCreateCalledBefore(git.firstRevertCall)"
+    },
+    {
+      "id": "TS-23-35",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.5"
+      ],
+      "title": "When the revert check is cancelled, the implementation is restored and engine.Park is called with exit code 4",
+      "given": [
+        "a git repository with the implementation held in a commit object",
+        "a context that is cancelled during the revert check"
+      ],
+      "when": "the revert check receives a cancellation",
+      "then": [
+        "the implementation is restored from the commit object",
+        "engine.Park was called",
+        "the result has category 'aborted' and exit code 4"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background())\ngo func() { time.Sleep(10*time.Millisecond); cancel() }()\nresult, err := codefix.Run(ctx, opts)\nassert err != nil\nvar f *codefix.Failure\nassert errors.As(err, &f)\nassert f.CategoryName() == \"aborted\"\nassert eng.parkCalled\nassert git.implementationRestored"
+    },
+    {
+      "id": "TS-23-36",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.6"
+      ],
+      "title": "A compile error with the implementation removed is classified by the profile; proves is set with reason when unclassifiable",
+      "given": [
+        "a revert check where the verification command fails with output matching a compile error pattern",
+        "a profile that can distinguish build failure from test failure"
+      ],
+      "when": "the revert check classifies the failure",
+      "then": [
+        "the failure is classified as a build failure, not a test failure",
+        "proves is false for a build failure (the test did not run)"
+      ],
+      "pseudocode": "result := checks.Result{ExitCode: 1, OK: false, Output: \"[build failed]\"}\nrc := classifyRevertFailure(result, profile)\nassert rc.CompileFailed == true\nassert rc.Proves == false"
+    },
+    {
+      "id": "TS-23-37",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.6"
+      ],
+      "title": "When the profile cannot classify the failure, proves is set to true with reason 'failure was not classified'",
+      "given": [
+        "a revert check where the verification command fails with ambiguous output",
+        "a profile that cannot distinguish build failure from test failure"
+      ],
+      "when": "the revert check classifies the failure",
+      "then": [
+        "proves is true",
+        "reason contains 'failure was not classified'"
+      ],
+      "pseudocode": "result := checks.Result{ExitCode: 1, OK: false, Output: \"some ambiguous error\"}\nrc := classifyRevertFailure(result, genericProfile)\nassert rc.Proves == true\nassert strings.Contains(rc.Reason, \"failure was not classified\")"
+    },
+    {
+      "id": "TS-23-38",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-7.7"
+      ],
+      "title": "When the outline of a changed file cannot be parsed, the revert falls back to file-level revert",
+      "given": [
+        "a profile with InlineTests set to true",
+        "a changed file whose outline cannot be parsed (e.g. syntax error)"
+      ],
+      "when": "the revert check attempts declaration-level revert for that file",
+      "then": [
+        "the revert falls back to file-level revert for that file",
+        "the revert check completes without error"
+      ],
+      "pseudocode": "profile := lang.Profile{InlineTests: true}\nchanged := []string{\"src/broken.rs\"}\nrc, err := targetedRevert(ctx, profile, ledger, runner, outlineError: true)\nassert err == nil\nassert slices.Contains(rc.Reverted, \"src/broken.rs\")\nassert rc.Mode == \"targeted\""
+    },
+    {
+      "id": "TS-23-39",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-8.1"
+      ],
+      "title": "Ctrl-C during the implement phase cancels it, parks the work, returns checkout to base, and exits with code 4",
+      "given": [
+        "a stubbed brain whose Implement blocks until the context is cancelled",
+        "a stubbed engine with a recording Park"
+      ],
+      "when": "the context is cancelled during the implement phase",
+      "then": [
+        "engine.Park was called to commit the work as wip:",
+        "the checkout returned to the base branch",
+        "the error has category 'aborted'"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background())\nbrain := newBlockingBrain(cancel)\nopts := validOptions(brain: brain, eng: eng)\nresult, err := codefix.Run(ctx, opts)\nvar f *codefix.Failure\nassert errors.As(err, &f)\nassert f.CategoryName() == \"aborted\"\nassert eng.parkCalled\nassert eng.returnCheckoutCalled"
+    },
+    {
+      "id": "TS-23-40",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-8.2"
+      ],
+      "title": "Ctrl-C during the landing gate sets Aborted on the gate result, parks, and exits with code 4",
+      "given": [
+        "a stubbed GateCache.Run that blocks until the context is cancelled",
+        "a stubbed engine with a recording Park"
+      ],
+      "when": "the context is cancelled during the landing gate",
+      "then": [
+        "the gate result has Aborted == true",
+        "engine.Park was called",
+        "the error has category 'aborted'"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background())\ncache := newBlockingGateCache(cancel)\nopts := validOptions(cache: cache, eng: eng)\nresult, err := codefix.Run(ctx, opts)\nvar f *codefix.Failure\nassert errors.As(err, &f)\nassert f.CategoryName() == \"aborted\"\nassert eng.parkCalled"
+    },
+    {
+      "id": "TS-23-41",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-8.3"
+      ],
+      "title": "A cancelled run leaves no uncommitted changes on the work branch and the result is resumable",
+      "given": [
+        "a git repository",
+        "a context that is cancelled during any phase"
+      ],
+      "when": "the run is cancelled and completes",
+      "then": [
+        "git status shows no uncommitted changes on the work branch",
+        "result.Resumable() returns true"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background())\ngo func() { time.Sleep(50*time.Millisecond); cancel() }()\nresult, err := codefix.Run(ctx, opts)\nassert result.Resumable()\nchanged, _ := git.ChangedFiles(context.Background(), \"HEAD\")\nassert len(changed) == 0"
+    },
+    {
+      "id": "TS-23-42",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.1"
+      ],
+      "title": "The result includes result.language with primary, detected, and verify.source populated from lang.Detection",
+      "given": [
+        "a lang.Detection with Primary 'go', All ['go', 'python'], and VerifyCommand resolved from a Makefile"
+      ],
+      "when": "Run completes successfully",
+      "then": [
+        "result.Language.Primary is 'go'",
+        "result.Language.Detected is ['go', 'python']",
+        "result.Language.Verify.Source is 'makefile'"
+      ],
+      "pseudocode": "detection := lang.Detection{Primary: goProfile, All: [goProfile, pythonProfile]}\nopts := validOptions(detection: detection)\nresult, _ := codefix.Run(ctx, opts)\nassert result.Language.Primary == \"go\"\nassert result.Language.Detected == []string{\"go\", \"python\"}\nassert result.Language.Verify.Source == \"makefile\""
+    },
+    {
+      "id": "TS-23-43",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.2"
+      ],
+      "title": "The result includes result.revert_check.mode and result.revert_check.declarations",
+      "given": [
+        "a run that completes with a targeted revert check on an InlineTests profile"
+      ],
+      "when": "the result is inspected",
+      "then": [
+        "result.RevertCheck.Mode is 'targeted'",
+        "result.RevertCheck.Declarations is non-empty"
+      ],
+      "pseudocode": "result, _ := codefix.Run(ctx, opts)\nassert result.RevertCheck.Mode == \"targeted\"\nassert len(result.RevertCheck.Declarations) > 0"
+    },
+    {
+      "id": "TS-23-44",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.3"
+      ],
+      "title": "A gate check answered from the cache sets timings[].cached to true",
+      "given": [
+        "a GateCache that returns a cached result for the landing gate"
+      ],
+      "when": "Run completes and the landing gate was a cache hit",
+      "then": [
+        "the timing entry for the landing gate has Cached set to true"
+      ],
+      "pseudocode": "cache := newPreloadedGateCache(treeHash: \"abc\", result: passingResult)\nopts := validOptions(cache: cache)\nresult, _ := codefix.Run(ctx, opts)\ngateTiming := findTiming(result, \"verification\")\nassert gateTiming.Cached == true"
+    },
+    {
+      "id": "TS-23-45",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.4"
+      ],
+      "title": "When the pruning transform removes tokens, usage.phases[].pruned_tokens is set",
+      "given": [
+        "the pruning transform is installed and removes 5000 tokens during the implement phase"
+      ],
+      "when": "Run completes",
+      "then": [
+        "the implement phase's usage entry has pruned_tokens set to 5000"
+      ],
+      "pseudocode": "result, _ := codefix.Run(ctx, opts)\nimplPhase := findPhase(result.Usage.Phases, \"implement\")\nassert implPhase.PrunedTokens == 5000"
+    },
+    {
+      "id": "TS-23-46",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.5"
+      ],
+      "title": "The result includes prompt_templates as a map of document name to SHA-256",
+      "given": [
+        "a prompt.Loader with templates 'fix/analyse.system.md' (hash 'aaa') and 'fix/implement.system.md' (hash 'bbb')"
+      ],
+      "when": "Run completes",
+      "then": [
+        "result.PromptTemplates contains entries for 'fix/analyse.system.md' and 'fix/implement.system.md' with their SHA-256 hashes"
+      ],
+      "pseudocode": "loader := newStubLoader(hashes: map[string]string{\"fix/analyse.system.md\": \"aaa\", \"fix/implement.system.md\": \"bbb\"})\nopts := validOptions(loader: loader)\nresult, _ := codefix.Run(ctx, opts)\nassert result.PromptTemplates[\"fix/analyse.system.md\"] == \"aaa\"\nassert result.PromptTemplates[\"fix/implement.system.md\"] == \"bbb\""
+    },
+    {
+      "id": "TS-23-47",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.6"
+      ],
+      "title": "conform.Scan is called with ScanInput.Lang set to the lang.Detection from the engine's Run",
+      "given": [
+        "a recording conform.Scan that captures its ScanInput",
+        "a lang.Detection with Primary 'go'"
+      ],
+      "when": "Run reaches the structural scan step",
+      "then": [
+        "conform.Scan was called with ScanInput.Lang set to the lang.Detection"
+      ],
+      "pseudocode": "scan := newRecordingScan()\ndetection := lang.Detection{Primary: goProfile}\nopts := validOptions(detection: detection, scan: scan)\ncodefix.Run(ctx, opts)\nassert scan.lastInput.Lang.Primary.Name == \"go\""
+    },
+    {
+      "id": "TS-23-48",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-9.7"
+      ],
+      "title": "No existing flag, exit code, event type, or required result field is changed",
+      "given": [
+        "the current schema golden file at cmd/fix/testdata/schema.golden.json",
+        "the new schema golden file after the rewrite"
+      ],
+      "when": "the two schemas are compared",
+      "then": [
+        "every field present in the old schema is present in the new schema with the same type",
+        "the only new fields are the additive ones defined in REQ-9 (language, revert_check.mode, revert_check.declarations, timings[].cached, usage.phases[].pruned_tokens, prompt_templates)"
+      ],
+      "pseudocode": "old := loadJSON(\"cmd/fix/testdata/schema.golden.json.before\")\nnew := loadJSON(\"cmd/fix/testdata/schema.golden.json\")\nfor key, typ := range old.Fields {\n  assert new.Fields[key] == typ\n}\nadditive := setDiff(new.Fields, old.Fields)\nallowed := set{\"language\", \"revert_check.mode\", \"revert_check.declarations\", \"timings[].cached\", \"usage.phases[].pruned_tokens\", \"prompt_templates\", \"prompts_dir\", \"prompts_not_written\"}\nassert additive.isSubsetOf(allowed)"
+    },
+    {
+      "id": "TS-23-49",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-10.1"
+      ],
+      "title": "docs/cli.md documents the aborted verdict, targeted revert mode, run_checks, and additive fields",
+      "given": [
+        "the file docs/cli.md"
+      ],
+      "when": "the file content is inspected",
+      "then": [
+        "the verdict table includes 'aborted'",
+        "the revert check section describes targeted mode",
+        "run_checks is documented under 'What the model may and may not do'",
+        "the additive result fields are listed"
+      ],
+      "pseudocode": "content, _ := os.ReadFile(\"docs/cli.md\")\nassert strings.Contains(content, \"aborted\")\nassert strings.Contains(content, \"targeted\")\nassert strings.Contains(content, \"run_checks\")\nassert strings.Contains(content, \"result.language\")"
+    },
+    {
+      "id": "TS-23-50",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-10.2"
+      ],
+      "title": "docs/model-usage.md documents the run brief, pruning, scratch logs, and run_checks",
+      "given": [
+        "the file docs/model-usage.md"
+      ],
+      "when": "the file content is inspected",
+      "then": [
+        "the document describes the run brief and stable prefix",
+        "the document describes the pruning transform",
+        "the document describes the scratch logs",
+        "the document describes run_checks"
+      ],
+      "pseudocode": "content, _ := os.ReadFile(\"docs/model-usage.md\")\nassert strings.Contains(content, \"brief\")\nassert strings.Contains(content, \"pruning\")\nassert strings.Contains(content, \"scratch\")\nassert strings.Contains(content, \"run_checks\")"
+    },
+    {
+      "id": "TS-23-51",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-10.3"
+      ],
+      "title": "docs/configuration.md documents the prompts/ subdirectory and language profiles",
+      "given": [
+        "the file docs/configuration.md"
+      ],
+      "when": "the file content is inspected",
+      "then": [
+        "the document describes the prompts/ subdirectory under 'State directory'",
+        "the document describes the language profiles and what each detects"
+      ],
+      "pseudocode": "content, _ := os.ReadFile(\"docs/configuration.md\")\nassert strings.Contains(content, \"prompts/\")\nassert strings.Contains(content, \"language profile\")"
+    },
+    {
+      "id": "TS-23-52",
+      "kind": "unit",
+      "verifies": [
+        "23-REQ-10.4"
+      ],
+      "title": "docs/development.md documents internal/lang and internal/engine in the package layout",
+      "given": [
+        "the file docs/development.md"
+      ],
+      "when": "the file content is inspected",
+      "then": [
+        "the document lists internal/lang in the package layout",
+        "the document lists internal/engine in the package layout"
+      ],
+      "pseudocode": "content, _ := os.ReadFile(\"docs/development.md\")\nassert strings.Contains(content, \"internal/lang\")\nassert strings.Contains(content, \"internal/engine\")"
+    },
+    {
+      "id": "TS-23-53",
+      "kind": "integration",
+      "verifies": [
+        "23-REQ-1.1",
+        "23-REQ-1.4",
+        "23-REQ-2.4"
+      ],
+      "title": "The pipeline calls engine.Ledger and engine.GateCache in sequence: snapshot before implement, changes and commit after, and GateCache stores run_checks results",
+      "given": [
+        "a real engine.Ledger and engine.GateCache wired to a test git repository",
+        "a stubbed brain that writes a file and calls run_checks with scope 'all' during the implement phase"
+      ],
+      "when": "Run is called end-to-end",
+      "then": [
+        "the Ledger's Snapshot was taken before the implement phase",
+        "the Ledger's Changes and Commit were called after the implement phase",
+        "the GateCache contains the result from the run_checks call",
+        "the landing gate is a cache hit"
+      ],
+      "pseudocode": "repo := setupTestRepo(t)\neng := engine.NewRun(repo.Root, repo.Git, engine.RunOpts{})\nbrain := newStubBrain(writesFile: true, callsRunChecks: true)\nopts := validOptions(eng: eng, brain: brain)\nresult, err := codefix.Run(ctx, opts)\nassert err == nil\nassert eng.Ledger.SnapshotCalled\nassert eng.Ledger.CommitCalled\nassert eng.Gate.HitCount >= 1"
+    },
+    {
+      "id": "TS-23-54",
+      "kind": "integration",
+      "verifies": [
+        "23-REQ-7.1",
+        "23-REQ-7.4"
+      ],
+      "title": "The targeted revert check runs the profile's Targeted command with the implementation held in a commit object on a real git repository",
+      "given": [
+        "a test git repository with a committed base and an implementation that adds a test file",
+        "a profile with a Targeted command"
+      ],
+      "when": "the revert check runs",
+      "then": [
+        "the implementation is held in a commit object before the revert",
+        "the Targeted command is executed for the added tests",
+        "the implementation is restored after the check",
+        "the working tree matches the implementation"
+      ],
+      "pseudocode": "repo := setupTestRepo(t)\nwriteFile(repo, \"foo_test.go\", testContent)\nwriteFile(repo, \"foo.go\", implContent)\nprofile := lang.Profile{Targeted: lang.Command{Base: \"go test -run\"}}\nrc, err := targetedRevert(ctx, repo.Git, repo.Root, profile, []string{\"foo.go\", \"foo_test.go\"})\nassert err == nil\nassert rc.Mode == \"targeted\"\n// verify tree is restored\ncontent, _ := os.ReadFile(filepath.Join(repo.Root, \"foo.go\"))\nassert string(content) == implContent"
+    },
+    {
+      "id": "TS-23-55",
+      "kind": "integration",
+      "verifies": [
+        "23-REQ-3.1",
+        "23-REQ-4.1"
+      ],
+      "title": "The prompt.Loader renders the brief and phase templates with real views and the output is non-empty and contains expected sections",
+      "given": [
+        "a real prompt.Loader with the embedded templates",
+        "a BriefView and PhaseView populated from a test Options"
+      ],
+      "when": "Render is called for brief/fix.md, fix/analyse.system.md, fix/analyse.md, fix/implement.system.md, fix/implement.md",
+      "then": [
+        "each rendered output is non-empty",
+        "the brief contains the report, repo map, and gate commands",
+        "the analysis system prompt contains method instructions",
+        "the implement system prompt contains constraint instructions"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nbrief, err := loader.Render(\"brief/fix.md\", briefView)\nassert err == nil && len(brief) > 0\nassert strings.Contains(brief, briefView.Report.Body)\nassys, _ := loader.Render(\"fix/analyse.system.md\", view)\nassert len(ansys) > 0\nimpsys, _ := loader.Render(\"fix/implement.system.md\", view)\nassert len(impsys) > 0"
+    },
+    {
+      "id": "TS-23-56",
+      "kind": "integration",
+      "verifies": [
+        "23-REQ-6.1",
+        "23-REQ-6.2",
+        "23-REQ-6.4"
+      ],
+      "title": "The per-run scratch directory lifecycle: created at start, check logs written during run, removed at end",
+      "given": [
+        "a temporary workspace directory",
+        "a real engine that runs commands and writes check logs"
+      ],
+      "when": "Run is called and completes",
+      "then": [
+        "during the run, .agent-fox/scratch/<session_id>/checks/ contains log files",
+        "after the run, the scratch directory is removed"
+      ],
+      "pseudocode": "root := t.TempDir()\nopts := validOptions(root: root, sessionID: \"test-session\")\nvar scratchExists bool\nopts.OnBaseline = func() {\n  scratchExists = dirExists(filepath.Join(root, \".agent-fox/scratch/test-session/checks\"))\n}\nresult, _ := codefix.Run(ctx, opts)\nassert scratchExists\nassert !dirExists(filepath.Join(root, \".agent-fox/scratch/test-session\"))"
+    },
+    {
+      "id": "TS-23-57",
+      "kind": "smoke",
+      "verifies": [
+        "23-PATH-1",
+        "23-REQ-1.1",
+        "23-REQ-4.1",
+        "23-REQ-9.1"
+      ],
+      "title": "A successful fix from report to landed PR traverses the full engine pipeline",
+      "given": [
+        "a test git repository with a passing baseline",
+        "a forge stub that accepts PR creation",
+        "a stubbed brain that produces a valid Analysis and Implementation",
+        "a profile with a Targeted command"
+      ],
+      "when": "af fix is run with a bug report and --land=pr",
+      "then": [
+        "the result stage is 'landed'",
+        "the result has a non-empty PullRequestURL",
+        "result.Language is populated",
+        "the BriefView was rendered once",
+        "the scratch directory was created and removed",
+        "engine.NewRun, CommonPreflight, SetupBranch, Ledger, GateCache, Push, OpenPullRequest were all called"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "engine.NewRun",
+        "engine.Ledger",
+        "engine.GateCache",
+        "engine.SetupBranch",
+        "engine.Push",
+        "engine.OpenPullRequest",
+        "prompt.Loader"
+      ]
+    },
+    {
+      "id": "TS-23-58",
+      "kind": "smoke",
+      "verifies": [
+        "23-PATH-2",
+        "23-REQ-8.1",
+        "23-REQ-8.3"
+      ],
+      "title": "A cancelled run during the implement phase parks the work and exits with code 4",
+      "given": [
+        "a test git repository",
+        "a stubbed brain whose Implement blocks until context cancellation"
+      ],
+      "when": "af fix is run and the context is cancelled during the implement phase",
+      "then": [
+        "the error has category 'aborted'",
+        "the work is committed as wip: on the work branch",
+        "the checkout is on the base branch",
+        "the result is resumable",
+        "no uncommitted changes remain"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "engine.Park",
+        "engine.Ledger",
+        "gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-23-59",
+      "kind": "smoke",
+      "verifies": [
+        "23-PATH-3",
+        "23-REQ-1.1"
+      ],
+      "title": "An unverified run parks the work and reports the regressed verdict",
+      "given": [
+        "a test git repository with a passing baseline",
+        "a stubbed brain that produces an Implementation whose changes cause the gate to regress"
+      ],
+      "when": "af fix is run",
+      "then": [
+        "the result verdict is 'regressed'",
+        "engine.Park was called",
+        "the checkout is on the base branch",
+        "the result stage is not 'landed'"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "engine.Park",
+        "engine.GateCache",
+        "checks.Compare"
+      ]
+    },
+    {
+      "id": "TS-23-60",
+      "kind": "smoke",
+      "verifies": [
+        "23-PATH-4",
+        "23-REQ-7.1",
+        "23-REQ-7.2"
+      ],
+      "title": "A targeted revert with inline tests on an InlineTests profile reverts by declaration and runs the Targeted command",
+      "given": [
+        "a test git repository with a Rust-like file containing both implementation and inline test declarations",
+        "a profile with InlineTests set and a Targeted command"
+      ],
+      "when": "the revert check runs as part of a fix",
+      "then": [
+        "the revert was by declaration, not by file",
+        "the inline tests remained in place during the check",
+        "the Targeted command was executed",
+        "result.revert_check.mode is 'targeted'",
+        "result.revert_check.declarations is non-empty"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "conform.Revert",
+        "engine.Ledger",
+        "lang.Profile",
+        "gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-23-61",
+      "kind": "smoke",
+      "verifies": [
+        "23-PATH-5",
+        "23-REQ-2.5",
+        "23-REQ-2.4"
+      ],
+      "title": "The run_checks budget exhaustion and landing-gate cache hit path",
+      "given": [
+        "a test git repository with a passing verification command",
+        "a stubbed brain that calls run_checks with scope 'all' three times during the implement phase"
+      ],
+      "when": "af fix is run",
+      "then": [
+        "the first two scope-all calls executed the command",
+        "the third scope-all call answered from the cache with a budget note",
+        "the landing gate after the implement phase is a cache hit",
+        "the timing entry for the landing gate has cached set to true"
+      ],
+      "real_components": [
+        "codefix.Run",
+        "engine.GateCache",
+        "run_checks tool",
+        "checks.Run"
+      ]
+    }
+  ]
+}

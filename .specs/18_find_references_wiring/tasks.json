@@ -1,0 +1,192 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "18",
+  "spec_name": "find_references_wiring",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./... -count=1 -run TestTS18_"
+  },
+  "dependencies": [
+    {
+      "spec": "15_symbol_navigation_tools",
+      "reason": "Established the pattern this spec follows: adding tool names to ReadOnlyFileTools, the symbol_backend preflight check, the repo map sentence, and the doc updates from four to six read tools."
+    },
+    {
+      "spec": "16_indexed_code_search",
+      "reason": "The WithCodeSearch function and code_search grant mechanism are unchanged. The baseline tables this spec extends were last updated by spec 16."
+    },
+    {
+      "spec": "14_repo_map",
+      "reason": "The repository map Intro constant this spec extends was established by spec 14."
+    },
+    {
+      "spec": "13_tool_call_counts_and_relevant_files",
+      "reason": "The navigation baseline tables and jq snippet this spec extends were established by spec 13."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add find_references to ReadOnlyFileTools and verify core invariants",
+      "criteria": [
+        "18-REQ-1",
+        "18-REQ-2",
+        "18-REQ-5",
+        "18-REQ-9"
+      ],
+      "tests": [
+        "TS-18-1",
+        "TS-18-2",
+        "TS-18-3",
+        "TS-18-4",
+        "TS-18-8",
+        "TS-18-9",
+        "TS-18-15",
+        "TS-18-16",
+        "TS-18-21"
+      ],
+      "steps": [
+        "Write TS-18-1 and TS-18-2 in `internal/agentrun/policy_test.go`: TS-18-1 asserts `ReadOnlyFileTools` equals the seven-element slice `[\"read_file\", \"list_files\", \"find_files\", \"search_files\", \"file_outline\", \"find_symbol\", \"find_references\"]` in that order; TS-18-2 asserts `find_references` is in neither `MutatingTools` nor `ShellTools` and `AssertReadOnly` returns nil for a set containing all seven. Confirm both fail.",
+        "In `internal/agentrun/policy.go`, append `\"find_references\"` to `ReadOnlyFileTools` after `\"find_symbol\"`. Update the comment above from 'neither writes' to include `find_references`. Update `TestTS15_1_ReadOnlyFileToolsHasTheSixReadTools` to expect seven entries (rename it to reflect seven, or let it coexist with TS-18-1). Confirm TS-18-1 and TS-18-2 pass.",
+        "Write TS-18-3 in `internal/agentrun/phase_test.go`: build a `Runner` with a faux provider and a workspace, run a read-only phase with `BuiltinTools: ReadOnlyFileTools`, and assert the model request's declared tools include `find_references` and every other ReadOnlyFileTools entry. Confirm it passes.",
+        "Write TS-18-4 in `internal/agentrun/phase_test.go`: call `registeredTools` twice with separate Phase values (both using ReadOnlyFileTools), and assert both returned tool sets include `find_references` and that the two slices are distinct objects. Confirm it passes.",
+        "Write TS-18-8 in `internal/agentrun/phase_test.go`: call `toolsNote` with a tool set that includes `find_references` and assert the returned string contains `find_references` in the sorted tool list. Write TS-18-9: call `toolsNote` with a `find_references` tool carrying a non-empty `PromptGuidelines` slice, and assert the result contains `Tool guidelines:` and the guideline text as a bullet. Confirm both pass.",
+        "Write TS-18-15, TS-18-16 and TS-18-21 in `internal/agentrun/policy_test.go`: TS-18-15 asserts `WithCodeSearch(ReadOnlyFileTools, true)` returns a new slice of length 8 ending with `code_search` without mutating the original (compare `len` before and after, mutate result[0] and confirm original is unchanged); TS-18-16 asserts `WithCodeSearch(ReadOnlyFileTools, false)` returns the same length with no `code_search`; TS-18-21 is a property test that loops grant lengths 0..20, calling `WithCodeSearch(grant, true)` and asserting the original slice's length and contents are unchanged and the result has length original+1 ending with `code_search`. Confirm all pass.",
+        "Run `make check` to confirm all new and existing tests pass and the linter is clean."
+      ],
+      "touches": [
+        "internal/agentrun/policy.go",
+        "internal/agentrun/policy_test.go",
+        "internal/agentrun/phase_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Update prompts and repo map sentence to name find_references; add pipeline integration tests",
+      "criteria": [
+        "18-REQ-3",
+        "18-REQ-4"
+      ],
+      "tests": [
+        "TS-18-5",
+        "TS-18-6",
+        "TS-18-7",
+        "TS-18-17",
+        "TS-18-18",
+        "TS-18-19",
+        "TS-18-20"
+      ],
+      "steps": [
+        "Write TS-18-5 in `codefix/prompts_checks_test.go`: assert `analysisSystemPrompt` contains the string `find_references`, still contains `caller` or `callee`, and has the same number of method steps (six numbered items). Confirm it fails.",
+        "In `codefix/phases.go`, update step 2 of `analysisSystemPrompt` from \"Read the file, then its callers and callees\" to \"Read the file, then use `find_references` for its callers and callees\" (keep the rest of the step unchanged). Confirm TS-18-5 passes.",
+        "Write TS-18-6 in `codeimpl/prompts_checks_test.go`: assert `surveySystemPrompt` contains `find_references`, still contains `caller`, and has the same number of method steps (five numbered items). Confirm it fails.",
+        "In `codeimpl/prompts.go`, update step 2 of `surveySystemPrompt` from \"Read the file it lives in, its callers, and its tests\" to \"Read the file it lives in, use `find_references` for its callers, and read its tests\" (keep the rest of the step unchanged). Confirm TS-18-6 passes.",
+        "Write TS-18-7 in `internal/repomap/repomap_test.go`: assert `Intro` contains `find_references`, describes it for finding callers/uses, and continues to mention `read_file`, `file_outline`, `find_symbol`, `find_files` and `search_files`. Confirm it fails.",
+        "Update the `Intro` constant in `internal/repomap/repomap.go`: change the sentence to include `find_references`, e.g. `Use \\`read_file\\` with \\`offset\\`/\\`limit\\` to read a declaration, \\`file_outline\\` for a file's full outline, \\`find_symbol\\` to locate a name across the repository, and \\`find_references\\` for who calls or uses it.` Update the existing `TestTS15_11_IntroMentionsSymbolTools` to also check for `find_references`. Confirm TS-18-7 passes.",
+        "Write TS-18-17 in `codefix/preflight_test.go`: run fix's `Analyze` with a faux provider and assert the model request's declared tools include `find_references` and all seven ReadOnlyFileTools, and that `write_file`/`edit_file` are absent. Write TS-18-18 in `codeimpl/pipeline_test.go`: run impl's `Survey` with a faux provider and assert the declared tools include `find_references` and all ReadOnlyFileTools. Write TS-18-19 in `issuetriage/pipeline_test.go`: run triage's `Run` and assert. Write TS-18-20 in `specgen/pipeline_test.go`: run spec's prd phase and assert. Confirm all pass.",
+        "Run `make check` to confirm all tests pass and the linter is clean."
+      ],
+      "touches": [
+        "codefix/phases.go",
+        "codefix/prompts_checks_test.go",
+        "codefix/preflight_test.go",
+        "codeimpl/prompts.go",
+        "codeimpl/prompts_checks_test.go",
+        "codeimpl/pipeline_test.go",
+        "internal/repomap/repomap.go",
+        "internal/repomap/repomap_test.go",
+        "issuetriage/pipeline_test.go",
+        "specgen/pipeline_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Update docs/model-usage.md, docs/cli.md and docs/development.md to reflect seven read tools",
+      "criteria": [
+        "18-REQ-6",
+        "18-REQ-7",
+        "18-REQ-8"
+      ],
+      "tests": [
+        "TS-18-10",
+        "TS-18-11",
+        "TS-18-12",
+        "TS-18-13",
+        "TS-18-14"
+      ],
+      "steps": [
+        "Write TS-18-10 and TS-18-11 in a new root-level file `docs_find_references_test.go` (package `agentfox`): TS-18-10 reads `docs/model-usage.md`, asserts no occurrence of `six read tools`, at least one of `seven read tools`, and all seven tool names including `find_references` present. TS-18-11 reads `docs/cli.md`, asserts the same count switch, `find_references` present, no preflight check entry named `find_references`, and `symbol_backend` still present. Confirm both fail.",
+        "Update `docs/model-usage.md`: replace every occurrence of `the six read tools` with `the seven read tools` and `six read tools` with `seven read tools`. In the triage row, add `find_references` to the explicit tool list. In the defining paragraph `The \"six read tools\" are ...`, change to `The \"seven read tools\" are ...` and add `find_references` to the list. In the `Reading the codebase` section, update `Six tools read the tree` to `Seven tools read the tree` and add a sentence about `find_references` after the `find_symbol` paragraph.",
+        "Update `docs/cli.md`: replace every occurrence of `six read tools` with `seven read tools`. In each tool's `What the model may and may not do` section, add `find_references` to the enumerated list of read tools. In the `triage` and `spec` sections that list all six explicitly, add `find_references`. Do not add a new `--preflight` check entry.",
+        "Update `docs_symbols_test.go`: change `sixReadTools` to a seven-element slice including `find_references`; update `TestTS15_12` to check for `seven read tools` instead of `six read tools` and to look for the `The \"seven read tools\"` prefix; update `TestTS15_14` to expect seven tools in the model-may-do sections. Confirm TS-18-10 and TS-18-11 pass.",
+        "Write TS-18-12, TS-18-13 and TS-18-14 in `docs_find_references_test.go`: TS-18-12 parses each baseline table header and asserts a `find_references` column after `find_symbol` and before `code_search`, with dashes in every data row. TS-18-13 extracts the jq code block and asserts it contains `.tool_calls.find_references // 0` between `find_symbol` and `code_search`. TS-18-14 asserts the baseline intro says seven (not six) and names `find_references`. Confirm all fail.",
+        "Update `docs/development.md`: in the Navigation baseline intro, change `six read-only file tools` to `seven read-only file tools` and add `find_references` to the enumerated list. Add a `find_references` column header between `find_symbol` and `code_search` in every baseline table. Add a dash (`—`) in every data row's `find_references` cell. Update the `jq` snippet to extract `(.tool_calls.find_references // 0)` between `find_symbol` and `code_search`. Add a note that the `find_references` column was added by this spec.",
+        "Update `docs_codesearch_test.go`: in `TestTS16_29_NavigationBaselineHasCodeSearchColumn`, change the expected header fragment from `| find_symbol | code_search |` to `| find_symbol | find_references | code_search |`. Confirm TS-18-12, TS-18-13, TS-18-14 and the updated TS-16-29 pass.",
+        "Run `make check` to confirm all tests pass and the linter is clean."
+      ],
+      "touches": [
+        "docs/model-usage.md",
+        "docs/cli.md",
+        "docs/development.md",
+        "docs_find_references_test.go",
+        "docs_symbols_test.go",
+        "docs_codesearch_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "integration",
+      "title": "End-to-end smoke tests and execution-path verification",
+      "tests": [
+        "TS-18-22",
+        "TS-18-23",
+        "TS-18-24",
+        "TS-18-25"
+      ],
+      "steps": [
+        "Write TS-18-22 in `issuetriage/pipeline_test.go`: run triage's `Run` end-to-end with a faux provider scripted with a valid `file_issue` call and a workspace with a tracked file; assert the run completes, the model request's tools include `find_references`, and the system prompt text (from `toolsNote`) lists `find_references`.",
+        "Write TS-18-23 in `codefix/preflight_test.go`: run fix's `Analyze` end-to-end with a faux provider scripted with a valid `submit_analysis` call; assert the run completes, the model request's declared tools include `find_references`, the system prompt contains `find_references` in the callers step, and no mutating tool (`write_file`, `edit_file`) is in the analyse phase's declared tools.",
+        "Write TS-18-24 in `codeimpl/pipeline_test.go`: run impl's `Survey` end-to-end with a faux provider scripted with a valid `submit_survey` call; assert the run completes, the model request's declared tools include `find_references`, and the system prompt contains `find_references` in the callers step.",
+        "Write TS-18-25 in `docs_find_references_test.go` at the root: read all three doc files (`docs/model-usage.md`, `docs/cli.md`, `docs/development.md`), assert model-usage and cli contain no `six read tools` and at least one `seven read tools`, and development.md's baseline tables contain a `find_references` column.",
+        "Trace 18-PATH-1 through the real code: confirm `ReadOnlyFileTools` feeds into `issuetriage/triage.go`'s phase which passes it to `registeredTools` in `phase.go` which calls `tools.All`, and `toolsNote` renders the tool name into the system prompt. Confirm no stub remains.",
+        "Trace 18-PATH-2: confirm `codefix/phases.go` `Analyze` builds the phase with `ReadOnlyFileTools` plus `execute`, `registeredTools` resolves all seven read tools, `AssertReadOnly` passes, and `analysisSystemPrompt` contains `find_references`. Confirm the call chain is live in production code.",
+        "Trace 18-PATH-3: confirm `codeimpl/phases.go` `Survey` builds the phase with `ReadOnlyFileTools` plus `execute`, `registeredTools` resolves all seven, `AssertReadOnly` passes, and `surveySystemPrompt` contains `find_references`.",
+        "Trace 18-PATH-4: confirm the three doc files are consistent — model-usage.md, cli.md and development.md all carry the seven-tool count and name `find_references`.",
+        "Search every file listed in tasks 1–3's `touches` for `panic(\"not implemented\")`, `TODO(18)` and bare `return nil` on non-trivial paths; confirm none remain.",
+        "Confirm `tools.All` (AgentKit's entry point, called from `registeredTools` in `internal/agentrun/phase.go`) is called from production code, not only from tests."
+      ],
+      "touches": [
+        "issuetriage/pipeline_test.go",
+        "codefix/preflight_test.go",
+        "codeimpl/pipeline_test.go",
+        "docs_find_references_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "done_when": [
+        "`make check` passes with no failures",
+        "Every smoke test (TS-18-22 through TS-18-25) passes",
+        "No stub markers (`panic(\"not implemented\")`, `TODO`) remain in any touched file",
+        "Every execution path (18-PATH-1 through 18-PATH-4) is exercised by a passing smoke test"
+      ],
+      "state": "pending"
+    }
+  ]
+}

@@ -1,0 +1,720 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "20",
+  "spec_name": "engine_core",
+  "schema_version": 2,
+  "introduction": "The engine_core spec creates internal/engine, a shared library of deterministic pipeline steps — the Run type, the Ledger (change tracker), the GateCache (verification cache), parking, branching, the aborted verdict, index invalidation, background context, push-with-retries and PR opening — so that codefix and codeimpl call one engine instead of maintaining two divergent copies of the same machine.",
+  "glossary": {
+    "GateCache": "A verification result cache keyed by (tree-hash, command) that prevents redundant verification runs.",
+    "Ledger": "The engine's change tracker that records the pre-phase untracked snapshot, classifies changed paths, and produces the commit's file list. Replaces untrackedNow/commitOwn/leftAlone/unlisted/ownChange/dirtyAfterCommit in both packages.",
+    "gate": "The project's verification commands (linter, all_tests) run before and after a change to classify the outcome.",
+    "parking": "Committing the current work as a wip: commit with hooks skipped, under a cancellation-proof context, and returning the checkout to the base branch.",
+    "tree hash": "A content-addressable key computed from git write-tree (or HEAD^{tree} when clean) combined with the sorted untracked files the ledger knows about.",
+    "work branch": "The branch created by the engine for a run's changes (fix/* or impl/*)."
+  },
+  "requirements": [
+    {
+      "id": "20-REQ-1",
+      "title": "Run type and NewRun constructor",
+      "rationale": "A single shared state object lets both pipelines call engine functions without passing a dozen arguments to each.",
+      "criteria": [
+        {
+          "id": "20-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "engine.Run",
+          "action": "hold the fields Root (string, symlink-resolved), Git (*gitx.Git), Lang (lang.Detection), Branch (BranchInfo), Ledger (*Ledger), Gate (*GateCache), Index (tools.Index, nil when absent), Scratch (string), Progress (toolio.Progress), and Record (*toolio.Run)"
+        },
+        {
+          "id": "20-REQ-1.2",
+          "pattern": "event_driven",
+          "condition": "NewRun is called with a root, git handle, options and lang.Detection",
+          "system": "engine",
+          "action": "return a fully initialised *Run with a new Ledger and GateCache, or an error",
+          "contract": "(*Run, error)"
+        },
+        {
+          "id": "20-REQ-1.3",
+          "pattern": "unwanted",
+          "condition": "the root passed to NewRun is not a git repository",
+          "system": "engine",
+          "action": "return a nil Run and a non-nil error describing the problem",
+          "contract": "nil *Run and non-nil error"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-2",
+      "title": "Ledger: snapshot, commit and change classification",
+      "rationale": "One Ledger replaces six divergent untracked-file functions across codefix and codeimpl, making commit logic consistent.",
+      "criteria": [
+        {
+          "id": "20-REQ-2.1",
+          "pattern": "event_driven",
+          "condition": "Ledger.Snapshot is called",
+          "system": "Ledger",
+          "action": "record the current untracked files as a map[string]bool; if git.UntrackedFiles errors, set the snapshot to nil (meaning unknown, commit everything)"
+        },
+        {
+          "id": "20-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "Ledger.Changes is called with a git handle and a since-ref",
+          "system": "Ledger",
+          "action": "return a []Change where each entry carries Path, Status (A/M/D/?), and Kind classified as one of test, docs, implementation, gate-config, scratch, or protected, using lang.Detection.TestFile, project.IsDocsFile, the gate-config classifier, and path-prefix checks",
+          "contract": "([]Change, error)"
+        },
+        {
+          "id": "20-REQ-2.3",
+          "pattern": "event_driven",
+          "condition": "Ledger.Commit is called",
+          "system": "Ledger",
+          "action": "commit everything except files in the snapshot (left-alone) and foreign-spec paths, warn with WarnUntrackedFilesLeftAlone for left-alone files and WarnUnlistedFileCommitted for new files the phase report did not list, and call git.CommitAllExcept",
+          "contract": "(commitHash string, error)"
+        },
+        {
+          "id": "20-REQ-2.4",
+          "pattern": "event_driven",
+          "condition": "Ledger.SetOwned is called with paths",
+          "system": "Ledger",
+          "action": "mark those paths as run-owned so they are included in commits and not classified as foreign"
+        },
+        {
+          "id": "20-REQ-2.5",
+          "pattern": "event_driven",
+          "condition": "Ledger.SetProtected is called with paths and a phase changes one of them",
+          "system": "Ledger",
+          "action": "classify those paths as protected in Changes and enable the caller to revert them with a warning"
+        },
+        {
+          "id": "20-REQ-2.6",
+          "pattern": "event_driven",
+          "condition": "Ledger.SetForeignPath is called with a predicate",
+          "system": "Ledger",
+          "action": "use that predicate during Commit to treat matching untracked files as left-alone, replacing the hardcoded foreignSpecPath logic from codeimpl"
+        },
+        {
+          "id": "20-REQ-2.7",
+          "pattern": "event_driven",
+          "condition": "Ledger.OwnChange is called",
+          "system": "Ledger",
+          "action": "return true when the tree has changes the run made (anything not in the snapshot), false otherwise",
+          "contract": "bool"
+        },
+        {
+          "id": "20-REQ-2.8",
+          "pattern": "event_driven",
+          "condition": "Ledger.FlagGateEdits is called with a since-ref",
+          "system": "Ledger",
+          "action": "detect gate-config edits, deleted test files, rewritten golden files and added skip markers using the classifiers moved from codeimpl/gateedits.go, and warn via the run recorder with WarnGateEdited"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-3",
+      "title": "Gate cache",
+      "rationale": "Caching verification results by tree hash prevents redundant runs that cost minutes per invocation.",
+      "criteria": [
+        {
+          "id": "20-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "GateCache.Run is called and the (treeHash, command) key is in the cache",
+          "system": "GateCache",
+          "action": "return the cached checks.Result without executing the command, and record a timing entry with cached: true",
+          "contract": "checks.Result with the cached result"
+        },
+        {
+          "id": "20-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "GateCache.Run is called and the (treeHash, command) key is not in the cache",
+          "system": "GateCache",
+          "action": "call checks.Run, store the result keyed by (treeHash, command), and return it",
+          "contract": "checks.Result from the live run"
+        },
+        {
+          "id": "20-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "GateCache",
+          "action": "compute the tree hash as git rev-parse HEAD^{tree} when the tree is clean, and as git write-tree (after staging) when there are uncommitted changes"
+        },
+        {
+          "id": "20-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "GateCache.RunGate is called with multiple commands",
+          "system": "GateCache",
+          "action": "run each command through the cache individually and return a GateResult containing all checks, matching the behaviour of codeimpl's runGate",
+          "contract": "GateResult"
+        },
+        {
+          "id": "20-REQ-3.5",
+          "pattern": "unwanted",
+          "condition": "the tree hash computation fails",
+          "system": "GateCache",
+          "action": "fall through to an uncached checks.Run call rather than returning an error",
+          "contract": "checks.Result from the live run, no error returned to caller"
+        },
+        {
+          "id": "20-REQ-3.6",
+          "pattern": "ubiquitous",
+          "system": "engine",
+          "action": "export the GateResult type (moved from codeimpl/types.go) with its methods Ran, OK, couldNotRun, aborted, and failing, and export compareGate and landable (moved from codeimpl/gate.go)"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-4",
+      "title": "Parking",
+      "rationale": "A single Park function eliminates the divergence where codefix sometimes ran hooks on park commits and codeimpl always skipped them.",
+      "criteria": [
+        {
+          "id": "20-REQ-4.1",
+          "pattern": "event_driven",
+          "condition": "engine.Park is called and the ledger reports own changes",
+          "system": "engine",
+          "action": "create a background context via context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute), commit via Ledger.Commit with noVerify: true, check out the base branch, and return the commit hash",
+          "contract": "(commit string, err error) where err is always nil; failures are warnings"
+        },
+        {
+          "id": "20-REQ-4.2",
+          "pattern": "event_driven",
+          "condition": "engine.Park is called and the ledger reports no own changes",
+          "system": "engine",
+          "action": "skip the commit, check out the base branch, and return an empty commit hash",
+          "contract": "(empty string, nil error)"
+        },
+        {
+          "id": "20-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "the commit during Park fails",
+          "system": "engine",
+          "action": "warn with WarnCommitNotParked and continue to the checkout step; never return an error that stops the pipeline",
+          "contract": "WarnCommitNotParked warning emitted, nil error returned"
+        },
+        {
+          "id": "20-REQ-4.4",
+          "pattern": "unwanted",
+          "condition": "the checkout during Park or ReturnCheckout fails",
+          "system": "engine",
+          "action": "warn with WarnCheckoutNotRestored and return without error",
+          "contract": "WarnCheckoutNotRestored warning emitted, nil error returned"
+        },
+        {
+          "id": "20-REQ-4.5",
+          "pattern": "ubiquitous",
+          "system": "engine.Park",
+          "action": "always pass noVerify: true to Ledger.Commit, so that git hooks are skipped on every wip: commit"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-5",
+      "title": "Branching",
+      "rationale": "One branching function prevents the divergence where codefix and codeimpl handle branch creation and detached-HEAD detection differently.",
+      "criteria": [
+        {
+          "id": "20-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "engine.SetupBranch is called with a prefix, number and title",
+          "system": "engine",
+          "action": "capture the base branch via git.BaseBranch, compute the work branch name via gitx.BranchName and gitx.UniqueBranchName, create the branch via git.CreateBranch, record base/work/merge-base on run.Branch, and invalidate the index",
+          "contract": "nil error on success"
+        },
+        {
+          "id": "20-REQ-5.2",
+          "pattern": "unwanted",
+          "condition": "the base branch is a detached HEAD (empty string from CurrentBranch)",
+          "system": "engine",
+          "action": "return a non-nil error describing the refusal",
+          "contract": "non-nil error with message mentioning detached HEAD"
+        },
+        {
+          "id": "20-REQ-5.3",
+          "pattern": "unwanted",
+          "condition": "the base branch matches fix/* or impl/* patterns",
+          "system": "engine",
+          "action": "return a non-nil error refusing to branch from a work branch",
+          "contract": "non-nil error with message naming the work-branch pattern"
+        },
+        {
+          "id": "20-REQ-5.4",
+          "pattern": "event_driven",
+          "condition": "engine.ResumeBranch is called with an existing branch name",
+          "system": "engine",
+          "action": "check out the existing branch, handle parked-attempt detection and reset, and record the branch info on run.Branch",
+          "contract": "nil error on success"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-6",
+      "title": "Aborted verdict in checks.Compare",
+      "rationale": "Without an aborted verdict, a cancelled verification run is compared as if it failed, producing a false regression report.",
+      "criteria": [
+        {
+          "id": "20-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "checks.Compare is called and either the baseline or the after Result has Aborted == true",
+          "system": "checks.Compare",
+          "action": "return VerdictAborted (\"aborted\")",
+          "contract": "Verdict value \"aborted\""
+        },
+        {
+          "id": "20-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "checks.VerdictAborted",
+          "action": "not be landable: VerdictAborted.Landable() returns false"
+        },
+        {
+          "id": "20-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "checks",
+          "action": "export VerdictAborted as a const of type Verdict with value \"aborted\""
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-7",
+      "title": "Background context, index invalidation and common preflight",
+      "rationale": "These small shared utilities each exist as identical copies in both packages; consolidating them eliminates drift.",
+      "criteria": [
+        {
+          "id": "20-REQ-7.1",
+          "pattern": "event_driven",
+          "condition": "engine.Background is called with a context",
+          "system": "engine",
+          "action": "return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)",
+          "contract": "(context.Context, context.CancelFunc)"
+        },
+        {
+          "id": "20-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "engine.Invalidate is called and the run has a non-nil Index",
+          "system": "engine",
+          "action": "call Index.Invalidate(\"\")"
+        },
+        {
+          "id": "20-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "engine.Invalidate is called and the run has a nil Index",
+          "system": "engine",
+          "action": "do nothing and not panic"
+        },
+        {
+          "id": "20-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "engine.CommonPreflight is called",
+          "system": "engine",
+          "action": "check repository existence via git.IsRepo, clean working tree via git.DirtyFiles, base branch capture and validation (not detached, not a work branch), remote existence when pushing, and forge authentication when opening PRs, returning a non-nil error on the first failure",
+          "contract": "nil error when all checks pass, non-nil error on first failure"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-8",
+      "title": "Push with retries and pull request opening",
+      "rationale": "Consolidating push and PR logic ensures body truncation and retry behaviour are consistent across both tools.",
+      "criteria": [
+        {
+          "id": "20-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "engine.Push is called",
+          "system": "engine",
+          "action": "call git.Push with the given number of attempts, report progress, and record the side effect",
+          "contract": "nil error on success, non-nil error on failure after all attempts"
+        },
+        {
+          "id": "20-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "engine.OpenPullRequest is called",
+          "system": "engine",
+          "action": "truncate the PR body to issuex.MaxBodyLength(forge) before sending, open the PR via forge.CreatePullRequest, and return the PR URL",
+          "contract": "(string URL, error)"
+        },
+        {
+          "id": "20-REQ-8.3",
+          "pattern": "unwanted",
+          "condition": "the PR body exceeds the forge's MaxBodyLength",
+          "system": "engine",
+          "action": "truncate the body to fit within the limit before sending, so the forge never rejects the request for body size",
+          "contract": "the body sent to CreatePullRequest has len <= MaxBodyLength"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-9",
+      "title": "Migration: both pipelines call the engine",
+      "rationale": "The engine is only useful if both tools actually use it; the migration replaces duplicated functions with engine calls.",
+      "criteria": [
+        {
+          "id": "20-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "codeimpl.RunState",
+          "action": "hold a *engine.Run field for shared state, and delegate untracked-file tracking, commit, parking, branching, background context and index invalidation to engine functions"
+        },
+        {
+          "id": "20-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "codefix.Options",
+          "action": "hold a *engine.Run field for shared state, and delegate untracked-file tracking, commit, parking, branching, background context and index invalidation to engine functions"
+        },
+        {
+          "id": "20-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "system",
+          "action": "not change any flag, exit code, envelope field or schema version; the --schema golden files remain unchanged"
+        },
+        {
+          "id": "20-REQ-9.4",
+          "pattern": "ubiquitous",
+          "system": "system",
+          "action": "remove the package-local background, parkWork, commitOwn/commitOwnHooks, untrackedNow, noteUntracked, leftAlone, foreignSpecPath, commit, unlisted, dirtyAfterCommit, ownChange, invalidate, and returnCheckout functions from codefix and codeimpl once the engine equivalents are wired"
+        }
+      ]
+    },
+    {
+      "id": "20-REQ-10",
+      "title": "Gate-edit classifiers move to the engine",
+      "rationale": "The testFile, gateConfigFile, goldenFile and skipMarker classifiers are needed by the Ledger's change classification and gate-edit detection.",
+      "criteria": [
+        {
+          "id": "20-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "engine",
+          "action": "export the gateConfigFile classifier that identifies build/lint configuration files, using lang.Profile.GateConfig when available and falling back to the current hardcoded list for files not covered by any profile"
+        },
+        {
+          "id": "20-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "engine",
+          "action": "delegate test-file classification to lang.Detection.TestFile instead of hardcoding language-specific suffixes"
+        },
+        {
+          "id": "20-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "engine",
+          "action": "export the goldenFile classifier and skipMarker regex, moved from codeimpl/gateedits.go without behavioural change"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "20-PATH-1",
+      "title": "A codefix run branches, implements, parks and returns to base via the engine",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes codefix with a bug report"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.NewRun to create the shared Run with Ledger and GateCache"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.CommonPreflight to validate the repository, clean tree, base branch and credentials"
+        },
+        {
+          "actor": "engine",
+          "action": "calls engine.SetupBranch to capture the base, create the work branch, record merge-base and invalidate the index"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls Ledger.Snapshot before the implementation phase"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "runs the model's implementation phase, which modifies files in the tree"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls Ledger.Commit to commit the changes, leaving snapshot files in the tree"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls GateCache.Run to verify the change, receiving a cached or live checks.Result"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.Park when the run is interrupted, which commits under a cancellation-proof context with hooks skipped and checks out the base branch"
+        },
+        {
+          "actor": "engine",
+          "action": "returns the commit hash and emits no error; any failure is a warning"
+        }
+      ]
+    },
+    {
+      "id": "20-PATH-2",
+      "title": "A codeimpl run uses the engine's gate cache and gets a cache hit on the second task",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes codeimpl with a spec package"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "calls engine.NewRun and engine.CommonPreflight"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "calls GateCache.RunGate for the baseline with multiple commands"
+        },
+        {
+          "actor": "GateCache",
+          "action": "computes the tree hash, finds no cache entry, runs checks.Run for each command, stores results"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "implements task 1, commits via Ledger.Commit, and calls GateCache.RunGate for verification"
+        },
+        {
+          "actor": "GateCache",
+          "action": "computes the new tree hash, finds no cache entry, runs checks.Run, stores results"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "reverts task 1 for a revert check, restoring the tree to the pre-task state"
+        },
+        {
+          "actor": "GateCache",
+          "action": "computes the tree hash, finds a cache hit from the baseline, returns the cached result with cached: true in timings"
+        }
+      ]
+    },
+    {
+      "id": "20-PATH-3",
+      "title": "A cancelled verification run produces the aborted verdict and the pipeline parks without comparing",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes codefix and cancels the run (Ctrl-C) during the verification phase"
+        },
+        {
+          "actor": "checks.Run",
+          "action": "detects context cancellation and returns a Result with Aborted == true"
+        },
+        {
+          "actor": "checks.Compare",
+          "action": "receives a Result with Aborted == true and returns VerdictAborted"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "observes VerdictAborted, skips the comparison, and calls engine.Park"
+        },
+        {
+          "actor": "engine.Park",
+          "action": "creates a background context, commits with hooks skipped, checks out the base branch, and returns the commit hash"
+        }
+      ]
+    },
+    {
+      "id": "20-PATH-4",
+      "title": "SetupBranch refuses a detached HEAD in preflight",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "invokes codefix on a repository in detached HEAD state"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls engine.SetupBranch"
+        },
+        {
+          "actor": "engine.SetupBranch",
+          "action": "calls git.BaseBranch which returns an empty string, and returns a non-nil error refusing the detached HEAD"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "maps the error to a preflight failure and reports it to the operator"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "internal/gitx",
+      "version": "local",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Git.CommitAllExcept",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CommitAllExcept(ctx context.Context, message string, noVerify bool, leave []string) (string, error)"
+        },
+        {
+          "name": "Git.UntrackedFiles",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) UntrackedFiles(ctx context.Context) ([]string, error)"
+        },
+        {
+          "name": "Git.ChangedFiles",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) ChangedFiles(ctx context.Context, since string) ([]string, error)"
+        },
+        {
+          "name": "Git.CreateBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) CreateBranch(ctx context.Context, name string) error"
+        },
+        {
+          "name": "Git.Checkout",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) Checkout(ctx context.Context, name string) error"
+        },
+        {
+          "name": "Git.BaseBranch",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) BaseBranch(ctx context.Context) string"
+        },
+        {
+          "name": "Git.MergeBase",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) MergeBase(ctx context.Context, ref string) (string, error)"
+        },
+        {
+          "name": "Git.Push",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) Push(ctx context.Context, branch string, attempts int, log func(string)) error"
+        },
+        {
+          "name": "UniqueBranchName",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func UniqueBranchName(ctx context.Context, g *Git, name string) string"
+        },
+        {
+          "name": "BranchName",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func BranchName(prefix string, number int, title string) string"
+        },
+        {
+          "name": "Git.IsRepo",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) IsRepo(ctx context.Context) bool"
+        },
+        {
+          "name": "Git.DirtyFiles",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) DirtyFiles(ctx context.Context) ([]string, error)"
+        },
+        {
+          "name": "Git.DiffSince",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/gitx",
+          "signature": "func (g *Git) DiffSince(ctx context.Context, since string) (nameStatus, patch string, err error)"
+        }
+      ]
+    },
+    {
+      "package": "internal/checks",
+      "version": "local",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "Run",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "func Run(ctx context.Context, r gitx.Runner, dir, command string, timeout time.Duration) Result"
+        },
+        {
+          "name": "Compare",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "func Compare(baseline, after Result) Verdict"
+        },
+        {
+          "name": "Result",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "type Result struct { Command, Output string; Skipped, OK, TimedOut, Aborted bool; ExitCode int; DurationMS int64 }",
+          "notes": "Aborted field already exists but is not used by Compare today"
+        },
+        {
+          "name": "Verdict",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/checks",
+          "signature": "type Verdict string"
+        }
+      ]
+    },
+    {
+      "package": "issuex",
+      "version": "local",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "MaxBodyLength",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "func MaxBodyLength(c Client) int"
+        },
+        {
+          "name": "CreatePullRequestRequest",
+          "import_path": "github.com/agent-fox-dev/agentfox/issuex",
+          "signature": "type CreatePullRequestRequest struct { Title, Body, Head, Base string; Draft bool }"
+        }
+      ]
+    },
+    {
+      "package": "internal/toolio",
+      "version": "local",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "WarnCommitNotParked",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "const WarnCommitNotParked WarnCode = \"commit_not_parked\""
+        },
+        {
+          "name": "WarnCheckoutNotRestored",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "const WarnCheckoutNotRestored WarnCode = \"checkout_not_restored\""
+        },
+        {
+          "name": "WarnUntrackedFilesLeftAlone",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "const WarnUntrackedFilesLeftAlone WarnCode"
+        },
+        {
+          "name": "WarnUnlistedFileCommitted",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "const WarnUnlistedFileCommitted WarnCode"
+        },
+        {
+          "name": "WarnGateEdited",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/toolio",
+          "signature": "const WarnGateEdited WarnCode"
+        }
+      ]
+    },
+    {
+      "package": "internal/lang",
+      "version": "local (spec 19)",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Detection",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "type Detection struct { Primary Profile; All []Profile }",
+          "notes": "Defined by spec 19_language_profiles; not yet in the codebase"
+        },
+        {
+          "name": "Detection.TestFile",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func (d Detection) TestFile(path string) bool",
+          "notes": "Defined by spec 19_language_profiles; not yet in the codebase"
+        },
+        {
+          "name": "Profile.GateConfig",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func(path string) bool field on Profile",
+          "notes": "Defined by spec 19_language_profiles; not yet in the codebase"
+        }
+      ]
+    },
+    {
+      "package": "context",
+      "version": "stdlib",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "WithoutCancel",
+          "import_path": "context",
+          "signature": "func WithoutCancel(parent Context) Context"
+        }
+      ]
+    }
+  ]
+}

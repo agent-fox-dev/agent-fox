@@ -1,0 +1,932 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "21",
+  "spec_name": "prompt_documents",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-21-1",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-1.1"
+      ],
+      "title": "The prompt package embeds all .md files under internal/engine/prompts/ via go:embed with the required subdirectory structure",
+      "given": [
+        "the internal/engine/prompt package exists with a //go:embed prompts/**/*.md directive"
+      ],
+      "when": "NewLoader() is called",
+      "then": [
+        "the embedded FS contains files under fix/, impl/, review/, brief/, partials/, tools/, refusals/ and rejections/ subdirectories",
+        "every file in the embedded FS has a .md extension"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\nassert len(names) > 0\nfor _, sub := range []string{\"fix/\", \"impl/\", \"review/\", \"brief/\", \"partials/\", \"tools/\", \"refusals/\", \"rejections/\"} {\n  found := false\n  for _, n := range names { if strings.HasPrefix(n, sub) { found = true; break } }\n  assert found, \"missing subdirectory: \"+sub\n}"
+    },
+    {
+      "id": "TS-21-2",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-1.2"
+      ],
+      "title": "Every migrated prompt constant and builder function has a corresponding template file in the embedded tree",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Names() is called",
+      "then": [
+        "the returned list contains fix/analyse.system.md, fix/analyse.md, fix/implement.system.md, fix/implement.md",
+        "the returned list contains impl/survey.system.md, impl/survey.md, impl/task.system.md, impl/task.md, impl/repair.system.md, impl/repair.md, impl/resolve.system.md, impl/resolve.md",
+        "the returned list contains review/review.system.md, review/review.md, brief/fix.md and brief/impl.md"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\nrequired := []string{\"fix/analyse.system.md\", \"fix/analyse.md\", \"fix/implement.system.md\", \"fix/implement.md\", \"impl/survey.system.md\", \"impl/survey.md\", \"impl/task.system.md\", \"impl/task.md\", \"impl/repair.system.md\", \"impl/repair.md\", \"impl/resolve.system.md\", \"impl/resolve.md\", \"review/review.system.md\", \"review/review.md\", \"brief/fix.md\", \"brief/impl.md\"}\nfor _, r := range required { assert slices.Contains(names, r), \"missing: \"+r }"
+    },
+    {
+      "id": "TS-21-3",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-1.3"
+      ],
+      "title": "All shared partial templates exist in the embedded tree under prompts/partials/",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Names() is called",
+      "then": [
+        "the returned list contains partials/report.md, partials/baseline.md, partials/gate.md, partials/language.md, partials/repomap.md, partials/instructions.md, partials/steering.md, partials/criteria.md, partials/definition_of_done.md, partials/survey.md, partials/landed_tasks.md, partials/previous_attempt.md, partials/scope.md, partials/external_apis.md, partials/date.md, partials/context.md, partials/read_roots.md and partials/scratch.md"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\npartials := []string{\"partials/report.md\", \"partials/baseline.md\", \"partials/gate.md\", \"partials/language.md\", \"partials/repomap.md\", \"partials/instructions.md\", \"partials/steering.md\", \"partials/criteria.md\", \"partials/definition_of_done.md\", \"partials/survey.md\", \"partials/landed_tasks.md\", \"partials/previous_attempt.md\", \"partials/scope.md\", \"partials/external_apis.md\", \"partials/date.md\", \"partials/context.md\", \"partials/read_roots.md\", \"partials/scratch.md\"}\nfor _, p := range partials { assert slices.Contains(names, p) }"
+    },
+    {
+      "id": "TS-21-4",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-1.4"
+      ],
+      "title": "Tool description, refusal and rejection templates exist in the embedded tree",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Names() is called",
+      "then": [
+        "the returned list contains tools/execute.md, tools/write_file.md and tools/edit_file.md",
+        "the returned list contains refusals/programs_not_allowed.md, refusals/suite.md, refusals/git_mutating.md and refusals/path_outside.md",
+        "the returned list contains rejections/missing_verdicts.md and rejections/weak_evidence.md"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\nfor _, n := range []string{\"tools/execute.md\", \"tools/write_file.md\", \"tools/edit_file.md\", \"refusals/programs_not_allowed.md\", \"refusals/suite.md\", \"refusals/git_mutating.md\", \"refusals/path_outside.md\", \"rejections/missing_verdicts.md\", \"rejections/weak_evidence.md\"} {\n  assert slices.Contains(names, n)\n}"
+    },
+    {
+      "id": "TS-21-5",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-2.1"
+      ],
+      "title": "Every template file has a valid YAML front-matter header with all five required fields",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Header(name) is called for every template name",
+      "then": [
+        "each header has a non-empty name string",
+        "each header has a kind that is one of system, message, brief, partial, tool, refusal, rejection",
+        "each header has a non-empty view string naming a Go struct",
+        "each header has a stable boolean field",
+        "each header has a max_bytes positive integer"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nvalidKinds := map[string]bool{\"system\":true, \"message\":true, \"brief\":true, \"partial\":true, \"tool\":true, \"refusal\":true, \"rejection\":true}\nfor _, name := range loader.Names() {\n  h := loader.Header(name)\n  assert h.Name != \"\"\n  assert validKinds[h.Kind]\n  assert h.View != \"\"\n  assert h.MaxBytes > 0\n}"
+    },
+    {
+      "id": "TS-21-6",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-2.2"
+      ],
+      "title": "NewLoader panics when a template has a malformed or incomplete YAML header",
+      "given": [
+        "an embedded FS containing a template file whose YAML header is missing the 'kind' field"
+      ],
+      "when": "NewLoader() is called with that FS",
+      "then": [
+        "the call panics",
+        "the panic message names the template and the invalid field"
+      ],
+      "pseudocode": "// Use a test FS with a malformed template\nfs := testFS(\"bad.md\", \"---\\nname: bad\\nview: PhaseView\\nstable: false\\nmax_bytes: 1000\\n---\\nHello\")\nassert panics(func() { prompt.NewLoaderFrom(fs) })\nassert panicMessage contains \"bad.md\" and \"kind\""
+    },
+    {
+      "id": "TS-21-7",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-2.3"
+      ],
+      "title": "Header returns the parsed front-matter of a named template",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Header(\"fix/analyse.system.md\") is called",
+      "then": [
+        "the returned Header has Name equal to \"fix/analyse\"",
+        "the returned Header has Kind equal to \"system\"",
+        "the returned Header has a non-empty View field",
+        "the returned Header has a positive MaxBytes value"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nh := loader.Header(\"fix/analyse.system.md\")\nassert h.Name == \"fix/analyse\"\nassert h.Kind == \"system\"\nassert h.View != \"\"\nassert h.MaxBytes > 0"
+    },
+    {
+      "id": "TS-21-8",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.1"
+      ],
+      "title": "NewLoader parses all templates with missingkey=error and registers the full function map",
+      "given": [
+        "the internal/engine/prompt package exists with embedded templates"
+      ],
+      "when": "NewLoader() is called",
+      "then": [
+        "it returns a non-nil *Loader without panicking",
+        "the function map includes fence, code, join, count, lines, ref, ids, title, trimSpace and firstNonEmpty",
+        "rendering a template that references {{.NonExistent}} on a view without that field returns an error"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nassert loader != nil\n// Verify missingkey=error by rendering a template against a view missing a field\n_, err := loader.Render(\"partials/date.md\", struct{}{})\nassert err != nil\nassert strings.Contains(err.Error(), \"Date\") || strings.Contains(err.Error(), \"can't evaluate\")"
+    },
+    {
+      "id": "TS-21-9",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.2"
+      ],
+      "title": "Render produces the expected output for a template with a valid view",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a PhaseView with Date set to '2025-01-15'"
+      ],
+      "when": "Render(\"partials/date.md\", view) is called",
+      "then": [
+        "the returned string contains '2025-01-15'",
+        "the returned error is nil"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nview := prompt.PhaseView{Date: \"2025-01-15\"}\nout, err := loader.Render(\"partials/date.md\", view)\nassert err == nil\nassert strings.Contains(out, \"2025-01-15\")"
+    },
+    {
+      "id": "TS-21-10",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.3"
+      ],
+      "title": "Render returns a non-nil error naming the missing key when the view lacks a referenced field",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "an empty struct as the view"
+      ],
+      "when": "Render(\"fix/analyse.system.md\", struct{}{}) is called",
+      "then": [
+        "the returned error is non-nil",
+        "the error message names the missing key"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\n_, err := loader.Render(\"fix/analyse.system.md\", struct{}{})\nassert err != nil\nassert strings.Contains(err.Error(), \"can't evaluate\") || strings.Contains(err.Error(), \"missing\")"
+    },
+    {
+      "id": "TS-21-11",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.4"
+      ],
+      "title": "Hash returns the SHA-256 hex digest of the embedded template source before rendering",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Hash(\"fix/analyse.system.md\") is called",
+      "then": [
+        "the returned string is a 64-character lowercase hex string",
+        "calling Hash again with the same name returns the same digest"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nh1 := loader.Hash(\"fix/analyse.system.md\")\nassert len(h1) == 64\nassert h1 == strings.ToLower(h1)\nh2 := loader.Hash(\"fix/analyse.system.md\")\nassert h1 == h2"
+    },
+    {
+      "id": "TS-21-12",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.5"
+      ],
+      "title": "Names returns every template name in sorted order",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Names() is called",
+      "then": [
+        "the returned slice is non-empty",
+        "the returned slice is sorted in lexicographic order",
+        "every element is a valid template name (contains a / and ends with .md)"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\nassert len(names) > 0\nassert sort.StringsAreSorted(names)\nfor _, n := range names {\n  assert strings.Contains(n, \"/\")\n  assert strings.HasSuffix(n, \".md\")\n}"
+    },
+    {
+      "id": "TS-21-13",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.6"
+      ],
+      "title": "Hash panics when called with a name that does not exist in the embedded tree",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "Hash(\"nonexistent/template.md\") is called",
+      "then": [
+        "the call panics before returning",
+        "the panic message names the unknown template"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nassert panics(func() { loader.Hash(\"nonexistent/template.md\") })\nassert recover() contains \"nonexistent/template.md\""
+    },
+    {
+      "id": "TS-21-14",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-4.1"
+      ],
+      "title": "BriefView has all required fields: Root, Language, RepoMap, Instructions, Steering, VerifyCommands, BaselineResults, Context, Report and Spec",
+      "given": [
+        "the prompt package is imported"
+      ],
+      "when": "a BriefView is constructed with all fields populated",
+      "then": [
+        "the struct compiles and all fields are accessible",
+        "Report and Spec are typed sub-structs with their own fields"
+      ],
+      "pseudocode": "v := prompt.BriefView{\n  Root: \"/repo\", Language: \"go\", RepoMap: \"map\",\n  Instructions: \"inst\", Steering: \"steer\",\n  VerifyCommands: []string{\"make test\"},\n  BaselineResults: []prompt.BaselineEntry{{Command: \"make test\", OK: true}},\n  Context: \"ctx\",\n  Report: prompt.ReportData{Kind: \"bug\", Origin: \"github\", Body: \"body\"},\n  Spec: prompt.SpecData{Dir: \"spec\", Title: \"title\"},\n}\nassert v.Root == \"/repo\"\nassert v.Report.Kind == \"bug\"\nassert v.Spec.Title == \"title\""
+    },
+    {
+      "id": "TS-21-15",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-4.2"
+      ],
+      "title": "PhaseView embeds BriefView and adds all phase-varying fields",
+      "given": [
+        "the prompt package is imported"
+      ],
+      "when": "a PhaseView is constructed with BriefView embedded and phase fields set",
+      "then": [
+        "BriefView fields are accessible directly on PhaseView (e.g. .Root)",
+        "phase-specific fields Branch, Date, Diagnosis, Criteria, Task, BaselineVerdicts, LandedTasks, MapDelta, Allowlist, ScratchPath, Survey, Scope, ExternalAPIs, Suite, TargetedRun, ReadRoots, AttemptNumber, TotalAttempts and PreviousAttempt are present"
+      ],
+      "pseudocode": "v := prompt.PhaseView{\n  BriefView: prompt.BriefView{Root: \"/repo\"},\n  Branch: \"fix/bug\", Date: \"2025-01-15\",\n  Allowlist: []string{\"go\", \"make\"},\n  ScratchPath: \".scratch\",\n  AttemptNumber: 1, TotalAttempts: 3,\n}\nassert v.Root == \"/repo\"\nassert v.Branch == \"fix/bug\"\nassert v.AttemptNumber == 1"
+    },
+    {
+      "id": "TS-21-16",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-4.3"
+      ],
+      "title": "AttemptView embeds PhaseView and adds PreviousFailure, RevertedDeclarations and AttemptIndex",
+      "given": [
+        "the prompt package is imported"
+      ],
+      "when": "an AttemptView is constructed with PhaseView embedded and attempt fields set",
+      "then": [
+        "PhaseView fields are accessible directly on AttemptView",
+        "PreviousFailure, RevertedDeclarations and AttemptIndex are present and accessible"
+      ],
+      "pseudocode": "v := prompt.AttemptView{\n  PhaseView: prompt.PhaseView{BriefView: prompt.BriefView{Root: \"/repo\"}, Branch: \"fix/bug\"},\n  PreviousFailure: \"tests failed\",\n  RevertedDeclarations: []string{\"func Foo\"},\n  AttemptIndex: 2,\n}\nassert v.Root == \"/repo\"\nassert v.PreviousFailure == \"tests failed\"\nassert v.AttemptIndex == 2"
+    },
+    {
+      "id": "TS-21-17",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-4.4"
+      ],
+      "title": "Templates reference only fields defined on their declared view type and use the function map for derived values",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "every template is rendered against a fully-populated instance of the view type named in its header",
+      "then": [
+        "no template returns a missingkey error",
+        "no template source contains Go expressions like len() or arithmetic operators outside the function map"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, name := range loader.Names() {\n  h := loader.Header(name)\n  view := fixtureForView(h.View) // builds a fully-populated struct\n  _, err := loader.Render(name, view)\n  assert err == nil, \"template %s failed: %v\", name, err\n}"
+    },
+    {
+      "id": "TS-21-18",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-5.1"
+      ],
+      "title": "Template-injection safety: text/template syntax in a view field is rendered verbatim",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a view whose Report.Body field is '{{.Secret}}{{template \"x\"}}'"
+      ],
+      "when": "a template that includes the report partial is rendered against this view",
+      "then": [
+        "the output contains the literal string '{{.Secret}}{{template \"x\"}}'",
+        "the output does not contain any value that would result from interpreting those as template actions"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nview := fixturePhaseView()\nview.Report.Body = `{{.Secret}}{{template \"x\"}}`\nout, err := loader.Render(\"partials/report.md\", view)\nassert err == nil\nassert strings.Contains(out, `{{.Secret}}{{template \"x\"}}`)"
+    },
+    {
+      "id": "TS-21-19",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-5.2"
+      ],
+      "title": "The fence function wraps text in BEGIN/END markers without interpreting or escaping content",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a view with a field containing special characters and template syntax"
+      ],
+      "when": "a template using {{fence \"REPORT\" .Body}} is rendered",
+      "then": [
+        "the output contains '--- BEGIN REPORT ---'",
+        "the output contains '--- END REPORT ---'",
+        "the text between the markers is the original field value, unmodified"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nbody := \"line1\\n{{.Foo}}\\nline3\"\nview := struct{ Body string }{Body: body}\n// Use a test template that calls fence\nout := renderTestTemplate(loader, `{{fence \"REPORT\" .Body}}`, view)\nassert strings.Contains(out, \"--- BEGIN REPORT ---\")\nassert strings.Contains(out, body)\nassert strings.Contains(out, \"--- END REPORT ---\")"
+    },
+    {
+      "id": "TS-21-20",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-6.1",
+        "21-REQ-6.3"
+      ],
+      "title": "Phase builders in codefix call loader.Render and produce output equivalent to the old builder functions",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a fixture analysisInput with known Root, Input, Baseline, VerifyCommand, Criteria, Instructions and RepoMap"
+      ],
+      "when": "the codefix analysis phase builder constructs the system prompt and user message via the Loader",
+      "then": [
+        "the system prompt is produced by loader.Render(\"fix/analyse.system.md\", view)",
+        "the user message is textually equivalent (modulo whitespace normalization) to what the old analysisPrompt function would have produced"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nin := fixtureAnalysisInput()\n// Old output\noldSystem := oldAnalysisSystemPrompt\noldUser := oldAnalysisPrompt(in)\n// New output\nnewSystem, _ := loader.Render(\"fix/analyse.system.md\", buildPhaseView(in))\nnewUser, _ := loader.Render(\"fix/analyse.md\", buildPhaseView(in))\nassert normalizeWS(newSystem) == normalizeWS(oldSystem)\nassert normalizeWS(newUser) == normalizeWS(oldUser)"
+    },
+    {
+      "id": "TS-21-21",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-6.1",
+        "21-REQ-6.3"
+      ],
+      "title": "Phase builders in codeimpl call loader.Render and produce output equivalent to the old builder functions",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "fixture inputs for survey, task, repair and resolve phases"
+      ],
+      "when": "the codeimpl phase builders construct prompts via the Loader",
+      "then": [
+        "each system prompt and user message is textually equivalent (modulo whitespace normalization) to the old constant or builder function output"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, phase := range []string{\"survey\", \"task\", \"repair\", \"resolve\"} {\n  in := fixtureInput(phase)\n  oldSystem := oldSystemPrompt(phase)\n  oldUser := oldUserPrompt(phase, in)\n  newSystem, _ := loader.Render(\"impl/\"+phase+\".system.md\", buildView(in))\n  newUser, _ := loader.Render(\"impl/\"+phase+\".md\", buildView(in))\n  assert normalizeWS(newSystem) == normalizeWS(oldSystem)\n  assert normalizeWS(newUser) == normalizeWS(oldUser)\n}"
+    },
+    {
+      "id": "TS-21-22",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-6.2"
+      ],
+      "title": "Original Go prompt constants and builder functions are removed from codefix, codeimpl and internal/conform",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "the source files codefix/prompts.go, codeimpl/prompts.go and internal/conform/prompt.go are scanned",
+      "then": [
+        "none of them contain the constants analysisSystemPrompt, implementSystemPrompt, surveySystemPrompt, repairSystemPrompt, resolveSystemPrompt or ReviewSystemPrompt",
+        "none of them contain the builder functions analysisPrompt, implementPrompt, surveyPrompt, taskPrompt, repairPrompt, resolvePrompt, ReviewPrompt, reportBlock, baselineBlock, criteriaBlock, contextBlock, instructionsBlock, gateBlock, repoMapBlock, surveyBlock, previousAttemptBlock, externalAPIsBlock or languageBlock"
+      ],
+      "pseudocode": "for _, file := range []string{\"codefix/prompts.go\", \"codeimpl/prompts.go\", \"internal/conform/prompt.go\"} {\n  src := readFile(file)\n  for _, sym := range removedSymbols {\n    assert !containsDeclaration(src, sym), \"%s still declares %s\", file, sym\n  }\n}"
+    },
+    {
+      "id": "TS-21-23",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-6.4"
+      ],
+      "title": "SelectTools renders tool descriptions from templates instead of describeForPhase string concatenation",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a PhaseView with Allowlist, ScratchPath and ReadRoots populated"
+      ],
+      "when": "SelectTools is called for a writing phase with execute, write_file and edit_file",
+      "then": [
+        "the execute tool's description is the rendered output of tools/execute.md",
+        "the write_file tool's description is the rendered output of tools/write_file.md",
+        "the edit_file tool's description is the rendered output of tools/edit_file.md",
+        "the descriptions include the allowlist programs, scratch path and read roots from the view"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nview := prompt.PhaseView{Allowlist: []string{\"go\", \"make\"}, ScratchPath: \".scratch\", ReadRoots: []prompt.ReadRootData{{Path: \"../lib\", Module: \"example.com/lib\"}}}\ntools := agentrun.SelectTools(allTools, false, view.Allowlist, \"execute\", \"write_file\", \"edit_file\")\nassert strings.Contains(tools[0].Description, \"go, make\")\nassert strings.Contains(tools[0].Description, \".scratch\")"
+    },
+    {
+      "id": "TS-21-24",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-6.5"
+      ],
+      "title": "Guard refusals are rendered from refusals/*.md templates instead of inline strings",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a GuardOptions with Programs set to [\"go\", \"make\"]"
+      ],
+      "when": "the guard intercepts an execute call with a disallowed program 'curl'",
+      "then": [
+        "the refusal message is the rendered output of refusals/programs_not_allowed.md",
+        "the message contains the disallowed program name and the allowed list"
+      ],
+      "pseudocode": "guard := agentrun.Guard(agentrun.GuardOptions{Programs: []string{\"go\", \"make\"}})\nresult := guard(ctx, core.BeforeToolCallContext{ToolName: \"execute\", Arguments: map[string]any{\"command\": \"curl http://example.com\"}})\nassert result.Block\nassert strings.Contains(result.Reason, \"curl\")\nassert strings.Contains(result.Reason, \"go\")"
+    },
+    {
+      "id": "TS-21-25",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-6.6"
+      ],
+      "title": "Multi-sentence handler rejections are rendered from rejections/*.md templates",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a submission missing criteria verdicts"
+      ],
+      "when": "the submit handler rejects the submission",
+      "then": [
+        "the rejection message is the rendered output of rejections/missing_verdicts.md",
+        "short mechanical rejections like 'title is empty' remain inline strings"
+      ],
+      "pseudocode": "// Test that the rejection for missing verdicts comes from the template\nloader := prompt.NewLoader()\nout, err := loader.Render(\"rejections/missing_verdicts.md\", view)\nassert err == nil\nassert len(out) > 120 // multi-sentence\n// Verify short rejections are still inline\nassert shortRejection == \"title is empty\" // not from a template"
+    },
+    {
+      "id": "TS-21-26",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-6.7"
+      ],
+      "title": "A single projectInstructions function in the prompt package replaces the duplicates in codefix and codeimpl",
+      "given": [
+        "a temporary directory with an AGENTS.md file of 100 bytes"
+      ],
+      "when": "prompt.ProjectInstructions(root) is called",
+      "then": [
+        "it returns the content of AGENTS.md",
+        "the maxInstructionBytes constant (24 KiB) is co-located in the prompt package",
+        "codefix/prompts.go and codeimpl/prompts.go no longer define projectInstructions"
+      ],
+      "pseudocode": "dir := t.TempDir()\nos.WriteFile(filepath.Join(dir, \"AGENTS.md\"), []byte(\"instructions\"), 0644)\nresult := prompt.ProjectInstructions(dir)\nassert result == \"instructions\"\nassert prompt.MaxInstructionBytes == 24*1024"
+    },
+    {
+      "id": "TS-21-27",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-7.1"
+      ],
+      "title": "TestNoPromptLiteralsInGo fails on string literals longer than 120 bytes containing model-facing keywords",
+      "given": [
+        "the Go source files under internal/engine, codefix, codeimpl and internal/conform"
+      ],
+      "when": "every non-test .go file is scanned for string literals longer than 120 bytes containing keywords like 'You are a', 'Method:', 'Call this once', 'submit_', 'is refused', 'not allowed'",
+      "then": [
+        "no such string literal is found (the test passes)",
+        "import paths, test fixtures and template files are excluded from the scan"
+      ],
+      "pseudocode": "dirs := []string{\"internal/engine\", \"codefix\", \"codeimpl\", \"internal/conform\"}\nfor _, dir := range dirs {\n  for _, file := range goFiles(dir) {\n    if isTestFile(file) { continue }\n    literals := extractStringLiterals(file)\n    for _, lit := range literals {\n      if len(lit) > 120 && containsKeyword(lit) && !isException(lit) {\n        t.Errorf(\"%s contains model-facing prose: %q\", file, lit[:80])\n      }\n    }\n  }\n}"
+    },
+    {
+      "id": "TS-21-28",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-8.1"
+      ],
+      "title": "TestGoldenPrompts renders every template against its fixture view and compares to golden files",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "fixture views exist for every template under internal/engine/testdata/views/"
+      ],
+      "when": "each template is rendered against its fixture view",
+      "then": [
+        "the output matches the corresponding golden file at internal/engine/testdata/prompts/<name>.golden.md",
+        "any mismatch causes a test failure"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, name := range loader.Names() {\n  view := loadFixtureView(name)\n  got, err := loader.Render(name, view)\n  assert err == nil\n  golden := readFile(\"internal/engine/testdata/prompts/\" + name + \".golden.md\")\n  assert got == golden, \"golden mismatch for %s\", name\n}"
+    },
+    {
+      "id": "TS-21-29",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-8.2"
+      ],
+      "title": "Golden test writes new golden files when UPDATE_GOLDEN=1 is set",
+      "given": [
+        "the environment variable UPDATE_GOLDEN is set to '1'",
+        "a template whose rendered output differs from its golden file"
+      ],
+      "when": "TestGoldenPrompts runs",
+      "then": [
+        "the golden file is overwritten with the new rendered output",
+        "the test does not fail on the mismatch"
+      ],
+      "pseudocode": "t.Setenv(\"UPDATE_GOLDEN\", \"1\")\nloader := prompt.NewLoader()\nview := loadFixtureView(\"partials/date.md\")\ngot, _ := loader.Render(\"partials/date.md\", view)\n// Modify golden to differ\nwriteFile(goldenPath, \"old content\")\nrunGoldenTest(t)\nnewGolden := readFile(goldenPath)\nassert newGolden == got"
+    },
+    {
+      "id": "TS-21-30",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-8.3"
+      ],
+      "title": "Stable templates render byte-identically when rendered twice with the same view",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "every template with stable: true in its header is rendered twice with the same view",
+      "then": [
+        "the two outputs are byte-identical"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, name := range loader.Names() {\n  h := loader.Header(name)\n  if !h.Stable { continue }\n  view := loadFixtureView(name)\n  out1, _ := loader.Render(name, view)\n  out2, _ := loader.Render(name, view)\n  assert out1 == out2, \"stable template %s not byte-identical\", name\n}"
+    },
+    {
+      "id": "TS-21-31",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-8.4"
+      ],
+      "title": "Rendered output does not exceed the max_bytes value from the template header",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "every template is rendered against its fixture view",
+      "then": [
+        "the byte count of the rendered output does not exceed the max_bytes value from the header"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, name := range loader.Names() {\n  h := loader.Header(name)\n  view := loadFixtureView(name)\n  out, _ := loader.Render(name, view)\n  assert len(out) <= h.MaxBytes, \"template %s rendered %d bytes, max %d\", name, len(out), h.MaxBytes\n}"
+    },
+    {
+      "id": "TS-21-32",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-8.5"
+      ],
+      "title": "Every partial referenced by {{template}} exists in the embedded tree",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "every template source is scanned for {{template \"partials/...\"}} references",
+      "then": [
+        "every referenced partial name exists in the Names() list"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nnames := loader.Names()\nnameSet := toSet(names)\nfor _, name := range names {\n  src := loader.Source(name) // or read from embedded FS\n  refs := extractTemplateRefs(src) // find {{template \"...\" .}} patterns\n  for _, ref := range refs {\n    assert nameSet[ref], \"template %s references non-existent partial %s\", name, ref\n  }\n}"
+    },
+    {
+      "id": "TS-21-33",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-9.1"
+      ],
+      "title": "WritePrompts writes system, user and tools files to the correct state directory path",
+      "given": [
+        "a temporary state directory",
+        "a tool name 'fix', a started_at timestamp, a session_id, a phase name 'analyse'"
+      ],
+      "when": "WritePrompts is called with system prompt, user message and tool descriptions",
+      "then": [
+        "a directory <state>/prompts/fix-<started_at>-<session_id>/ is created with mode 0755",
+        "files analyse.system.md, analyse.user.md and analyse.tools.md are created with mode 0644",
+        "the file contents match the provided system prompt, user message and tool descriptions"
+      ],
+      "pseudocode": "stateDir := t.TempDir()\nsystem := \"system prompt\"\nuser := \"user message\"\ntools := []string{\"tool1 desc\", \"tool2 desc\"}\nWritePrompts(stateDir, \"fix\", \"2025-01-15T10:00:00Z\", \"sess123\", \"analyse\", \"\", 0, system, user, tools)\ndir := filepath.Join(stateDir, \"prompts\", \"fix-2025-01-15T10:00:00Z-sess123\")\nassert dirExists(dir)\nassert fileMode(dir) == 0755\nassert readFile(filepath.Join(dir, \"analyse.system.md\")) == system\nassert readFile(filepath.Join(dir, \"analyse.user.md\")) == user\nassert fileMode(filepath.Join(dir, \"analyse.system.md\")) == 0644"
+    },
+    {
+      "id": "TS-21-34",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-9.1"
+      ],
+      "title": "WritePrompts uses task and attempt suffixes in filenames when provided",
+      "given": [
+        "a temporary state directory"
+      ],
+      "when": "WritePrompts is called with phase 'implement', task '3' and attempt 2",
+      "then": [
+        "the files are named implement.task-3.attempt-2.system.md, implement.task-3.attempt-2.user.md and implement.task-3.attempt-2.tools.md"
+      ],
+      "pseudocode": "stateDir := t.TempDir()\nWritePrompts(stateDir, \"impl\", \"ts\", \"sid\", \"implement\", \"3\", 2, \"sys\", \"usr\", []string{\"t\"})\ndir := filepath.Join(stateDir, \"prompts\", \"impl-ts-sid\")\nassert fileExists(filepath.Join(dir, \"implement.task-3.attempt-2.system.md\"))\nassert fileExists(filepath.Join(dir, \"implement.task-3.attempt-2.user.md\"))\nassert fileExists(filepath.Join(dir, \"implement.task-3.attempt-2.tools.md\"))"
+    },
+    {
+      "id": "TS-21-35",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-9.2"
+      ],
+      "title": "WritePrompts records a low-severity prompts_not_written warning when the directory cannot be created",
+      "given": [
+        "a state directory path that is not writable (e.g. /dev/null/prompts)"
+      ],
+      "when": "WritePrompts is called",
+      "then": [
+        "the run completes without stopping",
+        "a Warning with code prompts_not_written and severity low is recorded"
+      ],
+      "pseudocode": "run := toolio.NewRun(\"fix\", \"v1\")\nWritePrompts(\"/dev/null\", \"fix\", \"ts\", \"sid\", \"analyse\", \"\", 0, \"sys\", \"usr\", nil)\nwarnings := run.Warnings()\nfound := false\nfor _, w := range warnings {\n  if w.Code == toolio.WarnPromptsNotWritten && w.Severity == \"low\" { found = true }\n}\nassert found"
+    },
+    {
+      "id": "TS-21-36",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-9.3"
+      ],
+      "title": "Prompt audit files are written even when --dry-run is active",
+      "given": [
+        "a temporary state directory",
+        "the run is in dry-run mode"
+      ],
+      "when": "WritePrompts is called",
+      "then": [
+        "the prompt files are written to the state directory",
+        "the files contain the system prompt, user message and tool descriptions"
+      ],
+      "pseudocode": "stateDir := t.TempDir()\n// Simulate dry-run mode\nWritePrompts(stateDir, \"fix\", \"ts\", \"sid\", \"analyse\", \"\", 0, \"sys\", \"usr\", []string{\"t\"})\ndir := filepath.Join(stateDir, \"prompts\", \"fix-ts-sid\")\nassert fileExists(filepath.Join(dir, \"analyse.system.md\"))"
+    },
+    {
+      "id": "TS-21-37",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-9.4"
+      ],
+      "title": "The full report includes a prompt_templates map of document name to SHA-256 hex digest",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a completed run that produced a full-detail report"
+      ],
+      "when": "the envelope is built with full detail",
+      "then": [
+        "the envelope's result contains a prompt_templates field",
+        "prompt_templates is a map[string]string",
+        "each key is a template name from Names()",
+        "each value is a 64-character hex SHA-256 digest matching Hash(name)"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nenv := buildFullEnvelope(loader)\nassert env.Result.PromptTemplates != nil\nfor name, hash := range env.Result.PromptTemplates {\n  assert len(hash) == 64\n  assert hash == loader.Hash(name)\n}"
+    },
+    {
+      "id": "TS-21-38",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-10.1"
+      ],
+      "title": "ArtifactPromptsDir is defined as an ArtifactKind with value 'prompts_dir'",
+      "given": [
+        "the toolio package is imported"
+      ],
+      "when": "the constant ArtifactPromptsDir is referenced",
+      "then": [
+        "its value is the string 'prompts_dir'",
+        "it is of type ArtifactKind"
+      ],
+      "pseudocode": "assert toolio.ArtifactPromptsDir == toolio.ArtifactKind(\"prompts_dir\")"
+    },
+    {
+      "id": "TS-21-39",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-10.2"
+      ],
+      "title": "WarnPromptsNotWritten is defined as a WarnCode with value 'prompts_not_written'",
+      "given": [
+        "the toolio package is imported"
+      ],
+      "when": "the constant WarnPromptsNotWritten is referenced",
+      "then": [
+        "its value is the string 'prompts_not_written'",
+        "it is of type WarnCode",
+        "it appears in DeclaredWarnCodes()"
+      ],
+      "pseudocode": "assert toolio.WarnPromptsNotWritten == toolio.WarnCode(\"prompts_not_written\")\ncodes := toolio.DeclaredWarnCodes()\nassert slices.Contains(codes, toolio.WarnPromptsNotWritten)"
+    },
+    {
+      "id": "TS-21-40",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-10.3"
+      ],
+      "title": "SchemaVersion is unchanged and additive fields do not alter existing envelope structure",
+      "given": [
+        "the toolio package is imported"
+      ],
+      "when": "SchemaVersion is read and a full envelope is marshalled",
+      "then": [
+        "SchemaVersion is the same value as before this spec",
+        "the marshalled envelope contains no changed existing fields",
+        "the prompt_templates field is present only in the full detail view"
+      ],
+      "pseudocode": "assert toolio.SchemaVersion == currentSchemaVersion\nenv := buildMinimalEnvelope()\njson := marshalEnvelope(env)\nassert !strings.Contains(json, \"prompt_templates\") // not in minimal\nenvFull := buildFullEnvelope()\njsonFull := marshalEnvelope(envFull)\nassert strings.Contains(jsonFull, \"prompt_templates\")"
+    },
+    {
+      "id": "TS-21-41",
+      "kind": "property",
+      "verifies": [
+        "21-REQ-5.1"
+      ],
+      "title": "For any string containing text/template syntax, rendering it as a view field produces it verbatim",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "for any string containing {{, }}, {{template}}, {{.Field}}, {{range}}, or {{if}}, it is set as a field on a view and rendered through a template that references that field",
+      "then": [
+        "the output contains the original string literally, without interpretation as template actions"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, dangerous := range generateDangerousStrings() {\n  view := struct{ Text string }{Text: dangerous}\n  out := renderTestTemplate(loader, `{{.Text}}`, view)\n  assert strings.Contains(out, dangerous)\n}"
+    },
+    {
+      "id": "TS-21-42",
+      "kind": "property",
+      "verifies": [
+        "21-REQ-3.4"
+      ],
+      "title": "For any template, Hash returns a deterministic 64-char hex digest",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "for any template name in Names(), Hash is called twice",
+      "then": [
+        "both calls return the same 64-character lowercase hex string",
+        "the digest matches crypto/sha256.Sum256 of the template's embedded source bytes"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nfor _, name := range loader.Names() {\n  h1 := loader.Hash(name)\n  h2 := loader.Hash(name)\n  assert h1 == h2\n  assert len(h1) == 64\n  assert h1 == strings.ToLower(h1)\n}"
+    },
+    {
+      "id": "TS-21-43",
+      "kind": "smoke",
+      "verifies": [
+        "21-PATH-1",
+        "21-REQ-6.1",
+        "21-REQ-9.1",
+        "21-REQ-9.4"
+      ],
+      "title": "A fix run renders prompts from templates, writes audit files and produces a report with prompt_templates",
+      "given": [
+        "a repository with a Go project and a state directory",
+        "a bug report input file",
+        "the prompt package with all embedded templates"
+      ],
+      "when": "af-fix runs with the bug report input and the state directory",
+      "then": [
+        "NewLoader() succeeds and all templates are parsed",
+        "the analysis phase system prompt and user message are rendered from fix/analyse.system.md and fix/analyse.md",
+        "prompt audit files are written to <state>/prompts/<tool>-<started_at>-<session_id>/",
+        "the full report envelope contains a prompt_templates map with SHA-256 digests",
+        "the report contains an ArtifactPromptsDir artifact"
+      ],
+      "real_components": [
+        "prompt.Loader",
+        "codefix pipeline",
+        "state directory writer",
+        "envelope builder"
+      ]
+    },
+    {
+      "id": "TS-21-44",
+      "kind": "smoke",
+      "verifies": [
+        "21-PATH-2",
+        "21-REQ-6.1",
+        "21-REQ-9.1"
+      ],
+      "title": "An impl run renders task and repair prompts from templates with attempt views and writes audit files",
+      "given": [
+        "a repository with a Go project and a state directory",
+        "a spec input with tasks",
+        "the prompt package with all embedded templates"
+      ],
+      "when": "af-impl runs with the spec input",
+      "then": [
+        "the survey phase prompts are rendered from impl/survey.system.md and impl/survey.md",
+        "task phase prompts are rendered from impl/task.system.md and impl/task.md composing partials",
+        "repair phase prompts (if triggered) are rendered from impl/repair.system.md and impl/repair.md with AttemptView",
+        "all phase prompts are written to <state>/prompts/ with task and attempt suffixes"
+      ],
+      "real_components": [
+        "prompt.Loader",
+        "codeimpl pipeline",
+        "state directory writer"
+      ]
+    },
+    {
+      "id": "TS-21-45",
+      "kind": "smoke",
+      "verifies": [
+        "21-PATH-3",
+        "21-REQ-8.1",
+        "21-REQ-7.1"
+      ],
+      "title": "Golden test validates all templates and no-prose test passes on the migrated codebase",
+      "given": [
+        "the prompt package with all embedded templates",
+        "golden files under internal/engine/testdata/prompts/",
+        "the migrated codebase with no model-facing prose in Go source"
+      ],
+      "when": "go test ./internal/engine/prompt/... is run",
+      "then": [
+        "TestGoldenPrompts passes: every template renders to match its golden file",
+        "TestNoPromptLiteralsInGo passes: no Go source file contains model-facing string literals over 120 bytes"
+      ],
+      "real_components": [
+        "prompt.Loader",
+        "golden test runner",
+        "source scanner"
+      ]
+    },
+    {
+      "id": "TS-21-46",
+      "kind": "smoke",
+      "verifies": [
+        "21-PATH-4",
+        "21-REQ-6.4",
+        "21-REQ-6.5"
+      ],
+      "title": "Guard refusal and tool description rendered from templates in a live phase",
+      "given": [
+        "the prompt package with all embedded templates",
+        "a GuardOptions with a restricted program allowlist",
+        "a phase with execute, write_file and edit_file tools"
+      ],
+      "when": "a disallowed program is executed and tool descriptions are built for the phase",
+      "then": [
+        "the guard refusal message is rendered from refusals/programs_not_allowed.md",
+        "the execute tool description is rendered from tools/execute.md including the allowlist and scratch path",
+        "the write_file tool description is rendered from tools/write_file.md",
+        "the edit_file tool description is rendered from tools/edit_file.md"
+      ],
+      "real_components": [
+        "prompt.Loader",
+        "agentrun.Guard",
+        "agentrun.SelectTools"
+      ]
+    },
+    {
+      "id": "TS-21-47",
+      "kind": "integration",
+      "verifies": [
+        "21-REQ-6.3"
+      ],
+      "title": "Review prompts rendered from templates are equivalent to the old ReviewSystemPrompt and ReviewPrompt",
+      "given": [
+        "the prompt package is loaded via NewLoader()",
+        "a fixture ReviewInput with Root, Base, ChangedFiles, DiffStat, TestCommands, Scope and Spec"
+      ],
+      "when": "the review phase builder renders review/review.system.md and review/review.md via the Loader",
+      "then": [
+        "the system prompt is textually equivalent (modulo whitespace normalization) to the old ReviewSystemPrompt constant",
+        "the user message is textually equivalent to the old ReviewPrompt function output"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nin := fixtureReviewInput()\noldSystem := oldReviewSystemPrompt\noldUser := oldReviewPrompt(in)\nnewSystem, _ := loader.Render(\"review/review.system.md\", buildReviewView(in))\nnewUser, _ := loader.Render(\"review/review.md\", buildReviewView(in))\nassert normalizeWS(newSystem) == normalizeWS(oldSystem)\nassert normalizeWS(newUser) == normalizeWS(oldUser)"
+    },
+    {
+      "id": "TS-21-48",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-6.7"
+      ],
+      "title": "projectInstructions returns empty string for files exceeding maxInstructionBytes",
+      "given": [
+        "a temporary directory with an AGENTS.md file of 25 KiB (exceeding 24 KiB limit)"
+      ],
+      "when": "prompt.ProjectInstructions(root) is called",
+      "then": [
+        "it returns an empty string",
+        "no error is raised"
+      ],
+      "pseudocode": "dir := t.TempDir()\nbig := make([]byte, 25*1024)\nos.WriteFile(filepath.Join(dir, \"AGENTS.md\"), big, 0644)\nresult := prompt.ProjectInstructions(dir)\nassert result == \"\""
+    },
+    {
+      "id": "TS-21-49",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-2.2"
+      ],
+      "title": "NewLoader panics when a template header has an invalid kind value",
+      "given": [
+        "an embedded FS containing a template file whose kind is 'invalid_kind'"
+      ],
+      "when": "NewLoader() is called with that FS",
+      "then": [
+        "the call panics",
+        "the panic message names the template and mentions the invalid kind"
+      ],
+      "pseudocode": "fs := testFS(\"bad.md\", \"---\\nname: bad\\nkind: invalid_kind\\nview: PhaseView\\nstable: false\\nmax_bytes: 1000\\n---\\nHello\")\nassert panics(func() { prompt.NewLoaderFrom(fs) })\nassert panicMessage contains \"bad.md\" and \"kind\""
+    },
+    {
+      "id": "TS-21-50",
+      "kind": "unit",
+      "verifies": [
+        "21-REQ-3.1"
+      ],
+      "title": "The function map helpers produce correct output: fence, code, join, count, lines, trimSpace, firstNonEmpty",
+      "given": [
+        "the prompt package is loaded via NewLoader()"
+      ],
+      "when": "each function map helper is invoked through a test template",
+      "then": [
+        "fence(\"LABEL\", \"text\") produces '--- BEGIN LABEL ---\\ntext\\n--- END LABEL ---'",
+        "code(\"text\") wraps in triple backticks",
+        "join(\", \", [\"a\",\"b\"]) produces 'a, b'",
+        "count([1,2,3]) returns 3",
+        "lines(2, \"a\\nb\\nc\") returns 'b\\nc'",
+        "trimSpace(\" x \") returns 'x'",
+        "firstNonEmpty(\"\", \"a\", \"b\") returns 'a'"
+      ],
+      "pseudocode": "loader := prompt.NewLoader()\nassert renderTest(loader, `{{fence \"LABEL\" \"text\"}}`) == \"--- BEGIN LABEL ---\\ntext\\n--- END LABEL ---\"\nassert renderTest(loader, `{{code \"text\"}}`) == \"```\\ntext\\n```\"\nassert renderTest(loader, `{{join \", \" .Items}}`, struct{Items []string}{[]string{\"a\",\"b\"}}) == \"a, b\"\nassert renderTest(loader, `{{count .Items}}`, struct{Items []int}{[]int{1,2,3}}) == \"3\"\nassert renderTest(loader, `{{trimSpace \" x \"}}`) == \"x\"\nassert renderTest(loader, `{{firstNonEmpty \"\" \"a\" \"b\"}}`) == \"a\""
+    }
+  ]
+}

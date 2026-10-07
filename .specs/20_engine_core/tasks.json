@@ -1,0 +1,415 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "20",
+  "spec_name": "engine_core",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/engine/... ./internal/checks/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "19_language_profiles",
+      "reason": "The engine's Run holds a lang.Detection and the ledger's change classification uses lang.Detection.TestFile and lang.Profile.GateConfig."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Add VerdictAborted to checks.Compare and export it",
+      "criteria": [
+        "20-REQ-6"
+      ],
+      "tests": [
+        "TS-20-24",
+        "TS-20-25",
+        "TS-20-26"
+      ],
+      "steps": [
+        "Write TS-20-24, TS-20-25 and TS-20-26 in internal/checks/checks_test.go and confirm they fail.",
+        "In internal/checks/checks.go, add `const VerdictAborted Verdict = \"aborted\"` alongside the existing verdict constants.",
+        "In checks.Compare, add a case at the top of the switch: if baseline.Aborted || after.Aborted, return VerdictAborted.",
+        "In Verdict.Landable(), confirm VerdictAborted is not listed as landable (it already won't be, since only Pass and Repaired return true, but verify the test passes).",
+        "Run `go test ./internal/checks/... -count=1` and confirm all tests pass, including the existing ones."
+      ],
+      "touches": [
+        "internal/checks/checks.go",
+        "internal/checks/checks_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Create internal/engine with the Run type, NewRun, Background and Invalidate",
+      "criteria": [
+        "20-REQ-1",
+        "20-REQ-7"
+      ],
+      "tests": [
+        "TS-20-1",
+        "TS-20-2",
+        "TS-20-27",
+        "TS-20-28",
+        "TS-20-29",
+        "TS-20-30"
+      ],
+      "steps": [
+        "Create the directory internal/engine/ and a file engine.go.",
+        "Define the BranchInfo struct with fields Base, Work, MergeBase string and Existed bool.",
+        "Define the Run struct with fields Root string, Git *gitx.Git, Lang lang.Detection, Branch BranchInfo, Ledger *Ledger, Gate *GateCache, Index tools.Index, Scratch string, Progress toolio.Progress, Record *toolio.Run.",
+        "Implement NewRun(root string, git *gitx.Git, opts RunOptions, det lang.Detection) (*Run, error): resolve symlinks on root, verify git.IsRepo, create a new Ledger and GateCache, populate the Run, and return it. Return nil + error if not a repo.",
+        "Define RunOptions struct with fields Index tools.Index, Scratch string, Progress toolio.Progress, Record *toolio.Run.",
+        "Implement Background(ctx context.Context) (context.Context, context.CancelFunc) returning context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute).",
+        "Implement Invalidate(run *Run): if run.Index != nil, call run.Index.Invalidate(\"\").",
+        "Define PreflightOpts struct with fields Land string, DryRun bool, NeedsPush bool, NeedsForge bool, Forge issuex.Client.",
+        "Implement CommonPreflight(ctx context.Context, run *Run, opts PreflightOpts) error: check IsRepo, DirtyFiles, base branch not empty (not detached), base branch not matching fix/* or impl/*, remote existence when NeedsPush, forge auth when NeedsForge. Return error on first failure.",
+        "Write TS-20-1, TS-20-2, TS-20-27, TS-20-28, TS-20-29, TS-20-30 in internal/engine/engine_test.go using real temp git repos (gitx.New on t.TempDir()). Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/engine.go",
+        "internal/engine/engine_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Move gate-edit classifiers to the engine: gateConfigFile, testFile delegation, goldenFile, skipMarker",
+      "criteria": [
+        "20-REQ-10"
+      ],
+      "tests": [
+        "TS-20-37",
+        "TS-20-38",
+        "TS-20-39"
+      ],
+      "steps": [
+        "Create internal/engine/classify.go.",
+        "Move gateConfigFile from codeimpl/gateedits.go to engine as GateConfigFile (exported), preserving the existing logic and adding lang.Profile.GateConfig delegation when a Detection is available.",
+        "Implement IsTestFile(det lang.Detection, path string) bool that delegates to det.TestFile(path) instead of hardcoding suffixes.",
+        "Move goldenFile from codeimpl/gateedits.go to engine as GoldenFile (exported), preserving behaviour.",
+        "Move skipMarker from codeimpl/gateedits.go to engine as SkipMarker (exported var *regexp.Regexp), preserving the regex.",
+        "Move gateEdits and addedSkips from codeimpl/gateedits.go to engine as GateEdits and AddedSkips (exported), updating testFile calls to use IsTestFile with a Detection parameter.",
+        "Write TS-20-37, TS-20-38, TS-20-39 in internal/engine/classify_test.go. Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/classify.go",
+        "internal/engine/classify_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement the Ledger: snapshot, owned/protected/foreign paths, OwnChange, commit and change classification",
+      "criteria": [
+        "20-REQ-2"
+      ],
+      "tests": [
+        "TS-20-3",
+        "TS-20-4",
+        "TS-20-5",
+        "TS-20-6",
+        "TS-20-7",
+        "TS-20-8",
+        "TS-20-9"
+      ],
+      "steps": [
+        "Create internal/engine/ledger.go with the Ledger struct: fields snapshot map[string]bool, owned []string, protected []string, foreignPath func(string) bool, leftWarned map[string]bool, and a reference to the run recorder.",
+        "Define the Change struct with Path, Status, Kind string.",
+        "Implement NewLedger(record *toolio.Run) *Ledger.",
+        "Implement Ledger.Snapshot(ctx context.Context, git *gitx.Git): call git.UntrackedFiles, build the map; on error set snapshot to nil.",
+        "Implement Ledger.SetOwned(paths ...string), Ledger.SetProtected(paths ...string), Ledger.SetForeignPath(fn func(string) bool).",
+        "Implement Ledger.Changes(ctx context.Context, git *gitx.Git, since string) ([]Change, error): call git.DiffSince for name-status, parse each line, add untracked files not in snapshot as status '?', classify each path's Kind using the classifiers from task 3 (IsTestFile, GateConfigFile, GoldenFile) plus project.IsDocsFile, scratch prefix, and protected prefix checks.",
+        "Implement Ledger.Commit(ctx context.Context, git *gitx.Git, message string, noVerify bool, reported []FileChange) (string, error): call git.UntrackedFiles, separate into leave (in snapshot or foreignPath) and unlisted (not in reported), warn with WarnUntrackedFilesLeftAlone and WarnUnlistedFileCommitted, call git.CommitAllExcept.",
+        "Implement Ledger.OwnChange(ctx context.Context, git *gitx.Git) bool: call git.ChangedFiles or git.UntrackedFiles, return true if any file is not in the snapshot.",
+        "Implement Ledger.FlagGateEdits(ctx context.Context, git *gitx.Git, since string, run *toolio.Run): call git.DiffSince, run GateEdits (from task 3), warn via run.Warn with WarnGateEdited.",
+        "Define FileChange struct (Path, Status string) in the engine package for the reported parameter.",
+        "Write TS-20-3 through TS-20-9 in internal/engine/ledger_test.go using real temp git repos. Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/ledger.go",
+        "internal/engine/ledger_test.go"
+      ],
+      "depends_on": [
+        2,
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Implement the GateCache with tree-hash computation, RunGate, and export GateResult/compareGate/landable",
+      "criteria": [
+        "20-REQ-3"
+      ],
+      "tests": [
+        "TS-20-10",
+        "TS-20-11",
+        "TS-20-12",
+        "TS-20-13",
+        "TS-20-14",
+        "TS-20-15"
+      ],
+      "steps": [
+        "Create internal/engine/gate.go with the GateCache struct: a map keyed by (treeHash+command) string to checks.Result.",
+        "Implement NewGateCache() *GateCache.",
+        "Implement treeHash(ctx context.Context, git *gitx.Git) (string, error): try `git rev-parse HEAD^{tree}` first; if the tree is dirty (git.DirtyFiles returns non-empty), stage all via git.StageAllExcept(nil), run `git write-tree` via the runner, then unstage. Combine with sorted untracked files for the final key.",
+        "Implement GateCache.Run(ctx context.Context, runner gitx.Runner, git *gitx.Git, root, command string, timeout time.Duration, label string, record *toolio.Run) checks.Result: compute treeHash, look up cache, on hit return cached result and record timing with cached:true, on miss call checks.Run, store, return. On treeHash error, fall through to uncached run.",
+        "Implement GateCache.RunGate(ctx context.Context, runner gitx.Runner, git *gitx.Git, root string, commands []string, timeout time.Duration, label string, progress toolio.Progress, record *toolio.Run) GateResult: iterate commands, call GateCache.Run for each, collect into GateResult.",
+        "Move GateResult type from codeimpl/types.go to internal/engine/gate.go with its methods: Ran, OK, CouldNotRun (exported), Aborted (exported), Failing (exported).",
+        "Move compareGate and landable from codeimpl/gate.go to internal/engine/gate.go, exporting them as CompareGate and Landable.",
+        "Move VerdictGateFailed and VerdictBaselineRepaired constants to internal/engine/gate.go.",
+        "Write TS-20-10 through TS-20-15 in internal/engine/gate_test.go. Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/gate.go",
+        "internal/engine/gate_test.go"
+      ],
+      "depends_on": [
+        1,
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Implement branching: SetupBranch and ResumeBranch",
+      "criteria": [
+        "20-REQ-5"
+      ],
+      "tests": [
+        "TS-20-20",
+        "TS-20-21",
+        "TS-20-22",
+        "TS-20-23"
+      ],
+      "steps": [
+        "Create internal/engine/branch.go.",
+        "Implement SetupBranch(ctx context.Context, run *Run, prefix string, number int, title string) error: call git.BaseBranch to capture base; if base is empty, return error mentioning detached HEAD; if base matches fix/* or impl/*, return error naming the work-branch pattern; compute branch name via gitx.BranchName and gitx.UniqueBranchName; call git.CreateBranch; record base, work, merge-base on run.Branch; call Invalidate.",
+        "Implement ResumeBranch(ctx context.Context, run *Run, branch string) error: call git.Checkout on the branch; detect parked wip: commits via git.HeadMessage; if parked, reset hard to HEAD~1 and clean; record branch info on run.Branch.",
+        "Write TS-20-20, TS-20-21, TS-20-22, TS-20-23 in internal/engine/branch_test.go using real temp git repos. Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/branch.go",
+        "internal/engine/branch_test.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Implement Park, ReturnCheckout, Push and OpenPullRequest",
+      "criteria": [
+        "20-REQ-4",
+        "20-REQ-8"
+      ],
+      "tests": [
+        "TS-20-16",
+        "TS-20-17",
+        "TS-20-18",
+        "TS-20-19",
+        "TS-20-31",
+        "TS-20-32",
+        "TS-20-33"
+      ],
+      "steps": [
+        "Create internal/engine/park.go.",
+        "Implement Park(ctx context.Context, run *Run, message string, reported []FileChange) (string, error): create background context via Background(ctx); check run.Ledger.OwnChange; if yes, commit via run.Ledger.Commit with noVerify=true; on commit error, warn WarnCommitNotParked; checkout base branch via run.Git.Checkout; on checkout error, warn WarnCheckoutNotRestored; never return a non-nil error.",
+        "Implement ReturnCheckout(ctx context.Context, run *Run): create background context; checkout run.Branch.Base; on error warn WarnCheckoutNotRestored.",
+        "Create internal/engine/push.go.",
+        "Implement Push(ctx context.Context, run *Run, attempts int) error: call run.Git.Push with the work branch, attempts, and a progress log function; record the side effect on run.Record.",
+        "Create internal/engine/pr.go.",
+        "Implement OpenPullRequest(ctx context.Context, run *Run, forge issuex.Client, target issuex.Repo, req issuex.CreatePullRequestRequest) (string, error): compute maxLen via issuex.MaxBodyLength(forge); if len(req.Body) > maxLen, truncate req.Body to maxLen; call forge.CreatePullRequest; return the PR URL.",
+        "Write TS-20-16 through TS-20-19 in internal/engine/park_test.go, TS-20-31 in internal/engine/push_test.go, and TS-20-32 and TS-20-33 in internal/engine/pr_test.go. Confirm all pass.",
+        "Run `go test ./internal/engine/... -count=1` and `make lint`."
+      ],
+      "touches": [
+        "internal/engine/park.go",
+        "internal/engine/park_test.go",
+        "internal/engine/push.go",
+        "internal/engine/push_test.go",
+        "internal/engine/pr.go",
+        "internal/engine/pr_test.go"
+      ],
+      "depends_on": [
+        2,
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Migrate codeimpl to use engine: add *engine.Run field, replace duplicated functions, remove originals",
+      "criteria": [
+        "20-REQ-9.1",
+        "20-REQ-9.3",
+        "20-REQ-9.4"
+      ],
+      "tests": [
+        "TS-20-34",
+        "TS-20-35",
+        "TS-20-36"
+      ],
+      "steps": [
+        "Add a field Engine *engine.Run to codeimpl.RunState (or runState).",
+        "In codeimpl/pipeline.go preflight, after creating the runState, call engine.NewRun to populate st.Engine.",
+        "Replace st.noteUntracked calls with st.Engine.Ledger.Snapshot calls.",
+        "Replace st.commit calls with st.Engine.Ledger.Commit calls, adapting the FileChange type.",
+        "Replace parkWork calls with engine.Park calls, passing st.Engine.",
+        "Replace the background function calls with engine.Background calls.",
+        "Replace st.invalidate calls with engine.Invalidate(st.Engine) calls.",
+        "Replace runGate calls with st.Engine.Gate.RunGate calls.",
+        "Update codeimpl/gate.go: remove the local GateResult methods (Ran, OK, couldNotRun, aborted, failing), compareGate and landable; add type aliases or update all callers to use engine.GateResult, engine.CompareGate, engine.Landable.",
+        "Update codeimpl/gateedits.go: remove gateConfigFile, testFile, goldenFile, skipMarker, gateEdits, addedSkips; update flagGateEdits to call engine equivalents.",
+        "Remove the local background, parkWork, noteUntracked, leftAlone, foreignSpecPath, commit, unlisted, dirtyAfterCommit, invalidate functions from codeimpl.",
+        "Run `make test` and `make lint` to confirm all existing tests pass and golden files are unchanged."
+      ],
+      "touches": [
+        "codeimpl/pipeline.go",
+        "codeimpl/untracked.go",
+        "codeimpl/gate.go",
+        "codeimpl/gateedits.go",
+        "codeimpl/types.go",
+        "codeimpl/state.go"
+      ],
+      "depends_on": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Migrate codefix to use engine: add *engine.Run field, replace duplicated functions, remove originals",
+      "criteria": [
+        "20-REQ-9.2",
+        "20-REQ-9.3",
+        "20-REQ-9.4"
+      ],
+      "tests": [
+        "TS-20-34",
+        "TS-20-35",
+        "TS-20-36"
+      ],
+      "steps": [
+        "Add a field Engine *engine.Run to codefix.Options (or a new field accessible from the pipeline).",
+        "In codefix/pipeline.go Run, after creating the git handle, call engine.NewRun to populate o.Engine.",
+        "Replace untrackedNow calls with o.Engine.Ledger.Snapshot calls.",
+        "Replace commitOwn/commitOwnHooks calls with o.Engine.Ledger.Commit calls.",
+        "Replace parkWork calls with engine.Park calls, passing o.Engine.",
+        "Replace the background function calls with engine.Background calls.",
+        "Replace invalidate calls with engine.Invalidate(o.Engine) calls.",
+        "Replace returnCheckout calls with engine.ReturnCheckout calls.",
+        "Replace ownChange calls with o.Engine.Ledger.OwnChange calls.",
+        "Update openPullRequest to call engine.OpenPullRequest for body truncation.",
+        "Remove the local background, parkWork, commitOwn, commitOwnHooks, untrackedNow, ownChange, invalidate, returnCheckout functions from codefix.",
+        "Run `make test` and `make lint` to confirm all existing tests pass and golden files are unchanged."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/untracked.go",
+        "codefix/types.go"
+      ],
+      "depends_on": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Update documentation: architecture.md and development.md to reflect internal/engine",
+      "criteria": [
+        "20-REQ-9.3"
+      ],
+      "tests": [
+        "TS-20-35"
+      ],
+      "steps": [
+        "Open docs/development.md and add internal/engine/ to the repository layout section with description: 'The shared change engine: Run, Ledger, GateCache, parking, branching'.",
+        "Verify docs/architecture.md exists; if not, note in development.md that the engine package is the shared library of deterministic pipeline steps called by both codefix and codeimpl.",
+        "Run `make check` to confirm nothing is broken."
+      ],
+      "touches": [
+        "docs/development.md"
+      ],
+      "depends_on": [
+        8,
+        9
+      ],
+      "state": "pending",
+      "optional": true
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end, confirm no stubs remain, and run all smoke tests",
+      "tests": [
+        "TS-20-40",
+        "TS-20-41",
+        "TS-20-42",
+        "TS-20-43"
+      ],
+      "steps": [
+        "Write TS-20-40 in internal/engine/smoke_test.go: create a temp git repo, call NewRun, SetupBranch, Ledger.Snapshot, modify a file, Ledger.Commit, then Park under a cancelled context. Verify the work branch has the wip: commit and the current branch is main.",
+        "Write TS-20-41 in internal/engine/smoke_test.go: create a temp git repo, call NewRun, SetupBranch, run GateCache.Run (cache miss), commit a change, run GateCache.Run (new tree, cache miss), revert the commit, run GateCache.Run (cache hit). Verify the runner was invoked exactly twice.",
+        "Write TS-20-42 in internal/engine/smoke_test.go: create a temp git repo with a work branch and committed change, cancel the context, call checks.Run (returns Aborted=true), call checks.Compare (returns VerdictAborted), call engine.Park. Verify VerdictAborted and successful park.",
+        "Write TS-20-43 in internal/engine/smoke_test.go: create a temp git repo, detach HEAD, call SetupBranch. Verify it returns a non-nil error mentioning detached HEAD and no branch was created.",
+        "Trace 20-PATH-1 through the real code: confirm codefix.Run calls engine.NewRun, engine.SetupBranch (or equivalent), Ledger.Snapshot, Ledger.Commit, and engine.Park in sequence with no stub in between.",
+        "Trace 20-PATH-2 through the real code: confirm codeimpl.Run calls engine.NewRun, GateCache.RunGate for baseline, Ledger.Commit for task changes, and GateCache.RunGate again for verification.",
+        "Trace 20-PATH-3: confirm checks.Compare with Aborted=true returns VerdictAborted, and the pipeline calls engine.Park on that path.",
+        "Trace 20-PATH-4: confirm engine.SetupBranch refuses a detached HEAD and the caller maps it to a preflight failure.",
+        "For every criterion with a contract, confirm the producer's result is consumed by a caller in production code (not only tests): NewRun's (*Run, error) is consumed by both pipelines; Ledger.Commit's (string, error) is consumed by Park and the pipeline; Park's (string, error) is consumed by the pipeline; Compare's VerdictAborted is consumed by the pipeline's verdict check.",
+        "Search internal/engine/*.go, codefix/*.go and codeimpl/*.go for stub markers: panic(\"not implemented\"), TODO, bare return nil on non-trivial paths. Remove any that remain.",
+        "Run `make test` and `make lint` to confirm everything passes."
+      ],
+      "touches": [
+        "internal/engine/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "done_when": [
+        "`make test` passes with zero failures",
+        "`make lint` passes",
+        "No panic(\"not implemented\") or TODO stubs remain in internal/engine/, codefix/ or codeimpl/ for engine-related code",
+        "The cmd/fix/testdata/schema.golden.json and cmd/impl/testdata/schema.golden.json files are unchanged"
+      ],
+      "state": "pending"
+    }
+  ]
+}

@@ -1,0 +1,444 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "19",
+  "spec_name": "language_profiles",
+  "schema_version": 2,
+  "introduction": "The internal/lang package provides a single declarative profile table that carries every language-specific fact (manifests, commands, classifiers, programs, read-root extractors, caches, version probes) so that adding a language is adding a row and every mechanism in the tool reads the profile rather than hardcoding ecosystem literals.",
+  "glossary": {
+    "Command": "A struct holding a base argv slice, a variant selector (lockfile or wrapper presence), and a Resolve method that returns the actual argv given a root directory.",
+    "Detection": "The result of scanning a repository root for profiles. It holds every matched profile in precedence order, with Primary as the first and a generic fallback when nothing matches.",
+    "Profile": "An exported struct in internal/lang that carries every language-specific fact for one ecosystem: manifests, commands, classifiers, programs, stub marker, read-root extractor, caches and version probe.",
+    "ReadRoot": "A local directory outside the repository that a manifest's dependency declaration points at, which the model may read but not write.",
+    "denylist test": "A test that walks non-test .go files under specified packages and fails on any hardcoded language literal, enforcing that all language facts live in the profile table."
+  },
+  "requirements": [
+    {
+      "id": "19-REQ-1",
+      "title": "Profile struct and table",
+      "rationale": "A single declarative table eliminates scattered language literals and makes adding a language a one-row change.",
+      "criteria": [
+        {
+          "id": "19-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a Profile struct with fields Name (string), Manifests ([]string), Test, Lint, Format, Build, Targeted, Version (each Command), Programs ([]string), TestFile (func(string) bool), InlineTests (bool), TestID (*regexp.Regexp), Stub (string), SkipMarkers (*regexp.Regexp), AssertPattern (*regexp.Regexp), GateConfig (func(string) bool), ReadRoots (func(string) []ReadRoot), and Caches ([]string)"
+        },
+        {
+          "id": "19-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a Command struct with fields Base ([]string) and a lockfile/wrapper variant selector, and a method Resolve(root string) []string that returns the variant argv when the lockfile or wrapper is present in root, or the base argv otherwise"
+        },
+        {
+          "id": "19-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "define a profile row for each ecosystem currently handled by project.DetectProfile: go, rust, python, node, jvm, dotnet, ruby, elixir, php, dart, swift, cpp, and a generic fallback with empty commands and no programs"
+        },
+        {
+          "id": "19-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "for any profile, set Programs to the toolchain binaries that ecosystem's shell may run, matching the entries currently in agentrun.BuildPrograms for that ecosystem"
+        },
+        {
+          "id": "19-REQ-1.5",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "for any profile, set Stub to the ecosystem's idiom for 'not implemented', matching the StubMarker values currently in project.DetectProfile"
+        },
+        {
+          "id": "19-REQ-1.6",
+          "pattern": "unwanted",
+          "condition": "Command.Resolve is called and the lockfile/wrapper check fails (file not found or unreadable)",
+          "system": "Command",
+          "action": "return the base argv without error",
+          "contract": "the returned []string equals Command.Base"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-2",
+      "title": "Detection returns a set",
+      "rationale": "A repository may contain multiple ecosystems (e.g. Go backend with Node frontend); detection must report all of them.",
+      "criteria": [
+        {
+          "id": "19-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a function Detect(root string) Detection that scans root for every profile whose manifest is present, in the fixed precedence order matching manifestFamilies, and returns a Detection with Primary set to the first matched profile and All containing every matched profile in precedence order"
+        },
+        {
+          "id": "19-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "no manifest matches any profile",
+          "system": "Detect",
+          "action": "return a Detection whose Primary is the generic profile and whose All contains only the generic profile"
+        },
+        {
+          "id": "19-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "Detection",
+          "action": "provide a Programs() method that returns the union of every detected profile's Programs, deduplicated"
+        },
+        {
+          "id": "19-REQ-2.4",
+          "pattern": "ubiquitous",
+          "system": "Detection",
+          "action": "provide a TestFile(path string) bool method that returns true when any detected profile's TestFile returns true for the path, including common directory conventions (testdata/, test/, tests/, __tests__/, spec/)"
+        },
+        {
+          "id": "19-REQ-2.5",
+          "pattern": "ubiquitous",
+          "system": "Detection",
+          "action": "provide an IsSourceFile(path string) bool method that returns true when the path has a source-code extension recognised by any detected profile"
+        },
+        {
+          "id": "19-REQ-2.6",
+          "pattern": "unwanted",
+          "condition": "the root directory cannot be read",
+          "system": "Detect",
+          "action": "return a Detection with the generic profile instead of failing",
+          "contract": "Detection.Primary.Name equals \"generic\" and no error is returned"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-3",
+      "title": "Verification command detection",
+      "rationale": "Unifying verification detection eliminates the divergence between checks.Detect and codeimpl's gateCommands.",
+      "criteria": [
+        {
+          "id": "19-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "Detection",
+          "action": "provide a method VerifyCommand(root string) (test string, lint string) that resolves verification commands by: (1) checking for Makefile targets 'check' or 'test' for the test command and 'lint' for the linter, (2) falling back to the primary profile's Test command resolved with the lockfile variant and Lint command when its configuration file is present, (3) returning empty strings when neither source yields a command"
+        },
+        {
+          "id": "19-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "checks.Detect is called",
+          "system": "checks.Detect",
+          "action": "delegate to lang.Detect(dir).VerifyCommand(dir) and return the test command, preserving its existing function signature",
+          "contract": "the return value is a single string matching the test command from VerifyCommand"
+        },
+        {
+          "id": "19-REQ-3.3",
+          "pattern": "event_driven",
+          "condition": "a Makefile exists with a 'check' target but no 'test' target",
+          "system": "VerifyCommand",
+          "action": "return 'make check' as the test command"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-4",
+      "title": "Read roots on Detection",
+      "rationale": "Moving ReadRoots to Detection lets callers get the union across all detected ecosystems without re-detecting.",
+      "criteria": [
+        {
+          "id": "19-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a ReadRoot struct with fields Module, Path, Abs, and Source, matching the current project.ReadRoot type"
+        },
+        {
+          "id": "19-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "Detection",
+          "action": "provide a ReadRoots(root string) []ReadRoot method that returns the union of every detected profile's read roots, deduplicated by absolute path, matching the current project.ReadRoots behaviour"
+        },
+        {
+          "id": "19-REQ-4.3",
+          "pattern": "unwanted",
+          "condition": "a manifest file cannot be parsed when computing read roots",
+          "system": "Detection.ReadRoots",
+          "action": "return an empty slice for that manifest's contribution without failing",
+          "contract": "the returned slice omits the unparseable manifest's entries and no error is returned"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-5",
+      "title": "Test classification per profile",
+      "rationale": "Per-profile TestFile functions replace the monolithic IsTestPath with language-aware classification.",
+      "criteria": [
+        {
+          "id": "19-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "for each profile, set TestFile to a function encoding that language's test-file conventions: Go (_test.go), Python (test_ prefix or _test.py suffix), JS/TS (.test. or .spec.), Rust (_test.rs), JVM (Test.java suffix or IT.java suffix), Ruby (_spec.rb), and common directory conventions (testdata/, test/, tests/, __tests__/, spec/)"
+        },
+        {
+          "id": "19-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "Detection.TestFile",
+          "action": "return true when any detected profile's TestFile returns true for the given path, producing the same results as the current project.IsTestPath for any repository the current code handles"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-6",
+      "title": "Runner families, audit and language block",
+      "rationale": "These functions operate on language data and belong with the profile table.",
+      "criteria": [
+        {
+          "id": "19-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export the runnerFamilies map (program name to ecosystem) and the familyOf function, moved from internal/project"
+        },
+        {
+          "id": "19-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export AuditTasks and AuditTestCommands methods on Detection (or a type derived from it) that refuse a test command whose program belongs to a different known ecosystem than any detected profile, matching the current project.Profile.AuditTasks and AuditTestCommands behaviour"
+        },
+        {
+          "id": "19-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a LanguageBlock() string method on Detection that returns the prompt section telling the model what the project is, matching the current project.Profile.LanguageBlock output"
+        },
+        {
+          "id": "19-REQ-6.4",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export a TargetedRun() string method on Detection that returns the primary profile's targeted test-run form, matching the current project.Profile.TargetedRun output"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-7",
+      "title": "Migration of callers",
+      "rationale": "Every call site that reads language-specific data must use the new package so the denylist test can pass.",
+      "criteria": [
+        {
+          "id": "19-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "codefix",
+          "action": "replace every import of internal/project for DetectProfile, IsTestPath, IsSourceFile, ReadRoots, TargetedRun, LanguageBlock, AuditTasks, or AuditTestCommands with the equivalent from internal/lang, and replace every hardcoded language literal with a reference to the profile"
+        },
+        {
+          "id": "19-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "codeimpl",
+          "action": "replace every import of internal/project for DetectProfile, IsTestPath, IsSourceFile, ReadRoots, TargetedRun, LanguageBlock, AuditTasks, or AuditTestCommands with the equivalent from internal/lang, and replace every hardcoded language literal with a reference to the profile"
+        },
+        {
+          "id": "19-REQ-7.3",
+          "pattern": "ubiquitous",
+          "system": "internal/checks",
+          "action": "update Detect to delegate to lang.Detect internally while preserving its existing function signature"
+        },
+        {
+          "id": "19-REQ-7.4",
+          "pattern": "ubiquitous",
+          "system": "internal/conform",
+          "action": "replace every import of internal/project for IsTestPath and IsSourceFile with the equivalent from internal/lang in revert.go, structural.go, duplicate.go, polyglot.go, and docsource.go"
+        },
+        {
+          "id": "19-REQ-7.5",
+          "pattern": "ubiquitous",
+          "system": "internal/agentrun",
+          "action": "update guard.go to use lang.Detect for read roots and program lists instead of importing internal/project directly"
+        },
+        {
+          "id": "19-REQ-7.6",
+          "pattern": "ubiquitous",
+          "system": "internal/checks/environment.go",
+          "action": "update Fingerprint to use lang.Detect for toolchain version probes instead of project.DetectProfile and the hardcoded toolchainProbes map"
+        },
+        {
+          "id": "19-REQ-7.7",
+          "pattern": "ubiquitous",
+          "system": "specgen",
+          "action": "update every call to project.DetectProfile and project.Profile.LanguageBlock to use the equivalent from internal/lang"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-8",
+      "title": "Backward compatibility",
+      "rationale": "Callers outside the migrated set must continue to compile without changes.",
+      "criteria": [
+        {
+          "id": "19-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "internal/project",
+          "action": "keep DetectProfile as a thin wrapper over lang.Detect that returns the old project.Profile shape, marked deprecated"
+        },
+        {
+          "id": "19-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "internal/project",
+          "action": "retain Steering, MissingDocs, IsDocsFile, and ProjectInstructions (or its current location) without moving them to internal/lang"
+        },
+        {
+          "id": "19-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "system",
+          "action": "introduce no new flags, exit codes, envelope fields, or schema version changes"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-9",
+      "title": "Denylist test",
+      "rationale": "The denylist test is the acceptance gate that enforces all language literals live in the profile table.",
+      "criteria": [
+        {
+          "id": "19-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "include a test TestNoLanguageLiterals that walks every non-test .go file under internal/lang, codefix, and codeimpl (and internal/engine when it exists) and fails if any line contains a string from the denylist: .go\", \"go.mod\", gofmt, \"go test\", \"go vet\", _test.go\", panic(\"not implemented\"), \"pytest\", \"cargo \", \"npm \", .py\", .ts\", .rs\""
+        },
+        {
+          "id": "19-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "TestNoLanguageLiterals",
+          "action": "exempt the internal/lang package's own profile definitions and import paths from the denylist, and not walk internal/conform"
+        },
+        {
+          "id": "19-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "TestNoLanguageLiterals",
+          "action": "pass after all caller migrations in codefix and codeimpl are complete, with zero denylist violations"
+        }
+      ]
+    },
+    {
+      "id": "19-REQ-10",
+      "title": "Shell programs from profiles",
+      "rationale": "BuildPrograms in agentrun must derive from detected profiles rather than a hardcoded list.",
+      "criteria": [
+        {
+          "id": "19-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "move the helper functions nodeRunner, nodeCommands, makeTarget, manifestFamilies, hasGlob, and flutterRe from internal/project to internal/lang"
+        },
+        {
+          "id": "19-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "internal/agentrun",
+          "action": "derive BuildPrograms from Detection.Programs() so that only the detected ecosystems' toolchain binaries are on the allowlist, rather than listing every ecosystem's programs unconditionally"
+        },
+        {
+          "id": "19-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "internal/lang",
+          "action": "export an UnderReadRoot(roots []string, p string) bool function matching the current project.UnderReadRoot behaviour, so that guard.go and docsource.go can import it from internal/lang"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "19-PATH-1",
+      "title": "Detect a multi-ecosystem repository and resolve verification commands",
+      "steps": [
+        {
+          "actor": "pipeline",
+          "action": "calls lang.Detect(root) on a repository containing go.mod and package.json"
+        },
+        {
+          "actor": "lang.Detect",
+          "action": "scans the root in precedence order, matches the go profile first and the node profile second, and returns a Detection with Primary=go and All=[go, node]"
+        },
+        {
+          "actor": "pipeline",
+          "action": "calls Detection.VerifyCommand(root) to resolve the test and lint commands"
+        },
+        {
+          "actor": "VerifyCommand",
+          "action": "reads the Makefile, finds a 'test' target, and returns 'make test' as the test command and the Makefile lint target or the primary profile's lint command as the linter"
+        },
+        {
+          "actor": "pipeline",
+          "action": "calls Detection.Programs() and receives the union of go and node toolchain binaries for the shell allowlist"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-2",
+      "title": "Classify test files across detected ecosystems",
+      "steps": [
+        {
+          "actor": "conform pipeline",
+          "action": "calls lang.Detect(root) on a repository with go.mod"
+        },
+        {
+          "actor": "conform pipeline",
+          "action": "calls Detection.TestFile(path) for each changed file to split implementation from test files"
+        },
+        {
+          "actor": "Detection.TestFile",
+          "action": "delegates to each detected profile's TestFile function and returns true for paths matching any profile's conventions (e.g. _test.go for Go, files under testdata/)"
+        },
+        {
+          "actor": "conform pipeline",
+          "action": "uses the classification to decide which files to revert and which to keep"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-3",
+      "title": "Denylist test enforces no language literals outside the profile table",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs go test ./internal/lang/... which includes TestNoLanguageLiterals"
+        },
+        {
+          "actor": "TestNoLanguageLiterals",
+          "action": "walks every non-test .go file under internal/lang, codefix, codeimpl, and internal/engine (if present), checking each line against the denylist"
+        },
+        {
+          "actor": "TestNoLanguageLiterals",
+          "action": "exempts import paths and the profile definition files in internal/lang, and reports zero violations, passing the test"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-4",
+      "title": "Backward-compatible detection through deprecated project.DetectProfile",
+      "steps": [
+        {
+          "actor": "external caller",
+          "action": "calls project.DetectProfile(root)"
+        },
+        {
+          "actor": "project.DetectProfile",
+          "action": "delegates to lang.Detect(root) and converts the Detection's Primary profile into the old project.Profile shape"
+        },
+        {
+          "actor": "external caller",
+          "action": "receives a project.Profile with Language, AllTests, Linter, Manifest, StubMarker, and Also fields populated from the lang.Detection"
+        }
+      ]
+    },
+    {
+      "id": "19-PATH-5",
+      "title": "Read roots collected across all detected ecosystems",
+      "steps": [
+        {
+          "actor": "agentrun phase setup",
+          "action": "calls lang.Detect(root) on a repository with go.mod containing a local replace directive and a package.json with a file: dependency"
+        },
+        {
+          "actor": "agentrun phase setup",
+          "action": "calls Detection.ReadRoots(root) to collect external directories the model may read"
+        },
+        {
+          "actor": "Detection.ReadRoots",
+          "action": "invokes each detected profile's ReadRoots function, deduplicates by absolute path, and returns the union"
+        },
+        {
+          "actor": "agentrun phase setup",
+          "action": "passes the read root paths to the guard so the shell can read under them"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,412 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "19",
+  "spec_name": "language_profiles",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./internal/lang/... -count=1"
+  },
+  "dependencies": [],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Create internal/lang package with Command, ReadRoot, Profile structs and the profile table",
+      "criteria": [
+        "19-REQ-1.1",
+        "19-REQ-1.2",
+        "19-REQ-1.3",
+        "19-REQ-1.4",
+        "19-REQ-1.5",
+        "19-REQ-1.6"
+      ],
+      "tests": [
+        "TS-19-1",
+        "TS-19-2",
+        "TS-19-3",
+        "TS-19-4",
+        "TS-19-5",
+        "TS-19-6"
+      ],
+      "steps": [
+        "Create internal/lang/lang.go with the exported Command struct (Base []string, Variant with File and Argv fields) and its Resolve(root string) []string method that checks for the variant file and returns the variant argv when present, or Base otherwise.",
+        "Create internal/lang/readroot.go with the exported ReadRoot struct (Module, Path, Abs, Source string) matching the current project.ReadRoot type.",
+        "Create internal/lang/profile.go with the exported Profile struct carrying all fields: Name, Manifests, Test/Lint/Format/Build/Targeted/Version (Command), Programs ([]string), TestFile (func(string) bool), InlineTests (bool), TestID (*regexp.Regexp), Stub (string), SkipMarkers (*regexp.Regexp), AssertPattern (*regexp.Regexp), GateConfig (func(string) bool), ReadRoots (func(string) []ReadRoot), Caches ([]string).",
+        "Create internal/lang/profiles.go with a profile row for each ecosystem: go, rust, python, node, jvm, dotnet, ruby, elixir, php, dart, swift, cpp, and generic. Populate Programs from the current agentrun.BuildPrograms entries per ecosystem. Populate Stub from the current project.DetectProfile StubMarker values. Populate Test/Lint/Format/Build commands from the current DetectProfile logic, including lockfile variants (e.g. uv.lock to uv run pytest). Set TestFile per profile using language conventions.",
+        "Export a ProfileByName(name string) *Profile lookup function for tests.",
+        "Write TS-19-1 through TS-19-6 and confirm they pass: struct field types, Command.Resolve with and without lockfile, all ecosystem rows present, Programs match, Stub values match."
+      ],
+      "touches": [
+        "internal/lang/lang.go",
+        "internal/lang/readroot.go",
+        "internal/lang/profile.go",
+        "internal/lang/profiles.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement Detect and Detection with Programs, TestFile, IsSourceFile methods",
+      "criteria": [
+        "19-REQ-2",
+        "19-REQ-5"
+      ],
+      "tests": [
+        "TS-19-7",
+        "TS-19-8",
+        "TS-19-9",
+        "TS-19-10",
+        "TS-19-11",
+        "TS-19-12",
+        "TS-19-21",
+        "TS-19-22",
+        "TS-19-23"
+      ],
+      "steps": [
+        "Create internal/lang/detect.go with the Detection struct (Primary *Profile, All []*Profile) and the Detect(root string) Detection function. Detect scans root for every profile whose manifest is present in the fixed precedence order from manifestFamilies, returns Detection with Primary as first match and All as all matches. Return generic when no manifest matches or root is unreadable.",
+        "Move manifestFamilies, makeTarget, nodeRunner, nodeCommands, hasGlob, flutterRe from internal/project to internal/lang (internal/lang/helpers.go). Keep them unexported where possible.",
+        "Implement Detection.Programs() []string returning the deduplicated union of all detected profiles' Programs.",
+        "Implement Detection.TestFile(path string) bool returning true when any detected profile's TestFile returns true. Each profile's TestFile encodes language-specific conventions (Go: _test.go; Python: test_ prefix or _test.py suffix; JS/TS: .test. or .spec.; Rust: _test.rs; JVM: Test.java/IT.java; Ruby: _spec.rb) plus common directory conventions (testdata/, test/, tests/, __tests__/, spec/).",
+        "Implement Detection.IsSourceFile(path string) bool returning true when the path has a source-code extension recognised by any detected profile.",
+        "Write TS-19-7 through TS-19-12 (Detect multi-manifest, generic fallback, Programs union, TestFile union, IsSourceFile, unreadable root) and TS-19-21 through TS-19-23 (per-profile TestFile conventions, common directories, Detection.TestFile union). Confirm all pass."
+      ],
+      "touches": [
+        "internal/lang/detect.go",
+        "internal/lang/helpers.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement VerifyCommand on Detection and ReadRoots on Detection",
+      "criteria": [
+        "19-REQ-3.1",
+        "19-REQ-3.3",
+        "19-REQ-4"
+      ],
+      "tests": [
+        "TS-19-13",
+        "TS-19-14",
+        "TS-19-15",
+        "TS-19-16",
+        "TS-19-18",
+        "TS-19-19",
+        "TS-19-20"
+      ],
+      "steps": [
+        "Implement Detection.VerifyCommand(root string) (test string, lint string) in internal/lang/detect.go: (1) check Makefile for check or test targets for the test command and lint for the linter, (2) fall back to primary profile's Test.Resolve(root) and Lint.Resolve(root), (3) return empty strings when neither yields a command.",
+        "Move the ReadRoots logic (goReplaceRoots, otherRoots, localReplace, localDir, canonical, within, containsAbs) from internal/project/readroots.go to internal/lang/readroots.go. Wire each profile's ReadRoots function to the appropriate parser (go profile uses goReplaceRoots, node uses package.json file:/link: deps, rust uses Cargo.toml path deps, python uses requirements.txt local paths).",
+        "Implement Detection.ReadRoots(root string) []ReadRoot returning the union of every detected profile's ReadRoots, deduplicated by absolute path. Return empty slice when manifest cannot be parsed.",
+        "Export UnderReadRoot(roots []string, p string) bool matching the current project.UnderReadRoot behaviour.",
+        "Write TS-19-13 through TS-19-16 (VerifyCommand with Makefile, without Makefile, check target, empty), TS-19-18 (ReadRoot struct), TS-19-19 (ReadRoots union), TS-19-20 (unparseable manifest). Confirm all pass."
+      ],
+      "touches": [
+        "internal/lang/detect.go",
+        "internal/lang/readroots.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Implement runner families, audit, LanguageBlock and TargetedRun on Detection",
+      "criteria": [
+        "19-REQ-6"
+      ],
+      "tests": [
+        "TS-19-24",
+        "TS-19-25",
+        "TS-19-26",
+        "TS-19-27",
+        "TS-19-28"
+      ],
+      "steps": [
+        "Move runnerFamilies map and familyOf function from internal/project/project.go to internal/lang/families.go. Export FamilyOf(cmd string) (string, bool).",
+        "Implement AuditTasks(content map[string]any) error and AuditTestCommands(tc afspec.TestCommands) error on Detection, matching the current project.Profile.AuditTasks and AuditTestCommands behaviour but checking against all detected ecosystems (Primary + Also).",
+        "Implement Detection.LanguageBlock() string matching the current project.Profile.LanguageBlock output.",
+        "Implement Detection.TargetedRun() string returning the primary profile's targeted test-run form, matching the current project.Profile.TargetedRun output.",
+        "Write TS-19-24 (FamilyOf), TS-19-25 (AuditTasks mismatch), TS-19-26 (AuditTasks secondary ecosystem), TS-19-27 (LanguageBlock), TS-19-28 (TargetedRun). Confirm all pass."
+      ],
+      "touches": [
+        "internal/lang/families.go",
+        "internal/lang/detect.go"
+      ],
+      "depends_on": [
+        2
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Make project.DetectProfile a thin wrapper and retain non-language functions",
+      "criteria": [
+        "19-REQ-8"
+      ],
+      "tests": [
+        "TS-19-35",
+        "TS-19-36",
+        "TS-19-37"
+      ],
+      "steps": [
+        "Rewrite project.DetectProfile in internal/project/project.go to delegate to lang.Detect(root) and convert the Detection's Primary profile into the old project.Profile shape (Language, AllTests, Linter, Manifest, StubMarker, Also). Mark it deprecated with a doc comment.",
+        "Remove the moved functions (manifestFamilies, makeTarget, nodeRunner, nodeCommands, hasGlob, flutterRe, runnerFamilies, familyOf) from internal/project/project.go. Remove the moved ReadRoot type and ReadRoots/UnderReadRoot functions from internal/project/readroots.go. Replace them with thin wrappers that delegate to internal/lang, or remove them if no caller outside the migrated set uses them.",
+        "Keep project.AuditTasks, AuditTestCommands, LanguageBlock, TargetedRun, Known as thin wrappers over the lang.Detection equivalents.",
+        "Verify that Steering, MissingDocs, IsDocsFile remain in internal/project unchanged.",
+        "Write TS-19-35 (DetectProfile wrapper returns old shape), TS-19-36 (retained functions compile), TS-19-37 (no new flags/exit codes). Confirm all pass and make test passes."
+      ],
+      "touches": [
+        "internal/project/project.go",
+        "internal/project/readroots.go",
+        "internal/project/docs.go"
+      ],
+      "depends_on": [
+        3,
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Migrate checks.Detect and environment.Fingerprint to use internal/lang",
+      "criteria": [
+        "19-REQ-3.2",
+        "19-REQ-7.3",
+        "19-REQ-7.6"
+      ],
+      "tests": [
+        "TS-19-17",
+        "TS-19-30",
+        "TS-19-33"
+      ],
+      "steps": [
+        "Update internal/checks/checks.go: rewrite Detect(dir string) string to delegate to lang.Detect(dir).VerifyCommand(dir) and return the test command. Preserve the existing function signature. Remove the import of internal/project.",
+        "Update internal/checks/environment.go: rewrite Fingerprint to use lang.Detect(dir) for toolchain version probes. Replace the hardcoded toolchainProbes map with iteration over Detection.All profiles, using each profile's Version command. Remove the import of internal/project.",
+        "Write TS-19-17 (checks.Detect delegates for Go repo with Makefile), TS-19-30 (checks.Detect for Rust repo), TS-19-33 (Fingerprint uses lang.Detect). Confirm all pass."
+      ],
+      "touches": [
+        "internal/checks/checks.go",
+        "internal/checks/environment.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Migrate internal/agentrun to use internal/lang for programs and read roots",
+      "criteria": [
+        "19-REQ-7.5",
+        "19-REQ-10.2",
+        "19-REQ-10.1",
+        "19-REQ-10.3"
+      ],
+      "tests": [
+        "TS-19-32",
+        "TS-19-41",
+        "TS-19-42",
+        "TS-19-43"
+      ],
+      "steps": [
+        "Update internal/agentrun/guard.go: replace the import of internal/project with internal/lang. Change underReadRoot to call lang.UnderReadRoot instead of project.UnderReadRoot.",
+        "Update internal/agentrun/policy.go: replace the static BuildPrograms slice with a function or variable that derives from Detection.Programs(). Keep ReadOnlyPrograms as-is (they are not language-specific). Update the import from internal/project to internal/lang.",
+        "Update internal/agentrun/phase.go: change noteReadRoots to accept lang.ReadRoot instead of project.ReadRoot. Update ReadRootLabel accordingly.",
+        "Verify that the helper functions nodeRunner, nodeCommands, makeTarget, manifestFamilies, hasGlob, flutterRe are no longer in internal/project (moved in task 2).",
+        "Write TS-19-32 (guard.go imports lang), TS-19-41 (helpers in lang, not project), TS-19-42 (Programs for Go-only repo excludes cargo/pytest), TS-19-43 (UnderReadRoot exported from lang). Confirm all pass."
+      ],
+      "touches": [
+        "internal/agentrun/guard.go",
+        "internal/agentrun/policy.go",
+        "internal/agentrun/phase.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Migrate internal/conform to use internal/lang for IsTestPath and IsSourceFile",
+      "criteria": [
+        "19-REQ-7.4"
+      ],
+      "tests": [
+        "TS-19-31"
+      ],
+      "steps": [
+        "Update internal/conform/revert.go: replace project.IsTestPath with lang.Detect or a lang-based classifier passed in. Keep project.IsDocsFile calls (IsDocsFile stays in project).",
+        "Update internal/conform/structural.go: replace project.IsSourceFile and project.IsTestPath with lang equivalents.",
+        "Update internal/conform/duplicate.go: replace project.IsSourceFile and project.IsTestPath with lang equivalents.",
+        "Update internal/conform/polyglot.go: replace project.IsTestPath with lang equivalent.",
+        "Update internal/conform/docsource.go: replace project.UnderReadRoot with lang.UnderReadRoot. Keep project.IsDocsFile.",
+        "Write TS-19-31 (scan conform non-test .go files for project.IsTestPath and project.IsSourceFile, assert zero matches). Confirm it passes."
+      ],
+      "touches": [
+        "internal/conform/revert.go",
+        "internal/conform/structural.go",
+        "internal/conform/duplicate.go",
+        "internal/conform/polyglot.go",
+        "internal/conform/docsource.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Migrate codefix and codeimpl to use internal/lang, removing all hardcoded language literals",
+      "criteria": [
+        "19-REQ-7.1",
+        "19-REQ-7.2"
+      ],
+      "tests": [
+        "TS-19-29"
+      ],
+      "steps": [
+        "Update codefix/pipeline.go: replace checks.Detect usage (already delegating after task 6) and any remaining project.DetectProfile references with lang.Detect. Remove import of internal/project where it was used only for detection.",
+        "Update codefix/phases.go: replace agentrun.BuildPrograms with Detection.Programs() from lang.Detect. Replace project references for programs and targeted run.",
+        "Update codefix/prompts.go: replace any project.Profile references with lang.Detection equivalents. Replace projectInstructions if it references project for language data.",
+        "Update codeimpl/pipeline.go: replace project.DetectProfile(st.root) with lang.Detect(st.root). Replace st.profile.AuditTestCommands with the lang.Detection equivalent. Remove import of internal/project for detection.",
+        "Update codeimpl/phases.go: replace project.ReadRoots(root) with lang.Detect(root).ReadRoots(root). Replace project.Profile.TargetedRun() with Detection.TargetedRun().",
+        "Update codeimpl/prompts.go: replace languageBlock(p project.Profile) with a function using lang.Detection. Replace project.Profile references.",
+        "Update codeimpl/conformance.go: replace project.IsTestPath and project.IsDocsFile with lang equivalents (IsDocsFile stays in project).",
+        "Replace every remaining hardcoded language literal in codefix/ and codeimpl/ non-test .go files with a reference to the profile (e.g. replace string literals like go test, _test.go, pytest with profile field references).",
+        "Write TS-19-29 (scan codefix and codeimpl non-test .go files for imports of internal/project used for migrated symbols; assert none exist and internal/lang is imported instead). Confirm it passes."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/phases.go",
+        "codefix/prompts.go",
+        "codeimpl/pipeline.go",
+        "codeimpl/phases.go",
+        "codeimpl/prompts.go",
+        "codeimpl/conformance.go"
+      ],
+      "depends_on": [
+        5,
+        6,
+        7
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Migrate specgen and toolio to use internal/lang",
+      "criteria": [
+        "19-REQ-7.7"
+      ],
+      "tests": [
+        "TS-19-34"
+      ],
+      "steps": [
+        "Update specgen/pipeline.go: replace project.DetectProfile(root) with lang.Detect(root). Store a lang.Detection instead of project.Profile in runEnv.",
+        "Update specgen/phases.go: replace req.Profile.LanguageBlock() with the lang.Detection equivalent. Replace req.Profile.AuditTasks with Detection.AuditTasks.",
+        "Update the prdRequest and artifactRequest structs in specgen/phases.go to carry lang.Detection instead of project.Profile.",
+        "Update internal/toolio/app.go: replace project.ReadRoots(ws.Root) with lang.Detect(ws.Root).ReadRoots(ws.Root). Update the ReadRoot type references.",
+        "Write TS-19-34 (scan specgen non-test .go files for project.DetectProfile; assert zero matches). Confirm it passes."
+      ],
+      "touches": [
+        "specgen/pipeline.go",
+        "specgen/phases.go",
+        "internal/toolio/app.go"
+      ],
+      "depends_on": [
+        5
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "implement",
+      "title": "Implement the denylist test and fix any remaining violations",
+      "criteria": [
+        "19-REQ-9"
+      ],
+      "tests": [
+        "TS-19-38",
+        "TS-19-39",
+        "TS-19-40"
+      ],
+      "steps": [
+        "Create internal/lang/denylist_test.go with TestNoLanguageLiterals. The test walks every non-test .go file under internal/lang, codefix, codeimpl, and internal/engine (if present). For each file, scan each line against the denylist strings.",
+        "Exempt the internal/lang package's own profile definition files (profiles.go, helpers.go, families.go) from the denylist. Exempt import paths (lines containing a quoted import path with the literal). Do not walk internal/conform.",
+        "Run the test. If any violations remain in codefix or codeimpl non-test .go files, fix them by replacing the hardcoded literal with a reference to the profile or a constant from internal/lang.",
+        "Confirm TestNoLanguageLiterals passes with zero violations.",
+        "Run make test and make lint to confirm no regressions."
+      ],
+      "touches": [
+        "internal/lang/denylist_test.go"
+      ],
+      "depends_on": [
+        9
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 12,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end and remove stubs",
+      "tests": [
+        "TS-19-44",
+        "TS-19-45",
+        "TS-19-46",
+        "TS-19-47",
+        "TS-19-48"
+      ],
+      "steps": [
+        "Write TS-19-44: create a temp dir with go.mod, package.json, and a Makefile with test: and lint: targets. Call lang.Detect, VerifyCommand, Programs. Assert Primary=go, All=[go,node], test=make test, lint=make lint, Programs contains both go and node binaries.",
+        "Write TS-19-45: create a temp dir with go.mod. Call lang.Detect, then Detection.TestFile for _test.go, testdata/, and .go files. Assert correct classification matching old project.IsTestPath.",
+        "Write TS-19-46: run TestNoLanguageLiterals and confirm it passes with zero violations.",
+        "Write TS-19-47: create a temp dir with go.mod and package.json. Call project.DetectProfile. Assert Language=go, Manifest=go.mod, AllTests/Linter populated, Also contains node. Verify it matches lang.Detect conversion.",
+        "Write TS-19-48: create a temp dir with go.mod containing a local replace directive pointing to an existing sibling. Call lang.Detect(root).ReadRoots(root). Assert the replace root is present, no duplicate abs paths.",
+        "Trace 19-PATH-1: follow lang.Detect to Detection.VerifyCommand to Detection.Programs in production code (codefix/pipeline.go, codeimpl/pipeline.go). Confirm each step calls the next and no stub remains.",
+        "Trace 19-PATH-2: follow lang.Detect to Detection.TestFile in production code (internal/conform/revert.go, codeimpl/conformance.go). Confirm the classifier is called from production code.",
+        "Trace 19-PATH-3: confirm TestNoLanguageLiterals walks the correct directories and the denylist is enforced.",
+        "Trace 19-PATH-4: follow project.DetectProfile to lang.Detect in production code. Confirm the wrapper is called from production code (specgen or any remaining caller).",
+        "Trace 19-PATH-5: follow lang.Detect to Detection.ReadRoots in production code (internal/toolio/app.go, codeimpl/phases.go). Confirm read roots flow to the guard.",
+        "For every criterion with a contract (19-REQ-1.6, 19-REQ-2.6, 19-REQ-3.2, 19-REQ-4.3), confirm the producer's result is consumed by a caller in production code, not only by tests.",
+        "Search all files listed in every task's touches for stub markers: TODO, panic(\"not implemented\"), todo!(), throw new Error('not implemented'), and bare return nil on non-trivial paths. Remove any that remain."
+      ],
+      "touches": [
+        "internal/lang/smoke_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "done_when": [
+        "make test passes with zero failures",
+        "make lint passes",
+        "go test ./internal/lang/... -run TestNoLanguageLiterals passes",
+        "No stub markers remain in any touched file"
+      ],
+      "state": "pending"
+    }
+  ]
+}

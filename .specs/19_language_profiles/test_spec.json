@@ -1,0 +1,859 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "19",
+  "spec_name": "language_profiles",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-19-1",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.1"
+      ],
+      "title": "Profile struct exports all required fields with correct types",
+      "given": [
+        "the internal/lang package is compiled"
+      ],
+      "when": "a Profile value is constructed with all fields populated",
+      "then": [
+        "Name is a string, Manifests is a []string, Test/Lint/Format/Build/Targeted/Version are each Command, Programs is a []string, TestFile is a func(string) bool, InlineTests is a bool, TestID is a *regexp.Regexp, Stub is a string, SkipMarkers and AssertPattern are *regexp.Regexp, GateConfig is a func(string) bool, ReadRoots is a func(string) []ReadRoot, Caches is a []string"
+      ],
+      "pseudocode": "var p lang.Profile; p.Name = \"go\"; p.Manifests = []string{\"go.mod\"}; p.Test = lang.Command{}; p.TestFile = func(s string) bool { return false }; p.ReadRoots = func(s string) []lang.ReadRoot { return nil }; // compiles without error"
+    },
+    {
+      "id": "TS-19-2",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.2"
+      ],
+      "title": "Command struct holds Base argv and Resolve returns variant when lockfile present",
+      "given": [
+        "a Command with Base [\"pytest\", \"-q\"] and a lockfile variant for \"uv.lock\" producing [\"uv\", \"run\", \"pytest\", \"-q\"]",
+        "a temp directory containing uv.lock"
+      ],
+      "when": "Command.Resolve(root) is called",
+      "then": [
+        "the returned []string equals [\"uv\", \"run\", \"pytest\", \"-q\"]"
+      ],
+      "pseudocode": "cmd := lang.Command{Base: []string{\"pytest\",\"-q\"}, Variant: lang.Variant{File: \"uv.lock\", Argv: []string{\"uv\",\"run\",\"pytest\",\"-q\"}}}; os.WriteFile(filepath.Join(root, \"uv.lock\"), nil, 0644); assert.Equal(cmd.Resolve(root), []string{\"uv\",\"run\",\"pytest\",\"-q\"})"
+    },
+    {
+      "id": "TS-19-3",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.6"
+      ],
+      "title": "Command.Resolve returns base argv when lockfile is absent",
+      "given": [
+        "a Command with Base [\"pytest\", \"-q\"] and a lockfile variant for \"uv.lock\"",
+        "a temp directory with no uv.lock"
+      ],
+      "when": "Command.Resolve(root) is called",
+      "then": [
+        "the returned []string equals [\"pytest\", \"-q\"]"
+      ],
+      "pseudocode": "cmd := lang.Command{Base: []string{\"pytest\",\"-q\"}, Variant: lang.Variant{File: \"uv.lock\", Argv: []string{\"uv\",\"run\",\"pytest\",\"-q\"}}}; got := cmd.Resolve(root); assert.Equal(got, []string{\"pytest\",\"-q\"})"
+    },
+    {
+      "id": "TS-19-4",
+      "kind": "property",
+      "verifies": [
+        "19-REQ-1.3"
+      ],
+      "title": "Every ecosystem handled by the old DetectProfile has a profile row in the table",
+      "given": [
+        "the profile table in internal/lang"
+      ],
+      "when": "for any ecosystem name in [go, rust, python, node, jvm, dotnet, ruby, elixir, php, dart, swift, cpp, generic], the table is queried",
+      "then": [
+        "a profile with that Name exists in the table",
+        "the generic profile has empty commands and no programs"
+      ],
+      "pseudocode": "for _, name := range []string{\"go\",\"rust\",\"python\",\"node\",\"jvm\",\"dotnet\",\"ruby\",\"elixir\",\"php\",\"dart\",\"swift\",\"cpp\",\"generic\"} { p := lang.ProfileByName(name); assert.NotNil(p); assert.Equal(p.Name, name) }; g := lang.ProfileByName(\"generic\"); assert.Empty(g.Programs); assert.Empty(g.Test.Base)"
+    },
+    {
+      "id": "TS-19-5",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.4"
+      ],
+      "title": "Each profile's Programs match the toolchain binaries from the old BuildPrograms for that ecosystem",
+      "given": [
+        "the go profile in the table"
+      ],
+      "when": "the Programs field is read",
+      "then": [
+        "it contains go, gofmt, and golangci-lint"
+      ],
+      "pseudocode": "p := lang.ProfileByName(\"go\"); assert.Contains(p.Programs, \"go\"); assert.Contains(p.Programs, \"gofmt\")"
+    },
+    {
+      "id": "TS-19-6",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-1.5"
+      ],
+      "title": "Each profile's Stub matches the StubMarker from the old DetectProfile",
+      "given": [
+        "the profile table"
+      ],
+      "when": "the Stub field of the go and python profiles are read",
+      "then": [
+        "go Stub equals panic(\"not implemented\")",
+        "python Stub equals raise NotImplementedError"
+      ],
+      "pseudocode": "p := lang.ProfileByName(\"go\"); assert.Equal(p.Stub, `panic(\"not implemented\")`); py := lang.ProfileByName(\"python\"); assert.Equal(py.Stub, \"raise NotImplementedError\")"
+    },
+    {
+      "id": "TS-19-7",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.1"
+      ],
+      "title": "Detect returns a Detection with Primary and All in precedence order for a multi-manifest repo",
+      "given": [
+        "a temp directory containing go.mod and package.json"
+      ],
+      "when": "lang.Detect(root) is called",
+      "then": [
+        "Detection.Primary.Name equals go",
+        "Detection.All has length 2",
+        "Detection.All[0].Name equals go and Detection.All[1].Name equals node"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"go.mod\"), []byte(\"module x\"), 0644); os.WriteFile(filepath.Join(root, \"package.json\"), []byte(\"{}\"), 0644); d := lang.Detect(root); assert.Equal(d.Primary.Name, \"go\"); assert.Equal(len(d.All), 2); assert.Equal(d.All[1].Name, \"node\")"
+    },
+    {
+      "id": "TS-19-8",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.2"
+      ],
+      "title": "Detect returns generic profile when no manifest matches",
+      "given": [
+        "an empty temp directory"
+      ],
+      "when": "lang.Detect(root) is called",
+      "then": [
+        "Detection.Primary.Name equals generic",
+        "Detection.All contains only the generic profile"
+      ],
+      "pseudocode": "d := lang.Detect(root); assert.Equal(d.Primary.Name, \"generic\"); assert.Equal(len(d.All), 1); assert.Equal(d.All[0].Name, \"generic\")"
+    },
+    {
+      "id": "TS-19-9",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.3"
+      ],
+      "title": "Detection.Programs returns the deduplicated union of all detected profiles' programs",
+      "given": [
+        "a temp directory containing go.mod and package.json"
+      ],
+      "when": "lang.Detect(root).Programs() is called",
+      "then": [
+        "the result contains go toolchain binaries and node toolchain binaries",
+        "no program appears twice"
+      ],
+      "pseudocode": "d := lang.Detect(root); progs := d.Programs(); assert.Contains(progs, \"go\"); assert.Contains(progs, \"node\"); seen := map[string]int{}; for _, p := range progs { seen[p]++ }; for _, c := range seen { assert.Equal(c, 1) }"
+    },
+    {
+      "id": "TS-19-10",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.4"
+      ],
+      "title": "Detection.TestFile returns true for any detected profile's test convention and common directories",
+      "given": [
+        "a Detection with go and node profiles"
+      ],
+      "when": "TestFile is called with foo_test.go, foo.test.ts, and testdata/x.go",
+      "then": [
+        "all three return true"
+      ],
+      "pseudocode": "d := lang.Detect(root); assert.True(d.TestFile(\"foo_test.go\")); assert.True(d.TestFile(\"foo.test.ts\")); assert.True(d.TestFile(\"testdata/x.go\"))"
+    },
+    {
+      "id": "TS-19-11",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.5"
+      ],
+      "title": "Detection.IsSourceFile returns true for extensions recognised by any detected profile",
+      "given": [
+        "a Detection with go and node profiles"
+      ],
+      "when": "IsSourceFile is called with main.go, app.ts, and readme.md",
+      "then": [
+        "main.go returns true",
+        "app.ts returns true",
+        "readme.md returns false"
+      ],
+      "pseudocode": "d := lang.Detect(root); assert.True(d.IsSourceFile(\"main.go\")); assert.True(d.IsSourceFile(\"app.ts\")); assert.False(d.IsSourceFile(\"readme.md\"))"
+    },
+    {
+      "id": "TS-19-12",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-2.6"
+      ],
+      "title": "Detect returns generic profile when root directory cannot be read",
+      "given": [
+        "a path to a non-existent directory"
+      ],
+      "when": "lang.Detect is called with a non-existent path",
+      "then": [
+        "Detection.Primary.Name equals generic",
+        "no panic or error occurs"
+      ],
+      "pseudocode": "d := lang.Detect(\"/nonexistent/path/that/does/not/exist\"); assert.Equal(d.Primary.Name, \"generic\")"
+    },
+    {
+      "id": "TS-19-13",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.1"
+      ],
+      "title": "VerifyCommand returns Makefile targets when present",
+      "given": [
+        "a temp directory with go.mod and a Makefile containing test: and lint: targets"
+      ],
+      "when": "lang.Detect(root).VerifyCommand(root) is called",
+      "then": [
+        "the test command is make test",
+        "the lint command is make lint"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"Makefile\"), []byte(\"test:\\n\\tgo test\\nlint:\\n\\tgo vet\\n\"), 0644); d := lang.Detect(root); test, lint := d.VerifyCommand(root); assert.Equal(test, \"make test\"); assert.Equal(lint, \"make lint\")"
+    },
+    {
+      "id": "TS-19-14",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.1"
+      ],
+      "title": "VerifyCommand falls back to primary profile commands when no Makefile exists",
+      "given": [
+        "a temp directory with go.mod and no Makefile"
+      ],
+      "when": "lang.Detect(root).VerifyCommand(root) is called",
+      "then": [
+        "the test command is the go profile's Test command resolved",
+        "the lint command is the go profile's Lint command resolved"
+      ],
+      "pseudocode": "d := lang.Detect(root); test, lint := d.VerifyCommand(root); assert.Equal(test, \"go test ./... -count=1\"); assert.Equal(lint, \"go vet ./...\")"
+    },
+    {
+      "id": "TS-19-15",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.3"
+      ],
+      "title": "VerifyCommand returns make check when Makefile has check target but no test target",
+      "given": [
+        "a temp directory with go.mod and a Makefile containing check: but no test: target"
+      ],
+      "when": "lang.Detect(root).VerifyCommand(root) is called",
+      "then": [
+        "the test command is make check"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"Makefile\"), []byte(\"check:\\n\\tgo test\\n\"), 0644); d := lang.Detect(root); test, _ := d.VerifyCommand(root); assert.Equal(test, \"make check\")"
+    },
+    {
+      "id": "TS-19-16",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-3.1"
+      ],
+      "title": "VerifyCommand returns empty strings when no Makefile and generic profile",
+      "given": [
+        "an empty temp directory with no manifests and no Makefile"
+      ],
+      "when": "lang.Detect(root).VerifyCommand(root) is called",
+      "then": [
+        "the test command is empty",
+        "the lint command is empty"
+      ],
+      "pseudocode": "d := lang.Detect(root); test, lint := d.VerifyCommand(root); assert.Equal(test, \"\"); assert.Equal(lint, \"\")"
+    },
+    {
+      "id": "TS-19-17",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-3.2"
+      ],
+      "title": "checks.Detect delegates to lang.Detect and returns the test command",
+      "given": [
+        "a temp directory with go.mod and a Makefile containing test: target"
+      ],
+      "when": "checks.Detect(dir) is called",
+      "then": [
+        "the returned string equals make test",
+        "the function signature is unchanged (returns a single string)"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"go.mod\"), []byte(\"module x\"), 0644); os.WriteFile(filepath.Join(root, \"Makefile\"), []byte(\"test:\\n\\tgo test\\n\"), 0644); got := checks.Detect(root); assert.Equal(got, \"make test\")"
+    },
+    {
+      "id": "TS-19-18",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-4.1"
+      ],
+      "title": "ReadRoot struct has Module, Path, Abs, and Source fields matching old project.ReadRoot",
+      "given": [
+        "the internal/lang package is compiled"
+      ],
+      "when": "a lang.ReadRoot value is constructed",
+      "then": [
+        "Module, Path, Abs, and Source fields are accessible as strings"
+      ],
+      "pseudocode": "r := lang.ReadRoot{Module: \"example.com/lib\", Path: \"../lib\", Abs: \"/abs/lib\", Source: \"go.mod\"}; assert.Equal(r.Module, \"example.com/lib\")"
+    },
+    {
+      "id": "TS-19-19",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-4.2"
+      ],
+      "title": "Detection.ReadRoots returns the union of all detected profiles' read roots, deduplicated by abs path",
+      "given": [
+        "a temp directory with go.mod containing a local replace directive pointing to an existing sibling directory"
+      ],
+      "when": "lang.Detect(root).ReadRoots(root) is called",
+      "then": [
+        "the returned slice contains the read root from the go.mod replace directive",
+        "no two entries have the same Abs value"
+      ],
+      "pseudocode": "d := lang.Detect(root); roots := d.ReadRoots(root); assert.True(len(roots) > 0); abs := map[string]bool{}; for _, r := range roots { assert.False(abs[r.Abs]); abs[r.Abs] = true }"
+    },
+    {
+      "id": "TS-19-20",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-4.3"
+      ],
+      "title": "ReadRoots returns empty slice when manifest cannot be parsed",
+      "given": [
+        "a temp directory with a go.mod containing invalid syntax"
+      ],
+      "when": "the go profile's ReadRoots function is called on that root",
+      "then": [
+        "the returned slice is empty",
+        "no error is returned"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"go.mod\"), []byte(\"not valid go.mod content %%%\"), 0644); d := lang.Detect(root); roots := d.ReadRoots(root); assert.Empty(roots)"
+    },
+    {
+      "id": "TS-19-21",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-5.1"
+      ],
+      "title": "Each profile's TestFile encodes the correct language-specific conventions",
+      "given": [
+        "the profile table"
+      ],
+      "when": "each profile's TestFile is called with its language's test file patterns and non-test files",
+      "then": [
+        "Go: foo_test.go returns true, foo.go returns false",
+        "Python: test_foo.py and foo_test.py return true, foo.py returns false",
+        "Node: foo.test.ts and foo.spec.js return true, foo.ts returns false",
+        "Rust: foo_test.rs returns true",
+        "JVM: FooTest.java and FooIT.java return true",
+        "Ruby: foo_spec.rb returns true"
+      ],
+      "pseudocode": "goP := lang.ProfileByName(\"go\"); assert.True(goP.TestFile(\"foo_test.go\")); assert.False(goP.TestFile(\"foo.go\")); pyP := lang.ProfileByName(\"python\"); assert.True(pyP.TestFile(\"test_foo.py\")); assert.True(pyP.TestFile(\"foo_test.py\"))"
+    },
+    {
+      "id": "TS-19-22",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-5.1"
+      ],
+      "title": "Common directory conventions are recognised by every profile's TestFile",
+      "given": [
+        "any profile from the table"
+      ],
+      "when": "TestFile is called with paths under testdata/, test/, tests/, __tests__/, spec/",
+      "then": [
+        "all return true"
+      ],
+      "pseudocode": "for _, name := range []string{\"go\",\"python\",\"node\"} { p := lang.ProfileByName(name); assert.True(p.TestFile(\"testdata/fixture.go\")); assert.True(p.TestFile(\"tests/helper.py\")); assert.True(p.TestFile(\"__tests__/app.test.js\")); assert.True(p.TestFile(\"spec/foo_spec.rb\")) }"
+    },
+    {
+      "id": "TS-19-23",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-5.2"
+      ],
+      "title": "Detection.TestFile returns true when any detected profile's TestFile matches",
+      "given": [
+        "a Detection with go and node profiles"
+      ],
+      "when": "Detection.TestFile is called with foo_test.go (Go convention) and foo.test.ts (Node convention)",
+      "then": [
+        "both return true"
+      ],
+      "pseudocode": "d := lang.Detect(root); assert.True(d.TestFile(\"foo_test.go\")); assert.True(d.TestFile(\"foo.test.ts\"))"
+    },
+    {
+      "id": "TS-19-24",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.1"
+      ],
+      "title": "runnerFamilies map and familyOf function are exported from internal/lang",
+      "given": [
+        "the internal/lang package"
+      ],
+      "when": "FamilyOf is called with known and unknown program names",
+      "then": [
+        "FamilyOf(\"pytest\") returns (\"python\", true)",
+        "FamilyOf(\"unknown-tool\") returns (\"\", false)"
+      ],
+      "pseudocode": "fam, ok := lang.FamilyOf(\"pytest\"); assert.True(ok); assert.Equal(fam, \"python\"); fam2, ok2 := lang.FamilyOf(\"unknown-tool\"); assert.False(ok2)"
+    },
+    {
+      "id": "TS-19-25",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.2"
+      ],
+      "title": "AuditTasks refuses a test command from a different ecosystem than any detected profile",
+      "given": [
+        "a Detection with Primary=go (go.mod present)"
+      ],
+      "when": "AuditTasks is called with test_commands.all_tests set to pytest -q",
+      "then": [
+        "an error is returned naming the mismatch"
+      ],
+      "pseudocode": "d := lang.Detect(root); err := d.AuditTasks(map[string]any{\"test_commands\": map[string]any{\"all_tests\": \"pytest -q\"}}); assert.Error(err); assert.Contains(err.Error(), \"python\")"
+    },
+    {
+      "id": "TS-19-26",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.2"
+      ],
+      "title": "AuditTasks accepts a test command from a detected secondary ecosystem",
+      "given": [
+        "a Detection with Primary=go and Also=node (go.mod and package.json present)"
+      ],
+      "when": "AuditTasks is called with test_commands.all_tests set to npm test",
+      "then": [
+        "no error is returned"
+      ],
+      "pseudocode": "d := lang.Detect(root); err := d.AuditTasks(map[string]any{\"test_commands\": map[string]any{\"all_tests\": \"npm test\"}}); assert.NoError(err)"
+    },
+    {
+      "id": "TS-19-27",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.3"
+      ],
+      "title": "LanguageBlock returns a prompt section describing the detected project",
+      "given": [
+        "a Detection with Primary=go"
+      ],
+      "when": "Detection.LanguageBlock() is called",
+      "then": [
+        "the returned string contains go",
+        "it contains the manifest name go.mod",
+        "it contains the stub marker"
+      ],
+      "pseudocode": "d := lang.Detect(root); block := d.LanguageBlock(); assert.Contains(block, \"go\"); assert.Contains(block, \"go.mod\")"
+    },
+    {
+      "id": "TS-19-28",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-6.4"
+      ],
+      "title": "TargetedRun returns the primary profile's targeted test-run form",
+      "given": [
+        "a Detection with Primary=go"
+      ],
+      "when": "Detection.TargetedRun() is called",
+      "then": [
+        "the returned string matches the go targeted run form containing go test"
+      ],
+      "pseudocode": "d := lang.Detect(root); tr := d.TargetedRun(); assert.Contains(tr, \"go test\")"
+    },
+    {
+      "id": "TS-19-29",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.1",
+        "19-REQ-7.2"
+      ],
+      "title": "codefix and codeimpl import internal/lang instead of internal/project for language detection",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "non-test .go files in codefix/ and codeimpl/ are scanned for imports of internal/project used for DetectProfile, IsTestPath, IsSourceFile, ReadRoots, TargetedRun, LanguageBlock, AuditTasks, or AuditTestCommands",
+      "then": [
+        "no such imports exist",
+        "those files import internal/lang instead"
+      ],
+      "pseudocode": "// walk codefix/*.go and codeimpl/*.go (non-test); for each file, parse imports; assert no import of internal/project for the migrated symbols; assert import of internal/lang where language detection is used"
+    },
+    {
+      "id": "TS-19-30",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.3"
+      ],
+      "title": "checks.Detect delegates to lang.Detect internally for a Rust repo",
+      "given": [
+        "a temp directory with Cargo.toml and no Makefile"
+      ],
+      "when": "checks.Detect(dir) is called",
+      "then": [
+        "the returned string equals the rust profile's test command cargo test"
+      ],
+      "pseudocode": "os.WriteFile(filepath.Join(root, \"Cargo.toml\"), []byte(\"[package]\\nname=\\\"x\\\"\"), 0644); got := checks.Detect(root); assert.Equal(got, \"cargo test\")"
+    },
+    {
+      "id": "TS-19-31",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.4"
+      ],
+      "title": "internal/conform uses lang package for IsTestPath and IsSourceFile",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "non-test .go files in internal/conform/ are scanned for project.IsTestPath and project.IsSourceFile",
+      "then": [
+        "no occurrences are found"
+      ],
+      "pseudocode": "// walk internal/conform/*.go (non-test); for each file, scan for project.IsTestPath and project.IsSourceFile; assert zero matches"
+    },
+    {
+      "id": "TS-19-32",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.5"
+      ],
+      "title": "agentrun guard.go uses lang.Detect for read roots and program lists",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "the import section of internal/agentrun/guard.go is inspected",
+      "then": [
+        "it imports internal/lang",
+        "it does not import internal/project for detection or read roots"
+      ],
+      "pseudocode": "// parse internal/agentrun/guard.go imports; assert contains internal/lang; assert no reference to project.DetectProfile or project.ReadRoots or project.UnderReadRoot"
+    },
+    {
+      "id": "TS-19-33",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.6"
+      ],
+      "title": "Fingerprint uses lang.Detect for toolchain version probes",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "the import section of internal/checks/environment.go is inspected",
+      "then": [
+        "it imports internal/lang",
+        "it does not reference the hardcoded toolchainProbes map or project.DetectProfile"
+      ],
+      "pseudocode": "// parse internal/checks/environment.go; assert import of internal/lang; assert no reference to project.DetectProfile; assert toolchainProbes is removed or replaced by profile.Version"
+    },
+    {
+      "id": "TS-19-34",
+      "kind": "integration",
+      "verifies": [
+        "19-REQ-7.7"
+      ],
+      "title": "specgen uses lang package for DetectProfile and LanguageBlock",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "non-test .go files in specgen/ are scanned for project.DetectProfile and project.Profile.LanguageBlock",
+      "then": [
+        "no occurrences are found"
+      ],
+      "pseudocode": "// walk specgen/*.go (non-test); scan for project.DetectProfile; assert zero matches for project-based calls"
+    },
+    {
+      "id": "TS-19-35",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-8.1"
+      ],
+      "title": "project.DetectProfile is a thin wrapper over lang.Detect returning the old Profile shape",
+      "given": [
+        "a temp directory with go.mod"
+      ],
+      "when": "project.DetectProfile(root) is called",
+      "then": [
+        "the returned project.Profile has Language=go, Manifest=go.mod, AllTests and Linter populated, StubMarker set"
+      ],
+      "pseudocode": "p := project.DetectProfile(root); assert.Equal(p.Language, \"go\"); assert.Equal(p.Manifest, \"go.mod\"); assert.NotEmpty(p.AllTests); assert.NotEmpty(p.StubMarker)"
+    },
+    {
+      "id": "TS-19-36",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-8.2"
+      ],
+      "title": "internal/project retains Steering, MissingDocs, IsDocsFile without moving them",
+      "given": [
+        "the internal/project package"
+      ],
+      "when": "project.Steering, project.MissingDocs, and project.IsDocsFile are called",
+      "then": [
+        "all three compile and are callable from internal/project"
+      ],
+      "pseudocode": "_ = project.IsDocsFile(\"docs/readme.md\"); _ = project.MissingDocs(root, nil)"
+    },
+    {
+      "id": "TS-19-37",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-8.3"
+      ],
+      "title": "No new flags, exit codes, envelope fields, or schema version changes are introduced",
+      "given": [
+        "the codebase after migration"
+      ],
+      "when": "the existing test suite is run",
+      "then": [
+        "all existing tests pass unchanged",
+        "no new flags, exit codes, envelope fields, or schema versions are present"
+      ],
+      "pseudocode": "// Verified by running make test and make lint with no failures"
+    },
+    {
+      "id": "TS-19-38",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-9.1"
+      ],
+      "title": "TestNoLanguageLiterals walks codefix, codeimpl, and internal/lang non-test files and fails on denylist matches",
+      "given": [
+        "the internal/lang package with the denylist test"
+      ],
+      "when": "TestNoLanguageLiterals is run",
+      "then": [
+        "it walks every non-test .go file under internal/lang, codefix, codeimpl, and internal/engine (if present)",
+        "it checks each line against the denylist strings",
+        "it fails if any line contains a denylist string outside exemptions"
+      ],
+      "pseudocode": "// The test itself is the assertion: run go test ./internal/lang/... -run TestNoLanguageLiterals; assert exit code 0"
+    },
+    {
+      "id": "TS-19-39",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-9.2"
+      ],
+      "title": "Denylist test exempts profile definitions and import paths, and does not walk internal/conform",
+      "given": [
+        "the internal/lang package with profile definitions containing language literals"
+      ],
+      "when": "TestNoLanguageLiterals is run",
+      "then": [
+        "profile definition files in internal/lang are exempted",
+        "import paths containing language literals are exempted",
+        "no files under internal/conform are walked"
+      ],
+      "pseudocode": "// Verify by running the test: it passes despite internal/lang/profiles.go containing go.mod, _test.go, etc. in profile definitions; internal/conform files with language literals do not cause failures"
+    },
+    {
+      "id": "TS-19-40",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-9.3"
+      ],
+      "title": "Denylist test passes with zero violations after all migrations",
+      "given": [
+        "the codebase with all codefix and codeimpl caller migrations complete"
+      ],
+      "when": "TestNoLanguageLiterals is run",
+      "then": [
+        "the test passes with zero violations"
+      ],
+      "pseudocode": "// run go test ./internal/lang/... -run TestNoLanguageLiterals; assert exit code 0; assert no failure output"
+    },
+    {
+      "id": "TS-19-41",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-10.1"
+      ],
+      "title": "Helper functions nodeRunner, nodeCommands, makeTarget, manifestFamilies, hasGlob, flutterRe are in internal/lang",
+      "given": [
+        "the internal/lang package"
+      ],
+      "when": "the package is compiled and the helpers are referenced internally",
+      "then": [
+        "all six helpers are accessible from internal/lang",
+        "they are no longer in internal/project"
+      ],
+      "pseudocode": "// Verify by compilation: internal/lang uses makeTarget, nodeRunner, nodeCommands, manifestFamilies, hasGlob, flutterRe internally; internal/project no longer defines them"
+    },
+    {
+      "id": "TS-19-42",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-10.2"
+      ],
+      "title": "BuildPrograms in agentrun derives from Detection.Programs() for detected ecosystems only",
+      "given": [
+        "a temp directory with go.mod only"
+      ],
+      "when": "lang.Detect(root).Programs() is called",
+      "then": [
+        "the programs list contains go toolchain binaries",
+        "it does not contain binaries from undetected ecosystems like cargo or pytest"
+      ],
+      "pseudocode": "d := lang.Detect(root); progs := d.Programs(); assert.Contains(progs, \"go\"); assert.NotContains(progs, \"cargo\"); assert.NotContains(progs, \"pytest\")"
+    },
+    {
+      "id": "TS-19-43",
+      "kind": "unit",
+      "verifies": [
+        "19-REQ-10.3"
+      ],
+      "title": "UnderReadRoot is exported from internal/lang and matches old project.UnderReadRoot behaviour",
+      "given": [
+        "a list of read root paths and a path under one of them"
+      ],
+      "when": "lang.UnderReadRoot(roots, p) is called",
+      "then": [
+        "it returns true for a path under a root",
+        "it returns false for a path not under any root"
+      ],
+      "pseudocode": "assert.True(lang.UnderReadRoot([]string{\"/abs/lib\"}, \"/abs/lib/foo.go\")); assert.False(lang.UnderReadRoot([]string{\"/abs/lib\"}, \"/other/foo.go\"))"
+    },
+    {
+      "id": "TS-19-44",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-1",
+        "19-REQ-2.1",
+        "19-REQ-3.1",
+        "19-REQ-2.3"
+      ],
+      "title": "Detect a multi-ecosystem repository and resolve verification commands end-to-end",
+      "given": [
+        "a temp directory containing go.mod, package.json with a test script, and a Makefile with test: and lint: targets"
+      ],
+      "when": "lang.Detect(root) is called, then VerifyCommand(root), then Programs()",
+      "then": [
+        "Detection.Primary.Name equals go",
+        "Detection.All contains go and node profiles",
+        "VerifyCommand returns make test and make lint",
+        "Programs() contains both go and node toolchain binaries"
+      ],
+      "real_components": [
+        "lang.Detect",
+        "Detection.VerifyCommand",
+        "Detection.Programs",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "TS-19-45",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-2",
+        "19-REQ-5.2",
+        "19-REQ-2.4"
+      ],
+      "title": "Classify test files across detected ecosystems in a Go repository",
+      "given": [
+        "a temp directory with go.mod"
+      ],
+      "when": "lang.Detect(root) is called, then Detection.TestFile is called for _test.go files, testdata/ files, and implementation files",
+      "then": [
+        "foo_test.go is classified as a test",
+        "testdata/fixture.json is classified as a test",
+        "main.go is not classified as a test",
+        "the classification matches the old project.IsTestPath results for the same paths"
+      ],
+      "real_components": [
+        "lang.Detect",
+        "Detection.TestFile",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "TS-19-46",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-3",
+        "19-REQ-9.1"
+      ],
+      "title": "Denylist test enforces no language literals outside the profile table",
+      "given": [
+        "the fully migrated codebase"
+      ],
+      "when": "go test ./internal/lang/... -run TestNoLanguageLiterals is executed",
+      "then": [
+        "the test walks internal/lang, codefix, and codeimpl non-test .go files",
+        "no denylist violations are found",
+        "the test passes"
+      ],
+      "real_components": [
+        "TestNoLanguageLiterals",
+        "filesystem walker",
+        "denylist checker"
+      ]
+    },
+    {
+      "id": "TS-19-47",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-4",
+        "19-REQ-8.1"
+      ],
+      "title": "Backward-compatible detection through deprecated project.DetectProfile",
+      "given": [
+        "a temp directory with go.mod and package.json"
+      ],
+      "when": "project.DetectProfile(root) is called",
+      "then": [
+        "the returned project.Profile has Language=go",
+        "Manifest=go.mod",
+        "AllTests and Linter are populated",
+        "Also contains node",
+        "the result matches what lang.Detect(root) would produce when converted"
+      ],
+      "real_components": [
+        "project.DetectProfile",
+        "lang.Detect",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "TS-19-48",
+      "kind": "smoke",
+      "verifies": [
+        "19-PATH-5",
+        "19-REQ-4.2"
+      ],
+      "title": "Read roots collected across all detected ecosystems",
+      "given": [
+        "a temp directory with go.mod containing a local replace directive pointing to an existing sibling directory, and a package.json with a file: dependency pointing to another existing sibling"
+      ],
+      "when": "lang.Detect(root).ReadRoots(root) is called",
+      "then": [
+        "the returned slice contains the go.mod replace root",
+        "the returned slice contains the package.json file: root",
+        "no duplicate absolute paths appear",
+        "the result matches the old project.ReadRoots behaviour"
+      ],
+      "real_components": [
+        "lang.Detect",
+        "Detection.ReadRoots",
+        "go.mod parser",
+        "package.json parser",
+        "filesystem"
+      ]
+    }
+  ]
+}

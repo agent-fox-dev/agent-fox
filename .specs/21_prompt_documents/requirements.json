@@ -1,0 +1,539 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "21",
+  "spec_name": "prompt_documents",
+  "schema_version": 2,
+  "introduction": "Move every model-facing prompt, system mandate, tool description override, guard refusal and handler rejection from Go string constants and fmt.Fprintf assembly in codefix, codeimpl and internal/conform into embedded Markdown template files under internal/engine/prompts/, rendered through a single text/template-based Loader with typed view structs, golden-file tests, and run-time prompt auditing that writes what each phase was told to the state directory.",
+  "glossary": {
+    "Loader": "The prompt.Loader type in internal/engine/prompt that parses every embedded template at construction, validates headers, and renders templates against typed view structs.",
+    "document header": "A YAML front-matter block at the top of every template file carrying name, kind, view, stable and max_bytes metadata.",
+    "golden file": "A checked-in .golden.md file under internal/engine/testdata/prompts/ that records the expected rendering of a template against a fixture view; regenerated with UPDATE_GOLDEN=1.",
+    "partial": "A template file under prompts/partials/ that is composed into other templates via {{template}} and is shared across tools.",
+    "prompt auditing": "The run-time mechanism that writes the system prompt, user message and tool descriptions each phase sent to <state>/prompts/<tool>-<started_at>-<session_id>/.",
+    "view struct": "One of BriefView, PhaseView or AttemptView — typed Go structs that carry the facts a template renders from, with no computation in the template itself."
+  },
+  "requirements": [
+    {
+      "id": "21-REQ-1",
+      "title": "Template tree and embedded document structure",
+      "rationale": "Every model-facing string must live as a .md file under internal/engine/prompts/ so that prompt changes are Markdown diffs in review.",
+      "criteria": [
+        {
+          "id": "21-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "embed all .md files under internal/engine/prompts/ into the binary via a //go:embed prompts/**/*.md directive on an embed.FS variable, with subdirectories fix/, impl/, review/, brief/, partials/, tools/, refusals/ and rejections/"
+        },
+        {
+          "id": "21-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "provide one template file per migrated prompt constant and builder function: fix/analyse.system.md, fix/analyse.md, fix/implement.system.md, fix/implement.md, impl/survey.system.md, impl/survey.md, impl/task.system.md, impl/task.md, impl/repair.system.md, impl/repair.md, impl/resolve.system.md, impl/resolve.md, review/review.system.md, review/review.md, brief/fix.md and brief/impl.md"
+        },
+        {
+          "id": "21-REQ-1.3",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "provide shared partial templates under prompts/partials/ for report.md, baseline.md, gate.md, language.md, repomap.md, instructions.md, steering.md, criteria.md, definition_of_done.md, survey.md, landed_tasks.md, previous_attempt.md, scope.md, external_apis.md, date.md, context.md, read_roots.md and scratch.md"
+        },
+        {
+          "id": "21-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "provide tool description templates under prompts/tools/ for execute.md, write_file.md and edit_file.md, and refusal templates under prompts/refusals/ for programs_not_allowed.md, suite.md, git_mutating.md and path_outside.md, and rejection templates under prompts/rejections/ for missing_verdicts.md and weak_evidence.md"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-2",
+      "title": "Document headers and metadata validation",
+      "rationale": "Front-matter metadata makes each template self-describing and enables automated validation of kind, view type and size constraints.",
+      "criteria": [
+        {
+          "id": "21-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "template file",
+          "action": "open with a YAML front-matter block delimited by --- lines containing the fields name (string), kind (one of system, message, brief, partial, tool, refusal, rejection), view (the Go struct name it renders from), stable (boolean) and max_bytes (positive integer)"
+        },
+        {
+          "id": "21-REQ-2.2",
+          "pattern": "event_driven",
+          "condition": "the Loader parses a template whose YAML header is missing any of the five required fields or whose kind is not in the allowed set",
+          "system": "Loader",
+          "action": "panic with a message naming the template and the invalid field"
+        },
+        {
+          "id": "21-REQ-2.3",
+          "pattern": "ubiquitous",
+          "system": "Loader",
+          "action": "expose a Header(name string) Header method that returns the parsed front-matter of the named template"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-3",
+      "title": "Loader construction, rendering and hashing",
+      "rationale": "A single Loader type centralises template parsing, rendering with missingkey=error, and content hashing for the prompt_templates map.",
+      "criteria": [
+        {
+          "id": "21-REQ-3.1",
+          "pattern": "event_driven",
+          "condition": "NewLoader() is called",
+          "system": "Loader",
+          "action": "parse every embedded template with text/template using Option(\"missingkey\", \"error\"), register the function map (fence, code, join, count, lines, ref, ids, title, trimSpace, firstNonEmpty), validate every header, and return a *Loader; panic if any template is missing or malformed"
+        },
+        {
+          "id": "21-REQ-3.2",
+          "pattern": "event_driven",
+          "condition": "Render(name, view) is called with a valid template name and a view struct",
+          "system": "Loader",
+          "action": "execute the named template against the view and return the rendered string"
+        },
+        {
+          "id": "21-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "Render is called with a view that is missing a field the template references",
+          "system": "Loader",
+          "action": "return an error describing the missing field",
+          "contract": "the returned error is non-nil and names the missing key"
+        },
+        {
+          "id": "21-REQ-3.4",
+          "pattern": "event_driven",
+          "condition": "Hash(name) is called",
+          "system": "Loader",
+          "action": "return the SHA-256 hex digest of the named template's embedded source (before rendering)"
+        },
+        {
+          "id": "21-REQ-3.5",
+          "pattern": "event_driven",
+          "condition": "Names() is called",
+          "system": "Loader",
+          "action": "return every template name in sorted order"
+        },
+        {
+          "id": "21-REQ-3.6",
+          "pattern": "unwanted",
+          "condition": "Hash is called with a name that does not exist in the embedded tree",
+          "system": "Loader",
+          "action": "panic with a message naming the unknown template",
+          "contract": "the process panics before returning"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-4",
+      "title": "Typed view structs",
+      "rationale": "Three view types separate run-constant, phase-varying and attempt-varying data so templates read fields and loop over lists without computing.",
+      "criteria": [
+        {
+          "id": "21-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "define BriefView with fields Root, Language, RepoMap, Instructions, Steering, VerifyCommands, BaselineResults, Context, Report and Spec, where Report and Spec are typed sub-structs"
+        },
+        {
+          "id": "21-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "define PhaseView embedding BriefView and adding fields Branch, Date, Diagnosis, Criteria, Task, BaselineVerdicts, LandedTasks, MapDelta, Allowlist, ScratchPath, Survey, Scope, ExternalAPIs, Suite, TargetedRun, ReadRoots, AttemptNumber, TotalAttempts and PreviousAttempt"
+        },
+        {
+          "id": "21-REQ-4.3",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "define AttemptView embedding PhaseView and adding fields PreviousFailure, RevertedDeclarations and AttemptIndex (1-based)"
+        },
+        {
+          "id": "21-REQ-4.4",
+          "pattern": "ubiquitous",
+          "system": "template",
+          "action": "for any template, reference only fields defined on the view type named in its header; no template computes derived values — counts, joins and formatting use the registered function map"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-5",
+      "title": "Template-injection safety",
+      "rationale": "Untrusted text (reports, project instructions, steering) must pass through templates verbatim; text/template must not re-parse data values as template actions.",
+      "criteria": [
+        {
+          "id": "21-REQ-5.1",
+          "pattern": "ubiquitous",
+          "system": "Loader",
+          "action": "for any view whose string field contains text/template syntax such as {{.Secret}} or {{template \"x\"}}, render that text verbatim in the output without interpreting it as a template action"
+        },
+        {
+          "id": "21-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "fence function",
+          "action": "wrap untrusted text in --- BEGIN {LABEL} --- and --- END {LABEL} --- markers without interpreting or escaping the text content"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-6",
+      "title": "Migration of existing prompts and removal of originals",
+      "rationale": "After migration, the original Go constants and builder functions are removed; codefix, codeimpl and internal/conform import the Loader.",
+      "criteria": [
+        {
+          "id": "21-REQ-6.1",
+          "pattern": "event_driven",
+          "condition": "codefix, codeimpl or internal/conform builds a phase",
+          "system": "phase builder",
+          "action": "call loader.Render(name, view) to produce the system prompt and user message instead of referencing a Go constant or calling a builder function"
+        },
+        {
+          "id": "21-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "the migration is complete",
+          "system": "codebase",
+          "action": "contain no Go string constant or builder function in codefix/prompts.go, codeimpl/prompts.go or internal/conform/prompt.go that was a model-facing prompt; the original analysisSystemPrompt, implementSystemPrompt, surveySystemPrompt, repairSystemPrompt, resolveSystemPrompt, ReviewSystemPrompt constants and all prompt builder functions (analysisPrompt, implementPrompt, surveyPrompt, taskPrompt, repairPrompt, resolvePrompt, ReviewPrompt, reportBlock, baselineBlock, criteriaBlock, contextBlock, instructionsBlock, gateBlock, repoMapBlock, surveyBlock, previousAttemptBlock, externalAPIsBlock, languageBlock) are removed"
+        },
+        {
+          "id": "21-REQ-6.3",
+          "pattern": "ubiquitous",
+          "system": "rendered template",
+          "action": "produce output textually equivalent (modulo whitespace normalization) to the output the removed Go constant or builder function would have produced given the same inputs"
+        },
+        {
+          "id": "21-REQ-6.4",
+          "pattern": "event_driven",
+          "condition": "internal/agentrun/policy.go builds tool descriptions",
+          "system": "SelectTools",
+          "action": "render tool descriptions from tools/execute.md, tools/write_file.md and tools/edit_file.md templates via the Loader instead of using describeForPhase, noteScratch and noteReadRoots string concatenation"
+        },
+        {
+          "id": "21-REQ-6.5",
+          "pattern": "event_driven",
+          "condition": "internal/agentrun/guard.go produces a refusal message for a disallowed program, suite run, git-mutating command or path-outside-workspace",
+          "system": "guard",
+          "action": "render the refusal from the corresponding refusals/*.md template via the Loader instead of building the message inline"
+        },
+        {
+          "id": "21-REQ-6.6",
+          "pattern": "event_driven",
+          "condition": "a submit tool handler in codefix or codeimpl rejects a submission with multi-sentence guidance (missing_verdicts, weak_evidence)",
+          "system": "submit handler",
+          "action": "render the rejection from the corresponding rejections/*.md template via the Loader; short mechanical rejections (e.g. 'title is empty') remain inline"
+        },
+        {
+          "id": "21-REQ-6.7",
+          "pattern": "ubiquitous",
+          "system": "prompt package",
+          "action": "export a single projectInstructions function that replaces the identical copies in codefix/prompts.go and codeimpl/prompts.go, with the maxInstructionBytes constant (24 KiB) co-located"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-7",
+      "title": "No-prose-in-Go enforcement test",
+      "rationale": "A test is the acceptance gate for goal 1: no model-facing prose longer than one sentence remains in Go source.",
+      "criteria": [
+        {
+          "id": "21-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "TestNoPromptLiteralsInGo",
+          "action": "walk every non-test .go file under internal/engine, codefix, codeimpl and internal/conform and fail on any string literal longer than 120 bytes that contains model-facing keywords ('You are a', 'Method:', 'Call this once', 'submit_', 'is refused', 'not allowed'), with exceptions for import paths, test fixtures and template files"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-8",
+      "title": "Golden-file tests",
+      "rationale": "Golden files make prompt changes visible as Markdown diffs in review and validate headers, stability and size constraints.",
+      "criteria": [
+        {
+          "id": "21-REQ-8.1",
+          "pattern": "event_driven",
+          "condition": "TestGoldenPrompts runs",
+          "system": "golden test",
+          "action": "load every template via NewLoader(), render each against a fixture view, and compare the output to internal/engine/testdata/prompts/<name>.golden.md; fail on any mismatch"
+        },
+        {
+          "id": "21-REQ-8.2",
+          "pattern": "event_driven",
+          "condition": "the environment variable UPDATE_GOLDEN is set to 1",
+          "system": "golden test",
+          "action": "write the rendered output as the new golden file instead of failing on a mismatch"
+        },
+        {
+          "id": "21-REQ-8.3",
+          "pattern": "event_driven",
+          "condition": "a template has stable: true in its header",
+          "system": "golden test",
+          "action": "render the template twice with the same view and assert byte-identity of the two outputs"
+        },
+        {
+          "id": "21-REQ-8.4",
+          "pattern": "event_driven",
+          "condition": "a template is rendered",
+          "system": "golden test",
+          "action": "assert the rendered byte count does not exceed the max_bytes value from the template's header"
+        },
+        {
+          "id": "21-REQ-8.5",
+          "pattern": "event_driven",
+          "condition": "a template references another via {{template \"partials/...\"}}",
+          "system": "golden test",
+          "action": "assert the referenced partial exists in the embedded tree"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-9",
+      "title": "Run-time prompt auditing",
+      "rationale": "Writing what each phase was told to the state directory creates an audit trail paired to the report and events files by session_id.",
+      "criteria": [
+        {
+          "id": "21-REQ-9.1",
+          "pattern": "event_driven",
+          "condition": "a phase is about to run",
+          "system": "pipeline",
+          "action": "write the system prompt, user message and tool descriptions to <state>/prompts/<tool>-<started_at>-<session_id>/<phase>[.task-N][.attempt-N].<role>.md where role is system, user or tools, with directory mode 0755 and file mode 0644"
+        },
+        {
+          "id": "21-REQ-9.2",
+          "pattern": "unwanted",
+          "condition": "the prompts directory cannot be created or a prompt file cannot be written",
+          "system": "pipeline",
+          "action": "record a low-severity prompts_not_written warning and continue the run without stopping",
+          "contract": "the run completes; a Warning with code prompts_not_written and severity low is present in the envelope"
+        },
+        {
+          "id": "21-REQ-9.3",
+          "pattern": "state_driven",
+          "condition": "--dry-run is active",
+          "system": "pipeline",
+          "action": "write prompt audit files to the state directory (they are local state, not side effects)"
+        },
+        {
+          "id": "21-REQ-9.4",
+          "pattern": "event_driven",
+          "condition": "the full report is built",
+          "system": "envelope builder",
+          "action": "include a prompt_templates field in the result: a map[string]string of document name to SHA-256 hex digest of the embedded source, present in the full detail view only"
+        }
+      ]
+    },
+    {
+      "id": "21-REQ-10",
+      "title": "Additive envelope and artifact changes",
+      "rationale": "New fields and constants are additive; no existing flag, exit code, envelope field or schema version changes.",
+      "criteria": [
+        {
+          "id": "21-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "toolio package",
+          "action": "define ArtifactPromptsDir ArtifactKind = \"prompts_dir\" in the artifact kind set with a Path field pointing to the prompts directory"
+        },
+        {
+          "id": "21-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "toolio package",
+          "action": "define WarnPromptsNotWritten WarnCode = \"prompts_not_written\" in the warning code set"
+        },
+        {
+          "id": "21-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "envelope",
+          "action": "keep SchemaVersion at its current major value; the prompt_templates and prompts_dir additions do not change any existing field, flag, exit code or schema version"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "21-PATH-1",
+      "title": "A fix run renders prompts from templates, writes audit files and produces a report with prompt_templates",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs af-fix with a bug report input and a state directory"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls NewLoader() which parses and validates all embedded templates"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "builds a BriefView from the run's options and a PhaseView for the analysis phase"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "calls loader.Render(\"fix/analyse.system.md\", view) and loader.Render(\"fix/analyse.md\", view) to produce the system prompt and user message"
+        },
+        {
+          "actor": "pipeline",
+          "action": "writes the system prompt, user message and tool descriptions to <state>/prompts/<tool>-<started_at>-<session_id>/analyse.system.md, analyse.user.md and analyse.tools.md"
+        },
+        {
+          "actor": "agentrun",
+          "action": "runs the analysis phase with the rendered prompts"
+        },
+        {
+          "actor": "codefix pipeline",
+          "action": "builds a PhaseView for the implement phase and renders fix/implement.system.md and fix/implement.md"
+        },
+        {
+          "actor": "pipeline",
+          "action": "writes the implement phase prompts to the same prompts directory"
+        },
+        {
+          "actor": "envelope builder",
+          "action": "includes prompt_templates map (document name → SHA-256) and an ArtifactPromptsDir artifact in the full report"
+        }
+      ]
+    },
+    {
+      "id": "21-PATH-2",
+      "title": "An impl run renders task and repair prompts from templates with attempt views",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs af-impl with a spec input"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "calls NewLoader() and builds a BriefView and PhaseView for the survey phase"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "renders impl/survey.system.md and impl/survey.md via the Loader"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "builds a PhaseView for a task phase and renders impl/task.system.md and impl/task.md, composing partials (criteria, language, survey, external_apis)"
+        },
+        {
+          "actor": "codeimpl pipeline",
+          "action": "on a repair attempt, builds an AttemptView and renders impl/repair.system.md and impl/repair.md with PreviousFailure"
+        },
+        {
+          "actor": "pipeline",
+          "action": "writes all phase prompts to <state>/prompts/<tool>-<started_at>-<session_id>/ with task and attempt suffixes"
+        },
+        {
+          "actor": "envelope builder",
+          "action": "includes prompt_templates and prompts_dir artifact in the report"
+        }
+      ]
+    },
+    {
+      "id": "21-PATH-3",
+      "title": "Golden test validates all templates against fixture views",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs go test ./internal/engine/prompt/..."
+        },
+        {
+          "actor": "TestGoldenPrompts",
+          "action": "calls NewLoader(), iterates every template name, renders each against its fixture view, compares to the golden file, validates the header fields, checks max_bytes and stable rendering"
+        },
+        {
+          "actor": "TestNoPromptLiteralsInGo",
+          "action": "walks .go files under codefix, codeimpl, internal/conform and internal/engine and fails on any string literal longer than 120 bytes containing model-facing keywords"
+        },
+        {
+          "actor": "test runner",
+          "action": "reports pass or fail for each assertion"
+        }
+      ]
+    },
+    {
+      "id": "21-PATH-4",
+      "title": "Guard refusal and tool description rendered from templates",
+      "steps": [
+        {
+          "actor": "model",
+          "action": "issues an execute tool call with a disallowed program"
+        },
+        {
+          "actor": "guard",
+          "action": "detects the disallowed program and calls loader.Render(\"refusals/programs_not_allowed.md\", refusalView) to produce the refusal message"
+        },
+        {
+          "actor": "agentrun",
+          "action": "returns the rendered refusal to the model as a tool error result"
+        },
+        {
+          "actor": "model",
+          "action": "issues a write_file tool call"
+        },
+        {
+          "actor": "SelectTools",
+          "action": "has already rendered the write_file description from tools/write_file.md via the Loader, including scratch path and read roots from the PhaseView"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "text/template",
+      "version": "stdlib",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "New",
+          "import_path": "text/template",
+          "signature": "func New(name string) *Template"
+        },
+        {
+          "name": "Template.Option",
+          "import_path": "text/template",
+          "signature": "func (t *Template) Option(opt ...string) *Template"
+        },
+        {
+          "name": "Template.Funcs",
+          "import_path": "text/template",
+          "signature": "func (t *Template) Funcs(funcMap FuncMap) *Template"
+        },
+        {
+          "name": "Template.Parse",
+          "import_path": "text/template",
+          "signature": "func (t *Template) Parse(text string) (*Template, error)"
+        },
+        {
+          "name": "Template.Execute",
+          "import_path": "text/template",
+          "signature": "func (t *Template) Execute(wr io.Writer, data any) error"
+        }
+      ]
+    },
+    {
+      "package": "embed",
+      "version": "stdlib",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "FS",
+          "import_path": "embed",
+          "signature": "type FS struct{}"
+        },
+        {
+          "name": "FS.ReadFile",
+          "import_path": "embed",
+          "signature": "func (f FS) ReadFile(name string) ([]byte, error)"
+        },
+        {
+          "name": "FS.ReadDir",
+          "import_path": "embed",
+          "signature": "func (f FS) ReadDir(name string) ([]fs.DirEntry, error)"
+        }
+      ]
+    },
+    {
+      "package": "crypto/sha256",
+      "version": "stdlib",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Sum256",
+          "import_path": "crypto/sha256",
+          "signature": "func Sum256(data []byte) [32]byte"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,851 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v2.json",
+  "spec_id": "20",
+  "spec_name": "engine_core",
+  "schema_version": 2,
+  "tests": [
+    {
+      "id": "TS-20-1",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-1.1",
+        "20-REQ-1.2"
+      ],
+      "title": "NewRun returns a fully initialised Run with all required fields populated",
+      "given": [
+        "a temporary git repository created via gitx.New(t.TempDir(), nil) with an initial commit",
+        "a lang.Detection with a primary profile"
+      ],
+      "when": "engine.NewRun is called with the repo root, git handle, options and detection",
+      "then": [
+        "the returned error is nil",
+        "run.Root equals the symlink-resolved root",
+        "run.Git is the provided git handle",
+        "run.Lang is the provided detection",
+        "run.Ledger is non-nil",
+        "run.Gate is non-nil"
+      ],
+      "pseudocode": "dir := t.TempDir(); g := gitx.New(dir, nil); initRepo(g); det := lang.Detection{...}; run, err := engine.NewRun(dir, g, opts, det); assert err == nil; assert run.Root != \"\"; assert run.Ledger != nil; assert run.Gate != nil; assert run.Git == g; assert run.Lang == det"
+    },
+    {
+      "id": "TS-20-2",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-1.3"
+      ],
+      "title": "NewRun returns a nil Run and non-nil error when the root is not a git repository",
+      "given": [
+        "a temporary directory that is not a git repository"
+      ],
+      "when": "engine.NewRun is called with that directory as root",
+      "then": [
+        "the returned Run is nil",
+        "the returned error is non-nil and describes the problem"
+      ],
+      "pseudocode": "dir := t.TempDir(); run, err := engine.NewRun(dir, gitx.New(dir, nil), opts, det); assert run == nil; assert err != nil; assert strings.Contains(err.Error(), \"git\") || strings.Contains(err.Error(), \"repository\")"
+    },
+    {
+      "id": "TS-20-3",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.1"
+      ],
+      "title": "Ledger.Snapshot records untracked files as a map; on git error the snapshot is nil",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "two untracked files created in the tree"
+      ],
+      "when": "Ledger.Snapshot is called",
+      "then": [
+        "the snapshot contains both untracked files",
+        "calling Snapshot on a repo where UntrackedFiles would error results in a nil snapshot (meaning commit everything)"
+      ],
+      "pseudocode": "g := initRepo(t.TempDir()); writeFile(\"a.txt\"); writeFile(\"b.txt\"); ledger := engine.NewLedger(); ledger.Snapshot(ctx, g); assert ledger.snapshot[\"a.txt\"] == true; assert ledger.snapshot[\"b.txt\"] == true; // error case: ledger2 with broken git; ledger2.Snapshot(ctx, brokenGit); assert ledger2.snapshot == nil"
+    },
+    {
+      "id": "TS-20-4",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.2"
+      ],
+      "title": "Ledger.Changes classifies paths as test, docs, implementation, gate-config, scratch or protected",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "files created: foo_test.go, README.md, main.go, Makefile, .agent-fox/scratch/tmp.txt, and a protected file spec.json",
+        "Ledger.SetOwned called with .agent-fox/scratch/",
+        "Ledger.SetProtected called with spec.json"
+      ],
+      "when": "Ledger.Changes is called with the git handle and the initial commit as since-ref",
+      "then": [
+        "foo_test.go is classified as Kind=test",
+        "README.md is classified as Kind=docs",
+        "main.go is classified as Kind=implementation",
+        "Makefile is classified as Kind=gate-config",
+        ".agent-fox/scratch/tmp.txt is classified as Kind=scratch",
+        "spec.json is classified as Kind=protected"
+      ],
+      "pseudocode": "changes, err := ledger.Changes(ctx, g, initialCommit); assert err == nil; byPath := map changes by Path; assert byPath[\"foo_test.go\"].Kind == \"test\"; assert byPath[\"README.md\"].Kind == \"docs\"; assert byPath[\"main.go\"].Kind == \"implementation\"; assert byPath[\"Makefile\"].Kind == \"gate-config\""
+    },
+    {
+      "id": "TS-20-5",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.3"
+      ],
+      "title": "Ledger.Commit leaves snapshot files in the tree and warns about left-alone and unlisted files",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "two untracked files pre.txt and new.txt exist before Snapshot",
+        "Ledger.Snapshot is called (records pre.txt and new.txt)",
+        "a phase creates another file phase.txt and modifies a tracked file"
+      ],
+      "when": "Ledger.Commit is called with a message, noVerify=false, and reported changes that do not include phase.txt",
+      "then": [
+        "the commit succeeds and returns a non-empty commit hash",
+        "pre.txt and new.txt are still untracked (not in the commit)",
+        "a WarnUntrackedFilesLeftAlone warning is emitted for pre.txt and new.txt",
+        "a WarnUnlistedFileCommitted warning is emitted for phase.txt"
+      ],
+      "pseudocode": "ledger.Snapshot(ctx, g); writeFile(\"phase.txt\"); modifyTracked(\"tracked.go\"); hash, err := ledger.Commit(ctx, g, \"msg\", false, []FileChange{{Path: \"tracked.go\"}}); assert err == nil; assert hash != \"\"; assert fileExists(\"pre.txt\"); warnings := recorder.Warnings(); assert containsCode(warnings, WarnUntrackedFilesLeftAlone); assert containsCode(warnings, WarnUnlistedFileCommitted)"
+    },
+    {
+      "id": "TS-20-6",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.4",
+        "20-REQ-2.5"
+      ],
+      "title": "Ledger.SetOwned marks paths as run-owned and SetProtected classifies changed protected paths",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "a file .agent-fox/scratch/notes.txt created",
+        "a file spec/tasks.json modified"
+      ],
+      "when": "Ledger.SetOwned is called with .agent-fox/scratch/ and Ledger.SetProtected is called with spec/tasks.json, then Ledger.Changes is called",
+      "then": [
+        "the scratch file is classified as Kind=scratch",
+        "spec/tasks.json is classified as Kind=protected"
+      ],
+      "pseudocode": "ledger.SetOwned(\".agent-fox/scratch/\"); ledger.SetProtected(\"spec/tasks.json\"); changes, _ := ledger.Changes(ctx, g, base); scratch := findChange(changes, \".agent-fox/scratch/notes.txt\"); assert scratch.Kind == \"scratch\"; prot := findChange(changes, \"spec/tasks.json\"); assert prot.Kind == \"protected\""
+    },
+    {
+      "id": "TS-20-7",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.6"
+      ],
+      "title": "Ledger.SetForeignPath causes matching untracked files to be left alone during Commit",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "Ledger.Snapshot called (empty snapshot)",
+        "an untracked file .specs/other_spec/prd.md created after snapshot",
+        "Ledger.SetForeignPath called with a predicate matching .specs/other_spec/*"
+      ],
+      "when": "Ledger.Commit is called",
+      "then": [
+        ".specs/other_spec/prd.md is left out of the commit",
+        "a WarnUntrackedFilesLeftAlone warning is emitted for it"
+      ],
+      "pseudocode": "ledger.SetForeignPath(func(p string) bool { return strings.HasPrefix(p, \".specs/other_spec/\") }); writeFile(\".specs/other_spec/prd.md\"); writeFile(\"real_change.go\"); hash, err := ledger.Commit(ctx, g, \"msg\", false, nil); assert err == nil; assert fileStillUntracked(\".specs/other_spec/prd.md\")"
+    },
+    {
+      "id": "TS-20-8",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.7"
+      ],
+      "title": "Ledger.OwnChange returns true when the tree has changes not in the snapshot, false otherwise",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "Ledger.Snapshot called with one untracked file pre.txt"
+      ],
+      "when": "OwnChange is called before and after creating a new file own.txt",
+      "then": [
+        "OwnChange returns false when only pre.txt exists (it is in the snapshot)",
+        "OwnChange returns true after own.txt is created (it is not in the snapshot)"
+      ],
+      "pseudocode": "writeFile(\"pre.txt\"); ledger.Snapshot(ctx, g); assert ledger.OwnChange(ctx, g) == false; writeFile(\"own.txt\"); assert ledger.OwnChange(ctx, g) == true"
+    },
+    {
+      "id": "TS-20-9",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-2.8"
+      ],
+      "title": "Ledger.FlagGateEdits warns about gate-config edits, deleted tests, rewritten golden files and added skip markers",
+      "given": [
+        "a temporary git repository with an initial commit containing Makefile, foo_test.go, testdata/golden/out.txt, and bar_test.go",
+        "a phase deletes foo_test.go, modifies Makefile, modifies testdata/golden/out.txt, and adds t.Skip() to bar_test.go"
+      ],
+      "when": "Ledger.FlagGateEdits is called with the initial commit as since-ref",
+      "then": [
+        "a WarnGateEdited warning is emitted mentioning the Makefile edit",
+        "a WarnGateEdited warning is emitted mentioning the deleted test file",
+        "a WarnGateEdited warning is emitted mentioning the rewritten golden file",
+        "a WarnGateEdited warning is emitted mentioning the added skip marker"
+      ],
+      "pseudocode": "ledger.FlagGateEdits(ctx, g, initialCommit, recorder); warns := recorder.WarningsFor(WarnGateEdited); assert len(warns) >= 4; assert any(warns, contains(\"Makefile\")); assert any(warns, contains(\"foo_test.go\")); assert any(warns, contains(\"golden\")); assert any(warns, contains(\"skip\"))"
+    },
+    {
+      "id": "TS-20-10",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.1"
+      ],
+      "title": "GateCache.Run returns a cached result on a cache hit and records cached: true in timings",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "a GateCache with a pre-populated entry for (treeHash, 'make test')"
+      ],
+      "when": "GateCache.Run is called with the same tree hash and command",
+      "then": [
+        "the returned checks.Result matches the cached entry",
+        "no subprocess is executed",
+        "a timing entry is recorded with cached: true"
+      ],
+      "pseudocode": "cache := engine.NewGateCache(); cachedResult := checks.Result{OK: true, Command: \"make test\"}; cache.Store(treeHash, \"make test\", cachedResult); result := cache.Run(ctx, runner, root, \"make test\", timeout, \"baseline\"); assert result == cachedResult; assert recorder.LastTiming().Cached == true"
+    },
+    {
+      "id": "TS-20-11",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.2"
+      ],
+      "title": "GateCache.Run calls checks.Run on a cache miss, stores the result, and returns it",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "an empty GateCache",
+        "a runner that returns a known checks.Result"
+      ],
+      "when": "GateCache.Run is called with a command",
+      "then": [
+        "checks.Run is invoked",
+        "the result is stored in the cache",
+        "a second call with the same tree hash returns the cached result without invoking checks.Run again"
+      ],
+      "pseudocode": "cache := engine.NewGateCache(); callCount := 0; runner := func(...) { callCount++; return ... }; r1 := cache.Run(ctx, runner, root, \"make test\", timeout, \"label\"); assert callCount == 1; r2 := cache.Run(ctx, runner, root, \"make test\", timeout, \"label\"); assert callCount == 1; assert r1 == r2"
+    },
+    {
+      "id": "TS-20-12",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.3"
+      ],
+      "title": "GateCache computes tree hash via rev-parse HEAD^{tree} when clean and write-tree when dirty",
+      "given": [
+        "a temporary git repository with an initial commit (clean tree)",
+        "the HEAD tree hash is known"
+      ],
+      "when": "the tree hash is computed on a clean tree and then on a dirty tree (after modifying a file without committing)",
+      "then": [
+        "on a clean tree the hash equals git rev-parse HEAD^{tree}",
+        "on a dirty tree the hash differs from the clean-tree hash"
+      ],
+      "pseudocode": "cleanHash := cache.treeHash(ctx, g); expected, _ := g.RevParse(ctx, \"HEAD^{tree}\"); assert cleanHash == expected; writeFile(\"dirty.go\"); dirtyHash := cache.treeHash(ctx, g); assert dirtyHash != cleanHash"
+    },
+    {
+      "id": "TS-20-13",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.4"
+      ],
+      "title": "GateCache.RunGate runs multiple commands through the cache and returns a GateResult",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "a GateCache",
+        "a runner that records invocations"
+      ],
+      "when": "GateCache.RunGate is called with two commands ['make lint', 'make test']",
+      "then": [
+        "the returned GateResult has two Checks entries",
+        "each command was run through the cache individually",
+        "GateResult.Ran() returns true",
+        "GateResult.OK() returns true when both pass"
+      ],
+      "pseudocode": "gr := cache.RunGate(ctx, runner, root, []string{\"make lint\", \"make test\"}, timeout, \"baseline\"); assert len(gr.Checks) == 2; assert gr.Ran() == true; assert gr.OK() == true"
+    },
+    {
+      "id": "TS-20-14",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.5"
+      ],
+      "title": "GateCache falls through to an uncached run when tree hash computation fails",
+      "given": [
+        "a GateCache",
+        "a runner that returns a valid checks.Result",
+        "a git handle where rev-parse and write-tree both fail"
+      ],
+      "when": "GateCache.Run is called",
+      "then": [
+        "checks.Run is called directly (uncached)",
+        "a valid checks.Result is returned",
+        "no error is returned to the caller"
+      ],
+      "pseudocode": "cache := engine.NewGateCache(); brokenGit := gitx.New(\"/nonexistent\", nil); result := cache.Run(ctx, runner, \"/nonexistent\", \"make test\", timeout, \"label\"); assert result.Command == \"make test\"; // no panic, no error"
+    },
+    {
+      "id": "TS-20-15",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-3.6"
+      ],
+      "title": "GateResult type is exported from engine with Ran, OK, couldNotRun, aborted and failing methods, and compareGate and landable are exported",
+      "given": [
+        "a GateResult with mixed check results: one OK, one failed, one aborted"
+      ],
+      "when": "the GateResult methods and compareGate/landable are called",
+      "then": [
+        "Ran() returns true",
+        "OK() returns false (not all passed)",
+        "couldNotRun() returns false (no exit -1 or timeout)",
+        "aborted() returns true (one check was aborted)",
+        "failing() returns the failed check",
+        "compareGate returns the worst verdict",
+        "landable returns false for a regressed verdict"
+      ],
+      "pseudocode": "gr := engine.GateResult{Checks: []checks.Result{{OK: true}, {OK: false, ExitCode: 1}, {Aborted: true}}}; assert gr.Ran(); assert !gr.OK(); _, cnr := gr.CouldNotRun(); assert !cnr; assert gr.Aborted(); assert len(gr.Failing()) == 1; v := engine.CompareGate(baseline, gr); assert !engine.Landable(v, false)"
+    },
+    {
+      "id": "TS-20-16",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-4.1",
+        "20-REQ-4.5"
+      ],
+      "title": "Park commits with noVerify=true under a cancellation-proof context and returns the checkout to the base branch",
+      "given": [
+        "a temporary git repository with an initial commit on branch 'main'",
+        "a work branch 'fix/test-1' created and checked out",
+        "a file modified on the work branch",
+        "Ledger.Snapshot called before the modification",
+        "the parent context is already cancelled"
+      ],
+      "when": "engine.Park is called with the cancelled context",
+      "then": [
+        "the commit succeeds despite the cancelled parent context",
+        "the commit was made with noVerify=true (hooks skipped)",
+        "the returned commit hash is non-empty",
+        "the current branch is 'main' (checkout returned to base)",
+        "the returned error is nil"
+      ],
+      "pseudocode": "ctx, cancel := context.WithCancel(context.Background()); cancel(); commit, err := engine.Park(ctx, run, \"wip: test\", nil); assert err == nil; assert commit != \"\"; branch, _ := g.CurrentBranch(context.Background()); assert branch == \"main\""
+    },
+    {
+      "id": "TS-20-17",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-4.2"
+      ],
+      "title": "Park skips the commit and returns an empty hash when the ledger reports no own changes",
+      "given": [
+        "a temporary git repository with an initial commit on 'main'",
+        "a work branch created and checked out",
+        "no files modified (tree is clean)",
+        "Ledger.Snapshot called"
+      ],
+      "when": "engine.Park is called",
+      "then": [
+        "the returned commit hash is an empty string",
+        "the returned error is nil",
+        "the current branch is 'main'"
+      ],
+      "pseudocode": "commit, err := engine.Park(ctx, run, \"wip: nothing\", nil); assert err == nil; assert commit == \"\"; branch, _ := g.CurrentBranch(ctx); assert branch == \"main\""
+    },
+    {
+      "id": "TS-20-18",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-4.3"
+      ],
+      "title": "Park warns with WarnCommitNotParked when the commit fails and continues to checkout",
+      "given": [
+        "a temporary git repository where CommitAllExcept is rigged to fail",
+        "a work branch with own changes"
+      ],
+      "when": "engine.Park is called",
+      "then": [
+        "a WarnCommitNotParked warning is emitted",
+        "the returned error is nil (never stops the pipeline)",
+        "the checkout step is still attempted"
+      ],
+      "pseudocode": "// rig git to fail on commit; commit, err := engine.Park(ctx, run, \"wip: fail\", nil); assert err == nil; assert containsWarning(recorder, WarnCommitNotParked)"
+    },
+    {
+      "id": "TS-20-19",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-4.4"
+      ],
+      "title": "Park and ReturnCheckout warn with WarnCheckoutNotRestored when checkout fails and return without error",
+      "given": [
+        "a temporary git repository where Checkout is rigged to fail",
+        "a work branch with own changes that commit successfully"
+      ],
+      "when": "engine.Park is called, and separately engine.ReturnCheckout is called",
+      "then": [
+        "both emit a WarnCheckoutNotRestored warning",
+        "both return nil error"
+      ],
+      "pseudocode": "// rig checkout to fail; commit, err := engine.Park(ctx, run, \"wip: test\", nil); assert err == nil; assert containsWarning(recorder, WarnCheckoutNotRestored); // separately: err2 := engine.ReturnCheckout(ctx, run); assert err2 == nil"
+    },
+    {
+      "id": "TS-20-20",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-5.1"
+      ],
+      "title": "SetupBranch captures base, creates a unique work branch, records merge-base and invalidates the index",
+      "given": [
+        "a temporary git repository with an initial commit on 'main'"
+      ],
+      "when": "engine.SetupBranch is called with prefix='fix', number=42, title='broken login'",
+      "then": [
+        "run.Branch.Base is 'main'",
+        "run.Branch.Work starts with 'fix/'",
+        "run.Branch.MergeBase is non-empty",
+        "the current branch is the work branch",
+        "the index was invalidated (if present)"
+      ],
+      "pseudocode": "err := engine.SetupBranch(ctx, run, \"fix\", 42, \"broken login\"); assert err == nil; assert run.Branch.Base == \"main\"; assert strings.HasPrefix(run.Branch.Work, \"fix/\"); assert run.Branch.MergeBase != \"\"; cur, _ := g.CurrentBranch(ctx); assert cur == run.Branch.Work"
+    },
+    {
+      "id": "TS-20-21",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-5.2"
+      ],
+      "title": "SetupBranch returns a non-nil error mentioning detached HEAD when the base is a detached HEAD",
+      "given": [
+        "a temporary git repository in detached HEAD state (git checkout --detach)"
+      ],
+      "when": "engine.SetupBranch is called",
+      "then": [
+        "the returned error is non-nil",
+        "the error message mentions 'detached' or 'HEAD'"
+      ],
+      "pseudocode": "g.Checkout(ctx, \"--detach\"); err := engine.SetupBranch(ctx, run, \"fix\", 1, \"test\"); assert err != nil; assert strings.Contains(strings.ToLower(err.Error()), \"detach\")"
+    },
+    {
+      "id": "TS-20-22",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-5.3"
+      ],
+      "title": "SetupBranch returns a non-nil error when the base branch matches fix/* or impl/* patterns",
+      "given": [
+        "a temporary git repository on branch 'fix/issue-1-something'"
+      ],
+      "when": "engine.SetupBranch is called",
+      "then": [
+        "the returned error is non-nil",
+        "the error message names the work-branch pattern"
+      ],
+      "pseudocode": "g.CreateBranch(ctx, \"fix/issue-1-something\"); err := engine.SetupBranch(ctx, run, \"fix\", 2, \"other\"); assert err != nil; assert strings.Contains(err.Error(), \"fix/\") || strings.Contains(err.Error(), \"work branch\")"
+    },
+    {
+      "id": "TS-20-23",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-5.4"
+      ],
+      "title": "ResumeBranch checks out an existing branch, handles parked-attempt detection, and records branch info",
+      "given": [
+        "a temporary git repository with 'main' and an existing branch 'impl/issue-5-feature' containing a parked wip: commit"
+      ],
+      "when": "engine.ResumeBranch is called with 'impl/issue-5-feature'",
+      "then": [
+        "the current branch is 'impl/issue-5-feature'",
+        "run.Branch.Work is 'impl/issue-5-feature'",
+        "run.Branch.Base is 'main'"
+      ],
+      "pseudocode": "g.CreateBranch(ctx, \"impl/issue-5-feature\"); g.CommitAllNoVerify(ctx, \"wip: task 1\"); g.Checkout(ctx, \"main\"); err := engine.ResumeBranch(ctx, run, \"impl/issue-5-feature\"); assert err == nil; assert run.Branch.Work == \"impl/issue-5-feature\""
+    },
+    {
+      "id": "TS-20-24",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-6.1"
+      ],
+      "title": "checks.Compare returns VerdictAborted when the baseline has Aborted=true",
+      "given": [
+        "a baseline Result with Aborted=true",
+        "an after Result with OK=true"
+      ],
+      "when": "checks.Compare(baseline, after) is called",
+      "then": [
+        "the returned Verdict is VerdictAborted (\"aborted\")"
+      ],
+      "pseudocode": "baseline := checks.Result{Command: \"make test\", Aborted: true, ExitCode: -1}; after := checks.Result{Command: \"make test\", OK: true}; v := checks.Compare(baseline, after); assert v == checks.VerdictAborted"
+    },
+    {
+      "id": "TS-20-25",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-6.1"
+      ],
+      "title": "checks.Compare returns VerdictAborted when the after result has Aborted=true",
+      "given": [
+        "a baseline Result with OK=true",
+        "an after Result with Aborted=true"
+      ],
+      "when": "checks.Compare(baseline, after) is called",
+      "then": [
+        "the returned Verdict is VerdictAborted (\"aborted\")"
+      ],
+      "pseudocode": "baseline := checks.Result{Command: \"make test\", OK: true}; after := checks.Result{Command: \"make test\", Aborted: true, ExitCode: -1}; v := checks.Compare(baseline, after); assert v == checks.VerdictAborted"
+    },
+    {
+      "id": "TS-20-26",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-6.2",
+        "20-REQ-6.3"
+      ],
+      "title": "VerdictAborted is exported as a const with value 'aborted' and is not landable",
+      "given": [],
+      "when": "VerdictAborted is referenced and Landable() is called on it",
+      "then": [
+        "checks.VerdictAborted has the string value \"aborted\"",
+        "checks.VerdictAborted.Landable() returns false"
+      ],
+      "pseudocode": "assert string(checks.VerdictAborted) == \"aborted\"; assert checks.VerdictAborted.Landable() == false"
+    },
+    {
+      "id": "TS-20-27",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-7.1"
+      ],
+      "title": "engine.Background returns a context with a 2-minute timeout derived from WithoutCancel",
+      "given": [
+        "a parent context that is already cancelled"
+      ],
+      "when": "engine.Background is called with the cancelled context",
+      "then": [
+        "the returned context is not done (WithoutCancel detached it)",
+        "the returned context has a deadline approximately 2 minutes from now"
+      ],
+      "pseudocode": "parent, cancel := context.WithCancel(context.Background()); cancel(); bg, bgCancel := engine.Background(parent); defer bgCancel(); assert bg.Err() == nil; deadline, ok := bg.Deadline(); assert ok; assert time.Until(deadline) > 1*time.Minute && time.Until(deadline) <= 2*time.Minute"
+    },
+    {
+      "id": "TS-20-28",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-7.2"
+      ],
+      "title": "engine.Invalidate calls Index.Invalidate('') when the run has a non-nil Index",
+      "given": [
+        "a Run with a non-nil mock Index that records Invalidate calls"
+      ],
+      "when": "engine.Invalidate is called",
+      "then": [
+        "Index.Invalidate was called exactly once with an empty string argument"
+      ],
+      "pseudocode": "idx := &mockIndex{}; run.Index = idx; engine.Invalidate(run); assert idx.invalidateCalls == 1; assert idx.lastArg == \"\""
+    },
+    {
+      "id": "TS-20-29",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-7.3"
+      ],
+      "title": "engine.Invalidate does nothing and does not panic when the run has a nil Index",
+      "given": [
+        "a Run with Index set to nil"
+      ],
+      "when": "engine.Invalidate is called",
+      "then": [
+        "no panic occurs",
+        "the function returns normally"
+      ],
+      "pseudocode": "run.Index = nil; assert not panics { engine.Invalidate(run) }"
+    },
+    {
+      "id": "TS-20-30",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-7.4"
+      ],
+      "title": "engine.CommonPreflight validates repo existence, clean tree, base branch and returns error on first failure",
+      "given": [
+        "a temporary git repository with a dirty tree (uncommitted changes)"
+      ],
+      "when": "engine.CommonPreflight is called",
+      "then": [
+        "a non-nil error is returned describing the dirty tree",
+        "subsequent checks (remote, forge auth) are not performed"
+      ],
+      "pseudocode": "writeFile(\"dirty.go\"); g.StageAllExcept(ctx, nil); err := engine.CommonPreflight(ctx, run, opts); assert err != nil; assert strings.Contains(err.Error(), \"dirty\") || strings.Contains(err.Error(), \"clean\")"
+    },
+    {
+      "id": "TS-20-31",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-8.1"
+      ],
+      "title": "engine.Push calls git.Push with the given attempts and records the side effect",
+      "given": [
+        "a temporary git repository with a remote configured",
+        "a Run with a recorder"
+      ],
+      "when": "engine.Push is called with attempts=3",
+      "then": [
+        "git.Push is called with the branch name and 3 attempts",
+        "progress is reported",
+        "the side effect is recorded"
+      ],
+      "pseudocode": "err := engine.Push(ctx, run, 3); // with a mock that succeeds; assert err == nil; assert recorder.SideEffects() contains push"
+    },
+    {
+      "id": "TS-20-32",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-8.2",
+        "20-REQ-8.3"
+      ],
+      "title": "engine.OpenPullRequest truncates the body to MaxBodyLength before sending",
+      "given": [
+        "a mock forge client with MaxBodyLength=100",
+        "a CreatePullRequestRequest with a body of 200 characters"
+      ],
+      "when": "engine.OpenPullRequest is called",
+      "then": [
+        "the body sent to CreatePullRequest has length <= 100",
+        "the PR URL is returned"
+      ],
+      "pseudocode": "body := strings.Repeat(\"x\", 200); req := issuex.CreatePullRequestRequest{Body: body, Title: \"test\"}; url, err := engine.OpenPullRequest(ctx, run, mockForge, target, req); assert err == nil; assert len(mockForge.lastBody) <= 100"
+    },
+    {
+      "id": "TS-20-33",
+      "kind": "property",
+      "verifies": [
+        "20-REQ-8.3"
+      ],
+      "title": "For any PR body length, the body sent to CreatePullRequest never exceeds MaxBodyLength",
+      "given": [
+        "a mock forge client with a known MaxBodyLength"
+      ],
+      "when": "for any string body of length 0 to 200000, engine.OpenPullRequest is called",
+      "then": [
+        "the body passed to CreatePullRequest has len <= MaxBodyLength"
+      ],
+      "pseudocode": "for bodyLen in quickcheck.Gen(0, 200000): body := strings.Repeat(\"a\", bodyLen); engine.OpenPullRequest(ctx, run, forge, target, {Body: body}); assert len(forge.lastBody) <= forge.MaxBodyLength()"
+    },
+    {
+      "id": "TS-20-34",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-9.1",
+        "20-REQ-9.2"
+      ],
+      "title": "Both codeimpl.RunState and codefix.Options hold a *engine.Run field and delegate to engine functions",
+      "given": [
+        "the codeimpl and codefix packages compiled against internal/engine"
+      ],
+      "when": "the RunState and Options types are inspected",
+      "then": [
+        "codeimpl.RunState has a field of type *engine.Run",
+        "codefix.Options has a field of type *engine.Run (or equivalent integration)"
+      ],
+      "pseudocode": "// compile-time check: var _ *engine.Run = codeimpl.RunState{}.Engine; var _ *engine.Run = codefix.Options{}.Engine; // or inspect via reflect"
+    },
+    {
+      "id": "TS-20-35",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-9.3"
+      ],
+      "title": "The --schema golden files remain unchanged after the engine migration",
+      "given": [
+        "the existing golden files cmd/fix/testdata/schema.golden.json and cmd/impl/testdata/schema.golden.json"
+      ],
+      "when": "the schema output is regenerated",
+      "then": [
+        "the output matches the golden files byte-for-byte",
+        "no flag, exit code, envelope field or schema version has changed"
+      ],
+      "pseudocode": "// This is verified by the existing schemagolden_test.go tests in cmd/fix and cmd/impl; they compare the live output against the golden files and fail on any difference."
+    },
+    {
+      "id": "TS-20-36",
+      "kind": "integration",
+      "verifies": [
+        "20-REQ-9.4"
+      ],
+      "title": "The duplicated functions are removed from codefix and codeimpl after engine wiring",
+      "given": [
+        "the codefix and codeimpl packages after the engine migration"
+      ],
+      "when": "the packages are searched for the removed function names",
+      "then": [
+        "codefix does not define background, parkWork, commitOwn, commitOwnHooks, untrackedNow, ownChange, invalidate, or returnCheckout as package-level functions",
+        "codeimpl does not define background, parkWork, noteUntracked, leftAlone, foreignSpecPath, commit, unlisted, dirtyAfterCommit, or invalidate as methods or functions"
+      ],
+      "pseudocode": "// grep or ast-walk codefix/*.go for func declarations named background, parkWork, commitOwn, etc.; assert none found; // same for codeimpl"
+    },
+    {
+      "id": "TS-20-37",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-10.1"
+      ],
+      "title": "The engine's gateConfigFile classifier identifies build/lint config files and falls back to hardcoded list",
+      "given": [],
+      "when": "gateConfigFile is called with various paths: Makefile, .golangci.yml, .github/workflows/ci.yml, main.go, README.md",
+      "then": [
+        "Makefile returns true",
+        ".golangci.yml returns true",
+        ".github/workflows/ci.yml returns true",
+        "main.go returns false",
+        "README.md returns false"
+      ],
+      "pseudocode": "assert engine.GateConfigFile(\"Makefile\") == true; assert engine.GateConfigFile(\".golangci.yml\") == true; assert engine.GateConfigFile(\".github/workflows/ci.yml\") == true; assert engine.GateConfigFile(\"main.go\") == false; assert engine.GateConfigFile(\"README.md\") == false"
+    },
+    {
+      "id": "TS-20-38",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-10.2"
+      ],
+      "title": "The engine's test-file classifier delegates to lang.Detection.TestFile instead of hardcoding suffixes",
+      "given": [
+        "a lang.Detection configured for Go (TestFile matches *_test.go)"
+      ],
+      "when": "the engine's test-file classifier is called with foo_test.go and foo.go",
+      "then": [
+        "foo_test.go is classified as a test file",
+        "foo.go is not classified as a test file",
+        "the classification came from lang.Detection.TestFile, not hardcoded suffixes"
+      ],
+      "pseudocode": "det := lang.Detection{Primary: goProfile}; assert engine.IsTestFile(det, \"foo_test.go\") == true; assert engine.IsTestFile(det, \"foo.go\") == false"
+    },
+    {
+      "id": "TS-20-39",
+      "kind": "unit",
+      "verifies": [
+        "20-REQ-10.3"
+      ],
+      "title": "The engine exports goldenFile and skipMarker moved from codeimpl/gateedits.go without behavioural change",
+      "given": [],
+      "when": "goldenFile is called with 'testdata/golden/output.txt' and 'main.go', and skipMarker is matched against 't.Skip()' and 'fmt.Println()'",
+      "then": [
+        "goldenFile('testdata/golden/output.txt') returns true",
+        "goldenFile('main.go') returns false",
+        "skipMarker matches 't.Skip()'",
+        "skipMarker does not match 'fmt.Println()'"
+      ],
+      "pseudocode": "assert engine.GoldenFile(\"testdata/golden/output.txt\") == true; assert engine.GoldenFile(\"main.go\") == false; assert engine.SkipMarker.MatchString(\"t.Skip()\") == true; assert engine.SkipMarker.MatchString(\"fmt.Println()\") == false"
+    },
+    {
+      "id": "TS-20-40",
+      "kind": "smoke",
+      "verifies": [
+        "20-PATH-1",
+        "20-REQ-1.2",
+        "20-REQ-2.1",
+        "20-REQ-4.1"
+      ],
+      "title": "A codefix-style run branches, snapshots, commits, and parks via the engine on a real git repo",
+      "given": [
+        "a temporary git repository with an initial commit on 'main'",
+        "a lang.Detection for Go"
+      ],
+      "when": "the engine is exercised end-to-end: NewRun creates the Run, SetupBranch creates a work branch, Ledger.Snapshot records untracked files, a file is modified, Ledger.Commit commits the change, and Park commits under a cancelled context and returns to main",
+      "then": [
+        "NewRun succeeds",
+        "the work branch exists and is checked out after SetupBranch",
+        "the commit hash from Ledger.Commit is non-empty",
+        "after Park, the current branch is 'main'",
+        "the wip: commit exists on the work branch",
+        "no error was returned from Park"
+      ],
+      "real_components": [
+        "engine.NewRun",
+        "engine.SetupBranch",
+        "engine.Ledger",
+        "engine.Park",
+        "gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-20-41",
+      "kind": "smoke",
+      "verifies": [
+        "20-PATH-2",
+        "20-REQ-3.1",
+        "20-REQ-3.2"
+      ],
+      "title": "A codeimpl-style run uses the gate cache and gets a cache hit after reverting to the baseline tree",
+      "given": [
+        "a temporary git repository with an initial commit on 'main'",
+        "a work branch created via SetupBranch",
+        "a GateCache",
+        "a runner that counts invocations"
+      ],
+      "when": "GateCache.Run is called for the baseline (cache miss, runs checks), a file is committed (new tree hash, cache miss), then the commit is reverted to restore the baseline tree, and GateCache.Run is called again",
+      "then": [
+        "the first call runs checks (cache miss)",
+        "the second call after the commit runs checks (different tree hash)",
+        "the third call after revert returns the cached baseline result (cache hit)",
+        "the runner was invoked exactly twice, not three times"
+      ],
+      "real_components": [
+        "engine.GateCache",
+        "engine.Ledger",
+        "gitx.Git",
+        "checks.Run"
+      ]
+    },
+    {
+      "id": "TS-20-42",
+      "kind": "smoke",
+      "verifies": [
+        "20-PATH-3",
+        "20-REQ-6.1"
+      ],
+      "title": "A cancelled verification run produces VerdictAborted and the pipeline parks without comparing",
+      "given": [
+        "a temporary git repository with an initial commit on 'main'",
+        "a work branch with a committed change",
+        "a context that is cancelled before checks.Run completes"
+      ],
+      "when": "checks.Run is called with the cancelled context, then checks.Compare is called with the aborted result, then engine.Park is called",
+      "then": [
+        "checks.Run returns a Result with Aborted=true",
+        "checks.Compare returns VerdictAborted",
+        "engine.Park commits the work and returns to main without error"
+      ],
+      "real_components": [
+        "checks.Run",
+        "checks.Compare",
+        "engine.Park",
+        "engine.Ledger",
+        "gitx.Git"
+      ]
+    },
+    {
+      "id": "TS-20-43",
+      "kind": "smoke",
+      "verifies": [
+        "20-PATH-4",
+        "20-REQ-5.2"
+      ],
+      "title": "SetupBranch refuses a detached HEAD in a real git repository and the caller maps it to a preflight failure",
+      "given": [
+        "a temporary git repository with an initial commit",
+        "the repository is in detached HEAD state"
+      ],
+      "when": "engine.SetupBranch is called with prefix='fix', number=1, title='test'",
+      "then": [
+        "SetupBranch returns a non-nil error",
+        "the error message mentions detached HEAD",
+        "no branch was created"
+      ],
+      "real_components": [
+        "engine.SetupBranch",
+        "gitx.Git"
+      ]
+    }
+  ]
+}

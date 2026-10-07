@@ -1,0 +1,428 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/tasks.v2.json",
+  "spec_id": "23",
+  "spec_name": "codefix_on_engine",
+  "schema_version": 2,
+  "test_commands": {
+    "all_tests": "make test",
+    "linter": "make lint",
+    "spec_tests": "go test ./codefix/... ./internal/conform/... ./internal/agentrun/... -count=1"
+  },
+  "dependencies": [
+    {
+      "spec": "19_language_profiles",
+      "reason": "The pipeline uses lang.Detect for language detection, lang.Detection.VerifyCommand for verification command resolution, lang.Profile.Targeted for the targeted revert check, and lang.Profile.InlineTests for declaration-level revert."
+    },
+    {
+      "spec": "20_engine_core",
+      "reason": "The pipeline calls engine.NewRun, engine.SetupBranch, engine.Ledger, engine.GateCache, engine.Park, engine.Push, engine.OpenPullRequest, engine.CommonPreflight, engine.Background, and engine.Invalidate."
+    },
+    {
+      "spec": "21_prompt_documents",
+      "reason": "The pipeline uses prompt.Loader to render all system prompts, phase messages, tool descriptions, refusals and rejections from embedded Markdown templates. The BriefView, PhaseView and AttemptView types are used to build the views."
+    },
+    {
+      "spec": "22_polyglot_structural_checks",
+      "reason": "The conform.Scan call passes ScanInput.Lang so the structural checks use the profile's classifiers. The revert check uses Profile.InlineTests to decide file-level vs declaration-level revert."
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "kind": "implement",
+      "title": "Implement per-run scratch directory lifecycle and check-log formatting",
+      "criteria": [
+        "23-REQ-6"
+      ],
+      "tests": [
+        "TS-23-26",
+        "TS-23-27",
+        "TS-23-28",
+        "TS-23-29",
+        "TS-23-30"
+      ],
+      "steps": [
+        "Write TS-23-26, TS-23-27, TS-23-28, TS-23-29, TS-23-30 in codefix/scratch_test.go and confirm they fail.",
+        "Create codefix/scratch.go with a newRunScratch(root, sessionID string) (string, func(), error) function that creates .agent-fox/scratch/<sessionID>/, writes a .gitignore containing '*' in .agent-fox/scratch/ if it does not exist, and returns the relative path and a cleanup function that removes the directory and its parents when empty.",
+        "Add a writeCheckLog(scratchDir, label, output string) (string, error) function that writes the full output to checks/<label>.txt under the scratch directory and returns the absolute path.",
+        "Add a formatCheckForPrompt(result checks.Result, label, scratchDir string) string function that returns at most the last 10 lines of output inline plus a ref(path) reference to the full log file.",
+        "Handle the error case: when the scratch directory cannot be created, return a warning string and empty scratch path so the run continues without check logs.",
+        "Ensure the cleanup function removes .agent-fox/scratch and .agent-fox when they become empty after removing the session directory.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/scratch.go",
+        "codefix/scratch_test.go"
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 2,
+      "kind": "implement",
+      "title": "Implement the targeted revert check with declaration-level revert and commit-object hold",
+      "criteria": [
+        "23-REQ-7"
+      ],
+      "tests": [
+        "TS-23-31",
+        "TS-23-32",
+        "TS-23-33",
+        "TS-23-34",
+        "TS-23-35",
+        "TS-23-36",
+        "TS-23-37",
+        "TS-23-38"
+      ],
+      "steps": [
+        "Write TS-23-31 through TS-23-38 in internal/conform/revert_targeted_test.go and codefix/revert_test.go; confirm they fail.",
+        "Extend internal/conform/revert.go with a TargetedRevert function that accepts a lang.Profile, a ledger classification of added/edited tests, and a check callback. When the profile has a Targeted command, run it for exactly those tests; when it has no Targeted command, fall back to the full suite and set Mode to 'suite'.",
+        "Add a RevertMode field ('targeted' or 'suite') and a Declarations field ([]string) to RevertResult.",
+        "Implement the commit-object hold: before reverting, call git stash create when the tree is dirty or create a wip: commit with git reset --soft to undo when clean. Store the commit SHA for restoration.",
+        "For profiles with InlineTests, implement declaration-level revert: use the file outline to identify test declarations by line range, revert only the implementation declarations (put back to base), and leave inline test declarations in place. When the outline cannot be parsed, fall back to file-level revert for that file.",
+        "Implement failure classification: use the profile to distinguish build failure from test failure. When the profile cannot classify, set Proves to true with Reason 'failure was not classified'.",
+        "Handle cancellation during the revert check: restore the implementation from the commit object and propagate the cancellation.",
+        "Generalise the existing keepRustTests/rustTestModule to use the profile's InlineTests flag and outline ranges for any language.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "internal/conform/revert.go",
+        "internal/conform/revert_targeted_test.go",
+        "codefix/revert_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 3,
+      "kind": "implement",
+      "title": "Implement the run_checks model-facing tool with gate cache integration and shell guard",
+      "criteria": [
+        "23-REQ-2"
+      ],
+      "tests": [
+        "TS-23-7",
+        "TS-23-8",
+        "TS-23-9",
+        "TS-23-10",
+        "TS-23-11",
+        "TS-23-12",
+        "TS-23-13",
+        "TS-23-14",
+        "TS-23-15"
+      ],
+      "steps": [
+        "Write TS-23-7 through TS-23-15 in codefix/runchecks_test.go and internal/agentrun/guard_runchecks_test.go; confirm they fail.",
+        "Create codefix/runchecks.go with a runChecksTool function that builds a core.Tool named 'run_checks' with a scope parameter (enum: 'lint', 'targeted', 'all', default 'all') and an optional tests parameter (array of strings).",
+        "Implement the scope 'lint' handler: run the profile's Lint command, write the full output to the scratch directory via writeCheckLog, and return exit_code, ok, the last 20 lines of output, and the log path.",
+        "Implement the scope 'targeted' handler: run the profile's Targeted command for the named tests (or the tests the ledger says the phase has written when tests is empty). When the profile has no Targeted command, fall back to scope 'all' with a note in the result.",
+        "Implement the scope 'all' handler: run the full verification command, store the result in the GateCache keyed by tree hash, and return the same result shape. When the tree hash cannot be computed, run without caching.",
+        "Implement the budget counter: track scope-all calls per phase; on the third call, answer from the cache with a note that the budget is exhausted.",
+        "Wire the shell guard in internal/agentrun/guard.go: extend the suiteRun function to refuse the suite's own command and the profile's untargeted Test command in the implement phase, naming run_checks as the alternative. Ensure targeted forms (with a file, test name, or package argument) are never refused.",
+        "Register the run_checks tool alongside submit_implementation in the implement phase's tool list.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/runchecks.go",
+        "codefix/runchecks_test.go",
+        "codefix/phases.go",
+        "internal/agentrun/guard.go",
+        "internal/agentrun/guard_runchecks_test.go"
+      ],
+      "depends_on": [
+        1
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 4,
+      "kind": "implement",
+      "title": "Replace all prompt constants and builders with prompt.Loader rendering and build the stable-prefix brief",
+      "criteria": [
+        "23-REQ-3",
+        "23-REQ-4"
+      ],
+      "tests": [
+        "TS-23-16",
+        "TS-23-17",
+        "TS-23-18",
+        "TS-23-19",
+        "TS-23-20",
+        "TS-23-21",
+        "TS-23-22",
+        "TS-23-23"
+      ],
+      "steps": [
+        "Write TS-23-16 through TS-23-23 in codefix/prompt_render_test.go; confirm they fail.",
+        "Add a prompt.Loader field to codefix.Options (or to the brain/pipeline context) so the pipeline can call loader.Render for each template.",
+        "Replace analysisSystemPrompt and implementSystemPrompt constants in codefix/phases.go with calls to loader.Render('fix/analyse.system.md', view) and loader.Render('fix/implement.system.md', view). Delete the const blocks.",
+        "Replace the builder functions in codefix/prompts.go (reportBlock, baselineBlock, criteriaBlock, contextBlock, analysisPrompt, implementPrompt, instructionsBlock, projectInstructions) with view construction and template rendering. Delete codefix/prompts.go entirely.",
+        "Build a BriefView once per run in the Run function containing the language block, repo map, project instructions, steering, gate commands with baseline verdicts, --context value, and the report. Render it from brief/fix.md.",
+        "Place the rendered brief as the first user message in both the analysis and implement phases. Place phase-specific material (diagnosis, criteria, branch, date) in a second user message.",
+        "Ensure the system prompt text and tool schemas are identical for every phase of the same kind within one run by computing them once and reusing.",
+        "Render the run_checks tool description from tools/run_checks.md with the PhaseView carrying suite commands, targeted-test form, and budget.",
+        "When AgentKit's cache breakpoint is not available, still render the brief once and place it first, relying on provider prefix matching alone.",
+        "Verify no model-facing string constant longer than one sentence remains in the codefix package (excluding template names and format-string keys).",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/phases.go",
+        "codefix/prompts.go",
+        "codefix/pipeline.go",
+        "codefix/prompt_render_test.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 5,
+      "kind": "implement",
+      "title": "Wire transcript pruning in the implement phase",
+      "criteria": [
+        "23-REQ-5"
+      ],
+      "tests": [
+        "TS-23-24",
+        "TS-23-25"
+      ],
+      "steps": [
+        "Write TS-23-24 and TS-23-25 in codefix/pruning_test.go; confirm they fail.",
+        "In the implement phase configuration (codefix/phases.go or the brain's Implement method), check whether AgentKit's pruning transform (PRD 06 section 4) is available. If available, install it so that tool results older than eight turns are replaced by a one-line stub naming the call and its size, and a read_file of a path and range already held unchanged returns a reference to that prior turn.",
+        "Ensure the summarisation backstop remains at 60% of the context window (the compactionThreshold in internal/agentrun/phase.go) regardless of whether the pruning transform is installed.",
+        "When the pruning transform is not available, the implement phase runs without it and no error is raised.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/phases.go",
+        "codefix/pruning_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 6,
+      "kind": "implement",
+      "title": "Rewrite codefix/pipeline.go Run function to call engine for all shared operations and delete duplicated functions",
+      "criteria": [
+        "23-REQ-1"
+      ],
+      "tests": [
+        "TS-23-1",
+        "TS-23-2",
+        "TS-23-3",
+        "TS-23-4",
+        "TS-23-5",
+        "TS-23-6"
+      ],
+      "steps": [
+        "Write TS-23-1 through TS-23-6 in codefix/pipeline_engine_test.go; confirm they fail.",
+        "Rewrite the Run function to call engine.NewRun at the start to build the shared Run value from the workspace, git handle, and lang.Detect. Call engine.CommonPreflight for repository, clean tree, base branch, remote, and forge auth.",
+        "Replace the inline branch creation (gitx.UniqueBranchName + git.CreateBranch) with engine.SetupBranch, passing the classification-derived prefix, issue number, and title. Call engine.Invalidate after the checkout.",
+        "Replace untrackedNow(ctx, git) with engine.Ledger.Snapshot before the implement phase. Replace the post-implement changed-files logic with engine.Ledger.Changes and engine.Ledger.Commit.",
+        "Replace runChecks calls for baseline and verification with engine.GateCache.Run.",
+        "Replace parkWork, parkFailure, parkUnverified with calls to engine.Park. Replace returnCheckout with the engine's equivalent. Replace background with engine.Background.",
+        "Replace openPullRequest with engine.OpenPullRequest (which truncates the body to the forge's limit). Replace the inline push logic with engine.Push.",
+        "Delete the functions untrackedNow, commitOwn, commitOwnHooks, ownChange, parkWork, returnCheckout, background, invalidate, runChecks (the old one), branchPrefix, and openPullRequest from codefix/pipeline.go. Delete codefix/untracked.go entirely.",
+        "Preserve the Run function signature, Options fields, Result fields (except additive ones), Failure type, exit codes, and LandMode semantics so no caller must change.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/untracked.go",
+        "codefix/pipeline_engine_test.go"
+      ],
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 7,
+      "kind": "implement",
+      "title": "Implement cancellation handling for implement phase, landing gate, and revert check",
+      "criteria": [
+        "23-REQ-8"
+      ],
+      "tests": [
+        "TS-23-39",
+        "TS-23-40",
+        "TS-23-41"
+      ],
+      "steps": [
+        "Write TS-23-39, TS-23-40, TS-23-41 in codefix/cancel_test.go; confirm they fail.",
+        "In the pipeline's implement-phase error path, detect context cancellation and call engine.Park to commit the work as wip:, return the checkout to the base branch, and produce a Failure with category 'aborted'.",
+        "In the pipeline's landing-gate path, detect context cancellation, set the gate result's Aborted flag to true, call engine.Park, and produce a Failure with category 'aborted'.",
+        "In the pipeline's revert-check path, detect context cancellation, restore the implementation from the commit object, call engine.Park, and produce a Failure with category 'aborted'.",
+        "Ensure that on any cancelled path, no uncommitted changes remain on the work branch and result.Resumable() returns true.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/pipeline.go",
+        "codefix/cancel_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 8,
+      "kind": "implement",
+      "title": "Add additive envelope fields and wire conform.Scan with lang.Detection",
+      "criteria": [
+        "23-REQ-9"
+      ],
+      "tests": [
+        "TS-23-42",
+        "TS-23-43",
+        "TS-23-44",
+        "TS-23-45",
+        "TS-23-46",
+        "TS-23-47",
+        "TS-23-48"
+      ],
+      "steps": [
+        "Write TS-23-42 through TS-23-48 in codefix/additive_fields_test.go; confirm they fail.",
+        "Add a Language struct to codefix/types.go with fields Primary (string), Detected ([]string), and Verify struct with Source string, and add a Language field to Result. Populate it from lang.Detection in the pipeline.",
+        "Add Mode (string) and Declarations ([]string) fields to the RevertCheck result reference in codefix/types.go (or use the extended conform.RevertResult). Populate them from the targeted revert check.",
+        "Add a Cached bool field to the timing entries. Set it to true when a gate check is answered from the GateCache.",
+        "Add a PrunedTokens int field to the phase usage entries. Set it when the pruning transform removes tokens (optional, only when available).",
+        "Add a PromptTemplates map[string]string field to Result. Populate it from prompt.Loader.Hash for each template used during the run.",
+        "Pass ScanInput.Lang set to the lang.Detection from the engine's Run when calling conform.Scan in the prove function.",
+        "Update cmd/fix/testdata/schema.golden.json to include only the additive fields (language, revert_check.mode, revert_check.declarations, timings[].cached, usage.phases[].pruned_tokens, prompt_templates). Verify no existing field changed.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/types.go",
+        "codefix/pipeline.go",
+        "codefix/summary.go",
+        "codefix/artifacts.go",
+        "codefix/additive_fields_test.go",
+        "cmd/fix/testdata/schema.golden.json"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 9,
+      "kind": "implement",
+      "title": "Update all affected documentation for the engine rewrite",
+      "criteria": [
+        "23-REQ-10"
+      ],
+      "tests": [
+        "TS-23-49",
+        "TS-23-50",
+        "TS-23-51",
+        "TS-23-52"
+      ],
+      "steps": [
+        "Write TS-23-49 through TS-23-52 in docs_codefix_engine_test.go (root-level, following the existing docs_*_test.go pattern); confirm they fail.",
+        "Update docs/cli.md: add 'aborted' to the verdict table, describe targeted revert mode in the revert check section, document run_checks under 'What the model may and may not do', and list the additive result fields (result.language, result.revert_check.mode, timings[].cached, usage.phases[].pruned_tokens, prompt_templates).",
+        "Update docs/model-usage.md: document the run brief and stable prefix, the pruning transform, the scratch logs, run_checks, and rewrite the 'Prompt templates' section for the engine's documents, views and helpers.",
+        "Update docs/configuration.md: document the prompts/ subdirectory under 'State directory' and the language profiles with what each detects.",
+        "Update docs/development.md: add internal/lang and internal/engine to the package layout section and add per-language baseline rows.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "docs/cli.md",
+        "docs/model-usage.md",
+        "docs/configuration.md",
+        "docs/development.md",
+        "docs_codefix_engine_test.go"
+      ],
+      "depends_on": [
+        6
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 10,
+      "kind": "implement",
+      "title": "Wire cross-component integration tests for engine-ledger-gate sequence, targeted revert on real git, prompt rendering, and scratch lifecycle",
+      "criteria": [
+        "23-REQ-1.1",
+        "23-REQ-1.4",
+        "23-REQ-2.4",
+        "23-REQ-3.1",
+        "23-REQ-4.1",
+        "23-REQ-6.1",
+        "23-REQ-6.2",
+        "23-REQ-6.4",
+        "23-REQ-7.1",
+        "23-REQ-7.4"
+      ],
+      "tests": [
+        "TS-23-53",
+        "TS-23-54",
+        "TS-23-55",
+        "TS-23-56"
+      ],
+      "steps": [
+        "Write TS-23-53 in codefix/integration_engine_test.go: set up a real engine.Ledger and engine.GateCache wired to a test git repository, a stubbed brain that writes a file and calls run_checks with scope 'all', and verify the Ledger snapshot/commit sequence and GateCache hit.",
+        "Write TS-23-54 in internal/conform/revert_integration_test.go: set up a test git repository with a committed base and an implementation that adds a test file, run the targeted revert check with a profile that has a Targeted command, and verify the commit-object hold, targeted command execution, and tree restoration.",
+        "Write TS-23-55 in codefix/integration_prompt_test.go: use a real prompt.Loader with embedded templates, populate a BriefView and PhaseView from test Options, render brief/fix.md and the phase templates, and verify the output is non-empty and contains expected sections.",
+        "Write TS-23-56 in codefix/integration_scratch_test.go: set up a temporary workspace, run the pipeline with a real engine that runs commands, verify check logs exist during the run and the scratch directory is removed after.",
+        "Run the tests and confirm they pass; run make lint."
+      ],
+      "touches": [
+        "codefix/integration_engine_test.go",
+        "internal/conform/revert_integration_test.go",
+        "codefix/integration_prompt_test.go",
+        "codefix/integration_scratch_test.go"
+      ],
+      "depends_on": [
+        6,
+        7,
+        8
+      ],
+      "state": "pending"
+    },
+    {
+      "id": 11,
+      "kind": "integration",
+      "title": "Verify all execution paths end-to-end and confirm no stubs remain",
+      "tests": [
+        "TS-23-57",
+        "TS-23-58",
+        "TS-23-59",
+        "TS-23-60",
+        "TS-23-61"
+      ],
+      "steps": [
+        "Write TS-23-57 (successful fix from report to landed PR) in codefix/smoke_engine_test.go: set up a test git repository with a passing baseline, a forge stub, a stubbed brain, and a profile with a Targeted command. Run af fix with --land=pr and verify the result stage is 'landed', PullRequestURL is non-empty, result.Language is populated, and all engine calls were made.",
+        "Write TS-23-58 (cancelled run during implement phase) in codefix/smoke_engine_test.go: set up a test git repository, a stubbed brain that blocks until cancellation. Cancel the context during the implement phase and verify the error has category 'aborted', work is committed as wip:, checkout is on the base branch, and result is resumable.",
+        "Write TS-23-59 (unverified run parks and reports regressed) in codefix/smoke_engine_test.go: set up a test git repository with a passing baseline, a stubbed brain that produces changes causing the gate to regress. Verify the result verdict is 'regressed', engine.Park was called, and checkout is on the base branch.",
+        "Write TS-23-60 (targeted revert with inline tests) in codefix/smoke_engine_test.go: set up a test git repository with a file containing both implementation and inline test declarations, a profile with InlineTests and a Targeted command. Verify the revert was by declaration, inline tests remained, and result.revert_check.mode is 'targeted'.",
+        "Write TS-23-61 (run_checks budget exhaustion and cache hit) in codefix/smoke_engine_test.go: set up a test git repository with a passing verification command, a stubbed brain that calls run_checks with scope 'all' three times. Verify the first two executed, the third answered from cache with a budget note, and the landing gate is a cache hit.",
+        "Trace 23-PATH-1 through the real code: confirm codefix.Run calls engine.NewRun, engine.CommonPreflight, GateCache.Run (baseline), prompt.Loader.Render, brain.Analyze, engine.SetupBranch, engine.Ledger.Snapshot, brain.Implement (with run_checks tool), engine.Ledger.Changes, engine.Ledger.Commit, engine.GateCache.Run (landing gate), targeted revert, conform.Scan, brain.Review, engine.Push, engine.OpenPullRequest, and no stub remains.",
+        "Trace 23-PATH-2: confirm cancellation during implement calls engine.Park and returns checkout to base.",
+        "Trace 23-PATH-3: confirm a regressed gate calls engine.Park.",
+        "Trace 23-PATH-4: confirm the targeted revert with InlineTests reverts by declaration and runs the Targeted command.",
+        "Trace 23-PATH-5: confirm the third scope-all call answers from cache and the landing gate is a cache hit.",
+        "For every criterion with a contract (23-REQ-2.7, 23-REQ-2.8, 23-REQ-6.5, 23-REQ-7.7), confirm the producer's result is consumed by a caller in production code, not only by tests.",
+        "Search codefix/, internal/conform/revert.go, internal/agentrun/guard.go for stub markers: panic(\"not implemented\"), TODO, bare return nil on non-trivial paths. Remove any that remain."
+      ],
+      "touches": [
+        "codefix/smoke_engine_test.go"
+      ],
+      "depends_on": [
+        7,
+        8,
+        9,
+        10
+      ],
+      "state": "pending"
+    }
+  ]
+}

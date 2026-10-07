@@ -1,0 +1,350 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "18",
+  "spec_name": "find_references_wiring",
+  "schema_version": 2,
+  "introduction": "This spec wires AgentKit's `find_references` tool into agent-fox by adding its name to `ReadOnlyFileTools` so every phase of every tool (`triage`, `fix`, `spec`, `impl`) can call it, updating the two prompts that mention callers to name the tool, extending the repository map sentence, and updating the documentation that counts or names the read tools.",
+  "glossary": {
+    "ReadOnlyFileTools": "The package-level slice in internal/agentrun/policy.go listing the built-in tool names every read-only phase receives; currently six entries, becoming seven.",
+    "phase": "One agent invocation inside a tool run, with its own system prompt, tool set, turn budget and cost cap, built by agentrun.Runner.Run.",
+    "tools.All": "The AgentKit function that returns every built-in tool for a given workspace and index; called once per phase by registeredTools."
+  },
+  "requirements": [
+    {
+      "id": "18-REQ-1",
+      "title": "Add find_references to ReadOnlyFileTools",
+      "rationale": "Following the pattern established by spec 15 for file_outline and find_symbol, adding the name to the shared slice is a one-line change that reaches every phase of every tool with no per-phase code change.",
+      "criteria": [
+        {
+          "id": "18-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "agentrun.ReadOnlyFileTools",
+          "action": "contain exactly the seven entries `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and `find_references`, in that order"
+        },
+        {
+          "id": "18-REQ-1.2",
+          "pattern": "ubiquitous",
+          "system": "agentrun.ReadOnlyFileTools",
+          "action": "not include `find_references` in MutatingTools, so AssertReadOnly passes for every read-only phase that registers the seven read tools"
+        },
+        {
+          "id": "18-REQ-1.3",
+          "pattern": "event_driven",
+          "condition": "a phase sets BuiltinTools to ReadOnlyFileTools (with or without execute or WriteFileTools appended)",
+          "system": "registeredTools",
+          "action": "include `find_references` in the resolved tool set returned to the phase"
+        },
+        {
+          "id": "18-REQ-1.4",
+          "pattern": "ubiquitous",
+          "system": "agentrun.ReadOnlyFileTools",
+          "action": "not include `find_references` in ShellTools, so the shell guard is unaffected"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-2",
+      "title": "Fresh reference table per phase",
+      "rationale": "Each phase calls tools.All once, so find_references builds its reference table from the current tree at that point, keeping fix and impl correct across tree changes between phases.",
+      "criteria": [
+        {
+          "id": "18-REQ-2.1",
+          "pattern": "ubiquitous",
+          "system": "registeredTools",
+          "action": "call tools.All exactly once per phase invocation, so each phase holds its own reference table built on its first find_references call"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-3",
+      "title": "Prompts name find_references where they say callers",
+      "rationale": "A model told to find callers but given no tool for it falls back to search_files with a regex, which returns false positives. Naming find_references in the same instruction steers the model to the better tool on its first attempt.",
+      "criteria": [
+        {
+          "id": "18-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "analysisSystemPrompt in codefix/phases.go",
+          "action": "contain the string `find_references` in the step that currently says \"Read the file, then its callers and callees\", so the model discovers the tool without a trial call"
+        },
+        {
+          "id": "18-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "surveySystemPrompt in codeimpl/prompts.go",
+          "action": "contain the string `find_references` in the step that currently says \"Read the file it lives in, its callers, and its tests\", so the model discovers the tool without a trial call"
+        },
+        {
+          "id": "18-REQ-3.3",
+          "pattern": "ubiquitous",
+          "system": "analysisSystemPrompt",
+          "action": "retain the instruction to trace callers and callees, changing only the wording to name the tool, not removing the step or adding a new one"
+        },
+        {
+          "id": "18-REQ-3.4",
+          "pattern": "ubiquitous",
+          "system": "surveySystemPrompt",
+          "action": "retain the instruction to read callers and tests, changing only the wording to name the tool, not removing the step or adding a new one"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-4",
+      "title": "Repository map sentence mentions find_references",
+      "rationale": "The Intro constant is the first text a model sees about navigation tools. Mentioning find_references there tells every phase about it before the tool list.",
+      "criteria": [
+        {
+          "id": "18-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "repomap.Intro in internal/repomap/repomap.go",
+          "action": "contain the string `find_references` and describe it as the tool for finding who calls or uses a declaration"
+        },
+        {
+          "id": "18-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "repomap.Intro",
+          "action": "continue to mention `read_file`, `file_outline`, `find_symbol`, `find_files` and `search_files` alongside `find_references`"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-5",
+      "title": "toolsNote and renderGuidelines carry find_references automatically",
+      "rationale": "Both functions iterate the registered tool set, so adding find_references to ReadOnlyFileTools is sufficient for the tool name and its PromptGuidelines to appear in every phase's system prompt.",
+      "criteria": [
+        {
+          "id": "18-REQ-5.1",
+          "pattern": "event_driven",
+          "condition": "find_references is in the registered tool set of a phase",
+          "system": "toolsNote",
+          "action": "include `find_references` in the tool-availability sentence appended to the system prompt"
+        },
+        {
+          "id": "18-REQ-5.2",
+          "pattern": "event_driven",
+          "condition": "find_references carries a non-empty PromptGuidelines slice",
+          "system": "renderGuidelines",
+          "action": "render each guideline as a bullet under the Tool guidelines heading, with no agent-fox code change"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-6",
+      "title": "Update docs/model-usage.md",
+      "criteria": [
+        {
+          "id": "18-REQ-6.1",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "replace every occurrence of \"the six read tools\" with \"the seven read tools\" and replace every occurrence of \"six read tools\" with \"seven read tools\""
+        },
+        {
+          "id": "18-REQ-6.2",
+          "pattern": "ubiquitous",
+          "system": "docs/model-usage.md",
+          "action": "list all seven read tools — `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and `find_references` — in the paragraph that defines the phrase and in the triage row that enumerates them"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-7",
+      "title": "Update docs/cli.md",
+      "criteria": [
+        {
+          "id": "18-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "replace every occurrence of \"six read tools\" with \"seven read tools\" and list all seven including `find_references` wherever the six were previously enumerated"
+        },
+        {
+          "id": "18-REQ-7.2",
+          "pattern": "ubiquitous",
+          "system": "docs/cli.md",
+          "action": "not add a new --preflight check entry for find_references; the existing symbol_backend check remains the sole entry for the symbol-table backend"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-8",
+      "title": "Update navigation baseline tables in docs/development.md",
+      "criteria": [
+        {
+          "id": "18-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "include a `find_references` column in every navigation baseline table, placed after `find_symbol` and before `code_search`"
+        },
+        {
+          "id": "18-REQ-8.2",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "set every cell in the `find_references` column to a dash in every existing row of every baseline table"
+        },
+        {
+          "id": "18-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "update the jq snippet that reads the report files to extract `(.tool_calls.find_references // 0)` between `find_symbol` and `code_search`"
+        },
+        {
+          "id": "18-REQ-8.4",
+          "pattern": "ubiquitous",
+          "system": "docs/development.md",
+          "action": "update the introductory text of the navigation baseline section to say seven read-only file tools (was six) and name `find_references` alongside the others"
+        }
+      ]
+    },
+    {
+      "id": "18-REQ-9",
+      "title": "WithCodeSearch and shared-list mutation safety",
+      "rationale": "WithCodeSearch copies ReadOnlyFileTools before appending, so the shared slice is never grown. The existing mutation tests adapt to seven automatically because they compare len(ReadOnlyFileTools) before and after.",
+      "criteria": [
+        {
+          "id": "18-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "WithCodeSearch",
+          "action": "for any call with on=true, return a new slice of length len(ReadOnlyFileTools)+1 whose last element is `code_search`, without modifying the original ReadOnlyFileTools slice"
+        },
+        {
+          "id": "18-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "WithCodeSearch",
+          "action": "for any call with on=false, return the input grant unchanged, with length equal to len(ReadOnlyFileTools)"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "18-PATH-1",
+      "title": "A triage run registers find_references and the model sees it in the prompt",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `triage --preflight --repo acme/widgets`"
+        },
+        {
+          "actor": "triage pipeline",
+          "action": "calls RunPreflight, which reports the symbol_backend check (no new check for find_references)"
+        },
+        {
+          "actor": "operator",
+          "action": "runs `triage <input>` against the repository"
+        },
+        {
+          "actor": "registeredTools",
+          "action": "calls tools.All and selects the seven ReadOnlyFileTools including find_references"
+        },
+        {
+          "actor": "toolsNote",
+          "action": "appends the tool-availability sentence listing find_references to the system prompt"
+        },
+        {
+          "actor": "model",
+          "action": "receives find_references in its tool set and may call it to locate callers of a declaration"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-2",
+      "title": "Fix analyse phase names find_references in its prompt and registers the tool",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `fix <problem-report>` against a repository"
+        },
+        {
+          "actor": "fix pipeline",
+          "action": "enters the analyse phase with BuiltinTools built from ReadOnlyFileTools plus execute"
+        },
+        {
+          "actor": "registeredTools",
+          "action": "resolves the seven read tools plus execute, including find_references"
+        },
+        {
+          "actor": "AssertReadOnly",
+          "action": "passes because find_references is not in MutatingTools"
+        },
+        {
+          "actor": "model",
+          "action": "reads the analysisSystemPrompt which names find_references in the step about tracing callers"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-3",
+      "title": "Impl survey phase names find_references in its prompt and registers the tool",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "runs `impl <spec-dir>` against a repository"
+        },
+        {
+          "actor": "impl pipeline",
+          "action": "enters the survey phase with BuiltinTools built from ReadOnlyFileTools plus execute"
+        },
+        {
+          "actor": "registeredTools",
+          "action": "resolves the seven read tools plus execute, including find_references"
+        },
+        {
+          "actor": "AssertReadOnly",
+          "action": "passes because find_references is not in MutatingTools"
+        },
+        {
+          "actor": "model",
+          "action": "reads the surveySystemPrompt which names find_references in the step about reading callers"
+        }
+      ]
+    },
+    {
+      "id": "18-PATH-4",
+      "title": "Documentation reflects seven read tools throughout",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "reads docs/model-usage.md and sees seven read tools listed in the phase table and defining paragraph"
+        },
+        {
+          "actor": "developer",
+          "action": "reads docs/cli.md and sees seven read tools listed in each tool's what-the-model-may-do section"
+        },
+        {
+          "actor": "developer",
+          "action": "reads docs/development.md and sees a find_references column in every baseline table with dashes in every cell"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "github.com/agentfox/agentkit-go",
+      "version": "latest (replace directive)",
+      "verified": true,
+      "symbols": [
+        {
+          "name": "tools.All",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "func All(opts Options) ([]core.Tool, error)",
+          "notes": "Returns all built-in tools for the given options, including find_references when AgentKit ships it. Called at internal/agentrun/phase.go L525."
+        },
+        {
+          "name": "tools.Options",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "struct { Workspace *Workspace; Index Index; ... }",
+          "notes": "Used at internal/agentrun/phase.go L525 as tools.Options{Workspace: r.cfg.Workspace, Index: r.cfg.Index}."
+        },
+        {
+          "name": "core.Tool",
+          "import_path": "github.com/agentfox/agentkit-go/core",
+          "signature": "struct { Name string; Description string; PromptGuidelines []string; ... }",
+          "notes": "Used throughout internal/agentrun/policy.go and phase.go."
+        },
+        {
+          "name": "tools.SearchOverExecuteGuideline",
+          "import_path": "github.com/agentfox/agentkit-go/tools",
+          "signature": "const string",
+          "notes": "Used at internal/agentrun/phase.go L1125."
+        }
+      ]
+    }
+  ]
+}

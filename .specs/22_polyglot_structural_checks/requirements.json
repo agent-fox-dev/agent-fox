@@ -1,0 +1,536 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v2.json",
+  "spec_id": "22",
+  "spec_name": "polyglot_structural_checks",
+  "schema_version": 2,
+  "introduction": "Wire internal/conform's structural checks — formatting, long functions, assertion-less tests, revert-check file classification, errata citation test-reference patterns, duplicate-detection classifiers, and gate-edit detectors — to read from lang.Profile's assertion patterns, formatter commands, function-span logic, skip markers, gate-config classifier, and test-file classifier, so that every language gets the same mechanism with its own conventions and no language literal remains hardcoded in internal/conform.",
+  "glossary": {
+    "denylist": "The set of language-literal strings (e.g. .go\", gofmt, .py\") that TestNoLanguageLiterals forbids in non-test Go files.",
+    "detection": "A lang.Detection value: the set of profiles whose manifests are present in a repository, with a primary and a union API.",
+    "formatter output regex": "A compiled regexp that parses one line of a formatter's stdout into a file path and optional line/col/message fields.",
+    "profile": "A lang.Profile row: the ecosystem identifier and every language-specific fact (commands, patterns, classifiers) for one language.",
+    "span finder": "A function that locates function declarations and their line extents in source text (e.g. pythonSpans, jsSpans, rustSpans, braceSpans)."
+  },
+  "requirements": [
+    {
+      "id": "22-REQ-1",
+      "title": "ScanInput gains a Lang detection field and file classification uses it",
+      "rationale": "All language-specific decisions in the scan must flow from the detection so that adding a language never requires editing internal/conform.",
+      "criteria": [
+        {
+          "id": "22-REQ-1.1",
+          "pattern": "ubiquitous",
+          "system": "ScanInput",
+          "action": "carry a field Lang of type lang.Detection that is used for all language-specific decisions when set"
+        },
+        {
+          "id": "22-REQ-1.2",
+          "pattern": "state_driven",
+          "condition": "ScanInput.Lang is set (non-zero)",
+          "system": "Scan",
+          "action": "classify files as Go by checking whether any detected profile has Name \"go\" and the file ends in .go, and classify other source files via Detection.IsSourceFile, instead of the hardcoded strings.HasSuffix and project.IsSourceFile calls"
+        },
+        {
+          "id": "22-REQ-1.3",
+          "pattern": "state_driven",
+          "condition": "ScanInput.Lang is set",
+          "system": "scanAddedText",
+          "action": "determine the code and production flags using Detection.IsSourceFile and Detection.TestFile instead of project.IsSourceFile and project.IsTestPath"
+        },
+        {
+          "id": "22-REQ-1.4",
+          "pattern": "state_driven",
+          "condition": "ScanInput.Lang is set",
+          "system": "scanAddedText",
+          "action": "fire the import_suppressor check for Go test files identified by the Go profile's TestFile function, not by a hardcoded .go suffix"
+        },
+        {
+          "id": "22-REQ-1.5",
+          "pattern": "unwanted",
+          "condition": "ScanInput.Lang is zero (nil/empty)",
+          "system": "Scan",
+          "action": "fall back to the current hardcoded extension checks and project.IsTestPath/project.IsSourceFile so that existing callers compile and behave identically",
+          "contract": "every finding produced is identical to the output before this change for the same input"
+        },
+        {
+          "id": "22-REQ-1.6",
+          "pattern": "event_driven",
+          "condition": "codefix/pipeline.go calls conform.Scan",
+          "system": "codefix pipeline",
+          "action": "pass the lang.Detection it already holds in ScanInput.Lang"
+        },
+        {
+          "id": "22-REQ-1.7",
+          "pattern": "event_driven",
+          "condition": "codeimpl/conformance.go calls conform.Scan",
+          "system": "codeimpl conformance",
+          "action": "pass the lang.Detection it already holds in ScanInput.Lang"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-2",
+      "title": "Assertion checks use the profile's AssertPattern",
+      "rationale": "The hardcoded pyAssertRe, jsAssertRe, rustAssertRe patterns must be replaced by the profile's AssertPattern so that adding a language's assertion check is setting a field on its Profile row.",
+      "criteria": [
+        {
+          "id": "22-REQ-2.1",
+          "pattern": "state_driven",
+          "condition": "the file's matched profile has a non-nil AssertPattern",
+          "system": "scanSourceFile",
+          "action": "use that profile's AssertPattern as the assertion regex instead of the hardcoded pyAssertRe/jsAssertRe/rustAssertRe"
+        },
+        {
+          "id": "22-REQ-2.2",
+          "pattern": "state_driven",
+          "condition": "the file is Go",
+          "system": "scanGoFile",
+          "action": "continue to use the go/ast-based asserts function for assertion detection, taking precedence over any regex AssertPattern on the Go profile"
+        },
+        {
+          "id": "22-REQ-2.3",
+          "pattern": "unwanted",
+          "condition": "the file's matched profile has a nil AssertPattern and the file is not Go",
+          "system": "scanSourceFile",
+          "action": "produce no no_assertions finding for that file",
+          "contract": "the returned findings slice contains no Finding with Check == CheckNoAssertions for that file"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-3",
+      "title": "Function-span detection dispatched by profile",
+      "rationale": "The sourceSpans switch on file extension must become a dispatch on the detected profile so that adding a span finder is adding a row in a table.",
+      "criteria": [
+        {
+          "id": "22-REQ-3.1",
+          "pattern": "ubiquitous",
+          "system": "sourceSpans",
+          "action": "receive the file's matched profile (determined by extension from the detection's profiles) and select the span finder from a table keyed by profile name, not from a switch on file extension"
+        },
+        {
+          "id": "22-REQ-3.2",
+          "pattern": "ubiquitous",
+          "system": "polyglot.go",
+          "action": "maintain the profile-to-span-finder mapping as a table (map or slice of structs) where adding a new profile's span finder is adding a row, with entries for python→pythonSpans, node→jsSpans, rust→rustSpans, and brace-based profiles (jvm, dotnet, swift, php, dart, generic brace languages)→braceSpans"
+        },
+        {
+          "id": "22-REQ-3.3",
+          "pattern": "unwanted",
+          "condition": "the file's matched profile has no span finder in the table",
+          "system": "scanSourceFile",
+          "action": "produce no long_function finding and no error for that file",
+          "contract": "the returned findings slice contains no Finding with Check == CheckLongFunction for that file"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-4",
+      "title": "Formatting checks use the profile's Format and Lint commands",
+      "rationale": "The hardcoded formatters table and the separate gofmt/vet functions must be replaced by a unified path that runs each profile's Format and Lint commands.",
+      "criteria": [
+        {
+          "id": "22-REQ-4.1",
+          "pattern": "ubiquitous",
+          "system": "Scan",
+          "action": "group changed files by their matched profile and, for each profile that has a Format command, resolve the command via Command.Resolve(root) and run it over that profile's files"
+        },
+        {
+          "id": "22-REQ-4.2",
+          "pattern": "ubiquitous",
+          "system": "Scan",
+          "action": "parse each formatter's output using a per-profile output regex from the formatter output regex table to extract file paths and optional line/col/message fields"
+        },
+        {
+          "id": "22-REQ-4.3",
+          "pattern": "state_driven",
+          "condition": "the profile is go",
+          "system": "Scan",
+          "action": "run gofmt -l via the Go profile's Format command and go vet via the Go profile's Lint command through the same unified path as other profiles"
+        },
+        {
+          "id": "22-REQ-4.4",
+          "pattern": "unwanted",
+          "condition": "a profile has no Format command or the formatter is not installed (version probe fails)",
+          "system": "Scan",
+          "action": "produce no formatting finding for that profile's files",
+          "contract": "the returned findings slice contains no Finding with Check == CheckFormat or Check == CheckGofmt or Check == CheckVet for files of that profile"
+        },
+        {
+          "id": "22-REQ-4.5",
+          "pattern": "unwanted",
+          "condition": "a formatter's output line does not match the profile's output regex",
+          "system": "Scan",
+          "action": "silently skip that line without producing a finding or returning an error",
+          "contract": "no error is returned and no finding is emitted for the unparseable line"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-5",
+      "title": "Revert check uses the detection for file classification and inline tests",
+      "rationale": "splitChange and keepRustTests must use the detection's TestFile and Profile.InlineTests so that adding a language with inline tests does not require editing revert.go.",
+      "criteria": [
+        {
+          "id": "22-REQ-5.1",
+          "pattern": "state_driven",
+          "condition": "a test-file classifier function is provided",
+          "system": "splitChange",
+          "action": "use the provided classifier instead of project.IsTestPath to separate implementation files from test files"
+        },
+        {
+          "id": "22-REQ-5.2",
+          "pattern": "ubiquitous",
+          "system": "splitChange",
+          "action": "continue to use project.IsDocsFile for documentation classification, because it is not language-specific"
+        },
+        {
+          "id": "22-REQ-5.3",
+          "pattern": "state_driven",
+          "condition": "the file's matched profile has InlineTests == true",
+          "system": "putBack",
+          "action": "call keepRustTests (or its equivalent) for that file, instead of checking for a hardcoded .rs suffix"
+        },
+        {
+          "id": "22-REQ-5.4",
+          "pattern": "unwanted",
+          "condition": "no test-file classifier is provided (nil)",
+          "system": "splitChange",
+          "action": "fall back to project.IsTestPath",
+          "contract": "the split result is identical to the output before this change for the same input"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-6",
+      "title": "Errata citation and duplicate checks use the detection",
+      "rationale": "The errata citation's testRefRe and the duplicate check's project.IsSourceFile/IsTestPath calls must use the detection so that test references and file classification are profile-driven.",
+      "criteria": [
+        {
+          "id": "22-REQ-6.1",
+          "pattern": "state_driven",
+          "condition": "ScanInput.Lang is set",
+          "system": "checkErrataCitation",
+          "action": "use Detection.TestFile instead of project.IsTestPath to determine whether a cited reference is a test file"
+        },
+        {
+          "id": "22-REQ-6.2",
+          "pattern": "event_driven",
+          "condition": "a Scan call begins with a non-zero ScanInput.Lang",
+          "system": "Scan",
+          "action": "build testRefRe once from the union of every detected profile's TestID pattern (when non-nil) plus the existing TS- spec-test-id pattern, and use it for errata citation checks during that scan"
+        },
+        {
+          "id": "22-REQ-6.3",
+          "pattern": "state_driven",
+          "condition": "ScanInput.Lang is set",
+          "system": "duplicates",
+          "action": "use Detection.IsSourceFile and Detection.TestFile instead of project.IsSourceFile and project.IsTestPath for file classification"
+        },
+        {
+          "id": "22-REQ-6.4",
+          "pattern": "unwanted",
+          "condition": "ScanInput.Lang is zero",
+          "system": "checkErrataCitation and duplicates",
+          "action": "fall back to project.IsTestPath and project.IsSourceFile",
+          "contract": "the output is identical to the output before this change for the same input"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-7",
+      "title": "Finding gains Backend and Profile fields",
+      "rationale": "A reviewer must see what mechanism and what language judged each finding.",
+      "criteria": [
+        {
+          "id": "22-REQ-7.1",
+          "pattern": "ubiquitous",
+          "system": "Finding struct",
+          "action": "carry two additional string fields Backend (json:\"backend,omitempty\") and Profile (json:\"profile,omitempty\")"
+        },
+        {
+          "id": "22-REQ-7.2",
+          "pattern": "event_driven",
+          "condition": "scanGoFile produces a finding",
+          "system": "scanGoFile",
+          "action": "set Backend to \"go/ast\" and Profile to \"go\""
+        },
+        {
+          "id": "22-REQ-7.3",
+          "pattern": "event_driven",
+          "condition": "scanSourceFile produces a finding",
+          "system": "scanSourceFile",
+          "action": "set Backend to \"regex\" and Profile to the matched profile's Name"
+        },
+        {
+          "id": "22-REQ-7.4",
+          "pattern": "event_driven",
+          "condition": "a formatting check produces a finding",
+          "system": "Scan",
+          "action": "set Backend to the formatter's tool name (e.g. \"gofmt\", \"rustfmt\", \"ruff\", \"prettier\") and Profile to the profile's Name"
+        },
+        {
+          "id": "22-REQ-7.5",
+          "pattern": "event_driven",
+          "condition": "a lint check (e.g. go vet) produces a finding",
+          "system": "Scan",
+          "action": "set Backend to the linter's tool name (e.g. \"go vet\") and Profile to the profile's Name"
+        },
+        {
+          "id": "22-REQ-7.6",
+          "pattern": "state_driven",
+          "condition": "a check is language-neutral (discarded_error, later_task, git_init_branch, future_date, errata_citation, duplicate)",
+          "system": "Scan",
+          "action": "leave Backend and Profile empty so that JSON output omits them"
+        },
+        {
+          "id": "22-REQ-7.7",
+          "pattern": "ubiquitous",
+          "system": "Finding struct",
+          "action": "for any existing JSON consumer, produce output that differs only by the additive omitempty Backend and Profile fields; no existing field is removed or renamed"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-8",
+      "title": "Formatter output regex table",
+      "rationale": "The regex that parses a formatter's stdout is a concern of internal/conform, not of the profile. A table keyed by profile name keeps the concern local.",
+      "criteria": [
+        {
+          "id": "22-REQ-8.1",
+          "pattern": "ubiquitous",
+          "system": "polyglot.go or a new formatline.go",
+          "action": "maintain a table mapping profile names to the compiled regexp that parses the formatter's output into (path, line, col, message) fields, covering at least: go/gofmt (bare filename per line), go/go vet (path:line:col: message), rust/rustfmt (Diff in path or Diff in path at line N:), python/ruff (Would reformat: path), python/black (would reformat path), node/prettier ([warn] path.ext)"
+        },
+        {
+          "id": "22-REQ-8.2",
+          "pattern": "unwanted",
+          "condition": "a profile is not in the formatter output regex table",
+          "system": "Scan",
+          "action": "produce no formatting finding for that profile's files",
+          "contract": "no Finding with Check == CheckFormat is emitted for files of that profile"
+        },
+        {
+          "id": "22-REQ-8.3",
+          "pattern": "ubiquitous",
+          "system": "formatter output regex table",
+          "action": "be the single place where a formatter's output shape is defined; no other code in internal/conform parses formatter output by a separate regex"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-9",
+      "title": "Denylist test covers internal/conform",
+      "rationale": "The acceptance gate for no hardcoded language literals must include internal/conform after this scope lands.",
+      "criteria": [
+        {
+          "id": "22-REQ-9.1",
+          "pattern": "ubiquitous",
+          "system": "TestNoLanguageLiterals in internal/lang",
+          "action": "walk internal/conform's non-test .go files in addition to the directories it already walks (codefix, codeimpl)"
+        },
+        {
+          "id": "22-REQ-9.2",
+          "pattern": "ubiquitous",
+          "system": "TestNoLanguageLiterals",
+          "action": "fail if any line in internal/conform (outside _test.go files) contains a string from the denylist (.go\", \"go.mod\", gofmt, \"go test\", \"go vet\", _test.go\", panic(\"not, \"pytest\", \"cargo \", \"npm \", .py\", .ts\", .rs\"), with exceptions allowed for import paths"
+        },
+        {
+          "id": "22-REQ-9.3",
+          "pattern": "ubiquitous",
+          "system": "internal/conform",
+          "action": "contain no line in non-test .go files that matches the denylist after all other requirements of this spec are implemented"
+        }
+      ]
+    },
+    {
+      "id": "22-REQ-10",
+      "title": "Backward compatibility",
+      "rationale": "Callers in codefix and codeimpl must continue to compile and behave identically when they do not set the new fields.",
+      "criteria": [
+        {
+          "id": "22-REQ-10.1",
+          "pattern": "ubiquitous",
+          "system": "Scan",
+          "action": "accept the same ScanInput shape as before (the struct gains a field; no field is removed or retyped) so that callers that do not set Lang compile without change"
+        },
+        {
+          "id": "22-REQ-10.2",
+          "pattern": "ubiquitous",
+          "system": "Revert",
+          "action": "keep a signature that existing callers in codefix and codeimpl compile against without change; the test-file classifier is passed internally or via an optional parameter"
+        },
+        {
+          "id": "22-REQ-10.3",
+          "pattern": "ubiquitous",
+          "system": "Finding struct",
+          "action": "keep every existing field (Check, Path, Line, Message) with the same JSON tags; the Backend and Profile fields are additive with omitempty"
+        }
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "22-PATH-1",
+      "title": "codeimpl runs a structural scan with detection and receives profile-annotated findings",
+      "steps": [
+        {
+          "actor": "codeimpl conformance",
+          "action": "calls conform.Scan with ScanInput.Lang set to the lang.Detection it holds"
+        },
+        {
+          "actor": "Scan",
+          "action": "classifies changed files by profile using Detection.IsSourceFile and Detection.TestFile, groups them by profile"
+        },
+        {
+          "actor": "Scan",
+          "action": "runs scanGoFile (go/ast backend) for Go files and scanSourceFile (regex backend with profile's AssertPattern and span finder) for other source files"
+        },
+        {
+          "actor": "Scan",
+          "action": "runs each profile's Format and Lint commands via the unified formatter path, parsing output with the formatter output regex table"
+        },
+        {
+          "actor": "Scan",
+          "action": "returns findings with Backend and Profile fields set on every language-specific finding"
+        }
+      ]
+    },
+    {
+      "id": "22-PATH-2",
+      "title": "codefix runs a revert check with profile-aware file classification",
+      "steps": [
+        {
+          "actor": "codefix pipeline",
+          "action": "calls conform.Revert for the fix's changed files"
+        },
+        {
+          "actor": "splitChange",
+          "action": "classifies files into implementation and tests using the provided test-file classifier (Detection.TestFile) instead of project.IsTestPath"
+        },
+        {
+          "actor": "putBack",
+          "action": "checks each file's matched profile for InlineTests and calls keepRustTests only when the profile says the language has inline tests"
+        },
+        {
+          "actor": "Revert",
+          "action": "runs the check function with implementation reverted and tests preserved, returning the RevertResult"
+        }
+      ]
+    },
+    {
+      "id": "22-PATH-3",
+      "title": "A Python file triggers formatting and assertion checks via its profile",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "commits a Python file with a test function that has no assertion and is not formatted by ruff"
+        },
+        {
+          "actor": "Scan",
+          "action": "matches the file to the python profile via Detection.IsSourceFile, selects pythonSpans as the span finder and the python profile's AssertPattern as the assertion regex"
+        },
+        {
+          "actor": "scanSourceFile",
+          "action": "detects the assertion-less test and produces a no_assertions finding with Backend=\"regex\" and Profile=\"python\""
+        },
+        {
+          "actor": "Scan",
+          "action": "resolves the python profile's Format command to ruff format --check, runs it, parses output with the python formatter output regex, and produces a format finding with Backend=\"ruff\" and Profile=\"python\""
+        }
+      ]
+    },
+    {
+      "id": "22-PATH-4",
+      "title": "Denylist test verifies no language literals remain in internal/conform",
+      "steps": [
+        {
+          "actor": "test runner",
+          "action": "runs TestNoLanguageLiterals in internal/lang"
+        },
+        {
+          "actor": "TestNoLanguageLiterals",
+          "action": "walks internal/conform's non-test .go files and checks every line against the denylist, failing if any match is found outside import paths"
+        }
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "internal/lang",
+      "version": "defined by spec 19_language_profiles",
+      "verified": false,
+      "symbols": [
+        {
+          "name": "Detection.TestFile",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func (d Detection) TestFile(path string) bool"
+        },
+        {
+          "name": "Detection.IsSourceFile",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func (d Detection) IsSourceFile(path string) bool"
+        },
+        {
+          "name": "Profile.AssertPattern",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "AssertPattern *regexp.Regexp",
+          "notes": "Field on Profile struct; nil means no assertion check for this language."
+        },
+        {
+          "name": "Profile.Format",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "Format Command",
+          "notes": "Field on Profile struct; zero value means no formatter."
+        },
+        {
+          "name": "Profile.Lint",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "Lint Command",
+          "notes": "Field on Profile struct; zero value means no linter."
+        },
+        {
+          "name": "Profile.InlineTests",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "InlineTests bool",
+          "notes": "Field on Profile struct; true for Rust and Elixir."
+        },
+        {
+          "name": "Profile.TestID",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "TestID *regexp.Regexp",
+          "notes": "Field on Profile struct; matches test identifiers in source."
+        },
+        {
+          "name": "Profile.TestFile",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "TestFile func(path string) bool",
+          "notes": "Field on Profile struct; per-language test-file classifier."
+        },
+        {
+          "name": "Profile.Name",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "Name string",
+          "notes": "Field on Profile struct; ecosystem identifier."
+        },
+        {
+          "name": "Command.Resolve",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "func (c Command) Resolve(root string) []string"
+        },
+        {
+          "name": "Detection.All",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "All []Profile",
+          "notes": "Field on Detection struct; every matched profile in precedence order."
+        },
+        {
+          "name": "Detection.Primary",
+          "import_path": "github.com/agent-fox-dev/agentfox/internal/lang",
+          "signature": "Primary Profile",
+          "notes": "Field on Detection struct; the first matched profile."
+        }
+      ]
+    }
+  ]
+}
