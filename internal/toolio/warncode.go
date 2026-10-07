@@ -76,6 +76,10 @@ const (
 	// did not complete: nothing but the authors checked the change against
 	// the spec, and the result says so instead of passing for reviewed.
 	WarnReviewNotRun WarnCode = "review_not_run"
+	// WarnResolveNotRun is recorded when the conformance stage found
+	// something to fix and the resolve phase was not run, so nothing tried to
+	// fix or declare it before the run reported it.
+	WarnResolveNotRun WarnCode = "resolve_not_run"
 	// WarnUnmetRequirements is recorded when the change knowingly does not
 	// meet part of its specification. The pull request opens with the list.
 	WarnUnmetRequirements WarnCode = "unmet_requirements"
@@ -156,6 +160,7 @@ var warnStages = map[WarnCode]string{
 	WarnEventsFileNotWritten:     "report",
 	WarnEffortClamped:            "preflight",
 	WarnReviewNotRun:             "review",
+	WarnResolveNotRun:            "resolve",
 	WarnUnmetRequirements:        "review",
 	WarnDeviationNotTracked:      "land",
 	WarnFixNotProven:             "verify",
@@ -216,6 +221,7 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnEventsFileNotWritten,
 		WarnEffortClamped,
 		WarnReviewNotRun,
+		WarnResolveNotRun,
 		WarnUnmetRequirements,
 		WarnDeviationNotTracked,
 		WarnFixNotProven,

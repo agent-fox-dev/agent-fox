@@ -89,7 +89,7 @@ func commitMessage(spec *afspec.Spec, task afspec.Task, sub Submission, repair *
 			msg += " " + s
 		}
 	}
-	return msg + "\n\n" + specRef(spec, task) + "\n"
+	return msg + "\n\n" + deviationTrailers(sub.Deviations) + specRef(spec, task) + "\n"
 }
 
 // resolveCommitMessage is the message of the commit the resolve phase's
@@ -107,7 +107,8 @@ func resolveCommitMessage(spec *afspec.Spec, sub ResolveSubmission, gate GateRes
 		}
 		msg += "\n\nChecks (run by the tool): " + strings.Join(cmds, ", ") + " passed."
 	}
-	return msg + "\n\n" + fmt.Sprintf("%s %s, %s", specTrailer, filepath.Base(spec.Dir), conformanceMarker) + "\n"
+	return msg + "\n\n" + deviationTrailers(sub.Deviations) +
+		fmt.Sprintf("%s %s, %s", specTrailer, filepath.Base(spec.Dir), conformanceMarker) + "\n"
 }
 
 // holdCommitMessage is the commit that holds a task's work while its
@@ -502,6 +503,8 @@ func revertCheckLine(rc conform.RevertResult) string {
 	case rc.Proves:
 		return fmt.Sprintf("**Revert check:** with %s taken out, the checks fail (exit %d), so the tests "+
 			"depend on the work.\n\n", "`"+strings.Join(rc.Reverted, "`, `")+"`", rc.Check.ExitCode)
+	case rc.CompileFailed:
+		return "**Revert check:** ⚠️ " + rc.Reason + ".\n\n"
 	case rc.Ran:
 		return "**Revert check:** ❌ " + rc.Reason + ".\n\n"
 	default:

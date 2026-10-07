@@ -699,6 +699,10 @@
                 "type": "boolean",
                 "description": "True when the checks failed with the implementation removed, so the tests catch its absence."
               },
+              "compile_failed": {
+                "type": "boolean",
+                "description": "True when the checks failed with the implementation removed because the tests did not compile, which proves nothing about behaviour."
+              },
               "reason": {
                 "type": "string",
                 "description": "Why the check did not run or proves nothing.",

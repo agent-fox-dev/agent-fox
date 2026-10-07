@@ -725,6 +725,26 @@ func resolvePrompt(in resolveInput) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(in.Shortfalls) > 0 {
+		b.WriteString("## Partial requirements and weaker tests (fix or declare)\n\n" +
+			"The review found these met only in part. Complete the requirement, or rewrite the test to " +
+			"assert its contract; declare it by its id when it cannot be done in this change.\n\n")
+		for _, u := range in.Shortfalls {
+			fmt.Fprintf(&b, "- **%s**: %s\n", firstNonEmpty(u.Requirement, u.Test), strings.TrimSpace(u.What))
+		}
+		b.WriteString("\n")
+	}
+	if len(in.Outside) > 0 {
+		b.WriteString("## Files outside the spec's scope (fix-only)\n\n" +
+			"No task of the spec lists these files. A change the spec did not ask for belongs in a pull " +
+			"request of its own: take each out of this change — restore it, or delete it if this change " +
+			"created it — unless the spec's work cannot do without it. What stays is reported in the pull " +
+			"request; it cannot be declared.\n\n")
+		for _, p := range in.Outside {
+			fmt.Fprintf(&b, "- `%s`\n", p)
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## Verification\n\n")
 	b.WriteString(gateBlock(in.Gate, in.Baseline))
 	b.WriteString("\n")

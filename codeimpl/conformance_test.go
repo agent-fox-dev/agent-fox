@@ -341,8 +341,8 @@ func TestUntrackedDeviationsThatCannotBeFiledWarnOnce(t *testing.T) {
 // admits what a spec author cannot list in advance (issue #192): a test file
 // that implements one of the spec's test ids, and a path the survey's
 // resolution names. A file still outside is reported in the pull request as
-// unmet, and does not block: it neither sends the run to the resolve phase nor
-// makes it a draft that exits 4.
+// unmet, and does not block: the resolve phase is shown it to fix, and what is
+// left does not make the run a draft that exits 4.
 func TestAFileOutsideTheSpecsScopeIsReportedNotBlocking(t *testing.T) {
 	ws, g, specDir := newSpecRepo(t)
 	setTouches(t, specDir, map[int][]string{1: {"task1.go"}, 2: {"task2.go"}, 3: {"task3.go"}})
@@ -364,12 +364,18 @@ func TestAFileOutsideTheSpecsScopeIsReportedNotBlocking(t *testing.T) {
 		}
 		return goodWork(root, task, attempt)
 	}
+	// The resolve phase is shown the files (issue #218) and here leaves them.
+	b.resolve = func(string, resolveInput) (ResolveSubmission, error) {
+		return ResolveSubmission{Summary: "Left them.", CommitSubject: "none"}, nil
+	}
 	got, err := Run(context.Background(), newOptions(ws, g, b))
 	if err != nil {
 		t.Fatalf("Run: %v (out-of-scope files must not make the run nonconformant)", err)
 	}
-	if len(b.resolveIns) != 0 {
-		t.Errorf("the resolve phase ran for scope findings: %+v", b.resolveIns[0].Blockers)
+	if len(b.resolveIns) != 1 || strings.Join(b.resolveIns[0].Outside, ",") != "helper_test.go,stray.go" {
+		t.Errorf("the resolve phase was not shown the out-of-scope files: %+v", b.resolveIns)
+	} else if p := resolvePrompt(b.resolveIns[0]); !strings.Contains(p, "`stray.go`") {
+		t.Errorf("the resolve prompt does not name the file:\n%s", p)
 	}
 	if strings.Join(got.OutOfScope, ",") != "helper_test.go,stray.go" || len(got.Blocking) != 0 {
 		t.Errorf("OutOfScope = %v, Blocking = %+v", got.OutOfScope, got.Blocking)
@@ -392,7 +398,7 @@ func TestAFileOutsideTheSpecsScopeIsReportedNotBlocking(t *testing.T) {
 
 	// The resolve tool still refuses to declare a fix-only finding.
 	var sink sinkResolve
-	res := submitResolveTool(&sink.s, []conform.Blocker{{Key: "scope:stray.go"}}).Execute(context.Background(),
+	res := submitResolveTool(&sink.s, []conform.Blocker{{Key: "scope:stray.go"}}, nil).Execute(context.Background(),
 		mustJSON(t, ResolveSubmission{Summary: "x", Deviations: []conform.Deviation{{Key: "scope:stray.go",
 			Reason: "it is a harmless cleanup of a typo"}}}))
 	if res.OK {

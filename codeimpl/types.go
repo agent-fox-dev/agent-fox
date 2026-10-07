@@ -20,6 +20,7 @@ package codeimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -206,6 +207,9 @@ type Failure struct {
 	Category    string
 	Err         error
 	TotalBudget float64
+	// Parked is true when the run committed its work as a wip: commit on the
+	// work branch and returned the checkout before failing.
+	Parked bool
 }
 
 func (f *Failure) Error() string           { return f.Err.Error() }
@@ -220,6 +224,13 @@ func fail(stage, category string, err error) *Failure {
 
 func failf(stage, category, format string, args ...any) *Failure {
 	return &Failure{Stage: stage, Category: category, Err: fmt.Errorf(format, args...)}
+}
+
+// parkedf is failf for a run that parked its work.
+func parkedf(stage, category, format string, args ...any) *Failure {
+	f := failf(stage, category, format, args...)
+	f.Parked = true
+	return f
 }
 
 // Categories this package adds to the shared vocabulary.
@@ -665,4 +676,12 @@ type brain interface {
 	Implement(context.Context, taskInput) (Submission, agentrun.Result, error)
 	Review(context.Context, conform.ReviewInput) (conform.Review, agentrun.Result, error)
 	Resolve(context.Context, resolveInput) (ResolveSubmission, agentrun.Result, error)
+}
+
+// IsParked reports whether err is a run that parked its work on the branch:
+// whatever stopped it, the work is a wip: commit and the checkout is back on
+// the base branch, which the caller reports as exit 4.
+func IsParked(err error) bool {
+	var f *Failure
+	return errors.As(err, &f) && f.Parked
 }

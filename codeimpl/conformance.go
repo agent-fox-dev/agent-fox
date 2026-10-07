@@ -69,6 +69,21 @@ func (a assessment) blockers() []conform.Blocker {
 	return out
 }
 
+// shortfalls are the review's partial requirements and weaker tests.
+func (a assessment) shortfalls() []conform.Unmet {
+	if a.review == nil {
+		return nil
+	}
+	return a.review.Shortfalls()
+}
+
+// needsResolve reports whether the stage found anything the resolve phase
+// could fix or declare: a blocker, a structural finding, a file outside the
+// spec's scope, or a review shortfall.
+func (a assessment) needsResolve() bool {
+	return len(a.blockers()) > 0 || len(a.findings) > 0 || len(a.outside) > 0 || len(a.shortfalls()) > 0
+}
+
 func (o Options) now() time.Time {
 	if o.Now != nil {
 		return o.Now()
@@ -80,7 +95,8 @@ func (o Options) now() time.Time {
 // task lists some: a spec that leaves one task open does not restrict the
 // change. Documentation is exempt — the project's own rules ask for it to
 // change with the code — and so is the spec package, which the program
-// writes.
+// writes, and every file a baseline repair changed: the repair fixes the
+// repository, not the spec, and the pull request says so.
 //
 // A spec author cannot list every file the work will need, so the scope also
 // admits the paths the survey's resolutions name — the tasks are told to
@@ -107,7 +123,7 @@ func specScope(st *runState) conform.Scope {
 	}
 	ids := specTestIDs(st.spec)
 	return conform.Scope{Allow: allow, Exempt: func(p string) bool {
-		if project.IsDocsFile(p) || underSpec(st, p) {
+		if project.IsDocsFile(p) || underSpec(st, p) || slices.Contains(st.repairFiles, p) {
 			return true
 		}
 		if !project.IsTestPath(p) || len(ids) == 0 {
@@ -286,7 +302,10 @@ func assess(ctx context.Context, o Options, st *runState, result *Result) (asses
 		}
 	}
 
-	if !o.NoReview {
+	if !o.NoReview && overBudget(o, st) != nil {
+		a.reviewErr = fmt.Errorf("it was not run: the run has spent $%.2f of its $%.2f total budget",
+			st.cost, o.TotalBudgetUSD)
+	} else if !o.NoReview {
 		// The structural scan and the clean-environment gate ran on this tree
 		// first; the reviewer must search what is there now.
 		st.invalidate()
@@ -338,9 +357,13 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 
 	var declared []conform.Deviation
 	resolved := false
-	if blockers := a.blockers(); !o.NoReview && (len(blockers) > 0 || len(a.findings) > 0) {
-		if stop := overBudget(o, st); stop == nil {
-			sub, landed, err := runResolve(ctx, o, st, result, a, blockers)
+	if !o.NoReview && a.needsResolve() {
+		if stop := overBudget(o, st); stop != nil {
+			o.Run.Warn(toolio.WarnResolveNotRun, "high", "the conformance stage found what the resolve phase "+
+				"would fix or declare, and it was not run: the run has spent $%.2f of its $%.2f total budget; "+
+				"every finding is reported as it stands", st.cost, o.TotalBudgetUSD)
+		} else {
+			sub, landed, err := runResolve(ctx, o, st, result, a, a.blockers())
 			if err != nil {
 				return err
 			}
@@ -374,7 +397,7 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	// sees it, and may not know what the work found it could not do.
 	var unmet []conform.Unmet
 	isDeclared := map[string]bool{}
-	for _, d := range mergeDeclarations(append(taskDeviations(result), declared...)) {
+	for _, d := range mergeDeclarations(slices.Concat(st.priorDeviations, taskDeviations(result), declared)) {
 		if resolved && a.review != nil && declarationMet(d, *a.review) {
 			o.Progress.Step(conform.PhaseReview, "the declared deviation %s is retracted: the review after "+
 				"the resolve phase's change finds it met", d.Key)
@@ -391,8 +414,12 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 		}
 		blocking = append(blocking, b)
 	}
-	if a.review != nil {
-		unmet = append(unmet, a.review.Shortfalls()...)
+	// A shortfall the work declared is reported once, as the declaration.
+	for _, u := range a.shortfalls() {
+		if isDeclared[strings.ToUpper(u.Requirement)] || isDeclared[strings.ToUpper(u.Test)] {
+			continue
+		}
+		unmet = append(unmet, u)
 	}
 	if a.reviewErr != nil {
 		unmet = append(unmet, conform.Unmet{Source: conform.SourceUnresolved,
@@ -419,7 +446,9 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	return nil
 }
 
-// taskDeviations collects what the tasks declared, in task order.
+// taskDeviations collects what the tasks that landed in this run declared,
+// in task order. What tasks landed by an earlier run declared is read from
+// their commits (st.priorDeviations).
 func taskDeviations(result *Result) []conform.Deviation {
 	var out []conform.Deviation
 	for _, t := range result.Tasks {
@@ -541,11 +570,13 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	// The review's own checks may have touched the tree: the resolver starts
 	// from what is there now.
 	st.invalidate()
-	done := o.Progress.Begin("resolving %d blocking finding(s) and %d structural finding(s)", len(blockers), len(a.findings))
+	done := o.Progress.Begin("resolving %d blocking finding(s), %d structural finding(s), %d file(s) out of scope "+
+		"and %d shortfall(s)", len(blockers), len(a.findings), len(a.outside), len(a.shortfalls()))
 	st.noteUntracked(ctx)
 	sub, stats, err := st.brain.Resolve(ctx, resolveInput{
 		Spec: st.spec, Root: st.root, Branch: st.branch, Gate: st.gate, Suite: st.suite, Baseline: st.baseline,
-		Survey: st.survey, Blockers: blockers, Findings: a.findings, Hermetic: hermetic,
+		Survey: st.survey, Blockers: blockers, Findings: a.findings, Outside: a.outside, Shortfalls: a.shortfalls(),
+		Hermetic:     hermetic,
 		Instructions: projectInstructions(st.root), Steering: steering(st.specsDir), Profile: st.profile,
 		Now: o.now(),
 	})
@@ -603,9 +634,10 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	return &sub, true, nil
 }
 
-// trackDeviations files one issue for the declared items no erratum in the
-// change tracks, when the run opens a pull request and may write to the
-// forge. It is one issue however many items there are: they are the work the
+// trackDeviations files one issue for the unmet items nothing in the change
+// tracks — declared deviations without an erratum, review shortfalls,
+// structural findings, files out of scope — when the run opens a pull
+// request and may write to the forge. It is one issue however many items there are: they are the work the
 // change left over, and whoever picks it up — a person, or `fix` — resolves
 // them together, on one branch, against one list of acceptance criteria. Every
 // item it lists is tracked by that issue. What cannot be filed stays
@@ -613,7 +645,7 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 func trackDeviations(ctx context.Context, o Options, st *runState, result *Result) {
 	var untracked []int
 	for i, u := range result.Unmet {
-		if u.Source == conform.SourceDeclared && u.Tracking == "" {
+		if u.Tracking == "" {
 			untracked = append(untracked, i)
 		}
 	}
@@ -622,8 +654,8 @@ func trackDeviations(ctx context.Context, o Options, st *runState, result *Resul
 	}
 	if o.Land != LandPR || o.DryRun || o.Forge == nil || !o.Forge.Authenticated() || !st.target.Valid() {
 		for _, i := range untracked {
-			o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation %s is tracked by "+
-				"no erratum in the change, and this run files no issue", unmetID(result.Unmet[i]))
+			o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the unmet item %s is tracked by no erratum "+
+				"in the change, and this run files no issue", unmetID(result.Unmet[i]))
 		}
 		return
 	}
@@ -639,7 +671,7 @@ func trackDeviations(ctx context.Context, o Options, st *runState, result *Resul
 	stop()
 	if err != nil {
 		o.Run.RecordSideEffect("create_issue", st.target.String(), false, toolio.WarnDeviationNotTracked)
-		o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the declared deviation(s) %s could not be filed "+
+		o.Run.Warn(toolio.WarnDeviationNotTracked, "high", "the unmet item(s) %s could not be filed "+
 			"as an issue: %v", unmetIDs(items), err)
 		return
 	}
@@ -671,9 +703,13 @@ func deviationIssueTitle(specID string, items []conform.Unmet) string {
 // cannot open a section of its own and pass for the criteria.
 func deviationIssueBody(specDir, branch string, items []conform.Unmet) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "`impl` implemented specification `%s` on `%s` and declared %d requirement(s) or "+
-		"test(s) unmet. They are filed together, as one piece of work: each is met on the branch, or "+
-		"an erratum in the change records why it is not.\n\n", specDir, branch, len(items))
+	what := fmt.Sprintf("declared %d requirement(s) or test(s) unmet", len(items))
+	if slices.ContainsFunc(items, func(u conform.Unmet) bool { return u.Source != conform.SourceDeclared }) {
+		what = fmt.Sprintf("left %d item(s) unmet", len(items))
+	}
+	fmt.Fprintf(&b, "`impl` implemented specification `%s` on `%s` and %s. They are filed together, as one "+
+		"piece of work: each is met on the branch, or an erratum in the change records why it is not.\n\n",
+		specDir, branch, what)
 	b.WriteString("## Unmet items\n\n")
 	for n, u := range items {
 		fmt.Fprintf(&b, "### %d. %s\n\n- **Requirement:** %s\n- **Test:** %s\n\n", n+1, unmetID(u),
@@ -691,9 +727,17 @@ func deviationIssueBody(specDir, branch string, items []conform.Unmet) string {
 }
 
 // unmetID is the key an unmet item is known by: its requirement, else its
-// test.
+// test, else — a structural finding or a file out of scope, which have
+// neither — the start of what it says.
 func unmetID(u conform.Unmet) string {
-	return firstNonEmpty(u.Requirement, u.Test)
+	if id := firstNonEmpty(u.Requirement, u.Test); id != "" {
+		return id
+	}
+	what, _, _ := strings.Cut(strings.TrimSpace(u.What), "\n")
+	if r := []rune(what); len(r) > 80 {
+		what = string(r[:80]) + "…"
+	}
+	return what
 }
 
 // unmetIDs lists the keys of items, for a message.

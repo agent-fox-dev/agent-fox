@@ -151,6 +151,11 @@ type resolveInput struct {
 	// problems to fix where it is safe to.
 	Blockers []conform.Blocker
 	Findings []conform.Finding
+	// Outside are the changed files outside the spec's scope: fix-only.
+	// Shortfalls are the review's partial requirements and weaker tests: to
+	// fix, or to declare.
+	Outside    []string
+	Shortfalls []conform.Unmet
 	// Hermetic is the clean-environment run, when it failed.
 	Hermetic     *GateResult
 	Instructions string
@@ -336,7 +341,7 @@ func (b *agentBrain) resolvePhase(in resolveInput, out *sink[ResolveSubmission])
 		System:             resolveSystemPrompt,
 		User:               resolvePrompt(in),
 		Terminator:         ToolSubmitResolve,
-		Custom:             []core.Tool{submitResolveTool(out, in.Blockers)},
+		Custom:             []core.Tool{submitResolveTool(out, in.Blockers, in.Shortfalls)},
 		BuiltinTools:       tools,
 		ReadOnly:           false,
 		Programs:           programs,
@@ -924,14 +929,23 @@ func resolveSchema() *schema.Schema {
 // submitResolveTool ends the resolve phase. A declaration must answer a
 // finding that can be declared, with a reason; a finding that can only be
 // fixed — a document that contradicts the code — cannot be talked out of.
-func submitResolveTool(dest *sink[ResolveSubmission], blockers []conform.Blocker) core.Tool {
+func submitResolveTool(dest *sink[ResolveSubmission], blockers []conform.Blocker, shortfalls []conform.Unmet) core.Tool {
 	declarable := map[string]bool{}
 	var keys []string
+	add := func(k string) {
+		if k = strings.TrimSpace(k); k != "" && !declarable[strings.ToUpper(k)] {
+			declarable[strings.ToUpper(k)] = true
+			keys = append(keys, k)
+		}
+	}
 	for _, b := range blockers {
 		if b.Declarable {
-			declarable[strings.ToUpper(b.Key)] = true
-			keys = append(keys, b.Key)
+			add(b.Key)
 		}
+	}
+	// A partial requirement or a weaker test is declared by its id.
+	for _, u := range shortfalls {
+		add(firstNonEmpty(u.Requirement, u.Test))
 	}
 	return core.Tool{
 		Name: ToolSubmitResolve,

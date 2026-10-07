@@ -101,9 +101,11 @@ Exit codes:
   2  usage error — nothing was fetched, nothing was written
   3  stopped on purpose: the spec cannot be implemented as written, or an
      upstream spec is not done. The question is in the JSON.
-  4  a task was implemented and its checks do not pass — or, with --repair,
-     the checks could not be repaired. The work is parked on the branch as
-     a wip: commit and the checkout is back on the base branch. Also: every
+  4  a task did not land — its checks do not pass, its change was empty, its
+     phase ended without a report, the run was cancelled or reached its
+     budget — or, with --repair, the checks could not be repaired. The work
+     is parked on the branch as a wip: commit and the checkout is back on the
+     base branch; the category says why. Also: every
      task landed and the conformance checks left findings neither fixed nor
      declared (category nonconformant); the pull request is a draft.
 
@@ -295,7 +297,7 @@ func newApp() toolio.App {
 			toolio.ExitFailed:     "failed; the stage is named in the JSON",
 			toolio.ExitUsage:      "usage error; nothing was fetched and nothing was written",
 			toolio.ExitNeedsHuman: "stopped on purpose because the spec cannot be implemented as written or an upstream spec is not done; the question is in the JSON",
-			toolio.ExitUnverified: "a task was implemented and its checks do not pass, or could not be repaired; the work is parked on the branch as a wip: commit",
+			toolio.ExitUnverified: "a task did not land (its checks do not pass or could not be repaired, its change was empty, its phase ended without a report, the run was cancelled or reached its budget); the work is parked on the branch as a wip: commit and the category says why",
 		},
 		ResultSample: codeimpl.Result{},
 		Flags: func(fs *flag.FlagSet) {
@@ -377,7 +379,7 @@ func newApp() toolio.App {
 			result, err := codeimpl.Run(ctx, f.implOptions(d, repairRunner))
 			if err != nil {
 				info := toolio.ErrorFrom("run", err)
-				return toolio.ExitCodeFor(info.Category), result, info
+				return exitCode(err, info), result, info
 			}
 			return toolio.ExitOK, result, nil
 		},
@@ -443,4 +445,15 @@ func applyEnvDefaults(fs *flag.FlagSet, targets map[string]*string) {
 			*dst = v
 		}
 	}
+}
+
+// exitCode is the exit code of a failed run. A parked run exits 4 whatever
+// stopped the task — the work is a wip: commit on the branch either way —
+// unless the stop is one a person has to decide (3).
+func exitCode(err error, info *toolio.ErrorInfo) int {
+	code := toolio.ExitCodeFor(info.Category)
+	if code == toolio.ExitFailed && codeimpl.IsParked(err) {
+		return toolio.ExitUnverified
+	}
+	return code
 }

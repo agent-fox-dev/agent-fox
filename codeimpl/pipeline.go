@@ -55,6 +55,11 @@ type RunState struct {
 	start string
 	prior []priorTask
 	cost  float64
+	// priorDeviations are what the commits of earlier runs on the branch
+	// declared, and repairFiles the files a baseline repair changed — an
+	// earlier run's or this one's: see history.go.
+	priorDeviations []conform.Deviation
+	repairFiles     []string
 	// upstreamVerified and upstreamUnchecked are what checkUpstream found of
 	// the spec's dependencies: those it confirmed sealed or done, and those it
 	// could not look at (a missing or unreadable package). Preflight reports
@@ -151,6 +156,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if len(st.todo) == 0 {
 		result.Stage = "complete"
 		o.Progress.Step("preflight", "every task of %s is done; nothing to implement", filepath.Base(st.specDir))
+		// Pre-flight checked out an existing work branch to read its state;
+		// the checkout goes back to where the run started.
+		stopped(ctx, o, st, result, nil)
+		result.Stage = "complete"
 		return result, nil
 	}
 
@@ -213,6 +222,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return result, fail("branch", CategoryGit, err)
 	}
 	st.start = start
+	if err := st.readHistory(ctx); err != nil {
+		return result, fail("branch", CategoryGit, err)
+	}
 
 	// ----------------------------------------------------------- repair --
 	// Once, before the first task, and only on a red baseline: a green one
@@ -1078,6 +1090,7 @@ func runRepair(ctx context.Context, o Options, st *runState, result *Result) err
 	report.Commit = commit
 	report.Outcome = OutcomeDone
 	report.Verdict, result.Verdict = VerdictBaselineRepaired, VerdictBaselineRepaired
+	st.repairFiles = append(st.repairFiles, report.ChangedFiles...)
 	// The green gate is what the first task is compared with. The result
 	// keeps the red one as the run's baseline, which is the truth about
 	// where the branch started.
@@ -1286,7 +1299,11 @@ func runTask(ctx context.Context, o Options, st *runState, result *Result, task 
 				return report, fail("task", CategoryGit, err)
 			}
 			report.RevertCheck = &rc
-			if rc.Ran && !rc.Proves {
+			// A compile failure is not proof, and not the tests' weakness
+			// either: no test of a new symbol can fail on behaviour once
+			// the symbol is gone. It is recorded and does not fail the
+			// attempt.
+			if rc.Ran && !rc.Proves && !rc.CompileFailed {
 				// The checks passed with the work, so the code is not what is
 				// wrong: the next attempt continues on it and strengthens the
 				// tests, rather than starting again from nothing.
@@ -1407,7 +1424,8 @@ func revertSpecDir(ctx context.Context, o Options, st *runState, head string) {
 // dropScratchFiles keeps the model's leftovers out of the commit. Untracked
 // backup files (*.bak, *.orig) and anything named *scratch* are deleted and
 // reported; an untracked .txt at the repository root is only reported, since
-// a task can legitimately add one (requirements.txt).
+// a task can legitimately add one (requirements.txt). A file that was there
+// before the phase started is not the phase's, and is left alone.
 func dropScratchFiles(ctx context.Context, o Options, st *runState) {
 	// Every phase's tree is first put right by revertSpecDir and then by this
 	// function, so the index is invalidated here, once the tree is as the
@@ -1420,6 +1438,9 @@ func dropScratchFiles(ctx context.Context, o Options, st *runState) {
 		return
 	}
 	for _, f := range files {
+		if st.untrackedBefore[f] {
+			continue
+		}
 		base := path.Base(f)
 		switch {
 		case strings.HasSuffix(base, ".bak"), strings.HasSuffix(base, ".orig"),
@@ -1459,7 +1480,7 @@ func park(ctx context.Context, o Options, st *runState, result *Result, report T
 	}
 	report.Commit = commit
 	o.Progress.Step("park", "task %d parked on %s as %s; the checkout is back on %s", task.Id, st.branch, commit, st.base)
-	return report, failf(stage, category, "task %d did not land: %s. The work is parked on %s (%s) "+
+	return report, parkedf(stage, category, "task %d did not land: %s. The work is parked on %s (%s) "+
 		"and the checkout is back on %s", task.Id, reason, st.branch, commit, st.base)
 }
 
@@ -1477,7 +1498,7 @@ func parkRepair(ctx context.Context, o Options, st *runState, result *Result, re
 	}
 	report.Commit = commit
 	o.Progress.Step("park", "the repair is parked on %s as %s; the checkout is back on %s", st.branch, commit, st.base)
-	return failf(PhaseRepair, category, "the checks could not be repaired: %s. The last attempt is parked on "+
+	return parkedf(PhaseRepair, category, "the checks could not be repaired: %s. The last attempt is parked on "+
 		"%s (%s) and the checkout is back on %s; no task was implemented", reason, st.branch, commit, st.base)
 }
 
@@ -1583,11 +1604,22 @@ func revertCheck(ctx context.Context, o Options, st *runState, head string) (con
 		}
 		return out
 	}
+	// A test that fails because it no longer compiles says nothing about
+	// behaviour — the prompt asks for a failure on behaviour — so that is
+	// recorded, and not counted as proof.
+	compiled := func(rc conform.RevertResult, err error) (conform.RevertResult, error) {
+		if err == nil && rc.Proves && rc.Check != nil && conform.CompileFailure(rc.Check.Output) {
+			rc.Proves, rc.CompileFailed = false, true
+			rc.Reason = "the tests did not compile with the implementation removed; a compile error says " +
+				"nothing about behaviour, so it proves nothing"
+		}
+		return rc, err
+	}
 	changed, err := st.git.ChangedFiles(ctx, head)
 	if err != nil {
 		return conform.RevertResult{}, err
 	}
-	rc, err := conform.Revert(ctx, st.git, st.root, head, without(changed), check)
+	rc, err := compiled(conform.Revert(ctx, st.git, st.root, head, without(changed), check))
 	if err != nil || rc.Ran || head == st.start {
 		return rc, err
 	}
@@ -1595,7 +1627,7 @@ func revertCheck(ctx context.Context, o Options, st *runState, head string) (con
 	if err != nil {
 		return conform.RevertResult{}, err
 	}
-	return conform.Revert(ctx, st.git, st.root, st.start, without(all), check)
+	return compiled(conform.Revert(ctx, st.git, st.root, st.start, without(all), check))
 }
 
 // indexDetail is the detail of the informational code_search_index preflight
