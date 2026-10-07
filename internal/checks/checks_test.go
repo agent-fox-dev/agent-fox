@@ -155,6 +155,21 @@ func TestProgram(t *testing.T) {
 	}
 }
 
+// Issue #220: a shell allowlist matches a program named by a path only as
+// that path, so a command spelled with one lists both its name and its path.
+func TestPrograms(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"uv run pytest -q":    "uv",
+		"./gradlew test":      "gradlew,./gradlew",
+		"/usr/bin/make check": "make,/usr/bin/make",
+		"":                    "",
+	} {
+		if got := strings.Join(Programs(cmd), ","); got != want {
+			t.Errorf("Programs(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}
+
 func TestTailKeepsTheEnd(t *testing.T) {
 	var lines []string
 	for i := 0; i < 100; i++ {

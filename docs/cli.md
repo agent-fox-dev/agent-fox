@@ -1191,7 +1191,9 @@ toolchains') is listed once, in the refusal and in the shell's description.
 
 **Misread lines.** AgentKit's floor policy misreads an assignment from a
 command substitution (`d=$(go list -m ...)`) and names an argument as the
-program. The guard's own parse judges every program on the line first, so in
+program. The guard recognizes the floor's refusal by its wording, which a test
+pins, so a rewording upstream fails the build instead of silently changing what
+the model is told. The guard's own parse judges every program on the line first, so in
 an implementing phase such a line runs when its programs are allowed, and in a
 read-only phase the refusal says substitution is not permitted. A backtick
 outside single quotes, even inside double quotes, starts a command
@@ -1204,20 +1206,37 @@ implementing phase may use them.
 
 **Every command on a line is judged**, not only the first: `ls; git push` is two
 commands, and an environment assignment in front of a program
-(`GIT_AUTHOR_NAME=x git push`) does not hide it.
+(`GIT_AUTHOR_NAME=x git push`) does not hide it. Quotes inside a word do not
+either: `g"i"t push` is judged as `git push`.
+
+**What actually runs.** A program named by a path (`./ls`, `/tmp/ls`) runs
+that file, so it is allowed only when the list names that exact path; a
+repository cannot plant a program under an allowed name. The verification
+command's program is listed as spelled, so a gate of `./gradlew test` still
+runs. An assignment in front of a program can change which binary runs or what
+is loaded into it: an implementing phase may set a harmless one
+(`GOFLAGS=-mod=mod`, `CGO_ENABLED=0`), but `PATH`, `LD_*`, `DYLD_*`,
+`BASH_ENV`, `ENV`, `IFS`, `GIT_EXEC_PATH` and the interpreters' injection
+variables (`PYTHONPATH`, `NODE_OPTIONS`, `PERL5OPT`, `RUBYOPT`, …) are refused.
+A read-only phase may set none, since `GIT_EXTERNAL_DIFF` or `GIT_PAGER` alone
+would make an allowed `git` run a program of the model's choosing.
 
 **git is read-only.** `status`, `log`, `diff`, `show`, `blame`, `rev-parse`,
 `rev-list`, `ls-files`, `ls-tree`, `grep`, `cat-file`, `describe`, `shortlog`,
-`name-rev`, `branch` (listing only), `remote -v` and `config --get`. `-c`,
-`--config-env` and `--exec-path` are refused, because they make git run a
-program of the model's choosing. The branch, the commit and the push belong to
+`name-rev`, `branch` (listing only), `remote -v` and `config --get`. `-c` (also
+glued to its value, `-cname=value`), `--config-env` and `--exec-path` are
+refused, because they make git run a program of the model's choosing. The branch, the commit and the push belong to
 the tool, so "committed as `abc123`" means one thing. **`gh` is refused
 outright**, so every write to an issue goes through the audited path.
 
-**Leading `cd`.** The shell already starts at the repository root, so a leading
-`cd <dir> &&` (or `;`, or a newline) is ignored when `<dir>` is a plain word that
-resolves inside the workspace. `cd /etc && ls`, `cd $X && ls` and a `cd` that is
-not first are still refused.
+**Leading `cd`.** A leading `cd <dir> &&` (or `;`, or a newline) is not judged
+as a program when `<dir>` is a plain word that resolves inside the workspace,
+but the shell still runs it, so the rest is judged where it runs: operands
+resolve from `<dir>` (`cd internal && cat ../go.mod` reads the root's
+`go.mod`), a chain of `cd`s is followed from one to the next, and the whole
+suite is refused only at the root (`cd pkg && pytest` runs one directory's
+tests). `cd /etc && ls`, `cd $X && ls`, a chain that leaves the workspace and
+a `cd` that is not first are still refused.
 
 **Heredocs.** The lines between `<<DELIM` and the line that is `DELIM` are data,
 not commands, and are skipped. A quoted delimiter (`<<'EOF'`) makes the body
@@ -1231,9 +1250,12 @@ not a heredoc. The model is still told to write multi-line files with
 `write_file`, not a heredoc.
 
 **Paths in a read-only phase.** The shell is held to the workspace like the file
-tools: for `cat`, `head`, `tail`, `wc`, `ls`, `file`, `du`, `rg`, `grep`, `tree`
-and `stat`, an operand that is absolute, starts with `~` or `$`, or climbs with
-`..` is resolved (symlinks included) and refused when it lands outside. The
+tools: for `cat`, `head`, `tail`, `wc`, `ls`, `file`, `du`, `rg`, `grep`, `tree`,
+`stat`, `test` and `[`, and for the directory `git` is pointed at by `-C`,
+`--git-dir` or `--work-tree`, an operand that is absolute, starts with `~` or
+`$`, or climbs with `..` is resolved (symlinks included) and refused when it
+lands outside. `test` reads nothing, but whether a file outside exists or is
+readable is still information from outside. The
 pattern operand of `grep` and `rg` is not a path and is skipped. An implementing
 phase is not held to this, because a build legitimately reads outside the
 repository.
