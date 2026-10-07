@@ -103,8 +103,9 @@ cancellation inside the review is a warning and the run can exit 0.
 ## 2. The run brief
 
 The engine's run brief (PRD 13 §6.1) is one message, rendered once at run
-start and byte-identical for every task, repair and resolve phase. For
-`impl` it holds, in this order:
+start from `brief/impl.md` (PRD 13 §6.6) over the `BriefView`, and
+byte-identical for every task, repair and resolve phase. For `impl` it
+holds, in this order:
 
 1. the language block (detected profiles, stub idiom, targeted form);
 2. the repository map at run start, at `--repo-map-tokens`;
@@ -132,7 +133,9 @@ outline. A delta is a few lines; the map in the brief stays cached.
 
 ## 3. The task message
 
-What follows the brief in a task phase, in this order, and nothing else:
+What follows the brief in a task phase is `impl/task.md` over the
+`PhaseView` and, on a continued attempt, the `AttemptView`, in this order,
+and nothing else:
 
 1. the task's entry from `tasks.json` in full (`steps`, `touches`, `tests`,
    `done_when`, `depends_on`), and the requirements and tests it owns,
@@ -287,14 +290,40 @@ Its attempts continue like a task's (§4.3). A repair's files are exempt
 from the scope check, since the pull request already presents the repair
 as outside the specification.
 
-## 7. Prompts and tool text have no language
+## 7. Prompts are documents, and have no language
 
-The implement, repair, resolve and survey mandates lose every Go example;
-the targeted-test hint, the stub idiom, the formatter's name and the
-`file:line` examples are rendered from the detected profile. The tasks
-template of `spec` (which this PRD does not rebuild) is listed in
-PRD 13 §1's denylist test so its Go-only worked example is replaced in the
-same session.
+Every text `impl` sends follows PRD 13 §6.6: a Markdown document under
+`internal/engine/prompts/`, filled from a view, rendered to a golden file,
+written out by every run. For `impl` the documents are:
+
+| Document | View | Composes |
+|---|---|---|
+| `brief/impl.md` (`stable: true`) | `BriefView` | `partials/language`, `repomap`, `spec_digest`, `external_apis`, `survey`, `scope`, `gate`, `instructions`, `steering`, `context` |
+| `impl/survey.system.md`, `impl/survey.md` | `PhaseView` | the whole spec (`partials/spec_full`), the pending tasks, `partials/gate` |
+| `impl/task.system.md`, `impl/task.md` | `PhaseView`, `AttemptView` | `partials/task_entry`, `owned_contracts`, `definition_of_done`, `baseline`, `landed_tasks`, `map_delta`, `previous_attempt`, `date` |
+| `impl/repair.system.md`, `impl/repair.md` | `PhaseView`, `AttemptView` | `partials/failing_checks`, `where_the_work_stands`, `landed_tasks`, `previous_attempt` |
+| `impl/resolve.system.md`, `impl/resolve.md` | `PhaseView` | `partials/findings`, `hermetic_failure`, `structural_findings`, `shortfalls`, `out_of_scope`, `gate` |
+| `review/review.system.md`, `review/review.md` | `PhaseView` | `partials/in_scope`, `contracts`, `changed_files`, `carried_rows` (second review) |
+| `tools/submit_task.md`, `tools/submit_repair.md`, `tools/submit_resolve.md`, `tools/run_checks.md` | `PhaseView` | — |
+| `rejections/*.md` | the handler's small view | — |
+
+Two things follow from the layout. The task's own ids never appear in a
+tool document: `tools/submit_task.md` renders the same bytes for every
+task, and the ids the handler checks against are a field of the handler,
+not a sentence in the schema. And the per-phase digest, delta and
+contract partials are the whole token discipline of §2 and §3 made
+visible: the golden rendering of `brief/impl.md` for the spec 16 fixture
+is the 35 000-token figure of goal 2, and a change that grows it fails
+`max_bytes` in review.
+
+The mandates lose every Go example; the targeted-test hint, the stub
+idiom, the formatter's name and the `file:line` examples are fields of
+the `PhaseView` filled from the detected profile. `spec`'s templates under
+`specgen/templates/` move to the same loader and tree (`spec/prd.*`,
+`spec/generate.*`, `spec/architecture.*`) in step 4 of §9, its `fill`
+retired for the view, and its Go-only worked example in the tasks template
+replaced by one rendered from the profile; the denylist test then covers
+every document in the tree.
 
 ## 8. What the envelope gains (additive)
 
@@ -318,7 +347,8 @@ same session.
    review (§5).
 4. `internal/project` and the detection half of `internal/checks` deleted;
    `spec` and `triage` moved to `internal/lang` for the audit and the
-   language block.
+   language block, and their prompts moved to the engine's document tree
+   and loader (§7).
 5. The baseline tables and a per-language fixture set under
    `testdata/lang/<profile>/spec/`.
 
@@ -349,7 +379,13 @@ same session.
   recorded run's, the cost at most 60%, full-gate runs are ten (nine tasks
   plus the baseline) plus one per resolve landing, and the model never runs
   the suite through the shell.
-- The denylist test of PRD 13 §1 covers `codeimpl`.
+- The denylist test of PRD 13 §1 covers `codeimpl` and every document
+  under `internal/engine/prompts/`.
+- The golden renderings of `impl/task.md` for tasks 1 to 9 of the spec 16
+  fixture differ only in the task partials; the golden rendering of
+  `brief/impl.md` is one file; `tools/submit_task.md` renders one golden
+  for all nine tasks. After a run, the state directory's `prompts/`
+  holds the brief once and one message per phase and attempt.
 
 ## Documentation
 

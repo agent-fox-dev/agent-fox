@@ -80,6 +80,12 @@ the engine is best read against the simpler pipeline; PRD 14 adds what
 6. **The interface is untouched.** The `--schema` golden files do not
    change except by additive fields, `schema_version` stays at its major,
    and every documented flag means what it meant.
+7. **Every word the model reads is in a document.** No prompt, tool
+   description, guideline, refusal or rejection text is a Go string. Each
+   is a Markdown file bundled into the binary, composed and filled from
+   the run's facts by one templating engine, rendered to golden files a
+   reviewer diffs, and written out by every run so what a phase was told
+   can be read afterwards.
 
 ## Non-goals
 
@@ -93,6 +99,12 @@ the engine is best read against the simpler pipeline; PRD 14 adds what
 - Parallel phases or worktrees. A `fix` is one branch and one sequence.
 - Changing the spec format, `afspec`, `triage` or `spec`. They keep using
   `internal/project` until PRD 14 retires it.
+- Per-project prompt overrides. ADR 03 declined them because a repository
+  that can rewrite the system prompt of the agent reading it is a trust
+  boundary, and `--trust-project` is the narrow grant. The prompt documents
+  of §6.6 are the program's, bundled into the binary; a developer-supplied
+  prompt directory would be a new configuration surface and is not part of
+  this PRD.
 
 ## 1. The language profile
 
@@ -420,6 +432,119 @@ plus `--allow`, generated from the detection and never written in a prompt.
 The analysis prompt no longer carries the baseline output; it carries the
 baseline verdict and the log's path.
 
+### 6.6 Prompts are documents
+
+`specgen` already keeps its prompts as Markdown files embedded at compile
+time, for the reason its source states: they are prose, and a diff against a
+document reads better than a diff against escaped string concatenation.
+`codefix` and `codeimpl` keep theirs as Go constants, with the run's facts
+spliced in by `fmt.Fprintf` across a dozen functions, and the tool
+descriptions, the shell guard's refusals and the submit handlers' rejections
+are string patches on top of AgentKit's own strings. A reviewer who wants to
+know what a phase was told reads four packages. The engine makes every
+text a document and every document auditable.
+
+**Where the text lives.** One embedded tree, `internal/engine/prompts/`,
+bundled with `go:embed` and loaded by name on demand:
+
+```
+prompts/
+  brief/fix.md  brief/impl.md             the run brief, one per tool (§6.1)
+  fix/analyse.system.md  fix/analyse.md   the mandate and the phase message
+  fix/implement.system.md  fix/implement.md
+  impl/survey.*  impl/task.*  impl/repair.*  impl/resolve.*   (PRD 14)
+  review/review.system.md  review/review.md                   shared by both tools
+  partials/                 report  baseline  gate  language  repomap  map_delta
+                            instructions  steering  criteria  definition_of_done
+                            survey  landed_tasks  previous_attempt  scope
+                            external_apis  date  read_roots  scratch
+  tools/                    execute  write_file  edit_file  run_checks
+                            submit_analysis  submit_implementation  submit_task  …
+  refusals/                 programs_not_allowed  suite  git_mutating  path_outside …
+  rejections/               missing_verdicts  weak_evidence  unverified_doc_source …
+```
+
+Every file opens with a YAML header the loader and the tests read:
+
+```yaml
+---
+name: fix/implement
+kind: message          # system | message | brief | partial | tool | refusal | rejection
+view: PhaseView        # the Go type it renders from
+stable: false          # true: must render byte-identical for the whole run
+max_bytes: 6000        # the rendered size a change may not exceed unnoticed
+---
+```
+
+**The engine.** Go's `text/template`, from the standard library, with the
+`missingkey=error` option and a fixed function map of a dozen helpers:
+`fence LABEL TEXT` (the provenance fence every untrusted text is wrapped
+in), `code`, `join`, `count`, `lines N TEXT` (the last N lines), `ref PATH`
+(the one-line reference to a log in the scratch directory), `ids`, `title`.
+A document composes others with `{{template "partials/report.md" .}}`; the
+brief and the phase messages are lists of partials in a fixed order, and
+the partials are shared by both tools, so the report block, the baseline
+block and the instructions block exist once. Nothing in a template
+computes: it reads fields and loops over lists. `specgen` avoided
+`text/template` because its `fill` would have parsed the data; here the data
+is never parsed. `text/template` inserts a value verbatim, so a report that
+contains `{{` is text, and the loader's test renders a report made of
+nothing but template syntax to prove it. `specgen`'s own `fill` moves to the
+same loader when PRD 14 retires `internal/project`.
+
+**The view.** A template is filled from a **view**: a typed, frozen Go
+struct the engine builds from the run's facts and nothing else. There are
+three:
+
+- `BriefView`, built once per run: the language block, the repository map,
+  the report or the spec digest, the instructions, the steering file, the
+  gate commands and their log paths, `--context`. A template whose header
+  says `stable: true` may reference only this view, and a test asserts
+  that it renders byte-identically twice.
+- `PhaseView`, built per phase: the branch, the date, the diagnosis, the
+  criteria, the task, the baseline verdicts, the landed tasks, the map
+  delta, the allowlist, the scratch path.
+- `AttemptView`, built per attempt: the previous attempt's failure, the
+  reverted declarations, the attempt number.
+
+A value a template needs that is not a fact of the run — a count, a
+rendered list, a profile's targeted-test form — is a field the view
+computes in Go, so the prompt's logic is testable without rendering it.
+The views are what `fix` and `impl` differ in; the engine and the partials
+are what they share.
+
+**Tool text.** AgentKit's base tool descriptions and guidelines come from the
+SDK as documents (PRD 06 §12). The engine's phase-specific descriptions —
+the allowlist, the read roots, the scratch directory, the `run_checks`
+budget — are `tools/*.md` templates over the `PhaseView`, rendered once per
+phase and **replacing** the SDK's text rather than appended to it, so a
+description is one document, not a base string plus three patches. Guard
+refusals and handler rejections are `refusals/*.md` and `rejections/*.md`
+over small views (the programs refused, the ids missing), so the sentence a
+model is corrected with is reviewed like any other prompt.
+
+**Auditable at build time.** A golden test renders every document against
+fixture views in `internal/engine/testdata/views/` to
+`testdata/prompts/<name>.golden.md`, and `UPDATE_GOLDEN=1` regenerates
+them deliberately, as the `--schema` goldens are. A change to a prompt is
+therefore a diff of a Markdown file in review. The same test checks the
+header of every document, that every partial it names exists, that no
+document references a field its view lacks (`missingkey=error` makes that
+a failure), that no rendered document exceeds its `max_bytes`, and the
+denylist of §1 runs over the templates as it runs over the Go files, so a
+language cannot hide in prose either.
+
+**Auditable at run time.** Every run writes what it sent: the system
+prompt, the brief, each phase message, and the tool descriptions as
+registered, to `<state>/prompts/<tool>-<started_at>-<session_id>/` as
+`<phase>[.task-N][.attempt-N].<role>.md`, under the same stem as the report
+and the events file, so the three pair up by `session_id`. `--dry-run`
+writes them too; they are local state. The full report carries
+`prompt_templates`, a map of document name to the SHA-256 of its embedded
+source, so a report can be matched to the exact text version that produced
+it, and `artifacts` gains a `prompts_dir` entry. A run that cannot write the
+directory records a `low` `prompts_not_written` warning and goes on.
+
 ## 7. Structural checks for every language
 
 `internal/conform` keeps its checks and changes what feeds them.
@@ -454,6 +579,9 @@ baseline verdict and the log's path.
 - `timings[].cached: true` on a gate answered from the cache.
 - `usage.phases[].pruned_tokens`: what the pruning transform removed.
 - The `aborted` verdict in `result.verdict` and `result.verification`.
+- `prompt_templates` in the full report (document name to SHA-256), a
+  `prompts_dir` artifact kind, and a `low` `prompts_not_written` warning
+  code.
 
 None of these is required of a caller; `--schema`'s golden files change by
 these fields only.
@@ -501,6 +629,18 @@ these fields only.
   the same.
 - No `--schema` golden changes except the additive fields of §8;
   `docs/cli.md`'s flag tables are unchanged.
+- `grep -rn '"' --include='*.go'` over `internal/engine`, `codefix` and
+  `codeimpl` finds no string literal longer than one sentence that the
+  model would read; a test asserts that every system prompt, message, tool
+  description, refusal and rejection a run sends was rendered from a
+  document under `internal/engine/prompts/`.
+- Every document under `internal/engine/prompts/` has a golden rendering
+  under `testdata/prompts/`, every `stable: true` document renders
+  byte-identically across two builds of the view, and a report whose body
+  is `{{.Secret}}{{template "x"}}` reaches the model verbatim.
+- After a `fix` run the state directory holds a `prompts/` directory with
+  one file per prompt sent, named in `artifacts`, and the report's
+  `prompt_templates` hashes match the binary's embedded files.
 
 ## Documentation
 
@@ -509,7 +649,12 @@ these fields only.
   (generated from the profiles), `run_checks` under *What the model may and
   may not do*, and the additive fields.
 - `docs/model-usage.md`: the run brief and the stable prefix, the pruning
-  transform, the scratch logs, `run_checks`.
+  transform, the scratch logs, `run_checks`; the *Prompt templates*
+  section rewritten for the engine's documents, views and helpers, with
+  the layout of `internal/engine/prompts/` and how to regenerate the
+  goldens.
+- `docs/configuration.md`: the `prompts/` subdirectory under *State
+  directory*.
 - `docs/configuration.md`: the language profiles and what each detects.
 - `docs/development.md`: `internal/lang` and `internal/engine` in the
   layout; the per-language baseline rows.
