@@ -64,7 +64,7 @@ func TestTS16_28_ModelUsageListsCodeSearchAndDescribesIndex(t *testing.T) {
 		if !strings.HasPrefix(line, "| `") || !strings.Contains(line, "`") {
 			continue
 		}
-		if strings.Contains(line, "the six read tools") ||
+		if strings.Contains(line, "the seven read tools") ||
 			strings.HasPrefix(line, "| `triage` | `triage` |") {
 			rows++
 			if !strings.Contains(line, "`code_search` (if indexed)") {
@@ -109,8 +109,8 @@ func TestTS16_29_NavigationBaselineHasCodeSearchColumn(t *testing.T) {
 		if end := strings.Index(table, "\n#"); end >= 0 {
 			table = table[:end]
 		}
-		if !strings.Contains(table, "| search_files | file_outline | find_symbol | code_search | all tools |") {
-			t.Errorf("the %s table has no code_search column after find_symbol", tool)
+		if !strings.Contains(table, "| search_files | file_outline | find_symbol | find_references | code_search | all tools |") {
+			t.Errorf("the %s table has no code_search column after find_references", tool)
 		}
 	}
 	if !strings.Contains(section, ".tool_calls.code_search") {

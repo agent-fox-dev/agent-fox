@@ -16,24 +16,24 @@ one's *conclusion* rather than from how it got there.
 
 | Tool | Phase | Tools it may call | `max_tokens` | Terminating tool |
 |---|---|---|---|---|
-| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `code_search` (if indexed) | provider default | `file_issue` |
-| `fix` | `analyse` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
-| `fix` | `implement` | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
-| `fix` | `review` (when the report cites spec ids) | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
-| `spec` | `prd` | the six read tools, `code_search` (if indexed) | 32 768 | `submit_prd` |
-| `spec` | `generate:{artifact}` | the six read tools, `code_search` (if indexed) | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
-| `spec` | `architecture` (opt-in) | the six read tools, `code_search` (if indexed) | 32 768 | `submit_architecture` |
-| `impl` | `survey` | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_survey` |
+| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references`, `code_search` (if indexed) | provider default | `file_issue` |
+| `fix` | `analyse` | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
+| `fix` | `implement` | the seven read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
+| `fix` | `review` (when the report cites spec ids) | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
+| `spec` | `prd` | the seven read tools, `code_search` (if indexed) | 32 768 | `submit_prd` |
+| `spec` | `generate:{artifact}` | the seven read tools, `code_search` (if indexed) | 65 536 | `submit_requirements`, `submit_test_spec`, `submit_tasks` |
+| `spec` | `architecture` (opt-in) | the seven read tools, `code_search` (if indexed) | 32 768 | `submit_architecture` |
+| `impl` | `survey` | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_survey` |
 | `impl` | `repair` (with `--repair`, on a red baseline or after the integration task) | the same as `implement`; on `--repair-model`, a model of its own | provider default | `submit_repair` |
-| `impl` | `implement` (once per task) | the six read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
-| `impl` | `review` (after the last task) | the six read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
+| `impl` | `implement` (once per task) | the seven read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist; writes under the spec package refused | provider default | `submit_task` |
+| `impl` | `review` (after the last task) | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
 | `impl` | `resolve` (when the review found something) | the same as `implement`; no repository map | provider default | `submit_resolve` |
 
-The "six read tools" are `read_file`, `list_files`, `find_files`,
-`search_files`, `file_outline` and `find_symbol`. `code_search` is conditional
+The "seven read tools" are `read_file`, `list_files`, `find_files`,
+`search_files`, `file_outline`, `find_symbol` and `find_references`. `code_search` is conditional
 on the index: a phase gets it only when the run built a code-search index (see
 [Reading the codebase](#reading-the-codebase)), and without one the phase has
-the six read tools alone. The build allowlist is the read-only one plus the toolchains
+the seven read tools alone. The build allowlist is the read-only one plus the toolchains
 (`go`, `make`, `npm`, `python`, `cargo`, …), the verification command's own
 program, and whatever `--allow` adds. The exact lists, the heredoc and `cd`
 handling and the refusal format are in the
@@ -177,12 +177,13 @@ unset/auto/none, the tri-state expressible on every wire it speaks.
 Every phase reads the source. The turns it spends reading come out of the same
 budget, and `--verbose` reports each tool call on stderr.
 
-Six tools read the tree. `read_file`, `list_files`, `find_files` and
+Seven tools read the tree. `read_file`, `list_files`, `find_files` and
 `search_files` read and search by path and by text. `file_outline` returns one
 file's declarations (kind, name and line) without reading its body, and
 `find_symbol` locates a name across the workspace in one call, where a
-`search_files` and a `read_file` would otherwise be needed. Both are
-AgentKit's. Universal-ctags is the accelerator: where it is installed they use
+`search_files` and a `read_file` would otherwise be needed. `find_references`
+answers "who calls or uses this declaration", with each site attributed to its
+enclosing declaration and labelled by confidence. All three are AgentKit's. Universal-ctags is the accelerator: where it is installed they use
 it, and where it is not they fall back to heuristics, the same pattern as
 `search_files` with `rg`. Each result names the backend that produced it, and
 `--preflight` reports which one a run will use (the `symbol_backend` check).
@@ -190,7 +191,7 @@ Each phase holds its own symbol table: `find_symbol` builds it on its first
 call and it is bounded by AgentKit's defaults, so `fix` and `impl` do not carry
 a table across the checkouts, resets, gate runs and commits between phases.
 
-A seventh tool, `code_search`, searches an index instead of walking the tree on
+An eighth tool, `code_search`, searches an index instead of walking the tree on
 every call, and ranks its results by relevance, so a phase that searches
 repeatedly makes fewer `search_files` calls and reads fewer bytes. It is
 AgentKit's, from the separate `codesearch` module. The index is

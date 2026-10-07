@@ -450,7 +450,7 @@ The second is `code_search_index`: whether the run built the code-search index
 that gives every phase the `code_search` tool. Its `detail` is `built` when the
 index was created and `unavailable: <reason>` when it was not, the reason being
 what the index builder reported. It is informational too — `ok` is always
-`true`, because without an index the phases keep the six read tools and search
+`true`, because without an index the phases keep the seven read tools and search
 with `search_files` — and an unavailable index also records a `low`
 `code_search_unavailable` warning. Creating the index does not read the tree:
 AgentKit indexes it on the first `code_search` call, so `--preflight` reports
@@ -923,11 +923,11 @@ before the next phase:
 
 Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
-Its one phase reads the tree with the six read tools (`read_file`,
-`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`)
-and has no tool that writes. When the run's code-search index is built, it can
-also call `code_search`, a ranked, indexed search; without the index it has the
-six read tools alone (`--preflight` reports which, as `code_search_index`).
+Its one phase reads the tree with the seven read tools (`read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and
+`find_references`) and has no tool that writes. When the run's code-search
+index is built, it can also call `code_search`, a ranked, indexed search;
+without the index it has the seven read tools alone (`--preflight` reports which, as `code_search_index`).
 
 ```sh
 triage "panic: assignment to entry in nil map in loop.go, after an abort"
@@ -1192,8 +1192,9 @@ The phases that run commands give the model one `execute` tool. A guard sits
 between it and the shell, on top of AgentKit's own restricted policy, and every
 phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 
-**Read tools.** Every phase of `fix` can call the six read tools: `read_file`,
-`list_files`, `find_files`, `search_files`, `file_outline` and `find_symbol`.
+**Read tools.** Every phase of `fix` can call the seven read tools: `read_file`,
+`list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and
+`find_references`.
 `file_outline` returns a file's declarations and `find_symbol` finds where a
 name is declared; both use universal-ctags when it is installed and heuristics
 when it is not (`--preflight` reports which, as `symbol_backend`).
@@ -1214,7 +1215,7 @@ phase that writes, only for git and for building, formatting and testing. The
 programs still run when the model has a reason. A phase without a shell is told
 it has none, and gets no guideline that mentions `execute`.
 
-**Indexed search.** `code_search` joins the six read tools in the `analyse` and
+**Indexed search.** `code_search` joins the seven read tools in the `analyse` and
 `implement` phases when the code-search index is built (`--preflight` reports
 it as `code_search_index`). `fix` invalidates the index after it creates the
 work branch, so `implement` searches the tree it will change, and again after
@@ -1364,11 +1365,11 @@ Anything genuinely untrusted belongs in a container.
 ## `spec`
 
 Turns a product idea into a complete, validated version 2 specification
-package under `.specs/NN_name/`. Every phase reads the tree with the six read
-tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`
-and `find_symbol`) and has no tool that writes. When the run's code-search
-index is built, every phase can also call `code_search`; without the index the
-six read tools are all it has (`--preflight` reports which, as
+package under `.specs/NN_name/`. Every phase reads the tree with the seven read
+tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`,
+`find_symbol` and `find_references`) and has no tool that writes. When the
+run's code-search index is built, every phase can also call `code_search`;
+without the index the seven read tools are all it has (`--preflight` reports which, as
 `code_search_index`).
 
 ```sh
@@ -2038,8 +2039,8 @@ and the `repair` report are in the report file.
 
 ### What the model may and may not do
 
-Every phase of `impl` can call the six read tools — `read_file`, `list_files`,
-`find_files`, `search_files`, `file_outline` and `find_symbol` — whatever else
+Every phase of `impl` can call the seven read tools — `read_file`, `list_files`,
+`find_files`, `search_files`, `file_outline`, `find_symbol` and `find_references` — whatever else
 it is granted. When the code-search index is built (`--preflight` reports it as
 `code_search_index`), the survey, implementation, repair, review and resolve
 phases can also call `code_search`, and `impl` invalidates the index after the

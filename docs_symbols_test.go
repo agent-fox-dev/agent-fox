@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// The six read tools every phase registers (15-REQ-1).
-var sixReadTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
+// The seven read tools every phase registers (15-REQ-1, 18-REQ-1).
+var sixReadTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references"}
 
 // TS-15-12 (unit): docs/model-usage.md lists all six read tools in the phase table
 // Verifies: 15-REQ-6.1
@@ -16,8 +16,8 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 	if strings.Contains(content, "the four read tools") {
 		t.Error("docs/model-usage.md still says 'the four read tools'")
 	}
-	if !strings.Contains(content, "the six read tools") {
-		t.Error("docs/model-usage.md does not say 'the six read tools'")
+	if !strings.Contains(content, "the seven read tools") {
+		t.Error("docs/model-usage.md does not say 'the seven read tools'")
 	}
 	for _, name := range []string{"file_outline", "find_symbol"} {
 		if !strings.Contains(content, name) {
@@ -25,8 +25,8 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 		}
 	}
 	// The triage row lists the tools explicitly, and the definition sentence
-	// names all six.
-	for _, prefix := range []string{"| `triage` | `triage` |", "The \"six read tools\""} {
+	// names all seven.
+	for _, prefix := range []string{"| `triage` | `triage` |", "The \"seven read tools\""} {
 		idx := strings.Index(content, prefix)
 		if idx < 0 {
 			t.Errorf("docs/model-usage.md has no %q", prefix)
@@ -49,7 +49,7 @@ func TestTS15_12_ModelUsagePhaseTableListsSixReadTools(t *testing.T) {
 	// "the read tools" without the count.
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "| `") && strings.Contains(line, "the read tools") {
-			t.Errorf("phase-table row does not say 'the six read tools': %s", line)
+			t.Errorf("phase-table row does not say 'the seven read tools': %s", line)
 		}
 	}
 }
