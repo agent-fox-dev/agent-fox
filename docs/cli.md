@@ -925,7 +925,7 @@ Reads a problem report, traces it through the codebase, and files a structured
 issue on GitHub or GitLab with every claim cited to a file it actually read.
 Its one phase reads the tree with the seven read tools (`read_file`,
 `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and
-`find_references`) and has no tool that writes. When the run's code-search
+`find_references`) and has no tool that writes. `find_references` reaches the model only once AgentKit ships it; until then the phase is given the other six. When the run's code-search
 index is built, it can also call `code_search`, a ranked, indexed search;
 without the index it has the seven read tools alone (`--preflight` reports which, as `code_search_index`).
 
@@ -1194,7 +1194,7 @@ phase of `fix` and `impl` runs under it. Its rules, in the order they matter:
 
 **Read tools.** Every phase of `fix` can call the seven read tools: `read_file`,
 `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol` and
-`find_references`.
+`find_references`. `find_references` reaches the model only once AgentKit ships it; until then the phase is given the other six.
 `file_outline` returns a file's declarations and `find_symbol` finds where a
 name is declared; both use universal-ctags when it is installed and heuristics
 when it is not (`--preflight` reports which, as `symbol_backend`).
@@ -1367,7 +1367,7 @@ Anything genuinely untrusted belongs in a container.
 Turns a product idea into a complete, validated version 2 specification
 package under `.specs/NN_name/`. Every phase reads the tree with the seven read
 tools (`read_file`, `list_files`, `find_files`, `search_files`, `file_outline`,
-`find_symbol` and `find_references`) and has no tool that writes. When the
+`find_symbol` and `find_references`) and has no tool that writes. `find_references` reaches the model only once AgentKit ships it; until then the phase is given the other six. When the
 run's code-search index is built, every phase can also call `code_search`;
 without the index the seven read tools are all it has (`--preflight` reports which, as
 `code_search_index`).
@@ -2041,7 +2041,7 @@ and the `repair` report are in the report file.
 
 Every phase of `impl` can call the seven read tools — `read_file`, `list_files`,
 `find_files`, `search_files`, `file_outline`, `find_symbol` and `find_references` — whatever else
-it is granted. When the code-search index is built (`--preflight` reports it as
+it is granted. `find_references` reaches the model only once AgentKit ships it; until then the phase is given the other six. When the code-search index is built (`--preflight` reports it as
 `code_search_index`), the survey, implementation, repair, review and resolve
 phases can also call `code_search`, and `impl` invalidates the index after the
 changes it makes to the tree itself — the work branch, a parked attempt's

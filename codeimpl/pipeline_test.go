@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -2520,11 +2521,21 @@ func TestTS18_24_ImplSurveyNamesFindReferencesInPromptAndRegisters(t *testing.T)
 		}
 	}
 
-	// AssertReadOnly passes: no mutating tool leaked.
-	for _, n := range []string{"write_file", "edit_file"} {
-		if declared[n] {
-			t.Errorf("survey declared mutating tool %s", n)
+	// AssertReadOnly passes on what the model was actually given, less the
+	// guarded execute: survey's shell is held to a read-only allowlist by the
+	// guard, which is why production asserts the invariant only for phases
+	// with no shell.
+	resolved := make([]core.Tool, 0, len(reqs[0].Tools))
+	for _, w := range reqs[0].Tools {
+		if w.Name != "execute" {
+			resolved = append(resolved, core.Tool{Name: w.Name})
 		}
+	}
+	if !declared["execute"] {
+		t.Error("survey did not declare its guarded execute")
+	}
+	if err := agentrun.AssertReadOnly(resolved); err != nil {
+		t.Errorf("survey: %v", err)
 	}
 
 	// The system prompt contains find_references in the callers step.
@@ -2535,11 +2546,8 @@ func TestTS18_24_ImplSurveyNamesFindReferencesInPromptAndRegisters(t *testing.T)
 		}
 	}
 	sys := sb.String()
-	if !strings.Contains(sys, "find_references") {
-		t.Error("the survey system prompt does not contain find_references")
-	}
-	if !strings.Contains(sys, "caller") {
-		t.Error("the survey system prompt lost the callers instruction")
+	if !regexp.MustCompile(`(?m)^\d+\. .*find_references for its callers`).MatchString(sys) {
+		t.Error("no numbered step of the survey system prompt sends the model to find_references for callers")
 	}
 
 	// ReadOnlyFileTools contains find_references.

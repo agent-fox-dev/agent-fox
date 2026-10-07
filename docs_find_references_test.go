@@ -1,8 +1,12 @@
 package agentfox
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/agentfox/agentkit-go/core"
+	"github.com/agentfox/agentkit-go/tools"
 )
 
 // TS-18-10 (unit): docs/model-usage.md says seven read tools and lists all
@@ -228,6 +232,39 @@ func TestTS18_25_DocumentationReflectsSevenReadToolsThroughout(t *testing.T) {
 		}
 		if !strings.Contains(table, "find_references") {
 			t.Errorf("the %s baseline table does not have a find_references column", tool)
+		}
+	}
+}
+
+// findReferencesShipped reports whether AgentKit's tools.All returns
+// find_references. Until it does, SelectTools drops the name and no phase's
+// model sees the tool (docs/errata/18_find_references_not_yet_in_tools_all.md).
+func findReferencesShipped(t *testing.T) bool {
+	t.Helper()
+	all, err := tools.All(tools.Options{Workspace: &tools.Workspace{Root: t.TempDir()}})
+	if err != nil {
+		t.Fatalf("tools.All: %v", err)
+	}
+	return slices.ContainsFunc(all, func(tl core.Tool) bool { return tl.Name == "find_references" })
+}
+
+// The docs name find_references among the seven read tools, so every
+// paragraph that does must also say the model gets it only once AgentKit ships
+// it, for as long as that is true, and must stop saying so once it is not.
+func TestFindReferencesDocsMatchWhatTheModelSees(t *testing.T) {
+	const caveat = "AgentKit ships"
+	shipped := findReferencesShipped(t)
+	for _, name := range []string{"cli.md", "model-usage.md"} {
+		for i, para := range strings.Split(readDoc(t, name), "\n\n") {
+			if !strings.Contains(para, "find_references") {
+				continue
+			}
+			switch has := strings.Contains(para, caveat); {
+			case !shipped && !has:
+				t.Errorf("docs/%s paragraph %d names find_references without saying the model gets it only once AgentKit ships it:\n%s", name, i, para)
+			case shipped && has:
+				t.Errorf("docs/%s paragraph %d still says find_references waits on AgentKit, which now ships it:\n%s", name, i, para)
+			}
 		}
 	}
 }

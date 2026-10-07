@@ -16,7 +16,7 @@ one's *conclusion* rather than from how it got there.
 
 | Tool | Phase | Tools it may call | `max_tokens` | Terminating tool |
 |---|---|---|---|---|
-| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references`, `code_search` (if indexed) | provider default | `file_issue` |
+| `triage` | `triage` | `read_file`, `list_files`, `find_files`, `search_files`, `file_outline`, `find_symbol`, `find_references` (once AgentKit ships it), `code_search` (if indexed) | provider default | `file_issue` |
 | `fix` | `analyse` | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist | provider default | `submit_analysis` |
 | `fix` | `implement` | the seven read tools, `code_search` (if indexed), `write_file`, `edit_file`, `execute` under a build allowlist | provider default | `submit_implementation` |
 | `fix` | `review` (when the report cites spec ids) | the seven read tools, `code_search` (if indexed), plus `execute` under a read-only allowlist; no repository map | provider default | `submit_review` |
@@ -30,7 +30,10 @@ one's *conclusion* rather than from how it got there.
 | `impl` | `resolve` (when the review found something) | the same as `implement`; no repository map | provider default | `submit_resolve` |
 
 The "seven read tools" are `read_file`, `list_files`, `find_files`,
-`search_files`, `file_outline`, `find_symbol` and `find_references`. `code_search` is conditional
+`search_files`, `file_outline`, `find_symbol` and `find_references`. Every phase
+is granted all seven, but `find_references` reaches the model only once
+AgentKit ships it; until then a phase is given the other six (see the
+[erratum](errata/18_find_references_not_yet_in_tools_all.md)). `code_search` is conditional
 on the index: a phase gets it only when the run built a code-search index (see
 [Reading the codebase](#reading-the-codebase)), and without one the phase has
 the seven read tools alone. The build allowlist is the read-only one plus the toolchains
@@ -177,7 +180,7 @@ unset/auto/none, the tri-state expressible on every wire it speaks.
 Every phase reads the source. The turns it spends reading come out of the same
 budget, and `--verbose` reports each tool call on stderr.
 
-Seven tools read the tree. `read_file`, `list_files`, `find_files` and
+Seven tools read the tree, six of them today. `read_file`, `list_files`, `find_files` and
 `search_files` read and search by path and by text. `file_outline` returns one
 file's declarations (kind, name and line) without reading its body, and
 `find_symbol` locates a name across the workspace in one call, where a

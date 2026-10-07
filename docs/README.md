@@ -46,7 +46,7 @@ of the previous version would expect.
 | [google_function_response_references](errata/google_function_response_references.md) | Gemini resolves `$ref` inside a tool result; fixed in `agentkit-go`'s Google provider |
 | [tool_schema_property_names](errata/tool_schema_property_names.md) | Why the generation tools do not declare the artifact's `$schema`, and who writes it |
 | [tool_call_exit_status](errata/tool_call_exit_status.md) | A shell command's exit status is not a tool error (`ok` true, no `error`), and the events file's heartbeat window is 60 seconds |
-| [18_find_references_not_yet_in_tools_all](errata/18_find_references_not_yet_in_tools_all.md) | `find_references` is wired into `ReadOnlyFileTools` but `tools.All` does not yet return it; wire assertions skip it until AgentKit ships the tool |
+| [18_find_references_not_yet_in_tools_all](errata/18_find_references_not_yet_in_tools_all.md) | `find_references` is wired into `ReadOnlyFileTools` but `tools.All` does not yet return it, so 18-REQ-1.3 and 18-REQ-5 are unmet, the prompts name a tool the model lacks, and wire assertions skip it until AgentKit ships the tool |
 | [18_hermetic_envtest](errata/18_hermetic_envtest.md) | `TestClearModelCredentialsLeavesNoWayToBeCredentialed` fails in a clean environment without Google ADC; pre-existing, not caused by spec 18 |
 
 ## PRDs
