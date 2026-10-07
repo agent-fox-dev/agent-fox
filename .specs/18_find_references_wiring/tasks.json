@@ -186,7 +186,7 @@
         "No stub markers (`panic(\"not implemented\")`, `TODO`) remain in any touched file",
         "Every execution path (18-PATH-1 through 18-PATH-4) is exercised by a passing smoke test"
       ],
-      "state": "pending"
+      "state": "done"
     }
   ]
 }

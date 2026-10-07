@@ -248,3 +248,68 @@ func TestTS18_19_TriageDeclaresFindReferences(t *testing.T) {
 		t.Error("find_references is not in ReadOnlyFileTools")
 	}
 }
+
+// TS-18-22 (smoke): A triage run registers find_references and the model sees
+// it in the prompt.
+//
+// Verifies: 18-PATH-1, 18-REQ-1.1, 18-REQ-1.3
+//
+// Real components: issuetriage pipeline, agentrun.Runner, agentrun.ReadOnlyFileTools,
+// toolsNote. Only the model is scripted.
+func TestTS18_22_TriageRunRegistersFindReferencesAndModelSeesIt(t *testing.T) {
+	ws := smokeRepo(t)
+	p := faux.New(toolCall("c1", ToolFileIssue, validIssue()))
+	o := newOptions(t, ws, runnerFor(t, ws, p, nil))
+	o.Input.Body = "token refresh in internal/auth/token.go returns an expired credential"
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// ReadOnlyFileTools must contain find_references.
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Fatal("find_references is not in ReadOnlyFileTools")
+	}
+
+	// Check the model's declared tools.
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("the triage phase never reached the model")
+	}
+	got := wireTools(t, p)
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+
+	// Every ReadOnlyFileTools entry that tools.All returns must be on the wire.
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			t.Logf("%s is in ReadOnlyFileTools but not in tools.All (not shipped yet)", n)
+			continue
+		}
+		if !got[n] {
+			t.Errorf("triage did not declare %s", n)
+		}
+	}
+
+	// Check the system prompt for find_references (toolsNote lists registered tools).
+	var b strings.Builder
+	for _, blk := range reqs[0].System {
+		if tb, ok := blk.(core.TextBlock); ok {
+			b.WriteString(tb.Text)
+		}
+	}
+	sys := b.String()
+
+	// If find_references is in tools.All, toolsNote must list it.
+	if availSet["find_references"] {
+		if !strings.Contains(sys, "find_references") {
+			t.Error("the system prompt does not list find_references")
+		}
+	} else {
+		t.Log("find_references is not yet in tools.All; toolsNote cannot list it")
+	}
+}

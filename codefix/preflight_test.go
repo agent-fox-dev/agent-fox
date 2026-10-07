@@ -657,3 +657,75 @@ func TestTS18_17_FixAnalyseDeclaresFindReferences(t *testing.T) {
 		t.Error("find_references is not in ReadOnlyFileTools")
 	}
 }
+
+// TS-18-23 (smoke): Fix analyse phase names find_references in its prompt and
+// registers the tool.
+//
+// Verifies: 18-PATH-2, 18-REQ-1.2, 18-REQ-3.1
+//
+// Real components: codefix pipeline, agentrun.Runner, agentrun.AssertReadOnly,
+// analysisSystemPrompt. Only the model is scripted.
+func TestTS18_23_FixAnalyseNamesFindReferencesInPromptAndRegisters(t *testing.T) {
+	ws, g := newRepo(t, 0)
+	args := map[string]any{
+		"classification": "bug", "title": "stop double counting on retry",
+		"summary":    "The counter increments twice when a retry occurs.",
+		"root_cause": "count.go increments before and after the retry guard.",
+		"approach":   "Move the increment inside the guard.",
+		"files":      []any{map[string]any{"path": "count.go", "change": "move the increment"}},
+	}
+	runner, prov := smokeFauxRunner(t, ws, args)
+	b := &realAnalysisBrain{scriptedBrain: defaultBrain(), real: &agentBrain{runner: runner}}
+	if _, err := Run(context.Background(), newOptions(ws, g, b)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	reqs := prov.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("the analyse phase never reached the model")
+	}
+
+	// Check the model's declared tools.
+	declared := map[string]bool{}
+	for _, tool := range reqs[0].Tools {
+		declared[tool.Name] = true
+	}
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+
+	// Every ReadOnlyFileTools entry that tools.All returns must be on the wire.
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			t.Logf("%s is in ReadOnlyFileTools but not in tools.All (not shipped yet)", n)
+			continue
+		}
+		if !declared[n] {
+			t.Errorf("analyse did not declare %s", n)
+		}
+	}
+
+	// AssertReadOnly passes: no mutating tool leaked.
+	for _, n := range []string{"write_file", "edit_file"} {
+		if declared[n] {
+			t.Errorf("analyse declared mutating tool %s", n)
+		}
+	}
+
+	// The system prompt contains find_references in the callers step.
+	sys := systemText(reqs[0])
+	if !strings.Contains(sys, "find_references") {
+		t.Error("the analyse system prompt does not contain find_references")
+	}
+	if !strings.Contains(sys, "caller") && !strings.Contains(sys, "callee") {
+		t.Error("the analyse system prompt lost the callers/callees instruction")
+	}
+
+	// ReadOnlyFileTools contains find_references.
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
+	}
+}

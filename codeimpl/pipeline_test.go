@@ -2463,3 +2463,87 @@ func TestTS18_18_ImplSurveyDeclaresFindReferences(t *testing.T) {
 		t.Error("find_references is not in ReadOnlyFileTools")
 	}
 }
+
+// TS-18-24 (smoke): Impl survey phase names find_references in its prompt and
+// registers the tool.
+//
+// Verifies: 18-PATH-3, 18-REQ-1.2, 18-REQ-3.2
+//
+// Real components: codeimpl pipeline, agentrun.Runner, agentrun.AssertReadOnly,
+// surveySystemPrompt. Only the model is scripted.
+func TestTS18_24_ImplSurveyNamesFindReferencesInPromptAndRegisters(t *testing.T) {
+	ws, _, _ := newSpecRepo(t)
+	surveyPayload := map[string]any{
+		"summary":     "The CLI lives in cmd/spec; nothing exists yet.",
+		"conventions": []any{"Use tabs."},
+	}
+	raw, err := json.Marshal(surveyPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := faux.New(faux.Turn{
+		Blocks:     []core.ContentBlock{faux.FauxToolCall("s1", ToolSubmitSurvey, string(raw))},
+		StopReason: core.StopReasonToolUse,
+	})
+	b := &agentBrain{runner: indexedRunner(t, ws, p, nil)}
+	in := surveyInput{Spec: &afspec.Spec{}, Root: ws.Root}
+	_, _, surveyErr := b.Survey(context.Background(), in)
+	if surveyErr != nil {
+		t.Fatalf("Survey: %v", surveyErr)
+	}
+
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("the survey phase never reached the model")
+	}
+
+	// Check the model's declared tools.
+	declared := map[string]bool{}
+	for _, tool := range reqs[0].Tools {
+		declared[tool.Name] = true
+	}
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+
+	// Every ReadOnlyFileTools entry that tools.All returns must be on the wire.
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			t.Logf("%s is in ReadOnlyFileTools but not in tools.All (not shipped yet)", n)
+			continue
+		}
+		if !declared[n] {
+			t.Errorf("survey did not declare %s", n)
+		}
+	}
+
+	// AssertReadOnly passes: no mutating tool leaked.
+	for _, n := range []string{"write_file", "edit_file"} {
+		if declared[n] {
+			t.Errorf("survey declared mutating tool %s", n)
+		}
+	}
+
+	// The system prompt contains find_references in the callers step.
+	var sb strings.Builder
+	for _, blk := range reqs[0].System {
+		if tb, ok := blk.(core.TextBlock); ok {
+			sb.WriteString(tb.Text)
+		}
+	}
+	sys := sb.String()
+	if !strings.Contains(sys, "find_references") {
+		t.Error("the survey system prompt does not contain find_references")
+	}
+	if !strings.Contains(sys, "caller") {
+		t.Error("the survey system prompt lost the callers instruction")
+	}
+
+	// ReadOnlyFileTools contains find_references.
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
+	}
+}

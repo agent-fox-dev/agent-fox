@@ -184,3 +184,50 @@ func TestTS18_14_BaselineIntroSaysSevenAndNamesFindReferences(t *testing.T) {
 		t.Error("the baseline intro does not name find_references")
 	}
 }
+
+// TS-18-25 (smoke): Documentation reflects seven read tools throughout.
+//
+// Verifies: 18-PATH-4, 18-REQ-6.1, 18-REQ-7.1, 18-REQ-8.1
+//
+// Real components: docs/model-usage.md, docs/cli.md, docs/development.md.
+func TestTS18_25_DocumentationReflectsSevenReadToolsThroughout(t *testing.T) {
+	// docs/model-usage.md: no "six read tools", at least one "seven read tools".
+	modelUsage := readDoc(t, "model-usage.md")
+	if strings.Contains(modelUsage, "six read tools") {
+		t.Error("docs/model-usage.md still says 'six read tools'")
+	}
+	if !strings.Contains(modelUsage, "seven read tools") {
+		t.Error("docs/model-usage.md does not say 'seven read tools'")
+	}
+	if !strings.Contains(modelUsage, "find_references") {
+		t.Error("docs/model-usage.md does not mention find_references")
+	}
+
+	// docs/cli.md: no "six read tools", at least one "seven read tools".
+	cli := readDoc(t, "cli.md")
+	if strings.Contains(cli, "six read tools") {
+		t.Error("docs/cli.md still says 'six read tools'")
+	}
+	if !strings.Contains(cli, "seven read tools") {
+		t.Error("docs/cli.md does not say 'seven read tools'")
+	}
+	if !strings.Contains(cli, "find_references") {
+		t.Error("docs/cli.md does not mention find_references")
+	}
+
+	// docs/development.md: baseline tables contain a find_references column.
+	section := navigationBaseline(t)
+	for _, tool := range []string{"triage", "fix", "spec", "impl"} {
+		_, table, ok := strings.Cut(section, "\n#### "+tool+"\n")
+		if !ok {
+			t.Errorf("the baseline has no table for %s", tool)
+			continue
+		}
+		if end := strings.Index(table, "\n#"); end >= 0 {
+			table = table[:end]
+		}
+		if !strings.Contains(table, "find_references") {
+			t.Errorf("the %s baseline table does not have a find_references column", tool)
+		}
+	}
+}
