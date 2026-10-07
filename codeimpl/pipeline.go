@@ -544,6 +544,9 @@ func RunPreflight(ctx context.Context, o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		add("symbol_backend", true, backend)
 	}
+	if detail, err := agentrun.DetectGoTypecheck(o.Workspace); err == nil {
+		add("go_typecheck", true, detail)
+	}
 	add("code_search_index", true, indexDetail(o.Index, o.IndexUnavailable))
 	result.Preflight = list
 

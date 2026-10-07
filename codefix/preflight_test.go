@@ -604,3 +604,125 @@ func TestTS16_25_PreflightReportsCodeSearchIndexUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// TS-17-28 (unit): fix's RunPreflight puts go_typecheck between
+// symbol_backend and code_search_index with ok true, and omits it without
+// touching any other check when detection fails.
+//
+// Verifies: 17-REQ-4.1, 17-REQ-4.5
+func TestTS17_28_FixPreflightReportsGoTypecheck(t *testing.T) {
+	inject := func(detail string, err error) {
+		orig := agentrun.DetectGoTypecheck
+		agentrun.DetectGoTypecheck = func(*tools.Workspace) (string, error) {
+			return detail, err
+		}
+		t.Cleanup(func() { agentrun.DetectGoTypecheck = orig })
+	}
+
+	checkNames := func(list []toolio.PreflightCheck) []string {
+		names := make([]string, len(list))
+		for i, c := range list {
+			names[i] = c.Check
+		}
+		return names
+	}
+
+	strip := func(list []toolio.PreflightCheck) []toolio.PreflightCheck {
+		var out []toolio.PreflightCheck
+		for _, c := range list {
+			if c.Check != "go_typecheck" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	// Subtest 1: normal detail.
+	t.Run("normal", func(t *testing.T) {
+		inject("12 packages checked, 0 errors", nil)
+		ws, g := newRepo(t, 0)
+		res, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		names := checkNames(res.Preflight)
+		n := len(names)
+		if n < 3 || names[n-3] != "symbol_backend" || names[n-2] != "go_typecheck" || names[n-1] != "code_search_index" {
+			t.Fatalf("last 3 checks = %v, want [symbol_backend go_typecheck code_search_index]", names)
+		}
+		c, ok := findCheck(res.Preflight, "go_typecheck")
+		if !ok || !c.OK || c.Detail != "12 packages checked, 0 errors" {
+			t.Errorf("go_typecheck = %+v, want OK with detail %q", c, "12 packages checked, 0 errors")
+		}
+	})
+
+	// Subtest 2: partial detail.
+	t.Run("partial", func(t *testing.T) {
+		inject("3 packages checked, 41 errors, partial", nil)
+		ws, g := newRepo(t, 0)
+		res, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		c, ok := findCheck(res.Preflight, "go_typecheck")
+		if !ok || !c.OK || c.Detail != "3 packages checked, 41 errors, partial" {
+			t.Errorf("go_typecheck = %+v, want OK with detail %q", c, "3 packages checked, 41 errors, partial")
+		}
+	})
+
+	// Subtest 3: symbol_backend failing → go_typecheck is still present,
+	// last two are go_typecheck, code_search_index.
+	t.Run("symbol_backend_fails", func(t *testing.T) {
+		inject("12 packages checked, 0 errors", nil)
+		orig := agentrun.DetectSymbolBackend
+		agentrun.DetectSymbolBackend = func(*tools.Workspace) (string, error) {
+			return "", errors.New("detection failed")
+		}
+		t.Cleanup(func() { agentrun.DetectSymbolBackend = orig })
+
+		ws, g := newRepo(t, 0)
+		res, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		names := checkNames(res.Preflight)
+		n := len(names)
+		if n < 2 || names[n-2] != "go_typecheck" || names[n-1] != "code_search_index" {
+			t.Fatalf("last 2 checks = %v, want [go_typecheck code_search_index]", names)
+		}
+		if _, ok := findCheck(res.Preflight, "symbol_backend"); ok {
+			t.Error("symbol_backend should be absent")
+		}
+	})
+
+	// Subtest 4: go_typecheck detection fails → omitted, other checks unchanged.
+	t.Run("detection_fails", func(t *testing.T) {
+		// First get a successful run for comparison.
+		inject("12 packages checked, 0 errors", nil)
+		ws, g := newRepo(t, 0)
+		ok, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+		if err != nil {
+			t.Fatalf("RunPreflight (ok): %v", err)
+		}
+
+		// Now fail detection.
+		inject("", errors.New("find_references is not offered"))
+		ws2, g2 := newRepo(t, 0)
+		res, err := RunPreflight(context.Background(), preflightOptions(t, ws2, g2))
+		if err != nil {
+			t.Fatalf("RunPreflight (fail): %v", err)
+		}
+		if _, found := findCheck(res.Preflight, "go_typecheck"); found {
+			t.Error("go_typecheck should be absent when detection fails")
+		}
+		if !reflect.DeepEqual(strip(ok.Preflight), strip(res.Preflight)) {
+			t.Errorf("other checks differ:\nok:   %+v\nfail: %+v", strip(ok.Preflight), strip(res.Preflight))
+		}
+		if res.Stage != ok.Stage {
+			t.Errorf("stage = %q, want %q", res.Stage, ok.Stage)
+		}
+		if !reflect.DeepEqual(res.Estimate, ok.Estimate) {
+			t.Errorf("estimate differs: %+v vs %+v", res.Estimate, ok.Estimate)
+		}
+	})
+}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentfox/agentkit-go/tools"
+
 	"github.com/agent-fox-dev/agentfox/internal/envtest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
@@ -55,9 +57,32 @@ func TestTS11_11_IssueOptionsIsOneFunctionForBothClosures(t *testing.T) {
 	}
 }
 
-// triage --preflight through the real shell: exit 0, stage preflight, the
-// checklist and estimate in the default view, no usage.
+// TS-17-52 (smoke): triage --preflight through the real shell emits exactly
+// five checks, target_repository, forge_credential, symbol_backend,
+// go_typecheck and code_search_index, with ok true and exit 0.
+//
+// Verifies: 17-PATH-1, 17-REQ-8.1
 func TestIssuePreflightThroughTheShell(t *testing.T) {
+	// The test requires find_references to be offered by the replace target.
+	// When it is not, DetectGoTypecheck errors and the check is omitted,
+	// which is the intended gate (design decision 1).
+	if ws, err := tools.NewWorkspace(t.TempDir()); err == nil {
+		built, err := tools.All(tools.Options{Workspace: ws})
+		if err != nil {
+			t.Skipf("tools.All failed: %v", err)
+		}
+		hasFR := false
+		for _, tl := range built {
+			if tl.Name == "find_references" {
+				hasFR = true
+				break
+			}
+		}
+		if !hasFR {
+			t.Skip("find_references not offered by the replace target")
+		}
+	}
+
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("GITHUB_TOKEN", "test-token")
@@ -71,13 +96,27 @@ func TestIssuePreflightThroughTheShell(t *testing.T) {
 		t.Errorf("stage = %v", res["stage"])
 	}
 	list, ok := res["preflight"].([]any)
-	if !ok || len(list) != 4 {
-		t.Fatalf("result.preflight = %v, want target_repository, forge_credential, symbol_backend and code_search_index", res["preflight"])
+	wantNames := []string{"target_repository", "forge_credential", "symbol_backend", "go_typecheck", "code_search_index"}
+	if !ok || len(list) != len(wantNames) {
+		t.Fatalf("result.preflight has %d entries, want %d: %v", len(list), len(wantNames), res["preflight"])
+	}
+	for i, want := range wantNames {
+		entry, _ := list[i].(map[string]any)
+		if entry["check"] != want {
+			t.Errorf("preflight[%d].check = %v, want %q", i, entry["check"], want)
+		}
+		if entry["ok"] != true {
+			t.Errorf("preflight[%d].ok = %v, want true", i, entry["ok"])
+		}
+	}
+	// go_typecheck on an empty temp dir: 0 packages, 0 errors.
+	if gtc, _ := list[3].(map[string]any); gtc["detail"] != "0 packages checked, 0 errors" {
+		t.Errorf("go_typecheck.detail = %v, want %q", gtc["detail"], "0 packages checked, 0 errors")
 	}
 	// The index is the real one here, so whether it builds depends on the
 	// platform; the check is informational and OK either way (16-REQ-7.3).
-	if last, _ := list[3].(map[string]any); last["check"] != "code_search_index" || last["ok"] != true {
-		t.Errorf("last check = %v, want an ok code_search_index", list[3])
+	if last, _ := list[4].(map[string]any); last["check"] != "code_search_index" || last["ok"] != true {
+		t.Errorf("last check = %v, want an ok code_search_index", list[4])
 	}
 	if est, ok := res["estimate"].(map[string]any); !ok || est["phases"] != float64(1) {
 		t.Errorf("estimate = %v", res["estimate"])

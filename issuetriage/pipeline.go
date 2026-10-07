@@ -355,6 +355,9 @@ func RunPreflight(o Options) (*Result, error) {
 	if backend, err := agentrun.DetectSymbolBackend(o.Workspace); err == nil {
 		list = append(list, toolio.PreflightCheck{Check: "symbol_backend", OK: true, Detail: backend})
 	}
+	if detail, err := agentrun.DetectGoTypecheck(o.Workspace); err == nil {
+		list = append(list, toolio.PreflightCheck{Check: "go_typecheck", OK: true, Detail: detail})
+	}
 	list = append(list, toolio.PreflightCheck{Check: "code_search_index", OK: true, Detail: indexDetail(o.Index, o.IndexUnavailable)})
 
 	est := &toolio.Estimate{Phases: 1}

@@ -3,6 +3,8 @@ package issuetriage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"reflect"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
+	"github.com/agent-fox-dev/agentfox/internal/agentrun/gotypechecktest"
 	"github.com/agent-fox-dev/agentfox/internal/toolio"
 	"github.com/agent-fox-dev/agentfox/issuex"
 )
@@ -331,5 +334,237 @@ func TestTS15_10_PreflightOmitsSymbolBackendWhenDetectionFails(t *testing.T) {
 	}
 	if _, ok := findCheck(res.Preflight, "target_repository"); !ok {
 		t.Errorf("other checks missing: %+v", res.Preflight)
+	}
+}
+
+// TS-17-31 (unit): triage's RunPreflight puts go_typecheck between
+// symbol_backend and code_search_index with ok true, and omits it without
+// touching any other check when detection fails.
+//
+// Verifies: 17-REQ-4.1, 17-REQ-4.5
+func TestTS17_31_TriagePreflightReportsGoTypecheck(t *testing.T) {
+	inject := func(detail string, err error) {
+		orig := agentrun.DetectGoTypecheck
+		agentrun.DetectGoTypecheck = func(*tools.Workspace) (string, error) {
+			return detail, err
+		}
+		t.Cleanup(func() { agentrun.DetectGoTypecheck = orig })
+	}
+
+	checkNames := func(list []toolio.PreflightCheck) []string {
+		names := make([]string, len(list))
+		for i, c := range list {
+			names[i] = c.Check
+		}
+		return names
+	}
+
+	strip := func(list []toolio.PreflightCheck) []toolio.PreflightCheck {
+		var out []toolio.PreflightCheck
+		for _, c := range list {
+			if c.Check != "go_typecheck" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	// Subtest 1: normal detail.
+	t.Run("normal", func(t *testing.T) {
+		inject("12 packages checked, 0 errors", nil)
+		o, _, _ := preflightOptions(t)
+		res, err := RunPreflight(o)
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		names := checkNames(res.Preflight)
+		n := len(names)
+		if n < 3 || names[n-3] != "symbol_backend" || names[n-2] != "go_typecheck" || names[n-1] != "code_search_index" {
+			t.Fatalf("last 3 checks = %v, want [symbol_backend go_typecheck code_search_index]", names)
+		}
+		c, ok := findCheck(res.Preflight, "go_typecheck")
+		if !ok || !c.OK || c.Detail != "12 packages checked, 0 errors" {
+			t.Errorf("go_typecheck = %+v, want OK with detail %q", c, "12 packages checked, 0 errors")
+		}
+		// target_repository and forge_credential come first.
+		if names[0] != "target_repository" {
+			t.Errorf("first check = %q, want target_repository", names[0])
+		}
+	})
+
+	// Subtest 2: partial detail.
+	t.Run("partial", func(t *testing.T) {
+		inject("3 packages checked, 41 errors, partial", nil)
+		o, _, _ := preflightOptions(t)
+		res, err := RunPreflight(o)
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		c, ok := findCheck(res.Preflight, "go_typecheck")
+		if !ok || !c.OK || c.Detail != "3 packages checked, 41 errors, partial" {
+			t.Errorf("go_typecheck = %+v, want OK with detail %q", c, "3 packages checked, 41 errors, partial")
+		}
+	})
+
+	// Subtest 3: symbol_backend failing → go_typecheck is still present,
+	// last two are go_typecheck, code_search_index.
+	t.Run("symbol_backend_fails", func(t *testing.T) {
+		inject("12 packages checked, 0 errors", nil)
+		orig := agentrun.DetectSymbolBackend
+		agentrun.DetectSymbolBackend = func(*tools.Workspace) (string, error) {
+			return "", errors.New("detection failed")
+		}
+		t.Cleanup(func() { agentrun.DetectSymbolBackend = orig })
+
+		o, _, _ := preflightOptions(t)
+		res, err := RunPreflight(o)
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		names := checkNames(res.Preflight)
+		n := len(names)
+		if n < 2 || names[n-2] != "go_typecheck" || names[n-1] != "code_search_index" {
+			t.Fatalf("last 2 checks = %v, want [go_typecheck code_search_index]", names)
+		}
+		if _, ok := findCheck(res.Preflight, "symbol_backend"); ok {
+			t.Error("symbol_backend should be absent")
+		}
+	})
+
+	// Subtest 4: go_typecheck detection fails → omitted, other checks unchanged.
+	t.Run("detection_fails", func(t *testing.T) {
+		// First get a successful run for comparison.
+		inject("12 packages checked, 0 errors", nil)
+		o, _, _ := preflightOptions(t)
+		ok, err := RunPreflight(o)
+		if err != nil {
+			t.Fatalf("RunPreflight (ok): %v", err)
+		}
+
+		// Now fail detection.
+		inject("", errors.New("timeout"))
+		o2, _, _ := preflightOptions(t)
+		res, err := RunPreflight(o2)
+		if err != nil {
+			t.Fatalf("RunPreflight (fail): %v", err)
+		}
+		if _, found := findCheck(res.Preflight, "go_typecheck"); found {
+			t.Error("go_typecheck should be absent when detection fails")
+		}
+		if !reflect.DeepEqual(strip(ok.Preflight), strip(res.Preflight)) {
+			t.Errorf("other checks differ:\nok:   %+v\nfail: %+v", strip(ok.Preflight), strip(res.Preflight))
+		}
+		if res.Stage != ok.Stage {
+			t.Errorf("stage = %q, want %q", res.Stage, ok.Stage)
+		}
+		if !reflect.DeepEqual(res.Estimate, ok.Estimate) {
+			t.Errorf("estimate differs: %+v vs %+v", res.Estimate, ok.Estimate)
+		}
+	})
+
+	// Subtest 5: DryRun mode.
+	t.Run("dry_run", func(t *testing.T) {
+		inject("12 packages checked, 0 errors", nil)
+		o, _, _ := preflightOptions(t)
+		o.DryRun = true
+		res, err := RunPreflight(o)
+		if err != nil {
+			t.Fatalf("RunPreflight: %v", err)
+		}
+		c, ok := findCheck(res.Preflight, "go_typecheck")
+		if !ok || !c.OK || c.Detail != "12 packages checked, 0 errors" {
+			t.Errorf("go_typecheck = %+v, want OK with detail %q", c, "12 packages checked, 0 errors")
+		}
+	})
+}
+
+// TS-17-32 (property): For any workspace, the go_typecheck check leaves
+// stage and estimate unchanged, makes no model call or forge write, and
+// writes nothing to the tree.
+//
+// Verifies: 17-REQ-4.2, 17-REQ-4.5
+func TestTS17_32_GoTypecheckIsInertProperty(t *testing.T) {
+	strip := func(list []toolio.PreflightCheck) []toolio.PreflightCheck {
+		var out []toolio.PreflightCheck
+		for _, c := range list {
+			if c.Check != "go_typecheck" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	for seed := int64(0); seed < 15; seed++ {
+		t.Run(fmt.Sprintf("seed_%d", seed), func(t *testing.T) {
+			root, _, snapshot := gotypechecktest.Generate(t, seed)
+			before := snapshot()
+
+			ws, err := tools.NewWorkspace(root)
+			if err != nil {
+				t.Fatalf("NewWorkspace: %v", err)
+			}
+
+			runner, p := boundedRunner(t, 6, 1.5)
+			forge := &countingForge{authenticated: true}
+
+			makeOpts := func() Options {
+				return Options{
+					Input:     toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "a report"},
+					Workspace: ws,
+					Repo:      issuex.Repo{Owner: "acme", Name: "widgets", Host: "github.com"},
+					Runner:    runner,
+					Forge:     forge,
+					Run:       toolio.NewRun("triage", "test"),
+					Progress:  toolio.NewProgress(io.Discard, "triage", false, true),
+					DryRun:    true,
+				}
+			}
+
+			// Run with the real DetectGoTypecheck.
+			real, e1 := RunPreflight(makeOpts())
+			if e1 != nil {
+				t.Fatalf("RunPreflight (real): %v", e1)
+			}
+
+			// Run with a failing DetectGoTypecheck.
+			orig := agentrun.DetectGoTypecheck
+			agentrun.DetectGoTypecheck = func(*tools.Workspace) (string, error) {
+				return "", errors.New("injected failure")
+			}
+			failed, e2 := RunPreflight(makeOpts())
+			agentrun.DetectGoTypecheck = orig
+			if e2 != nil {
+				t.Fatalf("RunPreflight (failed): %v", e2)
+			}
+
+			// Both return the same stage and estimate.
+			if real.Stage != failed.Stage {
+				t.Errorf("stage: %q vs %q", real.Stage, failed.Stage)
+			}
+			if !reflect.DeepEqual(real.Estimate, failed.Estimate) {
+				t.Errorf("estimate differs: %+v vs %+v", real.Estimate, failed.Estimate)
+			}
+
+			// Entries equal except go_typecheck.
+			if !reflect.DeepEqual(strip(real.Preflight), failed.Preflight) {
+				t.Errorf("entries differ (stripped):\nreal:   %+v\nfailed: %+v", strip(real.Preflight), failed.Preflight)
+			}
+
+			// No model calls.
+			if n := len(p.Requests()); n != 0 {
+				t.Errorf("provider received %d requests, want 0", n)
+			}
+
+			// No forge writes.
+			if forge.creates+forge.updates != 0 {
+				t.Errorf("forge writes = %d, want 0", forge.creates+forge.updates)
+			}
+
+			// Tree unchanged.
+			after := snapshot()
+			if before != after {
+				t.Errorf("workspace tree changed")
+			}
+		})
 	}
 }
