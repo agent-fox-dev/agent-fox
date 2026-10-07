@@ -70,3 +70,16 @@ It amends 08 and 11 in place.
 | Document | What it asks for |
 |---|---|
 | [12-track-the-work-in-forge-issues.md](12-track-the-work-in-forge-issues.md) | One tracking issue per spec package, on GitHub or GitLab through `issuex`: `spec` creates it where the spec is created and records where it came from, writing its URL as `tracking` in the PRD frontmatter; `impl` posts start and end comments and ticks a task checklist in a program-owned region of the body as each task lands; `review` posts its verdict and the merge; `fix` posts its correction on the tracker a gap issue leads back to, and `--track off` lets any run leave no trail. Every write is rendered by Go from facts, through one shared `internal/tracking` package, and no model phase sees the issue |
+
+Proposed for the machine behind `fix` and `impl`, after the analysis of
+2026-10-06 (issues #215 to #224). The interface of both tools is untouched;
+what changes is behind it. AgentKit
+[PRD 06](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/06-support-multi-phase-coding-pipelines.md)
+supplies the SDK side (a stable cache prefix, transcript pruning, honest
+usage, a process runner, a required tool, language-neutral symbol
+navigation), and the three are built in the order PRD 13 §9 gives.
+
+| Document | What it asks for |
+|---|---|
+| [13-rebuild-fix-on-a-shared-change-engine.md](13-rebuild-fix-on-a-shared-change-engine.md) | `internal/lang`: every language as one declarative profile, polyglot detection, a denylist test that no language is spelled anywhere else. `internal/engine`: the ledger of what a run changed, one process runner that tells a timeout from a cancellation, a gate answered from a tree-hash cache, a targeted and crash-safe revert check, parking on every path, `aborted` everywhere. A run brief with a stable cache prefix, pruned transcripts, check logs read on demand, `run_checks`, rejections that keep what was right. `fix` rewritten over it; `unverified` parks unless `--no-verify` |
+| [14-rebuild-impl-on-the-shared-change-engine.md](14-rebuild-impl-on-the-shared-change-engine.md) | `impl` over the same engine: the gate audited against every detected language; the run brief with the PRD, a digest of the spec and a map that does not churn; a task message that is the task; `run_checks revert`; a failed attempt continues the first agent instead of discarding it; declared deviations as commit trailers, so continuation sees them; the review reads contracts, not the package; resolve sees every finding and the stage is budgeted; `impl` runs the suite N+1 times and the model never does |
