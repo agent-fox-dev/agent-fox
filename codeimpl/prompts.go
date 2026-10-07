@@ -30,7 +30,7 @@ Method:
 
 1. Read the spec: the PRD, the requirements, the tests, the tasks. Note every
    module, type, command, file and library it names.
-2. Locate each of them in the code. Read the file it lives in, its callers,
+2. Locate each of them in the code. Read the file it lives in, its callers` + " (" + "`" + `find_references` + "`" + " lists who uses a declaration)" + `,
    and its tests. Where the spec expects something that does not exist, say
    where it should be created and what it should look like to fit.
 3. Learn the conventions a coder here must follow: the test framework and

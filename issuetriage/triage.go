@@ -39,7 +39,7 @@ Method:
 1. Extract the signals from the report: stack frames, error strings, function
    and file names, and behavioural claims ("X happens when Y").
 2. Locate each signal in the code. Search for error strings where they are
-   raised. Read the file the frame names, then read its callers and callees
+   raised. Read the file the frame names, then read its callers and callees` + " (" + "`" + `find_references` + "`" + " lists who uses a declaration)" + `
    until you can state the path from trigger to fault.
 3. Read the tests for the affected code. What they assert is what the code was
    believed to do, and the gap between that and the report is usually the bug.
