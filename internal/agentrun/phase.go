@@ -1033,10 +1033,10 @@ func (c *toolCallCounter) snapshotBytes() map[string]int64 {
 // them is a shell. A model that is not told reaches for `bash`: one read-only
 // run called it, got an unknown-tool error, and lost a turn.
 //
-// It also carries what AgentKit would have said about the tools (17-REQ-1):
-// prompt.Build renders the tools' PromptGuidelines only when the system prompt
-// is its own, and every phase here supplies one, so the guidance that steers a
-// model from `execute` + grep to search_files never reached it. A phase with a
+// The tools' own PromptGuidelines are not repeated here: prompt.Build renders
+// them, and the search-over-execute line, in a "Guidelines:" block right after
+// a custom system prompt, so this note is followed by them (see
+// docs/errata/17_tool_guidelines_rendered_by_agentkit.md). A phase with a
 // shell and the file tools is told which to use for what (17-REQ-3).
 func toolsNote(registered []core.Tool) string {
 	sorted := slices.Clone(registered)
@@ -1051,9 +1051,6 @@ func toolsNote(registered []core.Tool) string {
 		note += " There is no shell: read with the file tools, and do not call `bash`, `execute` or `run_command`."
 	} else if line := preferenceLine(sorted, shell); line != "" {
 		note += " " + line
-	}
-	if g := renderGuidelines(sorted, shell != ""); g != "" {
-		note += "\n\n" + g
 	}
 	return note
 }
@@ -1103,34 +1100,4 @@ func preferenceLine(sorted []core.Tool, shell string) string {
 		limit += " and for building, formatting and testing"
 	}
 	return list + "; " + limit + "."
-}
-
-// renderGuidelines is every registered tool's PromptGuidelines, in sorted
-// tool order and each tool's own order, without blanks or repeats, under a
-// fixed heading; "" when there are none. With a shell, search_files is
-// followed by AgentKit's search-over-execute guideline, which prompt.Build
-// adds by condition rather than search_files declaring it.
-func renderGuidelines(sorted []core.Tool, shell bool) string {
-	var lines []string
-	seen := map[string]bool{}
-	add := func(g string) {
-		g = strings.TrimSpace(g)
-		if g == "" || seen[g] {
-			return
-		}
-		seen[g] = true
-		lines = append(lines, "- "+g)
-	}
-	for _, t := range sorted {
-		for _, g := range t.PromptGuidelines {
-			add(g)
-		}
-		if shell && t.Name == "search_files" {
-			add(tools.SearchOverExecuteGuideline)
-		}
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return "Tool guidelines:\n" + strings.Join(lines, "\n")
 }
