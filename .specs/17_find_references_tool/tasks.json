@@ -201,7 +201,7 @@
       "done_when": [
         "git diff --exit-code go.mod go.sum is clean"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 5,
