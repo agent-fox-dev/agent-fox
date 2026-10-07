@@ -1,6 +1,6 @@
 # Add a find_references tool
 
-Status: **proposed**. Mechanism in AgentKit, policy here, as
+Status: **active**. Mechanism in AgentKit, policy here, as
 [ADR 07](../adr/07-split-code-navigation-between-agentkit-and-agent-fox.md)
 decides for every navigation item. Follows AgentKit
 [PRD 04](https://github.com/agent-fox-dev/agentkit-go/blob/main/docs/prd/04-add-symbol-navigation-tools.md)

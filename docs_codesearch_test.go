@@ -9,7 +9,7 @@ import (
 // carries once the index is wired in (16-REQ-7).
 const codeSearchPreflightExample = `{"check": "code_search_index", "ok": true, "detail": "built"}`
 
-// TS-16-27 (unit): docs/cli.md lists code_search alongside the six read tools
+// TS-16-27 (unit): docs/cli.md lists code_search alongside the seven read tools
 // for each tool
 // Verifies: 16-REQ-9.1
 func TestTS16_27_CLIListsCodeSearchForEachTool(t *testing.T) {
@@ -109,8 +109,8 @@ func TestTS16_29_NavigationBaselineHasCodeSearchColumn(t *testing.T) {
 		if end := strings.Index(table, "\n#"); end >= 0 {
 			table = table[:end]
 		}
-		if !strings.Contains(table, "| search_files | file_outline | find_symbol | code_search | all tools |") {
-			t.Errorf("the %s table has no code_search column after find_symbol", tool)
+		if !strings.Contains(table, "| search_files | file_outline | find_symbol | find_references | code_search | all tools |") {
+			t.Errorf("the %s table has no code_search column after find_references", tool)
 		}
 	}
 	if !strings.Contains(section, ".tool_calls.code_search") {
