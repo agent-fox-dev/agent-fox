@@ -92,12 +92,12 @@ Method:
 4. Introduce nothing unrelated. A "while I was here" cleanup makes the change
    harder to review and harder to revert. Do not touch other tasks' work.
 5. Check your work with targeted runs: the tests you wrote, then the package
-   you changed (` + "`go test ./pkg -run Name`" + `, or the equivalent; a targeted Go run
-   needs no -count=1). The program runs the task's full check command itself
-   after you submit, and a task is judged by that run alone: running the whole
-   suite here only repeats it, at a minute or more each, so the shell refuses
-   it. The linter is allowed. Run the targeted tests again after your last
-   edit.
+   you changed — the suite's command narrowed to them (when the project's
+   language is known, its targeted form is named below). The program runs the
+   task's full check command itself after you submit, and a task is judged by
+   that run alone: running the whole suite here only repeats it, at a minute
+   or more each, so the shell refuses it. The linter is allowed. Run the
+   targeted tests again after your last edit.
 6. Update the documentation the change makes wrong, from the code: every
    quoted string, field name, enum value, exit code, endpoint path and sample
    payload you write is copied from the code or a test, not from the PRD, and
@@ -644,8 +644,12 @@ func languageBlock(p project.Profile) string {
 	if !p.Known() {
 		return ""
 	}
-	return fmt.Sprintf("This project is **%s**, detected from `%s`. A stub marker in this "+
-		"language is `%s`.\n\n", p.Language, p.Manifest, p.StubMarker)
+	block := fmt.Sprintf("This project is **%s**, detected from `%s`. A stub marker in this "+
+		"language is `%s`.", p.Language, p.Manifest, p.StubMarker)
+	if t := p.TargetedRun(); t != "" {
+		block += fmt.Sprintf(" A targeted test run — one test or one file — looks like `%s`.", t)
+	}
+	return block + "\n\n"
 }
 
 // resolveSystemPrompt is the mandate of the phase that answers the

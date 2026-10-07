@@ -227,6 +227,9 @@ type Phase struct {
 	// the program runs it itself after the phase: the shell refuses it. See
 	// GuardOptions.Suite.
 	Suite []string
+	// TargetedRun is the project's targeted test run, which the refusal of
+	// the suite names. See GuardOptions.TargetedRun.
+	TargetedRun string
 	// MaxTokens caps one response. Zero leaves the provider's default.
 	MaxTokens int
 	// Temperature is low for every phase in these tools, because each one
@@ -465,6 +468,7 @@ func (r *Runner) newAgent(p Phase) (*agentkit.Agent, *blockCounter, error) {
 			ReadOnlyFiles:  p.ReadOnly,
 			ProtectedPaths: p.ProtectedPaths,
 			Suite:          p.Suite,
+			TargetedRun:    p.TargetedRun,
 			ReadRoots:      readRootDirs(r.cfg.ReadRoots),
 			ResolvePath:    r.cfg.Workspace.Resolve,
 			OnBlock: func(name, reason string) {

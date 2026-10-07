@@ -37,6 +37,30 @@ type Profile struct {
 	StubMarker string
 }
 
+// TargetedRun is how the language's test runner runs one test or one file:
+// the form a writing phase is pointed at when the whole suite is refused.
+// Empty when the language is unknown.
+func (p Profile) TargetedRun() string {
+	switch p.Language {
+	case "go":
+		return "go test ./pkg -run Name"
+	case "rust":
+		return "cargo test <name>"
+	case "python":
+		if strings.HasPrefix(p.AllTests, "uv run ") {
+			return "uv run pytest tests/test_x.py::test_name"
+		}
+		return "pytest tests/test_x.py::test_name"
+	case "node":
+		return "npm test -- <file>"
+	case "jvm":
+		return "mvn test -Dtest=<Class>"
+	case "ruby":
+		return "bundle exec rspec spec/x_spec.rb"
+	}
+	return ""
+}
+
 // Known reports whether detection found anything.
 func (p Profile) Known() bool { return p.Language != "" }
 

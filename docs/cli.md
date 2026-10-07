@@ -1933,9 +1933,18 @@ the gate runs, with a warning. And the implementation and resolve phases'
 shells refuse the whole test suite — the gate's `all_tests` command (or
 `--verify-command`), `make check` when that command is a make target, and
 `go test` over `./...` — because the program runs it after the phase and
-judges the work by that run alone; the refusal names the targeted form
-(`go test ./pkg -run Name`). The linter and targeted runs stay allowed, and
-the repair phase, whose work is making the suite pass, may run it. The task's state, the commit, the push and the
+judges the work by that run alone. The suite command is refused as typed and
+with nothing but flags added (`pytest -q -x` for `pytest -q`; for a make
+target, with anything added, since make's words are targets). A run that adds
+an operand — a test name, a file, `-- <file>` — or a flag that selects tests
+(`-Dtest=`, `--tests=`, `-run=`, `-k=`) names what it runs and is allowed:
+`cargo test my_test`, `pytest -q tests/test_x.py::test_y`, `npm test --
+src/x.test.ts`. The refusal and the implementation prompt name the detected
+language's targeted form (`go test ./pkg -run Name`, `cargo test <name>`,
+`pytest tests/test_x.py::test_name`, `npm test -- <file>`, `mvn test
+-Dtest=<Class>`, `bundle exec rspec spec/x_spec.rb`). The linter and targeted
+runs stay allowed, and the repair phase, whose work is making the suite pass,
+may run it. The task's state, the commit, the push and the
 pull request are the program's.
 
 ## Environment
