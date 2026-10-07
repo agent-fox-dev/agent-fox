@@ -308,6 +308,7 @@ func (b *agentBrain) implementPhase(in taskInput, out *sink[Submission]) agentru
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
 		Suite:              suiteList(in.Suite),
+		TargetedRun:        in.Profile.TargetedRun(),
 		Temperature:        0.2,
 		LoadProjectContext: true,
 	}
@@ -347,6 +348,7 @@ func (b *agentBrain) resolvePhase(in resolveInput, out *sink[ResolveSubmission])
 		Programs:           programs,
 		ProtectedPaths:     []string{b.protected},
 		Suite:              suiteList(in.Suite),
+		TargetedRun:        in.Profile.TargetedRun(),
 		Temperature:        0.2,
 		LoadProjectContext: true,
 	}

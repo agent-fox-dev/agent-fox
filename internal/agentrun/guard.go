@@ -41,6 +41,10 @@ type GuardOptions struct {
 	// phase the program verifies itself after it ends: the shell refuses it,
 	// and the equivalents named at suiteRun. Empty means the phase may run it.
 	Suite []string
+	// TargetedRun is the project's form of a targeted test run — one test or
+	// one file — which the refusal of the suite names instead. Empty when
+	// the language is unknown.
+	TargetedRun string
 	// ReadRoots are absolute directories outside the workspace a read-only
 	// phase's shell may still read under.
 	ReadRoots []string
@@ -338,11 +342,15 @@ func uniquePrograms(list []string) []string {
 // alone, so a run inside the phase repeats it — minutes each, on a context
 // that is paid for while it waits. A prompt that said so was not enough.
 //
-// Refused, in any segment of the line: the suite command itself (the same
-// program with all of its arguments, so `make test lint` contains `make
-// test`); `make check` when the suite is a make target, the conventional
-// wrapper around lint and tests; and `go test` over a whole module (`./...`).
-// The linter and targeted runs stay allowed.
+// Refused, in any segment of the line: the suite command itself — the same
+// program with all of its arguments, plus nothing but flags (`pytest -q -x`
+// for `pytest -q`); for make, plus anything (`make test lint` contains `make
+// test`, and make's words are targets); `make check` when the suite is a make
+// target, the conventional wrapper around lint and tests; and `go test` over
+// a whole module (`./...`). The linter and targeted runs stay allowed: outside
+// make, a run that adds an operand (`cargo test my_test`, `pytest -q
+// tests/test_x.py`, `npm test -- src/x.test.ts`) or a flag that selects tests
+// (`mvn test -Dtest=X`) names what it runs, and is not the suite.
 func (o GuardOptions) suiteRun(vectors [][]string) (string, bool) {
 	if len(o.Suite) == 0 {
 		return "", false
@@ -359,7 +367,10 @@ func (o GuardOptions) suiteRun(vectors [][]string) (string, bool) {
 			if len(want) == 0 || baseName(want[0]) != name {
 				continue
 			}
-			if containsAll(argv[1:], want[1:]) || (name == "make" && slices.Contains(argv[1:], "check")) {
+			switch {
+			case name == "make":
+				match = match || containsAll(argv[1:], want[1:]) || slices.Contains(argv[1:], "check")
+			case containsAll(argv[1:], want[1:]) && !targets(argv[1:], want[1:]):
 				match = true
 			}
 		}
@@ -374,10 +385,40 @@ func (o GuardOptions) suiteRun(vectors [][]string) (string, bool) {
 	if len(hit) == 0 {
 		return "", false
 	}
+	instead := "name them after the suite's command (a test, a file or a package)"
+	if o.TargetedRun != "" {
+		instead = "`" + o.TargetedRun + "`, or the equivalent"
+	}
 	return fmt.Sprintf("%s runs the whole test suite. The program runs `%s` after you submit and "+
 		"judges the work by that run alone, so running it here only repeats it. Run the tests you wrote "+
-		"and their package instead (`go test ./pkg -run Name`, or the equivalent; a targeted Go run "+
-		"needs no -count=1). The linter is allowed.", strings.Join(hit, ", "), strings.Join(o.Suite, "`, `")), true
+		"and their package instead (%s). The linter is allowed.", strings.Join(hit, ", "),
+		strings.Join(o.Suite, "`, `"), instead), true
+}
+
+// targetingFlags are the flags that select tests by their value in one word:
+// Maven's -Dtest=, Gradle's --tests=, go test's -run=, pytest's -k=, Jest's
+// --testNamePattern=. The two-word spellings need no entry: their value is an
+// operand.
+var targetingFlags = []string{"-Dtest=", "--tests=", "-run=", "--run=", "-k=", "--testNamePattern=", "-t="}
+
+// targets reports whether a run adds to the suite's words something that
+// names what it runs: an operand (a word that is not a flag), or a flag that
+// selects tests. A run that adds only flags still runs the whole suite.
+func targets(have, suite []string) bool {
+	for _, w := range have {
+		if slices.Contains(suite, w) {
+			continue
+		}
+		if !strings.HasPrefix(w, "-") {
+			return true
+		}
+		for _, f := range targetingFlags {
+			if strings.HasPrefix(w, f) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // containsAll reports whether every word of want appears in have.

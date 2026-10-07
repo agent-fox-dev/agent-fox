@@ -189,3 +189,27 @@ func TestSteeringSkipsPlaceholdersAndMissingFiles(t *testing.T) {
 		t.Errorf("Steering = %q", got)
 	}
 }
+
+// Issue #219: each ecosystem's targeted test run, the form a writing phase is
+// pointed at when the whole suite is refused.
+func TestTargetedRunPerEcosystem(t *testing.T) {
+	for files, want := range map[string]string{
+		"go.mod":         "go test ./pkg -run Name",
+		"Cargo.toml":     "cargo test <name>",
+		"pyproject.toml": "pytest tests/test_x.py::test_name",
+		"package.json":   "npm test -- <file>",
+		"pom.xml":        "mvn test -Dtest=<Class>",
+		"Gemfile":        "bundle exec rspec spec/x_spec.rb",
+	} {
+		if got := DetectProfile(projectDir(t, map[string]string{files: "x\n"})).TargetedRun(); got != want {
+			t.Errorf("%s: TargetedRun() = %q, want %q", files, got, want)
+		}
+	}
+	uv := DetectProfile(projectDir(t, map[string]string{"pyproject.toml": "x\n", "uv.lock": ""}))
+	if got := uv.TargetedRun(); got != "uv run pytest tests/test_x.py::test_name" {
+		t.Errorf("uv: TargetedRun() = %q", got)
+	}
+	if got := (Profile{}).TargetedRun(); got != "" {
+		t.Errorf("unknown language: TargetedRun() = %q", got)
+	}
+}
