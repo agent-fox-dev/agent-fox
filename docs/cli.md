@@ -287,7 +287,7 @@ count in `summary`.
 | `1` | `failed` | failed; the stage is named in the JSON |
 | `2` | `usage` | usage error — nothing was fetched, nothing was written |
 | `3` | `needs_human` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
-| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) — or it landed and the conformance checks left blocking findings (category `nonconformant`). For `impl`, every run that parks its work as a `wip:` commit exits 4, whatever its `category` (`empty_change`, `no_result`, `aborted`, `budget`, …), except a task that stops to ask a person (3) |
+| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) — or it landed and the conformance checks left blocking findings (category `nonconformant`). Every run that parks its work as a `wip:` commit exits 4, whatever its `category` (`empty_change`, `no_result`, `aborted`, `budget`, `api`, …), except an `impl` task that stops to ask a person (3) |
 
 A bare invocation — no positional argument, or one that is all whitespace —
 is also program-driven when stdout is not a terminal: it still writes the
@@ -1008,9 +1008,19 @@ any change and once after, and the two are compared:
 A run that stops before verification — an analyse, branch or implement failure, or an ambiguity stop — has no verdict: `result.verdict` is absent, and the summary view leaves out `verification` instead of showing an all-zero check.
 
 A run that does not land parks the work as a `wip:` commit on its branch,
-returns the checkout to the base branch, and exits 4. A run that reports a fix
-and changed no file exits 1 rather than committing an empty tree — the diff
-comes from git, not from the model.
+returns the checkout to the base branch, and exits 4. That holds for every
+failure after the implementation phase began, not only checks that do not
+pass: the phase failing or being cancelled (Ctrl-C, `--phase-timeout`, a
+provider error), the checks being cancelled, the proof or the commit failing.
+The `category` says which (`aborted`, `api`, `max_turns`, …), the git steps of
+the park run under a context the cancellation does not reach, and the tree is
+left clean, so the identical command can run again. A check the cancellation
+killed is `aborted` (`verification.aborted`), not the command's failure: it is
+compared with nothing, so a Ctrl-C is never reported as `regressed`. A run that
+reports a fix and changed no file exits 1 rather than committing an empty tree
+— the diff comes from git, not from the model — and its checkout goes back to
+the base branch too. A push that fails leaves the commit on the branch and the
+checkout on the base branch, and exits 1.
 
 ### Proving the fix
 
@@ -1022,6 +1032,12 @@ they still pass — or cannot run — the change still lands, since it is
 verified, but it only references the issue (`Refs #N`), the pull request
 says why, and the run warns `fix_not_proven`. `result.closes_issue` records
 which.
+
+While the fix is taken out, it is held in a `wip:` commit on the branch,
+undone once the check is done, so a process killed during the check leaves the
+change in that commit rather than nowhere. The check runs under the run's own
+context: Ctrl-C ends it at once, puts the fix back, and parks it as `aborted`.
+`impl`'s revert check holds a task's work the same way.
 
 When the report cites requirement or test ids (`20-REQ-1.2`, `TS-20-3`) that
 a spec under `.specs` (or `$AF_SPEC_DIR`) defines, an independent review on a
@@ -1072,7 +1088,7 @@ wrapped items are all read; at most 30 criteria are taken.
 | `--repo owner/repo` | the `origin` remote of `--dir`, else the input issue's | where the pull request is opened (the branch is pushed to `origin`, so that is where it goes); `group/subgroup/project` for a nested GitLab path |
 | `--verify` | detected | the command that decides success |
 | `--no-verify` | off | run nothing; the result is then reported as `unverified`, not as a pass |
-| `--verify-timeout` | `10m` | timeout for one verification run |
+| `--verify-timeout` | `10m` | timeout for one verification run; it ends the whole command, the programs it started included (`go test` under `make`) |
 | `--push-attempts` | `4` | push retries, with exponential backoff |
 | `--allow a,b` | — | extra programs the implementation phase's shell may run |
 | `--draft` | off | open the pull request as a draft |
@@ -1686,7 +1702,12 @@ the failure was: checks that do not pass, an empty change, a phase that ended
 without a report, the run's budget. The `category` says which. A run
 cancelled mid-task is parked the same way, under a context the cancellation
 does not reach, so Ctrl-C never leaves a dirty tree on the branch, and it
-exits 4 too. Only a task that stops to ask a person exits 3.
+exits 4 too. Only a task that stops to ask a person exits 3. A check the
+cancellation killed is `aborted`: the baseline is then not "a command that
+could not run", a task's gate not `gate_failed`, and the clean-environment run
+not a `hermetic` blocker. A cancellation between tasks, or during the
+conformance review, stops the run with category `aborted`, the landed tasks
+committed, nothing pushed and the checkout back on the base branch.
 
 `submit_task` refuses a report that skips a test the task owns, names one it
 does not, answers with a bare word, or has no commit subject — the phase
@@ -1865,7 +1886,7 @@ documentation, naming every such source in one refusal. Every writing phase is t
 | `--repo owner/repo` | the `origin` remote | where the pull request is opened; `group/subgroup/project` for a nested GitLab path |
 | `--verify` | the spec's `linter` and `all_tests` | one command that decides success instead |
 | `--no-verify` | off | run nothing; every task is then `unverified`, not a pass |
-| `--verify-timeout` | `10m` | timeout for one check command |
+| `--verify-timeout` | `10m` | timeout for one check command; it ends the whole command, the programs it started included |
 | `--push-attempts` | `4` | push retries, with exponential backoff |
 | `--allow a,b` | — | extra programs the implementation phases' shell may run |
 | `--draft` | off | open the pull request as a draft |

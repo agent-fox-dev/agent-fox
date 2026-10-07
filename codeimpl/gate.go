@@ -147,6 +147,17 @@ func (g GateResult) couldNotRun() (checks.Result, bool) {
 	return checks.Result{}, false
 }
 
+// aborted reports whether a check was killed because the run was cancelled:
+// a gate that says nothing about the code, and is compared with nothing.
+func (g GateResult) aborted() bool {
+	for _, c := range g.Checks {
+		if c.Aborted {
+			return true
+		}
+	}
+	return false
+}
+
 // failing lists the checks that did not pass, for a prompt or a report.
 func (g GateResult) failing() []checks.Result {
 	var res []checks.Result

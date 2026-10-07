@@ -31,6 +31,13 @@ func untrackedNow(ctx context.Context, git *gitx.Git) map[string]bool {
 // report does not list is committed — the checks ran with it — and named.
 func commitOwn(ctx context.Context, o Options, git *gitx.Git, before map[string]bool, message string,
 	changes []FileChange) (string, error) {
+	return commitOwnHooks(ctx, o, git, before, message, changes, false)
+}
+
+// commitOwnHooks is commitOwn with the choice of skipping the repository's
+// commit hooks, for a commit that is undone again (the revert check's hold).
+func commitOwnHooks(ctx context.Context, o Options, git *gitx.Git, before map[string]bool, message string,
+	changes []FileChange, noVerify bool) (string, error) {
 
 	files, err := git.UntrackedFiles(ctx)
 	if err != nil {
@@ -53,7 +60,7 @@ func commitOwn(ctx context.Context, o Options, git *gitx.Git, before map[string]
 		o.Run.Warn(toolio.WarnUnlistedFileCommitted, "low", "committed new file(s) the phase's report does "+
 			"not list among its changes; check that they are its work: %s", strings.Join(unlisted, ", "))
 	}
-	return git.CommitAllExcept(ctx, message, false, leave)
+	return git.CommitAllExcept(ctx, message, noVerify, leave)
 }
 
 // listed reports whether changes names f, by path or by a directory ending in

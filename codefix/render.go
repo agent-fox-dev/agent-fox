@@ -77,6 +77,27 @@ func wipCommitMessage(impl Implementation, issue issueRef, verdict checks.Verdic
 		"after this change (%s), so it was not landed.\n", ref, subject, verdict)
 }
 
+// parkedCommitMessage is what a change parks as when the run stopped for a
+// reason other than its checks: the phase failed or was cancelled, the
+// checks were cancelled, the proof or the commit failed.
+func parkedCommitMessage(subject string, issue issueRef, f *Failure) string {
+	ref := ""
+	if issue != nil {
+		ref = fmt.Sprintf(" for #%d", issue.Number)
+	}
+	return fmt.Sprintf("wip: unlanded change%s — %s\n\nThe run stopped before landing this change "+
+		"(stage %s, %s): %s\n", ref, strings.TrimSpace(subject), f.Stage, f.Category, f.Err)
+}
+
+// revertHoldMessage is the commit that holds the change while the revert
+// check has the fix taken out. It is undone after the check; a process killed
+// during it leaves the change here, as a wip: commit on the branch.
+func revertHoldMessage(impl Implementation) string {
+	return fmt.Sprintf("wip: held while the revert check runs — %s\n\nThe change is held in this commit "+
+		"while the revert check runs with the fix taken out. The run undoes it afterwards; if it is still "+
+		"here, the run was killed during the check.\n", strings.TrimSpace(impl.CommitSubject))
+}
+
 // analysisComment is what is posted to the issue before any code is written.
 //
 // It is posted after the pre-flight checks rather than before them. The skill

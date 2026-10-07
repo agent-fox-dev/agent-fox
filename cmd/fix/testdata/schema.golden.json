@@ -530,6 +530,10 @@
                 "type": "boolean",
                 "description": "True when the run was killed by the timeout."
               },
+              "aborted": {
+                "type": "boolean",
+                "description": "True when the run was killed because the tool's own run was cancelled; the command's exit status says nothing."
+              },
               "duration_ms": {
                 "type": "integer",
                 "description": "How long the run took in milliseconds."
@@ -571,6 +575,10 @@
               "timed_out": {
                 "type": "boolean",
                 "description": "True when the run was killed by the timeout."
+              },
+              "aborted": {
+                "type": "boolean",
+                "description": "True when the run was killed because the tool's own run was cancelled; the command's exit status says nothing."
               },
               "duration_ms": {
                 "type": "integer",
@@ -682,6 +690,10 @@
                   "timed_out": {
                     "type": "boolean",
                     "description": "True when the run was killed by the timeout."
+                  },
+                  "aborted": {
+                    "type": "boolean",
+                    "description": "True when the run was killed because the tool's own run was cancelled; the command's exit status says nothing."
                   },
                   "duration_ms": {
                     "type": "integer",
@@ -1512,6 +1524,6 @@
     "1": "failed; the stage is named in the JSON",
     "2": "usage error; nothing was fetched and nothing was written",
     "3": "stopped on purpose because the problem reads two ways; the question was posted to the issue, with no branch and no code",
-    "4": "code was written and the checks do not pass; the work is committed as a wip: commit and the checkout is back on the base branch"
+    "4": "code was written and did not land (the checks do not pass, or the run stopped after the implementation began); the work is committed as a wip: commit and the checkout is back on the base branch, and the category says why"
   }
 }

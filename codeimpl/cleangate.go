@@ -36,6 +36,9 @@ func (st *RunState) landingGate(ctx context.Context, o Options, label string, la
 	if g == nil {
 		return st.runGate(ctx, o, label)
 	}
+	if g.aborted() {
+		return *g
+	}
 	st.clean = &cleanRun{gate: *g, env: env}
 	if g.OK() {
 		return *g

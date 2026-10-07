@@ -61,7 +61,11 @@ func Revert(ctx context.Context, g *gitx.Git, root, base string, changed []strin
 	}
 	res.Reverted = impl
 
-	r := check(context.WithoutCancel(ctx))
+	// The check runs under the run's own context, so a cancellation ends it
+	// rather than waiting out --verify-timeout. The implementation is put
+	// back from the snapshot either way; a caller that cannot afford to lose
+	// it to a killed process holds it in a commit first.
+	r := check(ctx)
 	if err := snap.restore(); err != nil {
 		return res, fmt.Errorf("the implementation could not be restored after the revert check: %w", err)
 	}
@@ -70,6 +74,8 @@ func Revert(ctx context.Context, g *gitx.Git, root, base string, changed []strin
 	switch {
 	case !res.Ran:
 		res.Reason = "no verification command ran"
+	case r.Aborted:
+		res.Reason = "the run was cancelled during the revert check"
 	case r.ExitCode == -1 || r.TimedOut:
 		res.Reason = "the verification could not run with the implementation removed"
 	case r.OK:

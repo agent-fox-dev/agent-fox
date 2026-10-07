@@ -2,6 +2,7 @@ package codefix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -114,6 +115,9 @@ type Failure struct {
 	// TotalBudget is the --total-budget ceiling a budget stop was checked
 	// against, so the envelope's fix_hint can name it. Zero otherwise.
 	TotalBudget float64
+	// Parked is true when the run committed the work as a wip: commit on its
+	// branch and returned the checkout to the base branch before failing.
+	Parked bool
 }
 
 // TotalBudgetUSD is the run-level ceiling behind a stage "budget" failure.
@@ -130,6 +134,14 @@ func fail(stage, category string, err error) *Failure {
 
 func failf(stage, category, format string, args ...any) *Failure {
 	return &Failure{Stage: stage, Category: category, Err: fmt.Errorf(format, args...)}
+}
+
+// IsParked reports whether err is a run that parked its work on its branch:
+// whatever stopped it, the work is a wip: commit and the checkout is back on
+// the base branch, which the caller reports as exit 4.
+func IsParked(err error) bool {
+	var f *Failure
+	return errors.As(err, &f) && f.Parked
 }
 
 // Categories this package adds to the shared vocabulary.
@@ -297,8 +309,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	})
 	recordPhase(o.Run, stats)
 	done(toolio.PhaseSummary(stats))
+	// From here on the phase may have written files. A run that stops
+	// before it lands parks them, so the identical command can run again.
+	parkOn := func(f *Failure) (*Result, error) {
+		return parkFailure(ctx, o, git, before, result, impl, analysis, base, f)
+	}
 	if err != nil {
-		return result, fail("implement", agentrun.CategoryOf(err), err)
+		return parkOn(fail("implement", agentrun.CategoryOf(err), err))
 	}
 	result.Stage = "implemented"
 	result.Implementation = &impl
@@ -326,12 +343,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// empty commit. The evidence is git's, not the model's report.
 	changed, err := git.ChangedFiles(ctx, "HEAD")
 	if err != nil {
-		return result, fail("verify", CategoryGit, err)
+		return parkOn(fail("verify", CategoryGit, err))
 	}
 	if len(changed) == 0 {
-		return result, failf("verify", CategoryEmpty,
+		return parkOn(failf("verify", CategoryEmpty,
 			"the implementation phase reported a change and no file differs from %s; "+
-				"nothing was committed", base)
+				"nothing was committed", base))
 	}
 	result.ChangedFiles = changed
 	if msg := project.MissingDocs(root, changed); msg != "" {
@@ -344,6 +361,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// ----------------------------------------------------------- verify --
 	after := runChecks(ctx, o, root, command, "verification")
 	result.Verification = after
+	if after.Aborted {
+		// Cancelled checks say nothing about the change: nothing is compared.
+		return parkOn(failf("verify", agentrun.CategoryAborted, "the run was cancelled while `%s` ran",
+			after.Command))
+	}
 	verdict := checks.Compare(baseline, after)
 	result.Verdict = string(verdict)
 
@@ -353,8 +375,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// ------------------------------------------------------------ prove --
-	if err := prove(ctx, o, git, root, command, changed, result); err != nil {
-		return result, err
+	if err := prove(ctx, o, git, root, command, changed, before, impl, result); err != nil {
+		var f *Failure
+		if !errors.As(err, &f) {
+			f = fail("verify", CategoryGit, err)
+		}
+		return parkOn(f)
 	}
 	if len(result.Blocking) > 0 {
 		o.Draft = true
@@ -364,7 +390,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	commit, err := commitOwn(ctx, o, git, before, commitMessage(analysis.Classification, impl, o.Input.Issue,
 		result.ClosesIssue, commitBody(impl.Summary, after)), impl.Changes)
 	if err != nil {
-		return result, fail("commit", CategoryGit, err)
+		return parkOn(fail("commit", CategoryGit, err))
 	}
 	result.Commit = commit
 	result.Stage = "committed"
@@ -377,6 +403,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		// A failed push is the run's error, not a Run.Warn: no warning code.
 		o.Run.RecordSideEffect("push", "origin "+branch, err == nil, "")
 		if err != nil {
+			// The change is committed on the branch; the checkout goes
+			// back to where the run started.
+			returnCheckout(ctx, o, git, base)
 			return result, fail("push", CategoryGit, err)
 		}
 		result.Pushed = true
@@ -423,10 +452,10 @@ func (o Options) now() time.Time {
 // the repository defines — whether an independent review finds those met.
 // The issue is closed only when the tests prove the fix and the review left
 // nothing blocking.
-func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, changed []string, result *Result) error {
-	rc, err := conform.Revert(ctx, git, root, "HEAD", changed, func(ctx context.Context) checks.Result {
-		return runChecks(ctx, o, root, command, "revert check")
-	})
+func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, changed []string,
+	before map[string]bool, impl Implementation, result *Result) error {
+
+	rc, err := heldRevert(ctx, o, git, root, command, changed, before, impl)
 	// The revert took the fix out and put it back: the review phase that may
 	// follow searches the tree as it is now.
 	invalidate(o)
@@ -434,6 +463,9 @@ func prove(ctx context.Context, o Options, git *gitx.Git, root, command string, 
 		return fail("verify", CategoryGit, err)
 	}
 	result.RevertCheck = &rc
+	if rc.Check != nil && rc.Check.Aborted {
+		return failf("verify", agentrun.CategoryAborted, "the run was cancelled during the revert check")
+	}
 	result.ClosesIssue = o.Input.Issue != nil && rc.Proves
 	if o.Input.Issue != nil && !rc.Proves {
 		o.Run.Warn(toolio.WarnFixNotProven, "high", "%s is referenced, not closed: %s", o.Input.Issue, rc.Reason)
@@ -744,6 +776,115 @@ func stopOnAmbiguity(ctx context.Context, o Options, result *Result, a Ambiguity
 		"the input is ambiguous and the codebase cannot settle it: %s", strings.TrimSpace(a.Question)))
 }
 
+// heldRevert runs the revert check with the change held in a commit. While
+// the fix is taken out, the only other copy is in this process's memory, and
+// a process killed then would lose it; the hold commit keeps it on the
+// branch. The commit is undone afterwards, whatever happened, under a context
+// a cancellation does not reach, so the tree is as it was before.
+func heldRevert(ctx context.Context, o Options, git *gitx.Git, root, command string, changed []string,
+	before map[string]bool, impl Implementation) (_ conform.RevertResult, err error) {
+
+	head, err := git.Head(ctx)
+	if err != nil {
+		return conform.RevertResult{}, err
+	}
+	if _, err := commitOwnHooks(ctx, o, git, before, revertHoldMessage(impl), nil, true); err != nil {
+		return conform.RevertResult{}, err
+	}
+	defer func() {
+		bg, cancel := background(ctx)
+		defer cancel()
+		if rerr := git.ResetSoft(bg, head); rerr != nil && err == nil {
+			err = fmt.Errorf("the revert check's hold commit could not be undone: %w", rerr)
+		}
+	}()
+	return conform.Revert(ctx, git, root, head, changed, func(ctx context.Context) checks.Result {
+		return runChecks(ctx, o, root, command, "revert check")
+	})
+}
+
+// background is the context the git steps that must complete run under: one
+// a cancellation of the run does not reach, bounded so a hung git cannot hold
+// the run forever.
+func background(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+}
+
+// parkWork commits what the implementation phase left as a wip: commit,
+// when it left anything, and returns the checkout to the base branch. It
+// runs under a context the cancellation does not reach: Ctrl-C is the case
+// it exists for most, and a park the cancelled context killed mid-commit
+// would leave the dirty tree parking is meant to prevent. It reports whether
+// the work is committed.
+func parkWork(ctx context.Context, o Options, git *gitx.Git, before map[string]bool, result *Result,
+	message string, changes []FileChange, base string) bool {
+
+	bg, cancel := background(ctx)
+	defer cancel()
+	parked := false
+	if changed, err := git.ChangedFiles(bg, "HEAD"); err != nil || ownChange(changed, before) {
+		if commit, err := commitOwn(bg, o, git, before, message, changes); err != nil {
+			o.Run.Warn(toolio.WarnCommitNotParked, "high", "the work could not be committed on %s: %v",
+				result.Branch, err)
+		} else {
+			result.Commit = commit
+			parked = true
+		}
+	}
+	returnCheckout(bg, o, git, base)
+	return parked
+}
+
+// ownChange reports whether changed holds a file the run made: anything but
+// the untracked files that were there before it.
+func ownChange(changed []string, before map[string]bool) bool {
+	for _, f := range changed {
+		if !before[f] {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// returnCheckout puts the checkout back on the base branch, under a context
+// a cancellation does not reach.
+func returnCheckout(ctx context.Context, o Options, git *gitx.Git, base string) {
+	bg, cancel := background(ctx)
+	defer cancel()
+	if err := git.Checkout(bg, base); err != nil {
+		o.Run.Warn(toolio.WarnCheckoutNotRestored, "low", "could not return to %s: %v", base, err)
+	}
+}
+
+// parkFailure ends a run that stopped after the implementation phase began
+// and before the change landed: the phase failed or was cancelled, the
+// checks were cancelled, the proof or the commit failed. The work is parked
+// like an unverified change, the failure keeps its own category, and it is
+// marked parked so the caller exits 4. A run that left nothing to park only
+// returns the checkout.
+func parkFailure(ctx context.Context, o Options, git *gitx.Git, before map[string]bool, result *Result,
+	impl Implementation, analysis Analysis, base string, f *Failure) (*Result, error) {
+
+	result.Stage = "stopped"
+	subject := firstNonEmpty(impl.CommitSubject, analysis.Title)
+	if parkWork(ctx, o, git, before, result, parkedCommitMessage(subject, o.Input.Issue, f), impl.Changes, base) {
+		f.Parked = true
+		f.Err = fmt.Errorf("%w. The work is parked on %s (%s) and the checkout is back on %s",
+			f.Err, result.Branch, result.Commit, base)
+		o.Progress.Step(f.Stage, "stopped (%s); work parked on %s", f.Category, result.Branch)
+	}
+	return result, f
+}
+
 // parkUnverified commits the work as a wip: commit, returns the checkout to
 // the base branch, and reports the failure.
 //
@@ -755,20 +896,15 @@ func parkUnverified(ctx context.Context, o Options, git *gitx.Git, before map[st
 	impl Implementation, analysis Analysis, verdict checks.Verdict, base string) (*Result, error) {
 
 	result.Stage = "unverified"
-	if commit, err := commitOwn(ctx, o, git, before, wipCommitMessage(impl, o.Input.Issue, verdict), impl.Changes); err != nil {
-		o.Run.Warn(toolio.WarnCommitNotParked, "high", "the unverified work could not be committed on %s: %v", result.Branch, err)
-	} else {
-		result.Commit = commit
-	}
-	if err := git.Checkout(ctx, base); err != nil {
-		o.Run.Warn(toolio.WarnCheckoutNotRestored, "low", "could not return to %s: %v", base, err)
-	}
+	parked := parkWork(ctx, o, git, before, result, wipCommitMessage(impl, o.Input.Issue, verdict), impl.Changes, base)
 	postComment(ctx, o, result, failureComment(result), "failure")
 
 	o.Progress.Step("verify", "checks did not pass (%s); work parked on %s", verdict, result.Branch)
-	return result, failf("verify", CategoryUnverified,
+	f := failf("verify", CategoryUnverified,
 		"`%s` did not pass after the change (%s); the work is on %s and was not landed",
 		result.Verification.Command, verdict, result.Branch)
+	f.Parked = parked
+	return result, f
 }
 
 // OpenPullRequest opens the pull request and degrades to a warning when it

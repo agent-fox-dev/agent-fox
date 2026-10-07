@@ -2,6 +2,7 @@ package codeimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -300,6 +301,11 @@ func assess(ctx context.Context, o Options, st *runState, result *Result) (asses
 		} else {
 			a.hermetic, a.env = hermeticGate(ctx, o, st)
 		}
+		if a.hermetic != nil && a.hermetic.aborted() {
+			return a, failf(conform.PhaseReview, agentrun.CategoryAborted,
+				"the run was cancelled during the clean-environment verification; the tasks are landed on the "+
+					"branch, re-run to review them")
+		}
 	}
 
 	if !o.NoReview && overBudget(o, st) != nil {
@@ -318,9 +324,16 @@ func assess(ctx context.Context, o Options, st *runState, result *Result) (asses
 		recordPhase(o.Run, st, stats)
 		done(toolio.PhaseSummary(stats))
 		result.CostUSD = st.cost
-		if err != nil {
+		switch {
+		case agentrun.CategoryOf(err) == agentrun.CategoryAborted:
+			// A cancelled review is the run stopping, not a review that
+			// failed: nothing lands on it.
+			return a, failf(conform.PhaseReview, agentrun.CategoryAborted,
+				"the run was cancelled during the conformance review; the tasks are landed on the branch, "+
+					"re-run to review them")
+		case err != nil:
 			a.reviewErr = err
-		} else {
+		default:
 			a.review = &review
 		}
 	}
@@ -352,7 +365,7 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	result.Stage = "reviewing"
 	a, err := assess(ctx, o, st, result)
 	if err != nil {
-		return fail(conform.PhaseReview, CategoryGit, err)
+		return assessFailure(err)
 	}
 
 	var declared []conform.Deviation
@@ -372,7 +385,7 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 			}
 			if landed {
 				if a, err = assess(ctx, o, st, result); err != nil {
-					return fail(conform.PhaseReview, CategoryGit, err)
+					return assessFailure(err)
 				}
 				resolved = true
 			}
@@ -444,6 +457,16 @@ func conformance(ctx context.Context, o Options, st *runState, result *Result) e
 	}
 	result.Stage = "committed"
 	return nil
+}
+
+// assessFailure is the failure of an assessment that did not complete: its
+// own, when it says why (a cancellation), else a git failure.
+func assessFailure(err error) *Failure {
+	var f *Failure
+	if errors.As(err, &f) {
+		return f
+	}
+	return fail(conform.PhaseReview, CategoryGit, err)
 }
 
 // taskDeviations collects what the tasks that landed in this run declared,
@@ -617,6 +640,15 @@ func runResolve(ctx context.Context, o Options, st *runState, result *Result, a 
 	}
 	report.ChangedFiles = changed
 	after := st.landingGate(ctx, o, "resolve verification", true)
+	if after.aborted() {
+		bg, cancel := background(ctx)
+		defer cancel()
+		if err := discard(bg, st, head); err != nil {
+			return nil, false, fail(PhaseResolve, CategoryGit, err)
+		}
+		return nil, false, failf(PhaseResolve, agentrun.CategoryAborted,
+			"the run was cancelled while the resolve phase's change was verified; it was discarded")
+	}
 	verdict := compareGate(st.baseline, after)
 	report.Verification, report.Verdict = &after, verdict
 	if !landable(verdict, len(st.gate) == 0) {
