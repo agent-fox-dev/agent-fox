@@ -113,7 +113,7 @@ func TestDetectionReadsTheOriginOfTheGivenDirectory(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for _, argv := range [][]string{
-		{"git", "init", "-q"},
+		{"git", "init", "-q", "-b", "main"},
 		{"git", "remote", "add", "origin", "https://gitlab.com/team/app.git"},
 	} {
 		cmd := exec.Command(argv[0], argv[1:]...)
