@@ -74,6 +74,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"split_plan_not_removed":     "split",
 		"architecture_not_written":   "write",
 		"activation_failed":          "activate",
+		"issue_body_truncated":       "write",
 		"rejected_path_calls":        "analyse",
 		"report_file_not_written":    "report",
 		"input_looks_like_path":      "input",

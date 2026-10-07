@@ -44,7 +44,10 @@ const (
 	WarnSplitPlanNotRemoved    WarnCode = "split_plan_not_removed"
 	WarnArchitectureNotWritten WarnCode = "architecture_not_written"
 	WarnActivationFailed       WarnCode = "activation_failed"
-	WarnRejectedPathCalls      WarnCode = "rejected_path_calls"
+	// WarnIssueBodyTruncated is recorded when triage cut the issue body to
+	// fit the forge's body limit before writing it.
+	WarnIssueBodyTruncated WarnCode = "issue_body_truncated"
+	WarnRejectedPathCalls  WarnCode = "rejected_path_calls"
 	// WarnReportFileNotWritten is recorded (06-REQ-2.3) when the report
 	// file could not be written — a permission error, a read-only
 	// filesystem, or a path that could not be computed. The run still
@@ -158,6 +161,7 @@ var warnStages = map[WarnCode]string{
 	WarnArchitectureNotWritten:   "write",
 	WarnActivationFailed:         "activate",
 	WarnRejectedPathCalls:        "analyse",
+	WarnIssueBodyTruncated:       "write",
 	WarnReportFileNotWritten:     "report",
 	WarnInputLooksLikePath:       "input",
 	WarnOutputNotWritten:         "emit",
@@ -220,6 +224,7 @@ func DeclaredWarnCodes() []WarnCode {
 		WarnArchitectureNotWritten,
 		WarnActivationFailed,
 		WarnRejectedPathCalls,
+		WarnIssueBodyTruncated,
 		WarnReportFileNotWritten,
 		WarnInputLooksLikePath,
 		WarnOutputNotWritten,

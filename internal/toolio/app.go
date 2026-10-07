@@ -586,25 +586,9 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 			MaxInputBytes, len(e.argument)+contextLen))
 	}
 
-	var forge issuex.Client
-	if repo, ok := forgeRepoFromArgument(e.argument, e.common.InputKind); ok {
-		forge, _ = issuex.NewWithOptions(issuex.Options{
-			// Pass the repo, not a BaseURL: the web host (github.com) is
-			// not the API host (api.github.com); detectForge derives it.
-			Repo:      repo,
-			UserAgent: a.Name + "/" + a.Version,
-		})
-	}
-	if forge == nil {
-		opts := issuex.Options{UserAgent: a.Name + "/" + a.Version}
-		if repo, ok := issuex.DetectRepo(ws.Root); ok {
-			opts.Repo = repo
-		}
-		var forgeErr error
-		forge, forgeErr = issuex.NewWithOptions(opts)
-		if forgeErr != nil || forge == nil {
-			forge = issuex.NewNoOp()
-		}
+	forge, ferr := pickForge(e.argument, e.common.InputKind, ws.Root, a.Name+"/"+a.Version)
+	if ferr != nil {
+		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: ferr.Error(), err: ferr}
 	}
 
 	var in Input
@@ -807,4 +791,31 @@ func forgeRepoFromArgument(argument, inputKind string) (issuex.Repo, bool) {
 		return ref.Repo, true
 	}
 	return issuex.Repo{}, false
+}
+
+// pickForge builds the forge client the input is read through. An issue URL
+// names its forge, and that forge is the one used: when it cannot be told
+// which forge serves the URL's host, that is the run's error, not a reason to
+// read the thread from whatever forge the workspace belongs to. Without a URL
+// the workspace's own origin (of --dir, root) decides, and a workspace with
+// no forge gets the no-op client.
+func pickForge(argument, inputKind, root, userAgent string) (issuex.Client, error) {
+	if repo, ok := forgeRepoFromArgument(argument, inputKind); ok {
+		// Pass the repo, not a BaseURL: the web host (github.com) is not the
+		// API host (api.github.com); forge detection derives it.
+		forge, err := issuex.NewWithOptions(issuex.Options{Repo: repo, UserAgent: userAgent, Dir: root})
+		if err != nil {
+			return nil, fmt.Errorf("cannot read %s: %w", argument, err)
+		}
+		return forge, nil
+	}
+	opts := issuex.Options{UserAgent: userAgent, Dir: root}
+	if repo, ok := issuex.DetectRepo(root); ok {
+		opts.Repo = repo
+	}
+	forge, err := issuex.NewWithOptions(opts)
+	if err != nil || forge == nil {
+		return issuex.NewNoOp(), nil
+	}
+	return forge, nil
 }

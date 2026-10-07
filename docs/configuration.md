@@ -311,16 +311,17 @@ The tools reach GitHub or GitLab through one client, and which of the two is
 decided from names and variables, never by asking the host what it is. In this
 order:
 
-1. **The host's name.** The host of the issue URL, or of the repository the tool
-   is working in (the `origin` remote of `--dir`), is GitHub when its name
-   contains `github` and GitLab when it contains `gitlab`. A name with both, or
-   with neither, decides nothing here.
-2. **The environment.** When only one forge's variables are set (`GITHUB_API_URL`,
-   `GITHUB_TOKEN`, `GH_TOKEN` for GitHub; `GITLAB_API_URL`, `GITLAB_TOKEN` for
-   GitLab), that forge.
-3. **The `origin` remote of the working directory,** when both forges' variables
-   are set or neither is: its host is GitHub or GitLab when its name says so, or
-   when it is the host of `GITHUB_API_URL` or `GITLAB_API_URL`.
+1. **The host.** The host of the issue URL, or of the repository the tool is
+   working in, is the forge whose `GITHUB_API_URL` or `GITLAB_API_URL` names it
+   (the same host, or `api.<host>`); failing that, GitHub when its name
+   contains `github` and GitLab when it contains `gitlab`. A host that is
+   known but names neither, and no API URL, is ambiguous: an issue URL on it is
+   refused, rather than read from whichever forge the environment configures.
+2. **The environment.** With no host to go by, when only one forge's variables
+   are set (`GITHUB_API_URL`, `GITHUB_TOKEN`, `GH_TOKEN` for GitHub;
+   `GITLAB_API_URL`, `GITLAB_TOKEN` for GitLab), that forge.
+3. **The `origin` remote of `--dir`** (not of the directory the process runs
+   in), when both forges' variables are set or neither is, classified as in 1.
 4. **Otherwise the forge is ambiguous.** No request is sent to the host (a host
    that is only guessed at never receives a credential), and the tool goes on
    with a client that reads nothing from and writes nothing to a forge; a run
@@ -329,7 +330,26 @@ order:
 
 A self-hosted forge whose name says neither `github` nor `gitlab` is therefore
 named with its API URL variable (`GITLAB_API_URL=https://git.example.com`), which
-also gives the client the address to talk to. This replaced an earlier design in
+also gives the client the address to talk to.
+
+**Where the token goes.** Once the forge is known from a host, the API address
+and the credential follow that host, and a token goes only where its variables
+point it:
+
+- the host `GITHUB_API_URL` / `GITLAB_API_URL` names gets that URL and
+  `GITHUB_TOKEN` (or `GH_TOKEN`) / `GITLAB_TOKEN`;
+- `github.com` gets `https://api.github.com` and `gitlab.com`
+  `https://gitlab.com/api/v4`, with the token — unless the API URL names
+  another host (an Enterprise server), in which case the token is that
+  server's and the public forge is read without one;
+- any other host — `github.acme.com` or `gitlab.acme.com` with no API URL
+  set — gets its own API address (`https://<host>/api/v3` for GitHub,
+  `/api/v4` for GitLab) and **no token**: set the API URL to that host to
+  authenticate to it.
+
+GitLab's `PRIVATE-TOKEN` is not carried across a redirect to another host.
+A GitLab merge-request URL is read, rewritten and commented on through the
+merge-request API (issues and merge requests are numbered separately). This replaced an earlier design in
 which an unclassified host was probed with `GET /api/v4/version`; see
 [the erratum](errata/unclassified_host_probe.md).
 

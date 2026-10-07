@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -41,15 +42,20 @@ func NewGitLab(o Options) (Client, error) {
 	}
 
 	token := strings.TrimSpace(o.Token)
-	if token == "" {
+	if token == "" && !o.withholdEnvToken {
 		token = os.Getenv("GITLAB_TOKEN")
 	}
 
 	// A supplied client is used as is: its timeout, or the lack of one, is
 	// the caller's choice. The default is for a caller that supplies none.
+	//
+	// The default client does not carry PRIVATE-TOKEN across a redirect to
+	// another host: it is a header of GitLab's own, which Go does not strip
+	// there the way it strips Authorization. A supplied client's redirect
+	// policy is the caller's.
 	hc := o.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
+		hc = &http.Client{Timeout: 30 * time.Second, CheckRedirect: dropTokenAcrossHosts}
 	}
 
 	ua := strings.TrimSpace(o.UserAgent)
@@ -63,7 +69,6 @@ func NewGitLab(o Options) (Client, error) {
 		userAgent:  ua,
 		httpClient: hc,
 		repo:       o.Repo,
-		sleep:      time.Sleep,
 	}, nil
 }
 
@@ -79,13 +84,10 @@ func (c *gitlabClient) Close() error {
 }
 
 // SetSleep sets the rate-limit backoff sleep function on the client.
-// If fn is nil, time.Sleep is used.
+// If fn is nil, the default wait is used, which ends when the run is cancelled.
 func (c *gitlabClient) SetSleep(fn func(time.Duration)) {
-	if fn == nil {
-		c.sleep = time.Sleep
-	} else {
-		c.sleep = fn
-	}
+	// nil restores the default: a wait that ends when the run is cancelled.
+	c.sleep = fn
 }
 
 // SetGitLabSleep sets the rate-limit sleep function on a GitLab Client.
@@ -296,4 +298,17 @@ func (c *gitlabClient) GetRepository(ctx context.Context, repo Repo) (Repository
 		AllowSquashMerge: project.SquashOption != "never",
 		AllowRebaseMerge: project.MergeMethod == "rebase_merge" || project.MergeMethod == "ff",
 	}, nil
+}
+
+// dropTokenAcrossHosts is the default GitLab client's redirect policy: Go's
+// own, plus PRIVATE-TOKEN removed when the redirect leaves the host the
+// request was sent to.
+func dropTokenAcrossHosts(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+		req.Header.Del("PRIVATE-TOKEN")
+	}
+	return nil
 }

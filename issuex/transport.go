@@ -114,9 +114,18 @@ func (h forgeHTTP) do(ctx context.Context, method, path string, reqBody, respTar
 		fullURL = strings.TrimRight(h.baseURL, "/") + p
 	}
 
+	// The rate-limit wait (up to maxRateLimitWait) ends when the run is
+	// cancelled. A sleep injected by a test is called as it is.
 	sleep := h.sleep
 	if sleep == nil {
-		sleep = time.Sleep
+		sleep = func(d time.Duration) {
+			t := time.NewTimer(d)
+			defer t.Stop()
+			select {
+			case <-ctx.Done():
+			case <-t.C:
+			}
+		}
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
