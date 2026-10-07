@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/agent-fox-dev/agentfox/internal/agentrun"
 	"github.com/agentfox/agentkit-go/core"
@@ -412,11 +413,14 @@ type Envelope struct {
 // wrong thing usually classified its input differently than the caller
 // assumed.
 type InputInfo struct {
-	Kind         string `json:"kind" description:"How the input was classified: text, file, stdin or issue."`
-	Origin       string `json:"origin" description:"Where the input came from: a file path or an issue URL. Empty for raw text and stdin."`
-	Bytes        int    `json:"bytes" description:"Size of the input body in bytes."`
-	Truncated    bool   `json:"truncated,omitempty" description:"True when the input was cut to fit the size limit."`
-	ContextBytes int    `json:"context_bytes,omitempty" description:"Size in bytes of the extra context given with --context."`
+	Kind      string `json:"kind" description:"How the input was classified: text, file, stdin or issue."`
+	Origin    string `json:"origin" description:"Where the input came from: a file path or an issue URL. Empty for raw text and stdin."`
+	Bytes     int    `json:"bytes" description:"Size of the input body in bytes."`
+	Truncated bool   `json:"truncated,omitempty" description:"True when the input was cut to fit the size limit."`
+	// CommentsTruncated is true when an issue had more comments than the
+	// forge client read; it says nothing about the size limit.
+	CommentsTruncated bool `json:"comments_truncated,omitempty" description:"True when the issue had more comments than were read. Not the size limit, which is truncated."`
+	ContextBytes      int  `json:"context_bytes,omitempty" description:"Size in bytes of the extra context given with --context."`
 }
 
 // ModelInfo records which model served the run.
@@ -644,11 +648,12 @@ func (r *Run) SetInput(in Input) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.input = &InputInfo{
-		Kind:         in.Kind.String(),
-		Origin:       in.Origin,
-		Bytes:        len(in.Body),
-		Truncated:    in.Truncated,
-		ContextBytes: len(in.Context),
+		Kind:              in.Kind.String(),
+		Origin:            in.Origin,
+		Bytes:             len(in.Body),
+		Truncated:         in.Truncated,
+		CommentsTruncated: in.CommentsTruncated,
+		ContextBytes:      len(in.Context),
 	}
 }
 
@@ -819,12 +824,18 @@ func WarningMessages(ws []Warning) []string {
 	return out
 }
 
+// summaryMax is the longest summary, in characters.
+const summaryMax = 200
+
 // Envelope assembles the object to print. code decides OK: only ExitOK is a
 // success, so a tool cannot report ok:true alongside a non-zero exit.
 func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
+	// The run's state is copied under its lock, and the lock is released
+	// before any of the result's own methods (Summary, NeedsHuman,
+	// Resumable, ...) is called: one that reads the run — its warnings, its
+	// spend — would otherwise deadlock here.
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
+	bounds := r.bounds
 	env := Envelope{
 		Tool:          r.tool,
 		Version:       r.version,
@@ -859,6 +870,8 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 		}
 		env.Usage = u
 	}
+	r.mu.Unlock()
+
 	if env.OK && env.Error != nil {
 		// Defensive: an ok envelope carrying an error is a contradiction the
 		// caller should never have to resolve.
@@ -879,7 +892,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 					Options:  opts,
 					Needed:   needed,
 					Stage:    stage,
-					Resume:   ResumeNext(r.tool, "").Command(),
+					Resume:   ResumeNext(env.Tool, "").Command(),
 				}
 			}
 		}
@@ -889,33 +902,35 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 	if s, ok := env.Result.(Summarizer); ok {
 		summary = strings.TrimSpace(s.Summary())
 	}
-	if summary != "" {
-		if len(summary) > 200 {
-			summary = summary[:200]
-		}
-	} else {
+	if summary == "" {
 		if env.OK {
-			summary = fmt.Sprintf("%s: done", r.tool)
+			summary = fmt.Sprintf("%s: done", env.Tool)
 		} else if env.Error != nil && env.Error.Message != "" {
 			summary = env.Error.Message
 		} else {
-			summary = fmt.Sprintf("%s: %s", r.tool, env.Status)
+			summary = fmt.Sprintf("%s: %s", env.Tool, env.Status)
 		}
 	}
 	highCount := 0
-	for _, w := range r.warnings {
+	for _, w := range env.Warnings {
 		if w.Severity == "high" {
 			highCount++
 		}
 	}
+	clause := ""
 	if env.OK && highCount > 0 {
 		if highCount == 1 {
-			summary += "; 1 high-severity warning (highest severity: high)"
+			clause = "; 1 high-severity warning (highest severity: high)"
 		} else {
-			summary += fmt.Sprintf("; %d high-severity warnings (highest severity: high)", highCount)
+			clause = fmt.Sprintf("; %d high-severity warnings (highest severity: high)", highCount)
 		}
 	}
-	env.Summary = summary
+	// The cap is 200 characters, the clause included, and is counted in
+	// runes: a cut by bytes can split a multi-byte character.
+	if room := summaryMax - utf8.RuneCountInString(clause); utf8.RuneCountInString(summary) > room {
+		summary = string([]rune(summary)[:room])
+	}
+	env.Summary = summary + clause
 	env.UntrustedFields = UntrustedFields(env.Result)
 
 	if env.Error != nil {
@@ -931,7 +946,7 @@ func (r *Run) Envelope(code int, result any, failure *ErrorInfo) Envelope {
 			if errCopy.err != nil {
 				underlying = errCopy.err
 			}
-			errCopy.FixHint = FixHintFor(errCopy.Category, errCopy.Stage, r.bounds, underlying)
+			errCopy.FixHint = FixHintFor(errCopy.Category, errCopy.Stage, bounds, underlying)
 		}
 		env.Error = &errCopy
 	}

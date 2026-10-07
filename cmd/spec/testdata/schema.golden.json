@@ -1220,6 +1220,10 @@
             "type": "boolean",
             "description": "True when the input was cut to fit the size limit."
           },
+          "comments_truncated": {
+            "type": "boolean",
+            "description": "True when the issue had more comments than were read. Not the size limit, which is truncated."
+          },
           "context_bytes": {
             "type": "integer",
             "description": "Size in bytes of the extra context given with --context."

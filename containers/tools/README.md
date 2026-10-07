@@ -5,8 +5,9 @@ agent-fox tools (`spec`, `triage`, `fix`, `impl`), the `af` and `nightshift`
 stubs, the `pi` agent and Claude Code, on top of the sandbox image built from
 `containers/sandbox/Containerfile` (`quay.io/agentfox/sandbox`, a RHEL 10
 base with Go, Node, Rust and Python toolchains). `make build-containers` builds
-both with `podman`; the tools image needs the `coder` checkout at `../coder`,
-which it takes as a build context.
+both with `podman`; the tools image needs the agentkit-go checkout at
+`../agentkit-go` (the same sibling `go.mod`'s `replace` points at), which it
+takes as a build context.
 
 ## Running with Podman
 

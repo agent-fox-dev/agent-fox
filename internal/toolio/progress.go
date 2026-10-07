@@ -33,6 +33,10 @@ type Progress struct {
 	showText bool
 	// phase is the model phase now running, named on a text event.
 	phase string
+	// phaseSpend is what the running phase's turns have cost so far. The
+	// phase's total is recorded on the run only when it returns, so the
+	// heartbeat adds this to the run's own total (liveSpend).
+	phaseSpend float64
 	// eventsOnStderr is set under --emit-events: the JSONL stream is what
 	// stderr carries, so no human line is written beside it (a caller that
 	// parses stderr line by line must never meet prose).
@@ -218,6 +222,7 @@ func (p *Progress) PhaseStart(phase, task string, maxTurns int, budgetUSD float6
 	}
 	p.mu.Lock()
 	p.phase = phase
+	p.phaseSpend = 0
 	p.mu.Unlock()
 	if s := p.sink(); s != nil {
 		s.Emit(newPhaseStartEvent(phase, task, maxTurns, budgetUSD))
@@ -232,13 +237,33 @@ func (p *Progress) PhaseEnd(phase, stopReason string, turns int, costUSD float64
 	if s := p.sink(); s != nil {
 		s.Emit(newPhaseEndEvent(phase, stopReason, turns, costUSD, durationMS, toolCalls))
 	}
+	// The phase's total is about to be recorded on the run; counting its
+	// turns here as well would count them twice.
 	p.mu.Lock()
 	p.phase = ""
+	p.phaseSpend = 0
 	p.mu.Unlock()
+}
+
+// PhaseSpend is what the running phase's turns have cost so far, 0 between
+// phases.
+func (p *Progress) PhaseSpend() float64 {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.phaseSpend
 }
 
 // Turn emits a turn event after a model turn.
 func (p *Progress) Turn(phase string, turn int, u agentrun.TurnUsage) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.phaseSpend += u.CostUSD
+	p.mu.Unlock()
 	if s := p.sink(); s != nil {
 		s.Emit(newTurnEvent(phase, turn, u.CostUSD, u.Input, u.Output, u.CacheRead, u.CacheWrite))
 	}

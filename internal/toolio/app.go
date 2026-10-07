@@ -233,7 +233,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 			Stage: "usage", Category: "usage", Message: derr.Error(), err: derr,
 		})
 	}
-	if berr := common.ValidTotalBudget(); berr != nil {
+	if berr := errors.Join(common.ValidTotalBudget(), common.ValidBounds()); berr != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", a.Name, berr)
 		return a.emit(stdout, &common, run, ExitUsage, nil, &ErrorInfo{
 			Stage: "usage", Category: "usage", Message: berr.Error(), err: berr,
@@ -295,7 +295,7 @@ func (a App) Main(ctx context.Context, argv []string, stdin io.Reader, stdout, s
 	// One heartbeat ticker for the run's lifetime, reading spend off the run's
 	// own running total. run_end stops it; the deferred stop covers a path
 	// that never reaches one.
-	sink.StartHeartbeat(run.CostUSD)
+	sink.StartHeartbeat(liveSpend(run, progress))
 	defer sink.StopHeartbeat()
 	progress.SetShowText(common.ShowText)
 	code, result, failure := a.execute(ctx, execArgs{
@@ -587,11 +587,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	}
 
 	var forge issuex.Client
-	if ref, ok := issuex.ParseIssueURL(e.argument); ok && ref.Repo.Host != "" {
+	if repo, ok := forgeRepoFromArgument(e.argument, e.common.InputKind); ok {
 		forge, _ = issuex.NewWithOptions(issuex.Options{
 			// Pass the repo, not a BaseURL: the web host (github.com) is
 			// not the API host (api.github.com); detectForge derives it.
-			Repo:      ref.Repo,
+			Repo:      repo,
 			UserAgent: a.Name + "/" + a.Version,
 		})
 	}
@@ -623,15 +623,11 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 		}
 		return ExitFailed, nil, &ErrorInfo{Stage: "input", Category: "input", Message: err.Error(), err: err}
 	}
-	if contextLen > 0 && (in.Truncated || len(in.Body)+contextLen > MaxInputBytes) {
-		return a.usage(fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
-			MaxInputBytes, len(in.Body)+contextLen))
+	if err := checkResolved(in, contextLen, e.run); err != nil {
+		return a.usage(err)
 	}
 	in.Context = contextBlock
 	e.run.SetInput(in)
-	if in.Truncated {
-		e.run.Warn(WarnInputTruncated, "high", "the input was truncated at %d bytes", MaxInputBytes)
-	}
 	if in.Thread != nil && in.Thread.CommentsErr != nil {
 		e.run.Warn(WarnCommentsUnreadable, "low", "the issue's comments could not be read: %v", in.Thread.CommentsErr)
 	}
@@ -771,4 +767,44 @@ func ExitCodeFor(category string) int {
 	default:
 		return ExitFailed
 	}
+}
+
+// liveSpend is the run's spend so far as the heartbeat reports it: every phase
+// recorded, plus the turns of the phase still running, which is recorded
+// only when it returns. Without the second, a one-phase tool's heartbeat
+// read 0 until the run was over.
+func liveSpend(run *Run, p *Progress) func() float64 {
+	return func() float64 { return run.CostUSD() + p.PhaseSpend() }
+}
+
+// checkResolved applies what the resolved input decides: --context does not
+// fit beside a body already cut at the byte bound, or one that would exceed
+// it with the context; a cut body and an issue whose comments were not all
+// read are warned about, each as what it is.
+func checkResolved(in Input, contextLen int, run *Run) error {
+	if contextLen > 0 && (in.Truncated || len(in.Body)+contextLen > MaxInputBytes) {
+		return fmt.Errorf("input and context together exceed %d bytes (%d bytes)",
+			MaxInputBytes, len(in.Body)+contextLen)
+	}
+	if in.Truncated {
+		run.Warn(WarnInputTruncated, "high", "the input was truncated at %d bytes", MaxInputBytes)
+	}
+	if in.CommentsTruncated {
+		run.Warn(WarnCommentsTruncated, "low", "the issue has more comments than were read; the later ones "+
+			"are not in the input")
+	}
+	return nil
+}
+
+// forgeRepoFromArgument is the repository an issue-URL argument names, which
+// picks the forge client — but only when the argument may be read as an
+// issue: --input-kind text, file or stdin promise no URL check of it.
+func forgeRepoFromArgument(argument, inputKind string) (issuex.Repo, bool) {
+	if inputKind != "" && inputKind != string(KindIssue) {
+		return issuex.Repo{}, false
+	}
+	if ref, ok := issuex.ParseIssueURL(argument); ok && ref.Repo.Host != "" {
+		return ref.Repo, true
+	}
+	return issuex.Repo{}, false
 }
