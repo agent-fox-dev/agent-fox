@@ -1120,11 +1120,26 @@ branch and the commit locally.
 
 Detection order for `--verify`: a `Makefile` target `check`, then `test`
 (`make check` · `make test`); then by manifest, from the same table `impl` and
-`spec` detect the project's language with — `go.mod` → `go test ./...
--count=1`, `Cargo.toml` → `cargo test`, `pyproject.toml` → `pytest -q` (`uv
-run pytest -q` when there is a `uv.lock`), a `package.json` with a real `test`
-script → `npm test` (the stub `npm init` writes, which only fails, is not
-one), `pom.xml` → `mvn -q test`, `Gemfile` → `bundle exec rspec`. When nothing
+`spec` detect the project's language with:
+
+| Manifest | Language | Tests · linter |
+|---|---|---|
+| `go.mod` | go | `go test ./... -count=1` · `go vet ./...` |
+| `Cargo.toml` | rust | `cargo test` · `cargo clippy -- -D warnings` |
+| `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt` | python | `pytest -q` · `ruff check .`, run through `uv run`, `poetry run` or `pdm run` when `uv.lock`, `poetry.lock` or `pdm.lock` is there |
+| `package.json` | node | its own `test` and `lint` scripts, run by the package manager its lockfile names (`pnpm`, `yarn`, `bun`, else `npm`); a script it does not define — the `npm init` stub test included — is no command |
+| `pom.xml` | jvm | `mvn -q test` · `mvn -q verify` |
+| `build.gradle(.kts)` | jvm | `./gradlew test` · `./gradlew check` (`gradle` without a wrapper) |
+| `*.sln`, `*.csproj` | dotnet | `dotnet test` · `dotnet format --verify-no-changes` |
+| `Gemfile` | ruby | `bundle exec rspec` · `bundle exec rubocop` |
+| `mix.exs` | elixir | `mix test` · `mix format --check-formatted` |
+| `composer.json` | php | `vendor/bin/phpunit` · none |
+| `pubspec.yaml` | dart | `dart test` · `dart analyze` (`flutter test` · `flutter analyze` for a Flutter app) |
+| `Package.swift` | swift | `swift test` · none |
+| `CMakeLists.txt` | cpp | `ctest --test-dir build` · none |
+
+The first manifest in that order is the language; the others present are
+ecosystems the repository also has. When nothing
 can be detected the run is refused before the model is called (`preflight`/
 `usage`, exit 2), rather than inventing a command or landing an unverified
 change: pass `--verify <command>` to name one, or `--no-verify` to land
@@ -1216,7 +1231,7 @@ refused. The lists are generated from the same source the guard enforces, so the
 | Phase | Programs |
 |---|---|
 | read-only (`fix` analyse, `impl` survey) | `git`, `ls`, `cat`, `head`, `tail`, `wc`, `rg`, `grep`, `file`, `echo`, `printf`, `pwd`, `true`, `test`, `du` |
-| implementing (`fix` implement, `impl` task and repair) | the read-only list plus `go`, `gofmt`, `goimports`, `make`, `npm`, `npx`, `node`, `yarn`, `pnpm`, `python`, `python3`, `pytest`, `uv`, `pip`, `cargo`, `rustfmt`, `mkdir`, `cp`, `mv`, `rm`, `sed`, `awk`, `diff`, `sort`, `uniq`, `touch`, the verification command's own program, and whatever `--allow` adds |
+| implementing (`fix` implement, `impl` task and repair) | the read-only list plus each ecosystem's toolchain — `go`, `gofmt`, `goimports`, `make`; `npm`, `npx`, `node`, `yarn`, `pnpm`, `bun`, `deno`, `tsc`, `eslint`, `prettier`, `jest`, `vitest`, `mocha`; `python`, `python3`, `pytest`, `uv`, `pip`, `poetry`, `pipenv`, `pdm`, `tox`, `ruff`, `mypy`, `black`, `flake8`; `cargo`, `rustfmt`; `mvn`, `./mvnw`, `gradle`, `./gradlew`, `java`, `javac`; `dotnet`; `ruby`, `bundle`, `rake`, `rspec`; `mix`, `elixir`; `php`, `composer`; `dart`, `flutter`; `swift`; `cmake`, `ctest` — and `mkdir`, `cp`, `mv`, `rm`, `sed`, `awk`, `diff`, `sort`, `uniq`, `touch`, the verification command's own program, and whatever `--allow` adds |
 
 `find` is on neither: `find_files` covers the reading, and `-exec`, `-execdir`,
 `-ok`, `-okdir`, `-delete` and the `-fprint*` family are refused for a phase that
@@ -1301,12 +1316,16 @@ pattern operand of `grep` and `rg` is not a path and is skipped. An implementing
 phase is not held to this, because a build legitimately reads outside the
 repository.
 
-**Read-only roots.** A `replace` in the repository's `go.mod` that points at a
-local directory outside it (`replace example.com/lib => ../lib`) makes that
-directory readable: the shell's read programs may read under it in a
-read-only phase too, the `execute` and `read_file` descriptions name it ("You
-may also read, but not change: `../lib` (replace of `example.com/lib`)") with
-the shell, and `go doc` where the phase may run `go`, as the way to read it,
+**Read-only roots.** A local dependency outside the repository makes its
+directory readable: a `replace` in `go.mod` that points at a directory
+(`replace example.com/lib => ../lib`), a `file:` or `link:` dependency in
+`package.json`, a `path =` dependency in `Cargo.toml`, or a local path
+(`-e ../lib`) in `requirements.txt`. The shell's read programs may read under
+it in a read-only phase too, the `execute` and `read_file` descriptions name
+it ("You may also read, but not change: `../lib` (replace of
+`example.com/lib`)", or "`../shared` (dependency `@acme/shared` in
+package.json)") with the shell, and `go doc` where the phase may run `go`, as
+the way to read it,
 and a `doc_sources` entry may cite a file under it. The file tools stay
 confined to the repository, and nothing may write there. `--verbose` lists the
 roots at the start of the run.
@@ -1819,13 +1838,21 @@ where it left the base branch:
   (one that was already long and was only touched is not reported), a Go test with no
   assertion, a `var _ = pkg.Symbol` import suppressor, `git init` without
   `-b`, a date after today in an ADR or erratum, and an erratum that cites no
-  code line or no test. Not every check runs for every language: `gofmt`,
-  `go vet`, the long function (`--max-func-lines`), the unused declaration,
-  the assertion-less test, the discarded error and the import suppressor read
-  Go source and run on Go files only; for other languages they find nothing.
-  Duplication, the deferring comment, `git init -b`, dates and the erratum
-  citation (which also counts a JavaScript `it(…)`, `test(…)` or
-  `describe(…)` name as a test) apply to any repository.
+  code line or no test. Go is read with its own parser; the other languages
+  with patterns, which is a heuristic. The long function (`--max-func-lines`)
+  covers Python (a function's extent by indentation) and JavaScript,
+  TypeScript, Rust, Java, Kotlin, C#, C/C++, Swift, PHP, Dart and Scala (by
+  matching braces outside strings and comments); the assertion-less test
+  covers Python `test*` functions in test files, JavaScript/TypeScript `it()`
+  and `test()` blocks, and Rust `#[test]` functions; the discarded error
+  covers Go's `_ =` and Rust's `let _ =`; and each language's formatter is run
+  over its touched files when it is installed (`gofmt` for Go, `rustfmt
+  --check`, `ruff format --check` or else `black --check`, `prettier --check`),
+  a file it would change being a `format` finding. `go vet`, the unused
+  declaration and the import suppressor are Go-only. Duplication, the
+  deferring comment, `git init -b`, dates and the erratum citation (which also
+  counts a JavaScript `it(…)`, `test(…)` or `describe(…)` name as a test)
+  apply to any repository.
 - **Scope.** When every task lists `touches`, the change may touch only those
   paths and the paths the survey's resolutions name (a word with a slash that
   is a directory, ends in one, or has a file extension; the tasks are told the
@@ -1847,7 +1874,10 @@ where it left the base branch:
   `impl` was started from (the language toolchains' download caches stay
   where they are). The result is
   `final_verification`, and `environment` is its fingerprint: `git_version`,
-  `init_default_branch` (`unset` in a clean environment) and `go_version`.
+  `init_default_branch` (`unset` in a clean environment), `go_version`, and
+  `toolchains`: the version line of each other ecosystem's toolchain the
+  repository has (`python3 --version`, `node --version`, `rustc --version`,
+  `java -version`, `dotnet --version`, …), keyed by ecosystem.
   Checks that pass here and fail there lean on the author's machine. So the
   suite is not run twice in a row on one tree, the gate that lands the run's
   last task — and the resolve phase's change — runs in this environment

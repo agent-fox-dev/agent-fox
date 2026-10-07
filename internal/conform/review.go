@@ -261,7 +261,7 @@ func reviewSchema() *schema.Schema {
 		schema.Prop("evidence", schema.String(
 			"The file:line where the code does it (or does otherwise), and what is there. Required "+
 				"for every status except missing, and checked: the file and line must exist. Cite "+
-				"path/from/root.go:NN, e.g. internal/agentrun/phase.go:480; a symbol name or a file "+
+				"path/from/root/file:NN, e.g. src/session/refresh.ts:48; a symbol name or a file "+
 				"without a line is refused.")),
 	)
 	test := schema.Object(
@@ -277,7 +277,7 @@ func reviewSchema() *schema.Schema {
 				"nothing in it can fail. missing: no test implements the id.", TestAssessments...)),
 		schema.Prop("evidence", schema.String(
 			"What the test asserts, quoted, against what the contract names; file:line is checked "+
-				"(path/from/root_test.go:NN, unless the test field already cites it)")),
+				"(path/from/root/test_file:NN, unless the test field already cites it)")),
 	)
 	decision := schema.Object(
 		schema.Prop("id", schema.String("D-n, exactly as listed")),
@@ -329,8 +329,8 @@ func SubmitReviewTool(root string, scope ReviewScope, dest *reviewSink) core.Too
 		Name: ToolSubmitReview,
 		Description: "Submit the conformance review and end this phase. Call it once, after you have " +
 			"read the change against every requirement, test and decision in scope. Evidence cites " +
-			"file:line with the path from the repository root, e.g. `internal/agentrun/phase.go:480`; a " +
-			"basename alone (`phase.go:480`) is accepted only when one tracked file has that name, and a " +
+			"file:line with the path from the repository root, e.g. `src/session/refresh.ts:48`; a " +
+			"basename alone (`refresh.ts:48`) is accepted only when one tracked file has that name, and a " +
 			"symbol name or a file without a line is refused. A refusal lists every row to correct; the " +
 			"other rows are kept, so resubmit only the rows it names.",
 		InputSchema: reviewSchema(),
@@ -584,7 +584,7 @@ func (c *citer) cites(text string) (bool, string) {
 			"); give the path from the repository root"
 	}
 	return false, "cites no file:line that exists in the repository; name the line you read as " +
-		"path/from/root.go:NN"
+		"path/from/root/file:NN"
 }
 
 func (c *citer) withBase(base string) []string {

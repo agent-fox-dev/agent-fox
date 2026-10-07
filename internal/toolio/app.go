@@ -653,7 +653,7 @@ func (a App) execute(ctx context.Context, e execArgs) (int, any, *ErrorInfo) {
 	// readable, not writable: the code the work calls, outside the root.
 	readRoots := project.ReadRoots(ws.Root)
 	for _, r := range readRoots {
-		e.progress.Detail("read-only root: %s (replace of %s)", r.Path, r.Module)
+		e.progress.Detail("read-only root: %s", agentrun.ReadRootLabel(r))
 	}
 	cfg := agentrun.Config{
 		ReadRoots:     readRoots,

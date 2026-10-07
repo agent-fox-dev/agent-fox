@@ -34,7 +34,7 @@ The last task exists to catch wiring gaps that component-level tests cannot see.
 
 1. Trace every execution path through the real code; confirm each step calls the next and no stub remains.
 2. For every criterion with a `contract`, confirm the producer's result is consumed by a caller in production code, not only by tests.
-3. Search the files listed in every task's `touches` for stub markers appropriate to the language — `panic("not implemented")`, `TODO`, `NotImplementedError`, a bare `return nil` on a non-trivial path.
+3. Search the files listed in every task's `touches` for stub markers appropriate to the language — the project's own, named in the language block above, then the common ones: `TODO`, `NotImplementedError`, `todo!()`, `panic("not implemented")`, `throw new Error('not implemented')`, a bare `return nil` / `None` / `null` on a non-trivial path.
 4. For any path whose entry point belongs to another spec, confirm that entry point is called from production code.
 
 An execution path that is not live in production code fails this task. Errata and deferrals do not satisfy it.
@@ -44,6 +44,8 @@ An execution path that is not live in production code fails this task. Errata an
 `test_commands.all_tests` and `test_commands.linter` are required and must be the project's real commands, taken from the language and tooling stated above — never a default from another ecosystem. `spec_tests` is optional and narrows the run to this spec's tests.
 
 ## Example
+
+The example is a Go project's. In this project, use this project's own commands, file paths, layout and stub marker — the ones the language block above names — not Go's.
 
 ```json
 {

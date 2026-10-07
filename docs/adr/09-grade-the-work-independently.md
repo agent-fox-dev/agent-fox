@@ -75,6 +75,6 @@ observable contract, in an environment that is not the author's.** For
   on a clone of an empty repository fails rather than pins anything.
 - The structural checks are heuristics that report rather than block: a
   finding left in the change is an unmet item the pull request lists, not a
-  refusal. Several of them read Go source (formatting, vet, long functions,
-  unused declarations, assertion-less tests) and find nothing in other
-  languages; `docs/cli.md` lists which apply where (issue #221).
+  refusal. Go is read with its own parser and the other languages with
+  patterns; vet, unused declarations and the import suppressor remain
+  Go-only. `docs/cli.md` lists which check covers which language (issue #221).

@@ -10,7 +10,6 @@ package checks
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,28 +77,9 @@ func Detect(dir string) string {
 			}
 		}
 	}
-	p := project.DetectProfile(dir)
-	if p.Language == "node" {
-		// npm test runs the package's test script; without a real one there
-		// are no tests to run.
-		if pkg, ok := read("package.json"); !ok || !hasTestScript(pkg) {
-			return ""
-		}
-	}
-	return p.AllTests
-}
-
-// hasTestScript reports whether a package.json defines a test script other
-// than the stub `npm init` writes, which only fails.
-func hasTestScript(pkg string) bool {
-	var doc struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal([]byte(pkg), &doc); err != nil {
-		return false
-	}
-	test := strings.TrimSpace(doc.Scripts["test"])
-	return test != "" && !strings.Contains(test, "no test specified")
+	// The project profile reads the manifests, a node package's own scripts
+	// included (the npm init stub test is no command).
+	return project.DetectProfile(dir).AllTests
 }
 
 // makeTargetRe finds a target definition at the start of a line.

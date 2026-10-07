@@ -38,6 +38,9 @@ const (
 	CheckGitInitBranch    = "git_init_branch"
 	CheckFutureDate       = "future_date"
 	CheckErrataCitation   = "errata_citation"
+	// CheckFormat is a touched file the language's own formatter would
+	// change: rustfmt, ruff or black, prettier. gofmt is CheckGofmt.
+	CheckFormat = "format"
 )
 
 // DefaultMaxFuncLines is the length past which a function the change wrote
@@ -90,18 +93,23 @@ func Scan(ctx context.Context, in ScanInput) []Finding {
 		in.MaxFuncLines = DefaultMaxFuncLines
 	}
 	var out []Finding
-	var goFiles []string
+	var goFiles, otherFiles []string
 	for _, p := range in.Changed {
 		if _, err := os.Stat(filepath.Join(in.Root, filepath.FromSlash(p))); err != nil {
 			continue // deleted by the change
 		}
 		if strings.HasSuffix(p, ".go") {
 			goFiles = append(goFiles, p)
+		} else if project.IsSourceFile(p) {
+			otherFiles = append(otherFiles, p)
 		}
 		out = append(out, scanAddedText(p, in.Added[p], in.Today)...)
 	}
 	for _, p := range goFiles {
 		out = append(out, scanGoFile(in.Root, p, in.Added, in.MaxFuncLines)...)
+	}
+	for _, p := range otherFiles {
+		out = append(out, scanSourceFile(in.Root, p, in.Added, in.MaxFuncLines)...)
 	}
 	for _, p := range in.Changed {
 		if isErrata(p) && len(in.Added[p]) > 0 {
@@ -114,6 +122,9 @@ func Scan(ctx context.Context, in ScanInput) []Finding {
 	if in.Runner != nil && len(goFiles) > 0 {
 		out = append(out, gofmt(ctx, in.Runner, in.Root, goFiles)...)
 		out = append(out, vet(ctx, in.Runner, in.Root, goFiles)...)
+	}
+	if in.Runner != nil && len(otherFiles) > 0 {
+		out = append(out, formatChecks(ctx, in.Runner, in.Root, otherFiles)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Path != out[j].Path {
@@ -165,6 +176,15 @@ func scanAddedText(p string, lines map[int]string, today time.Time) []Finding {
 				out = append(out, Finding{Check: CheckDiscardedError, Path: p, Line: n,
 					Message: "a value is discarded with `_ =` under a comment that says it is logged or reported; " +
 						"log it, return it, or say plainly that it is ignored and why"})
+			}
+		}
+		if production && strings.HasSuffix(p, ".rs") && rustDiscardRe.MatchString(text) {
+			claim := logClaimRe.MatchString(comment) ||
+				logClaimRe.MatchString(commentOf(lines[n-1])) && strings.TrimSpace(codeOf(lines[n-1])) == ""
+			if claim {
+				out = append(out, Finding{Check: CheckDiscardedError, Path: p, Line: n,
+					Message: "a value is discarded with `let _ =` under a comment that says it is logged or " +
+						"reported; log it, return it, or say plainly that it is ignored and why"})
 			}
 		}
 		if production && comment != "" && laterTaskRe.MatchString(comment) {
