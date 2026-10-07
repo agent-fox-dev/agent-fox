@@ -198,6 +198,38 @@ func TestBaseBranchFallsBackToTheCurrentBranch(t *testing.T) {
 	}
 }
 
+// The run branches from the checked-out branch, so the pull request has to
+// target it too: a remote that advertises another default must not change the
+// base, or the pull request carries every commit the two branches differ by
+// (issue #217). Only a detached HEAD falls back to origin's default.
+func TestBaseBranchIsTheCheckedOutBranchEvenWhenOriginAdvertisesAnother(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	for _, argv := range [][]string{
+		{"git", "update-ref", "refs/remotes/origin/main", "HEAD"},
+		{"git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"},
+	} {
+		if out, code, err := ExecRunner(ctx, dir, argv); err != nil || code != 0 {
+			t.Fatalf("%v: %v (%d) %s", argv, err, code, out)
+		}
+	}
+	if err := g.CreateBranch(ctx, "develop"); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.BaseBranch(ctx); got != "develop" {
+		t.Errorf("BaseBranch on develop = %q, want develop", got)
+	}
+	if got := g.DefaultBranch(ctx); got != "main" {
+		t.Errorf("DefaultBranch = %q, want origin's main", got)
+	}
+	if out, code, err := ExecRunner(ctx, dir, []string{"git", "checkout", "-q", "--detach"}); err != nil || code != 0 {
+		t.Fatalf("detach: %v (%d) %s", err, code, out)
+	}
+	if got := g.BaseBranch(ctx); got != "main" {
+		t.Errorf("BaseBranch on a detached HEAD = %q, want origin's main", got)
+	}
+}
+
 func TestPushRetriesTransientFailuresOnly(t *testing.T) {
 	ctx := context.Background()
 

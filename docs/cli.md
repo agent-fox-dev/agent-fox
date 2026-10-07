@@ -987,8 +987,11 @@ fix "the counter double-counts on retry" --dry-run
 ```
 
 The working tree must be clean. The run branches from the branch checked out
-now, and every check that can refuse the run happens **before** the model is
-called and before anything is posted.
+now (or, with `--pull`, the branch it pulled), and that branch is the base: the
+pull request targets it and a parked run returns the checkout to it, whatever
+`origin` advertises as its default. Only a detached HEAD falls back to
+`origin`'s default branch. Every check that can refuse the run happens
+**before** the model is called and before anything is posted.
 
 Verification is measured, not asserted. The project's checks run once before
 any change and once after, and the two are compared:
@@ -1515,6 +1518,15 @@ The branch is chosen and checked out before the package is read and before
 the checks run, so the state a second run reads is the state the first one
 committed.
 
+The base is the branch checked out when the run starts (or, with `--pull`,
+`origin`'s default branch, which it pulls); only a detached HEAD falls back to
+`origin`'s default. The work branch is cut from the base, the pull request
+targets it, and a parked or stopped run returns the checkout to it. A run
+started on the work branch itself is refused in pre-flight (exit 2): the base
+would be the branch, so the diff under review would be empty and the pull
+request would target itself. Check out the branch the work should land on and
+run again; an existing work branch is continued from there.
+
 ### The gate
 
 The format's implicit definition of done has four clauses: the task's own
@@ -1813,7 +1825,7 @@ documentation, naming every such source in one refusal. Every writing phase is t
 | `--push-attempts` | `4` | push retries, with exponential backoff |
 | `--allow a,b` | — | extra programs the implementation phases' shell may run |
 | `--draft` | off | open the pull request as a draft |
-| `--pull` | off | checkout and pull the base branch from `origin` first |
+| `--pull` | off | checkout and pull `origin`'s default branch first; it becomes the base |
 | `--no-survey` | off | skip the survey phase |
 | `--no-test-first` | off | do not require red-first evidence when a task is submitted; the task's tests are revert-checked instead |
 | `--no-review` | off | skip the independent review and the resolve phase; the structural, scope and clean-environment checks still run |

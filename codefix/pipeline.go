@@ -576,7 +576,7 @@ func Preflight(ctx context.Context, o Options, git *gitx.Git, result *Result) (i
 	if o.Pull || o.PullBranch != "" {
 		targetBranch := o.PullBranch
 		if targetBranch == "" {
-			targetBranch = base
+			targetBranch = git.DefaultBranch(ctx)
 		}
 		if err := git.Checkout(ctx, targetBranch); err != nil {
 			return issuex.Repo{}, "", fail("preflight", CategoryGit, err)

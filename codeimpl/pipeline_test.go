@@ -309,6 +309,42 @@ func failureOf(t *testing.T, err error) *Failure {
 	return f
 }
 
+// The work branch is cut from the branch checked out now, so that is the base
+// the pull request targets and the checkout returns to — not origin's default
+// (issue #217).
+func TestTheBaseIsTheCheckedOutBranchNotOriginsDefault(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	gitOut(t, ws.Root, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitOut(t, ws.Root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	gitOut(t, ws.Root, "checkout", "-q", "-b", "develop")
+
+	got, err := Run(context.Background(), newOptions(ws, g, &scriptedBrain{}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.BaseBranch != "develop" {
+		t.Errorf("BaseBranch = %q, want the checked-out develop", got.BaseBranch)
+	}
+}
+
+// Run from the work branch itself, the base would be the branch: the diff
+// under review would be empty and the pull request would target itself. The
+// run refuses before anything is spent (issue #217).
+func TestARunFromTheWorkBranchItselfIsRefused(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	gitOut(t, ws.Root, "checkout", "-q", "-b", "impl/09-agent-mode-spec-cli")
+	b := &scriptedBrain{}
+
+	_, err := Run(context.Background(), newOptions(ws, g, b))
+	f := failureOf(t, err)
+	if f.Stage != "preflight" || f.Category != "usage" || !strings.Contains(f.Error(), "impl/09-agent-mode-spec-cli") {
+		t.Errorf("failure = %+v (%v), want a preflight usage refusal naming the branch", f, err)
+	}
+	if b.surveys != 0 || len(b.inputs) != 0 {
+		t.Errorf("the model was called: surveys=%d inputs=%d", b.surveys, len(b.inputs))
+	}
+}
+
 func TestPipelineImplementsEveryTaskInOrder(t *testing.T) {
 	ws, g, specDir := newSpecRepo(t)
 	b := &scriptedBrain{}

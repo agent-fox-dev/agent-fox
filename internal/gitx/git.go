@@ -77,18 +77,33 @@ func (g *Git) CurrentBranch(ctx context.Context) (string, error) {
 	return g.must(ctx, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
-// BaseBranch is what a pull request will target: origin's default branch when
-// the remote advertises one, else the branch that is checked out now.
+// BaseBranch is what a feature branch is cut from and its pull request
+// targets: the branch that is checked out now, or DefaultBranch when HEAD is
+// detached.
+//
+// The two must agree. Cutting from the checked-out branch and targeting
+// origin's default would put every commit the two differ by into the pull
+// request, and return the checkout to a branch the user was never on.
+//
+// It is only right BEFORE a feature branch is created, which is why a
+// pipeline asks once in pre-flight and keeps the answer: asked afterwards it
+// would name the feature branch, and a merge would then land the branch on
+// itself.
+func (g *Git) BaseBranch(ctx context.Context) string {
+	if b, err := g.CurrentBranch(ctx); err == nil && b != "" && b != "HEAD" {
+		return b
+	}
+	return g.DefaultBranch(ctx)
+}
+
+// DefaultBranch is origin's default branch when the remote advertises one,
+// else the branch that is checked out now, else "main". It is what --pull
+// updates when no branch is named.
 //
 // Hardcoding "main" is wrong on every repository that still uses `master`, on
 // a fork whose default is a release branch, and on any repository where the
 // work lands on a long-lived integration branch.
-//
-// The "checked out now" fallback is only right BEFORE a feature branch is
-// created, which is why a pipeline asks once in pre-flight and keeps the
-// answer: asked afterwards it would name the feature branch, and a merge
-// would then land the branch on itself.
-func (g *Git) BaseBranch(ctx context.Context) string {
+func (g *Git) DefaultBranch(ctx context.Context) string {
 	if out, code, err := g.git(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && code == 0 {
 		if b := strings.TrimPrefix(strings.TrimSpace(out), "origin/"); b != "" {
 			return b
