@@ -1,8 +1,11 @@
 package project
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -18,18 +21,42 @@ type ReadRoot struct {
 	Path string
 	// Abs is the directory, absolute and symlink-resolved.
 	Abs string
+	// Source is the manifest that declares it: go.mod, package.json,
+	// Cargo.toml or requirements.txt.
+	Source string
 }
 
-// ReadRoots are the local replace targets of root's go.mod that exist, are
-// directories and lie outside root, in the order go.mod lists them. A target
-// under another one is covered by it and not listed again. A repository with
-// no go.mod, or none that replaces a module by a local directory, has none.
+// ReadRoots are the local dependencies of root that exist, are directories and
+// lie outside it: go.mod's local replace targets, package.json's file: and
+// link: dependencies, Cargo.toml's path dependencies and requirements.txt's
+// local (-e) paths, in that order. A target under another one is covered by
+// it and not listed again. A repository with none has none.
 func ReadRoots(root string) []ReadRoot {
+	rootAbs := canonical(root)
+	found := goReplaceRoots(root, rootAbs)
+	found = append(found, otherRoots(root, rootAbs)...)
+	var out []ReadRoot
+	for _, r := range found {
+		covered := false
+		for _, o := range found {
+			if o.Abs != r.Abs && within(o.Abs, r.Abs) {
+				covered = true
+				break
+			}
+		}
+		if !covered && !containsAbs(out, r.Abs) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// goReplaceRoots are go.mod's local replace targets.
+func goReplaceRoots(root, rootAbs string) []ReadRoot {
 	b, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
 		return nil
 	}
-	rootAbs := canonical(root)
 	var found []ReadRoot
 	inBlock := false
 	for _, line := range strings.Split(string(b), "\n") {
@@ -55,20 +82,80 @@ func ReadRoots(root string) []ReadRoot {
 			found = append(found, r)
 		}
 	}
-	var out []ReadRoot
-	for _, r := range found {
-		covered := false
-		for _, o := range found {
-			if o.Abs != r.Abs && within(o.Abs, r.Abs) {
-				covered = true
-				break
-			}
-		}
-		if !covered && !containsAbs(out, r.Abs) {
-			out = append(out, r)
+	return found
+}
+
+var (
+	// cargoPathRe is a Cargo dependency with a local path:
+	// `name = { path = "../lib", ... }`.
+	cargoPathRe = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}\n]*\bpath\s*=\s*"([^"]+)"`)
+	// pipLocalRe is a requirements line that installs a local directory:
+	// `-e ../lib`, `--editable ../lib` or a bare relative path.
+	pipLocalRe = regexp.MustCompile(`^(?:-e|--editable)?\s*(\.\.?/\S+|/\S+)\s*$`)
+)
+
+// otherRoots are the local dependencies the other ecosystems' manifests
+// declare.
+func otherRoots(root, rootAbs string) []ReadRoot {
+	var found []ReadRoot
+	add := func(name, target, source string) {
+		if r, ok := localDir(name, target, source, root, rootAbs); ok {
+			found = append(found, r)
 		}
 	}
-	return out
+	if b, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg map[string]json.RawMessage
+		if json.Unmarshal(b, &pkg) == nil {
+			for _, field := range []string{"dependencies", "devDependencies", "peerDependencies", "optionalDependencies"} {
+				var deps map[string]string
+				if json.Unmarshal(pkg[field], &deps) != nil {
+					continue
+				}
+				names := make([]string, 0, len(deps))
+				for n := range deps {
+					names = append(names, n)
+				}
+				sort.Strings(names)
+				for _, n := range names {
+					for _, prefix := range []string{"file:", "link:"} {
+						if target, ok := strings.CutPrefix(deps[n], prefix); ok {
+							add(n, target, "package.json")
+						}
+					}
+				}
+			}
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(root, "Cargo.toml")); err == nil {
+		for _, m := range cargoPathRe.FindAllStringSubmatch(string(b), -1) {
+			add(m[1], m[2], "Cargo.toml")
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(root, "requirements.txt")); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if m := pipLocalRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+				add(m[1], m[1], "requirements.txt")
+			}
+		}
+	}
+	return found
+}
+
+// localDir is target, declared as dependency name by source, as a read root
+// when it is an existing directory outside the repository.
+func localDir(name, target, source, root, rootAbs string) (ReadRoot, bool) {
+	dir := target
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, filepath.FromSlash(dir))
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return ReadRoot{}, false
+	}
+	abs := canonical(dir)
+	if within(rootAbs, abs) {
+		return ReadRoot{}, false
+	}
+	return ReadRoot{Module: name, Path: target, Abs: abs, Source: source}, true
 }
 
 // localReplace reads one replace directive, `old [v] => new [v]`, and reports
@@ -98,7 +185,7 @@ func localReplace(directive, root, rootAbs string) (ReadRoot, bool) {
 	if within(rootAbs, abs) {
 		return ReadRoot{}, false
 	}
-	return ReadRoot{Module: lhs[0], Path: target, Abs: abs}, true
+	return ReadRoot{Module: lhs[0], Path: target, Abs: abs, Source: "go.mod"}, true
 }
 
 // canonical is p absolute and symlink-resolved: its deepest existing

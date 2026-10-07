@@ -4,6 +4,7 @@
 package project
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,16 +51,44 @@ func (p Profile) TargetedRun() string {
 	case "rust":
 		return "cargo test <name>"
 	case "python":
-		if strings.HasPrefix(p.AllTests, "uv run ") {
-			return "uv run pytest tests/test_x.py::test_name"
+		for _, run := range []string{"uv run ", "poetry run ", "pdm run "} {
+			if strings.HasPrefix(p.AllTests, run) {
+				return run + "pytest tests/test_x.py::test_name"
+			}
 		}
 		return "pytest tests/test_x.py::test_name"
 	case "node":
+		switch {
+		case strings.HasPrefix(p.AllTests, "pnpm "):
+			return "pnpm test -- <file>"
+		case strings.HasPrefix(p.AllTests, "yarn "):
+			return "yarn test <file>"
+		case strings.HasPrefix(p.AllTests, "bun "):
+			return "bun test <file>"
+		}
 		return "npm test -- <file>"
 	case "jvm":
+		if g, ok := strings.CutSuffix(p.AllTests, " test"); ok && strings.Contains(g, "gradle") {
+			return g + " test --tests <Class>"
+		}
 		return "mvn test -Dtest=<Class>"
 	case "ruby":
 		return "bundle exec rspec spec/x_spec.rb"
+	case "dotnet":
+		return "dotnet test --filter <Name>"
+	case "elixir":
+		return "mix test test/x_test.exs"
+	case "php":
+		return "vendor/bin/phpunit --filter <name>"
+	case "dart":
+		if strings.HasPrefix(p.AllTests, "flutter ") {
+			return "flutter test test/x_test.dart"
+		}
+		return "dart test test/x_test.dart"
+	case "swift":
+		return "swift test --filter <Name>"
+	case "cpp":
+		return "ctest --test-dir build -R <name>"
 	}
 	return ""
 }
@@ -78,10 +107,17 @@ var runnerFamilies = map[string]string{
 	"black": "python", "flake8": "python", "uv": "python", "poetry": "python", "python": "python", "python3": "python",
 	"npm": "node", "npx": "node", "yarn": "node", "pnpm": "node", "jest": "node",
 	"vitest": "node", "eslint": "node", "tsc": "node", "node": "node",
-	"cargo": "rust", "rustfmt": "rust", "clippy-driver": "rust",
-	"mvn": "jvm", "gradle": "jvm", "./gradlew": "jvm",
+	"pdm": "python", "pipenv": "python", "nox": "python", "hatch": "python",
+	"mocha": "node", "ava": "node", "bun": "node", "bunx": "node", "deno": "node", "playwright": "node",
+	"cargo": "rust", "rustfmt": "rust", "clippy-driver": "rust", "rustc": "rust", "cargo-nextest": "rust",
+	"mvn": "jvm", "gradle": "jvm", "./gradlew": "jvm", "gradlew": "jvm", "./mvnw": "jvm", "mvnw": "jvm",
 	"dotnet": "dotnet",
 	"bundle": "ruby", "rake": "ruby", "rspec": "ruby", "rubocop": "ruby",
+	"mix": "elixir", "elixir": "elixir",
+	"composer": "php", "php": "php", "phpunit": "php", "vendor/bin/phpunit": "php",
+	"dart": "dart", "flutter": "dart",
+	"swift": "swift",
+	"ctest": "cpp", "cmake": "cpp",
 }
 
 // DetectProfile reads the repository and reports what it is written in.
@@ -100,6 +136,14 @@ func DetectProfile(root string) Profile {
 		return string(b), err == nil
 	}
 
+	glob := func(pattern string) (string, bool) {
+		m, _ := filepath.Glob(filepath.Join(root, pattern))
+		if len(m) == 0 {
+			return "", false
+		}
+		return filepath.Base(m[0]), true
+	}
+
 	var p Profile
 	switch {
 	case exists("go.mod"):
@@ -110,25 +154,78 @@ func DetectProfile(root string) Profile {
 		p = Profile{Language: "rust", Manifest: "Cargo.toml",
 			AllTests: "cargo test", Linter: "cargo clippy -- -D warnings",
 			StubMarker: "todo!()"}
-	case exists("pyproject.toml"):
-		p = Profile{Language: "python", Manifest: "pyproject.toml",
+	case exists("pyproject.toml") || exists("setup.py") || exists("setup.cfg") || exists("requirements.txt"):
+		manifest := "pyproject.toml"
+		for _, m := range []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"} {
+			if exists(m) {
+				manifest = m
+				break
+			}
+		}
+		p = Profile{Language: "python", Manifest: manifest,
 			AllTests: "pytest -q", Linter: "ruff check .",
 			StubMarker: "raise NotImplementedError"}
-		if exists("uv.lock") {
-			p.AllTests, p.Linter = "uv run pytest -q", "uv run ruff check ."
+		// The lockfile names the tool that owns the environment.
+		for _, l := range []struct{ lock, run string }{{"uv.lock", "uv run"}, {"poetry.lock", "poetry run"}, {"pdm.lock", "pdm run"}} {
+			if exists(l.lock) {
+				p.AllTests, p.Linter = l.run+" pytest -q", l.run+" ruff check ."
+				break
+			}
 		}
 	case exists("package.json"):
 		p = Profile{Language: "node", Manifest: "package.json",
-			AllTests: "npm test", Linter: "npm run lint",
 			StubMarker: "throw new Error('not implemented')"}
+		pkg, _ := read("package.json")
+		p.AllTests, p.Linter = nodeCommands(pkg, nodeRunner(exists))
 	case exists("pom.xml"):
 		p = Profile{Language: "jvm", Manifest: "pom.xml",
 			AllTests: "mvn -q test", Linter: "mvn -q verify",
 			StubMarker: "throw new UnsupportedOperationException()"}
+	case exists("build.gradle") || exists("build.gradle.kts"):
+		manifest := "build.gradle"
+		if !exists(manifest) {
+			manifest = "build.gradle.kts"
+		}
+		gradle := "gradle"
+		if exists("gradlew") {
+			gradle = "./gradlew"
+		}
+		p = Profile{Language: "jvm", Manifest: manifest,
+			AllTests: gradle + " test", Linter: gradle + " check",
+			StubMarker: "throw new UnsupportedOperationException()"}
+	case hasGlob(glob, "*.sln") || hasGlob(glob, "*.csproj"):
+		manifest, ok := glob("*.sln")
+		if !ok {
+			manifest, _ = glob("*.csproj")
+		}
+		p = Profile{Language: "dotnet", Manifest: manifest,
+			AllTests: "dotnet test", Linter: "dotnet format --verify-no-changes",
+			StubMarker: "throw new NotImplementedException();"}
 	case exists("Gemfile"):
 		p = Profile{Language: "ruby", Manifest: "Gemfile",
 			AllTests: "bundle exec rspec", Linter: "bundle exec rubocop",
 			StubMarker: "raise NotImplementedError"}
+	case exists("mix.exs"):
+		p = Profile{Language: "elixir", Manifest: "mix.exs",
+			AllTests: "mix test", Linter: "mix format --check-formatted",
+			StubMarker: `raise "not implemented"`}
+	case exists("composer.json"):
+		p = Profile{Language: "php", Manifest: "composer.json",
+			AllTests:   "vendor/bin/phpunit",
+			StubMarker: `throw new \RuntimeException('not implemented');`}
+	case exists("pubspec.yaml"):
+		p = Profile{Language: "dart", Manifest: "pubspec.yaml",
+			AllTests: "dart test", Linter: "dart analyze",
+			StubMarker: "throw UnimplementedError();"}
+		if spec, _ := read("pubspec.yaml"); flutterRe.MatchString(spec) {
+			p.AllTests, p.Linter = "flutter test", "flutter analyze"
+		}
+	case exists("Package.swift"):
+		p = Profile{Language: "swift", Manifest: "Package.swift",
+			AllTests: "swift test", StubMarker: `fatalError("not implemented")`}
+	case exists("CMakeLists.txt"):
+		p = Profile{Language: "cpp", Manifest: "CMakeLists.txt",
+			AllTests: "ctest --test-dir build", StubMarker: `throw std::logic_error("not implemented");`}
 	default:
 		return Profile{}
 	}
@@ -137,7 +234,7 @@ func DetectProfile(root string) Profile {
 	// ecosystems the repository also has (a frontend beside a backend), whose
 	// commands are not another project's.
 	for _, m := range manifestFamilies {
-		if m.family != p.Language && exists(m.file) && !slices.Contains(p.Also, m.family) {
+		if m.family != p.Language && hasGlob(glob, m.file) && !slices.Contains(p.Also, m.family) {
 			p.Also = append(p.Also, m.family)
 		}
 	}
@@ -255,13 +352,25 @@ func (p Profile) LanguageBlock() string {
 
 This project is **%s**, detected from `+"`%s`"+`. The plan must fit it:
 
-- `+"`test_commands.all_tests`"+` is `+"`%s`"+` and `+"`test_commands.linter`"+` is `+"`%s`"+`, unless you find better ones in the repository.
+- %s
 - `+"`task.steps`"+` must use %s constructs, not another language's.
 - `+"`task.touches`"+` must name paths that exist in this project's layout.
 - A stub marker in this language is `+"`%s`"+`.
 
 A command from another ecosystem is refused before the artifact is written.
-`, p.Language, p.Manifest, p.AllTests, p.Linter, p.Language, p.StubMarker)
+`, p.Language, p.Manifest, p.commandsLine(), p.Language, p.StubMarker)
+}
+
+// commandsLine says what the project's test and lint commands are, or that
+// it defines none, for the language block.
+func (p Profile) commandsLine() string {
+	cmd := func(field, c string) string {
+		if c == "" {
+			return "`test_commands." + field + "`: the project defines none; choose one that fits it"
+		}
+		return "`test_commands." + field + "` is `" + c + "`"
+	}
+	return cmd("all_tests", p.AllTests) + "; " + cmd("linter", p.Linter) + " — unless you find better ones in the repository."
 }
 
 // AuditTestCommandsFor audits one command as all_tests.
@@ -293,6 +402,59 @@ func (p Profile) hasEcosystem(family string) bool {
 // manifestFamilies are the manifests DetectProfile recognizes, in its order
 // of precedence, with the ecosystem each one means.
 var manifestFamilies = []struct{ file, family string }{
-	{"go.mod", "go"}, {"Cargo.toml", "rust"}, {"pyproject.toml", "python"},
-	{"package.json", "node"}, {"pom.xml", "jvm"}, {"Gemfile", "ruby"},
+	{"go.mod", "go"}, {"Cargo.toml", "rust"}, {"pyproject.toml", "python"}, {"setup.py", "python"},
+	{"setup.cfg", "python"}, {"requirements.txt", "python"}, {"package.json", "node"}, {"pom.xml", "jvm"},
+	{"build.gradle", "jvm"}, {"build.gradle.kts", "jvm"}, {"*.sln", "dotnet"}, {"*.csproj", "dotnet"},
+	{"Gemfile", "ruby"}, {"mix.exs", "elixir"}, {"composer.json", "php"}, {"pubspec.yaml", "dart"},
+	{"Package.swift", "swift"}, {"CMakeLists.txt", "cpp"},
+}
+
+// flutterRe finds a Flutter dependency in a pubspec.
+var flutterRe = regexp.MustCompile(`(?m)^\s*flutter\s*:`)
+
+func hasGlob(glob func(string) (string, bool), pattern string) bool {
+	_, ok := glob(pattern)
+	return ok
+}
+
+// nodeRunner is the package manager a node project uses, by its lockfile.
+func nodeRunner(exists func(string) bool) string {
+	switch {
+	case exists("pnpm-lock.yaml"):
+		return "pnpm"
+	case exists("yarn.lock"):
+		return "yarn"
+	case exists("bun.lockb") || exists("bun.lock"):
+		return "bun"
+	}
+	return "npm"
+}
+
+// nodeCommands are a node project's own test and lint scripts, as runner
+// runs them. A script the package does not define is no command: the npm
+// init stub test only fails, and a lint script that is not there fails too.
+func nodeCommands(pkg, runner string) (allTests, linter string) {
+	var doc struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal([]byte(pkg), &doc) != nil {
+		return "", ""
+	}
+	if t := strings.TrimSpace(doc.Scripts["test"]); t != "" && !strings.Contains(t, "no test specified") {
+		switch runner {
+		case "bun":
+			allTests = "bun run test"
+		default:
+			allTests = runner + " test"
+		}
+	}
+	if strings.TrimSpace(doc.Scripts["lint"]) != "" {
+		switch runner {
+		case "yarn":
+			linter = "yarn lint"
+		default:
+			linter = runner + " run lint"
+		}
+	}
+	return allTests, linter
 }

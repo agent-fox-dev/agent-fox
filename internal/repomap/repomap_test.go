@@ -25,7 +25,10 @@ func hermetic(t *testing.T) {
 	t.Helper()
 	old := ignore
 	ignore = tools.NoGlobalExcludes()
-	t.Cleanup(func() { ignore = old })
+	// The map's outlines must not depend on whether ctags is installed.
+	oldRunner := ctagsRunner
+	ctagsRunner = nil
+	t.Cleanup(func() { ignore, ctagsRunner = old, oldRunner })
 }
 
 // newWS writes files (slash path -> content) under a fresh temp directory and

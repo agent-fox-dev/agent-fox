@@ -32,7 +32,7 @@ func TestDetectProfilePerEcosystem(t *testing.T) {
 		{map[string]string{"pyproject.toml": "[project]\n"}, "python", "pytest -q", "ruff check ."},
 		{map[string]string{"pyproject.toml": "[project]\n", "uv.lock": ""}, "python",
 			"uv run pytest -q", "uv run ruff check ."},
-		{map[string]string{"package.json": "{}"}, "node", "npm test", "npm run lint"},
+		{map[string]string{"package.json": `{"scripts":{"test":"jest","lint":"eslint ."}}`}, "node", "npm test", "npm run lint"},
 	}
 	for _, c := range cases {
 		got := DetectProfile(projectDir(t, c.files))

@@ -1648,6 +1648,14 @@
                 "type": "string",
                 "description": "go version, for a repository with a go.mod.",
                 "x-trust": "fact"
+              },
+              "toolchains": {
+                "type": "object",
+                "description": "The version line of each other ecosystem's toolchain the repository has, by ecosystem (python, node, rust, jvm, dotnet, ...).",
+                "x-trust": "fact",
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             },
             "required": [

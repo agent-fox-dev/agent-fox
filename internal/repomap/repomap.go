@@ -31,7 +31,10 @@ import (
 var (
 	walkFn    = tools.Walk
 	outlineFn = outline.Outline
-	ignore    = tools.IgnoreOptions{}
+	// ctagsRunner is what non-Go files are outlined with, as file_outline
+	// outlines them, so the map and the tool show the same declarations.
+	ctagsRunner = tools.CtagsRunner(nil)
+	ignore      = tools.IgnoreOptions{}
 )
 
 // rootDir is the directory name of the workspace root in the map.
@@ -114,7 +117,8 @@ func describe(ctx context.Context, ws *tools.Workspace, rel string) (*file, erro
 	}
 	f := &file{path: rel, dir: dir, name: path.Base(rel), test: isTestFile(rel)}
 
-	out, err := outlineFn(ctx, filepath.Join(ws.Root, filepath.FromSlash(rel)), nil, outline.Options{Root: ws.Root})
+	out, err := outlineFn(ctx, filepath.Join(ws.Root, filepath.FromSlash(rel)), nil,
+		outline.Options{Root: ws.Root, Runner: ctagsRunner})
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
@@ -181,6 +185,11 @@ func isTestFile(rel string) bool {
 	ext := path.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
 	switch {
+	case base == "conftest.py", stem == "setupTests",
+		strings.HasPrefix(base, "jest.setup."), strings.HasPrefix(base, "vitest.setup."):
+		return true // test support: pytest, Jest, Vitest
+	case ext == ".java" && strings.HasSuffix(stem, "IT") && stem != "IT":
+		return true // Java integration tests (Failsafe)
 	case strings.HasSuffix(stem, "_test"), strings.HasPrefix(stem, "test_"):
 		return true // Go, Python, Ruby, Rust, C
 	case strings.HasSuffix(stem, "_spec"):
@@ -191,7 +200,8 @@ func isTestFile(rel string) bool {
 		return strings.HasSuffix(stem, "Test") || strings.HasSuffix(stem, "Tests")
 	}
 	for _, seg := range strings.Split(path.Dir(rel), "/") {
-		if seg == "tests" || seg == "test" || seg == "__tests__" {
+		if seg == "tests" || seg == "test" || seg == "__tests__" || seg == "testutil" || seg == "testutils" ||
+			seg == "testhelpers" || seg == "spec" {
 			return true
 		}
 	}

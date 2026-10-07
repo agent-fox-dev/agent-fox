@@ -67,12 +67,26 @@ var ReadOnlyPrograms = []string{
 }
 
 // BuildPrograms is what an implementing phase needs on top of that: the
-// toolchains that compile, format and test. The verification command's own
+// toolchains that compile, format, lint and test, for each ecosystem the
+// tools detect — so a TypeScript task can run tsc and one jest file, a Python
+// task ruff and mypy, a JVM task its build wrapper, without --allow. A build
+// wrapper is listed by the path it is run as (./gradlew): the guard matches a
+// program named by a path only as written. The verification command's own
 // program is appended by the pipeline at run time, because a phase that
 // cannot run the suite it will be judged by is a phase set up to fail.
 var BuildPrograms = []string{
-	"go", "gofmt", "goimports", "make", "npm", "npx", "node", "yarn", "pnpm",
-	"python", "python3", "pytest", "uv", "pip", "cargo", "rustfmt",
+	"go", "gofmt", "goimports", "make",
+	"npm", "npx", "node", "yarn", "pnpm", "bun", "deno", "tsc", "eslint", "prettier", "jest", "vitest", "mocha",
+	"python", "python3", "pytest", "uv", "pip", "poetry", "pipenv", "pdm", "tox", "ruff", "mypy", "black", "flake8",
+	"cargo", "rustfmt",
+	"mvn", "./mvnw", "gradle", "./gradlew", "java", "javac",
+	"dotnet",
+	"ruby", "bundle", "rake", "rspec",
+	"mix", "elixir",
+	"php", "composer",
+	"dart", "flutter",
+	"swift",
+	"cmake", "ctest",
 	"mkdir", "cp", "mv", "rm", "sed", "awk", "diff", "sort", "uniq", "touch",
 }
 
@@ -220,7 +234,7 @@ func noteReadRoots(ts []core.Tool, roots []project.ReadRoot, programs []string) 
 	}
 	var named []string
 	for _, r := range roots {
-		named = append(named, fmt.Sprintf("%s (replace of %s)", r.Path, r.Module))
+		named = append(named, readRootLabel(r))
 	}
 	how := "the shell (ls, cat, grep -rn)"
 	if slices.Contains(programs, "go") {
@@ -257,3 +271,16 @@ func noteScratch(ts []core.Tool, rel string) []core.Tool {
 	}
 	return out
 }
+
+// readRootLabel names a read root and where it comes from: "../lib (replace
+// of example.com/lib)" for go.mod, "../shared (dependency @acme/shared in
+// package.json)" for the others.
+func readRootLabel(r project.ReadRoot) string {
+	if r.Source == "" || r.Source == "go.mod" {
+		return fmt.Sprintf("%s (replace of %s)", r.Path, r.Module)
+	}
+	return fmt.Sprintf("%s (dependency %s in %s)", r.Path, r.Module, r.Source)
+}
+
+// ReadRootLabel is readRootLabel, for the shell's progress line.
+func ReadRootLabel(r project.ReadRoot) string { return readRootLabel(r) }
