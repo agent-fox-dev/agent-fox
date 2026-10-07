@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/agentfox/agentkit-go/tools"
 
@@ -260,7 +261,6 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		AffectedFiles:      issue.AffectedFiles,
 		SuggestedFix:       issue.Fix,
 		AcceptanceCriteria: issue.AcceptanceCriteria,
-		Labels:             o.Labels,
 		RejectedPathCalls:  rejected,
 		RejectedPaths:      toolio.SortedUnique(badPaths),
 		DryRun:             o.DryRun,
@@ -268,6 +268,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if o.Input.Issue != nil {
 		out.UpstreamURL = o.Input.Issue.URL()
 	}
+	// The forge refuses a body over its limit (422), after the analysis has
+	// been paid for; it is cut to fit here instead, and the cut is reported.
+	out.Body = fitBody(out.Body, issuex.MaxBodyLength(o.Forge), o.Run)
 	if !target.Valid() {
 		out.Repo = ""
 	}
@@ -453,6 +456,11 @@ func Write(ctx context.Context, o Options, target issuex.Repo, out *Result) *Fai
 		Body:   out.Body,
 		Labels: o.Labels,
 	})
+	if err == nil {
+		// Labels are a fact once the forge applied them, and only then: not
+		// under --dry-run, not after a failed create, not on an overwrite.
+		out.Labels = o.Labels
+	}
 	o.Run.RecordSideEffect("create_issue", target.String(), err == nil, "")
 	if err != nil {
 		if issuex.IsNoToken(err) {
@@ -491,4 +499,25 @@ func indexDetail(idx tools.Index, reason string) string {
 		reason = "index not built"
 	}
 	return "unavailable: " + reason
+}
+
+// fitBody cuts body to fit a forge limit of max characters, at a line
+// boundary, and says so in the body and in a warning. A body that fits is
+// returned unchanged.
+func fitBody(body string, max int, run *toolio.Run) string {
+	if max <= 0 || utf8.RuneCountInString(body) <= max {
+		return body
+	}
+	marker := fmt.Sprintf("\n\n*[The report was cut to fit the forge's %d-character limit; the full text is "+
+		"in the run's report file.]*\n", max)
+	keep := []rune(body)[:max-utf8.RuneCountInString(marker)]
+	cut := string(keep)
+	if i := strings.LastIndex(cut, "\n"); i > 0 {
+		cut = cut[:i]
+	}
+	if run != nil {
+		run.Warn(toolio.WarnIssueBodyTruncated, "high", "the issue body was cut from %d to %d characters to fit "+
+			"the forge's limit", utf8.RuneCountInString(body), max)
+	}
+	return cut + marker
 }

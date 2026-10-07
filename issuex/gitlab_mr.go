@@ -304,10 +304,18 @@ func (c *gitlabClient) GetPRReviews(ctx context.Context, ref IssueRef) ([]Review
 		return nil, err
 	}
 
-	notesPath := fmt.Sprintf("/projects/%s/merge_requests/%d/notes?per_page=100&sort=asc", projectPath(ref.Repo), ref.Number)
 	var notes []gitlabNote
-	if _, err := c.do(ctx, http.MethodGet, notesPath, nil, &notes); err != nil {
-		return nil, err
+	for page := 1; page <= maxListPages; page++ {
+		notesPath := fmt.Sprintf("/projects/%s/merge_requests/%d/notes?per_page=100&sort=asc&page=%d",
+			projectPath(ref.Repo), ref.Number, page)
+		var batch []gitlabNote
+		if _, err := c.do(ctx, http.MethodGet, notesPath, nil, &batch); err != nil {
+			return nil, err
+		}
+		notes = append(notes, batch...)
+		if len(batch) < 100 {
+			break
+		}
 	}
 
 	var reviews []Review

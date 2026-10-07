@@ -2,8 +2,6 @@ package issuex
 
 import (
 	"fmt"
-	"net/http"
-	"time"
 )
 
 func init() {
@@ -24,9 +22,8 @@ func NewWithOptions(o Options) (Client, error) {
 	if o.UserAgent == "" {
 		o.UserAgent = "agent-fox"
 	}
-	if o.HTTPClient == nil {
-		o.HTTPClient = &http.Client{Timeout: 30 * time.Second}
-	}
+	// No default HTTP client here: each adapter makes its own when none is
+	// supplied, with the redirect policy its credential needs.
 
 	// A host that names neither forge is ErrAmbiguousForge, and nothing is
 	// sent to it: a credential must not leave for a host that is not yet

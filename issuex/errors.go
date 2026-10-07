@@ -55,8 +55,7 @@ func (e *HTTPError) RetryAfter() (time.Duration, bool) {
 	if e == nil {
 		return 0, false
 	}
-	if e.Status != http.StatusTooManyRequests &&
-		!(e.Status == http.StatusForbidden && strings.TrimSpace(e.RateLimitRemaining) == "0") {
+	if e.Status != http.StatusTooManyRequests && !e.forbiddenByRateLimit() {
 		return 0, false
 	}
 
@@ -111,8 +110,18 @@ func IsConflict(err error) bool {
 	return false
 }
 
+// forbiddenByRateLimit reports a 403 that is a rate limit: the primary one
+// (no requests remaining) or GitHub's secondary one, which answers 403 while
+// requests remain and says so in its message ("You have exceeded a secondary
+// rate limit"). A 403 that is neither is a refusal, not a wait.
+func (e *HTTPError) forbiddenByRateLimit() bool {
+	return e.Status == http.StatusForbidden &&
+		(strings.TrimSpace(e.RateLimitRemaining) == "0" ||
+			strings.Contains(strings.ToLower(e.Message), "secondary rate limit"))
+}
+
 // IsRateLimited returns true if the error wraps ErrRateLimited or is an HTTPError with status 429
-// or status 403 with RateLimitRemaining "0", and false otherwise.
+// or a 403 rate limit (forbiddenByRateLimit), and false otherwise.
 func IsRateLimited(err error) bool {
 	if err == nil {
 		return false
@@ -125,7 +134,7 @@ func IsRateLimited(err error) bool {
 		if he.Status == http.StatusTooManyRequests {
 			return true
 		}
-		if he.Status == http.StatusForbidden && strings.TrimSpace(he.RateLimitRemaining) == "0" {
+		if he.forbiddenByRateLimit() {
 			return true
 		}
 	}

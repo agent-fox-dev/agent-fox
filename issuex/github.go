@@ -37,7 +37,7 @@ func NewGitHub(o Options) (Client, error) {
 	}
 
 	token := strings.TrimSpace(o.Token)
-	if token == "" {
+	if token == "" && !o.withholdEnvToken {
 		if envTok := os.Getenv("GITHUB_TOKEN"); envTok != "" {
 			token = envTok
 		} else if envTok := os.Getenv("GH_TOKEN"); envTok != "" {
@@ -63,7 +63,6 @@ func NewGitHub(o Options) (Client, error) {
 		userAgent:  ua,
 		httpClient: hc,
 		repo:       o.Repo,
-		sleep:      time.Sleep,
 	}, nil
 }
 
@@ -79,13 +78,10 @@ func (c *githubClient) Close() error {
 }
 
 // SetSleep sets the rate-limit backoff sleep function on the client.
-// If fn is nil, time.Sleep is used.
+// If fn is nil, the default wait is used, which ends when the run is cancelled.
 func (c *githubClient) SetSleep(fn func(time.Duration)) {
-	if fn == nil {
-		c.sleep = time.Sleep
-	} else {
-		c.sleep = fn
-	}
+	// nil restores the default: a wait that ends when the run is cancelled.
+	c.sleep = fn
 }
 
 // SetGitHubSleep sets the rate-limit sleep function on a GitHub Client.

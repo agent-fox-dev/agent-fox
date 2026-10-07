@@ -31,7 +31,7 @@ default the argument's shape decides; `--input-kind` (see
 
 | The argument is | Then it is | What is used |
 |---|---|---|
-| a GitHub or GitLab issue or pull/merge-request URL | `issue` | the issue, its body, and its comments |
+| a GitHub or GitLab issue or pull/merge-request URL — a tab of one (`…/pull/42/files`, `…/-/merge_requests/5/diffs`) and GitLab's form without `/-/` included | `issue` | the issue, its body, and its comments |
 | a path to a readable regular file | `file` | the file's contents |
 | `-` | `stdin` | everything piped in |
 | anything else | `text` | the text itself |
@@ -351,6 +351,7 @@ quite what it appears to be; `low` is informational.
 | `deviation_not_tracked` | high | land | impl |
 | `fix_not_proven` | high | verify | fix |
 | `rejected_path_calls` | low | analyse | issue |
+| `issue_body_truncated` | high | write | issue |
 | `report_file_not_written` | low | report | shared |
 | `events_file_not_written` | low | report | shared |
 | `output_not_written` | low | emit | shared |
@@ -942,7 +943,10 @@ network tool, and the issue is created by a `net/http` call after the run.
 
 Every path in `affected_files` is resolved against the workspace before the
 diagnosis is accepted; one that is not there comes back to the model as an
-error naming the missing path, and the run continues. The count of refusals is
+error naming the missing path, and the run continues. A path is cited as the
+repository spells it — relative to its root, in its exact case — so an
+absolute path, or `Session.go` for `session.go` on a case-insensitive
+filesystem, is refused too: either would render as a link to nothing. The count of refusals is
 reported as `result.rejected_path_calls` — a nonzero count is the check
 working, and a large one means the model was writing from the report rather
 than from the code.
@@ -959,6 +963,11 @@ on the forge and does nothing locally either: it reports the diagnosis only.
 `result` carries `action` (`created` · `updated` · `none`), `url`, `number`,
 the rendered `body`, and the diagnosis as fields: `severity`, `confidence`,
 `root_cause`, `affected_files`, `suggested_fix`, `acceptance_criteria`.
+`labels` lists the labels the forge applied, so it is empty under `--dry-run`,
+after a failed create and on `--overwrite`. A body longer than the forge
+accepts (65,536 characters on GitHub) is cut at a line boundary before it is
+written, ends with a note saying so, and raises an `issue_body_truncated`
+warning; the full text is in the report file.
 
 Under `--detail summary` (the default) `result` keeps only:
 

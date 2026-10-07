@@ -137,15 +137,26 @@ func (c *githubClient) ReadPullRequest(ctx context.Context, ref IssueRef) (PullR
 	return raw.toPullRequest(), nil
 }
 
-// ReadChangedFiles lists files modified by a pull request.
+// maxListPages bounds how many pages of 100 a list read follows: GitHub
+// itself lists at most 3000 files of a pull request.
+const maxListPages = 30
+
+// ReadChangedFiles lists files modified by a pull request, every page of them.
 func (c *githubClient) ReadChangedFiles(ctx context.Context, ref IssueRef) ([]ChangedFile, error) {
 	if !ref.Repo.Valid() && c.repo.Valid() {
 		ref.Repo = c.repo
 	}
 	var rawFiles []ghChangedFile
-	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/files?per_page=100", ref.Repo.Owner, ref.Repo.Name, ref.Number)
-	if err := c.do(ctx, http.MethodGet, path, nil, &rawFiles); err != nil {
-		return nil, err
+	for page := 1; page <= maxListPages; page++ {
+		path := fmt.Sprintf("/repos/%s/%s/pulls/%d/files?per_page=100&page=%d", ref.Repo.Owner, ref.Repo.Name, ref.Number, page)
+		var batch []ghChangedFile
+		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+			return nil, err
+		}
+		rawFiles = append(rawFiles, batch...)
+		if len(batch) < 100 {
+			break
+		}
 	}
 	files := make([]ChangedFile, len(rawFiles))
 	for i, f := range rawFiles {
@@ -204,10 +215,17 @@ func (c *githubClient) GetCIChecks(ctx context.Context, ref IssueRef) ([]CheckRu
 	if !ref.Repo.Valid() && c.repo.Valid() {
 		ref.Repo = c.repo
 	}
-	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs?per_page=100", ref.Repo.Owner, ref.Repo.Name, pr.HeadSHA)
 	var resp ghCheckRunsResponse
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
-		return nil, err
+	for page := 1; page <= maxListPages; page++ {
+		path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs?per_page=100&page=%d", ref.Repo.Owner, ref.Repo.Name, pr.HeadSHA, page)
+		var batch ghCheckRunsResponse
+		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+			return nil, err
+		}
+		resp.CheckRuns = append(resp.CheckRuns, batch.CheckRuns...)
+		if len(batch.CheckRuns) < 100 {
+			break
+		}
 	}
 	checks := make([]CheckRun, len(resp.CheckRuns))
 	for i, cr := range resp.CheckRuns {
@@ -231,10 +249,17 @@ func (c *githubClient) GetPRReviews(ctx context.Context, ref IssueRef) ([]Review
 	if !ref.Repo.Valid() && c.repo.Valid() {
 		ref.Repo = c.repo
 	}
-	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews?per_page=100", ref.Repo.Owner, ref.Repo.Name, ref.Number)
 	var rawReviews []ghReview
-	if err := c.do(ctx, http.MethodGet, path, nil, &rawReviews); err != nil {
-		return nil, err
+	for page := 1; page <= maxListPages; page++ {
+		path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews?per_page=100&page=%d", ref.Repo.Owner, ref.Repo.Name, ref.Number, page)
+		var batch []ghReview
+		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
+			return nil, err
+		}
+		rawReviews = append(rawReviews, batch...)
+		if len(batch) < 100 {
+			break
+		}
 	}
 	reviews := make([]Review, len(rawReviews))
 	for i, r := range rawReviews {

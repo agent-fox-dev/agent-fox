@@ -90,7 +90,7 @@ func (c *gitlabClient) ReadIssue(ctx context.Context, ref IssueRef) (IssueThread
 		ref.Repo = c.repo
 	}
 
-	path := fmt.Sprintf("/projects/%s/issues/%d", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	var raw gitlabIssue
 	if _, err := c.do(ctx, http.MethodGet, path, nil, &raw); err != nil {
 		if IsNotFound(err) && !c.Authenticated() {
@@ -100,6 +100,7 @@ func (c *gitlabClient) ReadIssue(ctx context.Context, ref IssueRef) (IssueThread
 	}
 
 	issue := raw.toIssue()
+	issue.IsPR = issue.IsPR || ref.IsPullRequest
 	cmts, cErr := c.ListComments(ctx, ref)
 	if cErr != nil {
 		return IssueThread{
@@ -141,7 +142,7 @@ func (c *gitlabClient) UpdateIssue(ctx context.Context, ref IssueRef, req Update
 		payload["labels"] = strings.Join(req.Labels, ",")
 	}
 
-	path := fmt.Sprintf("/projects/%s/issues/%d", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	var raw gitlabIssue
 	if _, err := c.do(ctx, http.MethodPut, path, payload, &raw); err != nil {
 		return Issue{}, err
@@ -165,7 +166,7 @@ func (c *gitlabClient) CloseIssue(ctx context.Context, ref IssueRef, comment str
 	}
 
 	payload := map[string]any{"state_event": "close"}
-	path := fmt.Sprintf("/projects/%s/issues/%d", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	_, err := c.do(ctx, http.MethodPut, path, payload, nil)
 	return err
 }
@@ -264,7 +265,7 @@ func (c *gitlabClient) AddComment(ctx context.Context, ref IssueRef, body string
 	}
 
 	payload := map[string]any{"body": body}
-	path := fmt.Sprintf("/projects/%s/issues/%d/notes", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d/notes", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	var note gitlabNote
 	if _, err := c.do(ctx, http.MethodPost, path, payload, &note); err != nil {
 		return "", err
@@ -281,7 +282,18 @@ func (c *gitlabClient) AddComment(ctx context.Context, ref IssueRef, body string
 // the API base URL without its /api/v4 suffix, which NewGitLab guarantees.
 func (c *gitlabClient) noteURL(ref IssueRef, id int) string {
 	webURL := strings.TrimSuffix(c.baseURL, "/api/v4")
-	return fmt.Sprintf("%s/%s/-/issues/%d#note_%d", webURL, ref.Repo.String(), ref.Number, id)
+	return fmt.Sprintf("%s/%s/-/%s/%d#note_%d", webURL, ref.Repo.String(), threadKind(ref), ref.Number, id)
+}
+
+// threadKind is the API collection a thread lives in. GitLab numbers issues
+// and merge requests separately, so issue 5 and merge request 5 are two
+// threads, and a merge-request ref sent to the issue endpoint names the
+// wrong one.
+func threadKind(ref IssueRef) string {
+	if ref.IsPullRequest {
+		return "merge_requests"
+	}
+	return "issues"
 }
 
 // ListComments retrieves chronological comments on an issue up to 500 total notes, filtering out system notes.
@@ -296,8 +308,8 @@ func (c *gitlabClient) ListComments(ctx context.Context, ref IssueRef) (CommentL
 	)
 
 	for page := 1; page <= 5; page++ {
-		path := fmt.Sprintf("/projects/%s/issues/%d/notes?per_page=100&page=%d&sort=asc&order_by=created_at",
-			projectPath(ref.Repo), ref.Number, page)
+		path := fmt.Sprintf("/projects/%s/%s/%d/notes?per_page=100&page=%d&sort=asc&order_by=created_at",
+			projectPath(ref.Repo), threadKind(ref), ref.Number, page)
 		var batch []gitlabNote
 		resp, _, err := c.doWithResponse(ctx, http.MethodGet, path, nil, &batch)
 		if err != nil {
@@ -345,7 +357,7 @@ func (c *gitlabClient) AddLabels(ctx context.Context, ref IssueRef, labels []str
 	}
 
 	payload := map[string]any{"add_labels": strings.Join(labels, ",")}
-	path := fmt.Sprintf("/projects/%s/issues/%d", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	_, err := c.do(ctx, http.MethodPut, path, payload, nil)
 	return err
 }
@@ -360,7 +372,7 @@ func (c *gitlabClient) RemoveLabel(ctx context.Context, ref IssueRef, label stri
 	}
 
 	payload := map[string]any{"remove_labels": label}
-	path := fmt.Sprintf("/projects/%s/issues/%d", projectPath(ref.Repo), ref.Number)
+	path := fmt.Sprintf("/projects/%s/%s/%d", projectPath(ref.Repo), threadKind(ref), ref.Number)
 	_, err := c.do(ctx, http.MethodPut, path, payload, nil)
 	return err
 }

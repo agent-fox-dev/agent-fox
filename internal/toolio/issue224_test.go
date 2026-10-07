@@ -184,3 +184,20 @@ func TestSharedWarningsHaveAToolNeutralStage(t *testing.T) {
 		}
 	}
 }
+
+// Issue #222 (3): an issue URL whose forge cannot be told is the run's error,
+// not a read from the workspace's forge.
+func TestAnIssueURLWithAnUndecidableForgeIsAnError(t *testing.T) {
+	for _, k := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	// Both API URLs name the host: it is either forge.
+	t.Setenv("GITHUB_API_URL", "https://git.example.com/api/v3")
+	t.Setenv("GITLAB_API_URL", "https://git.example.com/api/v4")
+	if _, err := pickForge("https://git.example.com/team/app/issues/7", "", t.TempDir(), "test"); err == nil {
+		t.Error("an undecidable forge fell back to the workspace's")
+	}
+	if f, err := pickForge("plain text", "", t.TempDir(), "test"); err != nil || f == nil {
+		t.Errorf("a text input: %v, %v", f, err)
+	}
+}

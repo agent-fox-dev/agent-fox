@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -224,6 +225,14 @@ func (t *triager) reject(paths []string) {
 func (t *triager) missingPaths(refs []FileRef) []string {
 	var missing []string
 	for _, f := range refs {
+		// A path is cited as the repository spells it: relative to its root,
+		// and in its exact case. An absolute path renders verbatim and a
+		// case-folded one resolves on a case-insensitive filesystem, and
+		// either links to nothing on the forge.
+		if filepath.IsAbs(f.Path) || !exactCase(t.ws.Root, f.Path) {
+			missing = append(missing, f.Path)
+			continue
+		}
 		abs, err := t.ws.Resolve(f.Path)
 		if err != nil {
 			missing = append(missing, f.Path)
@@ -236,6 +245,37 @@ func (t *triager) missingPaths(refs []FileRef) []string {
 	return missing
 }
 
+// exactCase reports whether every component of rel exists under root with
+// exactly that spelling. A component that does not exist yet (a proposed new
+// file) ends the check: there is nothing to compare it with.
+func exactCase(root, rel string) bool {
+	dir := root
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/") {
+		if part == "." || part == "" {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return true
+		}
+		found, folded := false, false
+		for _, e := range entries {
+			if e.Name() == part {
+				found = true
+				break
+			}
+			if strings.EqualFold(e.Name(), part) {
+				folded = true
+			}
+		}
+		if !found {
+			return !folded
+		}
+		dir = filepath.Join(dir, part)
+	}
+	return true
+}
+
 // escapingPaths returns the paths that escape the workspace root. Resolve
 // does the symlink-aware containment check; a path that does not exist yet
 // resolves against its existing prefix, which is what makes a proposed new
@@ -243,6 +283,12 @@ func (t *triager) missingPaths(refs []FileRef) []string {
 func (t *triager) escapingPaths(refs []FileRef) []string {
 	var outside []string
 	for _, f := range refs {
+		// An absolute path is refused even inside the workspace: it renders
+		// verbatim, a link to nothing on the forge.
+		if filepath.IsAbs(f.Path) || !exactCase(t.ws.Root, f.Path) {
+			outside = append(outside, f.Path)
+			continue
+		}
 		if _, err := t.ws.Resolve(f.Path); err != nil {
 			outside = append(outside, f.Path)
 		}

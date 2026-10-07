@@ -91,90 +91,28 @@ func detectForge(o Options) (ForgeType, Options, error) {
 
 	if opts.RemoteURL != "" {
 		if repo, ok := ParseRemote(opts.RemoteURL); ok {
-			host := strings.ToLower(repo.Host)
-			hasHostGH := strings.Contains(host, "github")
-			hasHostGL := strings.Contains(host, "gitlab")
-			if hasHostGH && !hasHostGL {
-				if opts.BaseURL == "" {
-					if apiURL := os.Getenv("GITHUB_API_URL"); apiURL != "" {
-						opts.BaseURL = apiURL
-					} else {
-						opts.BaseURL = "https://api.github.com"
-					}
-				}
-				if opts.Token == "" {
-					if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-						opts.Token = tok
-					} else {
-						opts.Token = os.Getenv("GH_TOKEN")
-					}
-				}
+			if ft := classifyHost(repo.Host); ft != ForgeTypeUnknown {
+				opts = hostEndpoint(ft, repo.Host, opts)
 				if !opts.Repo.Valid() {
 					opts.Repo = repo
 				}
-				return ForgeTypeGitHub, opts, nil
+				return ft, opts, nil
 			}
-			if hasHostGL && !hasHostGH {
-				if opts.BaseURL == "" {
-					if apiURL := os.Getenv("GITLAB_API_URL"); apiURL != "" {
-						opts.BaseURL = apiURL
-					} else {
-						opts.BaseURL = "https://gitlab.com/api/v4"
-					}
-				}
-				if opts.Token == "" {
-					opts.Token = os.Getenv("GITLAB_TOKEN")
-				}
-				if !opts.Repo.Valid() {
-					opts.Repo = repo
-				}
-				return ForgeTypeGitLab, opts, nil
-			}
-		} else {
-			if host := extractHostFromRemote(opts.RemoteURL); host != "" {
-				hasHostGH := strings.Contains(host, "github")
-				hasHostGL := strings.Contains(host, "gitlab")
-				if !hasHostGH && !hasHostGL {
-					return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from remote URL host %q", ErrAmbiguousForge, host)
-				}
-			}
+		} else if host := extractHostFromRemote(opts.RemoteURL); host != "" && classifyHost(host) == ForgeTypeUnknown {
+			return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from remote URL host %q", ErrAmbiguousForge, host)
 		}
 	}
 
+	// A repository whose host is known decides the forge by that host, and
+	// nothing else: a host that names neither forge is not sent a request
+	// meant for whichever forge the environment happens to configure.
 	if opts.Repo.Host != "" {
-		host := strings.ToLower(opts.Repo.Host)
-		hasHostGH := strings.Contains(host, "github")
-		hasHostGL := strings.Contains(host, "gitlab")
-		if hasHostGH && !hasHostGL {
-			if opts.BaseURL == "" {
-				if apiURL := os.Getenv("GITHUB_API_URL"); apiURL != "" {
-					opts.BaseURL = apiURL
-				} else {
-					opts.BaseURL = "https://api.github.com"
-				}
-			}
-			if opts.Token == "" {
-				if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-					opts.Token = tok
-				} else {
-					opts.Token = os.Getenv("GH_TOKEN")
-				}
-			}
-			return ForgeTypeGitHub, opts, nil
+		ft := classifyHost(opts.Repo.Host)
+		if ft == ForgeTypeUnknown {
+			return ForgeTypeUnknown, opts, fmt.Errorf("%w: cannot tell which forge serves %q; set GITHUB_API_URL "+
+				"or GITLAB_API_URL to its API URL", ErrAmbiguousForge, opts.Repo.Host)
 		}
-		if hasHostGL && !hasHostGH {
-			if opts.BaseURL == "" {
-				if apiURL := os.Getenv("GITLAB_API_URL"); apiURL != "" {
-					opts.BaseURL = apiURL
-				} else {
-					opts.BaseURL = "https://gitlab.com/api/v4"
-				}
-			}
-			if opts.Token == "" {
-				opts.Token = os.Getenv("GITLAB_TOKEN")
-			}
-			return ForgeTypeGitLab, opts, nil
-		}
+		return ft, hostEndpoint(ft, opts.Repo.Host, opts), nil
 	}
 
 	ghEnv := os.Getenv("GITHUB_API_URL") != "" || os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != ""
@@ -189,11 +127,7 @@ func detectForge(o Options) (ForgeType, Options, error) {
 			}
 		}
 		if opts.Token == "" {
-			if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-				opts.Token = tok
-			} else {
-				opts.Token = os.Getenv("GH_TOKEN")
-			}
+			opts.Token = envToken(ForgeTypeGitHub)
 		}
 		return ForgeTypeGitHub, opts, nil
 	}
@@ -207,74 +141,128 @@ func detectForge(o Options) (ForgeType, Options, error) {
 			}
 		}
 		if opts.Token == "" {
-			opts.Token = os.Getenv("GITLAB_TOKEN")
+			opts.Token = envToken(ForgeTypeGitLab)
 		}
 		return ForgeTypeGitLab, opts, nil
 	}
 
-	// Environment variables are either both present or both absent.
-	// Inspect git origin remote in current directory.
-	repo, ok := DetectRepo(".")
+	// Environment variables are either both present or both absent: the
+	// origin remote of the working tree decides — of opts.Dir (--dir), not
+	// of wherever the process happens to run.
+	dir := opts.Dir
+	if dir == "" {
+		dir = "."
+	}
+	repo, ok := DetectRepo(dir)
 	if !ok {
 		return ForgeTypeUnknown, opts, fmt.Errorf("%w: unable to detect forge from environment or git origin remote", ErrAmbiguousForge)
 	}
+	ft := classifyHost(repo.Host)
+	if ft == ForgeTypeUnknown {
+		return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from git remote host %q", ErrAmbiguousForge, repo.Host)
+	}
+	return ft, hostEndpoint(ft, repo.Host, opts), nil
+}
 
-	host := strings.ToLower(repo.Host)
-	hasHostGH := strings.Contains(host, "github")
-	hasHostGL := strings.Contains(host, "gitlab")
+// normHost is a host name compared case-insensitively and without "www.".
+func normHost(h string) string {
+	h = strings.ToLower(strings.TrimSpace(h))
+	if i := strings.IndexByte(h, ':'); i >= 0 {
+		h = h[:i]
+	}
+	return strings.TrimPrefix(h, "www.")
+}
 
-	if !hasHostGH && !hasHostGL {
-		if ghAPI := os.Getenv("GITHUB_API_URL"); ghAPI != "" {
-			if u, err := url.Parse(ghAPI); err == nil && u.Hostname() != "" {
-				ghHost := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
-				if ghHost == host || strings.TrimPrefix(ghHost, "api.") == host {
-					hasHostGH = true
-				}
-			}
-		}
-		if glAPI := os.Getenv("GITLAB_API_URL"); glAPI != "" {
-			if u, err := url.Parse(glAPI); err == nil && u.Hostname() != "" {
-				glHost := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
-				if glHost == host || strings.TrimPrefix(glHost, "api.") == host {
-					hasHostGL = true
-				}
-			}
+// apiURLNames reports whether apiURL is the API of the web host host: the
+// same host, or api.<host> (api.github.com for github.com).
+func apiURLNames(apiURL, host string) bool {
+	if strings.TrimSpace(apiURL) == "" {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(apiURL))
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	uh := normHost(u.Hostname())
+	return uh == host || uh == "api."+host
+}
+
+// classifyHost is the forge a web host belongs to. A configured
+// GITHUB_API_URL or GITLAB_API_URL that names the host decides first; then
+// the host's own name ("github" or "gitlab" in it). Unknown otherwise.
+func classifyHost(host string) ForgeType {
+	h := normHost(host)
+	if h == "" {
+		return ForgeTypeUnknown
+	}
+	gh := apiURLNames(os.Getenv("GITHUB_API_URL"), h)
+	gl := apiURLNames(os.Getenv("GITLAB_API_URL"), h)
+	switch {
+	case gh && !gl:
+		return ForgeTypeGitHub
+	case gl && !gh:
+		return ForgeTypeGitLab
+	case gh && gl:
+		return ForgeTypeUnknown
+	}
+	hasGH, hasGL := strings.Contains(h, "github"), strings.Contains(h, "gitlab")
+	switch {
+	case hasGH && !hasGL:
+		return ForgeTypeGitHub
+	case hasGL && !hasGH:
+		return ForgeTypeGitLab
+	}
+	return ForgeTypeUnknown
+}
+
+// envToken is the forge's token from the environment.
+func envToken(ft ForgeType) string {
+	if ft == ForgeTypeGitLab {
+		return os.Getenv("GITLAB_TOKEN")
+	}
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		return tok
+	}
+	return os.Getenv("GH_TOKEN")
+}
+
+// hostEndpoint fills in the API base and the token for a forge whose web host
+// is known. The environment's token goes only where the environment points
+// it: to the host of GITHUB_API_URL / GITLAB_API_URL when that names this
+// host, or to the public forge when no API URL is configured. Any other host
+// — a self-hosted instance with no API URL configured, or the public forge
+// while the API URL names an enterprise one — gets its own API address and no
+// token: a credential must not leave for a host it was not configured for.
+// An explicit BaseURL is the caller's choice and is left alone.
+func hostEndpoint(ft ForgeType, host string, opts Options) Options {
+	if opts.BaseURL != "" {
+		return opts
+	}
+	h := normHost(host)
+	envVar, public, publicAPI, suffix := "GITHUB_API_URL", "github.com", "https://api.github.com", "/api/v3"
+	if ft == ForgeTypeGitLab {
+		envVar, public, publicAPI, suffix = "GITLAB_API_URL", "gitlab.com", "https://gitlab.com/api/v4", "/api/v4"
+	}
+	envURL := strings.TrimSpace(os.Getenv(envVar))
+	withhold := false
+	switch {
+	case envURL != "" && apiURLNames(envURL, h):
+		opts.BaseURL = strings.TrimRight(envURL, "/")
+	case h == public:
+		opts.BaseURL = publicAPI
+		withhold = envURL != "" && !apiURLNames(envURL, public)
+	default:
+		opts.BaseURL = "https://" + h + suffix
+		withhold = true
+	}
+	if opts.Token == "" {
+		if withhold {
+			opts.withholdEnvToken = true
+		} else {
+			opts.Token = envToken(ft)
 		}
 	}
-
-	if hasHostGH && !hasHostGL {
-		if opts.BaseURL == "" {
-			if apiURL := os.Getenv("GITHUB_API_URL"); apiURL != "" {
-				opts.BaseURL = apiURL
-			} else {
-				opts.BaseURL = "https://api.github.com"
-			}
-		}
-		if opts.Token == "" {
-			if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-				opts.Token = tok
-			} else {
-				opts.Token = os.Getenv("GH_TOKEN")
-			}
-		}
-		return ForgeTypeGitHub, opts, nil
-	}
-
-	if hasHostGL && !hasHostGH {
-		if opts.BaseURL == "" {
-			if apiURL := os.Getenv("GITLAB_API_URL"); apiURL != "" {
-				opts.BaseURL = apiURL
-			} else {
-				opts.BaseURL = "https://gitlab.com/api/v4"
-			}
-		}
-		if opts.Token == "" {
-			opts.Token = os.Getenv("GITLAB_TOKEN")
-		}
-		return ForgeTypeGitLab, opts, nil
-	}
-
-	return ForgeTypeUnknown, opts, fmt.Errorf("%w: ambiguous forge from git remote host %q", ErrAmbiguousForge, repo.Host)
+	return opts
 }
 
 func extractHostFromRemote(remote string) string {

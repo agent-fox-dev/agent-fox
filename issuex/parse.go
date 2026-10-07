@@ -146,6 +146,27 @@ func DetectRepo(dir string) (Repo, bool) {
 	return ParseRemote(strings.TrimSpace(string(out)))
 }
 
+const (
+	threadIssue = 1
+	threadPR    = 2
+)
+
+// threadWords are the path words that name an issue or a pull/merge request.
+var threadWords = map[string]int{
+	"issues": threadIssue, "issue": threadIssue,
+	"pull": threadPR, "pulls": threadPR, "merge_requests": threadPR, "merge_request": threadPR,
+}
+
+// threadSubPages are the tabs of a pull or merge request a URL may point at.
+var threadSubPages = map[string]bool{
+	"files": true, "commits": true, "checks": true, "diffs": true, "changes": true, "pipelines": true,
+}
+
+func isNumber(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n > 0
+}
+
 // ParseIssueURL parses GitHub web issue/PR URLs and GitLab web issue/MR URLs into an IssueRef.
 // Returns (IssueRef{}, false) if the input is malformed, non-numeric, or a non-issue path.
 func ParseIssueURL(s string) (IssueRef, bool) {
@@ -169,84 +190,51 @@ func ParseIssueURL(s string) (IssueRef, bool) {
 		return IssueRef{}, false
 	}
 
-	// Check GitLab syntax with "/-/" infix:
-	// e.g. /group/sub/proj/-/issues/123 or /group/sub/proj/-/merge_requests/123
+	// GitLab writes /group/sub/proj/-/issues/123; GitHub, and GitLab's
+	// legacy form, /owner/repo/issues/123. Either may continue with a
+	// sub-page of the thread (/pull/42/files, /-/merge_requests/5/diffs).
+	segs := strings.Split(path, "/")
+	repoSegs, action := segs, []string(nil)
 	if idx := strings.Index(path, "/-/"); idx >= 0 {
-		repoPath := path[:idx]
-		actionPath := path[idx+3:]
-
-		parts := strings.Split(repoPath, "/")
-		if len(parts) < 2 {
-			return IssueRef{}, false
-		}
-		for _, p := range parts {
-			if p == "" {
-				return IssueRef{}, false
+		repoSegs = strings.Split(path[:idx], "/")
+		action = strings.Split(path[idx+3:], "/")
+	} else {
+		for k := 2; k+1 < len(segs); k++ {
+			if threadWords[segs[k]] != 0 && isNumber(segs[k+1]) {
+				repoSegs, action = segs[:k], segs[k:]
+				break
 			}
 		}
-		name := parts[len(parts)-1]
-		owner := strings.Join(parts[:len(parts)-1], "/")
-
-		actionParts := strings.Split(actionPath, "/")
-		if len(actionParts) != 2 {
-			return IssueRef{}, false
-		}
-
-		var isPR bool
-		switch actionParts[0] {
-		case "issues", "issue":
-			isPR = false
-		case "merge_requests", "merge_request":
-			isPR = true
-		default:
-			return IssueRef{}, false
-		}
-
-		num, err := strconv.Atoi(actionParts[1])
-		if err != nil || num <= 0 {
-			return IssueRef{}, false
-		}
-
-		return IssueRef{
-			Repo: Repo{
-				Host:  host,
-				Owner: owner,
-				Name:  name,
-			},
-			Number:        num,
-			IsPullRequest: isPR,
-		}, true
 	}
-
-	// GitHub syntax: /owner/repo/issues/123 or /owner/repo/pull/123
-	parts := strings.Split(path, "/")
-	if len(parts) != 4 {
+	if len(repoSegs) < 2 || len(action) < 2 || len(action) > 3 {
 		return IssueRef{}, false
 	}
-	if parts[0] == "" || parts[1] == "" {
+	for _, p := range repoSegs {
+		if p == "" {
+			return IssueRef{}, false
+		}
+	}
+	kind := threadWords[action[0]]
+	if kind == 0 || !isNumber(action[1]) {
 		return IssueRef{}, false
 	}
-
-	var isPR bool
-	switch parts[2] {
-	case "issues", "issue":
-		isPR = false
-	case "pull", "pulls":
-		isPR = true
-	default:
+	isPR := kind == threadPR
+	if len(action) == 3 && (!isPR || !threadSubPages[action[2]]) {
 		return IssueRef{}, false
 	}
-
-	num, err := strconv.Atoi(parts[3])
+	// A GitHub repository is owner/name, and GitHub has no merge requests.
+	if classifyHost(host) == ForgeTypeGitHub && (len(repoSegs) != 2 || strings.HasPrefix(action[0], "merge_request")) {
+		return IssueRef{}, false
+	}
+	num, err := strconv.Atoi(action[1])
 	if err != nil || num <= 0 {
 		return IssueRef{}, false
 	}
-
 	return IssueRef{
 		Repo: Repo{
 			Host:  host,
-			Owner: parts[0],
-			Name:  parts[1],
+			Owner: strings.Join(repoSegs[:len(repoSegs)-1], "/"),
+			Name:  repoSegs[len(repoSegs)-1],
 		},
 		Number:        num,
 		IsPullRequest: isPR,

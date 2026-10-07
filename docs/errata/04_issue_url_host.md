@@ -23,8 +23,11 @@ affected.
 **Is:** `NewWithOptions(Options{Repo: ref.Repo, UserAgent: ...})`, with the
 parsed `Repo` (host included) and no `BaseURL`. Forge detection reads the host
 from the repository and derives the right API base: `https://api.github.com` for
-`github.com`, the host of `GITHUB_API_URL` for a GitHub Enterprise host, the
-`/api/v4` address for GitLab. See [Choosing the forge](../configuration.md#choosing-the-forge).
+`github.com`, `GITHUB_API_URL` for the GitHub Enterprise host it names, the
+`/api/v4` address for GitLab. Until issue #222 the code did not compare the
+host with `github.com` or with the API URL's host, so a self-hosted host was
+sent to the public API with its token; the comparison now decides the address
+and whether the token is sent (see [Choosing the forge](../configuration.md#choosing-the-forge)). See [Choosing the forge](../configuration.md#choosing-the-forge).
 
 The behaviour is covered by `issuex/host_repo_test.go` and by the shell's own
 test of an issue URL (`internal/toolio/app_test.go`), introduced with the fix
