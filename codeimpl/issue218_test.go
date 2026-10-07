@@ -323,3 +323,18 @@ func TestNothingToDoReturnsTheCheckout(t *testing.T) {
 		t.Errorf("checked out %q, want main", cur)
 	}
 }
+
+// Issue #221: a Python or Rust test names a spec test in snake_case.
+func TestNamesSpecTestInSnakeCase(t *testing.T) {
+	ids := []string{"TS-16-14"}
+	for content, want := range map[string]bool{
+		"def test_ts16_14_rejects_expiry():": true,
+		"fn ts_16_14_counts_once() {":        true,
+		"def test_ts16_140():":               false,
+		"def test_unrelated():":              false,
+	} {
+		if got := namesSpecTest(content, ids); got != want {
+			t.Errorf("namesSpecTest(%q) = %v, want %v", content, got, want)
+		}
+	}
+}

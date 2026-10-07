@@ -1045,7 +1045,12 @@ left in (`result.revert_check`). When they then fail, the tests depend on the
 fix, and the commit and the pull request close the issue (`Closes #N`). When
 they still pass — or cannot run — the change still lands, since it is
 verified, but it only references the issue (`Refs #N`), the pull request
-says why, and the run warns `fix_not_proven`. `result.closes_issue` records
+says why, and the run warns `fix_not_proven`. Test files, and the code that
+exists only for them (`conftest.py`, `setupTests.*`, `jest.setup.*`,
+`vitest.setup.*`, Go `testutil/` packages, Ruby `spec/` helpers), stay in place.
+A Rust source file whose change carries a `#[cfg(test)]` module is put back as
+it was except for that module, which stays as the change wrote it, so Rust's
+inline unit tests can prove a fix. `result.closes_issue` records
 which.
 
 While the fix is taken out, it is held in a `wip:` commit on the branch,
@@ -1453,7 +1458,12 @@ that `test_commands` names the project's real runner, because a model planning
 work in a repository it did not look at reaches for whichever ecosystem its
 training favours. Here the project's language is detected from its manifest and
 a plan naming another ecosystem's runner is **refused** before the file is
-written, with the real commands in the message:
+written, with the real commands in the message. A repository with more than one
+manifest — a Go backend with a `package.json` frontend — has each of those
+ecosystems: the first manifest (`go.mod`, `Cargo.toml`, `pyproject.toml`,
+`package.json`, `pom.xml`, `Gemfile`, in that order) is its language, and a
+command of any ecosystem present is accepted. A program named by a path
+(`./gradlew test`) is looked up as written:
 
 ```
 this project is go (detected from go.mod), but test_commands.all_tests is
@@ -1809,12 +1819,19 @@ where it left the base branch:
   (one that was already long and was only touched is not reported), a Go test with no
   assertion, a `var _ = pkg.Symbol` import suppressor, `git init` without
   `-b`, a date after today in an ADR or erratum, and an erratum that cites no
-  code line or no test.
+  code line or no test. Not every check runs for every language: `gofmt`,
+  `go vet`, the long function (`--max-func-lines`), the unused declaration,
+  the assertion-less test, the discarded error and the import suppressor read
+  Go source and run on Go files only; for other languages they find nothing.
+  Duplication, the deferring comment, `git init -b`, dates and the erratum
+  citation (which also counts a JavaScript `it(…)`, `test(…)` or
+  `describe(…)` name as a test) apply to any repository.
 - **Scope.** When every task lists `touches`, the change may touch only those
   paths and the paths the survey's resolutions name (a word with a slash that
   is a directory, ends in one, or has a file extension; the tasks are told the
   same list). Documentation, the spec package and a test file that names one
-  of the spec's test ids (`TS-16-14`, `TS16_14`, `TS_16_14` or `TS1614`) are
+  of the spec's test ids (`TS-16-14`, `TS16_14`, `TS_16_14` or `TS1614`, in any
+  case, so `test_ts16_14` too) are
   exempt, and so is every file a baseline repair changed (`--repair`, this run's
   or an earlier one's on the branch), which the pull request already reports as
   not part of the specification. Anything else is a "while here" change that

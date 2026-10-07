@@ -73,6 +73,8 @@ observable contract, in an environment that is not the author's.** For
 - `git clone` is not flagged as `git init` is: a clone checks out the
   remote's HEAD, which the fixture's own `git init -b` already pins, and `-b`
   on a clone of an empty repository fails rather than pins anything.
-- The structural checks are heuristics that work on any repository, and they
-  report rather than block: a finding left in the change is an unmet item the
-  pull request lists, not a refusal.
+- The structural checks are heuristics that report rather than block: a
+  finding left in the change is an unmet item the pull request lists, not a
+  refusal. Several of them read Go source (formatting, vet, long functions,
+  unused declarations, assertion-less tests) and find nothing in other
+  languages; `docs/cli.md` lists which apply where (issue #221).

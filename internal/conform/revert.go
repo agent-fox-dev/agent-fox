@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -160,11 +161,73 @@ func (snap snapshot) putBack(ctx context.Context, g *gitx.Git, base string) erro
 			}
 			continue
 		}
+		if s.present && strings.HasSuffix(s.rel, ".rs") {
+			content = keepRustTests(content, string(s.content))
+		}
 		if err := writeFile(s.full, []byte(content), s.mode); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// keepRustTests is base with its #[cfg(test)] module replaced by changed's.
+// Rust keeps unit tests in the file they test, so taking the implementation
+// out by putting the whole file back would take the tests out too, and the
+// check could never fail: every Rust fix would be unproven. With this, the
+// tests the change wrote run against the code as it was. A file whose change
+// has no test module is put back whole.
+func keepRustTests(base, changed string) string {
+	tests, _, ok := rustTestModule(changed)
+	if !ok {
+		return base
+	}
+	if _, rest, ok := rustTestModule(base); ok {
+		base = rest
+	}
+	return strings.TrimRight(base, "\n") + "\n\n" + tests + "\n"
+}
+
+var rustTestAttrRe = regexp.MustCompile(`(?m)^[ \t]*#\[cfg\(test\)\][ \t]*\n(?:[ \t]*#\[[^\n]*\][ \t]*\n)*[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?mod[ \t]+\w+[ \t]*\{`)
+
+// rustTestModule finds a source's #[cfg(test)] module: the module's text,
+// from the attribute to its closing brace, and the source without it. Braces
+// are matched outside string literals and comments; a module that never
+// closes is not found.
+func rustTestModule(src string) (module, rest string, ok bool) {
+	loc := rustTestAttrRe.FindStringIndex(src)
+	if loc == nil {
+		return "", src, false
+	}
+	depth := 0
+	for i := loc[1] - 1; i < len(src); i++ {
+		switch c := src[i]; {
+		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			end := strings.Index(src[i+2:], "*/")
+			if end < 0 {
+				return "", src, false
+			}
+			i += end + 3
+		case c == '"':
+			for i++; i < len(src) && src[i] != '"'; i++ {
+				if src[i] == '\\' {
+					i++
+				}
+			}
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 {
+				return src[loc[0] : i+1], src[:loc[0]] + src[i+1:], true
+			}
+		}
+	}
+	return "", src, false
 }
 
 // restore returns every file to what the change left.
