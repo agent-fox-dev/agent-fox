@@ -225,6 +225,14 @@ func submitArtifactTool(step afspec.GenerationStep, s *schema.Schema,
 			"decidable at this point; a violation comes back to you as an error to fix.", step),
 		InputSchema:         s,
 		ConstrainedSampling: constrainedJSON,
+		// The tool schema cannot declare $schema and forbids undeclared
+		// properties, yet the artifacts already generated reach the model
+		// with the field in them, so it may copy it. It is dropped before
+		// validation rather than refused: the handler writes it anyway.
+		PrepareArguments: func(args map[string]any) map[string]any {
+			delete(args, schemaProperty)
+			return args
+		},
 		PromptGuidelines: []string{
 			"Submit the " + string(step) + " artifact by calling " + name + "; do not write JSON as prose.",
 		},

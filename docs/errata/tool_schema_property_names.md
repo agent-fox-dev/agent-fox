@@ -30,6 +30,12 @@ returns the names it dropped; `ArtifactSchema` accepts exactly one such name,
 own `$id` before the artifact is validated. The prompt templates no longer
 show the field.
 
+The artifacts already generated still reach the model with the field in them,
+so it may copy it into a submission. AgentKit refuses a property a schema with
+`additionalProperties: false` does not declare, which would cost a turn on a
+value the handler overwrites anyway, so each submit tool's `PrepareArguments`
+drops `$schema` before the arguments are validated.
+
 **Why not rename it in the format:** `$schema` is what makes the artifact
 readable by every other JSON Schema tool, and the format is defined in the
 [`spec`](https://github.com/agent-fox-dev/spec) repository rather than here.
