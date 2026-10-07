@@ -873,6 +873,20 @@ func indexedRunner(t *testing.T, ws *tools.Workspace, p *faux.Provider, idx tool
 }
 
 // wireTools is the names of the tools the first request offered the model.
+func skipIfNoFindReferences(t *testing.T, ws *tools.Workspace) {
+	t.Helper()
+	built, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Skipf("tools.All failed: %v", err)
+	}
+	for _, tl := range built {
+		if tl.Name == "find_references" {
+			return
+		}
+	}
+	t.Skip("find_references not offered by the replace target")
+}
+
 func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
 	t.Helper()
 	reqs := p.Requests()
@@ -893,6 +907,7 @@ func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
 // Verifies: 16-REQ-1.5, 16-REQ-2.1
 func TestTS16_4_IndexReachesThePRDPhase(t *testing.T) {
 	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
 	idx := &fakeIndex{}
 	p := faux.New()
 	o := newOptions(ws, nil)

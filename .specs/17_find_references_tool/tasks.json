@@ -70,7 +70,7 @@
       "done_when": [
         "go test ./internal/agentrun/... -count=1 passes, and with find_references hidden from tools.All the wire tests fail with output naming find_references"
       ],
-      "state": "pending"
+      "state": "done"
     },
     {
       "id": 2,

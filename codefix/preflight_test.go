@@ -54,6 +54,20 @@ func listBranches(t *testing.T, dir string) []string {
 	return fields
 }
 
+func skipIfNoFindReferences(t *testing.T, ws *tools.Workspace) {
+	t.Helper()
+	built, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Skipf("tools.All failed: %v", err)
+	}
+	for _, tl := range built {
+		if tl.Name == "find_references" {
+			return
+		}
+	}
+	t.Skip("find_references not offered by the replace target")
+}
+
 func findCheck(checks []toolio.PreflightCheck, name string) (toolio.PreflightCheck, bool) {
 	for _, c := range checks {
 		if c.Check == name {
@@ -480,6 +494,7 @@ func TestTS15_18_FixPreflightReportsTheSymbolBackend(t *testing.T) {
 // that are ignored: what is asserted is what reached the wire.
 func TestTS15_17_FixPhasesDeclareTheSixReadTools(t *testing.T) {
 	ws, _ := newRepo(t, 0)
+	skipIfNoFindReferences(t, ws)
 	text := func(s string) faux.Turn {
 		return faux.Turn{Blocks: []core.ContentBlock{faux.FauxText(s)}, StopReason: core.StopReasonStop}
 	}

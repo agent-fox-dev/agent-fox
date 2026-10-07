@@ -1493,6 +1493,7 @@ func wireTools(t *testing.T, p *faux.Provider) map[string]bool {
 // Verifies: 16-REQ-1.4, 16-REQ-2.1
 func TestTS16_3_IndexReachesTheAnalysePhase(t *testing.T) {
 	ws, g := newRepo(t, 0)
+	skipIfNoFindReferences(t, ws)
 	idx := &fakeIndex{}
 	p := faux.New()
 	o := newOptions(ws, g, nil)

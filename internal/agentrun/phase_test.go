@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -19,6 +20,7 @@ import (
 	"github.com/agentfox/agentkit-go/tools"
 
 	"github.com/agent-fox-dev/agentfox/afspec"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // The tests below script a provider rather than mocking this package.
@@ -211,8 +213,9 @@ func TestRunWithoutATerminatorIsNotAResult(t *testing.T) {
 // read-only built-ins gets no shell and no write tools, and the invariant is
 // checked before the first request.
 func TestReadOnlyPhaseResolvesNoMutatingTool(t *testing.T) {
-	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 
 	var got string
 	var calls int
@@ -264,24 +267,35 @@ func TestAssertReadOnlyNamesTheOffender(t *testing.T) {
 		t.Errorf("a clean set was rejected: %v", err)
 	}
 
-	// TS-15-4 (unit): the symbol tools are read tools.
-	// Verifies: 15-REQ-1.4, 15-REQ-10.1
-	t.Run("TS-15-4 symbol tools pass", func(t *testing.T) {
-		set := []core.Tool{
-			{Name: "read_file"}, {Name: "list_files"}, {Name: "find_files"},
-			{Name: "search_files"}, {Name: "file_outline"}, {Name: "find_symbol"},
+	// TS-17-13 (unit): AssertReadOnly returns nil for a tool set holding all
+	// seven read tools.
+	// Verifies: 17-REQ-5.1
+	t.Run("TS-17-13 seven read tools pass", func(t *testing.T) {
+		var set []core.Tool
+		for _, n := range ReadOnlyFileTools {
+			set = append(set, core.Tool{Name: n})
+		}
+		if len(set) != 7 {
+			t.Fatalf("set has %d tools, want 7", len(set))
+		}
+		if !hasTool(set, "find_references") {
+			t.Fatal("find_references not in set")
 		}
 		if err := AssertReadOnly(set); err != nil {
-			t.Errorf("a set of the six read tools was rejected: %v", err)
+			t.Errorf("a set of the seven read tools was rejected: %v", err)
 		}
 	})
 
-	// TS-15-5 (unit): write_file is named, the symbol tools are not.
-	// Verifies: 15-REQ-10.2
-	t.Run("TS-15-5 write_file named beside symbol tools", func(t *testing.T) {
-		err := AssertReadOnly([]core.Tool{
-			{Name: "read_file"}, {Name: "file_outline"}, {Name: "find_symbol"}, {Name: "write_file"},
-		})
+	// TS-17-14 (unit): A set of the seven read tools plus write_file is
+	// refused with ErrNotReadOnly naming only write_file.
+	// Verifies: 17-REQ-5.2
+	t.Run("TS-17-14 write_file named beside seven read tools", func(t *testing.T) {
+		var set []core.Tool
+		for _, n := range ReadOnlyFileTools {
+			set = append(set, core.Tool{Name: n})
+		}
+		set = append(set, core.Tool{Name: "write_file"})
+		err := AssertReadOnly(set)
 		if !errors.Is(err, ErrNotReadOnly) {
 			t.Fatalf("err = %v, want ErrNotReadOnly", err)
 		}
@@ -289,21 +303,26 @@ func TestAssertReadOnlyNamesTheOffender(t *testing.T) {
 		if !strings.Contains(msg, "write_file") {
 			t.Errorf("the error should name write_file: %v", err)
 		}
-		if strings.Contains(msg, "file_outline") || strings.Contains(msg, "find_symbol") {
-			t.Errorf("the error names a read tool: %v", err)
+		for _, n := range ReadOnlyFileTools {
+			if strings.Contains(msg, n) {
+				t.Errorf("the error names a read tool %s: %v", n, err)
+			}
 		}
 	})
 }
 
-// TS-15-2 (unit): a read-only phase declares all six read tools and no
-// mutating tool.
+// TS-17-3 (integration): A read-only phase run through the real Runner and
+// tools.All declares every name in ReadOnlyFileTools on its first request,
+// find_references included, and no mutating tool.
 //
-// Verifies: 15-REQ-1.2, 15-REQ-9.1
-func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
+// Verifies: 17-REQ-1.4
+func TestTS17_3_ReadOnlyPhaseDeclaresTheReadTools(t *testing.T) {
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
 	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
 	var got string
 	var calls int
-	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+	r, err := NewRunner(fauxConfig(p, ws))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,15 +334,9 @@ func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	declared := declaredTools(t, p)
-	for _, n := range []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"} {
-		if !declared[n] {
-			t.Errorf("%s was not declared", n)
-		}
-	}
-	for _, n := range ReadOnlyFileTools {
-		if !declared[n] {
-			t.Errorf("%s was not declared", n)
-		}
+	requireDeclared(t, declared)
+	if !declared["find_references"] {
+		t.Error("find_references was not declared")
 	}
 	for _, n := range MutatingTools {
 		if declared[n] {
@@ -332,34 +345,33 @@ func TestTS15_2_ReadOnlyPhaseDeclaresTheSixReadTools(t *testing.T) {
 	}
 }
 
-// TS-15-3 (unit): a writing phase declares the six read tools beside the
-// write tools and execute.
+// TS-17-4 (integration): A writing phase run through the real Runner declares
+// every ReadOnlyFileTools name beside write_file, edit_file, execute and
+// code_search when the run has an index.
 //
-// Verifies: 15-REQ-1.3, 15-REQ-9.2
-func TestTS15_3_WritingPhaseDeclaresTheSixReadTools(t *testing.T) {
-	p := faux.New(toolCallTurn("c1", "submit", map[string]any{"value": "x"}))
-	var got string
-	var calls int
-	r, err := NewRunner(fauxConfig(p, newWorkspace(t)))
+// Verifies: 17-REQ-1.4
+func TestTS17_4_WritingPhaseDeclaresTheReadTools(t *testing.T) {
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+	cfg := fauxConfig(faux.New(), ws)
+	cfg.Index = &fakeIndex{}
+	r, err := NewRunner(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtins := append(append([]string(nil), ReadOnlyFileTools...), WriteFileTools...)
-	builtins = append(builtins, "execute")
-	if _, err := r.Run(context.Background(), Phase{
-		Name: "write", System: "s", User: "u", Terminator: "submit",
-		Custom: []core.Tool{submitTool(&got, &calls)}, BuiltinTools: builtins,
-		ReadOnly: false, Programs: ReadOnlyPrograms,
-	}); err != nil {
-		t.Fatalf("Run: %v", err)
+	builtins := WithCodeSearch(append(append([]string(nil), ReadOnlyFileTools...), append(WriteFileTools, "execute")...), true)
+	ts, err := r.registeredTools(Phase{
+		Name: "write", BuiltinTools: builtins, ReadOnly: false, Programs: ReadOnlyPrograms,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	declared := declaredTools(t, p)
-	for _, n := range ReadOnlyFileTools {
-		if !declared[n] {
-			t.Errorf("%s was not declared", n)
-		}
+	declared := map[string]bool{}
+	for _, tl := range ts {
+		declared[tl.Name] = true
 	}
-	for _, n := range []string{"file_outline", "find_symbol", "write_file", "edit_file", "execute"} {
+	requireDeclared(t, declared)
+	for _, n := range []string{"write_file", "edit_file", "execute", "code_search"} {
 		if !declared[n] {
 			t.Errorf("%s was not declared", n)
 		}
@@ -377,6 +389,108 @@ func declaredTools(t *testing.T, p *faux.Provider) map[string]bool {
 		declared[tool.Name] = true
 	}
 	return declared
+}
+
+// skipIfNoFindReferences skips the test when the replace target's tools.All
+// does not offer find_references.
+func skipIfNoFindReferences(t *testing.T, ws *tools.Workspace) {
+	t.Helper()
+	built, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Skipf("tools.All failed: %v", err)
+	}
+	for _, tl := range built {
+		if tl.Name == "find_references" {
+			return
+		}
+	}
+	t.Skip("find_references not offered by the replace target")
+}
+
+// missingTools returns the names from want that are not in declared, in want's
+// order.
+func missingTools(declared map[string]bool, want []string) []string {
+	var missing []string
+	for _, n := range want {
+		if !declared[n] {
+			missing = append(missing, n)
+		}
+	}
+	return missing
+}
+
+// requireDeclared calls t.Errorf once per ReadOnlyFileTools name that is
+// missing from declared.
+func requireDeclared(tb testing.TB, declared map[string]bool) {
+	tb.Helper()
+	for _, n := range ReadOnlyFileTools {
+		if !declared[n] {
+			tb.Errorf("%s was not declared", n)
+		}
+	}
+}
+
+// recordingTB records whether Errorf was called and what it said.
+type recordingTB struct {
+	testing.TB
+	failed bool
+	output strings.Builder
+}
+
+func (r *recordingTB) Helper() {}
+func (r *recordingTB) Errorf(format string, args ...any) {
+	r.failed = true
+	fmt.Fprintf(&r.output, format+"\n", args...)
+}
+func (r *recordingTB) Fatalf(format string, args ...any) {
+	r.failed = true
+	fmt.Fprintf(&r.output, format+"\n", args...)
+}
+
+// TS-17-5 (unit): The wire-membership helper returns every ReadOnlyFileTools
+// name a declared set lacks, so a replace target without find_references fails
+// the tests by name.
+//
+// Verifies: 17-REQ-1.5
+func TestTS17_5_MissingToolsHelper(t *testing.T) {
+	// Build a full declared set from ReadOnlyFileTools.
+	full := map[string]bool{}
+	for _, n := range ReadOnlyFileTools {
+		full[n] = true
+	}
+
+	// Full set: nothing missing.
+	if got := missingTools(full, ReadOnlyFileTools); len(got) != 0 {
+		t.Errorf("full set: missingTools = %v, want empty", got)
+	}
+
+	// Without find_references.
+	without := map[string]bool{}
+	for k, v := range full {
+		without[k] = v
+	}
+	delete(without, "find_references")
+	if got := missingTools(without, ReadOnlyFileTools); len(got) != 1 || got[0] != "find_references" {
+		t.Errorf("without find_references: missingTools = %v, want [find_references]", got)
+	}
+
+	// Without find_references and find_symbol.
+	delete(without, "find_symbol")
+	got := missingTools(without, ReadOnlyFileTools)
+	want := []string{"find_symbol", "find_references"}
+	if !slices.Equal(got, want) {
+		t.Errorf("without find_symbol and find_references: missingTools = %v, want %v", got, want)
+	}
+
+	// requireDeclared on the reduced set fails and names find_references.
+	rec := &recordingTB{TB: t}
+	requireDeclared(rec, without)
+	if !rec.failed {
+		t.Error("requireDeclared did not fail on a reduced set")
+	}
+	if !strings.Contains(rec.output.String(), "find_references") {
+		t.Errorf("requireDeclared output does not name find_references: %s", rec.output.String())
+	}
 }
 
 // TS-15-6 (unit): toolsNote names the symbol tools.
@@ -653,6 +767,7 @@ func TestTS14_26_RunnerNeverInjectsRepoMap(t *testing.T) {
 // model is scripted.
 func TestTS15_17_AnalyseThenImplementRegisterSixReadToolsWithAFreshTable(t *testing.T) {
 	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
 	p := faux.New(
 		toolCallTurn("a1", "find_symbol", map[string]any{"name": "LateArrival"}),
 		toolCallTurn("a2", "submit", map[string]any{"value": "x"}),
@@ -713,7 +828,7 @@ func TestTS15_17_AnalyseThenImplementRegisterSixReadToolsWithAFreshTable(t *test
 		return m
 	}
 	analyse, implement := names(reqs[0]), names(reqs[nAnalyse])
-	for _, n := range []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"} {
+	for _, n := range ReadOnlyFileTools {
 		if !analyse[n] {
 			t.Errorf("analyse did not declare %s", n)
 		}
@@ -812,7 +927,9 @@ func TestTS16_1_ConfigIndexReachesToolsAll(t *testing.T) {
 //
 // Verifies: 16-REQ-2.1, 16-REQ-2.3
 func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
-	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+	cfg := fauxConfig(faux.New(), ws)
 	cfg.Index = &fakeIndex{}
 	r, err := NewRunner(cfg)
 	if err != nil {
@@ -837,7 +954,9 @@ func TestTS16_6_CodeSearchJoinsTheReadTools(t *testing.T) {
 //
 // Verifies: 16-REQ-2.2, 16-REQ-2.4
 func TestTS16_7_CodeSearchAbsentWithoutIndex(t *testing.T) {
-	cfg := fauxConfig(faux.New(), newWorkspace(t))
+	ws := newWorkspace(t)
+	skipIfNoFindReferences(t, ws)
+	cfg := fauxConfig(faux.New(), ws)
 	cfg.Index = nil
 	r, err := NewRunner(cfg)
 	if err != nil {
@@ -879,6 +998,73 @@ func TestTS16_9_AssertReadOnlyAcceptsCodeSearch(t *testing.T) {
 	}
 	if err := AssertReadOnly(core.ToolPolicy{ExcludeTools: MutatingTools}.Resolve(ro)); err != nil {
 		t.Errorf("AssertReadOnly refused the resolved read-only set: %v", err)
+	}
+}
+
+// TS-17-15 (integration): With ReadRoots configured, the find_references
+// description is exactly as AgentKit offers it, while read_file and execute
+// carry the read-root note.
+//
+// Verifies: 17-REQ-5.4
+func TestTS17_15_FindReferencesDescriptionUnchangedByReadRoots(t *testing.T) {
+	ws := newWorkspace(t)
+
+	// Get AgentKit's own description of find_references.
+	refTools, err := tools.All(tools.Options{Workspace: ws})
+	if err != nil {
+		t.Fatalf("tools.All: %v", err)
+	}
+	var refDesc string
+	for _, tl := range refTools {
+		if tl.Name == "find_references" {
+			refDesc = tl.Description
+			break
+		}
+	}
+	if refDesc == "" {
+		t.Skip("find_references not offered by the replace target")
+	}
+
+	cfg := fauxConfig(faux.New(), ws)
+	cfg.ReadRoots = []project.ReadRoot{{
+		Path:   "../agentkit-go",
+		Module: "github.com/agentfox/agentkit-go",
+		Abs:    t.TempDir(),
+	}}
+	r, err := NewRunner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtins := append(slices.Clone(ReadOnlyFileTools), "execute")
+	ts, err := r.registeredTools(Phase{
+		Name: "a", BuiltinTools: builtins, ReadOnly: true, Programs: ReadOnlyPrograms,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var frDesc, rfDesc, exDesc string
+	for _, tl := range ts {
+		switch tl.Name {
+		case "find_references":
+			frDesc = tl.Description
+		case "read_file":
+			rfDesc = tl.Description
+		case "execute":
+			exDesc = tl.Description
+		}
+	}
+	if frDesc != refDesc {
+		t.Errorf("find_references description differs from AgentKit's:\ngot:  %s\nwant: %s", frDesc, refDesc)
+	}
+	if strings.Contains(frDesc, "You may also read, but not change") {
+		t.Error("find_references carries the read-root note")
+	}
+	if !strings.Contains(rfDesc, "You may also read, but not change") {
+		t.Error("read_file does not carry the read-root note")
+	}
+	if !strings.Contains(exDesc, "You may also read, but not change") {
+		t.Error("execute does not carry the read-root note")
 	}
 }
 

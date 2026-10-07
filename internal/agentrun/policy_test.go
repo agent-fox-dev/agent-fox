@@ -1,6 +1,9 @@
 package agentrun
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -8,24 +11,86 @@ import (
 	"github.com/agentfox/agentkit-go/core"
 )
 
-// TS-15-1 (unit): ReadOnlyFileTools contains exactly the six expected names.
+// TS-17-1 (unit): ReadOnlyFileTools holds exactly the seven read tools in
+// order with find_references last, and its doc comment names the new tool.
 //
-// Verifies: 15-REQ-1.1, 15-REQ-1.4
-func TestTS15_1_ReadOnlyFileToolsHasTheSixReadTools(t *testing.T) {
-	want := []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
-	got := slices.Clone(ReadOnlyFileTools)
-	slices.Sort(got)
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Errorf("ReadOnlyFileTools = %v, want the six %v", ReadOnlyFileTools, want)
+// Verifies: 17-REQ-1.1
+func TestTS17_1_ReadOnlyFileToolsHasTheSevenReadTools(t *testing.T) {
+	want := []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references"}
+	if !slices.Equal(ReadOnlyFileTools, want) {
+		t.Errorf("ReadOnlyFileTools = %v, want %v", ReadOnlyFileTools, want)
 	}
-	if len(ReadOnlyFileTools) != 6 {
-		t.Errorf("len = %d, want 6", len(ReadOnlyFileTools))
+	if len(ReadOnlyFileTools) != 7 {
+		t.Errorf("len = %d, want 7", len(ReadOnlyFileTools))
 	}
-	for _, n := range []string{"file_outline", "find_symbol"} {
-		if slices.Contains(MutatingTools, n) {
-			t.Errorf("%s must not be a mutating tool", n)
+	if len(ReadOnlyFileTools) > 6 && ReadOnlyFileTools[6] != "find_references" {
+		t.Errorf("last element = %q, want find_references", ReadOnlyFileTools[6])
+	} else if len(ReadOnlyFileTools) <= 6 {
+		t.Error("ReadOnlyFileTools has fewer than 7 elements; cannot check last")
+	}
+
+	// The doc comment on the declaration names find_references.
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "policy.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse policy.go: %v", err)
+	}
+	var doc string
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok {
+			continue
 		}
+		for _, s := range gd.Specs {
+			vs, ok := s.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, n := range vs.Names {
+				if n.Name == "ReadOnlyFileTools" {
+					if gd.Doc != nil {
+						doc = gd.Doc.Text()
+					}
+				}
+			}
+		}
+	}
+	if !strings.Contains(doc, "find_references") {
+		t.Errorf("doc comment does not mention find_references: %q", doc)
+	}
+}
+
+// TS-17-2 (unit): find_references stays out of MutatingTools and ShellTools,
+// code_search stays out of ReadOnlyFileTools, and WithCodeSearch leaves the
+// shared slice unmodified.
+//
+// Verifies: 17-REQ-1.3
+func TestTS17_2_FindReferencesNotInMutatingOrShellAndCodeSearchCopy(t *testing.T) {
+	if slices.Contains(MutatingTools, "find_references") {
+		t.Error("find_references must not be in MutatingTools")
+	}
+	if slices.Contains(ShellTools, "find_references") {
+		t.Error("find_references must not be in ShellTools")
+	}
+	if slices.Contains(ReadOnlyFileTools, "code_search") {
+		t.Error("code_search must not be in ReadOnlyFileTools")
+	}
+
+	before := slices.Clone(ReadOnlyFileTools)
+	g := WithCodeSearch(ReadOnlyFileTools, true)
+	if len(g) != 8 {
+		t.Errorf("WithCodeSearch(true) len = %d, want 8", len(g))
+	}
+	if g[len(g)-1] != "code_search" {
+		t.Errorf("WithCodeSearch(true) last = %q, want code_search", g[len(g)-1])
+	}
+	// Mutating the returned slice must not change ReadOnlyFileTools.
+	g[0] = "x"
+	if !slices.Equal(ReadOnlyFileTools, before) {
+		t.Errorf("ReadOnlyFileTools was mutated: %v", ReadOnlyFileTools)
+	}
+	if !slices.Equal(WithCodeSearch(ReadOnlyFileTools, false), before) {
+		t.Errorf("WithCodeSearch(false) != ReadOnlyFileTools")
 	}
 }
 

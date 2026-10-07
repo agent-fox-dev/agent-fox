@@ -30,10 +30,10 @@ var MutatingTools = []string{"write_file", "edit_file", "execute", "run_command"
 // them must install an interceptor; AgentKit refuses the run otherwise.
 var ShellTools = []string{"execute", "run_command", "powershell"}
 
-// ReadOnlyFileTools are the built-in tools that only read. file_outline and
-// find_symbol navigate by declaration; neither writes, so neither is in
-// MutatingTools.
-var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol"}
+// ReadOnlyFileTools are the built-in tools that only read. file_outline,
+// find_symbol and find_references navigate by declaration; none writes, so
+// none is in MutatingTools.
+var ReadOnlyFileTools = []string{"read_file", "list_files", "find_files", "search_files", "file_outline", "find_symbol", "find_references"}
 
 // ToolCodeSearch names the indexed search tool. It is granted only when the
 // run has an index, so it is not part of ReadOnlyFileTools.
