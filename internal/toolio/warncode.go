@@ -9,8 +9,12 @@ type WarnCode string
 // call site that fits none of these gets a new constant added here and to
 // warnStages, never a bare string.
 const (
-	WarnInputTruncated         WarnCode = "input_truncated"
-	WarnCommentsUnreadable     WarnCode = "comments_unreadable"
+	WarnInputTruncated     WarnCode = "input_truncated"
+	WarnCommentsUnreadable WarnCode = "comments_unreadable"
+	// WarnCommentsTruncated is recorded when an issue has more comments than
+	// were read: the forge client stops after a fixed number of pages. It is
+	// not the input byte bound, which is input_truncated.
+	WarnCommentsTruncated      WarnCode = "comments_truncated"
 	WarnNoVerifyCommand        WarnCode = "no_verify_command"
 	WarnCriteriaUnmet          WarnCode = "criteria_unmet"
 	WarnCommitNotParked        WarnCode = "commit_not_parked"
@@ -123,6 +127,7 @@ const (
 var warnStages = map[WarnCode]string{
 	WarnInputTruncated:           "input",
 	WarnCommentsUnreadable:       "input",
+	WarnCommentsTruncated:        "input",
 	WarnNoVerifyCommand:          "preflight",
 	WarnCriteriaUnmet:            "implement",
 	WarnCommitNotParked:          "park",
@@ -133,7 +138,7 @@ var warnStages = map[WarnCode]string{
 	WarnStateNotSaved:            "park",
 	WarnGateEdited:               "task",
 	WarnDocsNotUpdated:           "task",
-	WarnToolErrors:               "task",
+	WarnToolErrors:               "phase",
 	WarnScratchFileRemoved:       "task",
 	WarnScratchFileSuspected:     "task",
 	WarnDraftPackage:             "preflight",
@@ -165,7 +170,7 @@ var warnStages = map[WarnCode]string{
 	WarnDeviationNotTracked:      "land",
 	WarnFixNotProven:             "verify",
 	WarnRelevantFilesUnavailable: "prd",
-	WarnRepoMapBuildFailed:       "triage",
+	WarnRepoMapBuildFailed:       "repo_map",
 	WarnCodeSearchUnavailable:    "preflight",
 	WarnUntrackedFilesLeftAlone:  "commit",
 	WarnUnlistedFileCommitted:    "commit",
@@ -184,6 +189,7 @@ func DeclaredWarnCodes() []WarnCode {
 	return []WarnCode{
 		WarnInputTruncated,
 		WarnCommentsUnreadable,
+		WarnCommentsTruncated,
 		WarnNoVerifyCommand,
 		WarnCriteriaUnmet,
 		WarnCommitNotParked,

@@ -102,7 +102,8 @@ the whole job it was asked to do, and it is never true alongside a non-zero
 `status` names the outcome in words, derived one-to-one from `exit_code` (see
 the exit-code table below) — `done`, `failed`, `usage`, `needs_human` or
 `unverified` — so it can never disagree with `ok` or `exit_code`. `summary` is
-one sentence, in the tool's own vocabulary, capped at 200 characters; when the
+one sentence, in the tool's own vocabulary, capped at 200 characters (counted
+as characters, the high-warning clause below included); when the
 tool supplies none, it falls back to `error.message` (`ok: false`) or
 `"<tool>: done"` (`ok: true`). A run whose `ok` is `true` but that logged a
 `high`-severity warning gets a fixed clause appended noting the count.
@@ -308,6 +309,7 @@ quite what it appears to be; `low` is informational.
 | `input_truncated` | high | input | shared |
 | `input_looks_like_path` | high | input | shared |
 | `comments_unreadable` | low | input | shared |
+| `comments_truncated` | low | input | shared |
 | `no_verify_command` | high | preflight | fix, impl |
 | `criteria_unmet` | high | implement | fix |
 | `commit_not_parked` | high | park | fix, impl |
@@ -318,7 +320,7 @@ quite what it appears to be; `low` is informational.
 | `state_not_saved` | high | park | impl |
 | `gate_edited` | high | task | impl |
 | `docs_not_updated` | low | task | fix, impl |
-| `tool_errors` | low | task | fix, impl, issue, spec |
+| `tool_errors` | low | phase | fix, impl, issue, spec |
 | `scratch_file_removed` | high | task | impl |
 | `scratch_file_suspected` | low | task | impl |
 | `draft_package` | low | preflight | impl |
@@ -331,7 +333,7 @@ quite what it appears to be; `low` is informational.
 | `scope_renamed` | low | prd | spec |
 | `scope_count_mismatch` | low | prd | spec |
 | `relevant_files_unavailable` | low | prd | spec |
-| `repo_map_build_failed` | low | triage | shared |
+| `repo_map_build_failed` | low | repo_map | shared |
 | `code_search_unavailable` | low | preflight | shared |
 | `untracked_files_left_alone` | low | commit | fix, impl |
 | `unlisted_file_committed` | low | commit | fix, impl |
@@ -367,9 +369,9 @@ a typo. An existing directory is never flagged.
 | `--model` | `$AF_MODEL`, else `STANDARD` | a tier (`SIMPLE`, `STANDARD`, `ADVANCED`) or any catalog spec |
 | `--vendor` | `$AF_MODEL_VENDOR`, else `anthropic` | which tier table the tier names resolve against |
 | `--effort` | `$AF_MODEL_EFFORT`, else the tier's effort, else unset | reasoning effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; applies to any model, whether from a tier or named by id |
-| `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget |
-| `--budget` | per tool | per-phase spend ceiling, in dollars |
-| `--phase-timeout` | — | wall-clock ceiling on one phase |
+| `--max-turns` | per tool | per-phase turn ceiling, which is also the repair budget; negative is a usage error |
+| `--budget` | per tool | per-phase spend ceiling, in dollars; negative is a usage error |
+| `--phase-timeout` | — | wall-clock ceiling on one phase; negative is a usage error |
 | `--repo-map-tokens` | `6000` | token budget of the repository map (the tracked file tree plus top-level declarations) in the user prompt of the phases that explore the repository (`triage`'s phase, `fix`'s analyse and implement, `spec`'s prd, generation and architecture, `impl`'s survey, repair and task; not `impl`'s conformance resolve phase or the conformance review); `0` disables the map. A map that cannot be built never fails the run: the phase runs without it and a low `repo_map_build_failed` warning is recorded |
 | `--context` | — | additional context for the model, repeatable; each value becomes one paragraph of a labelled `## Additional context from the caller` block appended to the phase's prompt (not to the input itself), typically an answer to a prior run's `needs_human` question |
 | `--trust-project` | off | admit `AGENTS.md`, `CLAUDE.md` and `.specs/steering.md` into the system prompt |
@@ -381,7 +383,7 @@ a typo. An existing directory is never flagged.
 | `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `triage` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
 | `--emit-events` | off | write the JSON event stream to stderr instead of the human progress lines. Without it, stderr carries the human progress exactly as the default does today. With it, stderr carries one JSON event per line and no human line. `--quiet` silences stderr under both settings and never affects the events file. See [Machine-readable progress](#machine-readable-progress-the-event-types) |
 | `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `triage`). `impl` checks between phases and tasks, with everything landed so far committed, and before each conformance review and the resolve phase: a review it withholds is reported as `review_not_run` and an unresolved `unmet` item, a resolve phase it withholds as `resolve_not_run`, and the run still lands what it committed |
-| `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
+| `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning; `text` and `file` do not use the argument to pick the forge either), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
 | `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream, `--report-file` or `--output` file written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
 | `--version` | — | print the build identity and exit |
@@ -393,7 +395,11 @@ refused as a usage error before any model phase. For text given as the
 argument that is decided before anything is fetched; for a file, an issue URL or
 stdin the input has to be read first to be measured, so the refusal comes after
 the read. Without `--context`, an input over the bound is not refused but
-truncated, with an `input_truncated` warning. Resuming a `needs_human`
+truncated, with an `input_truncated` warning. An issue with more comments than
+the forge client reads (it stops after a fixed number of pages) is not over
+the bound: the later comments are left out, `input.comments_truncated` is
+true, a low `comments_truncated` warning says so, and `--context` is still
+measured against the body's real size. Resuming a `needs_human`
 stop is `<tool> <same input> --context "<answer>"`, as given in the prior
 run's `needs_human.resume`.
 
@@ -851,7 +857,7 @@ for every type:
 | `check` | `command`, `ok`, `exit_code`, `duration_ms` | after every verification command (`fix`'s baseline and post-change runs; `impl`'s gate before and after every task and in the repair loop) |
 | `phase_end` | `phase`, `stop_reason`, `turns`, `cost_usd`, `duration_ms`, `tool_calls` | when a model phase ends; `cost_usd` is the phase's total; `tool_calls` is a map of tool name to call count for the phase, omitted when no tool calls were made |
 | `warning` | `code`, `severity`, `stage`, `message` | when a warning is recorded; the same object as an entry of the envelope's `warnings` |
-| `heartbeat` | `stage`, `elapsed_ms`, `cost_usd` | on the `--emit-events` stream, every 15 seconds in which no other event was emitted; in the events file, only after 60 seconds with nothing written to it, which still tells a supervisor tailing it a long silent phase from a dead run. `stage` is the last one a `step` or `phase_start` named, and `preflight` before either; `cost_usd` is the run's spend so far |
+| `heartbeat` | `stage`, `elapsed_ms`, `cost_usd` | on the `--emit-events` stream, every 15 seconds in which no other event was emitted; in the events file, only after 60 seconds with nothing written to it, which still tells a supervisor tailing it a long silent phase from a dead run. `stage` is the last one a `step` or `phase_start` named, and `preflight` before either; `cost_usd` is the run's spend so far, the turns of the phase still running included |
 | `run_end` | `status`, `exit_code`, `report_file` | once, immediately before the envelope is written to stdout; `status` is the envelope's `status`; `report_file` is the path the report was written to, or the empty string when it was not written |
 | `text` | `phase`, `turn`, `text` | one event per model turn carrying the whole prose of that turn; emitted immediately before the `turn` event for the same turn |
 

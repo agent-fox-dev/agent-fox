@@ -1,6 +1,7 @@
 package toolio
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -540,4 +541,21 @@ func needsValue(fs *flag.FlagSet, arg string) bool {
 	}
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return !ok || !bf.IsBoolFlag()
+}
+
+// ValidBounds refuses a negative --budget, --max-turns or --phase-timeout, as
+// ValidTotalBudget refuses a negative --total-budget: Bounds would otherwise
+// treat it as unset and run with the default, which is not what was asked.
+func (c *Common) ValidBounds() error {
+	var errs []error
+	if c.Budget < 0 {
+		errs = append(errs, fmt.Errorf("--budget cannot be negative"))
+	}
+	if c.MaxTurns < 0 {
+		errs = append(errs, fmt.Errorf("--max-turns cannot be negative"))
+	}
+	if c.Timeout < 0 {
+		errs = append(errs, fmt.Errorf("--phase-timeout cannot be negative"))
+	}
+	return errors.Join(errs...)
 }

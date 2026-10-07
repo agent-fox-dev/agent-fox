@@ -56,6 +56,9 @@ type Input struct {
 	Context string
 	// Truncated reports that Body is shorter than the source.
 	Truncated bool
+	// CommentsTruncated reports that an issue has more comments than the
+	// forge client read.
+	CommentsTruncated bool
 
 	// Issue is set for KindIssue: the reference and the thread it was read
 	// from. It is what lets a tool comment back on the issue it was given.
@@ -252,9 +255,12 @@ func resolveIssue(ctx context.Context, ref issuex.IssueRef, forge issuex.Client)
 		Kind:      KindIssue,
 		Origin:    ref.URL(),
 		Body:      body,
-		Truncated: cut || thread.Truncated,
-		Issue:     &ref,
-		Thread:    &thread,
+		Truncated: cut,
+		// The forge client reads a fixed number of comment pages; more
+		// comments than that is not the byte bound, and is reported apart.
+		CommentsTruncated: thread.Truncated,
+		Issue:             &ref,
+		Thread:            &thread,
 	}, nil
 }
 

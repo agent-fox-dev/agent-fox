@@ -48,6 +48,7 @@ func TestTS16_23_SearchUnavailableWarnCode(t *testing.T) {
 func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 	pairs := map[string]string{
 		"input_truncated":            "input",
+		"comments_truncated":         "input",
 		"comments_unreadable":        "input",
 		"no_verify_command":          "preflight",
 		"criteria_unmet":             "implement",
@@ -78,7 +79,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"input_looks_like_path":      "input",
 		"gate_edited":                "task",
 		"docs_not_updated":           "task",
-		"tool_errors":                "task",
+		"tool_errors":                "phase",
 		"scratch_file_removed":       "task",
 		"scratch_file_suspected":     "task",
 		"output_not_written":         "emit",
@@ -91,7 +92,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"deviation_not_tracked":      "land",
 		"fix_not_proven":             "verify",
 		"relevant_files_unavailable": "prd",
-		"repo_map_build_failed":      "triage",
+		"repo_map_build_failed":      "repo_map",
 		"code_search_unavailable":    "preflight",
 		"untracked_files_left_alone": "commit",
 		"unlisted_file_committed":    "commit",

@@ -86,7 +86,7 @@ build-sandbox-container:
 
 build-tools-container:
 	podman build \
-		--build-context agentkit-go=../coder \
+		--build-context agentkit-go=../agentkit-go \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BUILD=$(COMMIT) \
 		--build-arg BUILD_TIME=$(BUILD_TIME) \

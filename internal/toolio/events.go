@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -396,7 +398,7 @@ func (s *eventsSink) emitLocked(e event) {
 		s.stage = ev.Phase
 	}
 	s.lastEmit = now
-	line, err := json.Marshal(e)
+	line, err := encodeEvent(e)
 	if err != nil {
 		return
 	}
@@ -566,4 +568,37 @@ func (s *eventsSink) tickerInterval() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.interval
+}
+
+// encodeEvent marshals one event. encoding/json refuses a NaN or infinite
+// number — a cost_usd computed from a broken usage report — and dropping the
+// event would break the stream's own guarantees (run_end is the last line).
+// Such a number is written as 0 instead, and the event is kept.
+func encodeEvent(e event) ([]byte, error) {
+	line, err := json.Marshal(e)
+	if err == nil {
+		return line, nil
+	}
+	zeroNonFinite(reflect.ValueOf(e))
+	return json.Marshal(e)
+}
+
+// zeroNonFinite sets every NaN or infinite float field reachable from v to 0.
+func zeroNonFinite(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			zeroNonFinite(v.Elem())
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Field(i).CanSet() || v.Field(i).Kind() == reflect.Struct || v.Field(i).Kind() == reflect.Pointer {
+				zeroNonFinite(v.Field(i))
+			}
+		}
+	case reflect.Float32, reflect.Float64:
+		if f := v.Float(); (math.IsNaN(f) || math.IsInf(f, 0)) && v.CanSet() {
+			v.SetFloat(0)
+		}
+	}
 }
