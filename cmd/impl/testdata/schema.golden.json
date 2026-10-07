@@ -1139,6 +1139,10 @@
                       "type": "boolean",
                       "description": "True when the checks failed with the implementation removed, so the tests catch its absence."
                     },
+                    "compile_failed": {
+                      "type": "boolean",
+                      "description": "True when the checks failed with the implementation removed because the tests did not compile, which proves nothing about behaviour."
+                    },
                     "reason": {
                       "type": "string",
                       "description": "Why the check did not run or proves nothing.",
@@ -2649,6 +2653,6 @@
     "1": "failed; the stage is named in the JSON",
     "2": "usage error; nothing was fetched and nothing was written",
     "3": "stopped on purpose because the spec cannot be implemented as written or an upstream spec is not done; the question is in the JSON",
-    "4": "a task was implemented and its checks do not pass, or could not be repaired; the work is parked on the branch as a wip: commit"
+    "4": "a task did not land (its checks do not pass or could not be repaired, its change was empty, its phase ended without a report, the run was cancelled or reached its budget); the work is parked on the branch as a wip: commit and the category says why"
   }
 }

@@ -287,7 +287,7 @@ count in `summary`.
 | `1` | `failed` | failed; the stage is named in the JSON |
 | `2` | `usage` | usage error — nothing was fetched, nothing was written |
 | `3` | `needs_human` | stopped on purpose: a person has to answer something (`fix`, `impl`) |
-| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) — or it landed and the conformance checks left blocking findings (category `nonconformant`) |
+| `4` | `unverified` | work exists but the checks do not pass (`fix`, `impl`) — or it landed and the conformance checks left blocking findings (category `nonconformant`). For `impl`, every run that parks its work as a `wip:` commit exits 4, whatever its `category` (`empty_change`, `no_result`, `aborted`, `budget`, …), except a task that stops to ask a person (3) |
 
 A bare invocation — no positional argument, or one that is all whitespace —
 is also program-driven when stdout is not a terminal: it still writes the
@@ -344,6 +344,7 @@ quite what it appears to be; `low` is informational.
 | `activation_failed` | high | activate | spec |
 | `effort_clamped` | low | preflight | shared |
 | `review_not_run` | high | review | impl |
+| `resolve_not_run` | high | resolve | impl |
 | `unmet_requirements` | high | review | impl |
 | `deviation_not_tracked` | high | land | impl |
 | `fix_not_proven` | high | verify | fix |
@@ -379,7 +380,7 @@ a typo. An existing directory is never flagged.
 | `--output` | none | `--output <path>` writes a second copy of the same envelope stdout gets — the same `--detail` view, `warnings` and `error` — to that file. The write is atomic (a temp file in the target's directory, synced, then renamed over the path, so a reader sees nothing or the whole document) and happens before anything is written to stdout, on every path that produces an envelope, including the internal fallback for a `result` that cannot be encoded. A relative path resolves against the process's working directory, not `--dir`; a missing parent directory is created. `-` and an existing directory are usage errors (exit 2), refused before anything is fetched. It is written under `--dry-run` too. A failed write never changes the exit code: it adds a low `output_not_written` warning naming the path and the cause. When `--output` and `--report-file` (explicit or the default) resolve to the same path, `--output`'s own write is skipped and a low `output_matches_report_file` warning is recorded: the file there is the complete report, not the `--detail` view `--output` alone would have produced, and if the report write fails nothing lands there (the envelope then also carries `report_file_not_written`) |
 | `--dry-run` | off | make no *remote* change: no push, no write to a forge. What a tool still does locally is stated in its own section: `triage` and `spec` nothing (`spec` writes no files either); `fix` and `impl` still make the branch and the commits |
 | `--emit-events` | off | write the JSON event stream to stderr instead of the human progress lines. Without it, stderr carries the human progress exactly as the default does today. With it, stderr carries one JSON event per line and no human line. `--quiet` silences stderr under both settings and never affects the events file. See [Machine-readable progress](#machine-readable-progress-the-event-types) |
-| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `triage`). `impl` checks between phases and tasks, with everything landed so far committed |
+| `--total-budget` | none | a ceiling, in dollars, on the run's total spend across every phase; `0` (the default) means no ceiling beyond the per-phase `--budget`. `triage` has one phase, so the lower of `--total-budget` and `--budget` is that phase's ceiling. `fix` checks the cumulative spend between its analyse and implement phases and stops with `category: "budget"` before implementing if the ceiling is passed. `spec` checks before each scope's PRD phase after the first, stopping with `category: "budget"` and the split plan left in place to resume from (an unsplit input folds like `triage`). `impl` checks between phases and tasks, with everything landed so far committed, and before each conformance review and the resolve phase: a review it withholds is reported as `review_not_run` and an unresolved `unmet` item, a resolve phase it withholds as `resolve_not_run`, and the run still lands what it committed |
 | `--input-kind` | guess | force how the argument is classified: `file`, `text`, `issue` or `stdin`. A mismatch is a usage error (exit 2) raised before a file is opened, a URL is fetched or a model is resolved: `file` needs a readable regular file (a missing path and a directory are refused by name), `text` uses the argument verbatim (no file, URL or path-shape check, no `input_looks_like_path` warning), `issue` needs a GitHub or GitLab issue or pull-request URL, `stdin` needs the argument `-`. `impl --input-kind text` reads a directory, id or name as a spec reference even when a file of the same name exists |
 | `--preflight` | false | run every check that would refuse the run, then stop before any model phase and before any remote write, reporting `result.preflight` and `result.estimate`; makes no change beyond a verification baseline. See [Preflight](#preflight---preflight) |
 | `--schema` | false | print the tool's self-description document (its flags, the JSON Schema of its envelope, its exit codes) to stdout and exit 0, doing no work: no network call, no model resolved, no requirement that `--dir` be a repository, and no report file, events stream, `--report-file` or `--output` file written. Any other flag given alongside is parsed but never acted on; a positional argument is ignored; `--version` wins when both are given. See [Self-description](#self-description---schema) |
@@ -1658,9 +1659,12 @@ reset to the last commit and the attempt's own new files removed (except when
 only its tests were too weak; see the revert check below) — and the task is tried once
 more with the failure in its prompt (`--task-attempts`, default 2). The last
 failure parks the work as a `wip:` commit with the task recorded as
-`in_progress`, returns the checkout to the base branch, and exits 4. A run
+`in_progress`, returns the checkout to the base branch, and exits 4 — whatever
+the failure was: checks that do not pass, an empty change, a phase that ended
+without a report, the run's budget. The `category` says which. A run
 cancelled mid-task is parked the same way, under a context the cancellation
-does not reach, so Ctrl-C never leaves a dirty tree on the branch.
+does not reach, so Ctrl-C never leaves a dirty tree on the branch, and it
+exits 4 too. Only a task that stops to ask a person exits 3.
 
 `submit_task` refuses a report that skips a test the task owns, names one it
 does not, answers with a bare word, or has no commit subject — the phase
@@ -1701,7 +1705,12 @@ task lands only if they then fail. The result is `tasks[].revert_check`. When
 they still pass, the code is not what is wrong — the checks passed with it —
 so the attempt is not discarded: the next attempt continues on its work, told
 which files were taken out and to strengthen the tests rather than rewrite the
-implementation, and its additions land with the first attempt's. Any other
+implementation, and its additions land with the first attempt's. When they fail
+because the tests no longer compile (Go's `[build failed]`, a `rustc`, `tsc`,
+`javac`, Gradle or C# compiler error), that is not proof — a compile error says
+nothing about behaviour — so `revert_check.proves` is false and
+`compile_failed` true, and since no test of a new symbol can fail otherwise
+once it is gone, the attempt is not failed for it. Any other
 failed attempt is discarded and retried from scratch.
 
 ### The conformance stage
@@ -1727,8 +1736,11 @@ where it left the base branch:
   is a directory, ends in one, or has a file extension; the tasks are told the
   same list). Documentation, the spec package and a test file that names one
   of the spec's test ids (`TS-16-14`, `TS16_14`, `TS_16_14` or `TS1614`) are
-  exempt. Anything else is a "while here" change that belongs in a pull
-  request of its own: it is listed under `out_of_scope` and reported as an
+  exempt, and so is every file a baseline repair changed (`--repair`, this run's
+  or an earlier one's on the branch), which the pull request already reports as
+  not part of the specification. Anything else is a "while here" change that
+  belongs in a pull request of its own: the resolve phase is shown it to take
+  out, and what is left is listed under `out_of_scope` and reported as an
   `unmet` item, so the pull request does not say the work is complete, but it
   does not block — the run is not a draft and does not exit 4 over it.
 - **A clean environment.** The gate runs again with an empty `HOME`, no
@@ -1764,12 +1776,22 @@ where it left the base branch:
 A requirement `missing` or `different`, a test `tautological`,
 `no_assertions` or `missing`, a decision `not_followed`, a contradicted
 document and a clean-environment failure are **blocking**. When anything
-was found, one writing phase (`resolve`) fixes it or declares it a known
-deviation with the reason and an erratum in the change; documentation
-findings can only be fixed. Its change lands
+was found — a blocker, a structural finding, a file out of scope, a
+requirement `partial` or a test `weaker` — one writing phase (`resolve`) is
+shown all of it and fixes it or declares it a known deviation with the reason
+and an erratum in the change; documentation findings and files out of scope
+can only be fixed. Its change lands
 as a `fix:` commit only on checks that still pass, and the change is then
 measured again. Tasks declare deviations the same way, in `submit_task`'s
 `deviations`, rather than in their notes.
+
+Every declaration is recorded in the commit that lands it, as a
+`Deviation: {"key": …, "reason": …}` trailer beside its `Spec:` trailer, so a
+run that continues the branch still knows what the tasks an earlier run landed
+declared: they are skipped, but their declarations are read back from the
+branch and answer the blockers they answered before. Only the program's
+trailer paragraph is read; a trailer-shaped line in a commit's summary is not
+a record.
 
 Declarations are merged by key, so two tasks declaring the same requirement
 are one item, with the later reason. When the resolve phase's change landed,
@@ -1784,7 +1806,7 @@ does not meet — declared deviations, a requirement `partial`, a test
 `weaker`, structural findings, files out of scope — each with `tracking`: the erratum in the
 change, or, with `--land pr`, the issue the run files
 (`deviation_not_tracked` when neither). The run files one issue for every
-declared deviation no erratum records, not one issue each, so the work it
+unmet item nothing in the change tracks, not one issue each, so the work it
 leaves over is picked up as one unit. With one item the issue is titled
 `Spec <id>: <key> is not met`; with several, `Spec <id>: <n> requirements and
 tests are not met`. The body lists each item with its requirement, its test

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/agent-fox-dev/agentfox/internal/checks"
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
@@ -29,6 +30,10 @@ type RevertResult struct {
 	Check *checks.Result `json:"check,omitempty" description:"The checks with the implementation removed."`
 	// Proves is true when that run failed: the tests catch the removal.
 	Proves bool `json:"proves" description:"True when the checks failed with the implementation removed, so the tests catch its absence."`
+	// CompileFailed is true when that run failed because the tests did not
+	// compile: a failure that says nothing about behaviour, so not proof.
+	// Revert leaves it to the caller to set (see CompileFailure).
+	CompileFailed bool `json:"compile_failed,omitempty" description:"True when the checks failed with the implementation removed because the tests did not compile, which proves nothing about behaviour."`
 	// Reason says why the check did not run, or why it proves nothing.
 	Reason string `json:"reason,omitempty" trust:"fact" description:"Why the check did not run or proves nothing."`
 }
@@ -73,6 +78,19 @@ func Revert(ctx context.Context, g *gitx.Git, root, base string, changed []strin
 		res.Proves = true
 	}
 	return res, nil
+}
+
+// compileErrorRe matches what the common toolchains print when the code under
+// test does not build, as opposed to a test that ran and failed: Go's
+// "[build failed]", rustc's error codes, tsc's, javac and Maven's, Gradle's
+// compile tasks, and the C# compiler's.
+var compileErrorRe = regexp.MustCompile(`\[(build|setup) failed\]|error\[E\d{4}\]|could not compile ` +
+	"`" + `|error TS\d+:|COMPILATION ERROR|Compilation failed|:compile\w*(Java|Kotlin) FAILED|error CS\d{4}:`)
+
+// CompileFailure reports whether a failed run's output says the code did not
+// compile.
+func CompileFailure(output string) bool {
+	return compileErrorRe.MatchString(output)
 }
 
 // splitChange sorts a change into its implementation and its tests.

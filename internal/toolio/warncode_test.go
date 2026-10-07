@@ -86,6 +86,7 @@ func TestTS05_38_StageTableCarriesEveryListedPair(t *testing.T) {
 		"events_file_not_written":    "report",
 		"effort_clamped":             "preflight",
 		"review_not_run":             "review",
+		"resolve_not_run":            "resolve",
 		"unmet_requirements":         "review",
 		"deviation_not_tracked":      "land",
 		"fix_not_proven":             "verify",

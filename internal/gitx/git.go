@@ -469,6 +469,36 @@ func (g *Git) ShowFile(ctx context.Context, ref, path string) (string, bool, err
 	return out, true, nil
 }
 
+// Commit is one commit on a branch: its message and the files it changed.
+type Commit struct {
+	Hash    string
+	Message string
+	Files   []string
+}
+
+// CommitsSince lists the commits HEAD has after since, oldest first, each
+// with its full message and the paths it changed. It is how a run that
+// continues a branch reads what the runs before it recorded there.
+func (g *Git) CommitsSince(ctx context.Context, since string) ([]Commit, error) {
+	out, err := g.must(ctx, "rev-list", "--reverse", since+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	var commits []Commit
+	for _, h := range nonEmptyLines(out) {
+		msg, err := g.must(ctx, "log", "-1", "--format=%B", h)
+		if err != nil {
+			return nil, err
+		}
+		files, err := g.must(ctx, "diff-tree", "--no-commit-id", "--name-only", "-r", h)
+		if err != nil {
+			return nil, err
+		}
+		commits = append(commits, Commit{Hash: h, Message: msg, Files: nonEmptyLines(files)})
+	}
+	return commits, nil
+}
+
 // MergeBase is the commit where HEAD left ref: the base a branch's whole
 // change is measured from, however far ref has moved since.
 func (g *Git) MergeBase(ctx context.Context, ref string) (string, error) {

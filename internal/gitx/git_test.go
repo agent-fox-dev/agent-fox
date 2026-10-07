@@ -2,9 +2,11 @@ package gitx
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -227,6 +229,30 @@ func TestBaseBranchIsTheCheckedOutBranchEvenWhenOriginAdvertisesAnother(t *testi
 	}
 	if got := g.BaseBranch(ctx); got != "main" {
 		t.Errorf("BaseBranch on a detached HEAD = %q, want origin's main", got)
+	}
+}
+
+// A run that continues a branch reads the earlier runs' commits: each with its
+// whole message and its files, oldest first.
+func TestCommitsSinceListsMessagesAndFiles(t *testing.T) {
+	g, dir := newRepo(t)
+	ctx := context.Background()
+	base, _ := g.Head(ctx)
+	for i, name := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := g.CommitAll(ctx, fmt.Sprintf("feat: %s\n\nBody %d.\n\nSpec: 09_x, task %d\n", name, i, i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commits, err := g.CommitsSince(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 || !slices.Equal(commits[0].Files, []string{"a.go"}) ||
+		!strings.Contains(commits[0].Message, "Spec: 09_x, task 1") || !slices.Equal(commits[1].Files, []string{"b.go"}) {
+		t.Errorf("commits = %+v", commits)
 	}
 }
 

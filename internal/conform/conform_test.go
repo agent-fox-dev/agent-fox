@@ -238,6 +238,28 @@ func TestRevertProvesATestThatDependsOnTheFix(t *testing.T) {
 	}
 }
 
+// Issue #218: a run that failed because the code did not build is told
+// apart from one whose tests ran and failed.
+func TestCompileFailure(t *testing.T) {
+	for out, want := range map[string]bool{
+		"FAIL\texample.com/x [build failed]":                           true,
+		"FAIL\texample.com/x [setup failed]":                           true,
+		"error[E0425]: cannot find function `parse` in this scope":     true,
+		"error: could not compile `widget` (lib test) due to 1 error":  true,
+		"src/a.test.ts(3,10): error TS2305: Module has no export":      true,
+		"[ERROR] COMPILATION ERROR :":                                  true,
+		"> Task :compileTestKotlin FAILED":                             true,
+		"Widget.cs(4,7): error CS0246: The type could not be found":    true,
+		"--- FAIL: TestParse (0.00s)\n    parse_test.go:9: got 2":      false,
+		"AssertionError: expected 3, got 2":                            false,
+		"thread 'parse' panicked at 'assertion failed: left == right'": false,
+	} {
+		if got := CompileFailure(out); got != want {
+			t.Errorf("CompileFailure(%q) = %v, want %v", out, got, want)
+		}
+	}
+}
+
 func TestRevertWithOnlyTestsHasNothingToTakeOut(t *testing.T) {
 	g, dir, base := newRepo(t, map[string]string{"README.md": "x\n"})
 	writeFiles(t, dir, map[string]string{"a_test.go": "package a\n"})
