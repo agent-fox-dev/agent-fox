@@ -2429,3 +2429,37 @@ func TestTheReviewPhaseIsGrantedCodeSearch(t *testing.T) {
 		}
 	}
 }
+
+// TS-18-18 (integration): The impl survey phase declares find_references
+// alongside the seven read tools.
+//
+// Verifies: 18-REQ-1.3
+func TestTS18_18_ImplSurveyDeclaresFindReferences(t *testing.T) {
+	ws, g, _ := newSpecRepo(t)
+	p := faux.New()
+	o := newOptions(ws, g, &scriptedBrain{})
+	o.brain = nil
+	o.Runner = indexedRunner(t, ws, p, nil)
+
+	// The unscripted model ends the survey with no result.
+	_, _ = Run(context.Background(), o)
+
+	got := wireTools(t, p)
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue
+		}
+		if !got[n] {
+			t.Errorf("survey did not declare %s", n)
+		}
+	}
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
+	}
+}

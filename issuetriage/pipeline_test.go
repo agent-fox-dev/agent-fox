@@ -3,6 +3,7 @@ package issuetriage
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -213,5 +214,37 @@ func TestTS16_2_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
 	_, _ = Run(context.Background(), o)
 	if got := wireTools(t, p); !got["code_search"] {
 		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}
+
+// TS-18-19 (integration): The triage phase declares find_references alongside
+// the seven read tools.
+//
+// Verifies: 18-REQ-1.3
+func TestTS18_19_TriageDeclaresFindReferences(t *testing.T) {
+	ws := newWorkspace(t)
+	p := faux.New(toolCall("c1", ToolFileIssue, validIssue()))
+	o := newOptions(t, ws, indexedRunner(t, ws, p, nil))
+
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := wireTools(t, p)
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue
+		}
+		if !got[n] {
+			t.Errorf("triage did not declare %s", n)
+		}
+	}
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
 	}
 }

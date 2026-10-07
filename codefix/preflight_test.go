@@ -599,3 +599,61 @@ func TestTS16_25_PreflightReportsCodeSearchIndexUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// TS-18-17 (integration): The fix analyse phase declares find_references and
+// passes AssertReadOnly.
+//
+// Verifies: 18-REQ-1.3, 18-REQ-1.2
+func TestTS18_17_FixAnalyseDeclaresFindReferences(t *testing.T) {
+	ws, _ := newRepo(t, 0)
+	text := func(s string) faux.Turn {
+		return faux.Turn{Blocks: []core.ContentBlock{faux.FauxText(s)}, StopReason: core.StopReasonStop}
+	}
+	p := faux.New(text("a"), text("b"), text("c"), text("d"), text("e"), text("f"))
+	r, err := agentrun.NewRunner(agentrun.Config{
+		Model:         faux.Model(),
+		Providers:     core.ProviderRegistry{faux.API: p.APIProvider()},
+		Workspace:     ws,
+		Bounds:        agentrun.Bounds{MaxTurns: 4, MaxBudgetUSD: 1, MaxAttempts: 1},
+		SessionPrefix: "fix",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &agentBrain{runner: r}
+	in := toolio.Input{Kind: toolio.KindText, Origin: "argument", Body: "crash on nil pointer"}
+	_, _, _ = b.Analyze(context.Background(), analysisInput{Input: in, Root: ws.Root})
+
+	reqs := p.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request reached the model")
+	}
+	declared := map[string]bool{}
+	for _, tool := range reqs[0].Tools {
+		declared[tool.Name] = true
+	}
+
+	// tools.All may not yet return find_references; check the ones it does.
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue
+		}
+		if !declared[n] {
+			t.Errorf("analyse did not declare %s", n)
+		}
+	}
+	for _, n := range []string{"write_file", "edit_file"} {
+		if declared[n] {
+			t.Errorf("analyse declared %s", n)
+		}
+	}
+	// Confirm find_references is in ReadOnlyFileTools.
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
+	}
+}

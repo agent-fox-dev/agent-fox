@@ -50,7 +50,7 @@ Method:
 
 1. Read the report and extract its signals: stack frames, error strings, named
    functions and files, and behavioural claims ("X happens when Y").
-2. Locate each signal in the code. Read the file, then its callers and callees,
+2. Locate each signal in the code. Read the file, then use find_references for its callers and callees,
    until you can state the path from trigger to fault.
 3. Read the tests for the affected code. What they assert is what the code was
    believed to do, and the gap between that and the report is usually the bug.

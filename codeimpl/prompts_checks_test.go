@@ -1,9 +1,27 @@
 package codeimpl
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// TS-18-6 (unit): The surveySystemPrompt contains find_references in the
+// callers step and retains the callers instruction.
+//
+// Verifies: 18-REQ-3.2, 18-REQ-3.4
+func TestTS18_6_SurveyPromptContainsFindReferences(t *testing.T) {
+	if !strings.Contains(surveySystemPrompt, "find_references") {
+		t.Error("surveySystemPrompt does not contain find_references")
+	}
+	if !strings.Contains(surveySystemPrompt, "caller") {
+		t.Error("surveySystemPrompt lost the callers instruction")
+	}
+	steps := regexp.MustCompile(`(?m)^\d+\.`).FindAllString(surveySystemPrompt, -1)
+	if len(steps) != 5 {
+		t.Errorf("surveySystemPrompt has %d method steps, want 5", len(steps))
+	}
+}
 
 // The harness runs the full check command after every task, so the prompt
 // must not also tell the agent to run it (#48).

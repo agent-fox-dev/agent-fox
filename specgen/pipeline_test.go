@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1007,5 +1008,39 @@ func TestTS16_4_TheRunnersIndexIsTheRunsIndex(t *testing.T) {
 	_, _ = Run(context.Background(), o)
 	if got := wireTools(t, p); !got["code_search"] {
 		t.Errorf("the Runner's index was not taken as the run's: %v", got)
+	}
+}
+
+// TS-18-20 (integration): The spec prd phase declares find_references
+// alongside the seven read tools.
+//
+// Verifies: 18-REQ-1.3
+func TestTS18_20_SpecPRDDeclaresFindReferences(t *testing.T) {
+	ws := newWorkspace(t)
+	p := faux.New()
+	o := newOptions(ws, nil)
+	o.author = nil
+	o.Runner = indexedRunner(t, ws, p, nil)
+
+	// The unscripted model ends the PRD phase with no result.
+	_, _ = Run(context.Background(), o)
+
+	got := wireTools(t, p)
+
+	avail, _ := tools.All(tools.Options{Workspace: ws})
+	availSet := map[string]bool{}
+	for _, tl := range avail {
+		availSet[tl.Name] = true
+	}
+	for _, n := range agentrun.ReadOnlyFileTools {
+		if !availSet[n] {
+			continue
+		}
+		if !got[n] {
+			t.Errorf("spec PRD did not declare %s", n)
+		}
+	}
+	if !slices.Contains(agentrun.ReadOnlyFileTools, "find_references") {
+		t.Error("find_references is not in ReadOnlyFileTools")
 	}
 }

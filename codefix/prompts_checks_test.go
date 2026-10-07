@@ -1,6 +1,7 @@
 package codefix
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,23 @@ func TestFixImplementPromptSaysTheProgramRunsTheFullChecks(t *testing.T) {
 	}
 	if strings.Contains(implementSystemPrompt, "Run the project's checks yourself") {
 		t.Error("the implement prompt still tells the agent to run the full checks")
+	}
+}
+
+// TS-18-5 (unit): The analysisSystemPrompt contains find_references in the
+// callers step and retains the callers instruction.
+//
+// Verifies: 18-REQ-3.1, 18-REQ-3.3
+func TestTS18_5_AnalysisPromptContainsFindReferences(t *testing.T) {
+	if !strings.Contains(analysisSystemPrompt, "find_references") {
+		t.Error("analysisSystemPrompt does not contain find_references")
+	}
+	if !strings.Contains(analysisSystemPrompt, "caller") && !strings.Contains(analysisSystemPrompt, "callee") {
+		t.Error("analysisSystemPrompt lost the callers/callees instruction")
+	}
+	steps := regexp.MustCompile(`(?m)^\d+\.`).FindAllString(analysisSystemPrompt, -1)
+	if len(steps) != 6 {
+		t.Errorf("analysisSystemPrompt has %d method steps, want 6", len(steps))
 	}
 }
 
