@@ -295,10 +295,11 @@ func TestTS11_30_EstimateIsTwoPhasesFromResolvedBounds(t *testing.T) {
 	}
 }
 
-// TS-11-34 (unit): an advisory check that fails is reported without refusing
-// the run.
+// TS-11-34 (unit), as amended by docs/errata/11_preflight.md: no detectable
+// verify command is no longer advisory — an unverified change lands only with
+// --no-verify — so --preflight refuses it as the ordinary run does (#215).
 //
-// Verifies: 11-REQ-5.6
+// Verifies: 11-REQ-5.6 (erratum)
 func TestTS11_34_NoVerifyCommandIsAdvisory(t *testing.T) {
 	ws, g := newRepo(t, 0)
 	if err := os.Remove(filepath.Join(ws.Root, "Makefile")); err != nil {
@@ -307,16 +308,11 @@ func TestTS11_34_NoVerifyCommandIsAdvisory(t *testing.T) {
 	if _, err := g.CommitAll(context.Background(), "chore: drop the makefile\n"); err != nil {
 		t.Fatal(err)
 	}
-	res, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
-	if err != nil {
-		t.Fatalf("RunPreflight: %v", err)
-	}
-	c, ok := findCheck(res.Preflight, "verify_command")
-	if !ok || c.OK || !strings.Contains(c.Detail, "none detected") {
-		t.Errorf("verify_command = %+v (present %v)", c, ok)
-	}
-	if res.Estimate == nil {
-		t.Error("an advisory failure must not stop the estimate")
+	_, err := RunPreflight(context.Background(), preflightOptions(t, ws, g))
+	var f *Failure
+	if !errors.As(err, &f) || f.Stage != "preflight" || f.Category != "usage" ||
+		!strings.Contains(f.Error(), "--no-verify") {
+		t.Errorf("RunPreflight: %v, want a preflight usage refusal naming --no-verify", err)
 	}
 }
 

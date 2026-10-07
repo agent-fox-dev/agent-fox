@@ -10,6 +10,7 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/agent-fox-dev/agentfox/internal/gitx"
+	"github.com/agent-fox-dev/agentfox/internal/project"
 )
 
 // Result is what one verification run produced.
@@ -57,11 +59,12 @@ const DefaultTimeout = 10 * time.Minute
 // Detect picks the command that decides whether a run succeeded. It reads the
 // repository the way a new contributor would: the Makefile first, because a
 // project that ships one has already answered the question, then the
-// language's default.
+// language's default — from the same table of ecosystems the project profile
+// uses, so the two never disagree about a tree.
 //
 // It returns "" when it cannot tell. That is a first-class outcome: the
-// pipeline then refuses to claim the work is verified, and says so, instead
-// of inventing a command and reporting its absence as success.
+// pipeline then refuses the run before any work, rather than inventing a
+// command or reporting its absence as success.
 func Detect(dir string) string {
 	read := func(name string) (string, bool) {
 		b, err := os.ReadFile(filepath.Join(dir, name))
@@ -75,22 +78,28 @@ func Detect(dir string) string {
 			}
 		}
 	}
-	if _, ok := read("go.mod"); ok {
-		return "go test ./... -count=1"
-	}
-	if pkg, ok := read("package.json"); ok && strings.Contains(pkg, `"test"`) {
-		return "npm test"
-	}
-	if _, ok := read("pyproject.toml"); ok {
-		if _, uv := read("uv.lock"); uv {
-			return "uv run pytest -q"
+	p := project.DetectProfile(dir)
+	if p.Language == "node" {
+		// npm test runs the package's test script; without a real one there
+		// are no tests to run.
+		if pkg, ok := read("package.json"); !ok || !hasTestScript(pkg) {
+			return ""
 		}
-		return "pytest -q"
 	}
-	if _, ok := read("Cargo.toml"); ok {
-		return "cargo test"
+	return p.AllTests
+}
+
+// hasTestScript reports whether a package.json defines a test script other
+// than the stub `npm init` writes, which only fails.
+func hasTestScript(pkg string) bool {
+	var doc struct {
+		Scripts map[string]string `json:"scripts"`
 	}
-	return ""
+	if err := json.Unmarshal([]byte(pkg), &doc); err != nil {
+		return false
+	}
+	test := strings.TrimSpace(doc.Scripts["test"])
+	return test != "" && !strings.Contains(test, "no test specified")
 }
 
 // makeTargetRe finds a target definition at the start of a line.

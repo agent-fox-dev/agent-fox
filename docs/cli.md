@@ -1099,11 +1099,16 @@ change — push nothing, open nothing, post nothing — but still makes the
 branch and the commit locally.
 
 Detection order for `--verify`: a `Makefile` target `check`, then `test`
-(`make check` · `make test`); then by manifest — `go.mod` → `go test ./...
--count=1`, a `package.json` with a `test` script → `npm test`, `pyproject.toml`
-→ `pytest -q` (`uv run pytest -q` when there is a `uv.lock`), `Cargo.toml` →
-`cargo test`. When nothing can be detected the run says so and reports
-`unverified` rather than inventing a command. The command is split on
+(`make check` · `make test`); then by manifest, from the same table `impl` and
+`spec` detect the project's language with — `go.mod` → `go test ./...
+-count=1`, `Cargo.toml` → `cargo test`, `pyproject.toml` → `pytest -q` (`uv
+run pytest -q` when there is a `uv.lock`), a `package.json` with a real `test`
+script → `npm test` (the stub `npm init` writes, which only fails, is not
+one), `pom.xml` → `mvn -q test`, `Gemfile` → `bundle exec rspec`. When nothing
+can be detected the run is refused before the model is called (`preflight`/
+`usage`, exit 2), rather than inventing a command or landing an unverified
+change: pass `--verify <command>` to name one, or `--no-verify` to land
+unverified on purpose, which is warned as `no_verify_command`. The command is split on
 whitespace and run directly, without a shell, so a compound command belongs
 in a Makefile target or a script.
 

@@ -1,6 +1,6 @@
-# Erratum: four places where the code departs from spec 11
+# Erratum: five places where the code departs from spec 11
 
-Recorded because `.specs/11_preflight_checks` reads as unmet in four places, and
+Recorded because `.specs/11_preflight_checks` reads as unmet in five places, and
 each departure is the more honest behaviour.
 
 ## 11-REQ-1.4 and TS-11-4: `--dry-run` skips the forge checks under `--preflight`
@@ -47,3 +47,22 @@ command is found. `fix --preflight --emit-events --land none` emits `run_start,
 check, run_end`. `TestTS11_43_...` allows `step`, `check`, `warning` and
 `heartbeat` between `run_start` and `run_end`, and now asserts that the baseline's
 `check` event is present when a `--verify` command ran.
+
+## 11-REQ-5.6 and TS-11-34: no detectable verify command refuses `fix`
+
+**Spec:** "no verify command detected" is an advisory preflight outcome: `fix
+--preflight` reports a `verify_command` entry with `ok: false` and exits 0.
+
+**Is:** when `fix` can detect no verification command and neither `--verify`
+nor `--no-verify` was given, the run is refused in pre-flight (`preflight`/
+`usage`, exit 2), under `--preflight` and in the ordinary run alike, before any
+model call. The message names `--verify <command>` and `--no-verify`. The
+ordinary run used to go on, commit, push, open a pull request and exit 0 with
+an `unverified` change (issue #215), although `docs/cli.md` says an unverified
+change lands only with `--no-verify` and exit 0 means "fixed, verified, and
+landed". Refusing before the model runs is what the tools do with every other
+outcome that would make the run pointless. A currently failing baseline stays
+advisory, so 11-REQ-5.6 still holds for its other example. Code:
+`codefix/pipeline.go` (`resolveVerifyAndBaseline`); test:
+`TestTS11_34_NoVerifyCommandIsAdvisory` now asserts the refusal, and
+`TestNoDetectableVerifyCommandIsRefusedBeforeTheModel` covers the ordinary run.
