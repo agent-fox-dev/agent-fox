@@ -313,7 +313,7 @@ func newApp() toolio.App {
 			fs.IntVar(&f.pushAttempts, "push-attempts", 4, "push retries, with exponential backoff")
 			fs.StringVar(&f.allow, "allow", "", "comma-separated extra programs the implementation phases' shell may run")
 			fs.BoolVar(&f.draft, "draft", false, "open the pull request as a draft")
-			fs.BoolVar(&f.pull, "pull", false, "checkout and pull the base branch from origin before anything else")
+			fs.BoolVar(&f.pull, "pull", false, "checkout and pull origin's default branch before anything else; it becomes the base")
 			fs.BoolVar(&f.noSurvey, "no-survey", false, "skip the read-only survey phase")
 			fs.BoolVar(&f.noTestFirst, "no-test-first", false, "do not require red-first evidence (red_evidence or test_first_deviation) when a task is submitted")
 			fs.BoolVar(&f.noReview, "no-review", false, "skip the independent conformance review after the last task, and the phase that resolves its findings; the structural, scope and clean-environment checks still run")

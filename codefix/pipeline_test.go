@@ -957,13 +957,13 @@ func TestPipelinePull(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run: %v", err)
 		}
-		// BaseBranch should be origin's default branch ("main") or CurrentBranch depending on BaseBranch logic
-		// But it definitely should NOT have pulled notpulled.txt
 		if _, err := os.Stat(filepath.Join(ws.Root, "notpulled.txt")); !os.IsNotExist(err) {
 			t.Errorf("notpulled.txt should not exist in workspace, err=%v", err)
 		}
-		if res.BaseBranch != "main" {
-			t.Errorf("BaseBranch = %q", res.BaseBranch)
+		// The run branched from feature/local, so that is what the pull
+		// request targets, although origin advertises main (issue #217).
+		if res.BaseBranch != "feature/local" {
+			t.Errorf("BaseBranch = %q, want the checked-out feature/local", res.BaseBranch)
 		}
 	})
 }

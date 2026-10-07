@@ -79,8 +79,9 @@ type Options struct {
 	AllowPrograms []string
 	// Draft opens the pull request as a draft.
 	Draft bool
-	// Pull checks out and pulls the base branch from origin before anything
-	// else happens.
+	// Pull checks out and pulls origin's default branch before anything else
+	// happens; that branch becomes the base. Without it the base is the
+	// branch checked out when the run starts.
 	Pull bool
 	// NoSurvey skips the read-only survey phase.
 	NoSurvey bool

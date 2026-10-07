@@ -153,7 +153,7 @@
       "pull": {
         "type": "boolean",
         "default": false,
-        "description": "checkout and pull the base branch from origin before anything else"
+        "description": "checkout and pull origin's default branch before anything else; it becomes the base"
       },
       "push-attempts": {
         "type": "integer",

@@ -585,6 +585,7 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	// would name the work branch, and a pull request would target itself.
 	st.base = git.BaseBranch(ctx)
 	if o.Pull {
+		st.base = git.DefaultBranch(ctx)
 		if err := git.Checkout(ctx, st.base); err != nil {
 			return nil, fail("preflight", CategoryGit, err)
 		}
@@ -653,6 +654,14 @@ func preflight(ctx context.Context, o Options, result *Result) (*runState, *Fail
 	st.branch = strings.TrimSpace(o.Branch)
 	if st.branch == "" {
 		st.branch = "impl/" + peek.SpecID + "-" + gitx.Slug(peek.Title)
+	}
+	// Run from the work branch itself, the base would be the branch: the
+	// review would see an empty diff and the pull request would target
+	// itself.
+	if st.base == st.branch {
+		return nil, failf("preflight", "usage",
+			"%s is checked out, and it is the work branch; check out the branch the work should land on and "+
+				"run again — an existing %s is continued from there", st.branch, st.branch)
 	}
 	if git.LocalBranchExists(ctx, st.branch) {
 		if err := git.Checkout(ctx, st.branch); err != nil {
